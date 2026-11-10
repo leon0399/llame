@@ -103,9 +103,11 @@ export class ChatCreationService {
       input.worktree === undefined
         ? undefined
         : readWorktreeRequest(input.worktree);
+
     if (worktree !== undefined && 'message' in worktree) {
       throw new UnprocessableEntityException(worktree.message);
     }
+
     if (
       input.executorId !== undefined &&
       !isConfiguredExecutor(input.executorId, this.config.config)
@@ -117,6 +119,7 @@ export class ChatCreationService {
         code: 'executor_unknown',
       });
     }
+
     // Every message check runs before any write, and before the lock: a bad
     // model, effort, mode, part, or foreign media stores nothing.
     const turn =
@@ -146,13 +149,16 @@ export class ChatCreationService {
   ): Promise<ChatCreationRecordResponse> {
     return this.tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).findById(chatId, userId);
+
       if (chat === undefined) {
         throw new NotFoundException(`Chat ${chatId} not found`);
       }
+
       const attempts = await new ChatCreationRecordRepository(tx).findAttempts(
         userId,
         chatId,
       );
+
       return {
         chatId,
         attempts: attempts.map((attempt) => ({
@@ -181,6 +187,7 @@ export class ChatCreationService {
     turn: ValidatedChatTurn | undefined,
   ): Promise<CreateChatResponse> {
     const admitted = await this.admitChat(userId, input);
+
     const workspace = await this.enterWorkspace(
       userId,
       admitted,
@@ -193,9 +200,11 @@ export class ChatCreationService {
         'The Chat already holds a message, a Run, or another bound root.',
       );
     }
+
     if (workspace.status === 'bound') {
       await this.writeBackDefault(userId, admitted);
     }
+
     // Only a bound or an unresolved start accepts the message: every failure
     // keeps the chat filed and unbound, stores no message, and starts no Run.
     if (
@@ -206,6 +215,7 @@ export class ChatCreationService {
     }
 
     const chat = await this.readChat(userId, input.id);
+
     return {
       chat: toChatResponse(chat),
       workspace: toWorkspaceResponse(workspace),
@@ -238,8 +248,10 @@ export class ChatCreationService {
     input: CreateChatRequest,
   ): Promise<AdmittedChat> {
     const machines = await this.machines.list(userId);
+
     const online = (executorId: string): boolean =>
       executorOnline(executorId, { config: this.config.config, machines });
+
     return this.tenantDb.runAs(userId, (tx) =>
       this.admitIn({ tx, userId, input, online }),
     );
@@ -248,8 +260,10 @@ export class ChatCreationService {
   private async admitIn(context: AdmitContext): Promise<AdmittedChat> {
     const chatsRepo = new ChatsRepository(context.tx);
     const stored = await chatsRepo.findById(context.input.id, context.userId);
+
     if (stored === undefined) return this.admitNew(context);
     await this.assertResend(context.input, stored, context.tx);
+
     return this.admitStored(context, stored);
   }
 
@@ -262,11 +276,13 @@ export class ChatCreationService {
       context.userId,
       stored.projectId ?? undefined,
     );
+
     const lease =
       (await new RepositoriesRepository(context.tx).findChatWorktree(
         context.userId,
         stored.id,
       )) ?? null;
+
     if (stored.workspaceRoot !== null || lease !== null) {
       return {
         chat: stored,
@@ -277,12 +293,14 @@ export class ChatCreationService {
         online: context.online,
       };
     }
+
     // Nothing committed: an earlier attempt may still have added a worktree
     // before its transaction rolled back.
     const recordedWorktree =
       (await new ChatCreationRecordRepository(
         context.tx,
       ).findRecordedWorktreeDirectory(context.userId, stored.id)) ?? null;
+
     return {
       chat: stored,
       project,
@@ -302,13 +320,16 @@ export class ChatCreationService {
       context.userId,
       context.input.projectId,
     );
+
     const location = await this.resolveLocation(context, project);
     const chatsRepo = new ChatsRepository(context.tx);
+
     const chat = await chatsRepo.createIfAbsent({
       id: context.input.id,
       ownerUserId: context.userId,
       ...(project !== null && { projectId: project.id }),
     });
+
     if (chat !== undefined) {
       return {
         chat,
@@ -326,10 +347,13 @@ export class ChatCreationService {
       context.input.id,
       context.userId,
     );
+
     if (concurrent === undefined) {
       throw new NotFoundException(`Chat ${context.input.id} not found`);
     }
+
     await this.assertResend(context.input, concurrent, context.tx);
+
     return {
       chat: concurrent,
       project,
@@ -349,6 +373,7 @@ export class ChatCreationService {
     if (stored.archivedAt !== null) {
       throw new ConflictException('The Chat is archived; unarchive it first.');
     }
+
     if (input.projectId !== undefined && stored.projectId !== input.projectId) {
       throw new ConflictException({
         statusCode: 409,
@@ -357,6 +382,7 @@ export class ChatCreationService {
         code: 'project_mismatch',
       });
     }
+
     if (await new MessagesRepository(tx).hasMessage(stored.id)) {
       throw new ConflictException(
         'The Chat already holds a message; send the draft through the message route.',
@@ -371,14 +397,18 @@ export class ChatCreationService {
     projectId: string | undefined,
   ): Promise<Project | null> {
     if (projectId === undefined) return null;
+
     const project = await new ProjectsRepository(tx).findById(
       projectId,
       userId,
     );
+
     if (project === undefined) {
       throw new NotFoundException(`Project ${projectId} not found`);
     }
+
     assertNotArchived(project);
+
     return project;
   }
 
@@ -395,6 +425,7 @@ export class ChatCreationService {
     project: Project | null,
   ): Promise<StartLocation | null> {
     const { input } = context;
+
     if (
       input.repositoryId === undefined &&
       input.executorId === undefined &&
@@ -405,12 +436,15 @@ export class ChatCreationService {
           'A worktree needs a repository, executor, or checkout to start from.',
         );
       }
+
       return null;
     }
+
     const offlineDefault =
       project?.defaultExecutorId !== null &&
       project?.defaultExecutorId !== undefined &&
       !context.online(project.defaultExecutorId);
+
     return resolveStartLocation(
       creationLocationSource(context.tx, context.online),
       context.userId,
@@ -437,13 +471,17 @@ export class ChatCreationService {
     turn: ValidatedChatTurn | undefined,
   ): Promise<CreationWorkspaceResult> {
     const { chat, lease } = admitted;
+
     if (chat.workspaceRoot !== null) {
       return storedBinding(chat.workspaceRoot, chat.workspaceExecutorId, lease);
     }
+
     if (lease !== null) return this.rebindLease(userId, chat, lease);
+
     if (admitted.recordedWorktree !== null) {
       return recordedWorktreeUnknown(admitted.recordedWorktree);
     }
+
     return this.enterLocated(userId, admitted, worktree, turn);
   }
 
@@ -455,7 +493,9 @@ export class ChatCreationService {
     turn: ValidatedChatTurn | undefined,
   ): Promise<CreationWorkspaceResult> {
     const located = await this.readLocated(userId, admitted.location);
+
     if (located === null) return { status: 'unbound' };
+
     // An implicit step never reaches an offline executor (the resolver saw only
     // online ones), so this is an explicit, named, or remembered executor.
     if (!admitted.online(located.executorId)) {
@@ -466,6 +506,7 @@ export class ChatCreationService {
     }
 
     const target = executorTarget(located.executorId, located.checkout.path);
+
     if (target === undefined) {
       return {
         status: 'bind_failed',
@@ -473,6 +514,7 @@ export class ChatCreationService {
         message: 'The resolved checkout does not belong to its executor.',
       };
     }
+
     return this.workspace.enter({
       ownerUserId: userId,
       chatId: admitted.chat.id,
@@ -499,6 +541,7 @@ export class ChatCreationService {
     const executorId = location?.executorId ?? null;
     const checkoutId = location?.checkoutId ?? null;
     const repositoryId = location?.repositoryId ?? null;
+
     if (executorId === null || checkoutId === null) return null;
 
     const located = await this.readCheckoutAndRepository(
@@ -506,16 +549,19 @@ export class ChatCreationService {
       checkoutId,
       repositoryId,
     );
+
     if (located.checkout === undefined || located.repository === undefined) {
       throw new NotFoundException(
         'The resolved checkout or repository no longer exists.',
       );
     }
+
     if (located.checkout.kind !== 'main') {
       throw new UnprocessableEntityException(
         'A worktree checkout cannot start a chat; name its main checkout.',
       );
     }
+
     return {
       checkout: located.checkout,
       repository: located.repository,
@@ -531,6 +577,7 @@ export class ChatCreationService {
   ): Promise<{ checkout?: Checkout; repository?: Repository }> {
     return this.tenantDb.runAs(userId, async (tx) => {
       const links = new ProjectLinksRepository(tx);
+
       return {
         checkout: await links.findCheckout(userId, checkoutId),
         repository:
@@ -555,10 +602,13 @@ export class ChatCreationService {
         root: lease.checkout.path,
       }),
     );
+
     if (result.status === 'conflict') return { status: 'conflict' };
+
     if (result.status === 'not_found') {
       throw new NotFoundException(`Chat ${chat.id} not found`);
     }
+
     return {
       status: 'bound',
       root: lease.checkout.path,
@@ -571,9 +621,11 @@ export class ChatCreationService {
     const chat = await this.tenantDb.runAs(userId, (tx) =>
       new ChatsRepository(tx).findById(chatId, userId),
     );
+
     if (chat === undefined) {
       throw new NotFoundException(`Chat ${chatId} not found`);
     }
+
     return chat;
   }
 }

@@ -80,6 +80,7 @@ async function prepareObject(
   input: MediaIngestInput,
 ): Promise<PreparedObject> {
   const { bytes } = input;
+
   const { columns, blobs } = isPdfSignature(bytes)
     ? {
         columns: {
@@ -89,6 +90,7 @@ async function prepareObject(
         blobs: [{ variant: 'original' as const, data: bytes }],
       }
     : imageObject(await prepareMedia(bytes));
+
   const row = {
     ...columns,
     id: uuidv7(),
@@ -97,6 +99,7 @@ async function prepareObject(
     byteSize: bytes.length,
     sha256: createHash('sha256').update(bytes).digest('hex'),
   };
+
   return { row, blobs };
 }
 
@@ -128,15 +131,18 @@ async function storeOrReuse(
           eq(mediaObjects.sha256, row.sha256),
         ),
       );
+
     if (existing === undefined) {
       throw new Error('Media dedup conflict without a visible row');
     }
+
     return { media: existing, created: false };
   }
 
   await tx
     .insert(mediaBlobs)
     .values(blobs.map((blob) => ({ mediaId: inserted.id, ...blob })));
+
   return { media: inserted, created: true };
 }
 
@@ -158,6 +164,7 @@ export class MediaService {
     input: MediaIngestInput,
   ): Promise<MediaIngestResult> {
     const prepared = await prepareObject(ownerUserId, input);
+
     return this.tenantDb.runAs(ownerUserId, (tx) => storeOrReuse(tx, prepared));
   }
 
@@ -170,6 +177,7 @@ export class MediaService {
     id: string,
   ): Promise<MediaObject | undefined> {
     if (!isCanonicalMediaId(id)) return undefined;
+
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const [row] = await tx
         .select()
@@ -180,6 +188,7 @@ export class MediaService {
             eq(mediaObjects.ownerUserId, ownerUserId),
           ),
         );
+
       return row;
     });
   }
@@ -207,8 +216,10 @@ export class MediaService {
         // One extra row says whether another page exists.
         .limit(limit + 1),
     );
+
     const items = rows.slice(0, limit);
     const last = items.at(-1);
+
     return {
       items,
       nextCursor: rows.length > limit && last ? last.id : null,
@@ -222,6 +233,7 @@ export class MediaService {
     variant: MediaVariant,
   ): Promise<Buffer | undefined> {
     if (!isCanonicalMediaId(id)) return undefined;
+
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const [row] = await tx
         .select({ data: mediaBlobs.data })
@@ -234,6 +246,7 @@ export class MediaService {
             eq(mediaObjects.ownerUserId, ownerUserId),
           ),
         );
+
       return row?.data;
     });
   }
@@ -248,6 +261,7 @@ export class MediaService {
     ids: ReadonlyArray<string>,
   ): Promise<ReadonlyMap<string, MediaDescriptor>> {
     if (!ids.some(isCanonicalMediaId)) return new Map();
+
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       loadMediaDescriptors(tx, ownerUserId, ids),
     );

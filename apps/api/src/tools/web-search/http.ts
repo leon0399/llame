@@ -3,10 +3,12 @@ import { createMcpBoundedFetch } from '@workspace/mcp-workspace';
 import { EngineFailure } from './chain';
 
 export const VENDOR_RESPONSE_MAX_BYTES = 5 * 1024 * 1024;
+
 export type VendorFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;
+
 export type VendorFetchOptions = {
   readonly signal: AbortSignal;
   readonly fetch: VendorFetch;
@@ -16,9 +18,12 @@ export type VendorFetchOptions = {
 async function classifyStatus(response: Response): Promise<void> {
   if (response.status >= 200 && response.status < 300) return;
   await response.body?.cancel().catch(() => undefined);
+
   if (response.status === 401 || response.status === 403)
     throw new EngineFailure('auth');
+
   if (response.status === 429) throw new EngineFailure('rate_limited');
+
   // DeepSeek and Parallel document both as a synchronous read timeout.
   if (response.status === 408 || response.status === 504)
     throw new EngineFailure('timeout');
@@ -36,10 +41,12 @@ async function fetchVendorText(
   options.signal.throwIfAborted();
   const contentType = response.headers.get('content-type');
   const mediaType = contentType?.split(';', 1)[0].trim().toLowerCase();
+
   if (!accepts(mediaType)) {
     await response.body?.cancel().catch(() => undefined);
     throw new EngineFailure('upstream_error');
   }
+
   try {
     return await response.text();
   } catch {
@@ -54,13 +61,16 @@ async function fetchResponse(
   options: VendorFetchOptions,
 ): Promise<Response> {
   const headers = new Headers(init.headers);
+
   if (options.userAgent !== undefined)
     headers.set('User-Agent', options.userAgent);
   options.signal.throwIfAborted();
+
   const boundedFetch = createMcpBoundedFetch({
     fetch: options.fetch,
     maxResponseBytes: VENDOR_RESPONSE_MAX_BYTES,
   });
+
   try {
     return await boundedFetch(url, {
       ...init,
@@ -88,6 +98,7 @@ export async function fetchVendorJson<T>(
       mediaType === 'application/json' ||
       (mediaType?.includes('/') === true && mediaType.endsWith('+json')),
   );
+
   try {
     // SAFETY: JSON.parse returns any; the supplied Zod schema validates it.
     return schema.parse(JSON.parse(body) as unknown);

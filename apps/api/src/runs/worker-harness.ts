@@ -113,13 +113,16 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
   // allow-all group for every registered tool plus the seeded tool ids. These
   // acceptance suites prove execution/recovery, not permission decisions.
   const permissions: Record<string, PermissionGroup> = {};
+
   for (const id of [
     ...getRegisteredToolIds(),
     ...(overrides?.allowedTools ?? []),
   ]) {
     permissions[id] = { allow: true };
   }
+
   const { runs: defaultRuns, ...withoutRuns } = BUILT_IN_DEFAULTS.workers.all;
+
   return {
     ...BUILT_IN_DEFAULTS,
     ...(overrides?.machines !== undefined && { machines: overrides.machines }),
@@ -190,6 +193,7 @@ export async function bootWorkerHarness(
   if (process.env.TEST_DATABASE_URL) {
     process.env.POSTGRES_URL = process.env.TEST_DATABASE_URL;
   }
+
   process.env.PGBOSS_SCHEMA = `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_wh_${Math.random().toString(36).slice(2, 8)}`;
 
   const models = new ScriptedModelsService();
@@ -200,6 +204,7 @@ export async function bootWorkerHarness(
     .useValue(models)
     .overrideProvider(InstanceConfigService)
     .useValue({ config });
+
   if (overrides?.machineTransportFactory !== undefined) {
     // A Machine suite injects its scripted transport; the production module
     // would otherwise open SSH to a configured destination. The connector is
@@ -207,23 +212,27 @@ export async function bootWorkerHarness(
     // database row: `machineStatus.list` is the `machine://` listing read,
     // and the prepared Runs under test narrate availability themselves.
     const machines = config.machines;
+
     if (machines === undefined) {
       throw new Error(
         'bootWorkerHarness: machineTransportFactory requires machines config',
       );
     }
+
     const connector = new MachineConnector({
       machines,
       hubVersion: 'llame-harness',
       transportFactory: overrides.machineTransportFactory,
       handshakeTimeoutMs: 2000,
     });
+
     builder = builder
       .overrideProvider(MachineConnector)
       .useValue(connector)
       .overrideProvider(MachinesService)
       .useValue({ list: () => Promise.resolve(connector.names()) });
   }
+
   builder = builder
     // Execution harnesses isolate the worker loop, not fleet-wide projection
     // admission; dedicated boot tests exercise the real coverage gate.
@@ -263,6 +272,7 @@ export async function createUser(db: Db, tag: string): Promise<string> {
   await db.execute(
     sql`INSERT INTO users (id, name, email) VALUES (${id}, ${'Harness User'}, ${`harness-${tag}-${id}@test.com`})`,
   );
+
   return id;
 }
 
@@ -289,6 +299,7 @@ export async function seedRun(input: {
   userMessage: RunUserMessage;
 }> {
   const chatId = input.chatId ?? crypto.randomUUID();
+
   return input.tenantDb.runAs(input.userId, async (tx) => {
     if (!input.chatId) {
       await new ChatsRepository(tx).createIfAbsent({
@@ -300,15 +311,18 @@ export async function seedRun(input: {
         title: 'Harness chat',
       });
     }
+
     const parts: Array<TextPart> = [
       { type: 'text', text: input.text ?? 'hello' },
     ];
+
     const message = await new MessagesRepository(tx).create({
       chatId,
       role: 'user',
       senderUserId: input.userId,
       parts,
     });
+
     const run = await new RunsRepository(tx).create({
       chatId,
       messageId: message.id,
@@ -319,6 +333,7 @@ export async function seedRun(input: {
         permissionMode: input.permissionMode,
       }),
     });
+
     return {
       chatId,
       runId: run.id,
@@ -348,6 +363,7 @@ export async function dispatchRun(input: {
     modelId: input.modelId,
     userMessage: input.userMessage,
   };
+
   return input.queue.enqueue(RUNS_QUEUE, job, input.enqueueOptions);
 }
 
@@ -387,6 +403,7 @@ export async function seedAndDispatchRun(
       permissionMode: input.permissionMode,
     }),
   });
+
   await dispatchRun({
     queue: harness.queue,
     chatId: seed.chatId,
@@ -396,5 +413,6 @@ export async function seedAndDispatchRun(
     userMessage: seed.userMessage,
     enqueueOptions: input.enqueueOptions,
   });
+
   return seed;
 }

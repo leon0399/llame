@@ -62,6 +62,7 @@ type Serialized<T> = {
 describe('live protocol contract', () => {
   it('describes every message the hub can send', () => {
     const tracker = new RunProgressTracker();
+
     const progress = tracker.apply({
       k: 'run_event',
       owner: LIVE_OWNER,
@@ -69,7 +70,9 @@ describe('live protocol contract', () => {
       run: LIVE_RUN_ID,
       type: 'tool.started',
     });
+
     if (!progress) throw new Error('expected run progress');
+
     const messages: Array<ServerLiveMessage> = [
       { type: 'chat.upserted', chat: liveChatRecord() },
       {
@@ -127,6 +130,7 @@ describe('live protocol contract', () => {
     const rejected = messages.flatMap((message) =>
       toWireMessage(message) === undefined ? [message.type] : [],
     );
+
     expect(rejected).toEqual([]);
   });
 
@@ -139,15 +143,18 @@ describe('live protocol contract', () => {
         ),
       ),
     );
+
     const invalid = Object.values(document.components.messages).flatMap(
       (message) =>
         message.examples.flatMap(({ payload }) => {
           const parsed = liveMessageSchema.safeParse(payload);
+
           return parsed.success && parsed.data.type === message.name
             ? []
             : [message.name];
         }),
     );
+
     expect(invalid).toEqual([]);
   });
 
@@ -156,12 +163,14 @@ describe('live protocol contract', () => {
     // the run error is `unknown` server-side and an object or null on the wire.
     const chatCompatible: Serialized<ChatDto> extends ChatWire ? true : false =
       true;
+
     const runCompatible: Omit<Serialized<RunDto>, 'error'> extends Omit<
       RunWire,
       'error'
     >
       ? true
       : false = true;
+
     // The project record is the pair a field change moves on both sides, so it
     // is pinned here too — the two cases above build their messages from the
     // `live-records` fixture, which would not notice a DTO/schema drift. Both
@@ -170,17 +179,21 @@ describe('live protocol contract', () => {
     const projectCompatible: Serialized<ProjectDto> extends ProjectUpsertedMessage['project']
       ? true
       : false = true;
+
     const projectComplete: ProjectUpsertedMessage['project'] extends Serialized<ProjectDto>
       ? true
       : false = true;
+
     // A Machine is the only record the socket shares with every user; its
     // shape must match `GET /api/v1/machines` in both directions too.
     const machineCompatible: Serialized<MachineDto> extends MachineWire
       ? true
       : false = true;
+
     const machineComplete: MachineWire extends Serialized<MachineDto>
       ? true
       : false = true;
+
     expect([
       chatCompatible,
       runCompatible,

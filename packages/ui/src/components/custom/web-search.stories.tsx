@@ -54,6 +54,7 @@ const meta = {
 } satisfies Meta<typeof WebSearchTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 const resultsOutput = {
@@ -96,9 +97,11 @@ export const Results: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+
     const releaseNotes = canvas.getByRole("button", {
       name: outboundLinkName("Llame release notes"),
     });
+
     await expect(releaseNotes).toBeInTheDocument();
     await expect(releaseNotes.querySelector("svg")).toHaveAttribute(
       "aria-hidden",
@@ -161,9 +164,11 @@ export const Answer: Story = {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(canvas.getByText("The answer")).toBeInTheDocument();
     await expect(canvas.getByText("context")).toBeInTheDocument();
+
     const citation = canvas.getByRole("button", {
       name: outboundLinkName("Search design"),
     });
+
     await expect(citation).toBeInTheDocument();
     await expect(citation.querySelector("svg")).toHaveClass("size-3");
     await expect(
@@ -441,9 +446,11 @@ export const AggregateAnswers: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+
     const lastResult = canvas.getByRole("button", {
       name: outboundLinkName("Tool calling guide"),
     });
+
     const answer = canvas.getByText("Aggregate answers");
     await expect(answer).toBeInTheDocument();
     await expect(

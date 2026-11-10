@@ -25,6 +25,7 @@ import {
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 describeIfDb('checkpoint surfacing — RLS + latest', () => {
@@ -39,6 +40,7 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
     await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).createIfAbsent({ id, ownerUserId: owner }),
     );
+
     return id;
   };
 
@@ -74,6 +76,7 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
     tenantDb = new TenantDbService(db);
     a = crypto.randomUUID();
     b = crypto.randomUUID();
+
     for (const id of [a, b]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'C', ${`c-${id}@t.com`})`;
     }
@@ -92,6 +95,7 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
     await addCheckpoint(chat, a, firstMessage.seq, 'summary up to one');
     const secondMessage = await addMessage(chat, a);
     await addCheckpoint(chat, a, secondMessage.seq, 'summary up to two');
+
     const activeBefore = (beforeSeq: number) =>
       tenantDb.runAs(a, (tx) =>
         new MessagesRepository(tx).findActiveCheckpoint(chat, a, { beforeSeq }),
@@ -124,6 +128,7 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
         beforeSeq: message.seq + 2,
       }),
     );
+
     expect(asB).toBeUndefined();
   });
 
@@ -131,11 +136,13 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
     const chat = await newChat(a);
     const message = await addMessage(chat, a);
     const checkpoint = await addCheckpoint(chat, a, message.seq, 'private');
+
     const asOwner = await tenantDb.runAs(a, (tx) =>
       new MessagesRepository(tx).countAbsorbedMessages(chat, a, [
         checkpoint.id,
       ]),
     );
+
     const asOther = await tenantDb.runAs(b, (tx) =>
       new MessagesRepository(tx).countAbsorbedMessages(chat, b, [
         checkpoint.id,
@@ -149,11 +156,13 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
   it('a chat with no checkpoint returns undefined', async () => {
     const chat = await newChat(a);
     const message = await addMessage(chat, a);
+
     const none = await tenantDb.runAs(a, (tx) =>
       new MessagesRepository(tx).findActiveCheckpoint(chat, a, {
         beforeSeq: message.seq + 1,
       }),
     );
+
     expect(none).toBeUndefined();
   });
 
@@ -178,6 +187,7 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
       const result = (
         await chatsService.getChatMessages(chat, a, { limit: 10 })
       )?.messages;
+
       const checkpoint = result?.find(
         (message) => message.role === 'checkpoint',
       );
@@ -208,6 +218,7 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
         a,
         { limit: 10 },
       );
+
       expect(result).toBeUndefined();
     });
   });

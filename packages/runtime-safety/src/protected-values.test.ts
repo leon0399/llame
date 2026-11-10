@@ -49,6 +49,7 @@ describe("protected values", () => {
 
   it("orders overlapping values longest first and equal lengths lexically", () => {
     const expected = ["alpha", "bravo", "delta"];
+
     const permutations = [
       ["alpha", "bravo", "delta"],
       ["alpha", "delta", "bravo"],

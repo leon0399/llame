@@ -34,6 +34,7 @@ const outputSchema = z.looseObject({
 });
 
 type BashInput = z.infer<typeof inputSchema>;
+
 type BashOutput = z.infer<typeof outputSchema>;
 
 /** Props for the dedicated `bash` tool row. */
@@ -43,6 +44,7 @@ export type BashToolProps = ToolPartProps;
  *  added environment beneath it. */
 function BashCommand({ input }: { input: BashInput }) {
   const env = Object.entries(input.env ?? {});
+
   return (
     <ToolSection label="Command">
       <div className="space-y-1 rounded-md bg-muted/50 p-3 font-mono text-xs">
@@ -75,6 +77,7 @@ function BashResult({ output }: { output: BashOutput }) {
     output.wallTimeMs === undefined
       ? undefined
       : `${(output.wallTimeMs / MILLISECONDS_PER_SECOND).toFixed(1)} s`;
+
   return (
     <>
       <ToolSection label="Output" aside={`exit ${output.exitCode}`}>
@@ -124,6 +127,7 @@ export function BashTool({
 }: BashToolProps): ReactElement {
   const command = inputSchema.safeParse(input).data;
   const result = outputSchema.safeParse(output).data;
+
   return (
     <ToolRow
       name="bash"

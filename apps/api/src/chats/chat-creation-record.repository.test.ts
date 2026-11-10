@@ -31,6 +31,7 @@ const DECISION = {
 } as const;
 
 type AttemptsRow = { readonly attempts: ReadonlyArray<ChatCreationAttempt> };
+
 type AttemptValues = {
   readonly ownerUserId: string;
   readonly chatId: string;
@@ -55,25 +56,30 @@ function insertResult(calls: Array<InsertCall>) {
   const chain = () => terminal;
   const record: InsertCall = {};
   calls.push(record);
+
   const builder = Object.assign(terminal, {
     values: (values: AttemptValues) => {
       record.values = values;
+
       return builder;
     },
     onConflictDoUpdate: (config: InsertCall['onConflict']) => {
       record.onConflict = config;
+
       return terminal;
     },
     from: chain,
     where: chain,
     limit: chain,
   });
+
   return builder;
 }
 
 function selectResult(rows: ReadonlyArray<AttemptsRow>) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -97,6 +103,7 @@ function makeDb(selects: ReadonlyArray<ReadonlyArray<AttemptsRow>> = []) {
   vi.spyOn(db, 'select').mockImplementation(() =>
     asQuery(selectResult(queue.shift() ?? [])),
   );
+
   return { db, inserts };
 }
 
@@ -136,6 +143,7 @@ describe('ChatCreationRecordRepository', () => {
     });
 
     const append = inserts[0]?.onConflict?.set?.attempts;
+
     if (append === undefined) throw new Error('expected the append statement');
     const compiled = new PgDialect().sqlToQuery(append);
     expect(compiled.sql).toContain('||');
@@ -190,6 +198,7 @@ describe('ChatCreationRecordRepository', () => {
       ],
       [],
     ]);
+
     const records = new ChatCreationRecordRepository(db);
 
     await expect(
@@ -212,6 +221,7 @@ describe('ChatCreationRecordRepository', () => {
       ],
       [],
     ]);
+
     const records = new ChatCreationRecordRepository(db);
 
     await expect(records.findAttempts(OWNER, CHAT_ID)).resolves.toEqual([

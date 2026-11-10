@@ -71,10 +71,13 @@ describe('@ai-sdk/mcp public API contract', () => {
         maxRetries: 0,
       });
       const firstPage = await client.listTools();
+
       const secondPage = await client.listTools({
         params: { cursor: firstPage.nextCursor },
       });
+
       const tool = client.toolsFromDefinitions(firstPage)['lookup'];
+
       if (tool === undefined) throw new Error('missing converted lookup tool');
 
       const result = await tool.execute(
@@ -128,6 +131,7 @@ describe('@ai-sdk/mcp public API contract', () => {
       await client?.close();
       await fixture.close();
     }
+
     expect(
       fixture
         .requestSummaries()

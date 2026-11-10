@@ -18,11 +18,13 @@ const LOCAL: ExecutorTarget = {
   machine: undefined,
   path: '/work/app',
 };
+
 const MACHINE: ExecutorTarget = {
   executorId: 'machine:nas',
   machine: 'nas',
   path: '/srv/app',
 };
+
 const ROOT = '/work/app';
 const ENTRY = '/work/app/.git';
 
@@ -71,16 +73,20 @@ function harness(
   state: () => Promise<GitStateResult> = () => Promise.resolve(OK_STATE),
 ) {
   const calls: Calls = { locate: [], state: [] };
+
   const service = new GitSnapshotService({
     locateEntry: (_target, address, options) => {
       calls.locate.push({ address, signal: options?.signal });
+
       return locate();
     },
     state: (_target, address, input, options) => {
       calls.state.push({ address, input, signal: options?.signal });
+
       return state();
     },
   });
+
   return { service, calls };
 }
 
@@ -94,6 +100,7 @@ async function line(
     admit: () => true,
     ...overrides,
   });
+
   return renderGitObservation(observation);
 }
 
@@ -104,6 +111,7 @@ describe('GitSnapshotService.observe', () => {
 
   it('asks for 20 paths, no submodules, and a 3 second git limit', async () => {
     const { service, calls } = harness();
+
     const observation = await service.observe({
       target: LOCAL,
       root: ROOT,
@@ -268,9 +276,11 @@ describe('GitSnapshotService.observe', () => {
 
   it('times out a slow session after 5 seconds and aborts the executor calls', async () => {
     vi.useFakeTimers();
+
     const { service, calls } = harness(
       () => new Promise<GitLocateResult>(() => undefined),
     );
+
     const pending = service.observe({
       target: MACHINE,
       root: ROOT,
@@ -288,15 +298,18 @@ describe('GitSnapshotService.observe', () => {
 
   it('covers the state call with the same deadline and signal', async () => {
     vi.useFakeTimers();
+
     const { service, calls } = harness(
       undefined,
       () => new Promise<GitStateResult>(() => undefined),
     );
+
     const pending = service.observe({
       target: LOCAL,
       root: ROOT,
       admit: () => true,
     });
+
     await vi.advanceTimersByTimeAsync(GIT_OBSERVATION_DEADLINE_MS);
 
     expect(await pending).toEqual({ kind: 'unavailable', reason: 'timeout' });
@@ -334,6 +347,7 @@ describe('GitSnapshotService.observe', () => {
         ],
       }),
     );
+
     const observation = await service.observe({
       target: LOCAL,
       root: ROOT,

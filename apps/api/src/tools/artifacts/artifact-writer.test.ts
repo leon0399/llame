@@ -23,6 +23,7 @@ const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
 function tenantRunner(): TenantRunner {
   const db = drizzle.mock({ schema });
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
+
   return { runAs };
 }
 
@@ -50,17 +51,21 @@ describe('writeToolArtifact', () => {
     const nextSeq = vi
       .spyOn(ArtifactsRepository.prototype, 'nextSeq')
       .mockResolvedValue(seq);
+
     const insertArtifact = vi
       .spyOn(ArtifactsRepository.prototype, 'insertArtifact')
       .mockResolvedValue({ id: 'artifact-id', createdAt: CREATED_AT });
+
     const insertParts = vi
       .spyOn(ArtifactsRepository.prototype, 'insertParts')
       .mockResolvedValue(undefined);
+
     return { nextSeq, insertArtifact, insertParts };
   }
 
   it('stores one unnamed part with its digest and sizes', async () => {
     const scripted = scriptRepository();
+
     const written = await writeToolArtifact(
       tenantRunner(),
       request({
@@ -114,6 +119,7 @@ describe('writeToolArtifact', () => {
 
   it('accepts a part exactly at the byte bound and refuses one over it', async () => {
     scriptRepository();
+
     const atBound = await writeToolArtifact(
       tenantRunner(),
       request({
@@ -123,10 +129,12 @@ describe('writeToolArtifact', () => {
       }),
       { maxBytes: MAX_BYTES },
     );
+
     expect(atBound.byteSize).toBe(MAX_BYTES);
 
     vi.restoreAllMocks();
     const scripted = scriptRepository();
+
     const overBound = writeToolArtifact(
       tenantRunner(),
       request({
@@ -139,6 +147,7 @@ describe('writeToolArtifact', () => {
       }),
       { maxBytes: MAX_BYTES },
     );
+
     await expect(overBound).rejects.toThrow(
       'An artifact part exceeds tools.artifacts.maxBytes.',
     );

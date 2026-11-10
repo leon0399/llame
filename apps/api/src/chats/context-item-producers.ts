@@ -94,6 +94,7 @@ export function isWorkspaceSnapshotPayload(
   value: unknown,
 ): value is WorkspaceSnapshotPayload {
   if (!isExactRecord(value, ['root'])) return false;
+
   return value['root'] === null || isWorkspaceRoot(value['root']);
 }
 
@@ -109,10 +110,13 @@ export function isWorkspaceDetachPayload(
   if (!isRecord(value)) return false;
   const machine = value['machine'];
   const keys = machine === undefined ? ['reason'] : ['reason', 'machine'];
+
   if (!isExactRecord(value, keys)) return false;
+
   if (!WORKSPACE_DETACH_REASONS.some((reason) => reason === value['reason'])) {
     return false;
   }
+
   return machine === undefined || isMachineName(machine);
 }
 
@@ -129,7 +133,9 @@ const renderWorkspaceDetachTemplate = loadPackagedTemplate<{
 function renderWorkspaceSnapshot(root: string | null): string {
   const machineSnapshot =
     root === null ? undefined : renderMachineWorkspaceSnapshot(root);
+
   if (machineSnapshot !== undefined) return machineSnapshot;
+
   return renderWorkspaceSnapshotTemplate({
     hasWorkspace: root !== null,
     ...(root !== null && { root }),
@@ -141,9 +147,11 @@ export function createWorkspaceSnapshotItem(input: {
   readonly root: string | null;
 }): AuthoredContextItemPart {
   const payload: WorkspaceSnapshotPayload = { root: input.root };
+
   if (!isWorkspaceSnapshotPayload(payload)) {
     throw new TypeError('Invalid server-authored Workspace snapshot metadata');
   }
+
   return createRenderedContextItem({
     producer: 'workspace',
     form: 'snapshot',
@@ -162,9 +170,11 @@ export function createWorkspaceDetachNoticeItem(input: {
     reason: input.reason,
     ...(input.machine !== undefined && { machine: input.machine }),
   };
+
   if (!isWorkspaceDetachPayload(payload)) {
     throw new TypeError('Invalid server-authored Workspace detach metadata');
   }
+
   return createRenderedContextItem({
     producer: 'workspace',
     form: 'notice',
@@ -220,7 +230,9 @@ export function isModelChangePayload(
   if (!isExactRecord(value, ['cause', 'fromModelId', 'toModelId'])) {
     return false;
   }
+
   const { cause, fromModelId, toModelId } = value;
+
   return (
     cause === 'model' &&
     isString(fromModelId) &&
@@ -260,10 +272,12 @@ export function createModelChangeItem(input: {
     fromModelId: input.oldModel.id,
     toModelId: input.newModel.id,
   };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty and distinct-id invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isModelChangePayload(payload)) {
     throw new TypeError('Invalid server-authored model change metadata');
   }
+
   return createRenderedContextItem({
     producer: 'effective-context-change',
     form: 'notice',
@@ -298,6 +312,7 @@ const renderModelChangeTemplate = loadPackagedTemplate<{
 function toModelChangeModelView(model: ModelChangeModel): ModelChangeModelView {
   const name = model.name?.trim() ?? '';
   const providerModelId = model.providerModelId?.trim() ?? '';
+
   return {
     name: name.length > 0 ? sanitizeAuthoredText(name) : model.id,
     id: model.id,
@@ -355,6 +370,7 @@ function isDigestEntry(value: unknown): value is RecencyDigestDeltaEntry {
   ) {
     return false;
   }
+
   return (
     isString(value['title']) &&
     value['title'].trim().length > 0 &&
@@ -373,7 +389,9 @@ export function isRecencyDigestDeltaPayload(
 ): value is RecencyDigestDeltaPayload {
   if (!isExactRecord(value, ['entries', 'pinChanges'])) return false;
   const { entries, pinChanges } = value;
+
   if (!Array.isArray(entries) || !entries.every(isDigestEntry)) return false;
+
   if (
     !Array.isArray(pinChanges) ||
     !pinChanges.every(
@@ -386,6 +404,7 @@ export function isRecencyDigestDeltaPayload(
   ) {
     return false;
   }
+
   return entries.length + pinChanges.length > 0;
 }
 
@@ -396,6 +415,7 @@ export function createRecencyDigestDeltaItem(input: {
   if (!isRecencyDigestDeltaPayload(input.payload)) {
     throw new TypeError('Invalid server-authored recency digest metadata');
   }
+
   return createRenderedContextItem({
     producer: 'recency-digest',
     form: 'notice',
@@ -519,21 +539,26 @@ const knownTimeZones = new Set<string>();
 
 function isKnownTimeZone(value: string): boolean {
   if (knownTimeZones.has(value)) return true;
+
   if (!isIanaTimeZone(value)) return false;
+
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value });
   } catch {
     return false;
   }
+
   // Every persisted row revalidates on every request, so remember the answer:
   // the set of zones a deployment ever sees is small and never shrinks.
   knownTimeZones.add(value);
+
   return true;
 }
 
 export function isTemporalPayload(value: unknown): value is TemporalPayload {
   if (!isExactRecord(value, ['instant', 'timeZone'])) return false;
   const { instant, timeZone } = value;
+
   if (!isString(instant) || !ISO_INSTANT_PATTERN.test(instant)) return false;
   // Round-trip rather than `Date.parse`, which silently rolls a calendar-
   // invalid date forward: `2026-02-30T…` parses to March 2, so a corrupted row
@@ -541,9 +566,11 @@ export function isTemporalPayload(value: unknown): value is TemporalPayload {
   // guard comes first because `toISOString` THROWS on an invalid date rather
   // than returning something that fails the comparison.
   const parsed = new Date(instant);
+
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== instant) {
     return false;
   }
+
   return isString(timeZone) && isKnownTimeZone(timeZone);
 }
 
@@ -556,10 +583,12 @@ export function createTemporalItem(input: {
     instant: input.instant.toISOString(),
     timeZone: input.timeZone,
   };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the round-tripping instant and known-IANA-zone invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isTemporalPayload(payload)) {
     throw new TypeError('Invalid server-authored temporal metadata');
   }
+
   return createRenderedContextItem({
     producer: 'temporal',
     // `snapshot`: state as of the moment it was taken, not an event report.
@@ -597,6 +626,7 @@ function renderTemporal(payload: TemporalPayload): string {
     new Date(payload.instant),
     payload.timeZone,
   );
+
   return renderTemporalTemplate({ systemTime, systemTimezone });
 }
 
@@ -643,6 +673,7 @@ export function createCompactionCheckpointPart(
   if (summary.trim().length === 0) {
     throw new TypeError('Invalid compaction checkpoint summary');
   }
+
   return createRenderedContextItem({
     producer: 'compaction',
     form: COMPACTION_CHECKPOINT_FORM,
@@ -662,7 +693,9 @@ function checkpointPartOrThrow(row: Message) {
       `Checkpoint ${row.id} must contain exactly one context part.`,
     );
   }
+
   const [part] = row.parts;
+
   if (
     !isContextItemPart(part) ||
     part.data.producer !== 'compaction' ||
@@ -674,6 +707,7 @@ function checkpointPartOrThrow(row: Message) {
       `Checkpoint ${row.id} has an invalid or empty context part.`,
     );
   }
+
   return { part, text: part.data.text };
 }
 
@@ -692,6 +726,7 @@ export function toContextCheckpoint(row: CheckpointMessage): ContextCheckpoint {
 export function checkpointSummary(row: Message): string {
   const { part } = checkpointPartOrThrow(row);
   const payload = part.data.payload;
+
   if (
     !isExactRecord(payload, ['summary', 'v']) ||
     payload['v'] !== 1 ||
@@ -702,6 +737,7 @@ export function checkpointSummary(row: Message): string {
       `Checkpoint ${row.id} has invalid summary metadata.`,
     );
   }
+
   return payload['summary'];
 }
 
@@ -710,6 +746,7 @@ export function isRecencyDigestItem(value: unknown): value is ContextItemPart {
   if (!isContextItemPart(value) || value.data.producer !== 'recency-digest') {
     return false;
   }
+
   return (
     value.data.form === 'snapshot' ||
     isRecencyDigestDeltaPayload(value.data.payload)

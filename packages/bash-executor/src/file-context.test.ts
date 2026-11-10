@@ -37,23 +37,27 @@ describe("file-context handoff", () => {
   it("lets bash observe a native edit in the same directory", async () => {
     const path = join(directory, "note.txt");
     await writeFile(path, "before\n");
+
     const edited = await editFile({
       path,
       oldText: "before\n",
       newText: "after-edit\n",
     });
+
     expect(edited).toMatchObject({ status: "success" });
 
     const bash = await executeManagedBash(
       { command: "bash", args: ["-c", "cat note.txt"] },
       context(directory),
     );
+
     expect(bash).toMatchObject({ status: "success", stdout: "after-edit\n" });
   });
 
   it("lets native read observe a known bash mutation", async () => {
     const path = join(directory, "note.txt");
     await writeFile(path, "seed\n");
+
     const bash = await executeManagedBash(
       {
         command: "bash",
@@ -61,10 +65,12 @@ describe("file-context handoff", () => {
       },
       context(directory),
     );
+
     expect(bash).toMatchObject({ status: "success" });
 
     const read = await readFile({ path });
     expect(read).toMatchObject({ status: "success" });
+
     if (read.status !== "success" || read.kind !== "file") return;
     expect(read.content).toContain("from-bash");
   });
@@ -78,6 +84,7 @@ describe("file-context handoff", () => {
       { command: "bash", args: ["-c", "cat alpha.txt"] },
       context(directory),
     );
+
     expect(listed).toMatchObject({ status: "success", stdout: "line-one\n" });
 
     const edited = await editFile({
@@ -85,16 +92,19 @@ describe("file-context handoff", () => {
       oldText: "line-one\n",
       newText: "line-two\n",
     });
+
     expect(edited).toMatchObject({ status: "success" });
 
     const reread = await readFile({ path });
     expect(reread).toMatchObject({ status: "success" });
+
     if (reread.status !== "success" || reread.kind !== "file") return;
     expect(reread.content).toContain("line-two");
   });
 
   it("refuses concurrent processes when the managed limit is one", async () => {
     const controller = new AbortController();
+
     const first = executeManagedBash(
       {
         command: "bash",
@@ -103,11 +113,14 @@ describe("file-context handoff", () => {
       context(directory, { durationMs: 5000 }),
       { signal: controller.signal },
     );
+
     await new Promise((resolve) => setTimeout(resolve, 50));
+
     const second = await executeManagedBash(
       { command: "bash", args: ["-c", "printf race"] },
       context(directory),
     );
+
     expect(second).toMatchObject({ type: "unavailable" });
     controller.abort();
     expect(await first).toMatchObject({ type: "cancelled" });

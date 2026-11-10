@@ -39,6 +39,7 @@ describe('chunkContentHash', () => {
     firstMessageTextOffset: 0,
     lastMessageTextOffsetExclusive: 11,
   };
+
   it('is deterministic', () => {
     expect(chunkContentHash(base)).toBe(chunkContentHash({ ...base }));
   });
@@ -71,10 +72,12 @@ describe('chunkByCharBudget', () => {
 
   it('groups whole items under the budget with trailing overlap', () => {
     const items = ['aa', 'bb', 'cc', 'dd']; // 2 chars each
+
     const groups = chunkByCharBudget(items, size, {
       maxChars: 5,
       overlapItems: 1,
     });
+
     // 'aa'+'bb'=4 (<=5), +'cc'=6 >5 → close. Next seeds with 'bb' (overlap): 'bb'+'cc'=4, +'dd'=6>5 → close. Next 'cc'+'dd'.
     expect(groups).toEqual([
       ['aa', 'bb'],
@@ -85,28 +88,34 @@ describe('chunkByCharBudget', () => {
 
   it('passes an oversized single item through as its own chunk', () => {
     const items = ['x', 'HUGEHUGEHUGE', 'y'];
+
     const groups = chunkByCharBudget(items, size, {
       maxChars: 4,
       overlapItems: 0,
     });
+
     expect(groups).toEqual([['x'], ['HUGEHUGEHUGE'], ['y']]);
   });
 
   it('does not drag a truly oversized item forward as overlap', () => {
     const items = ['HUGEHUGE', 'bb', 'cc']; // 'HUGEHUGE'=8 > maxChars 4
+
     const groups = chunkByCharBudget(items, size, {
       maxChars: 4,
       overlapItems: 1,
     });
+
     expect(groups).toEqual([['HUGEHUGE'], ['bb', 'cc']]);
   });
 
   it('does not drag an exactly-budget-filling item forward as overlap', () => {
     const items = ['aaaa', 'bb', 'cc']; // 'aaaa'=4 == maxChars 4 (already a full chunk)
+
     const groups = chunkByCharBudget(items, size, {
       maxChars: 4,
       overlapItems: 1,
     });
+
     // 'aaaa' is its own chunk and is NOT carried into the next (would bloat it).
     expect(groups).toEqual([['aaaa'], ['bb', 'cc']]);
   });
@@ -179,6 +188,7 @@ describe('rrfScore', () => {
       ],
       RRF_DEFAULT_K,
     );
+
     expect(score).toBeCloseTo(1 / 61, 10);
   });
 
@@ -187,10 +197,12 @@ describe('rrfScore', () => {
       { weight: 1, rank: 3 },
       { weight: 1, rank: 3 },
     ]);
+
     const one = rrfScore([
       { weight: 1, rank: 1 },
       { weight: 1, rank: undefined },
     ]);
+
     expect(both).toBeGreaterThan(one);
   });
 });
@@ -223,6 +235,7 @@ describe('eval metrics', () => {
       ],
       10,
     );
+
     expect(s.count).toBe(2);
     expect(s.recallAtK).toBeCloseTo(0.5);
     expect(s.zeroResultRate).toBeCloseTo(0.5);

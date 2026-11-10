@@ -29,9 +29,11 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     const response = await request(http)
       .post('/auth/v1/register')
       .send({ email, password, name });
+
     expect(response.status).toBe(201);
     const body: unknown = response.body;
     expectRegisteredUserId(body);
+
     return { id: body.user.id, cookie: cookieOf(response) };
   }
 
@@ -41,12 +43,14 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
         ownerUserId: userId,
         title: 'Context receipt',
       });
+
       const message = await new MessagesRepository(tx).create({
         chatId: chat.id,
         role: 'user',
         senderUserId: userId,
         parts: [{ type: 'text', text: 'Inspect context' }],
       });
+
       return new RunsRepository(tx).create({
         chatId: chat.id,
         messageId: message.id,
@@ -59,12 +63,14 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
   beforeAll(async () => {
     if (!process.env.POSTGRES_URL)
       throw new Error('Integration database was not provisioned.');
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = moduleRef.createNestApplication();
     configureApp(app);
     await app.listen(0);
@@ -75,12 +81,15 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
       `receipt-owner-${tag}@example.com`,
       'Receipt Owner',
     );
+
     ownerId = owner.id;
     ownerCookie = owner.cookie;
+
     const other = await register(
       `receipt-other-${tag}@example.com`,
       'Receipt Other',
     );
+
     otherId = other.id;
     otherCookie = other.cookie;
   });
@@ -91,14 +100,18 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
 
   it('returns ordered system-only receipts and hides the receipt cross-tenant', async () => {
     const run = await seedRun(ownerId);
+
     const firstAttempt = await tenantDb.runAs(ownerId, (tx) =>
       new RunsRepository(tx).markStarted(run.id, ownerId),
     );
+
     const secondAttempt = await tenantDb.runAs(ownerId, (tx) =>
       new RunsRepository(tx).markStarted(run.id, ownerId),
     );
+
     const firstAttemptId = firstAttempt?.activeAttemptId;
     const secondAttemptId = secondAttempt?.activeAttemptId;
+
     if (!isString(firstAttemptId) || !isString(secondAttemptId)) {
       throw new Error('Expected worker attempts to be assigned');
     }
@@ -156,6 +169,7 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
         },
       ],
     });
+
     for (const field of [
       'tools',
       'toolAvailability',
@@ -164,6 +178,7 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     ]) {
       expect(ownerResponse.body).not.toHaveProperty(field);
     }
+
     expect(JSON.stringify(ownerResponse.body)).not.toMatch(
       /ownerUserId|runId|providerModelId|credential|executor|path|\/home\//i,
     );
@@ -171,11 +186,13 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     const otherResponse = await request(http)
       .get(`/api/v1/runs/${run.id}/context-receipt`)
       .set('Cookie', otherCookie);
+
     expect(otherResponse.status).toBe(404);
   });
 
   it('reports pending before any worker attempt prepares context', async () => {
     const run = await seedRun(ownerId);
+
     const response = await request(http)
       .get(`/api/v1/runs/${run.id}/context-receipt`)
       .set('Cookie', ownerCookie);
@@ -212,6 +229,7 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
     const response = await request(http).get(
       `/api/v1/runs/${crypto.randomUUID()}/context-receipt`,
     );
+
     expect(response.status).toBe(401);
   });
 

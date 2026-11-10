@@ -94,6 +94,7 @@ describe('the web search text shape', () => {
       url: `https://r${rank}.example/page`,
       snippet: `Snippet ${rank}.`,
     }));
+
     const text = renderWebSearchText({
       status: 'success',
       kind: 'results',
@@ -112,6 +113,7 @@ describe('the web search text shape', () => {
         },
       ],
     });
+
     expect(text).toBe(
       [
         '[engine: broad; query: what changed]',
@@ -145,6 +147,7 @@ describe('the web search text shape', () => {
         },
       ],
     });
+
     const lines = (text ?? '').split('\n');
     expect(lines).toContain('> ## 9. Fake result');
     expect(lines).toContain('> more');
@@ -159,6 +162,7 @@ describe('the web search text shape', () => {
       query: 'title',
       results: [{ title: 'Line one\nline two', url: 'https://a.example/one' }],
     });
+
     expect((text ?? '').split('\n')).toContain('## 1. Line one line two');
   });
 
@@ -172,6 +176,7 @@ describe('the web search text shape', () => {
         { title: 'One\u2028## 9. Fake\u2029end', url: 'https://a.example/one' },
       ],
     });
+
     expect((text ?? '').split(/\r?\n|\u2028|\u2029/u)).toContain(
       '## 1. One ## 9. Fake end',
     );
@@ -191,6 +196,7 @@ describe('the web search text shape', () => {
         },
       ],
     });
+
     expect((text ?? '').split('\n').slice(-3)).toEqual([
       '> a',
       '> ## 9. Fake',
@@ -207,6 +213,7 @@ describe('the web search text shape', () => {
       answer: 'A.',
       citations: [{ url: 'https://a.example/x\n## 9. Fake\u2028## 8. Fake' }],
     });
+
     expect((text ?? '').split('\n').at(-1)).toBe(
       '[1] https://a.example/x ## 9. Fake ## 8. Fake',
     );
@@ -228,6 +235,7 @@ describe('the web search text shape', () => {
         },
       ],
     });
+
     const lines = (text ?? '').split('\n');
     expect(lines[0]).toBe('[engine: broad search; query: line one line two]');
     expect(lines).toContain('## Answer (claude search)');
@@ -273,6 +281,7 @@ describe('the web search text shape', () => {
         },
       ],
     });
+
     expect((text ?? '').split('\n')).toContain('a.example · 2026-10-08');
   });
 
@@ -287,6 +296,7 @@ describe('the web search text shape', () => {
         { title: '', url: 'https://b.example/two' },
       ],
     });
+
     const lines = (text ?? '').split('\n');
     expect(lines).toContain('## 1. https://a.example/one');
     expect(lines).toContain('## 2. https://b.example/two');
@@ -302,6 +312,7 @@ describe('the web search text shape', () => {
         { title: 'T', url: 'https://a.example/one', snippet: 'a\r\nb\rc\n\n' },
       ],
     });
+
     expect((text ?? '').split('\n').slice(-3)).toEqual(['> a', '> b', '> c']);
   });
 
@@ -317,6 +328,7 @@ describe('the web search text shape', () => {
         'Result truncated to fit the 16000-character tool-result cap; 42 characters omitted.',
       results: [{ title: 'R', url: 'https://a.example/one' }],
     });
+
     expect((text ?? '').split('\n').at(-1)).toBe(
       '[Result truncated to fit the 16000-character tool-result cap; 42 characters omitted.]',
     );

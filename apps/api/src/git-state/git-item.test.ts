@@ -76,6 +76,7 @@ describe('createGitItem', () => {
 
 describe('gitToldState', () => {
   const told = (...parts: Array<unknown>) => gitToldState(parts).text;
+
   const rootedAt = (root: string) =>
     createWorkspaceSnapshotItem({ runId: RUN_ID, root });
 
@@ -132,6 +133,7 @@ describe('gitToldState', () => {
 
   it('keeps a git item across a Machine availability notice', () => {
     const item = git(STATE);
+
     const notice = createWorkspaceMachineAvailabilityItem({
       runId: RUN_ID,
       machine: 'box',

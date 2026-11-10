@@ -24,10 +24,13 @@ import {
 } from './openai-embedding-backend';
 
 type DoEmbedOptions = Parameters<EmbeddingModelV3['doEmbed']>[0];
+
 type SimpleEmbedResult = { embeddings: Array<EmbeddingModelV3Embedding> };
+
 type SimpleEmbedFn = (
   options: DoEmbedOptions,
 ) => SimpleEmbedResult | PromiseLike<SimpleEmbedResult>;
+
 type SimpleDoEmbedInput =
   | SimpleEmbedResult
   | Array<SimpleEmbedResult>
@@ -45,6 +48,7 @@ function embeddingOf(seed: number, dimensions = 3): EmbeddingModelV3Embedding {
 /** Builds `dependencies.createOpenAI` returning a fixed mock model, and records what settings our adapter passed to it. Accepts just `{embeddings}` — `warnings: []` (required by `EmbeddingModelV3Result`) is filled in here so every test site stays focused on what it's actually asserting. */
 function withModel(doEmbed: SimpleDoEmbedInput) {
   const settingsCalls: Array<{ apiKey: string; baseURL?: string }> = [];
+
   const wrappedDoEmbed = isSimpleEmbedFn(doEmbed)
     ? async (options: DoEmbedOptions) => ({
         ...(await doEmbed(options)),
@@ -53,19 +57,24 @@ function withModel(doEmbed: SimpleDoEmbedInput) {
     : Array.isArray(doEmbed)
       ? doEmbed.map((result) => ({ ...result, warnings: [] }))
       : { ...doEmbed, warnings: [] };
+
   const model = new MockEmbeddingModelV3({
     maxEmbeddingsPerCall: null,
     doEmbed: wrappedDoEmbed,
   });
+
   const dependencies: OpenAIEmbeddingBackendDependencies = {
     createOpenAI: (settings) => {
       settingsCalls.push(settings);
+
       const provider: OpenAIEmbeddingProvider = {
         textEmbeddingModel: () => model,
       };
+
       return provider;
     },
   };
+
   return { dependencies, settingsCalls };
 }
 
@@ -74,10 +83,12 @@ describe('createOpenAIEmbeddingBackend — keyless provider (task 5.4)', () => {
     const { dependencies, settingsCalls } = withModel({
       embeddings: [embeddingOf(0)],
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     await backend.embedQuery('hello');
     expect(settingsCalls[0]?.apiKey).toBe(KEYLESS_PLACEHOLDER_API_KEY);
     expect(settingsCalls[0]?.baseURL).toBeUndefined();
@@ -87,6 +98,7 @@ describe('createOpenAIEmbeddingBackend — keyless provider (task 5.4)', () => {
     const { dependencies, settingsCalls } = withModel({
       embeddings: [embeddingOf(0)],
     });
+
     const backend = createOpenAIEmbeddingBackend(
       {
         providerModelId: 'm',
@@ -96,6 +108,7 @@ describe('createOpenAIEmbeddingBackend — keyless provider (task 5.4)', () => {
       },
       dependencies,
     );
+
     await backend.embedQuery('hello');
     // toMatchObject, not toEqual: settings also carries the response-order
     // verification `fetch` wrapper (see the "response-order verification"
@@ -110,10 +123,13 @@ describe('createOpenAIEmbeddingBackend — keyless provider (task 5.4)', () => {
 describe('createOpenAIEmbeddingBackend — prefixes', () => {
   it('applies documentPrefix to documents and queryPrefix to the query, never crossed', async () => {
     const seenValues: Array<string> = [];
+
     const { dependencies } = withModel((options) => {
       seenValues.push(...options.values);
+
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };
     });
+
     const backend = createOpenAIEmbeddingBackend(
       {
         providerModelId: 'm',
@@ -123,6 +139,7 @@ describe('createOpenAIEmbeddingBackend — prefixes', () => {
       },
       dependencies,
     );
+
     await backend.embedDocuments([
       { documentId: 'd1', contentHash: 'h1', content: 'doc text' },
     ]);
@@ -132,14 +149,18 @@ describe('createOpenAIEmbeddingBackend — prefixes', () => {
 
   it('embeds content verbatim when no prefix is configured', async () => {
     const seenValues: Array<string> = [];
+
     const { dependencies } = withModel((options) => {
       seenValues.push(...options.values);
+
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     await backend.embedDocuments([
       { documentId: 'd1', contentHash: 'h1', content: 'doc text' },
     ]);
@@ -150,19 +171,24 @@ describe('createOpenAIEmbeddingBackend — prefixes', () => {
 describe('createOpenAIEmbeddingBackend — batching (task 5.4/D5)', () => {
   it('chunks the provider request to the configured batchSize', async () => {
     const callSizes: Array<number> = [];
+
     const { dependencies } = withModel((options) => {
       callSizes.push(options.values.length);
+
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3, batchSize: 2 },
       dependencies,
     );
+
     const documents = Array.from({ length: 5 }, (_, i) => ({
       documentId: `d${i}`,
       contentHash: `h${i}`,
       content: `text ${i}`,
     }));
+
     const results = await backend.embedDocuments(documents);
     expect(callSizes).toEqual([2, 2, 1]);
     expect(results.map((r) => r.documentId)).toEqual([
@@ -176,19 +202,24 @@ describe('createOpenAIEmbeddingBackend — batching (task 5.4/D5)', () => {
 
   it('defaults to a batch size of 32 when unset', async () => {
     const callSizes: Array<number> = [];
+
     const { dependencies } = withModel((options) => {
       callSizes.push(options.values.length);
+
       return { embeddings: options.values.map((_, i) => embeddingOf(i)) };
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     const documents = Array.from({ length: 40 }, (_, i) => ({
       documentId: `d${i}`,
       contentHash: `h${i}`,
       content: `text ${i}`,
     }));
+
     await backend.embedDocuments(documents);
     expect(callSizes).toEqual([32, 8]);
   });
@@ -206,15 +237,18 @@ describe('createOpenAIEmbeddingBackend — result correlation (task 5.6)', () =>
     const { dependencies } = withModel((options) => ({
       embeddings: options.values.map((_, i) => embeddingOf(i * 10)),
     }));
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     const documents = [
       { documentId: 'a', contentHash: 'ha', content: 'A' },
       { documentId: 'b', contentHash: 'hb', content: 'B' },
       { documentId: 'c', contentHash: 'hc', content: 'C' },
     ];
+
     const results = await backend.embedDocuments(documents);
     expect(results).toEqual([
       { documentId: 'a', contentHash: 'ha', embedding: embeddingOf(0) },
@@ -227,14 +261,17 @@ describe('createOpenAIEmbeddingBackend — result correlation (task 5.6)', () =>
     const { dependencies } = withModel({
       embeddings: [embeddingOf(0)], // only one, for two requested
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     const results = await backend.embedDocuments([
       { documentId: 'a', contentHash: 'ha', content: 'A' },
       { documentId: 'b', contentHash: 'hb', content: 'B' },
     ]);
+
     expect(results).toEqual([]);
   });
 
@@ -242,33 +279,42 @@ describe('createOpenAIEmbeddingBackend — result correlation (task 5.6)', () =>
     const { dependencies } = withModel({
       embeddings: [embeddingOf(0), embeddingOf(10), embeddingOf(20)],
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     const results = await backend.embedDocuments([
       { documentId: 'a', contentHash: 'ha', content: 'A' },
       { documentId: 'b', contentHash: 'hb', content: 'B' },
     ]);
+
     expect(results).toEqual([]);
   });
 
   it('a valid chunk after a discarded one still succeeds (per-chunk failure, not whole-call)', async () => {
     let call = 0;
+
     const { dependencies } = withModel((options) => {
       call += 1;
+
       if (call === 1) return { embeddings: [embeddingOf(0)] }; // 1 requested 2 -> discard
+
       return { embeddings: options.values.map((_, i) => embeddingOf(i * 100)) };
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3, batchSize: 2 },
       dependencies,
     );
+
     const documents = [
       { documentId: 'a', contentHash: 'ha', content: 'A' },
       { documentId: 'b', contentHash: 'hb', content: 'B' },
       { documentId: 'c', contentHash: 'hc', content: 'C' },
     ];
+
     const results = await backend.embedDocuments(documents);
     // chunk [a,b] discarded (partial), chunk [c] succeeds
     expect(results).toEqual([
@@ -317,20 +363,24 @@ describe('createOpenAIEmbeddingBackend — response-order verification via raw H
         model: 'text-embedding-3-small',
       }),
     };
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'text-embedding-3-small', dimensions: 3 },
       dependencies,
     );
+
     const documents = [
       { documentId: 'd0', contentHash: 'h0', content: 'A' },
       { documentId: 'd1', contentHash: 'h1', content: 'B' },
       { documentId: 'd2', contentHash: 'h2', content: 'C' },
     ];
+
     try {
       await backend.embedDocuments(documents);
       expect.unreachable('expected throw');
     } catch (error) {
       expect(error).toBeInstanceOf(EmbeddingBackendError);
+
       if (!(error instanceof EmbeddingBackendError)) return;
       expect(error.terminal).toBe(false);
     }
@@ -347,10 +397,12 @@ describe('createOpenAIEmbeddingBackend — response-order verification via raw H
         ],
       }),
     };
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     try {
       await backend.embedDocuments([
         { documentId: 'a', contentHash: 'ha', content: 'A' },
@@ -373,14 +425,17 @@ describe('createOpenAIEmbeddingBackend — response-order verification via raw H
         ],
       }),
     };
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     const results = await backend.embedDocuments([
       { documentId: 'd0', contentHash: 'h0', content: 'A' },
       { documentId: 'd1', contentHash: 'h1', content: 'B' },
     ]);
+
     expect(results).toEqual([
       { documentId: 'd0', contentHash: 'h0', embedding: embeddingOf(100) },
       { documentId: 'd1', contentHash: 'h1', embedding: embeddingOf(200) },
@@ -393,10 +448,12 @@ describe('createOpenAIEmbeddingBackend — response-order verification via raw H
         createOpenAI(settings),
       fetch: fakeEmbeddingHttpFetch({ error: { message: 'bad request' } }, 400),
     };
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     try {
       await backend.embedDocuments([
         { documentId: 'a', contentHash: 'ha', content: 'A' },
@@ -404,6 +461,7 @@ describe('createOpenAIEmbeddingBackend — response-order verification via raw H
       expect.unreachable('expected throw');
     } catch (error) {
       expect(error).toBeInstanceOf(EmbeddingBackendError);
+
       if (!(error instanceof EmbeddingBackendError)) return;
       expect(error.terminal).toBe(true);
     }
@@ -428,10 +486,12 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
     const { dependencies } = withModel({
       embeddings: [embeddingOf(0, 3), embeddingOf(0, 5)],
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     try {
       await backend.embedDocuments([
         { documentId: 'ok', contentHash: 'h1', content: 'x' },
@@ -440,6 +500,7 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
       expect.unreachable('expected throw');
     } catch (error) {
       expect(error).toBeInstanceOf(EmbeddingBackendError);
+
       if (!(error instanceof EmbeddingBackendError)) return;
       expect(error.terminal).toBe(true);
       // Concrete width mismatch — the operator's only signal (design D16).
@@ -452,10 +513,12 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
     const { dependencies } = withModel({
       embeddings: [embeddingOf(0, 3), [1, Number.NaN, 3]],
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     try {
       await backend.embedDocuments([
         { documentId: 'ok', contentHash: 'h1', content: 'x' },
@@ -464,6 +527,7 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
       expect.unreachable('expected throw');
     } catch (error) {
       expect(error).toBeInstanceOf(EmbeddingBackendError);
+
       if (!(error instanceof EmbeddingBackendError)) return;
       expect(error.terminal).toBe(true);
     }
@@ -473,10 +537,12 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
     const { dependencies } = withModel({
       embeddings: [embeddingOf(0, 5)],
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     try {
       await backend.embedDocuments([
         { documentId: 'bad-length', contentHash: 'h2', content: 'y' },
@@ -484,6 +550,7 @@ describe('createOpenAIEmbeddingBackend — vector validation (task 5.5)', () => 
       expect.unreachable('expected throw');
     } catch (error) {
       expect(error).toBeInstanceOf(EmbeddingBackendError);
+
       if (!(error instanceof EmbeddingBackendError)) return;
       expect(error.message).not.toContain('y');
       expect(error.message).not.toContain('bad-length');
@@ -538,6 +605,7 @@ describe('classifyEmbeddingFailure — terminal vs transient (task 5.7)', () => 
     const { dependencies } = withModel(() => {
       throw apiCallError(500);
     });
+
     const backend = createOpenAIEmbeddingBackend(
       {
         providerModelId: 'm',
@@ -546,6 +614,7 @@ describe('classifyEmbeddingFailure — terminal vs transient (task 5.7)', () => 
       },
       dependencies,
     );
+
     try {
       await backend.embedDocuments([
         { documentId: 'a', contentHash: 'ha', content: 'A' },
@@ -553,6 +622,7 @@ describe('classifyEmbeddingFailure — terminal vs transient (task 5.7)', () => 
       expect.unreachable('expected throw');
     } catch (error) {
       expect(error).toBeInstanceOf(EmbeddingBackendError);
+
       if (!(error instanceof EmbeddingBackendError)) return;
       expect(error.terminal).toBe(false);
       expect(error.message).not.toContain('sk-should-never-leak');
@@ -563,10 +633,12 @@ describe('classifyEmbeddingFailure — terminal vs transient (task 5.7)', () => 
     const { dependencies } = withModel(() => {
       throw apiCallError(400);
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       dependencies,
     );
+
     try {
       await backend.embedDocuments([
         { documentId: 'a', contentHash: 'ha', content: 'A' },
@@ -574,6 +646,7 @@ describe('classifyEmbeddingFailure — terminal vs transient (task 5.7)', () => 
       expect.unreachable('expected throw');
     } catch (error) {
       expect(error).toBeInstanceOf(EmbeddingBackendError);
+
       if (!(error instanceof EmbeddingBackendError)) return;
       expect(error.terminal).toBe(true);
     }
@@ -669,6 +742,7 @@ describe('createOpenAIEmbeddingBackend — batch size validation', () => {
 describe('createOpenAIEmbeddingBackend — embedQuery', () => {
   it('returns the single vector the provider produced for the query', async () => {
     const { dependencies } = withModel({ embeddings: [embeddingOf(9)] });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'text-embedding-3-small', dimensions: 3 },
       dependencies,
@@ -679,6 +753,7 @@ describe('createOpenAIEmbeddingBackend — embedQuery', () => {
 
   it('reports an empty query response with its own message, not the document one', async () => {
     const { dependencies } = withModel({ embeddings: [] });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'text-embedding-3-small', dimensions: 3 },
       dependencies,
@@ -694,10 +769,13 @@ describe('createOpenAIEmbeddingBackend — embedQuery', () => {
 
   it('sends nothing to the provider for an empty document list', async () => {
     const calls: Array<DoEmbedOptions> = [];
+
     const { dependencies } = withModel((options) => {
       calls.push(options);
+
       return { embeddings: [] };
     });
+
     const backend = createOpenAIEmbeddingBackend(
       { providerModelId: 'text-embedding-3-small', dimensions: 3 },
       dependencies,
@@ -711,10 +789,12 @@ describe('createOpenAIEmbeddingBackend — embedQuery', () => {
 describe('createOpenAIEmbeddingBackend — vector rejection wording', () => {
   it('names a missing vector distinctly from a mis-sized one', async () => {
     const short = withModel({ embeddings: [embeddingOf(1, 2)] });
+
     const shortBackend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       short.dependencies,
     );
+
     await expect(
       shortBackend.embedDocuments([
         { documentId: 'd1', contentHash: 'h1', content: 'a' },
@@ -724,10 +804,12 @@ describe('createOpenAIEmbeddingBackend — vector rejection wording', () => {
     );
 
     const nonFinite = withModel({ embeddings: [[1, Number.NaN, 3]] });
+
     const nonFiniteBackend = createOpenAIEmbeddingBackend(
       { providerModelId: 'm', dimensions: 3 },
       nonFinite.dependencies,
     );
+
     await expect(
       nonFiniteBackend.embedDocuments([
         { documentId: 'd1', contentHash: 'h1', content: 'a' },

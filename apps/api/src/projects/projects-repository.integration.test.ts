@@ -24,11 +24,13 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ProjectsRepository } from './projects-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'projects-repository.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration`.',
   );
 }
+
 type SqlClient = ReturnType<typeof postgres>;
 
 describe('ProjectsRepository (real Postgres)', () => {
@@ -40,6 +42,7 @@ describe('ProjectsRepository (real Postgres)', () => {
 
   const asA = <T>(fn: (repo: ProjectsRepository) => Promise<T>) =>
     tenantDb.runAs(ownerA, (tx) => fn(new ProjectsRepository(tx)));
+
   const asB = <T>(fn: (repo: ProjectsRepository) => Promise<T>) =>
     tenantDb.runAs(ownerB, (tx) => fn(new ProjectsRepository(tx)));
 
@@ -66,6 +69,7 @@ describe('ProjectsRepository (real Postgres)', () => {
     tenantDb = new TenantDbService(db);
     ownerA = crypto.randomUUID();
     ownerB = crypto.randomUUID();
+
     for (const id of [ownerA, ownerB]) {
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'Proj Repo', ${`proj-repo-${id}@t.com`})`;
     }
@@ -83,6 +87,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'New project' }),
       );
+
       try {
         expect(created.ownerUserId).toBe(ownerA);
         expect(created.name).toBe('New project');
@@ -102,6 +107,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'A-only project' }),
       );
+
       try {
         const foundByB = await asB((repo) => repo.findById(created.id, ownerB));
         expect(foundByB).toBeUndefined();
@@ -114,6 +120,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const found = await asA((repo) =>
         repo.findById(crypto.randomUUID(), ownerA),
       );
+
       expect(found).toBeUndefined();
     });
   });
@@ -123,12 +130,15 @@ describe('ProjectsRepository (real Postgres)', () => {
       const p1 = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'A first' }),
       );
+
       const p2 = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'A second' }),
       );
+
       const bProject = await asB((repo) =>
         repo.create({ ownerUserId: ownerB, name: 'B project' }),
       );
+
       try {
         const aList = await asA((repo) => repo.listForUser(ownerA));
         const aIds = aList.map((p) => p.id);
@@ -152,9 +162,11 @@ describe('ProjectsRepository (real Postgres)', () => {
       const active = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Active' }),
       );
+
       const archived = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'To archive' }),
       );
+
       try {
         await asA((repo) =>
           repo.update(archived.id, ownerA, { archived: true }),
@@ -168,6 +180,7 @@ describe('ProjectsRepository (real Postgres)', () => {
         const onlyArchived = await asA((repo) =>
           repo.listForUser(ownerA, { archived: 'only' }),
         );
+
         const onlyIds = onlyArchived.map((p) => p.id);
         expect(onlyIds).toContain(archived.id);
         expect(onlyIds).not.toContain(active.id);
@@ -175,6 +188,7 @@ describe('ProjectsRepository (real Postgres)', () => {
         const withArchived = await asA((repo) =>
           repo.listForUser(ownerA, { archived: 'with' }),
         );
+
         const withIds = withArchived.map((p) => p.id);
         expect(withIds).toContain(active.id);
         expect(withIds).toContain(archived.id);
@@ -191,15 +205,18 @@ describe('ProjectsRepository (real Postgres)', () => {
       const pinned = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Pinned' }),
       );
+
       const unpinned = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Unpinned' }),
       );
+
       try {
         await pin(ownerA, pinned.id, 0);
 
         const excluded = await asA((repo) =>
           repo.listForUser(ownerA, { pinned: 'exclude' }),
         );
+
         const excludedIds = excluded.map((p) => p.id);
         expect(excludedIds).not.toContain(pinned.id);
         expect(excludedIds).toContain(unpinned.id);
@@ -207,6 +224,7 @@ describe('ProjectsRepository (real Postgres)', () => {
         const onlyPinned = await asA((repo) =>
           repo.listForUser(ownerA, { pinned: 'only' }),
         );
+
         expect(onlyPinned.map((p) => p.id)).toEqual([pinned.id]);
       } finally {
         await tenantDb.runAs(ownerA, (tx) =>
@@ -225,10 +243,12 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Original' }),
       );
+
       try {
         const updated = await asA((repo) =>
           repo.update(created.id, ownerA, { name: 'Renamed' }),
         );
+
         expect(updated?.name).toBe('Renamed');
         expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(
           created.updatedAt.getTime(),
@@ -242,6 +262,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Described' }),
       );
+
       try {
         // A fresh project has none: the column is nullable and never defaulted.
         expect(created.description).toBeNull();
@@ -251,11 +272,13 @@ describe('ProjectsRepository (real Postgres)', () => {
             description: 'Everything about the relaunch',
           }),
         );
+
         expect(described?.description).toBe('Everything about the relaunch');
 
         const cleared = await asA((repo) =>
           repo.update(created.id, ownerA, { description: null }),
         );
+
         expect(cleared?.description).toBeNull();
       } finally {
         await asA((repo) => repo.delete(created.id, ownerA));
@@ -270,6 +293,7 @@ describe('ProjectsRepository (real Postgres)', () => {
           description: 'Launch prep',
         }),
       );
+
       try {
         const found = await asA((repo) => repo.findById(created.id, ownerA));
         expect(found?.description).toBe('Launch prep');
@@ -282,6 +306,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Untouched' }),
       );
+
       try {
         const result = await asA((repo) => repo.update(created.id, ownerA, {}));
         expect(result).toEqual(created);
@@ -294,15 +319,18 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Archive cycle' }),
       );
+
       try {
         const archived = await asA((repo) =>
           repo.update(created.id, ownerA, { archived: true }),
         );
+
         expect(archived?.archivedAt).not.toBeNull();
 
         const unarchived = await asA((repo) =>
           repo.update(created.id, ownerA, { archived: false }),
         );
+
         expect(unarchived?.archivedAt).toBeNull();
       } finally {
         await asA((repo) => repo.delete(created.id, ownerA));
@@ -313,13 +341,16 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Re-archive' }),
       );
+
       try {
         const archived = await asA((repo) =>
           repo.update(created.id, ownerA, { archived: true }),
         );
+
         const reArchived = await asA((repo) =>
           repo.update(created.id, ownerA, { archived: true }),
         );
+
         expect(reArchived?.archivedAt).toEqual(archived?.archivedAt);
       } finally {
         await asA((repo) => repo.delete(created.id, ownerA));
@@ -333,6 +364,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'Locked' }),
       );
+
       try {
         await asA((repo) =>
           repo.update(created.id, ownerA, { archived: true }),
@@ -345,6 +377,7 @@ describe('ProjectsRepository (real Postgres)', () => {
         const stillLocked = await asA((repo) =>
           repo.findById(created.id, ownerA),
         );
+
         expect(stillLocked?.name).toBe('Locked');
       } finally {
         await asA((repo) => repo.delete(created.id, ownerA));
@@ -355,10 +388,12 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'A owns this' }),
       );
+
       try {
         const result = await asB((repo) =>
           repo.update(created.id, ownerB, { name: 'Hijacked' }),
         );
+
         expect(result).toBeUndefined();
 
         const stillA = await asA((repo) => repo.findById(created.id, ownerA));
@@ -372,6 +407,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const result = await asA((repo) =>
         repo.update(crypto.randomUUID(), ownerA, { name: 'Ghost' }),
       );
+
       expect(result).toBeUndefined();
     });
   });
@@ -381,6 +417,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'To delete' }),
       );
+
       const deleted = await asA((repo) => repo.delete(created.id, ownerA));
       expect(deleted).toBe(true);
       const found = await asA((repo) => repo.findById(created.id, ownerA));
@@ -394,6 +431,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const created = await asA((repo) =>
         repo.create({ ownerUserId: ownerA, name: 'B cannot delete this' }),
       );
+
       try {
         const deleted = await asB((repo) => repo.delete(created.id, ownerB));
         expect(deleted).toBe(false);
@@ -409,6 +447,7 @@ describe('ProjectsRepository (real Postgres)', () => {
       const deleted = await asA((repo) =>
         repo.delete(crypto.randomUUID(), ownerA),
       );
+
       expect(deleted).toBe(false);
     });
   });

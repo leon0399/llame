@@ -60,16 +60,19 @@ export async function consumeStreamParts(
   // step its parts already belong to). A stream that announces no step keeps
   // everything in `0`, which is still unique within the turn.
   let step = 0;
+
   try {
     for await (const part of fullStream) {
       if (part.type === 'finish-step') {
         step += 1;
         continue;
       }
+
       if (part.type === 'tool-call') {
         reportCall(part, input, gate);
         continue;
       }
+
       forwardDelivery(part, step, input);
     }
   } catch {
@@ -93,6 +96,7 @@ function reportCall(
   if (part.providerMetadata !== undefined) {
     input.onToolCallMetadata?.(part.toolCallId, part.providerMetadata);
   }
+
   gate.reach(part.toolCallId);
 }
 
@@ -111,20 +115,25 @@ function forwardDelivery(
     case 'text-delta':
     case 'text-end': {
       const text = part.type === 'text-delta' ? part.text : '';
+
       if (text.length === 0 && part.providerMetadata === undefined) return;
       input.onTextDelta?.(text, `${step}:${part.id}`, part.providerMetadata);
+
       return;
     }
+
     case 'reasoning-start':
     case 'reasoning-delta':
     case 'reasoning-end': {
       const text = part.type === 'reasoning-delta' ? part.text : '';
+
       if (text.length === 0 && part.providerMetadata === undefined) return;
       input.onReasoningDelta?.(
         text,
         `${step}:${part.id}`,
         part.providerMetadata,
       );
+
       return;
     }
   }
@@ -140,12 +149,16 @@ function forwardDelivery(
 export function forwardChunk(chunk: ForwardedPart, input: StreamInput): void {
   if (chunk.type === 'text-delta') {
     input.onTextDelta?.(chunk.text, chunk.id);
+
     return;
   }
+
   if (chunk.type === 'reasoning-delta') {
     input.onReasoningDelta?.(chunk.text, chunk.id, chunk.providerMetadata);
+
     return;
   }
+
   if (chunk.type === 'tool-call' && chunk.providerMetadata !== undefined) {
     input.onToolCallMetadata?.(chunk.toolCallId, chunk.providerMetadata);
   }

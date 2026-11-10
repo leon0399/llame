@@ -43,6 +43,7 @@ export class MemoryService {
     const settings = await new MemoryRepository(tx).findForOwnerForBinding(
       userId,
     );
+
     return { shareRecentChats: settings?.shareRecentChats ?? false };
   }
 
@@ -53,6 +54,7 @@ export class MemoryService {
     const settings = await this.tenantDb.runAs(userId, (tx) =>
       new MemoryRepository(tx).upsertForOwner(userId, update),
     );
+
     return { shareRecentChats: settings.shareRecentChats };
   }
 }

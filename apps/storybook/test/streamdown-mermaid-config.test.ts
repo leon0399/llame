@@ -6,6 +6,7 @@ import { streamdownPlugins } from "@workspace/ui/components/ai-elements/streamdo
 describe("Streamdown Mermaid security configuration", () => {
   test("pins image-related settings against diagram directives", () => {
     const plugin = streamdownPlugins.mermaid;
+
     if (!plugin) {
       throw new Error("Streamdown Mermaid plugin is not configured");
     }

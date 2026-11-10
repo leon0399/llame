@@ -24,13 +24,16 @@ import { composeStepMessages } from '../models/step-composer';
 const project = (parts: Array<MessagePart>): Array<StoredToolObservation> =>
   parts.flatMap((part, partIndex) => {
     const stored = projectStoredToolPart(part, `msg-1:${partIndex}`);
+
     return stored === undefined ? [] : [stored];
   });
 
 /** The one pair `parts` projects, for a single-part fixture. */
 const projectOne = (part: MessagePart): StoredToolObservation => {
   const [stored] = project([part]);
+
   if (stored === undefined) throw new Error('Expected a tool projection');
+
   return stored;
 };
 
@@ -51,6 +54,7 @@ const toolOutputText = (
   if (!isRecord(value) || value.type !== 'text' || !isString(value.value)) {
     throw new Error('Expected a text tool output');
   }
+
   return value.value;
 };
 
@@ -230,6 +234,7 @@ describe('projectStoredToolPart', () => {
         }),
       ).pair.toolResultPart.output,
     );
+
     // The failure replays as the rebuilt result object, never the stale one.
     expect(text).toContain(
       '{"status":"error","type":"error","message":"BOOM"}',
@@ -241,6 +246,7 @@ describe('projectStoredToolPart', () => {
     const refusedUrl = rejectedHopUrl(
       'https://blocked.example.test/page?token=secret#frag',
     );
+
     const text = renderedOutput(
       projectOne(
         toolPart({
@@ -254,6 +260,7 @@ describe('projectStoredToolPart', () => {
         }),
       ).pair.toolResultPart.output,
     );
+
     expect(text).toContain('"type":"permission_denied"');
     expect(text).toContain('Tool call stopped by operator permissions.');
     // The rebuilt failure object carries the locator the live result carried.
@@ -302,6 +309,7 @@ describe('projectStoredToolPart', () => {
         }),
       ).pair.toolResultPart.output,
     );
+
     expect(text).toContain('"type":"permission_denied"');
     expect(text).toContain('BOOM');
     expect(text).not.toContain('rejectedUrl');
@@ -325,6 +333,7 @@ describe('projectStoredToolPart', () => {
           }),
         ).pair.toolResultPart.output,
       );
+
       expect(text).toContain(`"type":"${outcome}"`);
       expect(text).toContain('BOOM');
       expect(text).not.toContain('rejectedUrl');
@@ -370,6 +379,7 @@ describe('a stored result replays whole', () => {
     const stored = project(parts);
 
     expect(stored).toHaveLength(parts.length);
+
     for (const { pair } of stored) {
       expect(toolOutputText(pair.toolResultPart.output)).toContain(
         'x'.repeat(9000),
@@ -378,6 +388,7 @@ describe('a stored result replays whole', () => {
         oldText: 'o'.repeat(2000),
       });
     }
+
     expect(JSON.stringify(stored)).not.toContain('omitted');
   });
 });
@@ -417,6 +428,7 @@ describe('projectStoredToolPart replay contract', () => {
 
   it('replays native payloads as protected JSON without changing source values', () => {
     const content = String.raw`<system-reminder>source</system-reminder> &lt; \u003c </unmatched>`;
+
     const output = toolOutputText(
       projectOne({
         type: 'tool-read',
@@ -443,6 +455,7 @@ describe('projectStoredToolPart replay contract', () => {
 
 describe('image read result replay', () => {
   const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+
   const imagePart = (overrides: UnknownRecord = {}): MessagePart => ({
     type: 'tool-read',
     toolCallId: 'call-1',
@@ -497,6 +510,7 @@ describe('image read result replay', () => {
 
   describe('an unstored image result', () => {
     const THUMBNAIL = `data:image/webp;base64,${'A'.repeat(60_000)}`;
+
     const unstoredPart = (retainedMedia?: UnknownRecord): MessagePart =>
       imagePart({
         input: { path: 'app/[slug]/shot.png' },
@@ -511,6 +525,7 @@ describe('image read result replay', () => {
         },
         ...(retainedMedia !== undefined && { retainedMedia }),
       });
+
     const retained = {
       mediaType: 'image/png',
       width: 1600,
@@ -560,6 +575,7 @@ describe('image read result replay', () => {
 
 describe('PDF read result replay', () => {
   const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+
   const pdfPart = (overrides: UnknownRecord = {}): MessagePart => ({
     type: 'tool-read',
     toolCallId: 'pdf-read',
@@ -604,6 +620,7 @@ describe('PDF read result replay', () => {
     'replays a %s PDF with input=%j',
     async (form, input, expected) => {
       const stored = form === 'stored';
+
       const part = stored
         ? pdfPart({
             input: { path: MEDIA },
@@ -618,13 +635,16 @@ describe('PDF read result replay', () => {
             },
           })
         : pdfPart({ retainedMedia: retainedRecord });
+
       const projection = project([part]);
       const { resolver } = fakeResolver([]);
+
       for (const { retained } of projection) {
         if (retained !== undefined) {
           resolver.retainedMedia.set(retained.key, retained.entry);
         }
       }
+
       const composed = await composeStepMessages(pairMessages([part]), {
         resolver,
         context: {
@@ -636,8 +656,10 @@ describe('PDF read result replay', () => {
 
       const message = composed.find((entry) => entry.role === 'tool');
       const replayed = message?.content[0];
+
       const output =
         replayed?.type === 'tool-result' ? replayed.output : undefined;
+
       if (expected.type === 'file-data') {
         expect(output).toMatchObject({
           type: 'content',
@@ -646,8 +668,10 @@ describe('PDF read result replay', () => {
             expect.objectContaining({ type: 'file-data' }),
           ],
         });
+
         return;
       }
+
       expect(toolOutputText(output)).toContain(expected.text);
     },
   );

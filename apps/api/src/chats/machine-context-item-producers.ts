@@ -62,7 +62,9 @@ export function renderMachineWorkspaceSnapshot(
   root: string,
 ): string | undefined {
   const machine = machineWorkspaceRoot(root);
+
   if (machine === undefined) return undefined;
+
   return renderMachineWorkspaceSnapshotTemplate({
     root,
     machine: machine.name,
@@ -81,9 +83,11 @@ export function createWorkspaceMachineAvailabilityItem(input: {
   readonly available: boolean;
 }): AuthoredContextItemPart {
   const payload: WorkspaceMachinePayload = { machine: input.machine };
+
   if (!isWorkspaceMachinePayload(payload)) {
     throw new TypeError('Invalid server-authored Workspace Machine metadata');
   }
+
   return createRenderedContextItem({
     producer: 'workspace',
     form: 'notice',

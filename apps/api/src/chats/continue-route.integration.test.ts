@@ -78,14 +78,17 @@ d('the follow-up route', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password: 'password123', name });
+
     expect(res.status).toBe(201);
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
   beforeAll(async () => {
     models = new FakeModelsService();
+
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
@@ -116,11 +119,13 @@ d('the follow-up route', () => {
     for (const stream of openStreams.splice(0)) {
       stream.close();
     }
+
     // Every Run here stays queued on purpose; terminalize the leftovers so the
     // next test's single-flight admission is not blocked by one.
     for (const chatId of chatIds.splice(0)) {
       await tenantDb.runAs(userAId, async (tx) => {
         const repo = new RunsRepository(tx);
+
         for (const run of await repo.findByChatId(chatId, userAId)) {
           if (
             !['completed', 'failed', 'cancelled', 'expired'].includes(
@@ -148,6 +153,7 @@ d('the follow-up route', () => {
   ): Promise<FailedTurn> {
     const chatId = crypto.randomUUID();
     chatIds.push(chatId);
+
     return tenantDb.runAs(userAId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
@@ -155,12 +161,14 @@ d('the follow-up route', () => {
         title: 'Continue route',
       });
       const messagesRepo = new MessagesRepository(tx);
+
       const userMessage = await messagesRepo.create({
         chatId,
         role: 'user',
         senderUserId: userAId,
         parts: [{ type: 'text', text: 'Do the work' }],
       });
+
       if (options.laterUserMessage === true) {
         await messagesRepo.create({
           chatId,
@@ -169,13 +177,16 @@ d('the follow-up route', () => {
           parts: [{ type: 'text', text: 'A later question' }],
         });
       }
+
       const runsRepo = new RunsRepository(tx);
+
       const run = await runsRepo.create({
         chatId,
         messageId: userMessage.id,
         userId: userAId,
         modelId: MODEL_ID,
       });
+
       const status = options.status ?? 'failed';
       await runsRepo.markFinished(run.id, userAId, status, {
         error: { message: 'the model dropped the stream' },
@@ -191,6 +202,7 @@ d('the follow-up route', () => {
           modelId: MODEL_ID,
         },
       });
+
       return { chatId, messageId: userMessage.id, runId: run.id };
     });
   }
@@ -219,7 +231,9 @@ d('the follow-up route', () => {
       cookie,
       body,
     });
+
     openStreams.push(stream);
+
     return stream;
   }
 
@@ -269,6 +283,7 @@ d('the follow-up route', () => {
       modelId: MODEL_ID,
       effort: '0',
     });
+
     expect(named.status).toBe(400);
 
     // The regenerate variant requires its model, so a body without one is not
@@ -282,6 +297,7 @@ d('the follow-up route', () => {
       modelId: MODEL_ID,
       unknownField: true,
     });
+
     expect(unknown.status).toBe(400);
 
     expect(await runsOf(turn.chatId)).toHaveLength(1);
@@ -309,6 +325,7 @@ d('the follow-up route', () => {
       action: 'continue',
       permissionMode: 'nope',
     });
+
     expect(badMode.status).toBe(400);
 
     const unknown = await followUp(turn, { action: 'continue', modelId: 'm' });
@@ -380,9 +397,11 @@ d('the follow-up route', () => {
     const first = await stream.nextFrame('the start frame');
 
     const runId = z.string().parse(first.messageId);
+
     const run = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findById(runId, userAId),
     );
+
     expect(run?.messageId).toBe(turn.messageId);
   });
 });

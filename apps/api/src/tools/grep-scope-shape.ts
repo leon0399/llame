@@ -35,6 +35,7 @@ function sharedSegmentPrefix(left: string, right: string): number {
   const leftParts = left.split('/');
   const rightParts = right.split('/');
   let shared = 0;
+
   while (
     shared < leftParts.length &&
     shared < rightParts.length &&
@@ -42,6 +43,7 @@ function sharedSegmentPrefix(left: string, right: string): number {
   )
     shared += 1;
   const joined = leftParts.slice(0, shared).join('/');
+
   return joined.length === 0 ? 0 : joined.length + 1;
 }
 
@@ -63,11 +65,14 @@ export function hostLiteralStart(
   placed: string,
 ): number {
   if (isFileAlias(scope)) return normalizeHostScope(placed).length;
+
   if (root === undefined) return 0;
   const rootText = normalizeHostScope(root);
   const placedText = normalizeHostScope(placed);
+
   if (isWorkspaceRelative(scope))
     return sharedSegmentPrefix(rootText, placedText);
+
   return sameHostPath(normalizeHostScope(scope), rootText)
     ? placedText.length
     : 0;
@@ -110,14 +115,19 @@ export function splitScopePath(
   isValidPath: (decoded: string) => boolean,
 ): ParsedScopePath | GrepToolError {
   const split = splitGrepScope(rawPath);
+
   if ('error' in split) return unsupportedGlobResult(split.operator);
+
   const encodedPrefix = split.prefix.endsWith('/')
     ? split.prefix.slice(0, -1)
     : split.prefix;
+
   const prefixPath = decodeRelativePath(encodedPrefix);
+
   if (prefixPath === undefined || !isValidPath(prefixPath)) {
     return invalidPathResult('The scope path is invalid.');
   }
+
   return {
     prefixPath,
     glob:
@@ -142,9 +152,13 @@ async function decideScopeKind(
   probe: () => Promise<ScopeProbe>,
 ): Promise<ScopeProbe> {
   const probed = await probe();
+
   if ('result' in probed) return probed;
+
   if (probed.kind !== 'file') return probed;
+
   if (endsWithSeparator) return { kind: 'missing' };
+
   return admission.admit(locator) ? probed : { kind: 'missing' };
 }
 
@@ -162,6 +176,7 @@ export type ScopeDraft = {
 /** Finish one scope: probe a glob-free prefix, then mark it single-file. */
 export async function buildScope(draft: ScopeDraft): Promise<ScopeOutcome> {
   const prefix = draft.locatorFor('');
+
   const base: GrepScope = {
     index: draft.index,
     locatorPrefix: `${prefix}/`,
@@ -170,15 +185,20 @@ export async function buildScope(draft: ScopeDraft): Promise<ScopeOutcome> {
     singleFile: false,
     locatorFor: draft.locatorFor,
   };
+
   if (draft.glob !== undefined) return { scopes: [base] };
+
   const decided = await decideScopeKind(
     prefix,
     draft.endsWithSeparator,
     draft.admission,
     draft.probe,
   );
+
   if ('result' in decided) return decided;
+
   if (decided.kind === 'missing') return { result: notFoundResult() };
+
   return {
     scopes: [
       {

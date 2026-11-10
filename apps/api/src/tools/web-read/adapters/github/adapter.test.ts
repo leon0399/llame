@@ -118,13 +118,16 @@ function pullRoutes(
       [response({ total_count: 0, check_runs: [] })],
     ],
   ]);
+
   for (const [url, replies] of overrides) routes.set(url, replies);
+
   return routes;
 }
 
 function malformedReviewRoutes(): Map<string, ReadonlyArray<Reply>> {
   const reviewsPage1 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
   const reviewsPage2 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=2`;
+
   return pullRoutes(
     new Map([
       [
@@ -160,6 +163,7 @@ function malformedReviewRoutes(): Map<string, ReadonlyArray<Reply>> {
 describe('GitHub thread adapter', () => {
   it('matches only canonical public GitHub thread URLs', () => {
     const adapter = createGithubAdapter(config());
+
     const cases = [
       ['https://github.com/o/r/issues/1', true],
       ['https://github.com/o/r/pull/2', true],
@@ -181,6 +185,7 @@ describe('GitHub thread adapter', () => {
       Array.from({ length: 100 }, (_, index) => comment(index + 101)),
       Array.from({ length: 30 }, (_, index) => comment(index + 201)),
     ];
+
     const routes = new Map<string, ReadonlyArray<Reply>>([
       [
         `${API_ORIGIN}/repos/acme/project/issues/12`,
@@ -199,6 +204,7 @@ describe('GitHub thread adapter', () => {
         [response(comments[2])],
       ],
     ]);
+
     const { io, requests } = scriptedIo(routes);
     const adapter = createGithubAdapter(config(), { apiOrigin: API_ORIGIN });
 
@@ -211,6 +217,7 @@ describe('GitHub thread adapter', () => {
       `${API_ORIGIN}/repos/acme/project/issues/12/comments?per_page=100&page=3`,
     ]);
     expect(outcome).toMatchObject({ kind: 'rendered' });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain('## Comments (230)');
       expect(outcome.mediaType).toBe('text/markdown');
@@ -256,6 +263,7 @@ describe('GitHub thread adapter', () => {
         ],
       ]),
     );
+
     const { io, requests } = scriptedIo(routes);
     const adapter = createGithubAdapter(config(), { apiOrigin: API_ORIGIN });
 
@@ -270,6 +278,7 @@ describe('GitHub thread adapter', () => {
       `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`,
     ]);
     expect(outcome).toMatchObject({ kind: 'rendered' });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain(
         'Reviews: 1 approved, 1 changes requested (latest per reviewer)',
@@ -295,6 +304,7 @@ describe('GitHub thread adapter', () => {
         [response([])],
       ],
     ]);
+
     const tokenRun = scriptedIo(routes);
     await createGithubAdapter(config('secret-value'), {
       apiOrigin: API_ORIGIN,
@@ -329,6 +339,7 @@ describe('GitHub thread adapter', () => {
         ],
       ]),
     );
+
     const rateLimited = scriptedIo(
       new Map([
         [
@@ -344,6 +355,7 @@ describe('GitHub thread adapter', () => {
         ],
       ]),
     );
+
     const adapter = createGithubAdapter(config(), { apiOrigin: API_ORIGIN });
 
     await expect(
@@ -365,15 +377,18 @@ describe('GitHub thread adapter', () => {
     const first = Array.from({ length: 100 }, (_, index) =>
       reviewComment(index + 1),
     );
+
     const second = Array.from({ length: 100 }, (_, index) =>
       reviewComment(index + 101),
     );
+
     const rateLimit: WebFetchFailure = {
       type: 'http_status',
       message: 'The server answered HTTP 403.',
       httpStatus: 403,
       rateLimit: { remaining: '0', reset: '123' },
     };
+
     const routes = pullRoutes(
       new Map([
         [
@@ -403,7 +418,9 @@ describe('GitHub thread adapter', () => {
         ],
       ]),
     );
+
     const { io, requests } = scriptedIo(routes);
+
     const outcome = await createGithubAdapter(config(), {
       apiOrigin: API_ORIGIN,
     }).read(new URL(PULL_SOURCE), io);
@@ -417,6 +434,7 @@ describe('GitHub thread adapter', () => {
         'review comments omitted: rate_limit, resets 1970-01-01T00:02:03.000Z',
       ],
     });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain('## Review Comments (200)');
       expect(outcome.content).toContain('## Files (1)');
@@ -431,20 +449,24 @@ describe('GitHub thread adapter', () => {
       checkRun('lint', 'completed', 'failure'),
       checkRun('deploy', 'queued', null),
     ];
+
     const failedPage: WebFetchFailure = {
       type: 'http_status',
       message: 'The server answered HTTP 429.',
       httpStatus: 429,
       rateLimit: { reset: '123' },
     };
+
     const page1 = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`;
     const page2 = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=2`;
+
     const routes = pullRoutes(
       new Map([
         [page1, [response({ total_count: 140, check_runs: runs })]],
         [page2, [failedPage]],
       ]),
     );
+
     const { io } = scriptedIo(routes);
 
     const outcome = await createGithubAdapter(config(), {
@@ -457,6 +479,7 @@ describe('GitHub thread adapter', () => {
         'check runs omitted: rate_limit, resets 1970-01-01T00:02:03.000Z',
       ],
     });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain(
         'Checks: 98 passed, 1 failed (lint), 1 pending, 40 not loaded',
@@ -466,10 +489,12 @@ describe('GitHub thread adapter', () => {
 
   it('halts after a fatal secondary failure and notes skipped sections', async () => {
     const reviewsUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
+
     const timeout: WebFetchFailure = {
       type: 'call_timeout',
       message: 'The web read exceeded its 30-second budget.',
     };
+
     const routes = pullRoutes(new Map([[reviewsUrl, [timeout]]]));
     const { io, requests } = scriptedIo(routes);
 
@@ -491,6 +516,7 @@ describe('GitHub thread adapter', () => {
         'check runs omitted: transport',
       ],
     });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain('Checks: unavailable');
     }
@@ -498,10 +524,12 @@ describe('GitHub thread adapter', () => {
 
   it('returns a fatal outcome when a secondary request is aborted', async () => {
     const reviewsUrl = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
+
     const aborted: WebFetchFailure = {
       type: 'aborted',
       message: 'The web read was cancelled.',
     };
+
     const routes = pullRoutes(new Map([[reviewsUrl, [aborted]]]));
     const { io, requests } = scriptedIo(routes);
 
@@ -523,10 +551,12 @@ describe('GitHub thread adapter', () => {
   it('returns a fatal outcome when a later review page hits a redirect limit', async () => {
     const reviewsPage1 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=1`;
     const reviewsPage2 = `${API_ORIGIN}/repos/acme/project/pulls/12/reviews?per_page=100&page=2`;
+
     const tooManyRedirects: WebFetchFailure = {
       type: 'too_many_redirects',
       message: 'The server redirected too many times.',
     };
+
     const routes = pullRoutes(
       new Map([
         [
@@ -540,6 +570,7 @@ describe('GitHub thread adapter', () => {
         [reviewsPage2, [tooManyRedirects]],
       ]),
     );
+
     const { io, requests } = scriptedIo(routes);
 
     const outcome = await createGithubAdapter(config(), {
@@ -561,11 +592,13 @@ describe('GitHub thread adapter', () => {
 
   it('continues loading other sections after a malformed later review page', async () => {
     const { io } = scriptedIo(malformedReviewRoutes());
+
     const outcome = await createGithubAdapter(config(), {
       apiOrigin: API_ORIGIN,
     }).read(new URL(PULL_SOURCE), io);
 
     expect(outcome).toMatchObject({ kind: 'rendered' });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.notes).toStrictEqual(['reviews omitted: parse']);
       expect(outcome.content).toContain('## Review Comments (1)');
@@ -577,14 +610,17 @@ describe('GitHub thread adapter', () => {
   it('falls through when primary numbers differ without issuing secondary requests', async () => {
     const issuePrimary = `${API_ORIGIN}/repos/acme/project/issues/12`;
     const pullPrimary = `${API_ORIGIN}/repos/acme/project/pulls/12`;
+
     const issueRun = scriptedIo(
       new Map([[issuePrimary, [response({ ...issuePayload(), number: 13 })]]]),
     );
+
     const pullRun = scriptedIo(
       pullRoutes(
         new Map([[pullPrimary, [response({ ...pullPayload(), number: 13 })]]]),
       ),
     );
+
     const adapter = createGithubAdapter(config(), { apiOrigin: API_ORIGIN });
 
     await expect(
@@ -602,15 +638,18 @@ describe('GitHub thread adapter', () => {
   it('reports loaded checks and the remainder after a malformed later page', async () => {
     const page1 = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`;
     const page2 = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=2`;
+
     const runs = Array.from({ length: 100 }, (_, index) =>
       checkRun(`pass-${index}`, 'completed', 'success'),
     );
+
     const routes = pullRoutes(
       new Map([
         [page1, [response({ total_count: 140, check_runs: runs })]],
         [page2, [response({ total_count: 140, check_runs: [{ bad: true }] })]],
       ]),
     );
+
     const { io } = scriptedIo(routes);
 
     const outcome = await createGithubAdapter(config(), {
@@ -621,6 +660,7 @@ describe('GitHub thread adapter', () => {
       kind: 'rendered',
       notes: ['check runs omitted: parse'],
     });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain('Checks: 100 passed, 40 not loaded');
     }
@@ -632,11 +672,14 @@ describe('GitHub thread adapter', () => {
       message: 'The server answered HTTP 500.',
       httpStatus: 500,
     };
+
     const checksUrl = `${API_ORIGIN}/repos/acme/project/commits/abc123/check-runs?filter=latest&per_page=100&page=1`;
     const failedRoutes = pullRoutes(new Map([[checksUrl, [failedPage]]]));
+
     const malformedRoutes = pullRoutes(
       new Map([[checksUrl, [response({ check_runs: [] })]]]),
     );
+
     const failedIo = scriptedIo(failedRoutes);
     const malformedIo = scriptedIo(malformedRoutes);
     const adapter = createGithubAdapter(config(), { apiOrigin: API_ORIGIN });
@@ -652,6 +695,7 @@ describe('GitHub thread adapter', () => {
       kind: 'rendered',
       notes: ['check runs omitted: parse'],
     });
+
     if (failed.kind === 'rendered' && malformed.kind === 'rendered') {
       expect(failed.content).toContain('Checks: unavailable');
       expect(malformed.content).toContain('Checks: unavailable');
@@ -660,6 +704,7 @@ describe('GitHub thread adapter', () => {
 
   it('normalizes null GitHub users to the ghost author', async () => {
     const commentsUrl = `${API_ORIGIN}/repos/acme/project/issues/12/comments?per_page=100&page=1`;
+
     const routes = new Map<string, ReadonlyArray<Reply>>([
       [
         `${API_ORIGIN}/repos/acme/project/issues/12`,
@@ -667,6 +712,7 @@ describe('GitHub thread adapter', () => {
       ],
       [commentsUrl, [response([{ ...comment(1), user: null }])]],
     ]);
+
     const { io } = scriptedIo(routes);
 
     const outcome = await createGithubAdapter(config(), {
@@ -674,6 +720,7 @@ describe('GitHub thread adapter', () => {
     }).read(new URL(ISSUE_SOURCE), io);
 
     expect(outcome).toMatchObject({ kind: 'rendered' });
+
     if (outcome.kind === 'rendered') {
       expect(outcome.content).toContain('Author: ghost');
       expect(outcome.content).toContain('### ghost · 2026-01-03T00:00:00Z');
@@ -687,6 +734,7 @@ describe('GitHub thread adapter', () => {
         [response({ number: 12, title: 'missing required fields' })],
       ],
     ]);
+
     const { io } = scriptedIo(routes);
 
     await expect(
@@ -717,6 +765,7 @@ describe('GitHub thread adapter', () => {
       'https://github.com/o/r/releases/tag/v1.0.0',
       'https://github.com/o/r/actions/runs/1/job/2',
     ];
+
     const anonymous = createGithubAdapter(config());
     const authorized = createGithubAdapter(config('secret-value'));
 
@@ -724,6 +773,7 @@ describe('GitHub thread adapter', () => {
       expect(anonymous.match(new URL(source))).toBe(true);
       expect(authorized.match(new URL(source))).toBe(true);
     }
+
     expect(
       anonymous.match(new URL('https://github.com/o/r/actions/runs/1')),
     ).toBe(false);

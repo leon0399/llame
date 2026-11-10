@@ -61,6 +61,7 @@ const meta = {
 } satisfies Meta<typeof ModelSelector>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

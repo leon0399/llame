@@ -21,12 +21,14 @@ describe('MemoryModule registration', () => {
 describe('MemoryService', () => {
   it('resolves a missing row to the same default as an explicit opt-out', async () => {
     const runAs = vi.fn().mockResolvedValue(undefined);
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         MemoryService,
         { provide: TenantDbService, useValue: { runAs } },
       ],
     }).compile();
+
     const service = moduleRef.get(MemoryService);
 
     await expect(service.getForOwner('owner')).resolves.toEqual({
@@ -46,6 +48,7 @@ describe('MemoryService', () => {
 
   it('uses the caller transaction for the dedicated binding read', async () => {
     const tx: Db = drizzle.mock({ schema });
+
     const findForOwnerForBinding = vi
       .spyOn(MemoryRepository.prototype, 'findForOwnerForBinding')
       .mockResolvedValue({
@@ -54,11 +57,13 @@ describe('MemoryService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+
     const tenantDb: TenantRunner = {
       runAs: () => {
         throw new Error('runAs should not be called by getForOwnerForBinding');
       },
     };
+
     const service = new MemoryService(tenantDb);
 
     await expect(service.getForOwnerForBinding(tx, 'owner')).resolves.toEqual({
@@ -72,14 +77,17 @@ describe('MemoryController', () => {
   function makeController(initial = false) {
     let shareRecentChats = initial;
     const getForOwner = vi.fn(() => Promise.resolve({ shareRecentChats }));
+
     const updateForOwner = vi.fn(
       (_userId: string, update: { shareRecentChats?: boolean }) => {
         if (update.shareRecentChats !== undefined) {
           shareRecentChats = update.shareRecentChats;
         }
+
         return Promise.resolve({ shareRecentChats });
       },
     );
+
     const controller = new MemoryController({ getForOwner, updateForOwner });
 
     return { controller, getForOwner, updateForOwner };

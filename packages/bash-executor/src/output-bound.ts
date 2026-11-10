@@ -45,6 +45,7 @@ export function cutLength(text: string, bound: StreamBound): number {
  */
 export function cutToBound(text: string, bound: StreamBound): string {
   const index = cutLength(text, bound);
+
   return index === text.length ? text : text.slice(0, index);
 }
 
@@ -56,17 +57,22 @@ export function cutToBound(text: string, bound: StreamBound): string {
 function utf8CutIndex(text: string, limit: number): number {
   let bytes = 0;
   let index = 0;
+
   while (index < text.length) {
     const code = text.codePointAt(index) ?? 0;
     bytes += utf8Width(code);
+
     if (bytes > limit) break;
     index += code > 0xff_ff ? 2 : 1;
   }
+
   return index;
 }
 
 function utf8Width(code: number): number {
   if (code <= 0x7f) return 1;
+
   if (code <= 0x7_ff) return 2;
+
   return code <= 0xff_ff ? 3 : 4;
 }

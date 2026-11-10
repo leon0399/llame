@@ -95,10 +95,12 @@ function clientOf(
   decide: (request: DecisionRequest) => DecisionOutcome,
 ): DecisionClient & { readonly requests: Array<DecisionRequest> } {
   const requests: Array<DecisionRequest> = [];
+
   return {
     requests,
     decide: (request) => {
       requests.push(request);
+
       return Promise.resolve(decide(request));
     },
   };
@@ -140,12 +142,14 @@ describe('buildJudgeRequest', () => {
 
   it('names the objective as the criterion when present, else the query', () => {
     const card = [{ key: 'p0', text: 'x' }];
+
     const withObjective = buildJudgeRequest({
       objective: 'the real goal',
       query: 'how it was searched',
       rubric: RUBRIC,
       cards: card,
     });
+
     const queryOnly = buildJudgeRequest({
       query: 'how it was searched',
       rubric: RUBRIC,
@@ -224,19 +228,24 @@ describe('judgeCandidatesWith', () => {
   it('sends 256-card groups together, each request carrying only its own cards', async () => {
     let inFlight = 0;
     let peak = 0;
+
     const client: DecisionClient = {
       decide: async (request) => {
         inFlight += 1;
         peak = Math.max(peak, inFlight);
         await Promise.resolve();
         inFlight -= 1;
+
         return answering('m')(request);
       },
     };
+
     const requests: Array<DecisionRequest> = [];
+
     const recording: DecisionClient = {
       decide: (request) => {
         requests.push(request);
+
         return client.decide(request);
       },
     };
@@ -251,6 +260,7 @@ describe('judgeCandidatesWith', () => {
       256, 256, 88,
     ]);
     expect(peak).toBe(3);
+
     for (const request of requests) {
       expect(request.state).toEqual(
         expect.objectContaining({
@@ -260,6 +270,7 @@ describe('judgeCandidatesWith', () => {
         }),
       );
     }
+
     expect(requests[1] && cardKeysOf(requests[1])[0]).toBe('p256');
     expect(judgement.probabilities?.size).toBe(600);
   });
@@ -355,11 +366,14 @@ describe('judgeCandidatesWith', () => {
   describe('representative model and usage', () => {
     it('reports the first accepted served id in request order, not completion order', async () => {
       const gate = Promise.withResolvers<void>();
+
       const client: DecisionClient = {
         decide: async (request) => {
           const first = cardKeysOf(request).includes('p000');
+
           if (first) await gate.promise;
           else gate.resolve();
+
           return answering(first ? 'model-a' : 'model-b')(request);
         },
       };
@@ -581,11 +595,14 @@ describe('judgeCandidatesWith', () => {
       const seen: Array<AbortSignal | undefined> = [];
       const lines: Array<unknown> = [];
       const accepted = answering('m');
+
       const client: DecisionClient = {
         decide: (request) => {
           seen.push(request.signal);
+
           // The first group is accepted before the abort; the rest never answer.
           if (seen.length === 1) return Promise.resolve(accepted(request));
+
           return new Promise((_, reject) => {
             request.signal?.addEventListener('abort', () => reject(reason));
           });
@@ -597,6 +614,7 @@ describe('judgeCandidatesWith', () => {
         input({ cards: cards(600), abortSignal: controller.signal }),
         { logger: { info: (payload) => lines.push(payload) } },
       );
+
       controller.abort(reason);
 
       await expect(pending).rejects.toBe(reason);
@@ -618,6 +636,7 @@ describe('judgeCandidatesWith', () => {
       const controller = new AbortController();
       const reason = new Error('runner timeout');
       const fetchCalls: Array<string> = [];
+
       const provider: SystemOneProviderConfig = {
         id: 'p',
         type: 'system-one',
@@ -625,13 +644,16 @@ describe('judgeCandidatesWith', () => {
         baseUrl: 'https://judge.example/v1',
         headers: {},
       };
+
       const client = createDecisionClient(provider, 'jev', {
         fetch: (url) => {
           fetchCalls.push(url);
+
           return Promise.resolve(new Response('', { status: 503 }));
         },
         sleep: () => {
           controller.abort(reason);
+
           return Promise.resolve();
         },
       });
@@ -709,10 +731,12 @@ describe('DecisionsService', () => {
 
   it('sends the wire body to the provider and protects the key in every wire field', async () => {
     const bodies: Array<string> = [];
+
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async (_url, init) => {
         bodies.push(await new Response(init?.body).text());
+
         return new Response(
           JSON.stringify({
             model: 'jev-1.13',
@@ -721,6 +745,7 @@ describe('DecisionsService', () => {
           }),
         );
       });
+
     const service = new DecisionsService(configWith(CATALOGUE));
 
     const judgement = await service.judgeCandidates(
@@ -729,6 +754,7 @@ describe('DecisionsService', () => {
         cards: [{ key: 'only', text: `leak ${KEY}` }],
       }),
     );
+
     fetchSpy.mockRestore();
 
     expect(bodies).toHaveLength(1);
@@ -787,10 +813,12 @@ function rerankClientOf(
   respond: (request: RerankRequest, index: number) => RerankOutcome,
 ): RerankClient & { readonly requests: Array<RerankRequest> } {
   const requests: Array<RerankRequest> = [];
+
   return {
     requests,
     rerank: (request) => {
       requests.push(request);
+
       return Promise.resolve(respond(request, requests.length - 1));
     },
   };
@@ -856,6 +884,7 @@ describe('judgeCandidatesWithReranker', () => {
     let inFlight = 0;
     let peak = 0;
     const requests: Array<RerankRequest> = [];
+
     const client: RerankClient = {
       rerank: async (request) => {
         requests.push(request);
@@ -863,6 +892,7 @@ describe('judgeCandidatesWithReranker', () => {
         peak = Math.max(peak, inFlight);
         await Promise.resolve();
         inFlight -= 1;
+
         return rerankAnswered(request.documents.length);
       },
     };
@@ -940,6 +970,7 @@ describe('judgeCandidatesWithReranker', () => {
 
   it('sums the cost apart from the count when only one request reports a count', async () => {
     const lines: Array<UnknownRecord> = [];
+
     const client = rerankClientOf((request, index) =>
       rerankAnswered(request.documents.length, {
         inputTokens: index === 0 ? 10 : null,
@@ -968,6 +999,7 @@ describe('judgeCandidatesWithReranker', () => {
 
   it('writes the one log line with the OpenRouter usage', async () => {
     const lines: Array<UnknownRecord> = [];
+
     const client = rerankClientOf((request) =>
       rerankAnswered(request.documents.length, {
         inputTokens: 2139,
@@ -1020,10 +1052,12 @@ describe('DecisionsService rerank catalogue', () => {
 
   function stubRerankFetch(responseModel: string) {
     const bodies: Array<string> = [];
+
     const spy = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async (_url, init) => {
         bodies.push(await new Response(init?.body).text());
+
         return new Response(
           JSON.stringify({
             model: responseModel,
@@ -1032,6 +1066,7 @@ describe('DecisionsService rerank catalogue', () => {
           }),
         );
       });
+
     return { bodies, spy };
   }
 
@@ -1046,6 +1081,7 @@ describe('DecisionsService rerank catalogue', () => {
         cards: [{ key: 'only', text: `leak ${KEY}` }],
       }),
     );
+
     spy.mockRestore();
 
     expect(bodies).toHaveLength(1);
@@ -1066,6 +1102,7 @@ describe('DecisionsService rerank catalogue', () => {
 
   it('serves a keyless rerank entry with nothing to protect', async () => {
     const { bodies, spy } = stubRerankFetch('infinity-model');
+
     const service = new DecisionsService(
       rerankConfig({
         ...RERANK_PROVIDER,
@@ -1077,6 +1114,7 @@ describe('DecisionsService rerank catalogue', () => {
     const judgement = await service.judgeCandidates(
       input({ model: 'rr-fast', cards: [{ key: 'only', text: 'text' }] }),
     );
+
     spy.mockRestore();
 
     expect(bodies).toHaveLength(1);

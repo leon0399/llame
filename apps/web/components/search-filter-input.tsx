@@ -71,6 +71,7 @@ export function SearchFilterInput({
     onChange("");
     onClose?.();
   };
+
   return (
     <div
       className={className}

@@ -191,7 +191,9 @@ function PdfSurface({
         square={variant === "grid"}
       />
     );
+
   if (!href) return content;
+
   return (
     <a
       href={href}
@@ -221,8 +223,10 @@ function ThumbnailSurface(
       />
     );
   }
+
   const { src, alt, onOpen, status, variant } = props;
   const image = <ThumbnailImage src={src} alt={alt} />;
+
   // The image's `alt` always names an image card, wrapped or not.
   const content =
     variant === "compact" ? (
@@ -235,7 +239,9 @@ function ThumbnailSurface(
         square={variant === "grid"}
       />
     );
+
   if (!onOpen || status !== "ready") return content;
+
   return (
     <button type="button" onClick={onOpen} className={surfaceFocusClassName}>
       {content}

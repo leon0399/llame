@@ -45,12 +45,14 @@ export class WorkerProfileService {
       requested && requested.length > 0 ? requested : DEFAULT_PROFILE;
 
     const profile = instanceConfig.config.workers[this.profileName];
+
     if (!profile) {
       const known = Object.keys(instanceConfig.config.workers).join(', ');
       throw new InstanceConfigError(
         `${WORKER_PROFILE_ENV}="${this.profileName}" names a worker profile that does not exist in the configured "workers" map (known profiles: ${known || '(none)'}). Every deployed process must resolve to a real profile — a typo here would otherwise silently run zero consumers.`,
       );
     }
+
     this.groups = profile;
     this.logger.log(
       `Active worker profile "${this.profileName}": ${JSON.stringify(this.groups)}`,

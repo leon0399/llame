@@ -14,6 +14,7 @@ export function targetOf(input: {
   readonly canonical: string;
 }): ExecutorTarget {
   const { authority, canonical } = input;
+
   if (authority.machine === undefined) {
     return {
       executorId: authority.executorId,
@@ -21,13 +22,16 @@ export function targetOf(input: {
       path: canonical,
     };
   }
+
   const parsed = parseMachineLocator(canonical);
+
   if (parsed.kind !== 'path') {
     throw new ExecutorGitError(
       'invalid_path',
       'The canonical Machine address does not name one absolute path.',
     );
   }
+
   return {
     executorId: authority.executorId,
     machine: authority.machine.name,

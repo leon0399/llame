@@ -41,6 +41,7 @@ export class MachinesProbeService implements OnApplicationBootstrap {
     // surface must not exist: register nothing at all.
     if (!this.connector.enabled()) return;
     const concurrency = this.workerProfile.concurrencyFor('runs');
+
     if (concurrency === null) return;
     await this.queue.ensureQueue(MACHINES_PROBE_QUEUE);
     await this.queue.schedule(MACHINES_PROBE_QUEUE, MACHINES_PROBE_CRON);
@@ -61,6 +62,7 @@ export class MachinesProbeService implements OnApplicationBootstrap {
       names.map((name) => this.connector.reachable(name, attemptKey)),
     );
     const pruned = await this.status.pruneExcept(names);
+
     if (pruned > 0)
       this.logger.log(`Pruned ${pruned} status row(s) of removed Machine(s)`);
   }

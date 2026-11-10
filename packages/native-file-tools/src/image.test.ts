@@ -8,11 +8,14 @@ const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   Buffer.from("png body"),
 ]);
+
 const JPEG = Buffer.concat([
   Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
   Buffer.from("jpeg body"),
 ]);
+
 const GIF = Buffer.from("GIF89a gif body");
+
 const WEBP = Buffer.concat([
   Buffer.from("RIFF"),
   Buffer.from([0, 0, 0, 0]),
@@ -31,10 +34,13 @@ const DECODED = {
 /** A hook that decodes whatever it is given and records what it was given. */
 function decodingHook() {
   const handed: Array<{ byteSize: number; bytes: Buffer }> = [];
+
   const hook: MediaReadHook = async ({ byteSize, readBytes }) => {
     handed.push({ byteSize, bytes: await readBytes() });
+
     return DECODED;
   };
+
   return { hook, handed };
 }
 
@@ -133,14 +139,17 @@ describe("native image reads", () => {
   it("returns a decode refusal as the read's failure, never as text", async () => {
     const path = join(directory, "huge.png");
     await writeFile(path, PNG);
+
     const hook: MediaReadHook = ({ byteSize }) => {
       expect(byteSize).toBe(PNG.length);
+
       return Promise.resolve({
         status: "error",
         type: "media_too_large",
         message: "Image exceeds 20 MiB or 40 megapixels",
       });
     };
+
     expect(await readFile({ path }, undefined, hook)).toEqual({
       status: "error",
       type: "media_too_large",
@@ -166,10 +175,12 @@ describe("native image reads", () => {
     const path = join(directory, "flow.png");
     await writeFile(path, PNG);
     const { hook } = decodingHook();
+
     const result = await readResolvedFile(path, {
       displayPath: "kb://space/diagrams/flow.png",
       media: hook,
     });
+
     expect(result).toEqual({
       ...DECODED,
       kind: "image",
@@ -205,10 +216,12 @@ describe("native image reads", () => {
     const path = join(directory, "paper.dat");
     const bytes = Buffer.from("%PDF-1.7\n\xff binary PDF");
     await writeFile(path, bytes);
+
     const hook = vi.fn<MediaReadHook>(async (input) => {
       expect(input.kind).toBe("pdf");
       expect(input.byteSize).toBe(bytes.length);
       expect(await input.readBytes()).toEqual(bytes);
+
       return {
         status: "success",
         kind: "pdf",

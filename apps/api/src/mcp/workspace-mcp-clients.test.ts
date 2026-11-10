@@ -41,6 +41,7 @@ import {
   type AttemptToolBinding,
 } from '../tools/attempt-tool-additions';
 import { type Tool, type ToolContext } from '../tools/types';
+
 const emptySchema = { type: 'object', properties: {} };
 
 type FakeClient = McpRuntimeClient & {
@@ -55,12 +56,16 @@ type Deferred<T> = {
 
 function deferred<T>(): Deferred<T> {
   let resolve: ((value: T) => void) | undefined;
+
   const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
   });
+
   if (resolve === undefined) throw new Error('Deferred resolver missing.');
+
   return { promise, resolve };
 }
+
 function discoveredTool(serverId: string, label: string) {
   return {
     definition: {
@@ -80,13 +85,16 @@ function discoveredTool(serverId: string, label: string) {
 
 function client(serverId: string, label: string): FakeClient {
   const discovered = discoveredTool(serverId, label);
+
   const discover = vi.fn<McpRuntimeClient['discover']>(() =>
     Promise.resolve({
       tools: [discovered],
       refused: [],
     } satisfies McpDiscoveryResult),
   );
+
   const close = vi.fn<McpRuntimeClient['close']>(() => Promise.resolve());
+
   return { discover, close };
 }
 
@@ -105,8 +113,10 @@ function key(chatId: string, root: string, generation = 1): WorkspaceMcpKey {
 
 function additions(binding?: AttemptToolBinding): AttemptToolAdditions {
   const boundExecutables = new Map<string, AttemptToolBinding>();
+
   if (binding !== undefined)
     boundExecutables.set(binding.declaration.id, binding);
+
   return new AttemptToolAdditions({
     allowedToolRules: ['mcp__web__*'],
     callTimeoutSeconds: 120,
@@ -132,6 +142,7 @@ type WorkspaceFixture = {
 
 function operatorRuntime(serverId?: string): RuntimeFixture {
   const clients: Array<FakeClient> = [];
+
   const runtime = new McpRuntimeService(
     serverId === undefined
       ? {}
@@ -140,10 +151,12 @@ function operatorRuntime(serverId?: string): RuntimeFixture {
       clientFactory: (_input) => {
         const created = client(serverId ?? 'operator', 'operator');
         clients.push(created);
+
         return Promise.resolve(created);
       },
     },
   );
+
   return { runtime, clients };
 }
 
@@ -153,6 +166,7 @@ function workspaceProvider(
   now?: () => number,
 ): WorkspaceFixture {
   const clients: Array<FakeClient> = [];
+
   const provider = new WorkspaceMcpClients(operator, {
     now,
     readConfig: (root) => Promise.resolve(configs(root)),
@@ -161,17 +175,21 @@ function workspaceProvider(
       const label = 'url' in input ? input.url.split('//')[1] : serverId;
       const created = client(serverId, label);
       clients.push(created);
+
       return Promise.resolve(created);
     },
   });
+
   return { provider, clients };
 }
 
 const fakeDb = drizzle.mock({ schema });
+
 const tenantDb: TenantRunner = {
   runAs: <T>(_userId: string, operation: (db: Db) => Promise<T>) =>
     operation(fakeDb),
 };
+
 const toolContext: ToolContext = {
   userId: 'user-1',
   chatId: 'chat-1',
@@ -200,9 +218,11 @@ afterEach(() => {
 describe('WorkspaceMcpClients', () => {
   it('keeps same-id clients and executors isolated between Chats', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider } = workspaceProvider(runtime, (root) => [
       config('web', root),
     ]);
+
     const first = key('chat-a', '/workspace/a');
     const second = key('chat-b', '/workspace/b');
 
@@ -212,21 +232,27 @@ describe('WorkspaceMcpClients', () => {
     const firstResolution = provider
       .resolverFor(first, undefined)
       .resolveDynamicTool('mcp__web__search');
+
     const secondResolution = provider
       .resolverFor(second, undefined)
       .resolveDynamicTool('mcp__web__search');
+
     expect(firstResolution.state).toBe('available');
     expect(secondResolution.state).toBe('available');
+
     if (firstResolution.state !== 'available')
       throw new Error('first unavailable');
+
     if (secondResolution.state !== 'available')
       throw new Error('second unavailable');
 
     const firstResult = await firstResolution.executor.execute(toolContext, {});
+
     const secondResult = await secondResolution.executor.execute(
       toolContext,
       {},
     );
+
     expect(JSON.stringify(firstResult)).toContain('a.example.test/mcp');
     expect(JSON.stringify(secondResult)).toContain('b.example.test/mcp');
     await provider.onModuleDestroy();
@@ -235,9 +261,11 @@ describe('WorkspaceMcpClients', () => {
 
   it('stops stale generation clients before starting a current key', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider, clients } = workspaceProvider(runtime, () => [
       config('web', 'current'),
     ]);
+
     const oldKey = key('chat-1', '/old', 1);
     const newKey = key('chat-1', '/new', 2);
 
@@ -256,9 +284,11 @@ describe('WorkspaceMcpClients', () => {
   });
   it('treats generation as part of stale-key identity when the root is unchanged', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider, clients } = workspaceProvider(runtime, () => [
       config('web', 'same-root'),
     ]);
+
     const oldKey = key('chat-1', '/same-root', 1);
     const newKey = key('chat-1', '/same-root', 2);
     await provider.startForChat(oldKey);
@@ -272,9 +302,11 @@ describe('WorkspaceMcpClients', () => {
 
   it('reports a configuration read failure as an unavailable Workspace server', async () => {
     const { runtime } = operatorRuntime();
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () => Promise.reject(new Error('read failed')),
     });
+
     const state = await provider.startForChat(key('chat-1', '/unreadable'));
     expect(state.servers).toEqual([
       {
@@ -289,6 +321,7 @@ describe('WorkspaceMcpClients', () => {
 
   it('reports an unavailable config entry without starting a client', async () => {
     const { runtime } = operatorRuntime();
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () =>
         Promise.resolve([
@@ -299,6 +332,7 @@ describe('WorkspaceMcpClients', () => {
           },
         ]),
     });
+
     const state = await provider.startForChat(key('chat-1', '/bad-entry'));
     expect(state.servers).toEqual([
       { id: 'bad', state: 'unavailable', reason: 'invalid server entry' },
@@ -308,18 +342,23 @@ describe('WorkspaceMcpClients', () => {
   });
   it('reuses a matching key without rereading or restarting its clients', async () => {
     const { runtime } = operatorRuntime();
+
     const readConfig = vi.fn(() =>
       Promise.resolve([config('web', 'same-key')]),
     );
+
     const clients: Array<FakeClient> = [];
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig,
       clientFactory: (input) => {
         const created = client(input.serverId, 'same-key');
         clients.push(created);
+
         return Promise.resolve(created);
       },
     });
+
     const current = key('chat-1', '/same', 1);
     await provider.startForChat(current);
     await provider.startForChat(current);
@@ -334,13 +373,16 @@ describe('WorkspaceMcpClients', () => {
     const { runtime } = operatorRuntime();
     const pending = deferred<FakeClient>();
     let factoryCalls = 0;
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () => Promise.resolve([config('web', 'pending')]),
       clientFactory: () => {
         factoryCalls += 1;
+
         return pending.promise;
       },
     });
+
     const current = key('chat-1', '/pending', 1);
     const first = provider.startForChat(current);
     await vi.waitFor(() => expect(factoryCalls).toBe(1));
@@ -355,6 +397,7 @@ describe('WorkspaceMcpClients', () => {
   });
   it('reports each configured server from the matching runtime state', async () => {
     const { runtime } = operatorRuntime();
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () =>
         Promise.resolve([config('bad', 'bad'), config('web', 'good')]),
@@ -363,6 +406,7 @@ describe('WorkspaceMcpClients', () => {
           ? Promise.reject(new Error('bad server'))
           : Promise.resolve(client(input.serverId, 'good')),
     });
+
     const state = await provider.startForChat(key('chat-1', '/mixed'));
     expect(state.servers).toEqual([
       { id: 'bad', state: 'unavailable', reason: 'source_disconnected' },
@@ -375,12 +419,15 @@ describe('WorkspaceMcpClients', () => {
   it('defers byte-equal shadowing while retaining operator declarations', async () => {
     const { runtime } = operatorRuntime('web');
     await runtime.start();
+
     const { provider } = workspaceProvider(runtime, () => [
       config('web', 'workspace'),
     ]);
+
     const current = key('chat-1', '/workspace');
     await provider.startForChat(current);
     const id = 'mcp__web__search';
+
     const additionsHandle = additions({
       declaration: declaration(id),
       executor: operatorTool(id),
@@ -393,10 +440,13 @@ describe('WorkspaceMcpClients', () => {
     const candidates = provider.snapshotCandidates(current);
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({ source: { serverId: 'web' } });
+
     const resolution = provider
       .resolverFor(current, runtime)
       .resolveDynamicTool(id);
+
     expect(resolution.state).toBe('available');
+
     if (resolution.state !== 'available')
       throw new Error('workspace unavailable');
     expect(resolution.executor).not.toBe(additionsHandle.executorFor(id));
@@ -407,6 +457,7 @@ describe('WorkspaceMcpClients', () => {
   it('reports case-only collisions without starting the Workspace server', async () => {
     const { runtime } = operatorRuntime('web');
     await runtime.start();
+
     const { provider, clients } = workspaceProvider(runtime, () => [
       config('WEB', 'workspace'),
     ]);
@@ -427,10 +478,12 @@ describe('WorkspaceMcpClients', () => {
   it('does not shadow an operator server when Workspace startup fails', async () => {
     const { runtime } = operatorRuntime('web');
     await runtime.start();
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () => Promise.resolve([config('web', 'workspace')]),
       clientFactory: () => Promise.reject(new Error('offline')),
     });
+
     const current = key('chat-1', '/workspace');
     const state = await provider.startForChat(current);
     expect(state.servers).toEqual([
@@ -445,21 +498,26 @@ describe('WorkspaceMcpClients', () => {
 
   it('marks Workspace executors on initial attempt bindings', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider } = workspaceProvider(runtime, () => [
       config('web', 'workspace'),
     ]);
+
     const current = key('chat-1', '/workspace');
     await provider.startForChat(current);
+
     const declaration: ModelToolDeclaration = {
       id: 'mcp__web__search',
       description: 'Search workspace.example.test/mcp.',
       inputSchema: emptySchema,
     };
+
     const [bound] = await resolveBoundExecutableTools(
       [declaration],
       new Map(),
       provider.resolverFor(current, undefined),
     );
+
     expect(bound?.server).toBe('web');
     await provider.onModuleDestroy();
     await runtime.stop();
@@ -468,42 +526,53 @@ describe('WorkspaceMcpClients', () => {
   it('keeps composed Workspace source when readiness changes before binding', async () => {
     const { runtime } = operatorRuntime('web');
     await runtime.start();
+
     const { provider } = workspaceProvider(runtime, () => [
       config('web', 'workspace'),
     ]);
+
     const current = key('chat-1', '/workspace');
     await provider.startForChat(current);
     const id = 'mcp__web__search';
+
     const workspaceSource = new Map([
       [id, { type: 'mcp' as const, serverId: 'web', workspace: true as const }],
     ]);
+
     const workspaceResolver = constrainDynamicToolResolver(
       provider.resolverFor(current, runtime),
       workspaceSource,
     );
+
     await provider.stopForChat(current.chatId);
     expect(workspaceResolver?.resolveDynamicTool(id).state).toBe('unavailable');
 
     await provider.startForChat(current);
+
     const operatorSource = new Map([
       [id, { type: 'mcp' as const, serverId: 'web' }],
     ]);
+
     const operatorResolver = constrainDynamicToolResolver(
       provider.resolverFor(current, runtime),
       operatorSource,
     );
+
     expect(operatorResolver?.resolveDynamicTool(id).state).toBe('unavailable');
     await provider.onModuleDestroy();
     await runtime.stop();
   });
   it('reports changed retained Workspace declarations as next-Run additions', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider } = workspaceProvider(runtime, () => [
       config('web', 'workspace'),
     ]);
+
     const current = key('chat-1', '/workspace');
     await provider.startForChat(current);
     const id = 'mcp__web__search';
+
     const state = await provider.addToAttempt(
       current,
       additions({
@@ -516,6 +585,7 @@ describe('WorkspaceMcpClients', () => {
         server: 'web',
       }),
     );
+
     expect(state.servers).toEqual([
       {
         id: 'web',
@@ -531,13 +601,16 @@ describe('WorkspaceMcpClients', () => {
     const { runtime } = operatorRuntime();
     const pending = deferred<FakeClient>();
     let factoryCalls = 0;
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () => Promise.resolve([config('web', 'workspace')]),
       clientFactory: () => {
         factoryCalls += 1;
+
         return pending.promise;
       },
     });
+
     const current = key('chat-1', '/workspace');
     const starting = provider.startForChat(current);
     await vi.waitFor(() => expect(factoryCalls).toBe(1));
@@ -554,11 +627,13 @@ describe('WorkspaceMcpClients', () => {
   it('ends a transferred hold on the current Workspace key', async () => {
     let now = 1e3;
     const { runtime } = operatorRuntime();
+
     const { provider, clients } = workspaceProvider(
       runtime,
       () => [config('web', 'workspace')],
       () => now,
     );
+
     const oldKey = key('chat-1', '/old', 1);
     const newKey = key('chat-1', '/new', 2);
     await provider.startForChat(oldKey);
@@ -583,11 +658,13 @@ describe('WorkspaceMcpClients', () => {
   it('keeps active Run clients through idle cleanup, then stops them', async () => {
     let now = 1e3;
     const { runtime } = operatorRuntime();
+
     const { provider, clients } = workspaceProvider(
       runtime,
       () => [config('web', 'workspace')],
       () => now,
     );
+
     const current = key('chat-1', '/workspace');
     await provider.startForChat(current);
     provider.beginAttempt(current);
@@ -611,9 +688,11 @@ describe('WorkspaceMcpClients', () => {
 describe('WorkspaceMcpClients in a read-only attempt', () => {
   it('lists configured servers as unstarted and starts nothing', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider, clients } = workspaceProvider(runtime, (root) => [
       config('web', root),
     ]);
+
     const workspace = key('chat-1', '/workspace/read-only');
 
     const servers = await provider.listUnstarted(workspace);
@@ -633,6 +712,7 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
 
   it('keeps a file diagnostic the reader already reported', async () => {
     const { runtime } = operatorRuntime();
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () =>
         Promise.resolve([
@@ -659,9 +739,11 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
 
   it('keeps a cached client set for the same key', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider, clients } = workspaceProvider(runtime, () => [
       config('web', 'same-key'),
     ]);
+
     const current = key('chat-1', '/workspace/same');
 
     await provider.startForChat(current);
@@ -680,14 +762,17 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
     const { runtime } = operatorRuntime();
     const gate = deferred<void>();
     const created: Array<FakeClient> = [];
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: () => Promise.resolve([config('web', 'in-flight')]),
       clientFactory: (input) => {
         const started = client(input.serverId, 'in-flight');
         created.push(started);
+
         return gate.promise.then(() => started);
       },
     });
+
     const inFlight = key('chat-1', '/workspace/in-flight', 2);
     const next = key('chat-1', '/workspace/next', 3);
 
@@ -711,9 +796,11 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
 
   it('stops an earlier generation without starting the current one', async () => {
     const { runtime } = operatorRuntime();
+
     const { provider, clients } = workspaceProvider(runtime, () => [
       config('web', 'stale'),
     ]);
+
     const stale = key('chat-1', '/workspace/a', 1);
     const current = key('chat-1', '/workspace/b', 2);
 
@@ -738,6 +825,7 @@ const MACHINE_HOSTS = {
   ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
   hosts: { devl: { destination: 'box' } },
 };
+
 const MACHINE_ROOT = 'machine://devl/srv/work';
 const START_SECRET = 'repo-token-sentinel';
 const LEARNED_SECRET = 'session-id-sentinel';
@@ -780,6 +868,7 @@ function fakeMachine(servers: ReadonlyArray<McpServerEntry>): FakeMachine {
   const protocolVersions: Array<string> = [];
   const state = { down: false, holdCalls: false };
   let latest: PeerSession | undefined;
+
   const peer = createProtocolPeer({
     roots: ['/srv/work'],
     openFailure: () =>
@@ -792,19 +881,26 @@ function fakeMachine(servers: ReadonlyArray<McpServerEntry>): FakeMachine {
     },
     onNotification: (method, notification) => {
       if (method !== 'mcp.open' || latest === undefined) return;
+
       if (notification.method === 'mcp.setProtocolVersion') {
         const version = field(notification.params, 'version');
+
         if (isString(version)) protocolVersions.push(version);
+
         return;
       }
+
       if (notification.method !== 'mcp.message') return;
       const call = jsonRpcCall(field(notification.params, 'message'));
+
       if (call === undefined) return;
       const answer = answerFor(call, toolCalls, state);
+
       if (answer === undefined) return;
       latest.notify('mcp.open', 'mcp.message', { message: answer });
     },
   });
+
   const connector = new MachineConnector({
     machines: MACHINE_HOSTS,
     hubVersion: '9.9.9',
@@ -812,11 +908,13 @@ function fakeMachine(servers: ReadonlyArray<McpServerEntry>): FakeMachine {
       open: (options) => {
         const transport = peer.factory.open(options);
         latest = peer.sessions.at(-1);
+
         return transport;
       },
     },
     handshakeTimeoutMs: 2000,
   });
+
   return {
     peer,
     connector,
@@ -837,6 +935,7 @@ function field(
 ): JsonValue | undefined {
   if (!isRecord(params)) return undefined;
   const value = params[key];
+
   return value === null ||
     isRecord(value) ||
     Array.isArray(value) ||
@@ -851,8 +950,10 @@ function jsonRpcCall(message: JsonValue | undefined): JsonRpcCall | undefined {
   if (!isRecord(message)) return undefined;
   const id = message['id'];
   const method = message['method'];
+
   if (!isString(method) || (!isString(id) && !isNumber(id))) return undefined;
   const params = field(message, 'params');
+
   return params === undefined ? { id, method } : { id, method, params };
 }
 
@@ -891,10 +992,13 @@ function callAnswer(
   state: { holdCalls: boolean },
 ): JsonValue | undefined {
   const name = field(call.params, 'name');
+
   if (!isString(name)) return undefined;
   toolCalls.push(name);
+
   // A held call is one the Machine never answers: it dies with the channel.
   if (state.holdCalls) return undefined;
+
   return {
     jsonrpc: '2.0',
     id: call.id,
@@ -926,6 +1030,7 @@ async function startMachineWorkspace(
   const session = await machine.peer.session(sessionIndex);
   await session.awaitRequests(2);
   session.release('mcp.open', { protectedValues: [START_SECRET] }, true);
+
   return started;
 }
 
@@ -937,8 +1042,10 @@ function availableTool(
   const candidate = provider
     .snapshotCandidates(workspace)
     .find((entry) => entry.state === 'available' && entry.tool.id === id);
+
   if (candidate?.state !== 'available')
     throw new Error(`Expected ${id} to be offered.`);
+
   return candidate.tool;
 }
 
@@ -952,12 +1059,15 @@ describe('WorkspaceMcpClients over a Machine', () => {
         diagnostic: 'unset variable REPO_TOKEN',
       },
     ]);
+
     const { runtime } = operatorRuntime();
     const readConfig = vi.fn(() => Promise.reject(new Error('unreachable')));
+
     const provider = new WorkspaceMcpClients(runtime, {
       connector: machine.connector,
       readConfig,
     });
+
     const workspace = key('chat-1', MACHINE_ROOT);
 
     const state = await startMachineWorkspace(provider, machine, workspace);
@@ -972,13 +1082,16 @@ describe('WorkspaceMcpClients over a Machine', () => {
         reason: 'unset variable REPO_TOKEN',
       },
     ]);
+
     const offered = provider
       .snapshotCandidates(workspace)
       .filter((candidate) => candidate.source.type === 'mcp');
+
     expect(offered.map((candidate) => candidate.source)).toEqual([
       { type: 'mcp', serverId: 'storybook', workspace: true },
     ]);
     const deploy = offered[0];
+
     if (deploy?.state !== 'available')
       throw new Error('Expected the deploy tool to be offered.');
     // Advertised exactly as a local Workspace server's declaration, with every
@@ -995,10 +1108,13 @@ describe('WorkspaceMcpClients over a Machine', () => {
     const machine = fakeMachine([
       { name: 'storybook', transport: 'stdio', state: 'available' },
     ]);
+
     const { runtime } = operatorRuntime();
+
     const provider = new WorkspaceMcpClients(runtime, {
       connector: machine.connector,
     });
+
     const workspace = key('chat-1', MACHINE_ROOT);
     await startMachineWorkspace(provider, machine, workspace);
     const session = await machine.peer.session(0);
@@ -1010,9 +1126,11 @@ describe('WorkspaceMcpClients over a Machine', () => {
       text: `connected as ${LEARNED_SECRET} with ${START_SECRET}\n`,
     });
     await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+
     const diagnostics = warn.mock.calls
       .map(([text]) => String(text))
       .join('\n');
+
     expect(diagnostics).toContain(REDACTED);
     expect(diagnostics).not.toContain(START_SECRET);
     expect(diagnostics).not.toContain(LEARNED_SECRET);
@@ -1022,6 +1140,7 @@ describe('WorkspaceMcpClients over a Machine', () => {
       workspace,
       'mcp__storybook__deploy',
     ).execute(toolContext, {});
+
     const observed = JSON.stringify(result);
     expect(observed).toContain(REDACTED);
     expect(observed).not.toContain(START_SECRET);
@@ -1035,10 +1154,13 @@ describe('WorkspaceMcpClients over a Machine', () => {
     const machine = fakeMachine([
       { name: 'storybook', transport: 'http', state: 'available' },
     ]);
+
     const { runtime } = operatorRuntime();
+
     const provider = new WorkspaceMcpClients(runtime, {
       connector: machine.connector,
     });
+
     const workspace = key('chat-1', MACHINE_ROOT);
     await startMachineWorkspace(provider, machine, workspace);
     const tool = availableTool(provider, workspace, 'mcp__storybook__deploy');
@@ -1063,6 +1185,7 @@ describe('WorkspaceMcpClients over a Machine', () => {
 
     await provider.stopForChat(workspace.chatId);
     machine.setDown(false);
+
     const restarted = await startMachineWorkspace(
       provider,
       machine,
@@ -1082,9 +1205,11 @@ describe('WorkspaceMcpClients over a Machine', () => {
   it('lists a binding once and serves a same-root re-entry from the attempt cell', async () => {
     const { runtime } = operatorRuntime();
     const readConfig = vi.fn((root: string) => [config('web', root)]);
+
     const provider = new WorkspaceMcpClients(runtime, {
       readConfig: (root) => Promise.resolve(readConfig(root)),
     });
+
     const workspace = key('chat-1', '/workspace/listed');
     const cell: WorkspaceMcpListingCell = {};
 
@@ -1100,11 +1225,13 @@ describe('WorkspaceMcpClients over a Machine', () => {
     ]);
     expect(again).toBe(first);
     expect(readConfig).toHaveBeenCalledOnce();
+
     // Another binding is a different listing: it reads configuration again.
     const next = await provider.listUnstartedOnce(
       cell,
       key('chat-1', '/workspace/next', 2),
     );
+
     expect(next).not.toBe(first);
     expect(readConfig).toHaveBeenCalledTimes(2);
 
@@ -1121,10 +1248,13 @@ describe('WorkspaceMcpClients over a Machine', () => {
         diagnostic: 'unset variable REPO_TOKEN',
       },
     ]);
+
     const { runtime } = operatorRuntime();
+
     const provider = new WorkspaceMcpClients(runtime, {
       connector: machine.connector,
     });
+
     const workspace = key('chat-1', MACHINE_ROOT);
 
     const servers = await provider.listUnstarted(workspace);

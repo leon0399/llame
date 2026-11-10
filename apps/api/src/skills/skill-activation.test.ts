@@ -43,6 +43,7 @@ afterEach(() => {
 function temporaryDirectory(label: string): string {
   const directory = mkdtempSync(path.join(tmpdir(), `llame-${label}-`));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -57,6 +58,7 @@ function createPackage(
     path.join(packageDirectory, 'SKILL.md'),
     `---\nname: ${name}\ndescription: The ${name} skill.\n---\n${body}`,
   );
+
   if (options.sidecar !== undefined) {
     const agents = path.join(packageDirectory, 'agents');
     mkdirSync(agents, { recursive: true });
@@ -103,6 +105,7 @@ function harness(
   } = {},
 ) {
   const audit: Array<AuditRecord> = [];
+
   const context: ToolContext = {
     configuredCredentials: [],
     userId: 'owner',
@@ -120,6 +123,7 @@ function harness(
       workspaceRoot: createWorkspaceRootCell(options.workspaceRoot),
     }),
   };
+
   return {
     audit,
     context,
@@ -137,6 +141,7 @@ function harness(
     },
   };
 }
+
 const run = (
   text: string,
   overrides: {
@@ -145,6 +150,7 @@ const run = (
   } = {},
 ) => {
   const h = harness(overrides);
+
   return activateSkills({
     mentions: parseSkillMentions(text),
     runId: RUN_ID,
@@ -273,6 +279,7 @@ describe('activateSkills', () => {
     for (let index = 0; index < MAX_SKILL_ACTIVATIONS + 3; index += 1) {
       createPackage(`skill-${String(index).padStart(2, '0')}`);
     }
+
     const text = Array.from(
       { length: MAX_SKILL_ACTIVATIONS + 3 },
       (_, index) => `$skill-${String(index).padStart(2, '0')}`,
@@ -283,6 +290,7 @@ describe('activateSkills', () => {
     const omission = outcome.items.filter(
       (item) => item.data.payload['kind'] === 'omission',
     );
+
     expect(omission).toHaveLength(1);
     expect(omission[0].data.payload).toMatchObject({
       kind: 'omission',
@@ -361,6 +369,7 @@ describe('activateSkills', () => {
     createPackage('research');
 
     const h = harness();
+
     const outcome = await activateSkills({
       mentions: parseSkillMentions('$pdf $research'),
       runId: RUN_ID,
@@ -386,6 +395,7 @@ describe('activateSkills', () => {
   it('carries the reader truncation notice into the instructions', async () => {
     createPackage('pdf');
     const h = harness();
+
     // A long body trips the shared result cap, so the read reports truncation.
     const truncated = await activateSkills({
       mentions: parseSkillMentions('$pdf'),
@@ -416,6 +426,7 @@ describe('activateSkills', () => {
           // The runner overwrites `timeoutMs`, so the bound must ride the abort
           // signal the read actually receives.
           sawDeadline = context.abortSignal !== undefined;
+
           return Promise.resolve({
             status: 'error',
             type: 'cancelled',

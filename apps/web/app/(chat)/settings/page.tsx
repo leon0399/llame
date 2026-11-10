@@ -160,6 +160,7 @@ function AppearanceSection() {
     monoFontStyle,
     setMonoFontStyle,
   } = useAppearance();
+
   return (
     <Card className="lg:max-w-2xl">
       {appearanceCardHeader}

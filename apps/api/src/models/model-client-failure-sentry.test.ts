@@ -19,6 +19,7 @@ import type { ChatIdentity, ModelClient } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
 
 const CHAT: ChatIdentity = { id: 'chat-sentry', lane: 'main' };
+
 const messages = [
   { role: 'user', content: 'Say hello.' },
 ] satisfies Array<ModelMessage>;
@@ -94,6 +95,7 @@ async function reportedFailure(
         if (!isRecord(error)) {
           throw new TypeError('expected the wire to forward a failure object');
         }
+
         reported.push(error);
       },
     })
@@ -102,7 +104,9 @@ async function reportedFailure(
       () => undefined,
     );
   const [failure] = reported;
+
   if (failure === undefined) throw new Error('no failure was reported');
+
   return failure;
 }
 
@@ -118,13 +122,16 @@ async function sentryEvent(error: UnknownRecord): Promise<string> {
       normalizeDepth: 10,
       beforeSend: (event) => {
         resolve(JSON.stringify(event));
+
         return null;
       },
     });
   });
+
   Sentry.captureException(error, {
     tags: { 'llame.run_id': 'run-1', 'llame.chat_id': CHAT.id },
   });
+
   try {
     return await captured;
   } finally {

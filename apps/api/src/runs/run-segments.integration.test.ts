@@ -43,6 +43,7 @@ describe('run steering segments', () => {
     nativeExecutorId: 'run-segments-host',
     maxStepsPerRun: 2,
   });
+
   const {
     db,
     storeItems,
@@ -63,6 +64,7 @@ describe('run steering segments', () => {
     it('A steer during a tool call waits for the result', async () => {
       // The call blocks on a gate file, so the item is stored while it runs.
       const gate = join(fx.directory, `gate-${randomUUID()}`);
+
       const started = await startRun([
         call('slow', 'bash', {
           command: `while [ ! -e ${gate} ]; do sleep 0.05; done; echo opened`,
@@ -70,6 +72,7 @@ describe('run steering segments', () => {
         }),
         answer('after the steer'),
       ]);
+
       await waitFor(
         async () =>
           (await types(started.runId)).includes('tool.started')
@@ -83,12 +86,15 @@ describe('run steering segments', () => {
       await terminal(started.runId);
 
       const log = await events(started.runId);
+
       const completed = log.findIndex(
         (event) => event.eventType === 'tool.completed',
       );
+
       const delivered = log.findIndex(
         (event) => event.eventType === 'run.delivered',
       );
+
       expect(completed).toBeGreaterThan(-1);
       expect(delivered).toBeGreaterThan(completed);
       expect(log[completed]?.payload).toMatchObject({
@@ -113,6 +119,7 @@ describe('run steering segments', () => {
           if (index === 0) await storeItems(seeded.chatId, ['mid-response']);
         },
       );
+
       await terminal(started.runId);
 
       const messages = await transcript(started.chatId);
@@ -141,6 +148,7 @@ describe('run steering segments', () => {
           if (index === 1) await storeItems(seeded.chatId, ['more']);
         },
       );
+
       const finished = await terminal(started.runId);
 
       expect(finished.status).toBe('completed');
@@ -168,6 +176,7 @@ describe('run steering segments', () => {
           if (index === 2) await storeItems(seeded.chatId, ['keep going']);
         },
       );
+
       await terminal(started.runId);
 
       const log = await types(started.runId);
@@ -186,6 +195,7 @@ describe('run steering segments', () => {
 
     it('Two steers at one boundary', async () => {
       let ids: Array<string> = [];
+
       const started = await startRun(
         [call('a', 'read', { path: fx.directory }), answer('both seen')],
         async (index, seeded) => {
@@ -194,16 +204,21 @@ describe('run steering segments', () => {
           }
         },
       );
+
       await terminal(started.runId);
 
       const messages = await transcript(started.chatId);
+
       const delivered = messages.filter(
         (message) => message.role === 'user' && message.text === 'one|two',
       );
+
       expect(delivered).toHaveLength(1);
+
       const stored = await db((tx) =>
         new MessagesRepository(tx).findByChatId(started.chatId, fx.userId),
       );
+
       expect(
         stored.find((message) => message.id === delivered[0]?.id)?.senderUserId,
       ).toBe(fx.userId);
@@ -225,6 +240,7 @@ describe('run steering segments', () => {
           if (index === 0) await storeItems(seeded.chatId, ['steer']);
         },
       );
+
       const finished = await terminal(started.runId);
 
       const messages = await transcript(started.chatId);
@@ -253,23 +269,30 @@ describe('run steering segments', () => {
           if (index === 0) await storeItems(seeded.chatId, ['steer']);
         },
       );
+
       await terminal(started.runId);
 
       const log = await events(started.runId);
+
       const usageEvent = log.findIndex(
         (event) => event.eventType === 'model.completed',
       );
+
       const delivered = log.findIndex(
         (event) => event.eventType === 'run.delivered',
       );
+
       expect(usageEvent).toBeGreaterThan(-1);
       expect(usageEvent).toBeLessThan(delivered);
+
       const streamed =
         isRecord(log[usageEvent]?.payload) &&
         log[usageEvent].payload['telemetry'];
+
       const [firstReply] = (await transcript(started.chatId)).filter(
         (message) => message.role === 'assistant',
       );
+
       // The reload shows the usage the stream carried.
       expect(firstReply?.usage).toEqual(streamed);
     });
@@ -286,6 +309,7 @@ describe('run steering segments', () => {
           );
         },
       );
+
       const finished = await terminal(started.runId);
 
       expect(finished.status).toBe('cancelled');
@@ -310,6 +334,7 @@ describe('run steering segments', () => {
           }
         },
       );
+
       const finished = await terminal(started.runId);
 
       expect(finished.status).toBe('cancelled');
@@ -330,6 +355,7 @@ describe('run steering segments', () => {
           if (index === 1) await storeItems(seeded.chatId, ['one more thing']);
         },
       );
+
       const finished = await terminal(started.runId);
 
       const messages = await transcript(started.chatId);
@@ -360,11 +386,13 @@ describe('run steering segments', () => {
               ),
             );
           }
+
           return [];
         });
 
     it('A withdrawal after the step end', async () => {
       const spy = withdrawBeforeDelivery();
+
       try {
         const started = await startRun(
           [call('a', 'read', { path: fx.directory }), answer('same segment')],
@@ -372,6 +400,7 @@ describe('run steering segments', () => {
             if (index === 0) await storeItems(seeded.chatId, ['never mind']);
           },
         );
+
         const finished = await terminal(started.runId);
 
         // Read at the step end, then again by the completion check.
@@ -394,6 +423,7 @@ describe('run steering segments', () => {
 
     it('A withdrawal leaves the step budget the earlier calls left', async () => {
       const spy = withdrawBeforeDelivery();
+
       try {
         // The cap is 2: the first call used one step and stopped at the step
         // end, so the continuation has one tool step left, then the forced
@@ -408,6 +438,7 @@ describe('run steering segments', () => {
             if (index === 0) await storeItems(seeded.chatId, ['never mind']);
           },
         );
+
         const finished = await terminal(started.runId);
 
         expect(finished.status).toBe('completed');
@@ -444,14 +475,17 @@ describe('run steering segments', () => {
           usage: { status: 'completed', complete: true },
         }),
       );
+
       const started = await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
+
       await db((tx) =>
         new RunEventsRepository(tx).append(seeded.runId, 'run.started'),
       );
       await before?.(seeded);
       await storeItems(seeded.chatId, [steerText]);
+
       const delivery = await db((tx) =>
         deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: fx.userId },
@@ -459,7 +493,9 @@ describe('run steering segments', () => {
           models: [],
         }),
       );
+
       if (delivery.kind !== 'delivered') throw new Error('not delivered');
+
       return { ...seeded, delivered: delivery };
     }
 
@@ -502,6 +538,7 @@ describe('run steering segments', () => {
           );
         },
       );
+
       await launch(crashed, [answer('carried on')]);
       expect((await terminal(crashed.runId)).status).toBe('completed');
     });
@@ -547,6 +584,7 @@ describe('run steering segments', () => {
           });
         },
       );
+
       const attemptId = crashed.delivered.attemptId;
       await db(async (tx) => {
         const log = new RunEventsRepository(tx);
@@ -559,6 +597,7 @@ describe('run steering segments', () => {
           stepNumber: 0,
         });
       });
+
       const replyId = await db(async (tx) => {
         const reply = await new MessagesRepository(
           tx,
@@ -574,9 +613,12 @@ describe('run steering segments', () => {
             modelId: crashed.modelId,
           },
         });
+
         return reply?.id;
       });
+
       const current = await run(crashed.runId);
+
       if (!current) throw new Error('Run missing');
       await db((tx) =>
         finalizeRunReply(tx, { run: current, status: 'failed', models: [] }),
@@ -604,6 +646,7 @@ describe('run steering segments', () => {
           );
         },
       );
+
       await db((tx) =>
         new RunsRepository(tx).requestCancel(crashed.runId, fx.userId),
       );
@@ -624,6 +667,7 @@ describe('run steering segments', () => {
       // eslint-disable-next-line typescript/unbound-method -- called back with its own receiver below.
       const update = RunsRepository.prototype.updateForAttempt;
       let dispatches = 0;
+
       // The second dispatch belongs to the segment that the delivery started:
       // the cancellation lands after the delivery, before that dispatch fences
       // the attempt. No abort reaches this worker.
@@ -634,17 +678,21 @@ describe('run steering segments', () => {
           ...args: Parameters<RunsRepository['updateForAttempt']>
         ): Promise<Run | undefined> {
           const [runId, owner, , set] = args;
+
           if (set.turnToolAvailability !== undefined) {
             dispatches += 1;
+
             if (dispatches === 2) {
               await db((tx) =>
                 new RunsRepository(tx).requestCancel(runId, owner),
               );
             }
           }
+
           // eslint-disable-next-line typescript/no-unsafe-return -- the spied method's own result, passed through.
           return update.apply(this, args);
         });
+
       try {
         const started = await startRun(
           [call('a', 'read', { path: fx.directory }), answer('must not run')],
@@ -652,6 +700,7 @@ describe('run steering segments', () => {
             if (index === 0) await storeItems(seeded.chatId, ['redirect']);
           },
         );
+
         const finished = await terminal(started.runId);
 
         expect(finished.status).toBe('cancelled');
@@ -668,14 +717,17 @@ describe('run steering segments', () => {
 
     it('A superseded attempt cannot deliver', async () => {
       const seeded = await seed();
+
       const first = await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
+
       // A newer attempt claims the Run.
       await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
       const [item] = await storeItems(seeded.chatId, ['stale']);
+
       const result = await db((tx) =>
         deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: fx.userId },
@@ -694,9 +746,11 @@ describe('run steering segments', () => {
 
     it('A crash before delivery keeps the item', async () => {
       const seeded = await seed();
+
       const started = await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
+
       const [item] = await storeItems(seeded.chatId, ['survives']);
       const attemptId = started?.activeAttemptId ?? '';
       // The worker dies after the delivery wrote everything and before commit.
@@ -718,6 +772,7 @@ describe('run steering segments', () => {
         activeAttemptId: attemptId,
       });
       expect(await types(seeded.runId)).not.toContain('run.delivered');
+
       // The retried attempt delivers it once.
       const retried = await db((tx) =>
         deliverPendingSteering(tx, {
@@ -726,7 +781,9 @@ describe('run steering segments', () => {
           models: [],
         }),
       );
+
       expect(retried.kind).toBe('delivered');
+
       const again = await db((tx) =>
         deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: fx.userId },
@@ -734,6 +791,7 @@ describe('run steering segments', () => {
           models: [],
         }),
       );
+
       expect(again.kind).toBe('nothing-pending');
     });
   });
@@ -741,9 +799,11 @@ describe('run steering segments', () => {
   describe('tenant isolation', () => {
     it("Another owner's session reaches nothing of this Run, and changes nothing", async () => {
       const seeded = await seed();
+
       const started = await db((tx) =>
         new RunsRepository(tx).markStarted(seeded.runId, fx.userId),
       );
+
       const attemptId = started?.activeAttemptId ?? '';
       const [item] = await storeItems(seeded.chatId, ['private']);
       const stranger = await createUser(fx.harness.db, 'run-segments-stranger');
@@ -800,6 +860,7 @@ describe('run steering segments without tools', () => {
         if (index === 0) await fx.storeItems(seeded.chatId, ['late thought']);
       },
     );
+
     const finished = await fx.terminal(started.runId);
 
     // No `stopWhen` exists without tools: the completion check alone kept it live.
@@ -850,6 +911,7 @@ describe('run steering segments and the time limits', () => {
     // clock and the app clock mixed, which can differ by seconds under Docker.
     let firstRequestAt = 0;
     let secondRequestAt = 0;
+
     const started = await fx.startRun(
       [
         call('first', 'bash', { command: 'sleep 2', cwd: fx.directory }),
@@ -860,9 +922,11 @@ describe('run steering segments and the time limits', () => {
           firstRequestAt = Date.now();
           await fx.storeItems(seeded.chatId, ['keep going']);
         }
+
         if (index === 1) secondRequestAt = Date.now();
       },
     );
+
     const finished = await fx.terminal(started.runId);
     const settledAt = Date.now();
 

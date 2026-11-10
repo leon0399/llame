@@ -37,6 +37,7 @@ function sanitizeStdout(
     options.boundBytes === undefined
       ? context({ outputBound: options.bound ?? 64 })
       : context({ outputBoundBytes: options.boundBytes });
+
   const captures: ResultCaptures =
     options.gapAt === undefined
       ? { stdout: { endedByLlame: options.endedByLlame ?? false } }
@@ -46,6 +47,7 @@ function sanitizeStdout(
             gapAt: options.gapAt,
           },
         };
+
   return sanitizeKnownResult(
     {
       status: "success",
@@ -79,6 +81,7 @@ function expectWithinBound(text: string, options: SanitizeOptions): void {
     options.boundBytes === undefined
       ? { kind: "code-units" as const, limit: options.bound ?? 64 }
       : { kind: "bytes" as const, limit: options.boundBytes };
+
   expect(boundedLength(text, bound)).toBeLessThanOrEqual(bound.limit);
 }
 
@@ -96,6 +99,7 @@ describe("bash result sanitization", () => {
   it("redacts a member crossing the bound whole through the capture lookahead", () => {
     const members = ["SECRET-KEY-0123456789"];
     const options = { bound: 30 };
+
     const sanitized = sanitizeStdout(
       `012345678901234${members[0]}`,
       members,
@@ -136,6 +140,7 @@ describe("bash result sanitization", () => {
 
   it("drops a container member whose capture was cut inside it", () => {
     const members = ["AUTH", "AUTH-SENTINEL"];
+
     const sanitized = sanitizeStdout("prefix AUTH-SENT", members, {
       endedByLlame: true,
     });
@@ -148,6 +153,7 @@ describe("bash result sanitization", () => {
 
   it("drops a capture cut mid-member", () => {
     const members = ["SECRET-KEY"];
+
     const sanitized = sanitizeStdout("prefix SECRET", members, {
       endedByLlame: true,
     });
@@ -177,6 +183,7 @@ describe("bash result sanitization", () => {
   it("keeps a pre-bound member interval from a non-ASCII capture", () => {
     const members = ["SECRET-ключ"];
     const options = { boundBytes: 21 };
+
     const sanitized = sanitizeStdout(
       `0123456789${members[0]}`,
       members,
@@ -192,6 +199,7 @@ describe("bash result sanitization", () => {
   it("replaces a complete member whose capture cut starts inside it", () => {
     const members = ["ABCDEFGHIJ", "JKL"];
     const options = { bound: 16 };
+
     const sanitized = sanitizeStdout(
       `${"x".repeat(15)}${members[0]}K`,
       members,
@@ -207,6 +215,7 @@ describe("bash result sanitization", () => {
 
   it("replaces a complete member a timeout drop starts inside", () => {
     const members = ["sk-live-abc123e", "eyJhbGciOiJIUzI1NiJ9"];
+
     const sanitized = sanitizeStdout("key=sk-live-abc123e", members, {
       endedByLlame: true,
     });
@@ -219,6 +228,7 @@ describe("bash result sanitization", () => {
 
   it("drops only the tail fragment a transport gap left", () => {
     const members = ["SECRET-KEY-ABCDEF"];
+
     const sanitized = sanitizeStdout("aaaKEY-ABCDEF zzz", members, {
       gapAt: 3,
     });
@@ -230,6 +240,7 @@ describe("bash result sanitization", () => {
 
   it("replaces a complete member wholly kept in front of a transport gap", () => {
     const members = ["ABCDEFGHIJ"];
+
     const sanitized = sanitizeStdout("xxABCDEFGHIJKLMN", members, {
       gapAt: 12,
     });

@@ -53,6 +53,7 @@ describe('sanitizeAuthoredText', () => {
     // must still pass — it names a tag this value did open.
     const authored =
       '<instructions>\nALWAYS follow <answering_rules>\n<answering_rules>1. x</answering_rules>\n</instructions>';
+
     expect(sanitizeAuthoredText(authored)).toBe(authored);
 
     // But a phantom cannot be CLOSED by anything later than itself being

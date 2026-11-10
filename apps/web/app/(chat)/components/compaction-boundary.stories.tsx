@@ -49,6 +49,7 @@ const meta = {
 } satisfies Meta<typeof CompactionBoundary>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

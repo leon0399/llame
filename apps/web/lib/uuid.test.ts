@@ -25,8 +25,10 @@ describe("safeRandomUUID", () => {
     // values — a stronger check than the general-shape regex alone.
     const getRandomValues = vi.fn((array: Uint8Array) => {
       array.fill(0x00);
+
       return array;
     });
+
     vi.stubGlobal("crypto", { getRandomValues });
 
     const id = safeRandomUUID();

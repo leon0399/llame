@@ -53,6 +53,7 @@ afterEach(async () => {
 
 function readingContext(permissionPolicy: CompiledPolicy): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     configuredCredentials: [],
     userId: 'owner',
@@ -74,13 +75,16 @@ function nativePageReader(
   permissionPolicy: CompiledPolicy = compileTestPermissionPolicy(),
 ): ReadPage {
   const context = readingContext(permissionPolicy);
+
   return (selectorPath) =>
     runTool(nativeReadTool, { path: selectorPath }, context, 30);
 }
 
 async function candidateOf(file: string): Promise<InstructionCandidate> {
   const probe = await statHostPath(file);
+
   if (probe.kind === 'missing') throw new Error(`missing fixture ${file}`);
+
   return {
     path: file,
     canonicalPath: probe.canonicalPath,
@@ -282,6 +286,7 @@ describe('selectCandidates', () => {
     // candidates.
     const claude = join(root, 'CLAUDE.md');
     await writeFile(claude, '# Claude\n');
+
     const resolvesEveryName: StatHostPath = (path) =>
       Promise.resolve({ kind: 'file', size: 9, canonicalPath: path });
 
@@ -316,6 +321,7 @@ describe('readInstructionFile', () => {
 
   it('passes a canonical path only on the first page', async () => {
     const calls: Array<readonly [string, string | undefined]> = [];
+
     const pages: Array<ToolResult> = [
       {
         status: 'success',
@@ -333,10 +339,13 @@ describe('readInstructionFile', () => {
         truncated: false,
       },
     ];
+
     const readPage: ReadPage = (selectorPath, canonicalPath) => {
       calls.push([selectorPath, canonicalPath]);
       const page = pages.shift();
+
       if (page === undefined) throw new Error('unexpected page request');
+
       return Promise.resolve(page);
     };
 
@@ -369,8 +378,10 @@ describe('readInstructionFile', () => {
     await writeFile(file, body);
     const readPage = nativePageReader();
     let pages = 0;
+
     const counting: ReadPage = (path) => {
       pages += 1;
+
       return readPage(path);
     };
 
@@ -445,6 +456,7 @@ describe('readInstructionFile', () => {
   it('denies a file a reject rule names', async () => {
     const file = join(root, 'AGENTS.md');
     await writeFile(file, '# Rules\n');
+
     const policy = compileToolPermissionMap(
       {
         read: {
@@ -490,9 +502,12 @@ describe('readInstructionFile', () => {
       },
       { status: 'error', type: 'invalid_selector', message: 'No such line.' },
     ];
+
     const readPage: ReadPage = () => {
       const page = pages.shift();
+
       if (page === undefined) throw new Error('unexpected page request');
+
       return Promise.resolve(page);
     };
 
@@ -519,9 +534,12 @@ describe('readInstructionFile', () => {
     // text across the hole, so a page that adds no line ends the file.
     const body = 'partial line without newline';
     let calls = 0;
+
     const readPage: ReadPage = () => {
       calls += 1;
+
       if (calls > 1) throw new Error('unexpected page request');
+
       return Promise.resolve({
         status: 'success',
         kind: 'file',
@@ -615,9 +633,12 @@ describe('readInstructionFile', () => {
       },
       { status: 'error', type: 'permission_denied', message: 'Denied.' },
     ];
+
     const readPage: ReadPage = () => {
       const page = pages.shift();
+
       if (page === undefined) throw new Error('unexpected page request');
+
       return Promise.resolve(page);
     };
 

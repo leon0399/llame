@@ -28,14 +28,18 @@ export async function notifyRunControl(
 
 export function parseRunControl(raw: string): RunControlMessage | undefined {
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(raw);
   } catch {
     return undefined;
   }
+
   if (!isRecord(parsed)) return undefined;
   const { runId, kind } = parsed;
+
   if (!isString(runId)) return undefined;
+
   return kind === 'cancel' || kind === 'interrupt'
     ? { runId, kind }
     : undefined;

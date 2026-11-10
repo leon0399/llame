@@ -22,6 +22,7 @@ export function paramRecord(
 ): SerializableRecord {
   if (!isSerializableRecord(value))
     throw invalidParams(method, "the request carries no parameters");
+
   return value;
 }
 
@@ -35,6 +36,7 @@ export function refuseUnknownKeys(
   allowed: ReadonlyArray<string>,
 ): void {
   const unknown = Object.keys(source).find((key) => !allowed.includes(key));
+
   if (unknown !== undefined) {
     throw invalidParams(method, `Unknown parameter: ${unknown}.`);
   }
@@ -46,8 +48,10 @@ export function requireString(
   method: string,
 ): string {
   const value = source[key];
+
   if (!isStringValue(value))
     throw invalidParams(method, `parameter ${key} must be a string`);
+
   return value;
 }
 
@@ -57,9 +61,12 @@ export function optionalString(
   method: string,
 ): string | undefined {
   const value = source[key];
+
   if (value === undefined) return undefined;
+
   if (!isStringValue(value))
     throw invalidParams(method, `parameter ${key} must be a string`);
+
   return value;
 }
 
@@ -69,8 +76,10 @@ export function requireBoolean(
   method: string,
 ): boolean {
   const value = source[key];
+
   if (value !== true && value !== false)
     throw invalidParams(method, `parameter ${key} must be a boolean`);
+
   return value;
 }
 
@@ -81,11 +90,13 @@ export function requireCount(
   method: string,
 ): number {
   const value = source[key];
+
   if (!isIntegerValue(value) || value < 0)
     throw invalidParams(
       method,
       `parameter ${key} must be a whole number of at least 0`,
     );
+
   return value;
 }
 
@@ -95,8 +106,10 @@ export function requireRecord(
   method: string,
 ): SerializableRecord {
   const value = source[key];
+
   if (!isSerializableRecord(value))
     throw invalidParams(method, `parameter ${key} must be an object`);
+
   return value;
 }
 
@@ -117,19 +130,24 @@ export function requireStringList(
   maximum: number,
 ): ReadonlyArray<string> {
   const value = source[key];
+
   if (!Array.isArray(value))
     throw invalidParams(method, `parameter ${key} must be an array`);
   const entries: ReadonlyArray<SerializableValue> = value;
+
   if (entries.length === 0)
     throw invalidParams(method, `parameter ${key} must be a non-empty array`);
+
   if (entries.length > maximum)
     throw invalidParams(
       method,
       `parameter ${key} may hold at most ${String(maximum)} entries`,
     );
+
   return entries.map((entry) => {
     if (!isStringValue(entry) || entry.length === 0)
       throw invalidParams(method, `every ${key} entry must be a string`);
+
     return entry;
   });
 }
@@ -141,12 +159,15 @@ export function optionalInteger(
   minimum = 0,
 ): number | undefined {
   const value = source[key];
+
   if (value === undefined) return undefined;
+
   if (!isIntegerValue(value) || value < minimum)
     throw invalidParams(
       method,
       `parameter ${key} must be a whole number of at least ${String(minimum)}`,
     );
+
   return value;
 }
 
@@ -156,9 +177,12 @@ export function optionalBoolean(
   method: string,
 ): boolean | undefined {
   const value = source[key];
+
   if (value === undefined) return undefined;
+
   if (value !== true && value !== false)
     throw invalidParams(method, `parameter ${key} must be a boolean`);
+
   return value;
 }
 
@@ -168,15 +192,19 @@ export function optionalEnvironment(
   method: string,
 ): Record<string, string> | undefined {
   const value = source["env"];
+
   if (value === undefined) return undefined;
+
   if (!isSerializableRecord(value))
     throw invalidParams(method, "parameter env must be an object of strings");
   const environment: Record<string, string> = {};
+
   for (const [name, entry] of Object.entries(value)) {
     if (!isStringValue(entry))
       throw invalidParams(method, `environment value ${name} must be a string`);
     environment[name] = entry;
   }
+
   return environment;
 }
 
@@ -189,10 +217,13 @@ const MAX_TIMER_MS = 2_147_483_647;
  */
 function optionalTrace(envelope: SerializableRecord): RequestTrace | undefined {
   const trace = envelope["trace"];
+
   if (!isSerializableRecord(trace)) return undefined;
   const sentryTrace = trace["sentryTrace"];
   const baggage = trace["baggage"];
+
   if (!isStringValue(sentryTrace)) return undefined;
+
   return { sentryTrace, ...(isStringValue(baggage) && { baggage }) };
 }
 
@@ -202,14 +233,17 @@ export function readEnvelope(
 ): RequestEnvelope {
   const record = paramRecord(value, method);
   const envelope = record["envelope"];
+
   if (!isSerializableRecord(envelope))
     throw invalidParams(method, "the request carries no envelope");
   const budgetMs = envelope["budgetMs"];
+
   if (!isIntegerValue(budgetMs))
     throw invalidParams(
       method,
       "the envelope budget must be whole milliseconds",
     );
+
   return {
     // Node's timers overflow past 2^31-1 ms and fire at once; a longer
     // budget is held to the longest timer Node can set.
@@ -228,11 +262,14 @@ export function requireDisplayOptions(
   method: string,
 ): NativeDisplayOptions {
   const value = source["options"];
+
   if (!isSerializableRecord(value))
     throw invalidParams(method, "the request carries no display options");
   const displayPrefix = requireString(value, "displayPrefix", method);
+
   if (displayPrefix.length === 0 || /\s/u.test(displayPrefix))
     throw invalidParams(method, "the display prefix must be a non-empty token");
+
   return {
     displayPrefix: displayPrefix.endsWith("/")
       ? displayPrefix.slice(0, -1)
@@ -245,8 +282,10 @@ export function requireDisplayOptions(
 export function readHelloParams(value: SerializableValue): HelloParams {
   const record = paramRecord(value, "hello");
   const protocolVersion = record["protocolVersion"];
+
   if (!isIntegerValue(protocolVersion))
     throw invalidParams("hello", "protocolVersion must be a whole number");
+
   return {
     protocolVersion,
     hubVersion: requireString(record, "hubVersion", "hello"),

@@ -19,7 +19,9 @@ async function tree(): Promise<string> {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), "grep-stream-")),
   );
+
   roots.push(root);
+
   return root;
 }
 
@@ -34,7 +36,9 @@ async function drain(
   chunks: AsyncIterable<Uint8Array | GrepReadRefusal>,
 ): Promise<Array<Uint8Array | GrepReadRefusal>> {
   const items: Array<Uint8Array | GrepReadRefusal> = [];
+
   for await (const chunk of chunks) items.push(chunk);
+
   return items;
 }
 
@@ -43,10 +47,12 @@ async function bytesOf(
   chunks: AsyncIterable<Uint8Array | GrepReadRefusal>,
 ): Promise<Buffer> {
   const parts: Array<Uint8Array> = [];
+
   for (const item of await drain(chunks)) {
     if (!(item instanceof Uint8Array)) throw new Error(`refused: ${item.kind}`);
     parts.push(item);
   }
+
   return Buffer.concat(parts);
 }
 
@@ -55,11 +61,13 @@ describe("file streams", () => {
     const root = await tree();
     const text = `${"x".repeat(70 * 1024)}tail\n`;
     await writeFile(path.join(root, "note.md"), text);
+
     const opened = await openFileStream(
       path.join(root, "note.md"),
       false,
       undefined,
     );
+
     if (!("chunks" in opened)) throw new Error("a regular file opens");
     expect(opened.size).toBe(Buffer.byteLength(text));
     const bytes = await bytesOf(opened.chunks);
@@ -82,9 +90,11 @@ describe("file streams", () => {
     const file = path.join(root, "note.md");
     await writeFile(file, "needle\n");
     const handle = await open(file, "r");
+
     const closed = fileStream(handle, 7, undefined, () =>
       Promise.resolve(false),
     );
+
     const items = await drain(closed.chunks);
     expect(items.at(-1)).toStrictEqual({ kind: "unreadable" });
   });
@@ -158,6 +168,7 @@ describe("opening a file stream", () => {
       { kind: "unreadable" },
     );
     const followed = await openFileStream(link, true, undefined);
+
     if (!("chunks" in followed)) throw new Error("the link opens");
     expect((await bytesOf(followed.chunks)).toString()).toBe("needle\n");
   });

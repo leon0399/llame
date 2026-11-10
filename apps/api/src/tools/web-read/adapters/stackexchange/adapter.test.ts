@@ -14,6 +14,7 @@ const adapter = createStackexchangeAdapter(
   { id: 'se', use: 'stackexchange' },
   { apiOrigin: API_ORIGIN },
 );
+
 const QUESTION_URL = `${API_ORIGIN}/2.3/questions/42?site=stackoverflow.com&filter=withbody`;
 const ANSWERS_URL = `${API_ORIGIN}/2.3/questions/42/answers?site=stackoverflow.com&filter=withbody&sort=votes&order=desc&pagesize=100`;
 const LINK = 'https://stackoverflow.com/questions/42/why-is-it-faster';
@@ -46,6 +47,7 @@ function answer(id: number, score: number, accepted: boolean): JsonObject {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map(({ url }) => url) };
 }
 

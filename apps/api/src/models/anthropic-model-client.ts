@@ -77,6 +77,7 @@ const MESSAGES_RESERVED_PROVIDER_OPTION_PATHS: ReadonlyArray<string> = [
 const MESSAGES_DEFAULTS: ProviderOptionRecord = {
   cacheControl: { type: 'ephemeral' },
 };
+
 const MESSAGES_REASONING_DEFAULTS: ProviderOptionRecord = {
   ...MESSAGES_DEFAULTS,
   thinking: { type: 'adaptive', display: 'summarized' },
@@ -89,6 +90,7 @@ const MESSAGES_REASONING_DEFAULTS: ProviderOptionRecord = {
  * only, since that is the only shape the pinned adapter carries it on.
  */
 const MESSAGES_INVARIANTS: ProviderOptionRecord = { sendReasoning: true };
+
 const MESSAGES_ADAPTIVE_INVARIANTS: ProviderOptionRecord = {
   ...MESSAGES_INVARIANTS,
   thinking: { blockBinding: { prefixMismatchBehavior: 'drop_block' } },
@@ -186,8 +188,10 @@ function readThinkingType(
   composed: ProviderOptionRecord | undefined,
 ): string | undefined {
   const thinking = composed?.['thinking'];
+
   if (!isRecord(thinking)) return undefined;
   const type = thinking['type'];
+
   return isString(type) ? type : undefined;
 }
 
@@ -203,10 +207,13 @@ function dropEmptyThinking(
   composed: ProviderOptionRecord | undefined,
 ): ProviderOptionRecord | undefined {
   const thinking = composed?.['thinking'];
+
   if (!isRecord(thinking) || Object.keys(thinking).length > 0) {
     return composed;
   }
+
   const { thinking: _dropped, ...rest } = composed ?? {};
+
   return Object.keys(rest).length === 0 ? undefined : rest;
 }
 
@@ -239,6 +246,7 @@ function composeMessagesOptions(
     ...(effort !== undefined && { effort: { effort } }),
     reservedPaths: MESSAGES_RESERVED_PROVIDER_OPTION_PATHS,
   });
+
   return dropEmptyThinking(
     composeProviderOptions({
       ...(base !== undefined && { operator: base }),
@@ -254,6 +262,7 @@ function composeMessagesOptions(
 function directHttpStatus(error: unknown): number | undefined {
   if (!isRecord(error)) return undefined;
   const statusCode = error['statusCode'];
+
   return isNumber(statusCode) ? statusCode : undefined;
 }
 
@@ -321,8 +330,10 @@ function isLocalFailure(error: unknown): error is Error {
  */
 function sanitizeAnthropicError(error: unknown): Error {
   const statusCode = directHttpStatus(error);
+
   if (statusCode === undefined) {
     if (isLocalFailure(error)) return error;
+
     // A status-less `APICallError` is the SDK's transport wrapper: its message
     // names the underlying cause ("Cannot connect to API: …") and its
     // `requestBodyValues` holds the request — neither may be forwarded.
@@ -332,6 +343,7 @@ function sanitizeAnthropicError(error: unknown): Error {
         : 'Anthropic request failed.',
     );
   }
+
   // The numeric status is not sensitive, and callers that classify a failure
   // (a hosted web search engine) read it from the bounded error.
   return Object.assign(new Error(anthropicStatusMessage(statusCode)), {
@@ -371,6 +383,7 @@ function buildStreamOptions(
   onError: ModelStreamInput['onError'],
 ) {
   const gate = createToolCallGate();
+
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
@@ -393,10 +406,12 @@ function buildStreamOptions(
       maxOutputTokens: config.maxOutputTokens,
     }),
   };
+
   applyToolCallingOptions(streamOptions, input, gate);
   installStepPreparation(streamOptions, input, config);
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
+
   return { streamOptions, gate };
 }
 
@@ -407,6 +422,7 @@ function runAnthropicStream(
   input: ModelStreamInput,
 ) {
   const onError = input.onError;
+
   const { streamOptions, gate } = buildStreamOptions(
     provider,
     config,
@@ -416,7 +432,9 @@ function runAnthropicStream(
       : ({ error }: { error: unknown }) =>
           onError({ error: sanitizeAnthropicError(error) }),
   );
+
   streamOptions.onFinish = createModelStreamFinishCallback(input.onFinish);
+
   return runStreamChannel({
     streamOptions,
     input,
@@ -471,6 +489,7 @@ async function runAnthropicObject<OBJECT>(
     .catch((error: unknown) => {
       throw sanitizeAnthropicError(error);
     });
+
   return result.object;
 }
 

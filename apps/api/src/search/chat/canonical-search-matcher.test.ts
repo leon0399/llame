@@ -46,6 +46,7 @@ function matchingLines(
       normalizedQuery,
       normalizedLines: lines.map((line) => line.normalizedText),
     });
+
     return Promise.resolve(
       new Set(
         lines
@@ -120,6 +121,7 @@ describe('evaluateCanonicalLinePredicates', () => {
 
   it('executes one owner-scoped predicate and keeps only safe candidate ids', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const execute = vi.spyOn(db, 'execute').mockResolvedValue(
       Object.assign(
         [
@@ -148,6 +150,7 @@ describe('evaluateCanonicalLinePredicates', () => {
 
     expect(execute).toHaveBeenCalledTimes(1);
     const statement = execute.mock.calls[0]?.[0];
+
     if (!is(statement, SQL)) throw new Error('expected a SQL statement');
     const query = new PgDialect().sqlToQuery(statement);
     expect(query.sql).toContain('ILIKE');
@@ -238,6 +241,7 @@ describe('matchCanonicalSearchPreview', () => {
       normalizedQuery: string;
       normalizedLines: ReadonlyArray<string>;
     }> = [];
+
     await matchCanonicalSearchPreview(
       {
         chatId: 'chat-1',
@@ -260,6 +264,7 @@ describe('matchCanonicalSearchPreview', () => {
 
   it('maps the first repeated normalized occurrence to the raw source span', async () => {
     const text = 'prefix\nNeedle and needle\nsuffix';
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'needle',
@@ -277,6 +282,7 @@ describe('matchCanonicalSearchPreview', () => {
   it('maps NFKC and collapsed-whitespace matches only when the raw span verifies', async () => {
     const text = 'before\nＦｏｏ   bar\nafter';
     const start = text.indexOf('Ｆ');
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'foo bar',
@@ -294,6 +300,7 @@ describe('matchCanonicalSearchPreview', () => {
   it('maps a combining-mark normalization back to one raw source span', async () => {
     const text = 'before\ne\u0301lan\nafter';
     const start = text.indexOf('e\u0301');
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'élan',
@@ -312,6 +319,7 @@ describe('matchCanonicalSearchPreview', () => {
     const mark = '\u{1D165}';
     const text = `before\na${mark}b\nafter`;
     const start = text.indexOf(`a${mark}`);
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       `a${mark}`,
@@ -329,6 +337,7 @@ describe('matchCanonicalSearchPreview', () => {
   it('maps a collapsed whitespace match after trimming the raw line edges', async () => {
     const text = 'before\n  Alpha   Beta  \nafter';
     const start = text.indexOf('Alpha');
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'alpha beta',
@@ -346,6 +355,7 @@ describe('matchCanonicalSearchPreview', () => {
   it('uses the first raw code point of the qualifying source intersection for fuzzy/FTS matches', async () => {
     const text = 'prefix\n😀 typo candidate\nsuffix';
     const sourceStart = text.indexOf('😀');
+
     const result = await matchCanonicalSearchPreview(
       {
         chatId: 'chat-1',
@@ -367,6 +377,7 @@ describe('matchCanonicalSearchPreview', () => {
 
   it('falls back when a normalized occurrence cannot represent an exact raw span', async () => {
     const text = 'start\nİstanbul\nsuffix';
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'i',
@@ -384,6 +395,7 @@ describe('matchCanonicalSearchPreview', () => {
   it('tries later normalized occurrences when an earlier raw span cannot verify', async () => {
     const text = 'start\nİ i\nend';
     const laterOccurrence = text.indexOf('i', text.indexOf('İ') + 1);
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'i',
@@ -401,6 +413,7 @@ describe('matchCanonicalSearchPreview', () => {
   it('maps context-sensitive Greek final sigma using whole-string lowercasing', async () => {
     const text = 'start\nΟΣ\nend';
     const start = text.indexOf('ΟΣ');
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'ος',
@@ -419,6 +432,7 @@ describe('matchCanonicalSearchPreview', () => {
     const text = 'before needle after\nother';
     const sourceStart = text.indexOf('needle');
     const sourceEndExclusive = sourceStart + 'needle'.length;
+
     const result = await matchCanonicalSearchPreview(
       {
         chatId: 'chat-1',
@@ -455,6 +469,7 @@ describe('matchCanonicalSearchPreview', () => {
     const evaluate = matchingLines((line, normalizedQuery) =>
       line.includes(normalizedQuery),
     );
+
     await expect(
       matchCanonicalSearchPreview(
         {
@@ -541,6 +556,7 @@ describe('matchCanonicalSearchPreview', () => {
     const lines = Array.from({ length: 2501 }, (_value, index) =>
       index % 2 === 0 ? `needle ${index}` : `line ${index}`,
     );
+
     const passages = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, lines.join('\n'))] },
       'needle',
@@ -558,6 +574,7 @@ describe('matchCanonicalSearchPreview', () => {
     const lines = Array.from({ length: 2001 }, (_value, index) =>
       index % 3 === 1 ? `needle ${index}` : `line ${index}`,
     );
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, lines.join('\n'))] },
       'needle',
@@ -571,6 +588,7 @@ describe('matchCanonicalSearchPreview', () => {
 
   it('handles Unicode code units and code points in line offsets and fallback anchors', async () => {
     const text = '😀 first\nsecond';
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, text)] },
       'typo',
@@ -626,6 +644,7 @@ describe('matchCanonicalSearchPreview', () => {
       normalizedQuery: string;
       normalizedLines: ReadonlyArray<string>;
     }> = [];
+
     const text = '\nneedle';
 
     await expect(
@@ -669,6 +688,7 @@ describe('matchCanonicalSearchPreview — candidate construction', () => {
       normalizedQuery: string;
       normalizedLines: ReadonlyArray<string>;
     }> = [];
+
     const ids: Array<number> = [];
     await matchCanonicalSearchPreview(
       {
@@ -686,6 +706,7 @@ describe('matchCanonicalSearchPreview — candidate construction', () => {
           normalizedLines: lines.map((line) => line.normalizedText),
         });
         ids.push(...lines.map((line) => line.id));
+
         return Promise.resolve(new Set<number>());
       },
     );
@@ -721,6 +742,7 @@ describe('matchCanonicalSearchPreview — candidate construction', () => {
       'needle',
       (_query, lines) => {
         normalizedLines.push(...lines.map((line) => line.normalizedText));
+
         return Promise.resolve(new Set<number>());
       },
     );
@@ -754,6 +776,7 @@ describe('matchCanonicalSearchPreview — candidate construction', () => {
       'needle',
       (_query, lines) => {
         normalizedLines.push(...lines.map((line) => line.normalizedText));
+
         return Promise.resolve(new Set<number>());
       },
     );
@@ -770,6 +793,7 @@ describe('matchCanonicalSearchPreview — candidate construction', () => {
       (_query, lines) => {
         normalizedLines.push(...lines.map((line) => line.normalizedText));
         ids.push(...lines.map((line) => line.id));
+
         return Promise.resolve(new Set<number>());
       },
     );
@@ -785,6 +809,7 @@ describe('matchCanonicalSearchPreview — passage bounds', () => {
       { length: CANONICAL_SEARCH_MAX_PASSAGE_LINES },
       (_value, index) => `needle ${index}`,
     );
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, lines.join('\n'))] },
       'needle',
@@ -806,6 +831,7 @@ describe('matchCanonicalSearchPreview — passage bounds', () => {
       { length: CANONICAL_SEARCH_MAX_PASSAGE_LINES + 20 },
       (_value, index) => (index < 5 ? `quiet ${index}` : `needle ${index}`),
     );
+
     const result = await matchCanonicalSearchPreview(
       { chatId: 'chat-1', messages: [message(10, lines.join('\n'))] },
       'needle',

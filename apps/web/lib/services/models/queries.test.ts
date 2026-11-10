@@ -61,6 +61,7 @@ describe("fetchModels", () => {
       defaultModelId: model.id,
       models: [model],
     };
+
     fetchMock.mockResolvedValue(jsonResponse(response));
 
     await expect(fetchModels()).resolves.toEqual(response);
@@ -81,6 +82,7 @@ describe("useModelsQuery", () => {
     const { result, unmount } = renderHook(() => useModelsQuery(), {
       wrapper: wrapperWithClient(queryClient),
     });
+
     await waitFor(() => expect(result.current.data).toEqual(response));
     expect(queryClient.getQueryData(modelQueryKeys.all)).toEqual(response);
 

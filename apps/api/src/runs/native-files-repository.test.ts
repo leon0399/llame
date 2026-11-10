@@ -13,10 +13,12 @@ type StoredEvent = { eventType: string; payload: unknown };
 /** A repository whose event query answers exactly `rows`. */
 function repositoryOf(...rows: Array<StoredEvent>) {
   const db: Db = drizzle.mock({ schema });
+
   const query = db.select({
     eventType: schema.runEvents.eventType,
     payload: schema.runEvents.payload,
   });
+
   const terminal = Promise.resolve(rows);
   Object.assign(query, {
     from: () => query,
@@ -25,6 +27,7 @@ function repositoryOf(...rows: Array<StoredEvent>) {
     limit: () => terminal,
   });
   vi.spyOn(db, 'select').mockReturnValue(query);
+
   return new NativeFilesRepository(db);
 }
 
@@ -151,6 +154,7 @@ describe('NativeFilesRepository segment mutation scope', () => {
       from: () => outer,
       where: (filter: SQL) => {
         condition = filter;
+
         return outer;
       },
       limit: () => Promise.resolve([{ id: 5 }]),
@@ -161,6 +165,7 @@ describe('NativeFilesRepository segment mutation scope', () => {
     ).resolves.toBe(true);
 
     expect(condition).toBeDefined();
+
     if (condition === undefined) return;
     const issued = new PgDialect().sqlToQuery(condition);
     expect(issued.sql).toBe(
@@ -186,6 +191,7 @@ type SelectChain = {
 /** A repository whose successive queries answer `answers` in order, recording each. */
 function sequencedRepository(...answers: Array<Array<unknown>>) {
   const pending = [...answers];
+
   const chain: SelectChain = {
     from: () => chain,
     where: () => chain,
@@ -193,8 +199,10 @@ function sequencedRepository(...answers: Array<Array<unknown>>) {
     for: () => chain,
     limit: () => Promise.resolve(pending.shift()),
   };
+
   const select = vi.fn(() => chain);
   const db = asDouble<Db>({ select });
+
   return { repository: new NativeFilesRepository(db), select };
 }
 

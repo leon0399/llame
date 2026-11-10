@@ -51,11 +51,13 @@ export function parseSkillMentions(text: string): ReadonlyArray<SkillMention> {
     // by code (and therefore not at a boundary).
     for (const index of dollarPositions(text, region)) {
       const name = matchedName(text, index);
+
       if (name === undefined || seen.has(name)) continue;
       seen.add(name);
       mentions.push({ name, index });
     }
   }
+
   return mentions;
 }
 
@@ -65,15 +67,18 @@ function* dollarPositions(
   region: { readonly start: number; readonly end: number },
 ): Generator<number> {
   let index = region.start;
+
   while (index < region.end) {
     if (text[index] !== '$') {
       index += 1;
       continue;
     }
+
     if (isEscaped(text, index)) {
       index += 1;
       continue;
     }
+
     yield index;
     index += 1;
   }
@@ -82,6 +87,7 @@ function* dollarPositions(
 /** An odd number of immediately preceding backslashes escapes the character. */
 function isEscaped(text: string, index: number): boolean {
   let backslashes = 0;
+
   for (
     let cursor = index - 1;
     cursor >= 0 && text[cursor] === '\\';
@@ -89,6 +95,7 @@ function isEscaped(text: string, index: number): boolean {
   ) {
     backslashes += 1;
   }
+
   return backslashes % 2 === 1;
 }
 
@@ -104,14 +111,20 @@ function isEscaped(text: string, index: number): boolean {
 function matchedName(text: string, index: number): string | undefined {
   if (index > 0 && WORD_CHARACTER.test(text[index - 1])) return undefined;
   let end = index + 1;
+
   while (end < text.length && NAME_CHARACTER.test(text[end])) end += 1;
+
   if (end === index + 1) return undefined;
+
   // The name run stops at the first non-name character, which may still be a
   // word character (`$pdf_tools`): the token continues, so the mention does not.
   if (end < text.length && WORD_CHARACTER.test(text[end])) return undefined;
   const name = text.slice(index + 1, end);
+
   if (!isValidSkillName(name)) return undefined;
+
   if (!isMentionableName(name)) return undefined;
+
   return name;
 }
 
@@ -150,6 +163,7 @@ function* scanCodeRegions(
     const lineEnd = nextLineEnd(text, cursor);
     const fenceMatch = fenceMarker(text, cursor, lineEnd);
     const kind = classifyLine(state, fenceMatch);
+
     if (kind === 'opens-fence') {
       // Everything before this line is plain; the fence line onward is code.
       yield { start: state.plainStart, end: cursor };
@@ -157,6 +171,7 @@ function* scanCodeRegions(
       cursor = lineEnd;
       continue;
     }
+
     if (kind === 'closes-fence') {
       state.fence = undefined;
       cursor = lineEnd;
@@ -168,12 +183,14 @@ function* scanCodeRegions(
       state.fence === undefined
         ? inlineCodeEnd(text, cursor, lineEnd)
         : undefined;
+
     if (spanEnd !== undefined) {
       yield { start: state.plainStart, end: cursor };
       state.plainStart = spanEnd;
       cursor = spanEnd;
       continue;
     }
+
     cursor = lineEnd;
   }
 
@@ -195,6 +212,7 @@ function classifyLine(
   if (state.fence === undefined) {
     return fenceMatch === undefined ? 'plain' : 'opens-fence';
   }
+
   if (
     fenceMatch !== undefined &&
     fenceMatch.marker === state.fence.marker &&
@@ -206,11 +224,13 @@ function classifyLine(
   ) {
     return 'closes-fence';
   }
+
   return 'plain';
 }
 
 function nextLineEnd(text: string, from: number): number {
   const newline = text.indexOf('\n', from);
+
   return newline < 0 ? text.length : newline + 1;
 }
 
@@ -229,8 +249,10 @@ function fenceMarker(
 ): FenceMatch | undefined {
   const line = text.slice(lineStart, lineEnd).trim();
   const match = /^(`{3,}|~{3,})/u.exec(line);
+
   if (match === null) return undefined;
   const marker = match[1][0];
+
   return {
     marker,
     length: match[1].length,
@@ -251,23 +273,29 @@ function inlineCodeEnd(
   lineEnd: number,
 ): number | undefined {
   let cursor = from;
+
   while (cursor < lineEnd) {
     if (text[cursor] !== '`') {
       cursor += 1;
       continue;
     }
+
     let runEnd = cursor;
+
     while (runEnd < lineEnd && text[runEnd] === '`') runEnd += 1;
     const length = runEnd - cursor;
     const closing = findBacktickRun(text, runEnd, length);
+
     if (closing === undefined) {
       // An unmatched run is literal text, so a complete span later on the same
       // line is still code and a mention inside it is still excluded.
       cursor = runEnd;
       continue;
     }
+
     return closing + length;
   }
+
   return undefined;
 }
 
@@ -278,15 +306,20 @@ function findBacktickRun(
   length: number,
 ): number | undefined {
   let cursor = from;
+
   while (cursor < text.length) {
     if (text[cursor] !== '`') {
       cursor += 1;
       continue;
     }
+
     let runEnd = cursor;
+
     while (runEnd < text.length && text[runEnd] === '`') runEnd += 1;
+
     if (runEnd - cursor === length) return cursor;
     cursor = runEnd;
   }
+
   return undefined;
 }

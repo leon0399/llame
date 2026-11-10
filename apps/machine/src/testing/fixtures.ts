@@ -32,6 +32,7 @@ export async function createRootFixture(): Promise<RootFixture> {
   await symlink(secret, escapeLink);
   await symlink(join(outside, "missing.txt"), danglingLink);
   await symlink(notes, insideLink);
+
   return {
     base,
     root,

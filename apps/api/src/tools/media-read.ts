@@ -31,19 +31,25 @@ export async function executeMediaRead(
       'Media locators are read-only; edit and write cannot target them.',
     );
   }
+
   const { path, selector } = splitSelectorSuffix(submitted);
   const id = parseMediaLocator(path);
+
   if (id === undefined) {
     return refusal(
       'invalid_path',
       'A media locator is media:// followed by a lower-case UUID.',
     );
   }
+
   if (selector !== undefined) {
     return refusal('invalid_selector', MEDIA_SELECTOR_MESSAGE);
   }
+
   signal?.throwIfAborted();
   const found = await media.findMedia(id);
+
   if (found === undefined) return refusal('not_found', 'Media not found.');
+
   return { ...found, path };
 }

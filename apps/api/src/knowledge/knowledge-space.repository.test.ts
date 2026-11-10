@@ -24,18 +24,24 @@ function fakeDb(input: {
       from: () => ({
         where: () => {
           const rows = input.selects[selectIndex++] ?? [];
+
           const limit = () => {
             input.events.push('select');
+
             return Promise.resolve(rows);
           };
+
           const orderedLimit = () => {
             input.events.push('select:ordered');
+
             return Promise.resolve(rows);
           };
+
           return {
             for: (mode: string) => ({
               limit: () => {
                 input.events.push(`select:${mode}`);
+
                 return Promise.resolve(rows);
               },
             }),
@@ -44,6 +50,7 @@ function fakeDb(input: {
               for: (mode: string) => ({
                 limit: () => {
                   input.events.push(`select:ordered:${mode}`);
+
                   return Promise.resolve(rows);
                 },
               }),
@@ -63,15 +70,18 @@ function fakeDb(input: {
   input.onConflict.mockImplementation(() => ({
     returning: () => {
       input.events.push('insert');
+
       return Promise.resolve(input.inserted ?? []);
     },
   }));
+
   return db;
 }
 
 describe('KnowledgeSpaceRepository.createOrGet', () => {
   it('locks the owner before reading and does not insert when a space exists', async () => {
     const events: Array<string> = [];
+
     const existing = {
       knowledgeSpaceId: SPACE_ID,
       ownerUserId: OWNER_ID,
@@ -79,7 +89,9 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
       createdAt: NOW,
       updatedAt: NOW,
     };
+
     const onConflict = vi.fn();
+
     const repository = new KnowledgeSpaceRepository(
       fakeDb({ selects: [[{ id: OWNER_ID }], [existing]], events, onConflict }),
     );
@@ -91,6 +103,7 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
 
   it('uses targetless conflict handling and rereads after a conflict', async () => {
     const events: Array<string> = [];
+
     const existing = {
       knowledgeSpaceId: SPACE_ID,
       ownerUserId: OWNER_ID,
@@ -98,7 +111,9 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
       createdAt: NOW,
       updatedAt: NOW,
     };
+
     const onConflict = vi.fn();
+
     const repository = new KnowledgeSpaceRepository(
       fakeDb({
         selects: [[{ id: OWNER_ID }], [], [existing]],

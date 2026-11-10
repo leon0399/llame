@@ -23,7 +23,9 @@ export function normalizeProtectedValues(
   return [...new Set(values.filter((value) => value.length > 0))].sort(
     (left, right) => {
       const lengthDifference = right.length - left.length;
+
       if (lengthDifference !== 0) return lengthDifference;
+
       return left < right ? -1 : left > right ? 1 : 0;
     },
   );
@@ -68,9 +70,11 @@ function canonicalJsonScalar(value: unknown): string | undefined {
   if (value === null || isBoolean(value)) {
     return JSON.stringify(value);
   }
+
   if (isNumber(value) && Number.isFinite(value)) {
     return JSON.stringify(value);
   }
+
   return undefined;
 }
 
@@ -96,15 +100,18 @@ export function protectedValueIntervals(
   // cross-member list; a single-character member over a long repeated capture
   // therefore stays one interval instead of one per occurrence.
   const matches: Array<ProtectedValueInterval> = [];
+
   for (const protectedValue of protectedValues) {
     if (protectedValue.length === 0) continue;
     collectMemberIntervals(value, protectedValue, matches);
   }
+
   if (matches.length === 0) return [];
 
   matches.sort(
     (left, right) => left.start - right.start || left.end - right.end,
   );
+
   return mergeIntervals(matches);
 }
 
@@ -121,8 +128,10 @@ function collectMemberIntervals(
   let pendingStart = -1;
   let pendingEnd = -1;
   let index = value.indexOf(protectedValue);
+
   while (index !== -1) {
     const end = index + protectedValue.length;
+
     if (pendingStart === -1) {
       pendingStart = index;
       pendingEnd = end;
@@ -133,8 +142,10 @@ function collectMemberIntervals(
       pendingStart = index;
       pendingEnd = end;
     }
+
     index = value.indexOf(protectedValue, index + 1);
   }
+
   if (pendingStart !== -1) {
     completed.push({ start: pendingStart, end: pendingEnd });
   }
@@ -144,8 +155,10 @@ function mergeIntervals(
   sorted: ReadonlyArray<ProtectedValueInterval>,
 ): ReadonlyArray<ProtectedValueInterval> {
   const merged: Array<ProtectedValueInterval> = [];
+
   for (const interval of sorted) {
     const previous = merged.at(-1);
+
     if (previous !== undefined && interval.start <= previous.end) {
       if (interval.end > previous.end) {
         merged[merged.length - 1] = {
@@ -153,10 +166,13 @@ function mergeIntervals(
           end: interval.end,
         };
       }
+
       continue;
     }
+
     merged.push(interval);
   }
+
   return merged;
 }
 
@@ -170,10 +186,12 @@ export function redactProtectedString(
   protectedValues: ReadonlyArray<string>,
 ): string {
   const intervals = protectedValueIntervals(value, protectedValues);
+
   if (intervals.length === 0) return value;
 
   const output: Array<string> = [];
   let cursor = 0;
+
   for (const interval of intervals) {
     output.push(
       value.slice(cursor, interval.start),
@@ -181,7 +199,9 @@ export function redactProtectedString(
     );
     cursor = interval.end;
   }
+
   output.push(value.slice(cursor));
+
   return output.join("");
 }
 
@@ -209,6 +229,7 @@ function containsNormalizedProtectedValueJson(
   }
 
   const scalar = canonicalJsonScalar(value);
+
   if (scalar !== undefined) return protectedValues.includes(scalar);
 
   if (Array.isArray(value)) {
@@ -254,6 +275,7 @@ function sanitizeNormalizedProtectedValueJson(
   }
 
   const scalar = canonicalJsonScalar(value);
+
   if (scalar !== undefined) {
     return {
       success: true,
@@ -277,11 +299,14 @@ function sanitizeProtectedValueArray(
   protectedValues: ReadonlyArray<string>,
 ): ProtectedValueSanitizationResult {
   const safe: Array<unknown> = [];
+
   for (const item of value) {
     const result = sanitizeNormalizedProtectedValueJson(item, protectedValues);
+
     if (!result.success) return result;
     safe.push(result.value);
   }
+
   return { success: true, value: safe };
 }
 
@@ -292,13 +317,17 @@ function sanitizeProtectedValueRecord(
   protectedValues: ReadonlyArray<string>,
 ): ProtectedValueSanitizationResult {
   const safeEntries: Array<[string, unknown]> = [];
+
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedString(key, protectedValues)) {
       return { success: false, reason: "protected_value_key" };
     }
+
     const result = sanitizeNormalizedProtectedValueJson(item, protectedValues);
+
     if (!result.success) return result;
     safeEntries.push([key, result.value]);
   }
+
   return { success: true, value: Object.fromEntries(safeEntries) };
 }

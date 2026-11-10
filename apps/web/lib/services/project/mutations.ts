@@ -42,6 +42,7 @@ export async function createProject(
 
 export function useCreateProject() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: createProject,
     onSuccess: () =>
@@ -66,6 +67,7 @@ export async function updateProject(
 
 export function useUpdateProject() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, ...patch }: { id: string } & UpdateProjectPatch) =>
       updateProject(id, patch),
@@ -91,6 +93,7 @@ export async function setProjectArchive(
 
 export function useSetProjectArchive() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
       setProjectArchive(id, archived),
@@ -120,6 +123,7 @@ export async function deleteProject(id: string): Promise<void> {
 
 export function useDeleteProject() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id: string) => deleteProject(id),
     onSuccess: () => {
@@ -153,6 +157,7 @@ export async function fileChat(
 
 export function useFileChat() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({
       chatId,
@@ -196,6 +201,7 @@ export async function linkProjectRepository(
   input: LinkProjectRepositoryInput,
 ): Promise<ProjectRepositoryLinkResponse> {
   const { projectId, ...dto } = input;
+
   return linkProjectRepositoryEndpoint(
     projectId,
     dto,
@@ -206,6 +212,7 @@ export async function linkProjectRepository(
 
 export function useLinkProjectRepository() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: linkProjectRepository,
     onSuccess: (_link, { projectId }) =>
@@ -228,6 +235,7 @@ export async function updateProjectRepositoryLink(
   input: UpdateProjectRepositoryLinkInput,
 ): Promise<ProjectRepositoryLinkResponse> {
   const { projectId, repositoryId, ...patch } = input;
+
   return updateProjectRepositoryLinkEndpoint(
     projectId,
     repositoryId,
@@ -239,6 +247,7 @@ export async function updateProjectRepositoryLink(
 
 export function useUpdateProjectRepositoryLink() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: updateProjectRepositoryLink,
     onSuccess: (_link, { projectId }) =>
@@ -263,6 +272,7 @@ export async function unlinkProjectRepository(
 
 export function useUnlinkProjectRepository() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({
       projectId,

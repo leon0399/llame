@@ -70,6 +70,7 @@ import { TOOL_REGISTRY } from '../tools/registry';
 import { type PromptUserResolver } from '../personalization/personalization.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'TEST_DATABASE_URL is required for chat-loop binding integration tests',
@@ -79,6 +80,7 @@ if (!TEST_DB_URL) {
 type RuntimeCatalogSnapshotter = {
   snapshotCandidates: () => ReadonlyArray<TurnToolCandidate>;
 };
+
 type PersistedMessage = { current: Message };
 
 function fakeInstanceConfig(
@@ -117,6 +119,7 @@ function baseline(
  * active checkpoint's boundary, so that checkpoint starts a new epoch.
  */
 const previousRunUserSeq = 7;
+
 /** The client message id of a send; the pending-item lookup reads it as a uuid. */
 const MESSAGE_ID = '5a3d1c70-6f0e-4b2a-9d44-0c1e7a8b9f10';
 
@@ -147,6 +150,7 @@ function previousRun(overrides: Partial<Run> = {}): Run {
 
 function activeCheckpoint(): CheckpointMessage {
   const summary = 'Retains the latest messages.';
+
   return {
     id: '55555555-5555-4555-8555-555555555555',
     chatId: 'chat-id',
@@ -234,8 +238,10 @@ describe('ChatLoopService accept/worker context binding', () => {
       systemPrompts: systemPromptsOverride,
       personalization: personalizationOverride,
     } = options ?? {};
+
     const runAs = vi.spyOn(tenantDb, 'runAs');
     const dispatch = vi.fn((_job: RunJob): Promise<void> => Promise.resolve());
+
     const persistedMessage: PersistedMessage = {
       current: {
         id: MESSAGE_ID,
@@ -281,9 +287,11 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
       new Set(),
     );
+
     const updateRecencyDigestTold = vi
       .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
       .mockResolvedValue(undefined);
+
     let acceptedMessage = false;
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockImplementation(
       () =>
@@ -299,6 +307,7 @@ describe('ChatLoopService accept/worker context binding', () => {
               },
         ),
     );
+
     const createUserMessage = vi
       .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
       .mockImplementation((input) => {
@@ -310,8 +319,10 @@ describe('ChatLoopService accept/worker context binding', () => {
           senderUserId: input.senderUserId,
           parts: input.parts,
         };
+
         return Promise.resolve(persistedMessage.current);
       });
+
     // The dispatch transaction stores the attempt's accepted-turn items on the
     // user row; mirror the repository's placement over the in-memory row so
     // later reads see exactly what the request carried.
@@ -326,8 +337,10 @@ describe('ChatLoopService accept/worker context binding', () => {
             placement,
           ),
         };
+
         return Promise.resolve({ applied: true });
       });
+
     vi.spyOn(
       MessagesRepository.prototype,
       'createAssistantReplyIfAbsent',
@@ -374,6 +387,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       MessagesRepository.prototype,
       'findLatestReplyModelIdBefore',
     ).mockResolvedValue(priorRun?.modelId);
+
     // The availability baseline and the epoch rule read the most recent
     // *dispatched* turn: the repository query only returns runs whose dispatch
     // stored an availability record, or that completed. Mirror that contract
@@ -392,6 +406,7 @@ describe('ChatLoopService accept/worker context binding', () => {
             : undefined,
         ),
       );
+
     // Context measurement reads the completed Run the previous reply names,
     // falling back to the most recent *completed* turn — the same Run here,
     // because the fixture's reply names it.
@@ -429,6 +444,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
+
     const updateForAttempt = vi
       .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue({
@@ -452,6 +468,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         followUpAction: null,
         sourceRunId: null,
       });
+
     vi.spyOn(RunsRepository.prototype, 'markStarted').mockImplementation(
       (runId) =>
         Promise.resolve(
@@ -486,6 +503,7 @@ describe('ChatLoopService accept/worker context binding', () => {
           }),
         ),
     );
+
     const createReceipt = vi
       .spyOn(SystemPromptReceiptsRepository.prototype, 'create')
       .mockImplementation((input) =>
@@ -495,12 +513,14 @@ describe('ChatLoopService accept/worker context binding', () => {
           createdAt: new Date(),
         }),
       );
+
     const appendEvent = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((runId, eventType, payload) => {
         if (failRunCreated && eventType === 'run.created') {
           return Promise.reject(new Error('run.created failed'));
         }
+
         return Promise.resolve({
           sequence: 1,
           runId,
@@ -541,30 +561,38 @@ describe('ChatLoopService accept/worker context binding', () => {
       resolveEffortSelection: (selected, requested) =>
         resolveEffortSelection(selected, requested),
     };
+
     const instanceConfig = fakeInstanceConfig(toolsAllowed);
+
     const bridge: RunStreamResponder = {
       createUiMessageStreamResponse: vi.fn(() => new Response()),
     };
+
     const dispatcher: RunDispatcher = {
       dispatch,
       jobState: () => Promise.resolve('absent'),
     };
+
     const systemPrompts = systemPromptsOverride ?? new SystemPromptsService();
     const render = vi.spyOn(systemPrompts, 'render');
+
     const personalization: PromptUserResolver = personalizationOverride ?? {
       resolvePromptUser: vi.fn().mockResolvedValue(undefined),
     };
+
     const memory: MemorySettingsBindingResolver = memoryOverride ?? {
       getForOwnerForBinding: vi.fn().mockResolvedValue({
         shareRecentChats: false,
       } satisfies ResolvedMemorySettings),
     };
+
     const recencyDigest: RecencyDigestResolver = recencyDigestOverride ?? {
       resolveCandidate: vi.fn().mockResolvedValue({
         baseline: baselineOverride ?? baseline(),
         candidates: [],
       }),
     };
+
     const knowledgeCandidates: KnowledgeToolCandidateResolverPort =
       knowledgeCandidatesOverride ?? {
         resolve: vi.fn(() =>
@@ -577,6 +605,7 @@ describe('ChatLoopService accept/worker context binding', () => {
           ),
         ),
       };
+
     const runtime: RuntimeCatalogSnapshotter = runtimeOverride ?? {
       snapshotCandidates: vi.fn(() => []),
     };
@@ -589,6 +618,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       dispatcher,
       new MediaService(tenantDb),
     );
+
     // The window variant is never exercised by this suite: every seeded turn
     // fits this model, so a rejection catches a future scenario silently
     // relying on it. The threshold variant resolves null, the summarizer's own
@@ -601,9 +631,11 @@ describe('ChatLoopService accept/worker context binding', () => {
             )
           : Promise.resolve(null),
     };
+
     const noopTitles: TitleCapability = {
       maybeGenerateTitle: () => Promise.resolve(),
     };
+
     const execution = new RunExecutionService(
       tenantDb,
       noopCompaction,
@@ -629,15 +661,18 @@ describe('ChatLoopService accept/worker context binding', () => {
     const executeAttempt = async () => {
       let request: ModelStreamInput | undefined;
       const delegate = createFakeModelClient(['worker response']);
+
       const client: ModelClient = {
         model: model.id,
         provider: model.provider,
         contextWindowTokens: model.contextWindowTokens,
         streamText(input) {
           request = input;
+
           return delegate.streamText(input);
         },
       };
+
       const result = await execution.executeRun({
         runId: createRun.mock.calls[0]?.[0].id ?? 'run-id',
         chatId: 'chat-id',
@@ -649,9 +684,11 @@ describe('ChatLoopService accept/worker context binding', () => {
         },
         client,
       });
+
       if (request === undefined) {
         throw new Error('Expected worker model request');
       }
+
       return { result, request };
     };
 
@@ -752,9 +789,11 @@ describe('ChatLoopService accept/worker context binding', () => {
         const [currentUser] = await tx.execute(
           drizzleSql`select current_setting('app.current_user_id', true) as current_user_id`,
         );
+
         expect(currentUser?.current_user_id).toBe('user-id');
         expect(ownerUserId).toBe('user-id');
         expect(allowedToolRules).toEqual(['knowledge_search']);
+
         return [...TOOL_REGISTRY.values()].map((tool) =>
           tool.id === 'knowledge_search'
             ? {
@@ -772,6 +811,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         );
       },
     );
+
     const {
       service,
       createReceipt,
@@ -810,12 +850,14 @@ describe('ChatLoopService accept/worker context binding', () => {
     expect(createReceipt.mock.calls[0]?.[0]).not.toHaveProperty(
       'toolAvailabilityManifest',
     );
+
     // The dispatch transaction fences the attempt while storing its
     // availability record, then stores its accepted-turn items, all after the
     // receipt binds and before the request is sent.
     const dispatchedAvailability: unknown = expect.arrayContaining([
       { id: 'knowledge_search', state: 'unavailable' },
     ]);
+
     expect(updateForAttempt).toHaveBeenCalledWith(
       expect.any(String),
       'user-id',
@@ -848,6 +890,7 @@ describe('ChatLoopService accept/worker context binding', () => {
   it('defers candidate failures to the worker without rolling back an accepted user turn', async () => {
     const error = new Error('candidate resolution failed');
     const resolve = vi.fn(() => Promise.reject(error));
+
     const {
       service,
       dispatch,
@@ -878,6 +921,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it('takes the runtime catalog snapshot only in the worker and keeps the exact wildcard rule', async () => {
     const id = 'mcp__web__search';
+
     const dynamicCandidates: ReadonlyArray<TurnToolCandidate> = [
       {
         source: { type: 'mcp', serverId: 'web' },
@@ -887,7 +931,9 @@ describe('ChatLoopService accept/worker context binding', () => {
         reason: 'source_disconnected',
       },
     ];
+
     const snapshotCandidates = vi.fn(() => dynamicCandidates);
+
     const { service, createReceipt, executeAttempt, runtime } = setup({
       toolsAllowed: ['mcp__web__*'],
       runtime: { snapshotCandidates },
@@ -930,12 +976,15 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it('logs only the failure kind when worker digest resolution fails and still prepares a prompt snapshot', async () => {
     const sensitive = 'PRIVATE CHAT TITLE AND EXCERPT';
+
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
+
     const recencyDigest: RecencyDigestResolver = {
       resolveCandidate: () => Promise.reject(new Error(sensitive)),
     };
+
     const { service, createReceipt, executeAttempt } = setup({
       memory: {
         getForOwnerForBinding: () =>
@@ -956,13 +1005,16 @@ describe('ChatLoopService accept/worker context binding', () => {
     const getForOwnerForBinding = vi.fn(() =>
       Promise.resolve({ shareRecentChats: false }),
     );
+
     const resolveCandidate = vi.fn(() =>
       Promise.resolve({ baseline: baseline(), candidates: [] }),
     );
+
     const setBaseline = vi.spyOn(
       ChatsRepository.prototype,
       'setRecencyDigestIfAbsent',
     );
+
     const { service, createReceipt, executeAttempt, persistedMessage } = setup({
       memory: { getForOwnerForBinding },
       recencyDigest: { resolveCandidate },
@@ -980,8 +1032,10 @@ describe('ChatLoopService accept/worker context binding', () => {
         systemPrompt: 'Bound prompt',
       }),
     );
+
     const storedItems =
       persistedMessage.current.parts.filter(isContextItemPart);
+
     expect(storedItems).toHaveLength(1);
     expect(storedItems[0]?.data.producer).toBe('temporal');
   });
@@ -999,6 +1053,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       recentShown: 1,
       recentTotal: 1,
     });
+
     const told = [
       {
         chatId: 'resurfaced',
@@ -1006,6 +1061,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         title: 'Resurfaced through activity',
       },
     ];
+
     const resolveCandidate = vi.fn(() =>
       Promise.resolve({
         baseline: digestBaseline,
@@ -1018,6 +1074,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         ],
       }),
     );
+
     const {
       service,
       executeAttempt,
@@ -1044,11 +1101,13 @@ describe('ChatLoopService accept/worker context binding', () => {
     const digestPart = persistedMessage.current.parts.find(isRecencyDigestItem);
     expect(digestPart).toBeDefined();
     expect(isContextItemPart(digestPart)).toBe(true);
+
     if (isContextItemPart(digestPart)) {
       expect(digestPart.data.payload).toMatchObject({
         entries: [{ title: 'Resurfaced through activity', pinned: false }],
       });
     }
+
     // The told set advances in the dispatch transaction, after the item it
     // accounts for is stored and before the request completes.
     expect(updateRecencyDigestTold).toHaveBeenCalledWith(
@@ -1065,6 +1124,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const resolveCandidate = vi.fn(() =>
       Promise.resolve({ baseline: baseline(), candidates: [] }),
     );
+
     const {
       service,
       executeAttempt,
@@ -1098,9 +1158,11 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(prompts, 'render').mockImplementation(() => {
       throw new Error(sensitive);
     });
+
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
+
     const { service, dispatch, createReceipt, executeAttempt } = setup({
       baseline: baseline(),
       systemPrompts: prompts,
@@ -1179,11 +1241,13 @@ describe('ChatLoopService accept/worker context binding', () => {
     await executeAttempt();
 
     expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+
     const modelChange = persistedMessage.current.parts.find(
       (part) =>
         isContextItemPart(part) &&
         part.data.producer === 'effective-context-change',
     );
+
     expect(modelChange).toBeDefined();
     expect(modelChange).toMatchObject({
       data: {
@@ -1220,10 +1284,12 @@ describe('ChatLoopService accept/worker context binding', () => {
       await executeAttempt();
 
       expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+
       const availability = persistedMessage.current.parts.find(
         (part) =>
           isContextItemPart(part) && part.data.producer === 'tool-availability',
       );
+
       expect(availability).toMatchObject({
         data: {
           form: 'notice',
@@ -1268,6 +1334,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it('starts a degraded availability epoch in the worker when the checkpoint boundary reaches the prior completed turn', async () => {
     const id = 'mcp__web__search';
+
     const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({
         modelId: model.id,
@@ -1301,11 +1368,14 @@ describe('ChatLoopService accept/worker context binding', () => {
     await executeAttempt();
 
     expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
+
     const availability = persistedMessage.current.parts.find(
       (part) =>
         isContextItemPart(part) && part.data.producer === 'tool-availability',
     );
+
     expect(availability).toBeDefined();
+
     if (isContextItemPart(availability)) {
       expect(availability.data.form).toBe('notice');
       expect(availability.data.payload).toMatchObject({
@@ -1318,6 +1388,7 @@ describe('ChatLoopService accept/worker context binding', () => {
   it('stages one digest supersession marker in the worker after an enabled re-bake', async () => {
     const previous = previousRun({ modelId: model.id });
     const digestBaseline = baseline();
+
     const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previous,
       activeCheckpoint: activeCheckpoint(),
@@ -1351,6 +1422,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it("still stages the supersession marker when the worker's fresh digest read fails", async () => {
     const digestBaseline = baseline();
+
     const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({ modelId: model.id }),
       activeCheckpoint: activeCheckpoint(),

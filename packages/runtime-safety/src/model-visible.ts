@@ -18,11 +18,15 @@ import { isRecord } from "./unknown-record";
  */
 export function modelVisibleResult(value: unknown) {
   if (!isRecord(value)) return value;
+
   const hidesThumbnail =
     value.kind === "image" && Object.hasOwn(value, "thumbnail");
+
   if (!Object.hasOwn(value, "display") && !hidesThumbnail) return value;
   const { display: _display, ...rest } = value;
+
   if (!hidesThumbnail) return rest;
   const { thumbnail: _thumbnail, ...visible } = rest;
+
   return visible;
 }

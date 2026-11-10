@@ -82,7 +82,9 @@ async function canonicalDirectory(
   try {
     const canonicalPath = await realpath(submittedPath);
     const target = await stat(canonicalPath);
+
     if (!target.isDirectory()) return notDirectory();
+
     return { path: canonicalPath };
   } catch {
     return notFound();
@@ -115,18 +117,25 @@ async function machineDirectory(
         { signal: context.timeoutSignal ?? context.abortSignal },
       ),
     );
+
     if (answer === undefined) return machineUnusableResult(machine.name);
+
     if (answer.kind === 'missing') return notFound();
+
     if (answer.kind !== 'directory' || answer.realPath === undefined) {
       return notDirectory();
     }
+
     const canonical = formatMachineLocator(machine.name, answer.realPath);
+
     return canonical === undefined
       ? machineUnusableResult(machine.name)
       : { status: 'success', root: canonical };
   });
+
   if (outcome.status === 'error') return outcome;
   const canonical = outcome['root'];
+
   return isString(canonical) ? { path: canonical } : notFound();
 }
 
@@ -150,13 +159,16 @@ async function enterMachineWorkspace(
 ): Promise<ToolResult> {
   const { machine, submittedPath, worktree } = entry;
   const authority = machineAuthority(context, machine);
+
   if ('status' in authority) return authority;
+
   if (!claimTransition(context)) return transitionConflict();
 
   const submittedRejection = requireSubmittedPermission(
     context,
     projectNativeFilePath(submittedPath),
   );
+
   if (submittedRejection !== undefined) return submittedRejection;
 
   if (!(await isCurrentDelivery(context, authority.runId))) {
@@ -173,6 +185,7 @@ async function enterMachineWorkspace(
 
   const canonicalResult = await machineDirectory(context, connector, machine);
   context.abortSignal?.throwIfAborted();
+
   if ('status' in canonicalResult) return canonicalResult;
 
   const canonicalRejection = requireDerivedPermission(
@@ -180,9 +193,11 @@ async function enterMachineWorkspace(
     'canonical',
     canonicalResult.path,
   );
+
   if (canonicalRejection !== undefined) return canonicalRejection;
 
   context.abortSignal?.throwIfAborted();
+
   return worktree === undefined
     ? bindCanonicalRoot(context, authority, canonicalResult.path)
     : enterWorktreeEntry(context, authority, canonicalResult.path, worktree);
@@ -197,11 +212,13 @@ function machineEntry(
   submittedPath: string,
 ): { readonly name: string; readonly path: string } | ToolResult {
   const parsed = parseMachineLocator(submittedPath);
+
   if (parsed.kind !== 'path') {
     return invalidWorkspacePath(
       'A Workspace Machine locator must name a Machine and an absolute directory path.',
     );
   }
+
   // An unconfigured name is refused without touching SSH, and a configured one
   // is the entry target; the reachability of the Machine is decided later.
   return connector.isConfigured(parsed.name)
@@ -221,9 +238,11 @@ function enterMachineEntry(
   worktree: WorktreeRequest | undefined,
 ): ToolResult | Promise<ToolResult> {
   const connector = machineConnector(context);
+
   if (connector === undefined)
     return invalidWorkspacePath('This path scheme is not available.');
   const machine = machineEntry(connector, path);
+
   return 'status' in machine
     ? machine
     : enterMachineWorkspace(context, connector, {
@@ -251,8 +270,10 @@ async function enterWorktreeEntry(
     name: worktree.name,
     baseRef: worktree.baseRef,
   });
+
   if (outcome.status === 'failed') return outcome.result;
   await applyBindingTransition(context, outcome.root, outcome.status);
+
   return boundResult(context, authority, {
     root: outcome.root,
     state: outcome.status,
@@ -269,19 +290,23 @@ function readEntry(
   input: EnterWorkspaceInput,
 ): { readonly path: string; readonly worktree?: WorktreeRequest } | ToolResult {
   const request = readWorktreeRequest(input.worktree ?? {});
+
   if ('message' in request) {
     return { status: 'error', type: 'invalid_input', message: request.message };
   }
+
   if (input.path.includes('\0')) {
     return invalidWorkspacePath(
       'Workspace path must be absolute and contain no NUL bytes.',
     );
   }
+
   if (isSshLocator(input.path)) {
     return invalidWorkspacePath(
       'An ssh:// locator cannot be a Workspace root; Workspace selects a local or Machine directory.',
     );
   }
+
   return {
     path: input.path,
     ...(input.worktree !== undefined && { worktree: request }),
@@ -297,35 +322,44 @@ async function enterLocalWorkspace(
   entry: { readonly path: string; readonly worktree?: WorktreeRequest },
 ): Promise<ToolResult> {
   const authority = localAuthority(context);
+
   if ('status' in authority) return authority;
+
   if (!path.isAbsolute(entry.path)) {
     return invalidWorkspacePath(
       'Workspace path must be absolute and contain no NUL bytes.',
     );
   }
+
   if (!claimTransition(context)) return transitionConflict();
 
   const submittedRejection = requireSubmittedPermission(
     context,
     projectNativeFilePath(entry.path),
   );
+
   if (submittedRejection !== undefined) return submittedRejection;
+
   if (!(await isCurrentDelivery(context, authority.runId))) {
     return executorUnavailable();
   }
 
   const canonicalResult = await canonicalDirectory(entry.path);
   context.abortSignal?.throwIfAborted();
+
   if ('status' in canonicalResult) return canonicalResult;
   const canonical = canonicalResult.path;
+
   const canonicalRejection = requireDerivedPermission(
     context,
     'canonical',
     canonical,
   );
+
   if (canonicalRejection !== undefined) return canonicalRejection;
 
   context.abortSignal?.throwIfAborted();
+
   return entry.worktree === undefined
     ? bindCanonicalRoot(context, authority, canonical)
     : enterWorktreeEntry(context, authority, canonical, entry.worktree);
@@ -346,7 +380,9 @@ export const enterWorkspaceTool: Tool<EnterWorkspaceInput> = {
   }),
   execute: (context, input): Promise<ToolResult> => {
     const entry = readEntry(input);
+
     if ('status' in entry) return Promise.resolve(entry);
+
     return isMachineLocator(entry.path)
       ? Promise.resolve(enterMachineEntry(context, entry.path, entry.worktree))
       : enterLocalWorkspace(context, entry);
@@ -361,15 +397,19 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
   execute: async (context): Promise<ToolResult> => {
     const { runId, toolCallId } = context;
     const deliverySequence = context.nativeDeliverySequence;
+
     if (!runId || !toolCallId || deliverySequence === undefined) {
       return executorUnavailable();
     }
+
     if (!claimTransition(context)) return transitionConflict();
 
     if (!(await isCurrentDelivery(context, runId))) {
       return executorUnavailable();
     }
+
     context.abortSignal?.throwIfAborted();
+
     // Exit never touches the Machine: it must clear the binding while the
     // Machine is offline, and a worker with no local executor fences on the
     // delivery alone rather than refusing the exit.
@@ -385,11 +425,14 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
         }),
       }),
     );
+
     if (result.status === 'fence_lost') return executorUnavailable();
+
     if (result.status === 'cleared') {
       context.workspaceRoot?.commit(undefined);
       context.toolAdditions?.disableAll();
       await context.workspaceMcp?.stopForChat(context.chatId);
+
       return {
         status: 'success',
         root: null,
@@ -397,7 +440,9 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
         previousRoot: result.previousRoot,
       };
     }
+
     await context.workspaceMcp?.stopForChat(context.chatId);
+
     return { status: 'success', root: null, state: 'unbound' };
   },
 };

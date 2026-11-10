@@ -19,6 +19,7 @@ import {
  */
 function predicateSubjectName(node: FunctionLikeNode): string | null {
   const predicate = node.returnType?.typeAnnotation;
+
   if (
     predicate === null ||
     predicate === undefined ||
@@ -26,6 +27,7 @@ function predicateSubjectName(node: FunctionLikeNode): string | null {
   ) {
     return null;
   }
+
   return predicate.parameterName.type === "Identifier"
     ? predicate.parameterName.name
     : null;
@@ -60,6 +62,7 @@ function isValidationCall(
   parameterName: string,
 ): boolean {
   const [firstArgument] = call.arguments;
+
   if (
     firstArgument === undefined ||
     firstArgument.type !== "Identifier" ||
@@ -67,16 +70,20 @@ function isValidationCall(
   ) {
     return false;
   }
+
   if (call.callee.type === "Identifier") {
     return /^is[A-Z]/.test(call.callee.name);
   }
+
   if (
     call.callee.type === "MemberExpression" &&
     !call.callee.computed &&
     call.callee.property.type === "Identifier"
   ) {
     const propertyName = call.callee.property.name;
+
     if (propertyName === "parse" || propertyName === "safeParse") return true;
+
     // `Array.isArray(x)` is TypeScript's own standard-library type guard
     // (`lib.es5.d.ts` declares it `arg is any[]`) -- the same class as
     // `typeof`/`instanceof`, not a codebase-specific pattern.
@@ -86,6 +93,7 @@ function isValidationCall(
       call.callee.object.name === "Array"
     );
   }
+
   return false;
 }
 
@@ -106,15 +114,18 @@ function switchStatementFirstUse(
   ) {
     return node.discriminant;
   }
+
   if (
     node.discriminant.type === "Literal" &&
     typeof node.discriminant.value === "boolean" &&
     node.discriminant.value === true
   ) {
     const [firstCase] = node.cases;
+
     if (firstCase !== undefined && firstCase.test !== null)
       return firstCase.test;
   }
+
   return null;
 }
 
@@ -129,29 +140,36 @@ function isValidationExpression(
   parameterName: string,
 ): boolean {
   if (expression === null) return false;
+
   if (expression.type === "ParenthesizedExpression") {
     return isValidationExpression(expression.expression, parameterName);
   }
+
   if (expression.type === "UnaryExpression" && expression.operator === "!") {
     return isValidationExpression(expression.argument, parameterName);
   }
+
   // Bare `typeof x`, as it appears as a `switch (typeof x)` discriminant --
   // the switch-statement spelling of the `typeof x === ...` comparison
   // already handled below.
   if (isTypeofOfParameter(expression, parameterName)) return true;
+
   if (expression.type === "CallExpression")
     return isValidationCall(expression, parameterName);
+
   if (expression.type === "BinaryExpression") {
     // `#x in obj` shares the "BinaryExpression" node type with `x in obj`
     // and ordinary binary operators, but its `left` is a `PrivateIdentifier`
     // rather than an `Expression` -- never a validation of `parameterName`.
     if (expression.left.type === "PrivateIdentifier") return false;
+
     if (expression.operator === "instanceof") {
       return (
         expression.left.type === "Identifier" &&
         expression.left.name === parameterName
       );
     }
+
     if (["===", "!==", "==", "!="].includes(expression.operator)) {
       return (
         isTypeofOfParameter(expression.left, parameterName) ||
@@ -159,6 +177,7 @@ function isValidationExpression(
       );
     }
   }
+
   return false;
 }
 
@@ -166,6 +185,7 @@ function functionBody(
   node: FunctionLikeNode,
 ): ESTree.FunctionBody | ESTree.Expression | null {
   if (node.type === "ArrowFunctionExpression") return node.body;
+
   if (
     node.type === "FunctionDeclaration" ||
     node.type === "FunctionExpression" ||
@@ -174,6 +194,7 @@ function functionBody(
   ) {
     return node.body;
   }
+
   // TSCallSignatureDeclaration/TSConstructSignatureDeclaration/TSConstructorType/
   // TSFunctionType/TSMethodSignature are pure type declarations with no body.
   return null;
@@ -188,17 +209,26 @@ function functionBody(
  */
 function firstUseExpression(node: FunctionLikeNode): ESTree.Expression | null {
   const body = functionBody(node);
+
   if (body === null) return null;
+
   if (body.type !== "BlockStatement") return body; // arrow expression body
   const [first] = body.body;
+
   if (first === undefined) return null;
+
   if (first.type === "IfStatement") return first.test;
+
   if (first.type === "ReturnStatement") return first.argument;
+
   if (first.type === "ExpressionStatement") return first.expression;
+
   if (first.type === "VariableDeclaration" && first.declarations.length === 1) {
     return first.declarations[0].init;
   }
+
   if (first.type === "SwitchStatement") return switchStatementFirstUse(first);
+
   return null;
 }
 
@@ -211,6 +241,7 @@ function unwrapExportedDeclaration(
   ) {
     return statement.declaration;
   }
+
   if (
     statement.type === "ExportDefaultDeclaration" &&
     (statement.declaration.type === "FunctionDeclaration" ||
@@ -218,6 +249,7 @@ function unwrapExportedDeclaration(
   ) {
     return statement.declaration;
   }
+
   return statement;
 }
 
@@ -237,12 +269,14 @@ function resolveOverloadImplementation(
 ): ESTree.Function | null {
   if (node.type !== "TSDeclareFunction" || node.id === null) return null;
   let container: ESTree.Node = node.parent;
+
   if (
     container.type === "ExportNamedDeclaration" ||
     container.type === "ExportDefaultDeclaration"
   ) {
     container = container.parent;
   }
+
   if (
     container.type !== "Program" &&
     container.type !== "BlockStatement" &&
@@ -250,8 +284,10 @@ function resolveOverloadImplementation(
   ) {
     return null;
   }
+
   for (const statement of container.body) {
     const declaration = unwrapExportedDeclaration(statement);
+
     if (
       (declaration.type === "FunctionDeclaration" ||
         declaration.type === "TSDeclareFunction") &&
@@ -262,6 +298,7 @@ function resolveOverloadImplementation(
       return declaration;
     }
   }
+
   return null;
 }
 
@@ -277,7 +314,9 @@ function isImmediatelyValidated(
   if (isValidationExpression(firstUseExpression(node), parameterName))
     return true;
   const implementation = resolveOverloadImplementation(node);
+
   if (implementation === null) return false;
+
   return isValidationExpression(
     firstUseExpression(implementation),
     parameterName,
@@ -317,28 +356,39 @@ export const noUnknownParametersRule = defineRule({
       // than hoisted above -- reading them at `createOnce`'s top level would
       // capture a stale snapshot instead of each file's actual options.
       const option = context.options?.[0];
+
       const allowWhenImmediatelyValidated =
         typeof option === "object" &&
         option !== null &&
         !Array.isArray(option) &&
         option.allowWhenImmediatelyValidated === true;
+
       const allowErrorFamilyNames =
         typeof option === "object" &&
         option !== null &&
         !Array.isArray(option) &&
         option.allowErrorFamilyNames === true;
+
       const guardedName = predicateSubjectName(node);
+
       for (const parameter of node.params) {
         const annotation = functionParameterTypeAnnotation(parameter);
+
         if (annotation === null || annotation === undefined) continue;
+
         if (!containsUnknownType(annotation.typeAnnotation)) continue;
+
         const name = functionParameterBindingName(
           parameter,
           context.sourceCode,
         );
+
         if (name === "cause") continue;
+
         if (name === guardedName) continue;
+
         if (allowErrorFamilyNames && ERROR_FAMILY_NAMES.has(name)) continue;
+
         if (allowWhenImmediatelyValidated && isImmediatelyValidated(node, name))
           continue;
         context.report({

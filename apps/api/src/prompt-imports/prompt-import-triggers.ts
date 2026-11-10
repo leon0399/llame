@@ -40,10 +40,13 @@ function triggerOf(
   gates: PromptImportTriggerGates,
 ): PromptImportTrigger | undefined {
   const resolved = entry.resolved;
+
   if (resolved === undefined || entry.outcome === 'denied') return undefined;
+
   if (isMachineLocator(resolved)) {
     if (!gates.machine) return undefined;
     const parsed = parseMachineLocator(resolved);
+
     return parsed.kind === 'path'
       ? {
           key: posix.resolve(parsed.path),
@@ -51,12 +54,15 @@ function triggerOf(
         }
       : undefined;
   }
+
   const scheme = parsePathScheme(resolved);
+
   if (scheme === undefined) {
     return gates.host && resolved.startsWith('/')
       ? { key: posix.resolve(resolved) }
       : undefined;
   }
+
   return scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME && gates.knowledge
     ? spaceTarget(scheme.rest)
     : undefined;
@@ -73,9 +79,12 @@ export function derivePromptImportTriggers(
   gates: PromptImportTriggerGates,
 ): Array<PromptImportTrigger> {
   const triggers: Array<PromptImportTrigger> = [];
+
   for (const entry of entries) {
     const trigger = triggerOf(entry, gates);
+
     if (trigger !== undefined) triggers.push(trigger);
   }
+
   return triggers;
 }

@@ -17,11 +17,14 @@ function routeFetch() {
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
+
       if (key === "PATCH /api/v1/chats/c1") {
         return new Promise<Response>(() => {});
       }
+
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -33,6 +36,7 @@ async function openedDialog() {
   // The dialog portals into document.body, outside the story canvas.
   const dialog = await screen.findByRole("dialog", { name: "Share chat" });
   await waitFor(() => expect(dialog).toBeVisible());
+
   return within(dialog);
 }
 
@@ -41,6 +45,7 @@ async function sentVisibility() {
   const request = await waitFor(() => requestFromCall(fetchMock));
   await expect(request.method).toBe("PATCH");
   await expect(new URL(request.url).pathname).toBe("/api/v1/chats/c1");
+
   return request.clone().json();
 }
 
@@ -56,6 +61,7 @@ const meta = {
 } satisfies Meta<typeof ShareChatDialog>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -146,6 +152,7 @@ export const CopyLink: Story = {
       configurable: true,
       value: { writeText },
     });
+
     return () => {
       if (original) {
         Object.defineProperty(navigator, "clipboard", original);

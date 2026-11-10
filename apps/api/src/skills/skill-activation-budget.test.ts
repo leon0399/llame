@@ -32,6 +32,7 @@ function instructionCeiling(names: ReadonlyArray<string>): number {
       'x'.repeat(MAX_OMISSION_IMPORT_LOCATOR_LENGTH + 1),
     ),
   });
+
   return MAX_SKILL_ACTIVATION_BYTES - measureJson(notice);
 }
 
@@ -45,7 +46,9 @@ async function activate(mentions: ReadonlyArray<string>, tunedLength: number) {
     ...Array.from({ length: FILLER_FILES }, (_, index) => `f${index}.md`),
     'tuned.md',
   ];
+
   const h = auditedContext();
+
   const outcome = await activateSkills({
     mentions: parseSkillMentions(mentions.map((name) => `$${name}`).join(' ')),
     runId: STUB_RUN_ID,
@@ -56,10 +59,13 @@ async function activate(mentions: ReadonlyArray<string>, tunedLength: number) {
           fileNames.map((name) => `@${name}`).join(' '),
         );
       }
+
       if (path === 'skill://second:raw') return rootResult('second', 'Second.');
+
       if (path === 'skill://first/tuned.md:raw') {
         return fileResult('a'.repeat(tunedLength));
       }
+
       return path.startsWith('skill://first/f')
         ? fileResult('a'.repeat(FULL_FILE))
         : notFoundResult();
@@ -68,6 +74,7 @@ async function activate(mentions: ReadonlyArray<string>, tunedLength: number) {
     callTimeoutSeconds: 5,
     activity: h.activity,
   });
+
   return outcome;
 }
 
@@ -78,13 +85,16 @@ function bytesOf(items: ReadonlyArray<object>): number {
 /** The tuned length at which everything `first` and `second` carry fills the ceiling exactly. */
 async function exactFit(mentions: ReadonlyArray<string>): Promise<number> {
   const probe = await activate(mentions, PROBE_LENGTH);
+
   const loaded = probe.items.filter(
     (item) => item.data.payload['kind'] === 'activation',
   );
+
   expect(loaded).toHaveLength(mentions.length);
   const length = PROBE_LENGTH + instructionCeiling(mentions) - bytesOf(loaded);
   expect(length).toBeGreaterThan(0);
   expect(length).toBeLessThanOrEqual(FULL_FILE);
+
   return length;
 }
 

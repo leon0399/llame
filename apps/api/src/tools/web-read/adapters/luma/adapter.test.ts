@@ -16,6 +16,7 @@ const adapter = createLumaAdapter(
   { id: 'luma', use: 'luma' },
   { origin: API_ORIGIN },
 );
+
 const READ_AT = new Date('2026-10-18T12:00:00.000Z');
 
 function fixture(name: string): string {
@@ -33,6 +34,7 @@ function eventUrl(slug: string, origin = API_ORIGIN): string {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
@@ -40,7 +42,9 @@ function rendered(
   outcome: Awaited<ReturnType<typeof read>>['outcome'],
 ): string {
   expect(outcome.kind).toBe('rendered');
+
   if (outcome.kind !== 'rendered') throw new Error('expected render');
+
   return outcome.content;
 }
 
@@ -110,6 +114,7 @@ describe('Luma adapter read', () => {
         { description_mirror: ATTRS_MIRROR },
       ),
     );
+
     expect(described).toContain('## Section');
     expect(described).toContain('![](https://images.lumacdn.com/chart.png)');
   });
@@ -117,6 +122,7 @@ describe('Luma adapter read', () => {
   it('asks api.lu.ma when no test origin is configured', async () => {
     const live = createLumaAdapter({ id: 'luma', use: 'luma' });
     const url = eventUrl('apawn7qt', LUMA_API_ORIGIN);
+
     const run = scriptedIo(
       new Map([
         [url, [jsonBody(fixture('apawn7qt.json'), `${LUMA_API_ORIGIN}/url`)]],
@@ -138,6 +144,7 @@ describe('Luma adapter read', () => {
     const { outcome } = await read('https://luma.com/xfmswy2s', [
       [eventUrl('xfmswy2s'), jsonBody(fixture('xfmswy2s.json'))],
     ]);
+
     const content = rendered(outcome);
 
     expect(content).toContain('# Solidcore x Maxima: Pilates Pop-up');
@@ -173,6 +180,7 @@ describe('Luma adapter read', () => {
         jsonBody(fixture('granola-gtm-hackathon.json')),
       ],
     ]);
+
     const content = rendered(outcome);
 
     expect(content).toContain('Status: sold out, waitlist');
@@ -187,6 +195,7 @@ describe('Luma adapter read', () => {
 
   it('marks a recorded event ended once its end time has passed', async () => {
     vi.setSystemTime(new Date('2026-10-18T19:00:00.000Z'));
+
     const { outcome } = await read('https://luma.com/xfmswy2s', [
       [eventUrl('xfmswy2s'), jsonBody(fixture('xfmswy2s.json'))],
     ]);
@@ -208,9 +217,11 @@ describe('Luma adapter read', () => {
         full_address: 'Secret Street 1, Madrid',
       },
     });
+
     const { outcome } = await read('https://luma.com/hidden1', [
       [eventUrl('hidden1'), response(payload)],
     ]);
+
     const content = rendered(outcome);
 
     expect(content).toContain(
@@ -236,6 +247,7 @@ describe('Luma adapter read', () => {
         ),
       ],
     ]);
+
     expect(rendered(open.outcome)).toContain(
       'Location: Online — https://example.com/join',
     );
@@ -256,6 +268,7 @@ describe('Luma adapter read', () => {
         ),
       ],
     ]);
+
     const content = rendered(closed.outcome);
     expect(content).toContain('Location: Online');
     expect(content).not.toContain('example.com/secret');
@@ -269,6 +282,7 @@ describe('Luma adapter read', () => {
         virtual_info: { raw_join_url: 'https://example.com/omitted' },
       }),
     );
+
     expect(omitted).toContain('Location: Online');
     expect(omitted).not.toContain('example.com/omitted');
 
@@ -284,6 +298,7 @@ describe('Luma adapter read', () => {
         },
       }),
     );
+
     expect(missing).toContain('Location: Online');
     expect(missing).not.toContain('example.com/missing');
 
@@ -296,6 +311,7 @@ describe('Luma adapter read', () => {
         virtual_info: null,
       }),
     );
+
     expect(absent).toContain('Location: Online');
   });
 
@@ -354,6 +370,7 @@ describe('Luma adapter read', () => {
       'ends-now',
       eventDocument({ name: 'Ends now', end_at: READ_AT.toISOString() }),
     );
+
     expect(exact).not.toContain('Status:');
 
     const earlier = await contentFor(
@@ -363,12 +380,14 @@ describe('Luma adapter read', () => {
         end_at: new Date(READ_AT.getTime() - 1).toISOString(),
       }),
     );
+
     expect(earlier).toContain('Status: ended');
 
     const invalid = await contentFor(
       'bad-end',
       eventDocument({ name: 'Bad end', end_at: 'not-a-date' }),
     );
+
     expect(invalid).not.toContain('Status:');
   });
 
@@ -377,12 +396,14 @@ describe('Luma adapter read', () => {
       'sold-flag',
       eventDocument({ name: 'Flag' }, { sold_out: true }),
     );
+
     expect(flag).toContain('Status: sold out');
 
     const ticket = await contentFor(
       'sold-ticket',
       eventDocument({ name: 'Ticket' }, { ticket_info: { is_sold_out: true } }),
     );
+
     expect(ticket).toContain('Status: sold out');
 
     const registration = await contentFor(
@@ -392,6 +413,7 @@ describe('Luma adapter read', () => {
         { registration_availability: 'sold-out' },
       ),
     );
+
     expect(registration).toContain('Status: sold out');
     expect(registration).toContain('Registration: sold-out');
   });
@@ -401,6 +423,7 @@ describe('Luma adapter read', () => {
       'wait-flag',
       eventDocument({ name: 'Flag' }, { waitlist_active: true }),
     );
+
     expect(flag).toContain('Status: waitlist');
 
     const registration = await contentFor(
@@ -410,6 +433,7 @@ describe('Luma adapter read', () => {
         { registration_availability: 'waitlist' },
       ),
     );
+
     expect(registration).toContain('Status: waitlist');
   });
 
@@ -418,12 +442,14 @@ describe('Luma adapter read', () => {
       'vis-pub',
       eventDocument({ name: 'Public', visibility: 'public' }),
     );
+
     expect(pub).not.toContain('Visibility:');
 
     const blank = await contentFor(
       'vis-blank',
       eventDocument({ name: 'Blank', visibility: '   ' }),
     );
+
     expect(blank).not.toContain('Visibility:');
   });
 
@@ -444,6 +470,7 @@ describe('Luma adapter read', () => {
         },
       }),
     );
+
     expect(hybrid).toContain('Location: Online — https://example.com/join');
     expect(hybrid).toContain('Venue: 1 Main St, Madrid');
     expect(hybrid).not.toContain('In person');
@@ -452,6 +479,7 @@ describe('Luma adapter read', () => {
       'room1',
       eventDocument({ name: 'Room', location_type: 'offline' }),
     );
+
     expect(room).toContain('Location: In person');
     expect(room).not.toContain('Online');
   });
@@ -461,12 +489,14 @@ describe('Luma adapter read', () => {
       'virtual1',
       eventDocument({ name: 'Virtual', location_type: 'virtual' }),
     );
+
     expect(line(virtual, 'Location:')).toBe('Location: Online');
 
     const zoom = await contentFor(
       'zoom1',
       eventDocument({ name: 'Zoom', location_type: 'zoom' }),
     );
+
     expect(line(zoom, 'Location:')).toBe('Location: Online');
 
     const joined = await contentFor(
@@ -480,6 +510,7 @@ describe('Luma adapter read', () => {
         },
       }),
     );
+
     expect(line(joined, 'Location:')).toBe(
       'Location: Online — https://example.com/room',
     );
@@ -499,6 +530,7 @@ describe('Luma adapter read', () => {
         },
       }),
     );
+
     expect(line(missing, 'Location:')).toBe('Location: 9 Public St');
 
     const absent = await contentFor(
@@ -509,6 +541,7 @@ describe('Luma adapter read', () => {
         geo_address_info: { full_address: '8 Public St', city: 'Madrid' },
       }),
     );
+
     expect(line(absent, 'Location:')).toBe('Location: 8 Public St');
 
     const privateMode = await contentFor(
@@ -524,6 +557,7 @@ describe('Luma adapter read', () => {
         },
       }),
     );
+
     expect(line(privateMode, 'Location:')).toBe('Location: Madrid, Spain');
 
     const partial = await contentFor(
@@ -540,6 +574,7 @@ describe('Luma adapter read', () => {
         },
       }),
     );
+
     expect(line(partial, 'Location:')).toBe(
       'Location: Madrid, Community of Madrid, Spain',
     );
@@ -558,6 +593,7 @@ describe('Luma adapter read', () => {
         },
       }),
     );
+
     expect(line(both, 'Location:')).toBe('Location: 1 Main, Madrid, Spain');
 
     const street = await contentFor(
@@ -567,6 +603,7 @@ describe('Luma adapter read', () => {
         geo_address_info: { mode: 'shown', address: '1 Main' },
       }),
     );
+
     expect(line(street, 'Location:')).toBe('Location: 1 Main');
 
     const city = await contentFor(
@@ -576,6 +613,7 @@ describe('Luma adapter read', () => {
         geo_address_info: { mode: 'shown', city_state: 'Madrid, Spain' },
       }),
     );
+
     expect(line(city, 'Location:')).toBe('Location: Madrid, Spain');
 
     const empty = await contentFor(
@@ -585,6 +623,7 @@ describe('Luma adapter read', () => {
         geo_address_info: { mode: 'obfuscated', full_address: 'Secret' },
       }),
     );
+
     expect(empty).not.toContain('Location:');
     expect(empty).not.toContain('Secret');
   });
@@ -601,6 +640,7 @@ describe('Luma adapter read', () => {
         },
       ),
     );
+
     expect(line(content, 'Hosts:')).toBe('Hosts: Ada, https://luma.com/grace');
     expect(line(content, 'Organizer:')).toBe(
       'Organizer: https://luma.com/org-slug',
@@ -612,12 +652,14 @@ describe('Luma adapter read', () => {
       'canon1',
       eventDocument({ name: 'Canon', url: 'canonical-slug' }),
     );
+
     expect(line(named, 'URL:')).toBe('URL: https://luma.com/canonical-slug');
 
     const none = await contentFor(
       'no-hosts',
       eventDocument({ name: '  Spaced   title  ' }, { hosts: [] }),
     );
+
     expect(none.startsWith('# Spaced title')).toBe(true);
     expect(none).not.toContain('Hosts:');
   });
@@ -636,6 +678,7 @@ describe('Luma adapter read', () => {
         },
       ),
     );
+
     expect(line(same, 'Price:')).toBe('Price: €10.00');
 
     const open = await contentFor(
@@ -650,6 +693,7 @@ describe('Luma adapter read', () => {
         },
       ),
     );
+
     expect(line(open, 'Price:')).toBe('Price: $10.00–$20.00');
 
     const bare = await contentFor(
@@ -659,6 +703,7 @@ describe('Luma adapter read', () => {
         { ticket_info: { price: { cents: 250, currency: null } } },
       ),
     );
+
     expect(line(bare, 'Price:')).toBe('Price: 2.50');
 
     const padded = await contentFor(
@@ -668,6 +713,7 @@ describe('Luma adapter read', () => {
         { ticket_info: { price: { cents: 250, currency: ' usd ' } } },
       ),
     );
+
     expect(line(padded, 'Price:')).toBe('Price: $2.50');
 
     const short = await contentFor(
@@ -677,6 +723,7 @@ describe('Luma adapter read', () => {
         { ticket_info: { price: { cents: 250, currency: 'US' } } },
       ),
     );
+
     expect(line(short, 'Price:')).toBe('Price: 2.50 US');
 
     const prefixed = await contentFor(
@@ -686,6 +733,7 @@ describe('Luma adapter read', () => {
         { ticket_info: { price: { cents: 250, currency: '12USD' } } },
       ),
     );
+
     expect(line(prefixed, 'Price:')).toBe('Price: 2.50 12USD');
 
     const suffixed = await contentFor(
@@ -695,9 +743,11 @@ describe('Luma adapter read', () => {
         { ticket_info: { price: { cents: 250, currency: 'USDXXX' } } },
       ),
     );
+
     expect(line(suffixed, 'Price:')).toBe('Price: 2.50 USDXXX');
 
     const NumberFormat = Intl.NumberFormat;
+
     const RejectingFormat = class extends NumberFormat {
       constructor(
         locales?: Intl.LocalesArgument,
@@ -706,10 +756,13 @@ describe('Luma adapter read', () => {
         if (options?.currency === 'ZZZ') {
           throw new RangeError('unsupported currency');
         }
+
         super(locales, options);
       }
     };
+
     vi.spyOn(Intl, 'NumberFormat').mockImplementation(RejectingFormat);
+
     try {
       const unknown = await contentFor(
         'price-zzz',
@@ -718,6 +771,7 @@ describe('Luma adapter read', () => {
           { ticket_info: { price: { cents: 250, currency: 'ZZZ' } } },
         ),
       );
+
       expect(line(unknown, 'Price:')).toBe('Price: 2.50 ZZZ');
     } finally {
       vi.mocked(Intl.NumberFormat).mockRestore();
@@ -726,6 +780,7 @@ describe('Luma adapter read', () => {
 
   it('lists only visible tickets, with a default name, a flexible price, and each sale window', async () => {
     const zone = 'Europe/Madrid';
+
     const content = await contentFor(
       'tickets1',
       eventDocument(
@@ -802,12 +857,14 @@ describe('Luma adapter read', () => {
         timezone: 'Not/AZone',
       }),
     );
+
     expect(line(invalid, 'Start:')).toBe(
       'Start: 2026-11-04T18:00:00.000Z (Not/AZone)',
     );
 
     for (const kind of TIME_PARTS) {
       mockTimeParts(undefined, [kind]);
+
       const content = await contentFor(
         'part1',
         eventDocument({
@@ -816,6 +873,7 @@ describe('Luma adapter read', () => {
           timezone: 'Europe/Madrid',
         }),
       );
+
       expect(`${kind} ${line(content, 'Start:') ?? ''}`).toBe(
         `${kind} Start: 2026-11-04T18:00:00.000Z (Europe/Madrid)`,
       );
@@ -830,8 +888,10 @@ describe('Luma adapter read', () => {
       ['GMT+05:30', 'UTC+05:30'],
       ['EST', 'EST'],
     ]);
+
     for (const [name, offset] of expected) {
       mockTimeParts(name, []);
+
       const content = await contentFor(
         'offset1',
         eventDocument({
@@ -840,6 +900,7 @@ describe('Luma adapter read', () => {
           timezone: 'Europe/Madrid',
         }),
       );
+
       expect(`${name} ${line(content, 'Start:') ?? ''}`).toContain(
         `${offset} (Europe/Madrid)`,
       );
@@ -886,6 +947,7 @@ describe('Luma adapter read', () => {
         { description_mirror: COMMONMARK_MIRROR },
       ),
     );
+
     const rows = content.split('\n');
 
     const fence = rows.indexOf('````');
@@ -926,6 +988,7 @@ describe('Luma adapter read', () => {
       message: 'HTTP 404',
       httpStatus: 404,
     };
+
     await expect(
       read('https://luma.com/missing1', [[eventUrl('missing1'), notFound]]),
     ).resolves.toMatchObject({
@@ -957,6 +1020,7 @@ describe('Luma adapter read', () => {
       ...jsonBody(fixture('apawn7qt.json')),
       finalUrl: 'https://cdn.example/url',
     };
+
     await expect(
       read('https://luma.com/apawn7qt', [[eventUrl('apawn7qt'), offOrigin]]),
     ).resolves.toMatchObject({
@@ -973,6 +1037,7 @@ async function contentFor(slug: string, document: JsonObject): Promise<string> {
   const { outcome } = await read(`https://luma.com/${slug}`, [
     [eventUrl(slug), response(document)],
   ]);
+
   return rendered(outcome);
 }
 
@@ -994,6 +1059,7 @@ function mockTimeParts(
   omit: ReadonlyArray<Intl.DateTimeFormatPartTypes>,
 ): void {
   const Original = Intl.DateTimeFormat;
+
   function zonedFormat(
     locales?: Intl.LocalesArgument,
     options?: Intl.DateTimeFormatOptions,
@@ -1008,8 +1074,10 @@ function mockTimeParts(
             ? { ...part, value: zoneName }
             : part,
         );
+
     return real;
   }
+
   vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(zonedFormat);
 }
 

@@ -76,14 +76,17 @@ async function writeAt(relative: string, content: string): Promise<string> {
   const target = join(fixture.root, ...relative.split("/"));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, content);
+
   return target;
 }
 
 /** A file whose lines match every fourth line, starting at line 1. */
 function spacedMatches(count: number): string {
   const lines: Array<string> = [];
+
   for (let index = 0; index < count; index += 1)
     lines.push("needle", "filler", "filler", "filler");
+
   return lines.join("\n");
 }
 
@@ -142,17 +145,23 @@ type GrepPage = {
 
 function parsePassage(value: SerializableValue): FsGrepPassage {
   if (!isSerializableRecord(value)) throw new Error("a passage is an object");
+
   const { path, startLine, endLine, content, matches, truncated, capped, cut } =
     value;
+
   if (!isStringValue(path) || !isStringValue(content)) {
     throw new Error("a passage carries its path and content");
   }
+
   if (!isIntegerValue(startLine) || !isIntegerValue(endLine)) {
     throw new Error("a passage carries its line range");
   }
+
   if (!Array.isArray(matches)) throw new Error("a passage carries its matches");
   const lines: ReadonlyArray<SerializableValue> = matches;
+
   if (!lines.every(isIntegerValue)) throw new Error("a match is a line number");
+
   return {
     path,
     startLine,
@@ -171,15 +180,18 @@ function parseList<T>(
 ): ReadonlyArray<T> {
   if (!Array.isArray(value)) throw new Error("the answer carries no list");
   const entries: ReadonlyArray<SerializableValue> = value;
+
   return entries.map(parse);
 }
 
 function parseWarning(value: SerializableValue): GrepWarning {
   if (!isSerializableRecord(value)) throw new Error("a warning is an object");
   const { kind, count } = value;
+
   if (!isStringValue(kind) || !isIntegerValue(count)) {
     throw new Error("a warning names a kind and a count");
   }
+
   return { kind, count };
 }
 
@@ -187,10 +199,13 @@ function parseGrep(answer: JsonValue): GrepPage {
   if (!isSerializableRecord(answer) || answer["ok"] !== true)
     throw new Error("expected a successful search");
   const { complete, cursor, consumed } = answer;
+
   if (!isBoolean(complete)) throw new Error("the answer is partial");
+
   if (!isSerializableRecord(consumed))
     throw new Error("the answer has no budget");
   const { files, entries, bytes } = consumed;
+
   if (
     !isIntegerValue(files) ||
     !isIntegerValue(entries) ||
@@ -198,10 +213,13 @@ function parseGrep(answer: JsonValue): GrepPage {
   )
     throw new Error("the consumed budget is malformed");
   const { progressed, unfinished, ignored: ignoredValue } = answer;
+
   if (!isBoolean(progressed)) throw new Error("the answer has no progress");
+
   if (unfinished !== undefined && !isStringValue(unfinished))
     throw new Error("the unfinished file is malformed");
   const ignored = parseIgnored(ignoredValue);
+
   return {
     results: parseList(answer["results"], parsePassage),
     complete,
@@ -221,11 +239,15 @@ function parseIgnored(
   | { readonly paths: ReadonlyArray<string>; readonly atLeast: boolean }
   | undefined {
   if (value === undefined) return undefined;
+
   if (!isSerializableRecord(value)) throw new Error("ignored is an object");
   const { paths, atLeast } = value;
+
   if (!Array.isArray(paths) || !paths.every(isStringValue))
     throw new Error("ignored carries its paths");
+
   if (!isBoolean(atLeast)) throw new Error("ignored carries its bound");
+
   return { paths: [...paths], atLeast };
 }
 
@@ -247,11 +269,13 @@ async function collectChunks(
   chunks: AsyncIterable<Uint8Array | { readonly kind: string }>,
 ): Promise<Buffer> {
   const parts: Array<Uint8Array> = [];
+
   for await (const chunk of chunks) {
     if (!(chunk instanceof Uint8Array))
       throw new Error(`refused: ${chunk.kind}`);
     parts.push(chunk);
   }
+
   return Buffer.concat(parts);
 }
 
@@ -261,10 +285,12 @@ describe("fs.grep", () => {
     await writeAt("project/nested/c.go", "needle\n");
     await writeAt("project/d.md", "needle\n");
     const prefix = join(fixture.root, "project");
+
     const answer = await daemon.call(
       FS_GREP_METHOD,
       request(prefix, { globSuffix: "**/*.go", patterns: ["needle"] }),
     );
+
     const page = parseGrep(answer);
     expect(pathsOf(page)).toEqual(["a.go", "nested/c.go"]);
     expect(page.results[0]).toMatchObject({
@@ -361,19 +387,24 @@ describe("fs.grep", () => {
     await writeAt("project/a.go", "needle\n");
     await writeAt("project/b.go", "needle\n");
     const prefix = join(fixture.root, "project");
+
     const first = await grep(
       request(prefix, { bounds: { ...BOUNDS, limit: 1 } }),
     );
+
     expect(pathsOf(first)).toEqual(["a.go"]);
     expect(first.complete).toBe(false);
+
     if (first.cursor === undefined)
       throw new Error("the page carries a cursor");
+
     const second = await grep(
       request(prefix, {
         bounds: { ...BOUNDS, limit: 1 },
         cursor: first.cursor,
       }),
     );
+
     expect(pathsOf(second)).toEqual(["b.go"]);
     expect(second.complete).toBe(true);
   });
@@ -383,9 +414,11 @@ describe("fs.grep", () => {
     // its second chunk, so the walk stops inside it.
     await writeAt("project/big.log", `${"x".repeat(63)}\n`.repeat(2000));
     const prefix = join(fixture.root, "project/big.log");
+
     const stopped = await grep(
       request(prefix, { bounds: { ...BOUNDS, bytes: 4 } }),
     );
+
     expect(stopped.progressed).toBe(false);
     expect(stopped.unfinished).toBe("");
     expect(stopped.complete).toBe(false);
@@ -393,6 +426,7 @@ describe("fs.grep", () => {
     const progressed = await grep(
       request(prefix, { bounds: { ...BOUNDS, bytes: 4, progressed: true } }),
     );
+
     expect(progressed.progressed).toBe(true);
     expect(progressed.unfinished).toBeUndefined();
     expect(progressed.complete).toBe(false);
@@ -401,6 +435,7 @@ describe("fs.grep", () => {
   it("refuses a cursor issued for other search inputs", async () => {
     await writeAt("project/a.go", "needle\n");
     const prefix = join(fixture.root, "project");
+
     const cursor = encodeGrepCursor({
       scopeIndex: 0,
       rel: "a.go",
@@ -412,10 +447,12 @@ describe("fs.grep", () => {
         ignoreCase: false,
       }),
     });
+
     const outcome = await daemon.attempt(
       FS_GREP_METHOD,
       request(prefix, { cursor }),
     );
+
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toMatchObject({ code: "invalid_params" });
   });
@@ -438,6 +475,7 @@ describe("fs.grep", () => {
       FS_GREP_METHOD,
       request(fixture.outside),
     );
+
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toMatchObject({
       name: "MachineProtocolError",
@@ -451,6 +489,7 @@ describe("fs.grep", () => {
       FS_GREP_METHOD,
       request("/", { globSuffix: "**" }),
     );
+
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toMatchObject({ code: "path_not_registered" });
   });
@@ -458,11 +497,13 @@ describe("fs.grep", () => {
   it("reports a consumed budget across the files it opened", async () => {
     await writeAt("project/a.go", "needle\n");
     await writeAt("project/b.go", "needle\n");
+
     const page = await grep(
       request(join(fixture.root, "project"), {
         bounds: { ...BOUNDS, files: 1 },
       }),
     );
+
     expect(pathsOf(page)).toEqual(["a.go"]);
     expect(page.consumed).toEqual({ files: 1, entries: 2, bytes: 7 });
     expect(page.complete).toBe(false);
@@ -473,9 +514,11 @@ describe("fs.grep", () => {
     await writeAt("project/a.go", "needle one\n");
     await writeAt("project/b.go", "needle two\n");
     const prefix = join(fixture.root, "project");
+
     const page = await grep(
       request(prefix, { bounds: { ...BOUNDS, bytes: 1 } }),
     );
+
     // A file of any size is searched: `a.go` is one chunk, so the 1-byte bound
     // is crossed after its bytes and never cuts it. The bound then stops the
     // walk before `b.go`, and the call progressed, so no file is unfinished.
@@ -484,6 +527,7 @@ describe("fs.grep", () => {
     expect(page.unfinished).toBeUndefined();
     expect(page.complete).toBe(false);
     expect(page.warnings).toEqual([{ kind: "byte_bound", count: 1 }]);
+
     if (page.cursor === undefined) throw new Error("the page carries a cursor");
     expect(
       decodeGrepCursor(
@@ -506,11 +550,13 @@ describe("fs.grep", () => {
 
   it("skips a file over the file-size bound the request carries", async () => {
     await writeAt("project/a.go", "needle\n");
+
     const page = await grep(
       request(join(fixture.root, "project"), {
         bounds: { ...BOUNDS, fileBytes: 4 },
       }),
     );
+
     expect(pathsOf(page)).toEqual([]);
     expect(page.warnings).toEqual([{ kind: "oversized", count: 1 }]);
     expect(page.complete).toBe(true);
@@ -520,18 +566,22 @@ describe("fs.grep", () => {
     await writeAt("project/a.go", "needle one\n");
     await writeAt("project/b.go", "needle two\n");
     const prefix = join(fixture.root, "project");
+
     // The finite control stops after one file, so the unset request's second
     // file proves the nulls really remove the bound.
     const bounded = await grep(
       request(prefix, { bounds: { ...BOUNDS, files: 1 } }),
     );
+
     expect(pathsOf(bounded)).toEqual(["a.go"]);
     expect(bounded.complete).toBe(false);
+
     const page = await grep(
       request(prefix, {
         bounds: { ...BOUNDS, files: null, entries: null, bytes: null },
       }),
     );
+
     expect(pathsOf(page)).toEqual(["a.go", "b.go"]);
     expect(page.complete).toBe(true);
   });
@@ -539,15 +589,19 @@ describe("fs.grep", () => {
   it("refuses a negative or fractional bound", async () => {
     await writeAt("project/a.go", "needle\n");
     const prefix = join(fixture.root, "project");
+
     const negative = await daemon.attempt(
       FS_GREP_METHOD,
       request(prefix, { bounds: { ...BOUNDS, files: -1 } }),
     );
+
     expect(negative.error).toMatchObject({ code: "invalid_params" });
+
     const fractional = await daemon.attempt(
       FS_GREP_METHOD,
       request(prefix, { bounds: { ...BOUNDS, entries: 1.5 } }),
     );
+
     expect(fractional.error).toMatchObject({ code: "invalid_params" });
   });
 
@@ -555,11 +609,14 @@ describe("fs.grep", () => {
     await writeAt("project/a.md", "nothing here\n");
     await writeAt("project/b.md", "needle\n");
     const prefix = join(fixture.root, "project");
+
     const first = await grep(
       request(prefix, { bounds: { ...BOUNDS, files: 1 } }),
     );
+
     expect(pathsOf(first)).toEqual([]);
     expect(first.complete).toBe(false);
+
     if (first.cursor === undefined)
       throw new Error("the page carries a cursor");
     expect(
@@ -593,6 +650,7 @@ describe("fs.grep", () => {
     await writeAt("project/a.go", spacedMatches(21));
     const prefix = join(fixture.root, "project");
     const whole = await grep(request(prefix));
+
     // A page that holds ten passages leaves the twentieth to the next page,
     // where a per-page count would lose the mark.
     const split = await grep(
@@ -610,7 +668,9 @@ describe("fs.grep", () => {
         },
       }),
     );
+
     expect(split.results).toHaveLength(10);
+
     if (split.cursor === undefined)
       throw new Error("the page carries a cursor");
     const rest = await grep(request(prefix, { cursor: split.cursor }));
@@ -626,8 +686,10 @@ describe("fs.grep", () => {
       { length: 8 },
       () => `needle ${"x".repeat(200)}`,
     ).join("\n");
+
     await writeAt("project/a.go", `${long}\n`);
     const prefix = join(fixture.root, "project");
+
     const first = await grep(
       request(prefix, {
         // A page that leaves 400 units for the passages themselves.
@@ -637,6 +699,7 @@ describe("fs.grep", () => {
         },
       }),
     );
+
     expect(first.results).toHaveLength(1);
     // A cut passage claims the cut only: its file is not capped, so the
     // twentieth-passage marker would be a lie the hub renders back.
@@ -647,6 +710,7 @@ describe("fs.grep", () => {
     expect(first.results[0]).not.toHaveProperty("truncated");
     const cutEnd = first.results[0]?.endLine ?? 0;
     expect(cutEnd).toBeLessThan(8);
+
     if (first.cursor === undefined)
       throw new Error("the page carries a cursor");
     const rest = await grep(request(prefix, { cursor: first.cursor }));
@@ -655,12 +719,15 @@ describe("fs.grep", () => {
 
   it("announces a file's size and streams its bytes", async () => {
     await writeAt("exact.md", "0123456789");
+
     const port = createGrepWalkPort(
       await realpath(fixture.root),
       createRootGuard([fixture.root]),
       undefined,
     );
+
     const opened = await port.open("exact.md");
+
     if (!("chunks" in opened)) throw new Error("a regular file opens");
     expect(opened.size).toBe(10);
     expect(await collectChunks(opened.chunks)).toEqual(
@@ -671,11 +738,13 @@ describe("fs.grep", () => {
   it("refuses a symbolic link at the opened path", async () => {
     await writeAt("real.md", "needle\n");
     await symlink(join(fixture.root, "real.md"), join(fixture.root, "link.md"));
+
     const port = createGrepWalkPort(
       await realpath(fixture.root),
       createRootGuard([fixture.root]),
       undefined,
     );
+
     await expect(port.open("link.md")).resolves.toStrictEqual({
       kind: "unreadable",
     });
@@ -683,11 +752,13 @@ describe("fs.grep", () => {
 
   it("refuses a FIFO without blocking the walk", async () => {
     await makeFifo(join(fixture.root, "pipe"));
+
     const port = createGrepWalkPort(
       await realpath(fixture.root),
       createRootGuard([fixture.root]),
       undefined,
     );
+
     await expect(port.open("pipe")).resolves.toStrictEqual({
       kind: "unreadable",
     });
@@ -728,6 +799,7 @@ describe("fs.grep", () => {
     const guarded = await guard.resolvePath(join(fixture.root, "project"));
     const port = createGrepWalkPort(guarded.canonical, guard, undefined);
     const opened = await port.open("sub/inside.md");
+
     if (!("chunks" in opened)) throw new Error("a regular file opens");
     const iterator = opened.chunks[Symbol.asyncIterator]();
     const first = await iterator.next();
@@ -739,11 +811,14 @@ describe("fs.grep", () => {
     });
     await symlink(fixture.outside, join(fixture.root, "project", "sub"));
     const rest: Array<unknown> = [];
+
     for (;;) {
       const next = await iterator.next();
+
       if (next.done === true) break;
       rest.push(next.value);
     }
+
     expect(rest.at(-1)).toStrictEqual({ kind: "unreadable" });
     await opened.close();
   });
@@ -757,24 +832,30 @@ describe("fs.grep", () => {
     const port = createGrepWalkPort(guarded.canonical, guard, undefined);
     // The listing is genuine; the swap lands before the engine reads below it.
     let swapped = false;
+
     const swapping: GrepWalkPort = {
       ...port,
       list: async (rel) => {
         const entries = await port.list(rel);
+
         if (!swapped && rel === "sub") {
           swapped = true;
           await rm(join(prefix, "sub"), { recursive: true, force: true });
           await symlink(fixture.outside, join(prefix, "sub"));
         }
+
         return entries;
       },
     };
+
     const compiled = compileGrepPatterns({
       patterns: ["needle"],
       literal: false,
       ignoreCase: false,
     });
+
     if (!compiled.ok) throw new Error(compiled.message);
+
     const scan = await runGrepScan({
       scopes: [
         {
@@ -792,6 +873,7 @@ describe("fs.grep", () => {
       inputHash: "swapped-subtree",
       now: () => Date.now(),
     });
+
     expect(swapped).toBe(true);
     expect(scan.results).toEqual([]);
     expect(scan.warnings).toEqual([{ kind: "unreadable", count: 1 }]);
@@ -808,6 +890,7 @@ describe("fs.grep", () => {
     const port = createGrepWalkPort(guarded.canonical, guard, undefined);
     await rm(join(prefix, "sub"), { recursive: true, force: true });
     await symlink(fixture.outside, join(prefix, "sub"));
+
     if (port.ignoreFiles === undefined)
       throw new Error("the walk reads ignore files");
     expect(await port.ignoreFiles("sub")).toEqual([]);
@@ -821,11 +904,13 @@ describe("fs.grep", () => {
     const guarded = await guard.resolvePath(prefix);
     const controller = new AbortController();
     controller.abort();
+
     const port = createGrepWalkPort(
       guarded.canonical,
       guard,
       controller.signal,
     );
+
     if (port.ignoreFiles === undefined)
       throw new Error("the walk reads ignore files");
     await expect(port.ignoreFiles("")).rejects.toMatchObject({
@@ -844,6 +929,7 @@ describe("fs.grep", () => {
     await rm(join(fixture.root, "alias"));
     await symlink(fixture.outside, join(fixture.root, "alias"));
     const opened = await port.open("a.md");
+
     if (!("chunks" in opened)) throw new Error("the file is read");
     expect((await collectChunks(opened.chunks)).toString()).toBe(
       "needle inside\n",

@@ -5,6 +5,7 @@ import { noReduceAccumulatorCopyRule } from "./no-reduce-accumulator-copy.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "accumulatorCopy" };
 
 tester.run(

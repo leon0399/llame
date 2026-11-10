@@ -54,10 +54,13 @@ test("continues a failed agentic turn from its settled tool step", async ({
     name: "Continue",
     exact: true,
   });
+
   await expect(continueTurn).toBeVisible({ timeout: 20_000 });
+
   const followUp = page.waitForRequest((request) =>
     FOLLOW_UP_ROUTE.test(new URL(request.url()).pathname),
   );
+
   await continueTurn.click();
 
   // Continue sends only the action: the Run it resumes owns the model.
@@ -87,15 +90,18 @@ test("regenerates a completed answer after confirming the calls it discards", as
   await expect(
     log.getByRole("button").filter({ hasText: /^bash/u }).first(),
   ).toBeVisible({ timeout: 30_000 });
+
   const answer = log.getByText("Here are the past conversations", {
     exact: false,
   });
+
   await expect(answer).toBeVisible({ timeout: 30_000 });
 
   const regenerate = page.getByRole("button", {
     name: "Regenerate",
     exact: true,
   });
+
   await expect(regenerate).toBeVisible({ timeout: 20_000 });
 
   // Every follow-up request the browser sends, watched from before the first
@@ -117,6 +123,7 @@ test("regenerates a completed answer after confirming the calls it discards", as
   const followUp = page.waitForRequest((request) =>
     FOLLOW_UP_ROUTE.test(new URL(request.url()).pathname),
   );
+
   await regenerate.click();
   await page
     .getByRole("alertdialog")

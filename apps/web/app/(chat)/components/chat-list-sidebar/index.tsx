@@ -27,6 +27,7 @@ import { ChatList } from "./chat-list";
 function NewChatButton() {
   const modifierKey = usePrimaryModifierKey();
   const key = SHORTCUT_KEY_NEW_CHAT.toUpperCase();
+
   return (
     <Tooltip>
       <TooltipTrigger

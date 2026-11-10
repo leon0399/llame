@@ -71,6 +71,7 @@ const previousCheckpoint: CheckpointMessage = {
 };
 
 const sourceAttemptId = '22222222-2222-4222-8222-222222222222';
+
 const sourceRun: Run = {
   id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
   chatId,
@@ -106,16 +107,20 @@ const sourceReceipt: SystemPromptReceipt = {
 
 function makeService(client: ModelClient = createFakeModelClient(['summary'])) {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
   );
+
   const models = {
     createClient: vi.fn((_modelId: string) => client),
   };
+
   return {
     service: new CompactionService(tenantDb, models),
     models,
@@ -136,17 +141,21 @@ function recordingClient(options?: {
     options?.responses ?? ['summary text'],
     options?.contextWindowTokens ?? 128_000,
   );
+
   const calls: Array<ModelStreamInput> = [];
+
   const client: ModelClient = {
     ...base,
     streamText: (input: ModelStreamInput) => {
       calls.push(input);
+
       return wrapStreamTextResult(
         base.streamText(input),
         options?.overrides ?? {},
       );
     },
   };
+
   return { client, calls };
 }
 
@@ -167,18 +176,22 @@ function mockReads(options?: {
   const findActive = vi
     .spyOn(MessagesRepository.prototype, 'findActiveCheckpoint')
     .mockResolvedValue(options?.previous);
+
   const findRun = vi.spyOn(
     RunsRepository.prototype,
     'findCompletedReplyRunBefore',
   );
+
   findRun.mockResolvedValue(
     options?.source
       ? { run: options.source.run, triggeringUserSeq: 1 }
       : undefined,
   );
+
   const findReceipt = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByAttempt')
     .mockResolvedValue(options?.source?.receipt);
+
   return { findActive, findRun, findReceipt };
 }
 
@@ -331,6 +344,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     const { client } = recordingClient({
       overrides: {
         toolCalls: () => ({
@@ -341,6 +355,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
         finishReason: () => ({ value: Promise.resolve('stop') }),
       },
     });
+
     const setup = makeService(client);
     mockReads();
 
@@ -366,12 +381,14 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
 
   it('rejects the summary when the provider ended on tool calls', async () => {
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
     const { client } = recordingClient({
       overrides: {
         toolCalls: () => ({ value: Promise.resolve([]) }),
         finishReason: () => ({ value: Promise.resolve('tool-calls') }),
       },
     });
+
     const setup = makeService(client);
     mockReads();
 
@@ -400,6 +417,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
         }),
       },
     });
+
     const setup = makeService(client);
     mockReads();
 
@@ -422,6 +440,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     const { client } = recordingClient({ responses: [''] });
     const setup = makeService(client);
     mockReads();
@@ -448,13 +467,16 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     const base = createFakeModelClient(['summary']);
+
     const client: ModelClient = {
       ...base,
       streamText: () => {
         throw new Error('provider unavailable');
       },
     };
+
     const setup = makeService(client);
     mockReads();
 
@@ -482,6 +504,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     const controller = new AbortController();
     const aborted = new Error('aborted mid-stream');
     const base = createFakeModelClient(['summary']);
+
     const client: ModelClient = {
       ...base,
       streamText: () => {
@@ -489,6 +512,7 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
         throw aborted;
       },
     };
+
     const setup = makeService(client);
     mockReads();
 
@@ -542,6 +566,7 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
   it('summarizes with the previous completed run model, receipt prompt and persisted effort', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
+
     const { findRun, findReceipt } = mockReads({
       previous: previousCheckpoint,
       source: { run: { ...sourceRun, effort: 'high' }, receipt: sourceReceipt },
@@ -623,6 +648,7 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
   it('fails context_incompatible when the source run has no completed attempt to read a receipt from', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
+
     const { findReceipt } = mockReads({
       source: { run: { ...sourceRun, completedAttemptId: null } },
     });
@@ -740,12 +766,14 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
   it('wraps a source-model failure and preserves its cause', async () => {
     const boom = new Error('provider exploded');
     const base = createFakeModelClient(['summary']);
+
     const client: ModelClient = {
       ...base,
       streamText: () => {
         throw boom;
       },
     };
+
     const setup = makeService(client);
     mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
 
@@ -772,6 +800,7 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
     const controller = new AbortController();
     const aborted = new Error('aborted mid-summary');
     const base = createFakeModelClient(['summary']);
+
     const client: ModelClient = {
       ...base,
       streamText: () => {
@@ -779,6 +808,7 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
         throw aborted;
       },
     };
+
     const setup = makeService(client);
     mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
 
@@ -798,9 +828,11 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
 
 describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
   const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+
   const { resolver: media } = fakeResolver([
     descriptor(imageId, { name: 'shot.png' }),
   ]);
+
   /** An absorbable prefix whose user turn carries one owner attachment. */
   const attachmentPlan = (): CompactionPlan => ({
     uptoSeq: 3,
@@ -815,9 +847,11 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
       message(3, 'assistant'),
     ]),
   });
+
   /** The provider prompt's user file parts and its serialized form. */
   const sentImages = (models: ScriptedModelsService) => {
     const prompt = models.prompts.at(-1) ?? [];
+
     return {
       files: prompt.flatMap((entry) =>
         entry.role === 'user'
@@ -892,6 +926,7 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
     const { resolver } = fakeResolver([
       descriptor(imageId, { modelWidth: 10_000, modelHeight: 10_000 }),
     ]);
+
     const { client, calls } = recordingClient();
     expect(client.input).toBeUndefined();
     const setup = makeService(client);
@@ -913,6 +948,7 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
 
   describe('a PDF attachment', () => {
     const pdfId = '0192f3a4-5b6c-7d8e-9f01-00000000000b';
+
     const pdfPlan = (): CompactionPlan => ({
       uptoSeq: 3,
       absorb: toStoredMessages([
@@ -931,6 +967,7 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
         message(3, 'assistant'),
       ]),
     });
+
     const pdfMedia = () =>
       fakeResolver([pdfDescriptor(pdfId, { name: 'paper.pdf', pages: 15 })])
         .resolver;

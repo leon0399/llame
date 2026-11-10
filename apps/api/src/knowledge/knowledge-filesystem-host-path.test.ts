@@ -33,6 +33,7 @@ function portOver(
     lstat: (filePath) => {
       recorder.lstat.push(filePath);
       const kind = entries.get(filePath);
+
       return kind === undefined
         ? Promise.reject(new KnowledgeFilesystemError('knowledge_not_found'))
         : Promise.resolve(statsFor(kind));
@@ -40,6 +41,7 @@ function portOver(
     mkdir: (directoryPath) => {
       recorder.mkdir.push(directoryPath);
       entries.set(directoryPath, 'directory');
+
       return Promise.resolve();
     },
   };
@@ -64,10 +66,12 @@ describe('Knowledge host path resolution', () => {
 
   it('lstats every component on the way to the target', async () => {
     const calls = recorder();
+
     const entries = new Map<string, EntryKind>([
       [path.join(DIRECTORY, 'notes'), 'directory'],
       [path.join(DIRECTORY, 'notes', 'note.md'), 'file'],
     ]);
+
     await expect(
       resolveKnowledgeHostPath(
         DIRECTORY,
@@ -87,10 +91,12 @@ describe('Knowledge host path resolution', () => {
     'refuses a symbolic link at %s without following it',
     async (linked) => {
       const calls = recorder();
+
       const entries = new Map<string, EntryKind>([
         [path.join(DIRECTORY, 'notes'), 'directory'],
         [path.join(DIRECTORY, ...linked.split('/')), 'symlink'],
       ]);
+
       await expect(
         resolveKnowledgeHostPath(
           DIRECTORY,
@@ -103,9 +109,11 @@ describe('Knowledge host path resolution', () => {
 
   it('refuses a non-directory component above the target', async () => {
     const calls = recorder();
+
     const entries = new Map<string, EntryKind>([
       [path.join(DIRECTORY, 'notes'), 'file'],
     ]);
+
     await expect(
       resolveKnowledgeHostPath(
         DIRECTORY,
@@ -165,14 +173,17 @@ describe('Knowledge host path resolution', () => {
     const calls = recorder();
     const entries = new Map<string, EntryKind>();
     const port = portOver(entries, calls);
+
     const racing: KnowledgeHostPathPort = {
       lstat: (filePath) => port.lstat(filePath),
       mkdir: (directoryPath) => {
         calls.mkdir.push(directoryPath);
         entries.set(directoryPath, 'symlink');
+
         return Promise.resolve();
       },
     };
+
     await expect(
       resolveKnowledgeHostPath(DIRECTORY, 'notes/note.md', racing, {
         allowMissing: true,

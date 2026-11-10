@@ -124,6 +124,7 @@ export function createRerankClient(
     attemptTimeoutMs:
       dependencies.attemptTimeoutMs ?? DECISION_ATTEMPT_TIMEOUT_MS,
   };
+
   return { rerank: (request) => rerankWith(wire, request) };
 }
 
@@ -133,11 +134,13 @@ async function rerankWith(
 ): Promise<RerankOutcome> {
   const startedAt = wire.now();
   const latencyMs = () => Math.max(0, Math.round(wire.now() - startedAt));
+
   const result = await runAttempts({
     signal: request.signal,
     sleep: wire.sleep,
     attempt: (number) => attempt(wire, request, number),
   });
+
   if (result.kind === 'failed') {
     return {
       status: 'unavailable',
@@ -145,6 +148,7 @@ async function rerankWith(
       latencyMs: latencyMs(),
     };
   }
+
   return { status: 'answered', ...result.accepted, latencyMs: latencyMs() };
 }
 
@@ -157,6 +161,7 @@ async function attempt(
     wire.attemptTimeoutMs,
     request.signal,
   );
+
   try {
     const result = await rerank({
       model: wire.model,
@@ -168,7 +173,9 @@ async function attempt(
       // (`ai.documents`) on a span; `isEnabled: false` is honoured by both.
       experimental_telemetry: { isEnabled: false },
     });
+
     const accepted = accept(wire, request.documents.length, result);
+
     return accepted === undefined
       ? { kind: 'failed', reason: 'invalid_response' }
       : { kind: 'answered', accepted };
@@ -188,6 +195,7 @@ function accept(
   result: RerankResult<string>,
 ): Accepted | undefined {
   const scores = new Map<number, number>();
+
   for (const { originalIndex, score } of result.ranking) {
     const valid =
       Number.isInteger(originalIndex) &&
@@ -195,16 +203,20 @@ function accept(
       originalIndex < count &&
       !scores.has(originalIndex) &&
       Number.isFinite(score);
+
     if (!valid) return undefined;
     scores.set(originalIndex, score);
   }
+
   if (scores.size !== count) return undefined;
 
   const body = WireBodySchema.safeParse(result.response.body);
   const served = body.success ? body.data.model : undefined;
+
   if (served !== undefined && wire.key !== null && served.includes(wire.key)) {
     return undefined;
   }
+
   return {
     model:
       served !== undefined && PRINTABLE_ID.test(served) ? served : wire.modelId,
@@ -222,6 +234,7 @@ function lenient<T extends z.ZodType>(schema: T) {
     .unknown()
     .transform((value): z.output<T> | undefined => {
       const parsed = schema.safeParse(value);
+
       return parsed.success ? parsed.data : undefined;
     })
     .optional();
@@ -271,11 +284,15 @@ function attemptFailure(
   failed: FailedAttempt,
 ): AttemptResult<never> {
   const { timeout, number } = failed;
+
   if (timeout.aborted) return transportFailure(timeout, number);
+
   if (APICallError.isInstance(error)) return statusFailure(error, failed);
+
   if (error instanceof UnreadableResponseError) {
     return { kind: 'failed', reason: 'invalid_response' };
   }
+
   return transportFailure(timeout, number);
 }
 
@@ -284,6 +301,7 @@ function statusFailure(
   { wire, number }: FailedAttempt,
 ): AttemptResult<never> {
   const { statusCode } = error;
+
   if (statusCode === undefined) {
     return {
       kind: 'retry',
@@ -291,11 +309,15 @@ function statusFailure(
       delayMs: backoffMs(number),
     };
   }
+
   if (statusCode >= 200 && statusCode < 300) {
     return { kind: 'failed', reason: 'invalid_response' };
   }
+
   const reason = classifyStatus(statusCode);
+
   if (reason === 'rejected') return { kind: 'failed', reason };
+
   return {
     kind: 'retry',
     reason,
@@ -317,27 +339,36 @@ function boundedFetch(fetchImpl: FetchLike): FetchLike {
   return async (input, init) => {
     const response = await fetchImpl(input, { ...init, redirect: 'manual' });
     const headers = new Headers(response.headers);
+
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
+
       return new Response(null, { status: response.status, headers });
     }
+
     const text = await readBoundedText(response);
+
     if (text === READ_ERROR) throw new Error('response body read failed');
+
     if (text === undefined) throw new UnreadableResponseError();
     headers.delete('content-length');
     headers.delete('content-encoding');
+
     return new Response(withMeta(text), { status: response.status, headers });
   };
 }
 
 function withMeta(text: string): string {
   let body: unknown;
+
   try {
     body = JSON.parse(text);
   } catch {
     return text;
   }
+
   if (!isRecord(body) || 'meta' in body) return text;
+
   return JSON.stringify({ ...body, meta: null });
 }
 

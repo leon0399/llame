@@ -32,6 +32,7 @@ import {
 export function useProjectItemPin(project: ProjectResponse, isPinned: boolean) {
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();
+
   return () =>
     isPinned
       ? unpinMutation.mutate({ itemType: "project", itemId: project.id })
@@ -87,9 +88,11 @@ function NewChatInProjectItem({ project }: { project: ProjectResponse }) {
       <span>New chat in project</span>
     </>
   );
+
   if (project.archivedAt !== null) {
     return <DropdownMenuItem disabled>{label}</DropdownMenuItem>;
   }
+
   return (
     <DropdownMenuItem
       render={
@@ -153,6 +156,7 @@ export function ProjectMenuItems({
 export function useProjectDialogs() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+
   return {
     editOpen,
     deleteOpen,

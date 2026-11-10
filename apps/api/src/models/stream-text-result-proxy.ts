@@ -41,7 +41,9 @@ export function wrapStreamTextResult<T extends object>(
       const produce = Object.hasOwn(overrides, property)
         ? overrides[property]
         : undefined;
+
       if (produce !== undefined) return produce(target).value;
+
       // eslint-disable-next-line anti-slop/no-reflect-get -- see the file doc comment above (verified against the AI SDK's own source, not inferred): the single owned exception for StreamTextResult pass-through wrapping.
       return Reflect.get(target, property, receiver);
     },

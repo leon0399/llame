@@ -20,17 +20,20 @@ import { TenantDbService, type Db } from './tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'conversation-sequence.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
   );
 }
+
 // `postgres` is required lazily so the unit project never loads the driver at
 // runtime, but a type-only import of its client type is erased and carries no
 // runtime cost.
 type SqlClient = Sql;
 
 const textPart = (text: string) => [{ type: 'text', text }];
+
 const sequenceMigrationStatements = readFileSync(
   join(__dirname, 'migrations', '20260828123726_flowery_nitro.sql'),
   'utf8',
@@ -120,6 +123,7 @@ describe('conversation message sequence database invariants', () => {
       WHERE conrelid = 'messages'::regclass
         AND conname = 'messages_seq_positive'
     `;
+
     expect(constraints).toEqual([{ definition: 'CHECK ((seq > 0))' }]);
   });
 
@@ -133,6 +137,7 @@ describe('conversation message sequence database invariants', () => {
       )
       ORDER BY relname
     `;
+
     expect(rows).toEqual([
       { relname: 'messages', relforcerowsecurity: true },
       { relname: 'run_events', relforcerowsecurity: true },
@@ -144,6 +149,7 @@ describe('conversation message sequence database invariants', () => {
       ownerUserId,
       title,
     });
+
     return chat.id;
   }
 
@@ -157,8 +163,10 @@ describe('conversation message sequence database invariants', () => {
     // matches the array branch, so the unwrap is provably a no-op here.
     const { value } = await sqlClient.begin(async (tx: SqlClient) => {
       await tx`SET LOCAL search_path TO ${tx(schemaName)}`;
+
       return { value: await fn(tx) };
     });
+
     return value;
   }
 
@@ -203,12 +211,14 @@ describe('conversation message sequence database invariants', () => {
         ALTER TABLE compactions ENABLE ROW LEVEL SECURITY;
         ALTER TABLE compactions FORCE ROW LEVEL SECURITY;
       `);
+
       const legacyPart = [
         {
           type: 'tool-conversation_read',
           input: { chatId: chatA, messageSeq: 3 },
         },
       ];
+
       for (let i = 0; i < 4; i++) {
         await tx`
           INSERT INTO messages (id, chat_id, parts)
@@ -225,10 +235,12 @@ describe('conversation message sequence database invariants', () => {
           )
         `;
       }
+
       const compactionHistory =
         locatorSource === 'compaction'
           ? [{ role: 'assistant', parts: legacyPart }]
           : [];
+
       // Insert the later boundary first: without dropping the unique index,
       // rewriting old 8 -> new 4 collides with the still-old boundary 4.
       await tx`
@@ -254,6 +266,7 @@ describe('conversation message sequence database invariants', () => {
         )
         VALUES (${earlierCompactionId}, ${chatA}, 4, '[]'::jsonb)
       `;
+
       if (locatorSource === 'event') {
         await tx`
           INSERT INTO run_events (payload)
@@ -264,6 +277,7 @@ describe('conversation message sequence database invariants', () => {
         `;
       }
     });
+
     return {
       schemaName,
       chatA,
@@ -289,14 +303,17 @@ describe('conversation message sequence database invariants', () => {
 
   it('rewrites legacy global order and preserves the compaction terminal message', async () => {
     const fixture = await createLegacyMigrationFixture(null);
+
     try {
       await applySequenceMigration(fixture.schemaName);
+
       const state = await withSchema(fixture.schemaName, async (tx) => {
         const messages = await tx`
           SELECT id::text, chat_id::text, seq::text
           FROM messages
           ORDER BY chat_id, seq
         `;
+
         const compactions = await tx`
           SELECT c.upto_seq::text, m.id::text AS terminal_message_id
           FROM compactions AS c
@@ -304,6 +321,7 @@ describe('conversation message sequence database invariants', () => {
             ON m.chat_id = c.chat_id AND m.seq = c.upto_seq
           ORDER BY c.upto_seq
         `;
+
         const [column] = await tx`
           SELECT is_identity
           FROM information_schema.columns
@@ -311,6 +329,7 @@ describe('conversation message sequence database invariants', () => {
             AND table_name = 'messages'
             AND column_name = 'seq'
         `;
+
         const force = await tx`
           SELECT relname, relforcerowsecurity
           FROM pg_class
@@ -321,6 +340,7 @@ describe('conversation message sequence database invariants', () => {
           )
           ORDER BY relname
         `;
+
         return { messages, compactions, column, force };
       });
 
@@ -358,23 +378,27 @@ describe('conversation message sequence database invariants', () => {
     'aborts before mutation for an experimental locator in %s history',
     async (locatorSource) => {
       const fixture = await createLegacyMigrationFixture(locatorSource);
+
       try {
         await expect(
           applySequenceMigration(fixture.schemaName),
         ).rejects.toThrow(
           /persisted experimental global conversation locators/,
         );
+
         const state = await withSchema(fixture.schemaName, async (tx) => {
           const messages = await tx`
             SELECT id::text, seq::text
             FROM messages
             ORDER BY seq
           `;
+
           const compactions = await tx`
             SELECT upto_seq::text
             FROM compactions
             ORDER BY upto_seq
           `;
+
           const [column] = await tx`
             SELECT is_identity
             FROM information_schema.columns
@@ -382,8 +406,10 @@ describe('conversation message sequence database invariants', () => {
               AND table_name = 'messages'
               AND column_name = 'seq'
           `;
+
           return { messages, compactions, column };
         });
+
         expect(state.messages).toEqual(
           Array.from({ length: 4 }, (_, index) => [
             { id: fixture.messagesB[index], seq: String(index * 2 + 1) },
@@ -443,6 +469,7 @@ describe('conversation message sequence database invariants', () => {
     const chatId = await tenantDb.runAs(ownerUserId, (tx) =>
       createChat(tx, 'Checkpoint boundary'),
     );
+
     const insertRow = (role: string, boundary: number | null) =>
       tenantDb.runAs(ownerUserId, (tx) =>
         tx.execute(dsql`
@@ -481,6 +508,7 @@ describe('conversation message sequence database invariants', () => {
     const chatA = await tenantDb.runAs(ownerUserId, (tx) =>
       createChat(tx, 'Local sequence A'),
     );
+
     const chatB = await tenantDb.runAs(ownerUserId, (tx) =>
       createChat(tx, 'Local sequence B'),
     );
@@ -494,6 +522,7 @@ describe('conversation message sequence database invariants', () => {
           parts: textPart('first A'),
         }),
       );
+
       await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).create({
           chatId: chatB,
@@ -502,6 +531,7 @@ describe('conversation message sequence database invariants', () => {
           parts: textPart('between A messages'),
         }),
       );
+
       const secondA = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).create({
           chatId: chatA,
@@ -513,9 +543,11 @@ describe('conversation message sequence database invariants', () => {
 
       expect(firstA.seq).toBe(1);
       expect(secondA.seq).toBe(2);
+
       const messagesB = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatB, ownerUserId),
       );
+
       expect(messagesB.map(({ seq }) => seq)).toEqual([1]);
     } finally {
       await tenantDb.runAs(ownerUserId, async (tx) => {
@@ -540,6 +572,7 @@ describe('conversation message sequence database invariants', () => {
           parts: textPart('first'),
         }),
       );
+
       await expect(
         tenantDb.runAs(ownerUserId, async (tx) => {
           await new MessagesRepository(tx).create({
@@ -560,6 +593,7 @@ describe('conversation message sequence database invariants', () => {
           parts: textPart('second'),
         }),
       );
+
       expect([first.seq, second.seq]).toEqual([1, 2]);
     } finally {
       await tenantDb.runAs(ownerUserId, (tx) =>
@@ -586,6 +620,7 @@ describe('conversation message sequence database invariants', () => {
           ),
         ),
       );
+
       expect(created.map(({ seq }) => seq).sort((a, b) => a - b)).toEqual([
         1, 2, 3,
       ]);
@@ -643,9 +678,11 @@ describe('conversation message sequence database invariants', () => {
             constraint_name: 'messages_chat_seq_unique_idx',
           }),
         });
+
         const [{ last_value: attempts }] = await tx.execute<{
           last_value: string;
         }>(dsql`SELECT last_value::text FROM message_sequence_retry_probe`);
+
         expect(Number(attempts)).toBe(8);
 
         await tx.execute(
@@ -656,9 +693,11 @@ describe('conversation message sequence database invariants', () => {
         );
         await tx.execute(dsql`DROP SEQUENCE message_sequence_retry_probe`);
       });
+
       const messages = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, ownerUserId),
       );
+
       expect(messages).toEqual([]);
     } finally {
       await tenantDb.runAs(ownerUserId, (tx) =>
@@ -694,9 +733,11 @@ describe('conversation message sequence database invariants', () => {
           cause: expect.objectContaining({ code: '42501' }),
         }),
       );
+
       const messages = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, ownerUserId),
       );
+
       expect(messages).toEqual([]);
     } finally {
       await tenantDb.runAs(ownerUserId, (tx) =>
@@ -719,6 +760,7 @@ describe('conversation message sequence database invariants', () => {
           parts: textPart('retry prompt'),
         }),
       );
+
       const assistantMessage = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).create({
           chatId,
@@ -741,6 +783,7 @@ describe('conversation message sequence database invariants', () => {
       );
 
       expect(updated?.seq).toBe(assistantMessage.seq);
+
       const readBack = await tenantDb.runAs(ownerUserId, (tx) =>
         new MessagesRepository(tx).findById(
           chatId,
@@ -748,6 +791,7 @@ describe('conversation message sequence database invariants', () => {
           assistantMessage.id,
         ),
       );
+
       expect(readBack?.seq).toBe(assistantMessage.seq);
       expect(readBack?.parts).toEqual(textPart('retry answer'));
     } finally {

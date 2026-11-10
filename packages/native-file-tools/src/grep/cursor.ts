@@ -72,6 +72,7 @@ const CURSOR_HASH_PLACEHOLDER = "0".repeat(64);
 /** The encoded cursor of one page point, with the placeholder hash. */
 function placeholderCursor(point: GrepCursorPoint): string {
   const inputHash = CURSOR_HASH_PLACEHOLDER;
+
   return point.startLine === undefined
     ? encodeGrepCursor({
         kind: "position",
@@ -128,6 +129,7 @@ export function encodeGrepCursor(cursor: GrepCursorInput): string {
           truncated: cursor.truncated,
           inputHash: cursor.inputHash,
         };
+
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
 
@@ -138,36 +140,53 @@ export function decodeGrepCursor(
 ): GrepCursorDecodeResult {
   if (!/^[\w-]+$/.test(text)) return { error: "invalid_cursor" };
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(Buffer.from(text, "base64url").toString("utf8"));
   } catch {
     return { error: "invalid_cursor" };
   }
+
   const cursor = readCursor(parsed);
+
   if (cursor === undefined || cursor.inputHash !== inputHash)
     return { error: "invalid_cursor" };
+
   return cursor;
 }
 
 function readCursor(value: unknown): DecodedGrepCursor | undefined {
   if (!isRecord(value)) return undefined;
+
   const { kind, scopeIndex, rel, startLine, endLine, truncated, inputHash } =
     value;
+
   if (!isNumber(scopeIndex) || !Number.isInteger(scopeIndex)) return undefined;
+
   if (scopeIndex < 0 || !isString(rel) || !isString(inputHash))
     return undefined;
+
   if (kind === "position") {
     if (startLine !== undefined || endLine !== undefined) return undefined;
+
     if (truncated !== undefined) return undefined;
+
     return { kind, scopeIndex, rel, inputHash };
   }
+
   if (kind !== "passage") return undefined;
+
   if (!isNumber(startLine) || !Number.isInteger(startLine)) return undefined;
+
   if (startLine < 1) return undefined;
+
   if (endLine !== undefined) {
     if (!isNumber(endLine) || !Number.isInteger(endLine)) return undefined;
+
     if (endLine < startLine) return undefined;
   }
+
   if (truncated !== undefined && truncated !== true) return undefined;
+
   return { kind, scopeIndex, rel, startLine, endLine, truncated, inputHash };
 }

@@ -35,6 +35,7 @@ describe('Knowledge filesystem whole-file reading', () => {
     const invalidCount = fileWith(fileStats(1), () =>
       Promise.resolve({ bytesRead: 3 }),
     );
+
     await expect(
       readWholeFileBytes(invalidCount, 1, undefined),
     ).rejects.toMatchObject({
@@ -46,6 +47,7 @@ describe('Knowledge filesystem whole-file reading', () => {
         bytesRead: buffer.length,
       }),
     );
+
     await expect(
       readWholeFileBytes(overflow, 1, undefined),
     ).rejects.toMatchObject({
@@ -56,10 +58,12 @@ describe('Knowledge filesystem whole-file reading', () => {
   it('reads a whole file through the sentinel byte at an exact cap', async () => {
     const chunks = [Buffer.from('ab'), Buffer.from('c'), Buffer.alloc(0)];
     const reads: Array<{ length: number; position: number }> = [];
+
     const file = fileWith(fileStats(0), (buffer, _offset, length, position) => {
       reads.push({ length, position });
       const chunk = chunks.shift()!;
       chunk.copy(buffer);
+
       return Promise.resolve({ bytesRead: chunk.length });
     });
 
@@ -98,11 +102,13 @@ describe('Knowledge filesystem cleanup translation', () => {
 
   it('preserves typed failures when closing a file or directory', async () => {
     const typed = new KnowledgeFilesystemError('knowledge_path_invalid');
+
     const file = fileWith(
       fileStats(0),
       () => Promise.resolve({ bytesRead: 0 }),
       vi.fn(() => Promise.reject(new Error('close failed'))),
     );
+
     await expect(
       closeFileAndTranslateFailure(file, typed, undefined),
     ).rejects.toBe(typed);
@@ -111,6 +117,7 @@ describe('Knowledge filesystem cleanup translation', () => {
       read: vi.fn(() => Promise.resolve(null)),
       close: vi.fn(() => Promise.reject(new Error('close failed'))),
     };
+
     await expect(
       closeDirectoryAndTranslateFailure(directory, typed, undefined),
     ).rejects.toBe(typed);
@@ -123,17 +130,21 @@ describe('Knowledge filesystem cleanup translation', () => {
       isFile: () => true,
       isSymbolicLink: () => false,
     };
+
     const second = {
       name: 'b.md',
       isDirectory: () => false,
       isFile: () => true,
       isSymbolicLink: () => false,
     };
+
     const entries = [first, second, null];
+
     const directory: KnowledgeFilesystemDirectory = {
       read: vi.fn(() => Promise.resolve(entries.shift() ?? null)),
       close: vi.fn(() => Promise.resolve()),
     };
+
     await expect(
       readAllDirectoryEntries(directory, 2, undefined),
     ).resolves.toEqual([first, second]);
@@ -147,6 +158,7 @@ describe('Knowledge filesystem cleanup translation', () => {
     const file = fileWith(fileStats(0), () =>
       Promise.resolve({ bytesRead: 0 }),
     );
+
     await expect(
       closeFileAndTranslateFailure(
         file,
@@ -162,6 +174,7 @@ describe('Knowledge filesystem cleanup translation', () => {
       () => Promise.resolve({ bytesRead: 0 }),
       vi.fn(() => Promise.reject(new Error('close failed'))),
     );
+
     await expect(
       closeFileAndTranslateFailure(file, undefined, undefined),
     ).rejects.toMatchObject({
@@ -174,6 +187,7 @@ describe('Knowledge filesystem cleanup translation', () => {
       read: vi.fn(() => Promise.resolve(null)),
       close: vi.fn(() => Promise.reject(new Error('close failed'))),
     };
+
     await expect(
       closeDirectoryAndTranslateFailure(directory, undefined, undefined),
     ).rejects.toMatchObject({ code: 'knowledge_space_unavailable' });
@@ -184,6 +198,7 @@ describe('Knowledge filesystem cleanup translation', () => {
       read: vi.fn(() => Promise.resolve(null)),
       close: vi.fn(() => Promise.resolve()),
     };
+
     await expect(
       closeDirectoryAndTranslateFailure(
         directory,

@@ -86,6 +86,7 @@ export function machineWorkspaceTarget(
   root: string,
 ): MachineWorkspaceTarget | undefined {
   const parsed = parseMachineLocator(root);
+
   return parsed.kind === 'path' && parsed.selector === undefined
     ? { machine: parsed.name, path: parsed.path }
     : undefined;
@@ -105,7 +106,9 @@ export async function readMachineServerConfigs(
       unavailableConfig(UNAVAILABLE_ID, 'This Machine is not configured.'),
     ];
   }
+
   let answer: JsonValue;
+
   try {
     answer = await connector.request(target.machine, 'mcp.servers', {
       envelope: MACHINE_MCP_ENVELOPE,
@@ -114,7 +117,9 @@ export async function readMachineServerConfigs(
   } catch {
     return [unavailableWorkspaceConfig()];
   }
+
   const result = readMcpServersResult(answer);
+
   if (result === undefined) {
     return [
       unavailableConfig(
@@ -123,6 +128,7 @@ export async function readMachineServerConfigs(
       ),
     ];
   }
+
   return result.servers.map((entry) => machineServerConfig(target, entry));
 }
 
@@ -141,6 +147,7 @@ export function machineServerClientFactory(
         new Error('Machine MCP servers need the Machine connector.'),
       );
     }
+
     const transport = new MachineTransport({
       connector,
       machine: target.machine,
@@ -150,6 +157,7 @@ export function machineServerClientFactory(
       signal: config.signal,
       onDiagnostic: config.onDiagnostic,
     });
+
     return McpServerClient.connectTransport({
       serverId: config.serverId,
       transport,
@@ -174,6 +182,7 @@ function machineServerConfig(
       entry.diagnostic ?? "the server's transport is unknown",
     );
   }
+
   const definition: McpMachineRuntimeDefinition = Object.freeze({
     transport: 'machine',
     machine: target.machine,
@@ -181,6 +190,7 @@ function machineServerConfig(
     server: entry.name,
     kind: entry.transport,
   });
+
   return {
     id: entry.name,
     state: 'configured',

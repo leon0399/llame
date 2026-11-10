@@ -14,6 +14,7 @@ const WHITESPACE_TEST = /\s/u;
 
 function assertPatternSize(pattern: string, configPath: string): void {
   const bytes = Buffer.byteLength(pattern, 'utf8');
+
   if (bytes > PERMISSION_LIMITS.maxPatternBytes) {
     throw new PermissionCompileError(
       configPath,
@@ -30,6 +31,7 @@ export function compileLiteralMatcher(
   assertPatternSize(literal, configPath);
   const exact = RE2JS.compile(RE2JS.quote(literal));
   const flexible = RE2JS.compile(escapeBashWhitespace(literal));
+
   return {
     kind: 'literal',
     matchesExact: (value) => exact.test(value),
@@ -48,6 +50,7 @@ export function compileRegexMatcher(
 ): CompiledValueMatcher {
   assertPatternSize(pattern, configPath);
   let compiled: RE2JS;
+
   try {
     compiled = RE2JS.compile(pattern);
   } catch {
@@ -56,6 +59,7 @@ export function compileRegexMatcher(
       'invalid or unsupported regex',
     );
   }
+
   return {
     kind: 'regex',
     matchesExact: (value) => compiled.test(value),

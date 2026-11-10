@@ -38,6 +38,7 @@ describeIfDb('RLS integration — personalization tenancy', () => {
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -46,6 +47,7 @@ describeIfDb('RLS integration — personalization tenancy', () => {
   const asPublic = <T>(fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', '', true)`;
+
       return fn(tx);
     });
 
@@ -81,12 +83,14 @@ describeIfDb('RLS integration — personalization tenancy', () => {
   it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on personalization', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
     const [row] = await sql`
       SELECT relrowsecurity, relforcerowsecurity
       FROM pg_class WHERE relname = 'personalization'`;
+
     expect(row.relrowsecurity).toBe(true); // ENABLE
     expect(row.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit
   });
@@ -96,6 +100,7 @@ describeIfDb('RLS integration — personalization tenancy', () => {
       userAId,
       (tx) => tx`SELECT preferred_name, about FROM personalization`,
     );
+
     expect(aRows.length).toBe(1);
     expect(aRows[0].preferred_name).toBe('Ana');
 
@@ -104,6 +109,7 @@ describeIfDb('RLS integration — personalization tenancy', () => {
       userBId,
       (tx) => tx`SELECT user_id, preferred_name, about FROM personalization`,
     );
+
     expect(bRows.length).toBe(0);
 
     // And cannot reach it by naming the owner explicitly.
@@ -111,6 +117,7 @@ describeIfDb('RLS integration — personalization tenancy', () => {
       userBId,
       (tx) => tx`SELECT about FROM personalization WHERE user_id = ${userAId}`,
     );
+
     expect(bTargeted.length).toBe(0);
   });
 
@@ -118,6 +125,7 @@ describeIfDb('RLS integration — personalization tenancy', () => {
     const rows = await asPublic(
       (tx) => tx`SELECT user_id, about FROM personalization`,
     );
+
     expect(rows.length).toBe(0);
   });
 
@@ -128,12 +136,14 @@ describeIfDb('RLS integration — personalization tenancy', () => {
         tx`UPDATE personalization SET about = 'overwritten by B'
            WHERE user_id = ${userAId} RETURNING user_id`,
     );
+
     expect(updated.length).toBe(0);
 
     const [row] = await asUser(
       userAId,
       (tx) => tx`SELECT about FROM personalization`,
     );
+
     expect(row.about).toBe("A's private about text");
   });
 
@@ -143,12 +153,14 @@ describeIfDb('RLS integration — personalization tenancy', () => {
       (tx) =>
         tx`DELETE FROM personalization WHERE user_id = ${userAId} RETURNING user_id`,
     );
+
     expect(deleted.length).toBe(0);
 
     const stillThere = await asUser(
       userAId,
       (tx) => tx`SELECT user_id FROM personalization`,
     );
+
     expect(stillThere.length).toBe(1);
   });
 
@@ -188,12 +200,14 @@ describeIfDb('RLS integration — personalization tenancy', () => {
     // two, which is why the spec requires it to be stated where it is written.
     const [table] = await sql`
       SELECT relrowsecurity FROM pg_class WHERE relname = 'users'`;
+
     expect(table.relrowsecurity).toBe(false);
 
     const unfiltered = await asUser(
       userBId,
       (tx) => tx`SELECT id FROM users WHERE id IN (${userAId}, ${userBId})`,
     );
+
     expect(unfiltered.length).toBe(2); // <- no datastore backstop
 
     // The shape the prompt-context read MUST use.
@@ -201,6 +215,7 @@ describeIfDb('RLS integration — personalization tenancy', () => {
       userBId,
       (tx) => tx`SELECT id, name, email FROM users WHERE id = ${userBId}`,
     );
+
     expect(filtered.map((row) => row.id)).toEqual([userBId]);
   });
 });

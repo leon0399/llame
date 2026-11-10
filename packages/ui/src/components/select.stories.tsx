@@ -32,6 +32,7 @@ const FRUIT_ITEMS = [
   { label: "Grapes", value: "grapes" },
   { label: "Pineapple", value: "pineapple" },
 ];
+
 const FRUIT_VEG_ITEMS = [
   { label: "Apple", value: "apple" },
   { label: "Banana", value: "banana" },
@@ -40,6 +41,7 @@ const FRUIT_VEG_ITEMS = [
   { label: "Broccoli", value: "broccoli" },
   { label: "Spinach", value: "spinach" },
 ];
+
 const TIMEZONE_ITEMS = [
   { label: "Eastern Standard Time", value: "est" },
   { label: "Central Standard Time", value: "cst" },
@@ -242,6 +244,7 @@ export const AlignItem: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     const alignItem = canvas.getByRole("switch", { name: "Align Item" });
+
     const trigger = canvas.getByRole("combobox", {
       name: "Selected fruit",
     });

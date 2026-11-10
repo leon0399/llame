@@ -138,6 +138,7 @@ function resolveQueryRefs(config: HybridSearchConfig) {
   const k = config.rrfK;
 
   const cTitle = col('c', c.title);
+
   return {
     k,
     groupTopNWeights: config.groupTopNWeights,
@@ -168,6 +169,7 @@ type QueryRefs = ReturnType<typeof resolveQueryRefs>;
  */
 function buildDocumentScoreLegs(config: HybridSearchConfig, refs: QueryRefs) {
   const { dGroup, dId, dFts, dNorm, dTable } = refs;
+
   return sql`
     -- Each leg materializes its score ONCE (referenced by both the window rank
     -- and the LIMIT ordering) instead of re-evaluating the ranking function.
@@ -248,6 +250,7 @@ function buildVectorLeg(
 
 function buildRangePreferenceUnion(config: HybridSearchConfig): SQL {
   if (!config.rangePreference) return sql``;
+
   return sql`
         UNION ALL
         SELECT u2.group_id, u2.doc_id,
@@ -316,6 +319,7 @@ function buildDocumentRollup(config: HybridSearchConfig, refs: QueryRefs) {
 /** The parent (title) leg: one ranked candidate over `chats.title` itself. */
 function buildTitleLeg(config: HybridSearchConfig, refs: QueryRefs) {
   const { cId, cTitle, cTable, titleScore } = refs;
+
   return sql`
     title_c AS (
       SELECT group_id,
@@ -340,6 +344,7 @@ function buildTitleLeg(config: HybridSearchConfig, refs: QueryRefs) {
  */
 function buildFusedRanked(config: HybridSearchConfig, refs: QueryRefs) {
   const { term, cId, cTitle, cRecency, cTable } = refs;
+
   return sql`
     -- Score-only fusion (no foreign-key payload routed through the aggregate).
     fused AS (

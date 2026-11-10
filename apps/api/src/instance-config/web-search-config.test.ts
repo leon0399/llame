@@ -31,9 +31,11 @@ function brave(id = 'brave', key = 'brave-secret') {
 function searxng(id = 'searxng', baseUrl = 'https://search.example.test') {
   return { id, type: 'searxng', baseUrl };
 }
+
 function aggregate(id = 'aggregate', engines = ['brave', 'duckduckgo']) {
   return { id, type: 'aggregate', engines };
 }
+
 function hostedModel(
   providerType:
     | 'openai-responses'
@@ -52,6 +54,7 @@ function hostedModel(
       accountId: 'codex-account',
     }),
   };
+
   return {
     providers: [provider],
     models: [

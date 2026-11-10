@@ -84,6 +84,7 @@ describe('ssh bash over a real sshd', () => {
 
   function client(options: { readonly spawn?: SshSpawn } = {}): SshClient {
     const connection = fixture.ssh();
+
     const created = createSshClient({
       ssh: {
         knownHostsFile: connection.knownHostsFile,
@@ -92,7 +93,9 @@ describe('ssh bash over a real sshd', () => {
       },
       ...(options.spawn !== undefined && { spawn: options.spawn }),
     });
+
     clients.push(created);
+
     return created;
   }
 
@@ -143,6 +146,7 @@ describe('ssh bash over a real sshd', () => {
 
   async function hostnameOf(container: StartedTestContainer): Promise<string> {
     const result = await fixture.execIn(container, ['hostname']);
+
     return result.stdout.trim();
   }
 
@@ -158,10 +162,12 @@ describe('ssh bash over a real sshd', () => {
       stdout: '/tmp\n',
     });
     expect(result).toHaveProperty('wallTimeMs', expect.any(Number));
+
     const who = await bash(
       { command: 'id -un; hostname', cwd: 'ssh://box/tmp' },
       client(),
     );
+
     expect(who).toMatchObject({ status: 'success' });
     expect(String(who['stdout'])).toContain('box');
     expect(String(who['stdout'])).toContain(await hostnameOf(fixture.box));
@@ -199,8 +205,10 @@ describe('ssh bash over a real sshd', () => {
   it('keeps env values out of every argv on the hub and the host', async () => {
     const token = 'llameTOKEN9f3a';
     const argv: Array<ReadonlyArray<string>> = [];
+
     const spawn: SshSpawn = (command, args) => {
       argv.push(args);
+
       return spawnSshProcess(command, args);
     };
 
@@ -219,6 +227,7 @@ describe('ssh bash over a real sshd', () => {
     expect(String(result['stdout'])).toContain(token);
     expect(String(result['stdout'])).not.toContain('ARGV_LEAK');
     expect(argv.length).toBeGreaterThan(0);
+
     for (const args of argv) expect(args.join('\u0000')).not.toContain(token);
   });
 
@@ -277,6 +286,7 @@ describe('ssh bash over a real sshd', () => {
 
   it('refuses bash on the sh-only host while a read still works', async () => {
     const sshClient = client();
+
     const result = await bash(
       { command: 'printf never', cwd: `ssh://${MACHINE_SSHD_SH_ALIAS}/tmp` },
       sshClient,
@@ -292,6 +302,7 @@ describe('ssh bash over a real sshd', () => {
       `ssh://${MACHINE_SSHD_SH_ALIAS}/etc/hostname`,
       sshClient,
     );
+
     expect(file).toMatchObject({ status: 'success', kind: 'file' });
     expect(file['content']).toContain(await hostnameOf(fixture.shBox));
   });
@@ -312,6 +323,7 @@ describe('ssh bash over a real sshd', () => {
 
   it('leaves a command cancelled after it started an unknown outcome', async () => {
     const controller = new AbortController();
+
     // Cancel on the remote start marker itself, not on a guessed delay: the
     // abort lands in a microtask, after every stderr listener has the chunk,
     // so the frames say the command had started.
@@ -320,11 +332,13 @@ describe('ssh bash over a real sshd', () => {
       let seen = '';
       process.stderr.on('data', (chunk: Buffer | string) => {
         seen += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : chunk;
+
         if (/[0-9a-f]{32}:start/u.test(seen)) {
           seen = '';
           queueMicrotask(() => controller.abort());
         }
       });
+
       return process;
     };
 

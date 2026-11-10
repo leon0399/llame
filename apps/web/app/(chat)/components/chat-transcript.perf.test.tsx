@@ -50,6 +50,7 @@ function isToolPart(part: UIMessage["parts"][number]): part is ToolFixturePart {
 
 function fatAssistantMessage(id: string): UIMessage {
   const parts: Array<UIMessage["parts"][number]> = [];
+
   for (let i = 0; i < TOOL_COUNT; i += 1) {
     // SAFETY: vitest fixture — reasoning shape the Tool chrome skips and the
     // merge leaves untouched; the SDK part union is wider than this literal.
@@ -58,6 +59,7 @@ function fatAssistantMessage(id: string): UIMessage {
       text: `step ${i}`,
       state: "done",
     } as UIMessage["parts"][number];
+
     // SAFETY: vitest fixture — tool-bash shape ToolHeader/Input/Output read;
     // the SDK part union is wider than this literal.
     const toolPart = {
@@ -67,9 +69,12 @@ function fatAssistantMessage(id: string): UIMessage {
       input: { command: `echo ${i}` },
       output: `ok-${i}`,
     } as UIMessage["parts"][number];
+
     parts.push(reasoningPart, toolPart);
   }
+
   parts.push({ type: "text", text: "Done." });
+
   return { id, role: "assistant", parts };
 }
 
@@ -78,6 +83,7 @@ function ToolChrome({ parts }: { parts: UIMessage["parts"] }) {
     <>
       {parts.map((part, index) => {
         if (!isToolPart(part)) return null;
+
         return (
           <Tool key={`tool-${index}`}>
             <ToolHeader type={part.type} state={part.state} />
@@ -107,11 +113,13 @@ describe("chat transcript stream-tick cost (perf)", () => {
     { timeout: 30_000 },
     () => {
       const idle = fatAssistantMessage("assistant-idle");
+
       let live: UIMessage = {
         id: "assistant-live",
         role: "assistant",
         parts: [{ type: "text", text: "" }],
       };
+
       const rowRenderCounts = new Map<string, number>();
       setTranscriptMessageRenderProbe((renderKey) => {
         rowRenderCounts.set(
@@ -143,6 +151,7 @@ describe("chat transcript stream-tick cost (perf)", () => {
       expect(liveAfterMount).toBeGreaterThan(0);
 
       const tickStart = performance.now();
+
       for (let tick = 0; tick < STREAM_TICKS; tick += 1) {
         live = {
           id: "assistant-live",
@@ -166,6 +175,7 @@ describe("chat transcript stream-tick cost (perf)", () => {
           />,
         );
       }
+
       const tickMs = performance.now() - tickStart;
 
       const idleAfterTicks = rowRenderCounts.get(idleKey) ?? 0;

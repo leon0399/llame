@@ -45,13 +45,17 @@ import {
 } from './cli-commands';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'cli-commands.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration`.',
   );
 }
+
 const describeWithDb = describe;
+
 type SqlClient = ReturnType<typeof postgres>;
+
 const text = (t: string) => [{ type: 'text' as const, text: t }];
 
 describeWithDb(
@@ -73,6 +77,7 @@ describeWithDb(
           chats: { ...BUILT_IN_DEFAULTS.search.chats, embeddingModelId },
         },
       };
+
       return { config } satisfies InstanceConfigReader;
     }
 
@@ -91,6 +96,7 @@ describeWithDb(
           parts: text(`content for ${title}`),
         });
       });
+
       return id;
     }
 
@@ -100,10 +106,12 @@ describeWithDb(
           sql`SELECT content_hash FROM search_chat_documents WHERE chat_id = ${chatId} LIMIT 1`,
         ),
       );
+
       const [row] = z
         .object({ content_hash: z.string() })
         .array()
         .parse([...rows]);
+
       return row.content_hash;
     }
 
@@ -167,6 +175,7 @@ describeWithDb(
 
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
         const enqueueChatEmbedStrict = vi.fn().mockResolvedValue('job-1');
+
         try {
           await runBackfillCommand(
             { enqueueChatEmbedStrict },
@@ -191,9 +200,11 @@ describeWithDb(
         const errorSpy = vi
           .spyOn(console, 'error')
           .mockImplementation(() => {});
+
         const enqueueChatEmbedStrict = vi
           .fn()
           .mockRejectedValue(new Error('queue unreachable'));
+
         try {
           await expect(
             runBackfillCommand(
@@ -236,6 +247,7 @@ describeWithDb(
       `;
 
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
         try {
           await runPruneCommand(
             tenantDb,
@@ -257,19 +269,24 @@ describeWithDb(
         } finally {
           logSpy.mockRestore();
         }
+
         const rows = await tenantDb.runAs(owner, (tx) =>
           tx.execute(
             sql`SELECT embedding_model_key FROM search_chat_documents WHERE chat_id = ${id}`,
           ),
         );
+
         const [row] = z
           .object({ embedding_model_key: z.string().nullable() })
           .array()
           .parse([...rows]);
+
         expect(row.embedding_model_key).toBeNull();
+
         const [ledger] = await sqlClient`
         SELECT model_key FROM embedding_model_bindings WHERE model_key = ${undeclaredModel}
       `;
+
         expect(ledger).toBeUndefined();
       });
     });
@@ -282,6 +299,7 @@ describeWithDb(
         await stampFailed(id, modelKey, EMBED_INPUT_VERSION);
 
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
         try {
           await runRetryFailedCommand(tenantDb, fakeInstanceConfig(modelKey));
 
@@ -291,15 +309,18 @@ describeWithDb(
         } finally {
           logSpy.mockRestore();
         }
+
         const rows = await tenantDb.runAs(owner, (tx) =>
           tx.execute(
             sql`SELECT embedding_fail_reason FROM search_chat_documents WHERE chat_id = ${id}`,
           ),
         );
+
         const [row] = z
           .object({ embedding_fail_reason: z.string().nullable() })
           .array()
           .parse([...rows]);
+
         expect(row.embedding_fail_reason).toBeNull();
       });
     });
@@ -312,6 +333,7 @@ describeWithDb(
         await stampFailed(id, modelKey, EMBED_INPUT_VERSION);
 
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
         try {
           await runCoverageCommand(tenantDb, fakeInstanceConfig(modelKey));
 
@@ -330,6 +352,7 @@ describeWithDb(
         await new SearchIndexService(tenantDb).reindexChat(id, owner);
 
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
         try {
           await runProjectionCoverageCommand(tenantDb);
 
@@ -347,6 +370,7 @@ describeWithDb(
     describe('runCommand dispatch', () => {
       it('routes "projection-coverage" to the real command through the switch', async () => {
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
         try {
           await runCommand('projection-coverage', {
             tenantDb,

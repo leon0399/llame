@@ -29,8 +29,10 @@ async function workspaceRoot(
   context: OperationContext,
 ): Promise<string> {
   const guarded = await context.guard.resolvePath(literal);
+
   if (guarded.kind !== "directory")
     throw invalidParams(method, "the Workspace root is not a directory");
+
   return guarded.path;
 }
 
@@ -38,6 +40,7 @@ async function workspaceRoot(
 function entryFor(config: WorkspaceMcpServerConfig): McpServerEntry {
   if (config.state === "unavailable")
     return { name: config.id, state: "unavailable", diagnostic: config.reason };
+
   return {
     name: config.id,
     transport: isStdio(config.definition) ? "stdio" : "http",
@@ -55,12 +58,15 @@ export async function serversOperation(
   context: OperationContext,
 ): Promise<McpServersResult> {
   const source = paramRecord(params, MCP_SERVERS_METHOD);
+
   const root = await workspaceRoot(
     requireString(source, "root", MCP_SERVERS_METHOD),
     MCP_SERVERS_METHOD,
     context,
   );
+
   const configs = await readWorkspaceMcpConfig(root, machineEnvironment());
+
   return { servers: configs.map(entryFor) };
 }
 
@@ -76,16 +82,19 @@ async function startableDefinition(
 > {
   const configs = await readWorkspaceMcpConfig(root, machineEnvironment());
   const config = configs.find((entry) => entry.id === server);
+
   if (config === undefined)
     throw invalidParams(
       MCP_OPEN_METHOD,
       `this Workspace declares no server named ${server}`,
     );
+
   if (config.state === "unavailable")
     throw invalidParams(
       MCP_OPEN_METHOD,
       `the server named ${server} is unavailable: ${config.reason}`,
     );
+
   return {
     definition: config.definition,
     protectedValues: config.protectedValues,
@@ -104,22 +113,27 @@ export async function openOperation(
   context: OperationContext,
 ): Promise<McpOpenResult> {
   const source = paramRecord(params, MCP_OPEN_METHOD);
+
   const root = await workspaceRoot(
     requireString(source, "root", MCP_OPEN_METHOD),
     MCP_OPEN_METHOD,
     context,
   );
+
   const server = requireString(source, "server", MCP_OPEN_METHOD);
   const startable = await startableDefinition(root, server);
+
   const relay = new McpRelay({
     name: server,
     definition: startable.definition,
     protectedValues: startable.protectedValues,
     context,
   });
+
   await relay.start();
   // The session is over only once every server it started is gone, so the
   // session end waits on this relay exactly as it waits on a `bash` group.
   void context.processes.track(relay.done);
+
   return { protectedValues: [...startable.protectedValues] };
 }

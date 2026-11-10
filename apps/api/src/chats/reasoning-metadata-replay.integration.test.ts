@@ -56,23 +56,29 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'reasoning-metadata-replay.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
   );
 }
+
 const describeWithDatabase = describe;
+
 type SqlClient = Sql;
 
 const MODEL_ID = 'system:openai:gpt-5.4-mini';
+
 /** The opaque values the adapter produced; llame must carry them untouched. */
 const REASONING_TEXT = 'reasoning before the tool call';
+
 const PROVIDER_METADATA = {
   openai: {
     itemId: 'rs-resumed-1',
     reasoningEncryptedContent: 'ENCRYPTED_RESUMED',
   },
 };
+
 /**
  * Opaque metadata of a reasoning item whose summary was empty: its only
  * delivery, and — design D18 — exactly what makes the item persist as an
@@ -184,10 +190,12 @@ function recordingClient(calls: Array<ModelStreamInput>): ModelClient {
         }),
     }),
   );
+
   return {
     ...delegate,
     streamText(input) {
       calls.push(input);
+
       return delegate.streamText(input);
     },
   };
@@ -212,6 +220,7 @@ describeWithDatabase(
       sql = postgres(TEST_DB_URL, { ssl, max: 5 });
       const db: Db = drizzle(sql, { schema });
       tenantDb = new TenantDbService(db);
+
       // The window variant is never exercised here: every seeded context fits
       // the mock model's context window, so a rejection catches a future
       // scenario silently relying on it. The threshold variant resolves null,
@@ -224,12 +233,15 @@ describeWithDatabase(
               )
             : Promise.resolve(null),
       };
+
       const noopTitles: TitleCapability = {
         maybeGenerateTitle: async () => {},
       };
+
       const instanceConfig: InstanceConfigReader = {
         config: BUILT_IN_DEFAULTS,
       };
+
       service = new RunExecutionService(
         tenantDb,
         noopCompaction,
@@ -273,11 +285,13 @@ describeWithDatabase(
      */
     async function seedInterruptedTurn() {
       const chatId = crypto.randomUUID();
+
       const userMessage = await tenantDb.runAs(userId, async (tx) => {
         await new ChatsRepository(tx).createIfAbsent({
           id: chatId,
           ownerUserId: userId,
         });
+
         return new MessagesRepository(tx).create({
           chatId,
           role: 'user',
@@ -285,6 +299,7 @@ describeWithDatabase(
           parts: [{ type: 'text', text: 'search, then answer' }],
         });
       });
+
       const interrupted = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).create({
           chatId,
@@ -293,6 +308,7 @@ describeWithDatabase(
           modelId: MODEL_ID,
         }),
       );
+
       await tenantDb.runAs(userId, async (tx) => {
         const events = new RunEventsRepository(tx);
         await events.append(interrupted.id, 'model.requested', {
@@ -327,6 +343,7 @@ describeWithDatabase(
           output: { status: 'success', matches: [] },
         });
       });
+
       return { chatId, userMessage, interrupted };
     }
 
@@ -342,13 +359,17 @@ describeWithDatabase(
         runPayload: { status: 'expired', message: 'worker restarted' },
         error: { message: 'worker restarted' },
       });
+
       expect(settlement.outcome).toBe('won');
+
       const persisted = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userId),
       );
+
       const persistedAssistant = persisted.find(
         (message) => message.role === 'assistant',
       );
+
       // The empty-summary item the provider withheld text for is a part of its
       // own now (D18), ahead of the summary the same turn did display.
       expect(persistedAssistant?.parts[0]).toEqual({
@@ -373,6 +394,7 @@ describeWithDatabase(
           parts: [{ type: 'text', text: 'continue' }],
         }),
       );
+
       const resumed = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).create({
           chatId,
@@ -383,6 +405,7 @@ describeWithDatabase(
       );
 
       const calls: Array<ModelStreamInput> = [];
+
       const result = await service.executeRun({
         runId: resumed.id,
         chatId,
@@ -394,11 +417,13 @@ describeWithDatabase(
         },
         client: recordingClient(calls),
       });
+
       await result.consumeStream?.();
       await vi.waitFor(async () => {
         const events = await tenantDb.runAs(userId, (tx) =>
           new RunEventsRepository(tx).listByRunId(resumed.id, userId),
         );
+
         expect(
           events.some((event) => event.eventType === 'run.completed'),
         ).toBe(true);
@@ -406,6 +431,7 @@ describeWithDatabase(
 
       expect(calls).toHaveLength(1);
       const first = calls[0];
+
       // The reply never completed (the worker restart settled it as expired),
       // so the model rule omits its reasoning and provider metadata. The call
       // it made, and that call's result, still replay.
@@ -415,6 +441,7 @@ describeWithDatabase(
             ? message.content
             : [],
       );
+
       expect(
         assistantParts.filter(
           (part) => isRecord(part) && part.type === 'reasoning',
@@ -463,6 +490,7 @@ describeWithDatabase(
       const messages = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userId),
       );
+
       // Every opaque value the run recorded sits on a reasoning part — the one
       // whose item carried text, and the empty-summary item that exists only
       // because its metadata arrived (D18). Nothing is left unbound, and
@@ -470,6 +498,7 @@ describeWithDatabase(
       const carrying = messages.flatMap((message) =>
         message.parts.filter(carriesProviderMetadata),
       );
+
       expect(carrying).toEqual([
         {
           type: 'reasoning',
@@ -482,6 +511,7 @@ describeWithDatabase(
           providerMetadata: PROVIDER_METADATA,
         },
       ]);
+
       // The unbound-delivery hole the empty part closes: the metadata is only
       // ever durable WITH the part it replays from, never dropped on the floor
       // and never attached to a non-reasoning part.
@@ -492,12 +522,15 @@ describeWithDatabase(
           attachments,
         })),
       );
+
       expect(transcript).toContain('ENCRYPTED_EMPTY_SUMMARY');
+
       const nonReasoningParts = JSON.stringify(
         messages.flatMap(({ parts }) =>
           parts.filter((part) => !isRecord(part) || part.type !== 'reasoning'),
         ),
       );
+
       expect(nonReasoningParts).not.toContain('ENCRYPTED_RESUMED');
       expect(nonReasoningParts).not.toContain('ENCRYPTED_EMPTY_SUMMARY');
 

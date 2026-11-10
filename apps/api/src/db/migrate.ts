@@ -37,6 +37,7 @@ const runMigrate = async () => {
     order by created_at::bigint desc
     limit 1
   `;
+
   assertLedgerStampIsUsable(newestLedgerRow, Date.now());
 
   console.log('✅ Migrations completed in', end - start, 'ms');

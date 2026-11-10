@@ -28,6 +28,7 @@ const SOURCE = 'https://example.test/article';
 function response(body: string, contentType = 'text/plain'): WebResponse {
   return { finalUrl: SOURCE, contentType, body };
 }
+
 async function listenServer(server: Server): Promise<number> {
   await new Promise<void>((resolve, reject) => {
     const onError = (error: Error): void => reject(error);
@@ -38,9 +39,11 @@ async function listenServer(server: Server): Promise<number> {
     });
   });
   const address = server.address();
+
   if (address === null || !(address instanceof Object)) {
     throw new Error('The adapter fixture did not receive a TCP address.');
   }
+
   return address.port;
 }
 
@@ -63,10 +66,13 @@ async function openPartialFixture(): Promise<{
       // produces the deterministic timeout.
       return;
     }
+
     response.writeHead(200, { 'content-type': 'text/plain' });
     response.end('primary');
   });
+
   const port = await listenServer(server);
+
   return {
     url: `http://127.0.0.1:${port}`,
     close: () => closeServer(server),
@@ -103,6 +109,7 @@ describe('createWebAdapters', () => {
     const adapters = createWebAdapters([{ id: 'gh', use: 'github' }]);
     expect(adapters).toHaveLength(1);
     const adapter = adapters[0];
+
     if (adapter === undefined) throw new Error('expected GitHub adapter');
 
     expect(adapter).toMatchObject({ id: 'gh', route: 'native' });
@@ -113,6 +120,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Bluesky adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'bsky', use: 'bluesky' }]);
+
     if (adapter === undefined) throw new Error('expected Bluesky adapter');
 
     expect(adapter).toMatchObject({ id: 'bsky', route: 'native' });
@@ -123,6 +131,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native npm adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'pkgs', use: 'npm' }]);
+
     if (adapter === undefined) throw new Error('expected npm adapter');
 
     expect(adapter).toMatchObject({ id: 'pkgs', route: 'native' });
@@ -133,6 +142,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Hugging Face adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'hub', use: 'huggingface' }]);
+
     if (adapter === undefined) throw new Error('expected Hugging Face adapter');
 
     expect(adapter).toMatchObject({ id: 'hub', route: 'native' });
@@ -143,6 +153,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native arXiv adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'papers', use: 'arxiv' }]);
+
     if (adapter === undefined) throw new Error('expected arXiv adapter');
 
     expect(adapter).toMatchObject({ id: 'papers', route: 'native' });
@@ -153,6 +164,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Stack Exchange adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'qa', use: 'stackexchange' }]);
+
     if (adapter === undefined)
       throw new Error('expected Stack Exchange adapter');
 
@@ -162,6 +174,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native crates.io adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'rust', use: 'crates' }]);
+
     if (adapter === undefined) throw new Error('expected crates.io adapter');
 
     expect(adapter).toMatchObject({ id: 'rust', route: 'native' });
@@ -170,6 +183,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Hacker News adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'hn', use: 'hackernews' }]);
+
     if (adapter === undefined) throw new Error('expected Hacker News adapter');
 
     expect(adapter).toMatchObject({ id: 'hn', route: 'native' });
@@ -180,6 +194,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native DOI adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'papers', use: 'doi' }]);
+
     if (adapter === undefined) throw new Error('expected DOI adapter');
 
     expect(adapter).toMatchObject({ id: 'papers', route: 'native' });
@@ -192,6 +207,7 @@ describe('createWebAdapters', () => {
     const [adapter] = createWebAdapters([
       { id: 'wikipedia', use: 'wikipedia' },
     ]);
+
     if (adapter === undefined) throw new Error('expected Wikipedia adapter');
 
     expect(adapter).toMatchObject({ id: 'wikipedia', route: 'native' });
@@ -202,6 +218,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Telegram adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'telegram', use: 'telegram' }]);
+
     if (adapter === undefined) throw new Error('expected Telegram adapter');
 
     expect(adapter).toMatchObject({ id: 'telegram', route: 'native' });
@@ -210,6 +227,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Lobsters adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'lobsters', use: 'lobsters' }]);
+
     if (adapter === undefined) throw new Error('expected Lobsters adapter');
 
     expect(adapter).toMatchObject({ id: 'lobsters', route: 'native' });
@@ -218,6 +236,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Luma adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'luma', use: 'luma' }]);
+
     if (adapter === undefined) throw new Error('expected Luma adapter');
 
     expect(adapter).toMatchObject({ id: 'luma', route: 'native' });
@@ -226,6 +245,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native LinkedIn adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'linkedin', use: 'linkedin' }]);
+
     if (adapter === undefined) throw new Error('expected LinkedIn adapter');
 
     expect(adapter).toMatchObject({ id: 'linkedin', route: 'native' });
@@ -236,6 +256,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native OSV adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'advisories', use: 'osv' }]);
+
     if (adapter === undefined) throw new Error('expected OSV adapter');
 
     expect(adapter).toMatchObject({ id: 'advisories', route: 'native' });
@@ -248,6 +269,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native dev.to adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'blogs', use: 'devto' }]);
+
     if (adapter === undefined) throw new Error('expected dev.to adapter');
 
     expect(adapter).toMatchObject({ id: 'blogs', route: 'native' });
@@ -256,6 +278,7 @@ describe('createWebAdapters', () => {
 
   it('creates a native Substack adapter with the configured id', () => {
     const [adapter] = createWebAdapters([{ id: 'letters', use: 'substack' }]);
+
     if (adapter === undefined) throw new Error('expected Substack adapter');
 
     expect(adapter).toMatchObject({ id: 'letters', route: 'native' });
@@ -268,6 +291,7 @@ describe('createWebAdapters', () => {
     const [adapter] = createWebAdapters([
       { id: 'forums', use: 'discourse', hosts: ['forum.example.test'] },
     ]);
+
     if (adapter === undefined) throw new Error('expected Discourse adapter');
 
     expect(adapter).toMatchObject({ id: 'forums', route: 'native' });
@@ -280,6 +304,7 @@ describe('createWebAdapters', () => {
 describe('dispatchWebAdapters', () => {
   it('does not fetch or note an unclaimed URL', async () => {
     const fetch = vi.fn<WebAdapterIo['fetch']>();
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [adapter('unclaimed', false, renderedOutcome('never'))],
@@ -342,6 +367,7 @@ describe('dispatchWebAdapters', () => {
 
   it('keeps an adapter omission note on a partial render', async () => {
     const note = 'review comments omitted: rate_limit';
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [adapter('partial', true, renderedOutcome('partial', [note]))],
@@ -359,6 +385,7 @@ describe('dispatchWebAdapters', () => {
       displayPath: SOURCE,
       entries: [{ name: 'src', kind: 'directory' as const, children: [] }],
     };
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [
@@ -394,12 +421,14 @@ describe('dispatchWebAdapters', () => {
         adapter: { id: 'plain', route: 'native' },
       },
     });
+
     if (result.kind !== 'rendered') throw new Error('expected rendered result');
     expect(result.render.truncated).toBeUndefined();
   });
 
   it('reports a rewrite origin only when the rewrite outcome provides one', async () => {
     const origin = 'https://reader.example.test';
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [
@@ -416,6 +445,7 @@ describe('dispatchWebAdapters', () => {
       ],
       { fetch: () => Promise.resolve(response('unused')) },
     );
+
     const native = await dispatchWebAdapters(
       new URL(SOURCE),
       [
@@ -443,12 +473,14 @@ describe('dispatchWebAdapters', () => {
       kind: 'rendered',
       render: { adapter: { id: 'native', route: 'native' } },
     });
+
     if (native.kind !== 'rendered') throw new Error('expected rendered result');
     expect(native.render.adapter).not.toHaveProperty('origin');
   });
 
   it('truncates an oversized document only at a line boundary', async () => {
     const line = `${'é'.repeat(700)}\n`;
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [adapter('large', true, renderedOutcome(line.repeat(6000)))],
@@ -465,6 +497,7 @@ describe('dispatchWebAdapters', () => {
   });
   it('keeps a non-empty UTF-8 prefix when no newline fits the limit', async () => {
     const content = 'é'.repeat(MAX_ADAPTER_DOCUMENT_BYTES);
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [adapter('single-line', true, renderedOutcome(content))],
@@ -483,6 +516,7 @@ describe('dispatchWebAdapters', () => {
 
   it('does not include a newline beyond the retained byte window', async () => {
     const content = `${'x'.repeat(MAX_ADAPTER_DOCUMENT_BYTES)}\ntrailing`;
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [adapter('boundary', true, renderedOutcome(content))],
@@ -499,10 +533,12 @@ describe('dispatchWebAdapters', () => {
   });
   it('returns a fatal primary failure without trying later adapters', async () => {
     let laterMatched = false;
+
     const fatal: WebFetchFailure = {
       type: 'call_timeout',
       message: 'The web read exceeded its deadline.',
     };
+
     const result = await dispatchWebAdapters(
       new URL(SOURCE),
       [
@@ -518,6 +554,7 @@ describe('dispatchWebAdapters', () => {
           route: 'native',
           match: () => {
             laterMatched = true;
+
             return true;
           },
           read: () => Promise.resolve(renderedOutcome('never')),
@@ -592,6 +629,7 @@ describe('classifyFetchFailure', () => {
     expect(classifyFetchFailure(failure)).toBe(expected);
   });
 });
+
 describe('omissionNote', () => {
   it('formats a numeric rate-limit reset as ISO time', () => {
     expect(
@@ -617,6 +655,7 @@ describe('omissionNote', () => {
     ).toBe('comments omitted: rate_limit');
   });
 });
+
 describe('rateLimitReset', () => {
   it('returns reset only for classified rate limits', () => {
     expect(
@@ -688,6 +727,7 @@ describe('adapter primary failure fatality', () => {
 describe('adapter secondary requests', () => {
   it('keeps primary content when a later request reaches the call timeout', async () => {
     const fixture = await openPartialFixture();
+
     const session = createWebFetchSession(
       { userAgent: 'llame/adapter-test', deadlineMs: 250 },
       {
@@ -703,6 +743,7 @@ describe('adapter secondary requests', () => {
           Promise.resolve([{ address: '127.0.0.1', family: 4 as const }]),
       },
     );
+
     try {
       const adapter: WebAdapter = {
         id: 'partial',
@@ -710,16 +751,20 @@ describe('adapter secondary requests', () => {
         match: () => true,
         read: async (_source, io) => {
           const primary = await io.fetch(`${fixture.url}/primary`);
+
           if ('type' in primary) throw new Error('primary request failed');
           const secondary = await io.fetch(`${fixture.url}/slow`);
+
           if (!('type' in secondary) || secondary.type !== 'call_timeout') {
             throw new Error('secondary request did not reach call timeout');
           }
+
           return renderedOutcome(primary.body, [
             'review comments omitted: transport',
           ]);
         },
       };
+
       const result = await dispatchWebAdapters(
         new URL(`${fixture.url}/source`),
         [adapter],

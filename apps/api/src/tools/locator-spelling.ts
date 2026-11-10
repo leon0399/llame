@@ -26,6 +26,7 @@ export function decodeRelativePath(path: string): string | undefined {
     const segments = path
       .split('/')
       .map((segment) => decodeURIComponent(segment));
+
     // Check before joining: validation cannot distinguish an introduced slash
     // or an unpaired surrogate after the segments have been combined.
     if (
@@ -35,6 +36,7 @@ export function decodeRelativePath(path: string): string | undefined {
     ) {
       return undefined;
     }
+
     return segments.join('/');
   } catch (error) {
     if (error instanceof URIError) return undefined;
@@ -44,6 +46,7 @@ export function decodeRelativePath(path: string): string | undefined {
 
 function hasUnpairedSurrogate(value: string): boolean {
   const withoutPairs = value.replaceAll(/[\uD800-\uDBFF][\uDC00-\uDFFF]/gu, '');
+
   return /[\uD800-\uDFFF]/u.test(withoutPairs);
 }
 

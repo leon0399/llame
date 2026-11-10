@@ -48,6 +48,7 @@ const snapshotPayloadSchema = z.strictObject({
 });
 
 export type SkillCatalogNoticePayload = z.infer<typeof noticePayloadSchema>;
+
 export type SkillCatalogSnapshotPayload = z.infer<typeof snapshotPayloadSchema>;
 
 /** The added/removed delta. At least one side is non-empty by construction. */
@@ -56,6 +57,7 @@ export function createSkillCatalogNoticeItem(input: {
   readonly payload: SkillCatalogNoticePayload;
 }): AuthoredContextItemPart {
   noticePayloadSchema.parse(input.payload);
+
   return createRenderedContextItem({
     producer: 'skill-catalog',
     form: 'notice',
@@ -75,6 +77,7 @@ export function createSkillCatalogSnapshotItem(input: {
   readonly payload: SkillCatalogSnapshotPayload;
 }): AuthoredContextItemPart {
   snapshotPayloadSchema.parse(input.payload);
+
   return createRenderedContextItem({
     producer: 'skill-catalog',
     form: 'snapshot',

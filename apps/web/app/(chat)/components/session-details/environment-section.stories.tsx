@@ -83,6 +83,7 @@ const meta = {
 } satisfies Meta<typeof EnvironmentSection>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 // Reading the real clipboard back needs a permission grant the headless
@@ -96,6 +97,7 @@ function stubClipboard() {
     configurable: true,
     value: { writeText },
   });
+
   return () => {
     if (original) {
       Object.defineProperty(navigator, "clipboard", original);
@@ -367,6 +369,7 @@ function SeenMomentsAgo(args: EnvironmentSectionProps) {
   const [lastSeenAt] = useState(() =>
     new Date(Date.now() - 5000).toISOString(),
   );
+
   return (
     <EnvironmentSection {...args} machine={{ ...onlineDevbox, lastSeenAt }} />
   );
@@ -383,13 +386,17 @@ export const LastSeenTicks: Story = {
   render: (args) => <SeenMomentsAgo {...args} />,
   play: async ({ canvas, userEvent }) => {
     await userEvent.hover(canvas.getByRole("link", { name: "devbox, Online" }));
+
     const tooltip = await waitFor(() => {
       const content = document.querySelector<HTMLElement>(
         "[data-slot='tooltip-content']",
       );
+
       expect(content).toHaveTextContent(/^Last seen \d+ seconds ago$/);
+
       return content;
     });
+
     const first = tooltip?.textContent;
     await waitFor(() => expect(tooltip?.textContent).not.toBe(first), {
       timeout: 2500,

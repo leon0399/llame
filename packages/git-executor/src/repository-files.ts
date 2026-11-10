@@ -24,6 +24,7 @@ async function readText(path: string): Promise<string | undefined> {
 async function exists(path: string): Promise<boolean> {
   try {
     await stat(path);
+
     return true;
   } catch {
     return false;
@@ -65,6 +66,7 @@ const TIMED_OUT = { failure: "timed_out" } as const;
  */
 function singleLine(text: string): string | undefined {
   const body = text.replace(/\r?\n$/u, "");
+
   return /[\0\r\n]/u.test(body) ? undefined : body;
 }
 
@@ -75,10 +77,13 @@ async function gitDirectory(
 ): Promise<{ readonly path: string } | RepositoryFailure> {
   if (kind === "directory") return { path: gitEntry };
   const text = await readText(gitEntry);
+
   if (text === undefined) return NO_GIT_DIRECTORY;
   const line = singleLine(text);
+
   if (line === undefined) return UNCONFINABLE;
   const target = /^gitdir:[ \t]*(.+?)[ \t]*$/u.exec(line)?.[1];
+
   return target === undefined
     ? NO_GIT_DIRECTORY
     : { path: resolve(dirname(gitEntry), target) };
@@ -90,6 +95,7 @@ async function alternateLines(
   objectsDirectory: string,
 ): Promise<Array<string>> {
   const text = await readText(join(objectsDirectory, "info", "alternates"));
+
   return (text ?? "")
     .replace(/\n$/u, "")
     .split("\n")
@@ -111,18 +117,24 @@ async function alternates(
 ): Promise<{ readonly found: Array<string> } | RepositoryFailure> {
   if (depth > MAX_ALTERNATE_CHAIN) return UNCONFINABLE;
   const found: Array<string> = [];
+
   for (const line of await alternateLines(objectsDirectory)) {
     if (spent(budget)) return TIMED_OUT;
+
     if (line.startsWith('"') || line !== line.trim()) return UNCONFINABLE;
     const alternate = await realPath(resolve(objectsDirectory, line));
+
     if (alternate === undefined) return UNCONFINABLE;
+
     if (seen.has(alternate)) continue;
     seen.add(alternate);
     found.push(alternate);
     const nested = await alternates(alternate, seen, depth + 1, budget);
+
     if ("failure" in nested) return nested;
     found.push(...nested.found);
   }
+
   return { found };
 }
 
@@ -144,20 +156,29 @@ export async function repositoryDirectories(
 ): Promise<RepositoryDirectories> {
   if (spent(budget)) return TIMED_OUT;
   const named = await gitDirectory(gitEntry, kind);
+
   if ("failure" in named) return named;
   const gitDir = await realPath(named.path);
+
   if (gitDir === undefined) return UNCONFINABLE;
+
   if (spent(budget)) return TIMED_OUT;
   const commonText = await readText(join(gitDir, "commondir"));
   const common = commonText === undefined ? "" : singleLine(commonText)?.trim();
+
   if (common === undefined) return UNCONFINABLE;
   const commonDir = await realPath(common ? resolve(gitDir, common) : gitDir);
+
   if (commonDir === undefined) return UNCONFINABLE;
+
   if (spent(budget)) return TIMED_OUT;
   const objects = await realPath(join(commonDir, "objects"));
+
   if (objects === undefined) return UNCONFINABLE;
   const found = await alternates(objects, new Set([objects]), 1, budget);
+
   if ("failure" in found) return found;
+
   return { directories: [gitDir, commonDir, objects, ...found.found] };
 }
 
@@ -169,6 +190,7 @@ type Operation = {
 
 async function number(path: string): Promise<number | undefined> {
   const value = Number.parseInt((await readText(path)) ?? "", 10);
+
   return Number.isNaN(value) ? undefined : value;
 }
 
@@ -181,8 +203,11 @@ async function withSteps(
   const step = await number(join(directory, current));
   const total = await number(join(directory, last));
   const operation: Operation = { kind };
+
   if (step !== undefined) operation.step = step;
+
   if (total !== undefined) operation.total = total;
+
   return operation;
 }
 
@@ -207,23 +232,29 @@ export async function detectOperation(
   located: (name: OperationPath) => string,
 ): Promise<Operation | null> {
   const rebaseMerge = located("rebase-merge");
+
   if (await exists(rebaseMerge)) {
     return withSteps("rebase", rebaseMerge, "msgnum", "end");
   }
+
   const rebaseApply = located("rebase-apply");
+
   if (await exists(rebaseApply)) {
     return (await exists(join(rebaseApply, "applying")))
       ? { kind: "am" }
       : withSteps("rebase", rebaseApply, "next", "last");
   }
+
   const markers: ReadonlyArray<readonly [OperationPath, Operation["kind"]]> = [
     ["MERGE_HEAD", "merge"],
     ["CHERRY_PICK_HEAD", "cherry-pick"],
     ["REVERT_HEAD", "revert"],
     ["BISECT_LOG", "bisect"],
   ];
+
   for (const [name, kind] of markers) {
     if (await exists(located(name))) return { kind };
   }
+
   return null;
 }

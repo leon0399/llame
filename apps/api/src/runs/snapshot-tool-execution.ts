@@ -44,25 +44,30 @@ export function constrainDynamicToolResolver(
   sourceById: ReadonlyMap<string, TurnToolSource>,
 ): DynamicToolExecutorResolver | undefined {
   if (resolver === undefined) return undefined;
+
   return {
     resolveDynamicTool: (id) => {
       const resolution = resolver.resolveDynamicTool(id);
       const source = sourceById.get(id);
+
       if (source?.type !== 'mcp' || resolution.state !== 'available') {
         return resolution;
       }
+
       if (
         source.workspace === true &&
         resolution.workspaceServer !== source.serverId
       ) {
         return { state: 'unavailable' };
       }
+
       if (
         source.workspace !== true &&
         resolution.workspaceServer !== undefined
       ) {
         return { state: 'unavailable' };
       }
+
       return resolution;
     },
   };
@@ -106,9 +111,11 @@ function validateDeclaration(
   ) {
     invalidDeclaration('expected a non-empty id, description, and JSON schema');
   }
+
   if (seen.has(declaration.id)) {
     invalidDeclaration(`duplicate tool id "${declaration.id}"`);
   }
+
   seen.add(declaration.id);
 }
 
@@ -139,10 +146,12 @@ async function resolveCodeOwnedTool(
     id: executor.id,
     inputSchema: await resolveJsonSchema(executor.inputSchema),
   };
+
   const snapshottedDeclaration = {
     id: declaration.id,
     inputSchema: declaration.inputSchema,
   };
+
   if (
     canonicalJson(liveDeclaration) !== canonicalJson(snapshottedDeclaration)
   ) {
@@ -167,12 +176,14 @@ function resolveDynamicToolBinding(
   dynamicResolver: DynamicToolExecutorResolver | undefined,
 ): BoundExecutableTool | undefined {
   const dynamicResolution = dynamicResolver?.resolveDynamicTool(declaration.id);
+
   if (
     dynamicResolution === undefined ||
     dynamicResolution.state === 'not_dynamic'
   ) {
     return undefined;
   }
+
   if (
     dynamicResolution.state === 'available' &&
     dynamicResolution.declarationHash === hashToolDeclaration(declaration) &&
@@ -187,6 +198,7 @@ function resolveDynamicToolBinding(
       }),
     };
   }
+
   return { declaration, executor: unavailableExecutor(declaration) };
 }
 
@@ -207,6 +219,7 @@ export async function resolveBoundExecutableTools(
     validateDeclaration(declaration, seen);
 
     const executor = registry.get(declaration.id);
+
     if (executor) {
       resolved.push(await resolveCodeOwnedTool(declaration, executor));
       continue;
@@ -216,6 +229,7 @@ export async function resolveBoundExecutableTools(
       declaration,
       dynamicResolver,
     );
+
     if (dynamicBinding !== undefined) {
       resolved.push(dynamicBinding);
       continue;

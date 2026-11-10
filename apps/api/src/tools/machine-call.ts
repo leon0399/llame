@@ -50,6 +50,7 @@ export const MACHINE_BASH_BUDGET_MS = 300_000;
  */
 export function machineBudgetMs(context: ToolContext, ceiling: number): number {
   const remaining = context.timeoutMs;
+
   return remaining === undefined
     ? ceiling
     : Math.max(1, Math.min(remaining, ceiling));
@@ -92,6 +93,7 @@ export function machineConnector(
   context: ToolContext,
 ): MachineConnector | undefined {
   const connector = context.machines;
+
   return connector?.enabled() === true ? connector : undefined;
 }
 
@@ -161,20 +163,24 @@ export function machineProtocolFailureResult(
       type: 'path_not_registered',
       message: PATH_NOT_REGISTERED_MESSAGE,
     };
+
   if (error.code === 'budget_exhausted')
     return {
       status: 'error',
       type: 'timed_out',
       message: BUDGET_EXHAUSTED_MESSAGE,
     };
+
   if (error.code === 'incompatible_version')
     return machineUnavailableResult(name, 'incompatible_version');
+
   if (error.code === 'invalid_params')
     return {
       status: 'error',
       type: 'invalid_input',
       message: 'The Machine refused the request as invalid.',
     };
+
   return machineUnavailableResult(name);
 }
 
@@ -195,6 +201,7 @@ async function machineCallResult(
       return error.sent && options.unknownOnSent
         ? machineUnknownResult(name)
         : machineUnavailableResult(name, error.reason);
+
     if (error instanceof MachineProtocolError)
       return machineProtocolFailureResult(name, error);
     throw error;
@@ -231,16 +238,20 @@ export async function runMachineMutation(
 ): Promise<ToolResult> {
   const connector = machineConnector(context);
   const { runId, toolCallId, userId } = context;
+
   if (connector === undefined || !runId || !toolCallId)
     return {
       status: 'error',
       type: 'executor_unavailable',
       message: 'Native host authority is unavailable.',
     };
+
   if (!connector.isConfigured(target.name))
     return machineNotFoundResult(target.name);
+
   if (!(await connector.reachable(target.name, machineCallAttemptKey(context))))
     return machineUnavailableResult(target.name);
+
   return connector.serializeMutation(target.name, () =>
     fencedMachineMutation(context, target, perform, {
       runId,
@@ -269,17 +280,21 @@ async function fencedMachineMutation(
   identity: MachineAttemptIdentity,
 ): Promise<ToolResult> {
   const prior = await beginMachineAttempt(context, target, identity);
+
   if (prior) return prior;
   context.abortSignal?.throwIfAborted();
+
   const settled = await machineCallResult(target.name, perform, {
     unknownOnSent: true,
   });
+
   await context.tenantDb.runAs(identity.userId, async (db) => {
     await new RunEventsRepository(db).append(identity.runId, 'native.result', {
       toolCallId: identity.toolCallId,
       result: settled,
     });
   });
+
   return settled;
 }
 
@@ -309,6 +324,7 @@ export function readBytesChunk(
 ): Buffer | undefined {
   if (!isSerializableRecord(params)) return undefined;
   const data = params['data'];
+
   return isString(data) ? Buffer.from(data, 'base64') : undefined;
 }
 
@@ -334,12 +350,18 @@ export function readProcBashResult(
 ): ProcBashResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const status = value['status'];
+
   if (status !== 'success' && status !== 'error') return undefined;
   const type = value['type'];
+
   if (type === undefined) return readManagedBashResult(value, status);
+
   if (status !== 'error') return undefined;
+
   if (type === 'timed_out') return readTimedOutBashResult(value);
+
   if (type === 'outcome_unknown') return readUnknownBashResult(value);
+
   return readRefusedBashResult(value);
 }
 
@@ -357,6 +379,7 @@ function readManagedBashResult(
   const stderr = value['stderr'];
   const truncated = value['truncated'];
   const wallTimeMs = value['wallTimeMs'];
+
   if (
     !isInteger(exitCode) ||
     !isString(stdout) ||
@@ -365,6 +388,7 @@ function readManagedBashResult(
     (wallTimeMs !== undefined && !isCount(wallTimeMs))
   )
     return undefined;
+
   return {
     status,
     exitCode,
@@ -384,6 +408,7 @@ function readTimedOutBashResult(
   const stdout = value['stdout'];
   const stderr = value['stderr'];
   const truncated = value['truncated'];
+
   if (
     !isCount(durationMs) ||
     (wallTimeMs !== undefined && !isCount(wallTimeMs)) ||
@@ -392,6 +417,7 @@ function readTimedOutBashResult(
     !isBoolean(truncated)
   )
     return undefined;
+
   return {
     status: 'error',
     type: 'timed_out',
@@ -409,7 +435,9 @@ function readUnknownBashResult(
 ): ProcBashResult | undefined {
   const attemptId = value['attemptId'];
   const message = value['message'];
+
   if (!isString(attemptId) || !isString(message)) return undefined;
+
   return { status: 'error', type: 'outcome_unknown', attemptId, message };
 }
 
@@ -418,6 +446,7 @@ function readRefusedBashResult(
   value: SerializableRecord,
 ): ProcBashResult | undefined {
   const type = value['type'];
+
   if (
     type !== 'unavailable' &&
     type !== 'boundary_missing' &&
@@ -425,5 +454,6 @@ function readRefusedBashResult(
   )
     return undefined;
   const message = value['message'];
+
   return isString(message) ? { status: 'error', type, message } : undefined;
 }

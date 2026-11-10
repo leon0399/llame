@@ -24,9 +24,11 @@ function isHoldStatus(value: unknown): value is HoldStatus {
   if (value === null || typeof value !== "object") {
     return false;
   }
+
   if (!("arrived" in value) || !("closed" in value)) {
     return false;
   }
+
   return (
     typeof value.arrived === "boolean" && typeof value.closed === "boolean"
   );
@@ -34,13 +36,17 @@ function isHoldStatus(value: unknown): value is HoldStatus {
 
 async function fetchHoldStatus(token: string): Promise<HoldStatus> {
   const response = await fetch(holdBaseUrl(token));
+
   if (!response.ok) {
     throw new Error(`hold status HTTP ${response.status}`);
   }
+
   const body: unknown = await response.json();
+
   if (!isHoldStatus(body)) {
     throw new Error(`hold status malformed: ${JSON.stringify(body)}`);
   }
+
   return body;
 }
 
@@ -48,6 +54,7 @@ async function releaseHold(token: string): Promise<void> {
   const response = await fetch(`${holdBaseUrl(token)}/release`, {
     method: "POST",
   });
+
   if (!response.ok) {
     throw new Error(`hold release HTTP ${response.status}`);
   }
@@ -83,10 +90,12 @@ async function waitForProcessingSidebar(
   if (mobile) {
     await openMobileChatSheet(page);
   }
+
   const row = page.locator(`a[href="/chat/${chatId}"]`);
   await expect(row.getByLabel("Generating response")).toBeVisible({
     timeout: 20_000,
   });
+
   if (mobile) {
     await closeMobileChatSheet(page);
   }
@@ -112,6 +121,7 @@ for (const viewport of VIEWPORTS) {
       if (activeHoldToken === undefined) {
         return;
       }
+
       const token = activeHoldToken;
       activeHoldToken = undefined;
       await releaseHold(token);
@@ -140,6 +150,7 @@ for (const viewport of VIEWPORTS) {
       });
       const chatPath = new URL(page.url()).pathname;
       const chatId = chatPath.split("/").pop();
+
       if (chatId === undefined) {
         throw new Error(`Could not extract chat id from ${page.url()}`);
       }
@@ -156,9 +167,11 @@ for (const viewport of VIEWPORTS) {
       const notifications = page.getByRole("region", {
         name: "Notifications alt+T",
       });
+
       const toast = notifications
         .locator("[data-sonner-toast]")
         .filter({ hasText: /Reply ready/ });
+
       await expect(toast).toBeVisible({ timeout: 30_000 });
 
       // Toast visibility proves the held completion finished (normal res.close).
@@ -168,15 +181,19 @@ for (const viewport of VIEWPORTS) {
       // Hover pauses Sonner's dismiss timer while we measure boxes.
       await toast.hover();
       const toastBox = await toast.boundingBox();
+
       const composer = page.locator("form").filter({
         has: page.getByPlaceholder("Describe a task or ask a question"),
       });
+
       const composerBox = await composer.boundingBox();
       expect(toastBox).not.toBeNull();
       expect(composerBox).not.toBeNull();
+
       if (toastBox === null || composerBox === null) {
         throw new Error("missing bounding box for toast or composer");
       }
+
       expect(boxesIntersect(toastBox, composerBox)).toBe(false);
 
       await toast.getByRole("button", { name: "View" }).click();

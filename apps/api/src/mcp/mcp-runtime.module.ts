@@ -33,26 +33,34 @@ function runtimeDefinitionFor(
       transport: 'stdio',
       command: definition.command,
     };
+
     // Passed by reference: the config loader already froze these, so
     // copying to re-freeze buys nothing.
     if (definition.args !== undefined) stdio.args = definition.args;
+
     if (definition.env !== undefined) stdio.env = definition.env;
+
     if (definition.cwd !== undefined) stdio.cwd = definition.cwd;
+
     if (definition.protectedValues !== undefined) {
       stdio.protectedValues = definition.protectedValues;
     }
+
     return stdio;
   }
 
   const remote: MutableRemoteDefinition = {
     url: definition.url,
   };
+
   if (definition.headers !== undefined) {
     remote.headers = Object.freeze({ ...definition.headers });
   }
+
   if (definition.protectedValues !== undefined) {
     remote.protectedValues = definition.protectedValues;
   }
+
   return remote;
 }
 
@@ -60,6 +68,7 @@ function runtimeServerDefinitions(
   instanceConfig: InstanceConfigReader,
 ): Readonly<Record<string, McpRuntimeServerDefinition>> {
   const entries = Object.entries(instanceConfig.config.mcpServers);
+
   if (entries.length === 0) return EMPTY_MCP_RUNTIME_SERVER_DEFINITIONS;
 
   return Object.freeze(

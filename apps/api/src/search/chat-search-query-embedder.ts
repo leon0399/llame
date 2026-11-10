@@ -45,14 +45,18 @@ export class ChatSearchQueryEmbedder {
   constructor(instanceConfig: InstanceConfigService) {
     const config = instanceConfig.config;
     const modelId = config.search.chats.embeddingModelId;
+
     if (modelId === null) {
       this.backend = undefined;
+
       return;
     }
 
     const model = config.embeddingModels.find((m) => m.id === modelId);
+
     if (!model) {
       this.backend = undefined;
+
       return;
     }
 
@@ -73,6 +77,7 @@ export class ChatSearchQueryEmbedder {
     }
 
     const trimmed = query.trim();
+
     if (trimmed.length === 0) {
       return { fallback: 'empty' };
     }
@@ -89,6 +94,7 @@ export class ChatSearchQueryEmbedder {
         this.logger.warn(
           `Query embed dimension mismatch: got ${vector.length}, declared ${this.declaredDimensions} (surface=${surface}, model=${this.modelKey})`,
         );
+
         return { fallback: 'dimension_mismatch' };
       }
 
@@ -105,6 +111,7 @@ export class ChatSearchQueryEmbedder {
       this.logger.warn(
         `Query embed fallback: reason=${reason}, surface=${surface}, model=${this.modelKey}`,
       );
+
       return { fallback: reason };
     }
   }
@@ -117,10 +124,12 @@ function embedWithBudget(
   externalSignal?: AbortSignal,
 ): Promise<ReadonlyArray<number>> {
   const signals: Array<AbortSignal> = [AbortSignal.timeout(budgetMs)];
+
   if (externalSignal) signals.push(externalSignal);
   const combined = AbortSignal.any(signals);
 
   const embedding = backend.embedQuery(text);
+
   const budget = new Promise<never>((_resolve, reject) => {
     // Always reject with a fixed AbortError, never `combined.reason` — that
     // reason's shape depends on whoever aborted the source signal.
@@ -131,10 +140,13 @@ function embedWithBudget(
     // `provider_error`.
     const onAbort = () =>
       reject(new DOMException('Query embed budget exceeded', 'AbortError'));
+
     if (combined.aborted) {
       onAbort();
+
       return;
     }
+
     combined.addEventListener('abort', onAbort, { once: true });
 
     // Stop listening once `embedding` itself settles (mirrors runner.ts's

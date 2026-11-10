@@ -239,6 +239,7 @@ export const ToolOutput = ({
   // Render every real result, including falsy ones (0, false, "", null) that
   // the previous `!(output || errorText)` guard silently swallowed.
   let Output: ReactNode = null;
+
   if (isValidElement(output)) {
     Output = output;
   } else if (isString(output)) {

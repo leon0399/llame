@@ -90,11 +90,13 @@ describeIfDb(
       const roundtrip = defineQueue<{ hello: string }>({
         name: `${tag}-roundtrip`,
       });
+
       await queue.ensureQueue(roundtrip);
 
       const received: Array<{ data: unknown; id: string }> = [];
       await consume(roundtrip, (data, meta) => {
         received.push({ data, id: meta.id });
+
         return Promise.resolve();
       });
 
@@ -119,6 +121,7 @@ describeIfDb(
         name: `${tag}-stately`,
         options: { policy: 'stately' },
       });
+
       await queue.ensureQueue(coalescing);
 
       const first = await queue.enqueue(
@@ -126,16 +129,19 @@ describeIfDb(
         { chatId: 'c1' },
         { singletonKey: 'c1' },
       );
+
       const second = await queue.enqueue(
         coalescing,
         { chatId: 'c1' },
         { singletonKey: 'c1' },
       );
+
       const third = await queue.enqueue(
         coalescing,
         { chatId: 'c1' },
         { singletonKey: 'c1' },
       );
+
       const otherKey = await queue.enqueue(
         coalescing,
         { chatId: 'c2' },
@@ -152,16 +158,20 @@ describeIfDb(
       const retryQueue = defineQueue<{ work: string }>({
         name: `${tag}-retry`,
       });
+
       await queue.ensureQueue(retryQueue);
 
       let attempts = 0;
       let succeededOnAttempt = 0;
       await consume(retryQueue, () => {
         attempts += 1;
+
         if (attempts < 3) {
           return Promise.reject(new Error(`transient failure #${attempts}`));
         }
+
         succeededOnAttempt = attempts;
+
         return Promise.resolve();
       });
 
@@ -184,6 +194,7 @@ describeIfDb(
       const dlqQueue = defineQueue<{ payload: string }>({
         name: `${tag}-dlq`,
       });
+
       await queue.ensureQueue(dlqQueue);
 
       await consume(dlqQueue, () =>
@@ -193,6 +204,7 @@ describeIfDb(
       const dead: Array<unknown> = [];
       await consume(deadLetterQueue(dlqQueue), (data) => {
         dead.push(data);
+
         return Promise.resolve();
       });
 
@@ -218,18 +230,22 @@ describeIfDb(
           throw new TypeError('expected { n: number }');
         }
       }
+
       const guarded = defineQueue<{ n: number }>({
         name: `${tag}-guarded`,
         parse: (data) => {
           assertHasNumberN(data);
+
           return { n: data.n };
         },
       });
+
       await queue.ensureQueue(guarded);
 
       const handled: Array<unknown> = [];
       await consume(guarded, (data) => {
         handled.push(data);
+
         return Promise.resolve();
       });
       // The DLQ consumer sees the RAW payload — skip the guard by consuming
@@ -239,6 +255,7 @@ describeIfDb(
         defineQueue<object>({ name: `${tag}-guarded.dead` }),
         (data) => {
           dead.push(data);
+
           return Promise.resolve();
         },
       );
@@ -264,6 +281,7 @@ describeIfDb(
       const cronQueue = defineQueue<{ source: string }>({
         name: `${tag}-cron`,
       });
+
       await queue.ensureQueue(cronQueue);
 
       await queue.schedule(cronQueue, '*/5 * * * *', { source: 'cron' });
@@ -296,6 +314,7 @@ describeIfDb(
       const cancelQueue = defineQueue<{ payload: string }>({
         name: `${tag}-cancel`,
       });
+
       await queue.ensureQueue(cancelQueue);
 
       // Deferred well past the test window so the consumer can't race the
@@ -305,6 +324,7 @@ describeIfDb(
         { payload: 'never-delivered' },
         { startAfter: 120 },
       );
+
       expect(jobId).toEqual(expect.any(String));
 
       await queue.cancel(cancelQueue, jobId!);
@@ -317,11 +337,13 @@ describeIfDb(
       const deferredQueue = defineQueue<{ deferred: boolean }>({
         name: `${tag}-deferred`,
       });
+
       await queue.ensureQueue(deferredQueue);
 
       const received: Array<number> = [];
       await consume(deferredQueue, () => {
         received.push(Date.now());
+
         return Promise.resolve();
       });
 
@@ -342,6 +364,7 @@ describeIfDb(
         id: number;
         shouldFail?: boolean;
       }>({ name: `${tag}-concurrency` });
+
       await queue.ensureQueue(concurrencyQueue);
 
       let inFlight = 0;
@@ -358,10 +381,12 @@ describeIfDb(
           // to overlap, without any manual batching/ack.
           await new Promise((resolve) => setTimeout(resolve, 800));
           inFlight -= 1;
+
           if (data.shouldFail) {
             failed.push(data.id);
             throw new Error(`job ${data.id} fails on purpose`);
           }
+
           completed.push(data.id);
         },
         { concurrency: 3 },
@@ -376,6 +401,7 @@ describeIfDb(
           { retryLimit: 0 },
         ),
       ]);
+
       expect(jobIds.every((id): id is string => typeof id === 'string')).toBe(
         true,
       );
@@ -401,9 +427,11 @@ describeIfDb(
       const queueA = defineQueue<{ tag: string }>({
         name: `${tag}-route-a`,
       });
+
       const queueB = defineQueue<{ tag: string }>({
         name: `${tag}-route-b`,
       });
+
       await queue.ensureQueue(queueA);
       await queue.ensureQueue(queueB);
 
@@ -411,6 +439,7 @@ describeIfDb(
       // Only ever subscribes to queue A.
       await consume(queueA, (data) => {
         seenByFirst.push(data.tag);
+
         return Promise.resolve();
       });
 
@@ -431,6 +460,7 @@ describeIfDb(
       const seenBySecond: Array<string> = [];
       await consume(queueA, (data) => {
         seenBySecond.push(data.tag);
+
         return Promise.resolve();
       });
 
@@ -467,6 +497,7 @@ describeIfDb(
       const jobId = await queue.enqueue(defineQueue<object>({ name }), {
         after: true,
       });
+
       expect(jobId).toEqual(expect.any(String));
       // The queue's declared duration is copied onto each job at insert.
       const job = await pgBoss.boss.getJobById(name, jobId!);
@@ -483,9 +514,11 @@ describeIfDb(
       ).resolves.toBe('absent');
 
       let release = (): void => {};
+
       const held = new Promise<void>((resolve) => {
         release = resolve;
       });
+
       const jobId = await queue.enqueue(named, { n: 1 }, { id: NAMED_JOB_ID });
       expect(jobId).toBe(NAMED_JOB_ID);
       await expect(queue.jobState(named, NAMED_JOB_ID)).resolves.toBe('queued');
@@ -558,6 +591,7 @@ describeIfDb(
       const drainQueue = defineQueue<{ marker: string }>({
         name: `q${Date.now()}-drain`,
       });
+
       await queue.ensureQueue(drainQueue);
 
       let started = false;

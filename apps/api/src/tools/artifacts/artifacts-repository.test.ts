@@ -17,6 +17,7 @@ type LoggedQuery = {
 
 function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -25,12 +26,15 @@ function makeMockDb() {
       },
     },
   });
+
   return { db, queries };
 }
 
 function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
   const query = queries.at(-1);
+
   if (!query) throw new Error('expected a logged database query');
+
   return query;
 }
 

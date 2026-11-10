@@ -40,15 +40,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [selectedModel, setSelectedModel] = useState<string | undefined>(
     undefined,
   );
+
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(
     undefined,
   );
+
   const [permissionModes, setPermissionModes] = useState<
     Record<string, PermissionMode>
   >({});
 
   const getPermissionMode = (chatId: string): PermissionMode =>
     permissionModes[chatId] ?? "default";
+
   const setPermissionMode = (chatId: string, mode: PermissionMode): void => {
     setPermissionModes((current) => ({ ...current, [chatId]: mode }));
   };

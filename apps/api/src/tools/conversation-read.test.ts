@@ -43,9 +43,11 @@ function lookup(
 
 function mockDb(result: ConversationMessageLookup | undefined) {
   const db = drizzle.mock({ schema });
+
   const find = vi
     .spyOn(MessagesRepository.prototype, 'findConversationMessage')
     .mockResolvedValue(result);
+
   return { db, find };
 }
 
@@ -109,6 +111,7 @@ describe('conversation_read input', () => {
 
   it('rejects invalid runtime input before calling the repository', async () => {
     const { db, find } = mockDb(lookup('not read'));
+
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
@@ -189,6 +192,7 @@ describe('conversation_read execution', () => {
       previousMessageSeq: 3,
       nextMessageSeq: 11,
     });
+
     const { db, find } = mockDb(source);
 
     const result = await executeConversationRead(db, OWNER_ID, {
@@ -261,24 +265,28 @@ describe('conversation_read execution', () => {
       content: '2: two\n3: three\n',
       nextOffset: 3,
     });
+
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
       offset: 1,
       limit: 2,
     });
+
     expect(result).not.toHaveProperty('cutReason');
   });
 
   it('requests the remainder by default and reports an output cut when the serialized bound wins', async () => {
     const text = '\n'.repeat(2001);
     const { db } = mockDb(lookup(text));
+
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
     });
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(result.lineCount).toBeLessThan(2000);
     expect(result.nextOffset).toBe(result.lineCount);
@@ -292,7 +300,9 @@ describe('conversation_read execution', () => {
       messageSeq: 7,
       limit: 2000,
     });
+
     expect(explicit.status).toBe('success');
+
     if (explicit.status !== 'success') return;
     expect(explicit.nextOffset).toBe(explicit.lineCount);
     expect(explicit.cutReason).toBe('output_limit');
@@ -303,7 +313,9 @@ describe('conversation_read execution', () => {
       { length: 400 },
       (_, index) => `${index.toString().padStart(3, '0')} ${'x'.repeat(70)}`,
     ).join('\n');
+
     const { db } = mockDb(lookup(text));
+
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
@@ -313,6 +325,7 @@ describe('conversation_read execution', () => {
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
       CONVERSATION_READ_RESULT_MAX_CODE_UNITS,
     );
+
     if (result.status !== 'success') return;
     expect(Number.isSafeInteger(result.nextOffset)).toBe(true);
     expect(result.cutReason).toBe('output_limit');
@@ -324,9 +337,12 @@ describe('conversation_read execution', () => {
       { length: 2000 },
       (_, index) => `${index + 1}: ${'x'.repeat(50)}\n`,
     );
+
     const measurements: Array<number> = [];
+
     const selected = selectLargestConversationReadPrefix(2000, (lineCount) => {
       measurements.push(lineCount);
+
       const result: ConversationReadSuccess = {
         status: 'success',
         chatId: CHAT_ID,
@@ -338,6 +354,7 @@ describe('conversation_read execution', () => {
         content: renderedLines.slice(0, lineCount).join(''),
         notice: CONVERSATION_HISTORY_NOTICE,
       };
+
       return {
         result,
         fits:
@@ -357,9 +374,11 @@ describe('conversation_read execution', () => {
     const sourceText = Array.from({ length: 24 }, () => tagPair).join('\n');
     const source = lookup(sourceText);
     const sourceLines = scanConversationLogicalLines(sourceText);
+
     const fullContent = sourceLines
       .map((line) => `${line.line + 1}: ${line.text}${line.delimiter}`)
       .join('');
+
     const hypotheticalFull: ConversationReadSuccess = {
       status: 'success',
       chatId: source.chatId,
@@ -387,6 +406,7 @@ describe('conversation_read execution', () => {
     });
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(result.lineCount).toBeLessThan(sourceLines.length);
     expect(result.nextOffset).toBe(result.lineCount);
@@ -428,12 +448,15 @@ describe('conversation_read execution', () => {
   it('renders stored whitespace and blank lines exactly', async () => {
     const text = '  first  \n\nlast  ';
     const { db } = mockDb(lookup(text));
+
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
       offset: 0,
     });
+
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(result.content).toBe('1:   first  \n2: \n3: last  ');
     expect(result.lineCount).toBe(3);
@@ -441,11 +464,14 @@ describe('conversation_read execution', () => {
 
   it('renders CRLF, lone CR text, and LF delimiters exactly', async () => {
     const { db } = mockDb(lookup('first\r\nsecond\rthird\nlast'));
+
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
     });
+
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(result.content).toBe('1: first\r\n2: second\rthird\n3: last');
     expect(result.lineCount).toBe(3);
@@ -453,11 +479,13 @@ describe('conversation_read execution', () => {
 
   it('renders empty visible text at offset zero without continuation metadata', async () => {
     const { db } = mockDb(lookup('', { parts: [] }));
+
     const result = await executeConversationRead(db, OWNER_ID, {
       chatId: CHAT_ID,
       messageSeq: 7,
       offset: 0,
     });
+
     expect(result).toEqual({
       status: 'success',
       chatId: CHAT_ID,
@@ -477,11 +505,13 @@ describe('conversation_read execution', () => {
     'rejects offset %i when it is outside a three-line message',
     async (offset) => {
       const { db } = mockDb(lookup('a\nb\nc'));
+
       const result = await executeConversationRead(db, OWNER_ID, {
         chatId: CHAT_ID,
         messageSeq: 7,
         offset: offset === 0 ? 3 : offset,
       });
+
       if (offset === 0) {
         expect(result).toEqual({
           status: 'error',
@@ -640,7 +670,9 @@ describe('conversation_read image placeholders', () => {
       { length: 400 },
       (_, index) => `${index.toString().padStart(3, '0')} ${'x'.repeat(70)}`,
     );
+
     const baseline = renderConversationRead(lookup(rows.join('\n')), ARGS);
+
     if (baseline.status !== 'success') expect.unreachable('expected success');
     expect(baseline.cutReason).toBe('output_limit');
 
@@ -654,6 +686,7 @@ describe('conversation_read image placeholders', () => {
       id: `01920000-0000-7000-8000-${index.toString(16).padStart(12, '0')}`,
       name: `${'n'.repeat(200)}-${index}.png`,
     }));
+
     const source = lookup('unused', {
       role: 'user',
       parts: [
@@ -664,11 +697,15 @@ describe('conversation_read image placeholders', () => {
 
     const readAt = (offset: number): ConversationReadSuccess => {
       const read = renderConversationRead(source, { ...ARGS, offset });
+
       if (read.status !== 'success') expect.unreachable('expected success');
+
       return read;
     };
+
     const reads = [readAt(0)];
     let nextOffset = reads[0].nextOffset;
+
     while (nextOffset !== undefined) {
       const read = readAt(nextOffset);
       reads.push(read);
@@ -681,9 +718,11 @@ describe('conversation_read image placeholders', () => {
     expect(first.lineCount).toBeLessThan(baseline.lineCount);
     expect(first.nextOffset).toBe(first.lineCount);
     expect(first.cutReason).toBe('output_limit');
+
     for (const read of reads.slice(0, -1)) {
       expect(read.content).not.toContain('[image');
     }
+
     expect(
       last.content.endsWith(
         images
@@ -691,6 +730,7 @@ describe('conversation_read image placeholders', () => {
           .join(''),
       ),
     ).toBe(true);
+
     for (const read of reads) {
       expect(JSON.stringify(read).length).toBeLessThanOrEqual(
         CONVERSATION_READ_RESULT_MAX_CODE_UNITS,

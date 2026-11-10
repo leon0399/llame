@@ -18,11 +18,13 @@ export type GithubPullPrimary = {
   >;
   readonly headSha: string;
 };
+
 export type GithubCheckRun = {
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
 };
+
 export type GithubCheckPage = {
   readonly totalCount?: number;
   readonly runs: ReadonlyArray<GithubCheckRun>;
@@ -35,22 +37,27 @@ export const USER: z.ZodType<User> = z
   .nullable()
   .optional()
   .transform((user) => user?.login ?? 'ghost');
+
 export const TEXT = z
   .string()
   .nullish()
   .transform((value) => value ?? '');
+
 const BODY = z
   .string()
   .nullish()
   .transform((value) => value ?? null);
+
 export const NULLABLE = z
   .string()
   .nullish()
   .transform((value) => value ?? null);
+
 const LABELS = z
   .array(z.object({ name: z.string() }))
   .optional()
   .transform((labels = []) => labels.map(({ name }) => name));
+
 const COMMENT_WIRE = z.object({
   id: z.number().int(),
   user: USER,
@@ -58,6 +65,7 @@ const COMMENT_WIRE = z.object({
   html_url: z.string(),
   body: TEXT,
 });
+
 const REVIEW_WIRE = z.object({
   id: z.number().int(),
   user: USER,
@@ -66,6 +74,7 @@ const REVIEW_WIRE = z.object({
   html_url: z.string(),
   body: TEXT,
 });
+
 const REVIEW_COMMENT_WIRE = COMMENT_WIRE.extend({
   path: z.string(),
   line: z
@@ -80,6 +89,7 @@ const REVIEW_COMMENT_WIRE = COMMENT_WIRE.extend({
     .nullish()
     .transform((value) => value ?? null),
 });
+
 export const FILE_WIRE = z.object({
   filename: z.string(),
   status: z.string(),
@@ -87,6 +97,7 @@ export const FILE_WIRE = z.object({
   deletions: z.number().int(),
   previous_filename: z.string().optional(),
 });
+
 const ISSUE_WIRE = z.object({
   number: z.number().int(),
   title: z.string(),
@@ -99,6 +110,7 @@ const ISSUE_WIRE = z.object({
   html_url: z.string(),
   body: BODY,
 });
+
 const PULL_WIRE = z.object({
   number: z.number().int(),
   title: z.string(),
@@ -115,15 +127,18 @@ const PULL_WIRE = z.object({
   html_url: z.string(),
   body: BODY,
 });
+
 const CHECK_RUN_WIRE = z.object({
   name: z.string(),
   status: z.string(),
   conclusion: NULLABLE,
 });
+
 const CHECK_PAGE_OPTIONAL = z.object({
   total_count: z.number().int().optional(),
   check_runs: z.array(CHECK_RUN_WIRE),
 });
+
 const CHECK_PAGE_REQUIRED = CHECK_PAGE_OPTIONAL.extend({
   total_count: z.number().int().nonnegative(),
 });
@@ -134,6 +149,7 @@ export function parseGithub<T>(
 ): T | undefined {
   try {
     const result = schema.safeParse(JSON.parse(body));
+
     return result.success ? result.data : undefined;
   } catch {
     return undefined;
@@ -145,7 +161,9 @@ export function parseIssuePayload(
   target: GithubThreadTarget,
 ): Omit<GithubIssueDocument, 'comments'> | undefined {
   const issue = parseGithub(ISSUE_WIRE, body);
+
   if (issue === undefined || issue.number !== target.number) return undefined;
+
   return {
     kind: 'issue',
     number: issue.number,
@@ -166,7 +184,9 @@ export function parsePullPayload(
   target: GithubThreadTarget,
 ): GithubPullPrimary | undefined {
   const pull = parseGithub(PULL_WIRE, body);
+
   if (pull === undefined || pull.number !== target.number) return undefined;
+
   return {
     document: {
       kind: 'pull',
@@ -193,6 +213,7 @@ export function parseCommentsPage(
   body: string,
 ): ReadonlyArray<GithubComment> | undefined {
   const comments = parseGithub(z.array(COMMENT_WIRE), body);
+
   return comments?.map((comment) => ({
     id: comment.id,
     author: comment.user,
@@ -206,6 +227,7 @@ export function parseReviewsPage(
   body: string,
 ): ReadonlyArray<GithubReview> | undefined {
   const reviews = parseGithub(z.array(REVIEW_WIRE), body);
+
   return reviews?.map((review) => ({
     id: review.id,
     author: review.user,
@@ -220,6 +242,7 @@ export function parseReviewCommentsPage(
   body: string,
 ): ReadonlyArray<GithubReviewComment> | undefined {
   const comments = parseGithub(z.array(REVIEW_COMMENT_WIRE), body);
+
   return comments?.map((comment) => ({
     id: comment.id,
     author: comment.user,
@@ -237,6 +260,7 @@ export function parseFilesPage(
   body: string,
 ): ReadonlyArray<GithubFile> | undefined {
   const files = parseGithub(z.array(FILE_WIRE), body);
+
   return files?.map(toGithubFile);
 }
 
@@ -263,7 +287,9 @@ export function parseCheckPage(
 ): GithubCheckPage | undefined {
   const schema = requireTotal ? CHECK_PAGE_REQUIRED : CHECK_PAGE_OPTIONAL;
   const page = parseGithub(schema, body);
+
   if (page === undefined) return undefined;
+
   return {
     totalCount: page.total_count,
     runs: page.check_runs.map((run) => ({
@@ -282,6 +308,7 @@ export function countGithubChecks(
   let passed = 0;
   let pending = 0;
   const failed: Array<string> = [];
+
   for (const run of runs) {
     if (run.status !== 'completed') pending += 1;
     else if (
@@ -292,6 +319,7 @@ export function countGithubChecks(
       passed += 1;
     else failed.push(run.name);
   }
+
   return {
     kind: 'loaded',
     passed,

@@ -53,6 +53,7 @@ export type MachineLocator =
 
 const BAD_NAME =
   'A machine:// locator must name a Machine as [a-z0-9-], up to 63 characters.';
+
 const BAD_PATH =
   'A Machine path must be absolute, and its percent escapes must decode once ' +
   'to UTF-8 without a literal query, fragment, backslash, or control ' +
@@ -71,20 +72,26 @@ export function isMachineLocator(value: string): boolean {
  */
 export function parseMachineLocator(value: string): MachineLocator {
   const match = LOCATOR_PREFIX.exec(value);
+
   if (match === null)
     return {
       kind: 'invalid',
       message: 'This path is not a machine:// locator.',
     };
   const rest = value.slice(match[0].length);
+
   if (rest === '') return { kind: 'list' };
   const separator = rest.indexOf(NAME_SEPARATOR);
+
   const name = (
     separator === -1 ? rest : rest.slice(0, separator)
   ).toLowerCase();
+
   if (!MACHINE_NAME_PATTERN.test(name))
     return { kind: 'invalid', message: BAD_NAME };
+
   if (separator === -1) return { kind: 'roots', name };
+
   return parseMachinePath(name, rest.slice(separator));
 }
 
@@ -97,14 +104,18 @@ export function parseMachineLocator(value: string): MachineLocator {
  */
 function parseMachinePath(name: string, rawPath: string): MachineLocator {
   const split = splitSelectorSuffix(rawPath);
+
   const selector =
     split.selector !== undefined && isSelectorSuffix(split.selector)
       ? split.selector
       : undefined;
+
   const decoded = decodeMachinePath(
     selector === undefined ? rawPath : split.path,
   );
+
   if (!decoded.ok) return { kind: 'invalid', message: decoded.message };
+
   return selector === undefined
     ? { kind: 'path', name, path: decoded.path }
     : { kind: 'path', name, path: decoded.path, selector };
@@ -118,6 +129,7 @@ function decodeMachinePath(
   // (`//` authority handling, literal-query/fragment/backslash refusals, and
   // the `%2F`/`%00` guards) while this module keeps the Machine wording.
   const decoded = decodeFileAlias(`file://localhost${rawPath}`);
+
   return decoded.ok
     ? { ok: true, path: decoded.hostPath }
     : { ok: false, message: BAD_PATH };
@@ -138,11 +150,15 @@ export function formatMachineLocator(
   selector?: string,
 ): string | undefined {
   const canonicalName = name.toLowerCase();
+
   if (!MACHINE_NAME_PATTERN.test(canonicalName)) return undefined;
+
   if (selector !== undefined && !isSelectorSuffix(selector)) return undefined;
   const encoded = encodeLocatorPath(path);
+
   if (encoded === undefined) return undefined;
   const locator = `${MACHINE_SCHEME}://${canonicalName}${encoded}`;
+
   return selector === undefined ? locator : `${locator}:${selector}`;
 }
 
@@ -161,5 +177,6 @@ export function parseMachineExecutorId(value: string): string | undefined {
   if (!value.toLowerCase().startsWith(MACHINE_EXECUTOR_PREFIX))
     return undefined;
   const name = value.slice(MACHINE_EXECUTOR_PREFIX.length).toLowerCase();
+
   return MACHINE_NAME_PATTERN.test(name) ? name : undefined;
 }

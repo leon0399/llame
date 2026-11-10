@@ -43,6 +43,7 @@ const connectors: Array<MachineConnector> = [];
 
 afterEach(() => {
   for (const connector of connectors.splice(0)) connector.onModuleDestroy();
+
   for (const directory of created.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -67,6 +68,7 @@ function repository(): string {
   writeFileSync(join(directory, 'README.md'), 'readme\n');
   runGit(directory, ['add', '.']);
   runGit(directory, ['commit', '--quiet', '--message', 'first commit']);
+
   return directory;
 }
 
@@ -110,11 +112,14 @@ function realExecutors(
     transportFactory: createProtocolPeer(options).factory,
     idleCloseMs: 1000,
   });
+
   connectors.push(connector);
+
   const config: LlameConfig = {
     ...BUILT_IN_DEFAULTS,
     tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: EXECUTOR },
   };
+
   return new ExecutorGit({ config }, connector, localGitSurface());
 }
 
@@ -125,11 +130,13 @@ function serviceFor(
   const getChatById = vi
     .fn<(id: string, owner: string) => Promise<Chat | undefined>>()
     .mockResolvedValue(chat);
+
   const service = new ChatGitStateService(
     { getChatById },
     new GitSnapshotService(executors),
     executors,
   );
+
   return { service, getChatById };
 }
 
@@ -200,6 +207,7 @@ describe('ChatGitStateService', () => {
     const executors = realExecutors();
     const locateEntry = vi.spyOn(executors, 'locateEntry');
     const state = vi.spyOn(executors, 'state');
+
     const { service } = serviceFor(
       chatAt(repository(), 'some-other-host'),
       executors,
@@ -234,7 +242,9 @@ describe('ChatGitStateService', () => {
         hosts: { nas: { destination: 'nas.example' } },
       },
     );
+
     const reachable = vi.spyOn(connectors[0], 'reachable');
+
     const { service } = serviceFor(
       chatAt('machine://nas/srv/repo', 'machine:nas'),
       executors,

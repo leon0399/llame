@@ -50,10 +50,12 @@ type Deferred<T> = {
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
+
   const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
     reject = rejectPromise;
   });
+
   return { promise, resolve, reject };
 }
 
@@ -125,9 +127,11 @@ afterEach(() => {
 describe('McpRuntimeService', () => {
   it('initializes once even when lifecycle hooks are repeated', async () => {
     const client = fakeClient();
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>(() =>
       Promise.resolve(client),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random: () => 0.5,
@@ -145,6 +149,7 @@ describe('McpRuntimeService', () => {
   it('waits for initial discovery when start is awaited', async () => {
     const pending = deferred<McpDiscoveryResult>();
     const client = fakeClient(vi.fn(() => pending.promise));
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0.5,
@@ -174,6 +179,7 @@ describe('McpRuntimeService', () => {
   it('clamps a non-finite refresh jitter to the earliest refresh', async () => {
     vi.useFakeTimers();
     const client = fakeClient(vi.fn(() => Promise.resolve(emptyDiscovery())));
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => Number.POSITIVE_INFINITY,
@@ -192,6 +198,7 @@ describe('McpRuntimeService', () => {
 
   it('reconnects when a tool executor reports a reconnect disposition', async () => {
     vi.useFakeTimers();
+
     const discovered: McpDiscoveredTool = {
       ...discoveredTool('web', 'reconnect'),
       execute: vi.fn(() =>
@@ -205,14 +212,18 @@ describe('McpRuntimeService', () => {
         }),
       ),
     };
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const replacement = fakeClient();
+
     const clientFactory = vi
       .fn<McpRuntimeClientFactory>()
       .mockResolvedValueOnce(client)
       .mockResolvedValueOnce(replacement);
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random: () => 0,
@@ -221,6 +232,7 @@ describe('McpRuntimeService', () => {
     runtime.onModuleInit();
     await flushAsync();
     const resolution = runtime.resolveDynamicTool('mcp__web__reconnect');
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
@@ -253,16 +265,20 @@ describe('McpRuntimeService', () => {
   });
   it('records an MCP dispatch before invoking and persists its result', async () => {
     const order: Array<string> = [];
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockImplementation(() => {
         order.push('record');
+
         return Promise.resolve(undefined);
       });
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((runId, eventType, payload) => {
         order.push('result');
+
         return Promise.resolve({
           sequence: 0,
           runId,
@@ -271,34 +287,42 @@ describe('McpRuntimeService', () => {
           createdAt: new Date(),
         });
       });
+
     const discovered: McpDiscoveredTool = {
       ...discoveredTool('web', 'recorded'),
       execute: vi.fn(() => {
         order.push('invoke');
+
         return Promise.resolve({
           disposition: 'none' as const,
           result: { status: 'success' as const, value: 'done' },
         });
       }),
     };
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__web__recorded');
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const tenantDb: TenantRunner = {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
 
     const recorded = vi.fn();
+
     const result = await resolution.executor.execute(
       {
         configuredCredentials: [],
@@ -341,10 +365,13 @@ describe('McpRuntimeService', () => {
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValue(undefined);
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockRejectedValue(new Error('event log unavailable'));
+
     const unknown = vi.fn();
+
     const discovered: McpDiscoveredTool = {
       ...discoveredTool('web', 'persist-failure'),
       execute: vi.fn(() =>
@@ -354,22 +381,28 @@ describe('McpRuntimeService', () => {
         }),
       ),
     };
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__web__persist-failure');
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const tenantDb: TenantRunner = {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
+
     await expect(
       resolution.executor.execute(
         {
@@ -402,6 +435,7 @@ describe('McpRuntimeService', () => {
 
   it('persists the truncated result observed by the Run loop', async () => {
     const huge = 'x'.repeat(RESULT_TRUNCATE_CHARS * 2);
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((runId, eventType, payload) =>
@@ -413,9 +447,11 @@ describe('McpRuntimeService', () => {
           createdAt: new Date(),
         }),
       );
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
+
     const discovered: McpDiscoveredTool = {
       ...discoveredTool('web', 'truncated'),
       execute: vi.fn(() =>
@@ -425,22 +461,28 @@ describe('McpRuntimeService', () => {
         }),
       ),
     };
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__web__truncated');
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const tenantDb: TenantRunner = {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
+
     const result = await resolution.executor.execute(
       {
         configuredCredentials: [],
@@ -455,16 +497,20 @@ describe('McpRuntimeService', () => {
     );
 
     expect(result).toMatchObject({ status: 'success', truncated: true });
+
     if (result.status !== 'success' || !isString(result.output)) {
       throw new Error('Expected a capped success result.');
     }
+
     // MCP tools declare no spill shape, so the inline text keeps the head.
     expect(result.output.startsWith('x'.repeat(1000))).toBe(true);
     expect(result.output.length).toBeLessThan(huge.length);
+
     const persistedResult: unknown = expect.objectContaining({
       status: 'success',
       truncated: true,
     });
+
     expect(append).toHaveBeenCalledWith(
       'run-truncated',
       'native.result',
@@ -493,6 +539,7 @@ describe('McpRuntimeService', () => {
 
   it('spills an oversized MCP result and names its artifact', async () => {
     const huge = 'x'.repeat(RESULT_TRUNCATE_CHARS * 2);
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((runId, eventType, payload) =>
@@ -504,6 +551,7 @@ describe('McpRuntimeService', () => {
           createdAt: new Date(),
         }),
       );
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
@@ -514,6 +562,7 @@ describe('McpRuntimeService', () => {
     vi.spyOn(ArtifactsRepository.prototype, 'insertParts').mockResolvedValue(
       undefined,
     );
+
     const discovered: McpDiscoveredTool = {
       ...discoveredTool('docs', 'fetch'),
       execute: vi.fn(() =>
@@ -523,19 +572,24 @@ describe('McpRuntimeService', () => {
         }),
       ),
     };
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('docs'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__docs__fetch');
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const result = await resolution.executor.execute(
       spillingContext('run-spill'),
       {},
@@ -543,9 +597,11 @@ describe('McpRuntimeService', () => {
 
     const locator = 'artifact://mcp__docs__fetch-4';
     expect(result).toMatchObject({ status: 'success', artifact: locator });
+
     if (result.status !== 'success' || !isString(result.truncationNotice)) {
       throw new Error('Expected a spilled success result.');
     }
+
     expect(result.truncationNotice).toContain(locator);
     expect(result.truncationNotice).toContain(':1-');
     expect(append.mock.calls[0]?.[2]).toMatchObject({
@@ -566,13 +622,16 @@ describe('McpRuntimeService', () => {
           createdAt: new Date(),
         }),
       );
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
+
     const insertArtifact = vi.spyOn(
       ArtifactsRepository.prototype,
       'insertArtifact',
     );
+
     const discovered: McpDiscoveredTool = {
       ...discoveredTool('docs', 'big'),
       execute: vi.fn(() =>
@@ -585,19 +644,24 @@ describe('McpRuntimeService', () => {
         }),
       ),
     };
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('docs'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__docs__big');
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const result = await resolution.executor.execute(
       { ...spillingContext('run-bound'), artifactMaxBytes: 131_072 },
       {},
@@ -605,9 +669,11 @@ describe('McpRuntimeService', () => {
 
     expect(insertArtifact).not.toHaveBeenCalled();
     expect(result).not.toHaveProperty('artifact');
+
     if (result.status !== 'success' || !isString(result.truncationNotice)) {
       throw new Error('Expected a capped success result.');
     }
+
     expect(result.truncationNotice).toContain('[full result not stored]');
     expect(append).toHaveBeenCalledOnce();
     await runtime.onModuleDestroy();
@@ -619,10 +685,12 @@ describe('McpRuntimeService', () => {
       type: 'outcome_unknown',
       message: 'A prior MCP dispatch may have executed.',
     };
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(prior);
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((runId, eventType, payload) =>
@@ -634,24 +702,31 @@ describe('McpRuntimeService', () => {
           createdAt: new Date(),
         }),
       );
+
     const discovered = discoveredTool('web', 'retry');
     const invoke = discovered.execute;
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__web__retry');
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const tenantDb: TenantRunner = {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
+
     const context = {
       configuredCredentials: [],
       runId: 'run-2',
@@ -661,6 +736,7 @@ describe('McpRuntimeService', () => {
       tenantDb,
       toolCallId: 'call-2',
     };
+
     await expect(
       resolution.executor.execute(context, {}),
     ).resolves.toMatchObject({ status: 'success' });
@@ -677,23 +753,29 @@ describe('McpRuntimeService', () => {
     const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
     const discovered = discoveredTool('web', 'aborted-before-record');
     const invoke = discovered.execute;
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool(
       'mcp__web__aborted-before-record',
     );
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const controller = new AbortController();
     controller.abort();
+
     const tenantDb: TenantRunner = {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
@@ -720,29 +802,37 @@ describe('McpRuntimeService', () => {
 
   it('does not invoke an MCP call when abort lands after durable recording', async () => {
     const controller = new AbortController();
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockImplementation(() => {
         controller.abort();
+
         return Promise.resolve(undefined);
       });
+
     const discovered = discoveredTool('web', 'aborted-after-record');
     const invoke = discovered.execute;
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool(
       'mcp__web__aborted-after-record',
     );
+
     if (resolution.state !== 'available') {
       throw new Error('expected the dynamic tool to be available');
     }
+
     const tenantDb: TenantRunner = {
       runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),
     };
@@ -769,12 +859,14 @@ describe('McpRuntimeService', () => {
 
   it('returns unavailable for a canonical tool removed by refresh', async () => {
     vi.useFakeTimers();
+
     const client = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
         .mockResolvedValueOnce(discovery(discoveredTool('web', 'lookup')))
         .mockResolvedValueOnce(emptyDiscovery()),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0,
@@ -805,6 +897,7 @@ describe('McpRuntimeService', () => {
         ),
       ),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0.5,
@@ -864,6 +957,7 @@ describe('McpRuntimeService', () => {
     const first = discoveredTool('web', 'first');
     const second = discoveredTool('web', 'second');
     const replacement = discoveredTool('web', 'replacement');
+
     const client = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
@@ -879,10 +973,13 @@ describe('McpRuntimeService', () => {
         })
         .mockResolvedValueOnce(discovery(replacement)),
     );
+
     let disconnect: (() => void) | undefined;
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
         disconnect = config.onDisconnect;
+
         return Promise.resolve(client);
       }),
       random: () => 0,
@@ -907,9 +1004,11 @@ describe('McpRuntimeService', () => {
         reason: 'source_disconnected',
       }),
     ]);
+
     for (const candidate of runtime.snapshotCandidates()) {
       expect(candidate).not.toHaveProperty('tool');
     }
+
     expect(runtime.snapshotCandidates()).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'mcp__web__refused' }),
@@ -920,9 +1019,11 @@ describe('McpRuntimeService', () => {
     await flushAsync();
     const replacementCandidates = runtime.snapshotCandidates();
     expect(replacementCandidates).toHaveLength(1);
+
     if (replacementCandidates[0]?.state !== 'available') {
       throw new Error('expected replacement tool to be available');
     }
+
     expect(replacementCandidates[0].tool.id).toBe('mcp__web__replacement');
 
     await runtime.onModuleDestroy();
@@ -938,6 +1039,7 @@ describe('McpRuntimeService', () => {
     expect(runtime.resolveDynamicTool('search_conversations')).toEqual({
       state: 'not_dynamic',
     });
+
     for (const malformed of [
       'mcp__web__',
       'mcp__web___edge',
@@ -949,20 +1051,24 @@ describe('McpRuntimeService', () => {
         state: 'not_dynamic',
       });
     }
+
     expect(runtime.snapshotCandidates()).toEqual([]);
   });
 
   it('starts every server independently without awaiting an offline sibling', async () => {
     vi.useFakeTimers();
     const webConnection = deferred<McpRuntimeClient>();
+
     const docsClient = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('docs', 'lookup')))),
     );
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) =>
       config.serverId === 'web'
         ? webConnection.promise
         : Promise.resolve(docsClient),
     );
+
     const runtime = new McpRuntimeService(servers('web', 'docs'), {
       clientFactory,
       random: () => 0.5,
@@ -984,9 +1090,11 @@ describe('McpRuntimeService', () => {
     await flushAsync();
     const docsCandidates = runtime.snapshotCandidates();
     expect(docsCandidates).toHaveLength(1);
+
     if (docsCandidates[0]?.state !== 'available') {
       throw new Error('expected docs tool to remain available');
     }
+
     expect(docsCandidates[0].tool.id).toBe('mcp__docs__lookup');
 
     await runtime.onModuleDestroy();
@@ -996,17 +1104,20 @@ describe('McpRuntimeService', () => {
     vi.useFakeTimers();
     const webClient = fakeClient();
     const docsClient = fakeClient();
+
     const random = vi
       .fn<() => number>()
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(1)
       .mockReturnValue(0.5);
+
     const runtime = new McpRuntimeService(servers('web', 'docs'), {
       random,
       clientFactory: vi.fn(({ serverId }) =>
         Promise.resolve(serverId === 'web' ? webClient : docsClient),
       ),
     });
+
     runtime.onModuleInit();
     await flushAsync();
     expect(webClient.discover).toHaveBeenCalledTimes(1);
@@ -1015,6 +1126,7 @@ describe('McpRuntimeService', () => {
     for (let index = 0; index < 20; index += 1) {
       runtime.snapshotCandidates();
     }
+
     expect(webClient.discover).toHaveBeenCalledTimes(1);
 
     await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
@@ -1030,16 +1142,19 @@ describe('McpRuntimeService', () => {
   it('keeps the last complete immutable catalog during one single-flight refresh and publishes the replacement atomically', async () => {
     vi.useFakeTimers();
     const refresh = deferred<McpDiscoveryResult>();
+
     const client = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
         .mockResolvedValueOnce(discovery(discoveredTool('web', 'old')))
         .mockImplementationOnce(() => refresh.promise),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
@@ -1047,9 +1162,11 @@ describe('McpRuntimeService', () => {
     expect(client.discover).toHaveBeenCalledTimes(2);
     const duringRefresh = runtime.snapshotCandidates();
     expect(duringRefresh).toHaveLength(1);
+
     if (duringRefresh[0]?.state !== 'available') {
       throw new Error('expected old tool to remain available during refresh');
     }
+
     expect(duringRefresh[0].tool.id).toBe('mcp__web__old');
 
     await vi.advanceTimersByTimeAsync(72 * MINUTE_MS);
@@ -1059,9 +1176,11 @@ describe('McpRuntimeService', () => {
     await flushAsync();
     const candidates = runtime.snapshotCandidates();
     expect(candidates[0]?.state).toBe('available');
+
     if (candidates[0]?.state !== 'available') {
       throw new Error('expected the replacement tool to be available');
     }
+
     expect(candidates[0].tool.id).toBe('mcp__web__new');
     expect(candidates).toHaveLength(1);
     expect(Object.isFrozen(candidates)).toBe(true);
@@ -1072,28 +1191,34 @@ describe('McpRuntimeService', () => {
   it('withdraws the complete old catalog on refresh failure before reconnecting', async () => {
     vi.useFakeTimers();
     const refresh = deferred<McpDiscoveryResult>();
+
     const first = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
         .mockResolvedValueOnce(discovery(discoveredTool('web', 'old')))
         .mockImplementationOnce(() => refresh.promise),
     );
+
     const second = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'new')))),
     );
+
     const factory = vi
       .fn<McpRuntimeClientFactory>()
       .mockResolvedValueOnce(first)
       .mockResolvedValueOnce(second);
+
     const random = vi
       .fn<() => number>()
       .mockReturnValueOnce(0)
       .mockReturnValueOnce(0.5)
       .mockReturnValue(0);
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: factory,
       random,
     });
+
     runtime.onModuleInit();
     await flushAsync();
     await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
@@ -1118,18 +1243,22 @@ describe('McpRuntimeService', () => {
 
   it('keeps protocol-unsupported and discovery-failed reasons closed and isolated per server', async () => {
     vi.useFakeTimers();
+
     const docs = fakeClient(
       vi.fn(() => Promise.reject(new Error('bad catalog'))),
     );
+
     const runtime = new McpRuntimeService(servers('web', 'docs'), {
       clientFactory: vi.fn(({ serverId }) => {
         if (serverId === 'web') {
           return Promise.reject(new McpProtocolUnsupportedError());
         }
+
         return Promise.resolve(docs);
       }),
       random: () => 1,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
@@ -1141,6 +1270,7 @@ describe('McpRuntimeService', () => {
   it('publishes valid admitted siblings when discovery reports an isolated refusal', async () => {
     vi.useFakeTimers();
     const admitted = discoveredTool('web', 'valid');
+
     const client = fakeClient(
       vi.fn(() =>
         Promise.resolve({
@@ -1161,18 +1291,22 @@ describe('McpRuntimeService', () => {
         }),
       ),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0.5,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__web__valid');
     expect(resolution.state).toBe('available');
+
     if (resolution.state !== 'available') {
       throw new Error('expected an available dynamic tool');
     }
+
     expect(resolution.declarationHash).toBe(
       hashToolDeclaration({
         id: admitted.definition.id,
@@ -1206,9 +1340,11 @@ describe('McpRuntimeService', () => {
     );
     const candidates = runtime.snapshotCandidates();
     expect(candidates).toHaveLength(1);
+
     if (candidates[0]?.state !== 'available') {
       throw new Error('expected valid tool to be available');
     }
+
     expect(candidates[0].tool.id).toBe('mcp__web__valid');
     expect(runtime.snapshotCandidates()).not.toEqual(
       expect.arrayContaining([
@@ -1226,6 +1362,7 @@ describe('McpRuntimeService', () => {
     const refresh = deferred<McpDiscoveryResult>();
     let disconnect: (() => void) | undefined;
     const refusedId = 'mcp__web__search';
+
     const client = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
@@ -1237,13 +1374,16 @@ describe('McpRuntimeService', () => {
         })
         .mockImplementationOnce(() => refresh.promise),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
         disconnect = config.onDisconnect;
+
         return Promise.resolve(client);
       }),
       random: () => 0,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
@@ -1266,6 +1406,7 @@ describe('McpRuntimeService', () => {
 
   it('withdraws synchronously on disconnect and reconnects with a fresh client after AWS Full Jitter', async () => {
     vi.useFakeTimers();
+
     const clients = [
       fakeClient(
         vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'first')))),
@@ -1276,28 +1417,36 @@ describe('McpRuntimeService', () => {
         ),
       ),
     ];
+
     const disconnects: Array<() => void> = [];
     let connectionIndex = 0;
+
     const createClient: McpRuntimeClientFactory = (config) => {
       if (config.onDisconnect !== undefined) {
         disconnects.push(config.onDisconnect);
       }
+
       const client = clients[connectionIndex];
       connectionIndex += 1;
+
       return client === undefined
         ? Promise.reject(new Error('unexpected connection'))
         : Promise.resolve(client);
     };
+
     const clientFactory = vi.fn(createClient);
+
     const random = vi
       .fn<() => number>()
       .mockReturnValueOnce(0.25) // first periodic refresh
       .mockReturnValueOnce(0.5) // attempt 0: 500 ms
       .mockReturnValue(0.25);
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random,
     });
+
     runtime.onModuleInit();
     await flushAsync();
     expect(runtime.resolveDynamicTool('mcp__web__first').state).toBe(
@@ -1335,22 +1484,28 @@ describe('McpRuntimeService', () => {
   it('fails a previously resolved executor closed after its client disconnects', async () => {
     vi.useFakeTimers();
     const discovered = discoveredTool('web', 'search');
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discovered))),
     );
+
     let disconnect: (() => void) | undefined;
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
         disconnect = config.onDisconnect;
+
         return Promise.resolve(client);
       }),
       random: () => 1,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__web__search');
     expect(resolution.state).toBe('available');
+
     if (resolution.state !== 'available') {
       throw new Error('expected an available dynamic tool');
     }
@@ -1383,6 +1538,7 @@ describe('McpRuntimeService', () => {
       vi.useFakeTimers();
       const original = discoveredTool('web', 'search');
       const unchangedReplacement = discoveredTool('web', 'search');
+
       const replacement: McpDiscoveredTool = {
         ...unchangedReplacement,
         definition: {
@@ -1390,6 +1546,7 @@ describe('McpRuntimeService', () => {
           description: 'Changed declaration.',
         },
       };
+
       const client = fakeClient(
         vi
           .fn<McpRuntimeClient['discover']>()
@@ -1400,15 +1557,18 @@ describe('McpRuntimeService', () => {
               : emptyDiscovery(),
           ),
       );
+
       const runtime = new McpRuntimeService(servers('web'), {
         clientFactory: vi.fn(() => Promise.resolve(client)),
         random: () => 0,
       });
+
       runtime.onModuleInit();
       await flushAsync();
 
       const resolution = runtime.resolveDynamicTool('mcp__web__search');
       expect(resolution.state).toBe('available');
+
       if (resolution.state !== 'available') {
         throw new Error('expected an available dynamic tool');
       }
@@ -1446,21 +1606,25 @@ describe('McpRuntimeService', () => {
     vi.useFakeTimers();
     const original = discoveredTool('web', 'search');
     const replacement = discoveredTool('web', 'search');
+
     const client = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
         .mockResolvedValueOnce(discovery(original))
         .mockResolvedValueOnce(discovery(replacement)),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
     const resolution = runtime.resolveDynamicTool('mcp__web__search');
     expect(resolution.state).toBe('available');
+
     if (resolution.state !== 'available') {
       throw new Error('expected an available dynamic tool');
     }
@@ -1486,18 +1650,24 @@ describe('McpRuntimeService', () => {
 
   it('treats a disconnect raised before the client factory resolves as pending and never publishes that client', async () => {
     vi.useFakeTimers();
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'unsafe')))),
     );
+
     const createClient: McpRuntimeClientFactory = (config) => {
       config.onDisconnect?.();
+
       return Promise.resolve(client);
     };
+
     const factory = vi.fn(createClient);
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: factory,
       random: () => 1,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
@@ -1511,32 +1681,42 @@ describe('McpRuntimeService', () => {
 
   it('ignores a stale timer callback by exact handle without losing the current reconnect timer', async () => {
     const createRealTimerHandle: typeof setTimeout = setTimeout;
+
     const scheduled: Array<{
       readonly callback: () => void;
       readonly handle: ReturnType<typeof setTimeout>;
     }> = [];
+
     const setTimeoutSpy = vi
       .spyOn(globalThis, 'setTimeout')
       .mockImplementation((callback) => {
         const handle = createRealTimerHandle(() => undefined, 0);
         scheduled.push({ callback: () => callback(), handle });
+
         return handle;
       });
+
     const clearTimeoutSpy = vi
       .spyOn(globalThis, 'clearTimeout')
       .mockImplementation(() => undefined);
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'ready')))),
     );
+
     let disconnect: (() => void) | undefined;
+
     const createClient: McpRuntimeClientFactory = (config) => {
       disconnect = config.onDisconnect;
+
       return Promise.resolve(client);
     };
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(createClient),
       random: () => 0.5,
     });
+
     runtime.onModuleInit();
     await flushAsync();
     const staleRefreshTimer = scheduled[0];
@@ -1555,6 +1735,7 @@ describe('McpRuntimeService', () => {
 
   it('increments Full Jitter after complete-discovery failures and resets only after a complete success', async () => {
     vi.useFakeTimers();
+
     const clients = [
       fakeClient(vi.fn(() => Promise.reject(new Error('bad page')))),
       fakeClient(vi.fn(() => Promise.reject(new Error('still bad')))),
@@ -1565,23 +1746,30 @@ describe('McpRuntimeService', () => {
         vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'fresh')))),
       ),
     ];
+
     const disconnects: Array<() => void> = [];
     let connectionIndex = 0;
+
     const createClient: McpRuntimeClientFactory = (config) => {
       if (config.onDisconnect !== undefined) {
         disconnects.push(config.onDisconnect);
       }
+
       const client = clients[connectionIndex];
       connectionIndex += 1;
+
       return client === undefined
         ? Promise.reject(new Error('unexpected connection'))
         : Promise.resolve(client);
     };
+
     const factory = vi.fn(createClient);
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: factory,
       random: () => 0.5,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
@@ -1617,36 +1805,47 @@ describe('McpRuntimeService', () => {
     vi.useFakeTimers();
     const staleRefresh = deferred<McpDiscoveryResult>();
     const staleClose = deferred<void>();
+
     const first = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
         .mockResolvedValueOnce(discovery(discoveredTool('web', 'old')))
         .mockImplementationOnce(() => staleRefresh.promise),
     );
+
     first.close.mockImplementation(() => staleClose.promise);
+
     const second = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'current')))),
     );
+
     const disconnects: Array<() => void> = [];
     let connectionIndex = 0;
+
     const createClient: McpRuntimeClientFactory = (config) => {
       if (config.onDisconnect !== undefined) {
         disconnects.push(config.onDisconnect);
       }
+
       const client = connectionIndex === 0 ? first : second;
       connectionIndex += 1;
+
       return Promise.resolve(client);
     };
+
     const factory = vi.fn(createClient);
+
     const random = vi
       .fn<() => number>()
       .mockReturnValueOnce(0) // first refresh at 48 minutes
       .mockReturnValueOnce(0) // reconnect immediately
       .mockReturnValue(0.5);
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: factory,
       random,
     });
+
     runtime.onModuleInit();
     await flushAsync();
     await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
@@ -1677,17 +1876,22 @@ describe('McpRuntimeService', () => {
   it('cancels timers, withdraws catalogs, and closes idempotently within one aggregate shutdown bound', async () => {
     vi.useFakeTimers();
     const neverClosed = deferred<void>();
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'lookup')))),
     );
+
     client.close.mockImplementation(() => neverClosed.promise);
+
     const factory = vi.fn<McpRuntimeClientFactory>(() =>
       Promise.resolve(client),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: factory,
       random: () => 0,
     });
+
     runtime.onModuleInit();
     await flushAsync();
 
@@ -1716,19 +1920,23 @@ describe('McpRuntimeService', () => {
     vi.useFakeTimers();
     const refresh = deferred<McpDiscoveryResult>();
     let refreshSignal: AbortSignal | undefined;
+
     const client = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
         .mockResolvedValueOnce(discovery(discoveredTool('web', 'lookup')))
         .mockImplementationOnce((options) => {
           refreshSignal = options?.signal;
+
           return refresh.promise;
         }),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0,
     });
+
     runtime.onModuleInit();
     await flushAsync();
     await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
@@ -1755,22 +1963,28 @@ describe('McpRuntimeService', () => {
     vi.useFakeTimers();
     const refresh = deferred<McpDiscoveryResult>();
     let disconnect: (() => void) | undefined;
+
     const client = fakeClient(
       vi
         .fn<McpRuntimeClient['discover']>()
         .mockResolvedValueOnce(discovery(discoveredTool('web', 'lookup')))
         .mockImplementationOnce(() => refresh.promise),
     );
+
     const neverClosed = deferred<void>();
     client.close.mockImplementation(() => neverClosed.promise);
+
     const factory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnect = config.onDisconnect;
+
       return Promise.resolve(client);
     });
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: factory,
       random: () => 0,
     });
+
     runtime.onModuleInit();
     await flushAsync();
     await vi.advanceTimersByTimeAsync(48 * MINUTE_MS);
@@ -1797,18 +2011,24 @@ describe('McpRuntimeService', () => {
   it('aborts a pending connection and bounds shutdown when its factory ignores cancellation', async () => {
     vi.useFakeTimers();
     const connection = deferred<McpRuntimeClient>();
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'late')))),
     );
+
     let connectSignal: AbortSignal | undefined;
+
     const factory = vi.fn<McpRuntimeClientFactory>((config) => {
       connectSignal = config.signal;
+
       return connection.promise;
     });
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: factory,
       random: () => 0,
     });
+
     runtime.onModuleInit();
 
     const shutdown = runtime.onModuleDestroy();
@@ -1842,9 +2062,11 @@ describe('McpRuntimeService stdio lifecycle', () => {
   // Task 2.2 — the attempt budget is bounded, unlike the remote path.
   it('stops the fast retry after the bounded attempt budget', async () => {
     vi.useFakeTimers();
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>(() =>
       Promise.reject(new Error('spawn failed')),
     );
+
     const runtime = new McpRuntimeService(stdioServers('local'), {
       clientFactory,
       random: () => 1,
@@ -1871,11 +2093,13 @@ describe('McpRuntimeService stdio lifecycle', () => {
     vi.useFakeTimers();
     let failing = true;
     const recovered = fakeClient();
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>(() =>
       failing
         ? Promise.reject(new Error('spawn failed'))
         : Promise.resolve(recovered),
     );
+
     const runtime = new McpRuntimeService(stdioServers('local'), {
       clientFactory,
       random: () => 0.5,
@@ -1914,10 +2138,13 @@ describe('McpRuntimeService stdio lifecycle', () => {
   it('settles a child that keeps exiting right after discovery', async () => {
     vi.useFakeTimers();
     const disconnects: Array<() => void> = [];
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(fakeClient());
     });
+
     const runtime = new McpRuntimeService(stdioServers('local'), {
       clientFactory,
       random: () => 1,
@@ -1947,10 +2174,13 @@ describe('McpRuntimeService stdio lifecycle', () => {
   it('refunds the retry budget to a session that stayed up', async () => {
     vi.useFakeTimers();
     const disconnects: Array<() => void> = [];
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(fakeClient());
     });
+
     const runtime = new McpRuntimeService(stdioServers('local'), {
       clientFactory,
       random: () => 1,
@@ -1977,9 +2207,11 @@ describe('McpRuntimeService stdio lifecycle', () => {
   // Task 2.3 — the remote path keeps its unbounded reconnect.
   it('leaves remote reconnect unbounded', async () => {
     vi.useFakeTimers();
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>(() =>
       Promise.reject(new Error('endpoint down')),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random: () => 1,
@@ -2002,10 +2234,13 @@ describe('McpRuntimeService stdio lifecycle', () => {
   // Task 2.4 — the factory receives a transport-appropriate config.
   it('dispatches the client factory on the transport discriminator', async () => {
     const seen: Array<unknown> = [];
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       seen.push(config);
+
       return Promise.resolve(fakeClient());
     });
+
     const runtime = new McpRuntimeService(
       { ...stdioServers('local'), ...servers('web') },
       { clientFactory, random: () => 0.5 },
@@ -2033,10 +2268,12 @@ describe('McpRuntimeService session fencing and cadence', () => {
   it('clamps a negative jitter to the earliest and an oversized one to the latest refresh', async () => {
     vi.useFakeTimers();
     const early = fakeClient();
+
     const earliest = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(early)),
       random: () => -0.5,
     });
+
     earliest.onModuleInit();
     await flushAsync();
 
@@ -2049,10 +2286,12 @@ describe('McpRuntimeService session fencing and cadence', () => {
     await earliest.onModuleDestroy();
 
     const late = fakeClient();
+
     const latest = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(late)),
       random: () => 2,
     });
+
     latest.onModuleInit();
     await flushAsync();
 
@@ -2069,11 +2308,15 @@ describe('McpRuntimeService session fencing and cadence', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     let diagnostic: ((text: string) => void) | undefined;
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       diagnostic = 'onDiagnostic' in config ? config.onDiagnostic : undefined;
+
       return Promise.resolve(fakeClient());
     });
+
     const runtime = new McpRuntimeService(stdioServers('local'), {
       clientFactory,
       random: () => 0.5,
@@ -2093,12 +2336,15 @@ describe('McpRuntimeService session fencing and cadence', () => {
     vi.useFakeTimers();
     const pending = deferred<McpDiscoveryResult>();
     let signal: AbortSignal | undefined;
+
     const client = fakeClient(
       vi.fn((options?: { readonly signal?: AbortSignal }) => {
         signal = options?.signal;
+
         return pending.promise;
       }),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0.5,
@@ -2120,10 +2366,13 @@ describe('McpRuntimeService session fencing and cadence', () => {
     const pending = deferred<McpDiscoveryResult>();
     const disconnects: Array<() => void> = [];
     const client = fakeClient(vi.fn(() => pending.promise));
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(client);
     });
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random: () => 0.5,
@@ -2149,18 +2398,24 @@ describe('McpRuntimeService session fencing and cadence', () => {
     vi.useFakeTimers();
     const pending = deferred<McpDiscoveryResult>();
     let discovered = false;
+
     const client = fakeClient(
       vi.fn(() => {
         if (discovered) return pending.promise;
         discovered = true;
+
         return Promise.resolve(discovery(discoveredTool('web', 'first')));
       }),
     );
+
     const disconnects: Array<() => void> = [];
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(client);
     });
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random: () => 0.5,
@@ -2190,9 +2445,11 @@ describe('McpRuntimeService session fencing and cadence', () => {
 
   it('refreshes again after a completed refresh releases the record', async () => {
     vi.useFakeTimers();
+
     const client = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'lookup')))),
     );
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(client)),
       random: () => 0.5,
@@ -2215,6 +2472,7 @@ describe('McpRuntimeService session fencing and cadence', () => {
 
   it('rejects a discovery that repeats an admitted tool id', async () => {
     vi.useFakeTimers();
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() =>
         Promise.resolve(
@@ -2254,10 +2512,13 @@ describe('McpRuntimeService session fencing and cadence', () => {
       vi.useFakeTimers();
       const disconnects: Array<() => void> = [];
       let attempt = 0;
+
       const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
         attempt += 1;
+
         if (attempt === 1) {
           disconnects.push(config.onDisconnect ?? (() => undefined));
+
           return Promise.resolve(
             fakeClient(
               vi.fn(() =>
@@ -2266,16 +2527,20 @@ describe('McpRuntimeService session fencing and cadence', () => {
             ),
           );
         }
+
         if (failure === 'connect') {
           return Promise.reject(new Error('endpoint down'));
         }
+
         if (failure === 'protocol') {
           return Promise.reject(new McpProtocolUnsupportedError());
         }
+
         return Promise.resolve(
           fakeClient(vi.fn(() => Promise.reject(new Error('bad catalog')))),
         );
       });
+
       const runtime = new McpRuntimeService(servers('web'), {
         clientFactory,
         random: () => 0,
@@ -2304,12 +2569,16 @@ describe('McpRuntimeService session fencing and cadence', () => {
     vi.useFakeTimers();
     const disconnects: Array<() => void> = [];
     let attempt = 0;
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       attempt += 1;
+
       if (attempt === 1) return Promise.reject(new Error('spawn failed'));
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(fakeClient());
     });
+
     const runtime = new McpRuntimeService(stdioServers('local'), {
       clientFactory,
       random: () => 1,
@@ -2340,13 +2609,17 @@ describe('McpRuntimeService session fencing and cadence', () => {
   it('closes a superseded client on its late disconnect and leaves the live session alone', async () => {
     vi.useFakeTimers();
     const disconnects: Array<() => void> = [];
+
     const shared = fakeClient(
       vi.fn(() => Promise.resolve(discovery(discoveredTool('web', 'lookup')))),
     );
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(shared);
     });
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random: () => 0,
@@ -2379,10 +2652,13 @@ describe('McpRuntimeService session fencing and cadence', () => {
     const pending = deferred<McpDiscoveryResult>();
     const disconnects: Array<() => void> = [];
     const client = fakeClient(vi.fn(() => pending.promise));
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(client);
     });
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory,
       random: () => 0.5,
@@ -2403,6 +2679,7 @@ describe('McpRuntimeService session fencing and cadence', () => {
 
   it('leaves no timer pending once shutdown completes', async () => {
     vi.useFakeTimers();
+
     const runtime = new McpRuntimeService(servers('web'), {
       clientFactory: vi.fn(() => Promise.resolve(fakeClient())),
       random: () => 0.5,
@@ -2432,6 +2709,7 @@ function machineDefinition(
     server: 'one',
     kind,
   };
+
   return protectedValues === undefined
     ? definition
     : { ...definition, protectedValues };
@@ -2445,10 +2723,12 @@ const machineServers = (
 describe('McpRuntimeService Machine definitions', () => {
   it('asks the Machine for the server and forwards its own fields', async () => {
     let config: McpMachineServerClientConfig | undefined;
+
     const runtime = new McpRuntimeService(machineServers('http'), {
       clientFactory: vi.fn<McpRuntimeClientFactory>((clientConfig) => {
         if ('transport' in clientConfig && clientConfig.transport === 'machine')
           config = clientConfig;
+
         return Promise.resolve(fakeClient());
       }),
       random: () => 0.5,
@@ -2486,10 +2766,13 @@ describe('McpRuntimeService Machine definitions', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     let diagnostic: ((text: string) => void) | undefined;
+
     const runtime = new McpRuntimeService(machineServers('http'), {
       clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
         diagnostic = 'onDiagnostic' in config ? config.onDiagnostic : undefined;
+
         return Promise.resolve(fakeClient());
       }),
       random: () => 0.5,
@@ -2510,12 +2793,14 @@ describe('McpRuntimeService Machine definitions', () => {
   it('wires a diagnostic sink onto a local child but not a server llame dials', async () => {
     let remote: McpServerClientConfig | undefined;
     let child: McpStdioServerClientConfig | undefined;
+
     const runtime = new McpRuntimeService(
       { ...servers('web'), ...stdioServers('local') },
       {
         clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
           if ('url' in config) remote = config;
           else if ('command' in config) child = config;
+
           return Promise.resolve(fakeClient());
         }),
         random: () => 0.5,
@@ -2535,14 +2820,17 @@ describe('McpRuntimeService Machine definitions', () => {
   it('copies and freezes a Machine definition protected values at construction', async () => {
     const values: Array<string> = ['token-a', 'token-b'];
     let config: McpMachineServerClientConfig | undefined;
+
     const runtime = new McpRuntimeService(machineServers('stdio', values), {
       clientFactory: vi.fn<McpRuntimeClientFactory>((clientConfig) => {
         if ('transport' in clientConfig && clientConfig.transport === 'machine')
           config = clientConfig;
+
         return Promise.resolve(fakeClient());
       }),
       random: () => 0.5,
     });
+
     values.push('token-later');
 
     runtime.onModuleInit();
@@ -2556,10 +2844,12 @@ describe('McpRuntimeService Machine definitions', () => {
 
   it('leaves a Machine definition without protected values without the field', async () => {
     const captured: Array<McpMachineServerClientConfig> = [];
+
     const runtime = new McpRuntimeService(machineServers('stdio'), {
       clientFactory: vi.fn<McpRuntimeClientFactory>((config) => {
         if ('transport' in config && config.transport === 'machine')
           captured.push(config);
+
         return Promise.resolve(fakeClient());
       }),
       random: () => 0.5,
@@ -2576,13 +2866,17 @@ describe('McpRuntimeService Machine definitions', () => {
   it('refunds the fast-retry budget to a Machine HTTP server that held ready', async () => {
     vi.useFakeTimers();
     const disconnects: Array<() => void> = [];
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       if (clientFactory.mock.calls.length === 1) {
         return Promise.reject(new Error('ssh: connect refused'));
       }
+
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(fakeClient());
     });
+
     const runtime = new McpRuntimeService(machineServers('http'), {
       clientFactory,
       random: () => 0.5,
@@ -2608,13 +2902,17 @@ describe('McpRuntimeService Machine definitions', () => {
   it('keeps the fast-retry ladder for a Machine stdio server held ready briefly', async () => {
     vi.useFakeTimers();
     const disconnects: Array<() => void> = [];
+
     const clientFactory = vi.fn<McpRuntimeClientFactory>((config) => {
       if (clientFactory.mock.calls.length === 1) {
         return Promise.reject(new Error('the Machine never answered mcp.open'));
       }
+
       disconnects.push(config.onDisconnect ?? (() => undefined));
+
       return Promise.resolve(fakeClient());
     });
+
     const runtime = new McpRuntimeService(machineServers('stdio'), {
       clientFactory,
       random: () => 0.5,

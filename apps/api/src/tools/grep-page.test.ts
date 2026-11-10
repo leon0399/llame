@@ -74,11 +74,13 @@ describe('grep page budgets', () => {
     expect(
       budgetAfter(BUDGET, { files: 12, entries: 30, bytes: 2000 }, 0),
     ).toMatchObject({ files: 0, entries: 0, bytes: 0 });
+
     const unset = budgetAfter(
       { ...BUDGET, files: null, entries: null, bytes: null },
       { files: 12, entries: 30, bytes: 2000 },
       0,
     );
+
     expect(unset).toMatchObject({ files: null, entries: null, bytes: null });
   });
 
@@ -88,6 +90,7 @@ describe('grep page budgets', () => {
       { files: 0, entries: 0, bytes: 0 },
       Date.now() - 1,
     );
+
     expect(remaining.deadlineMs).toBe(0);
   });
 });
@@ -197,6 +200,7 @@ describe('grep page assembly', () => {
 
   it('counts an excluded directory a second page repeats once', () => {
     const state = pageState();
+
     const page = {
       complete: true,
       warnings: [],
@@ -204,6 +208,7 @@ describe('grep page assembly', () => {
       progressed: false,
       ignored: { paths: ['/r/skip'], atLeast: false },
     };
+
     appendSegment(state, page, OPEN);
     appendSegment(state, page, OPEN);
     const result = pageResult(state);
@@ -295,6 +300,7 @@ describe('grep page assembly', () => {
       maxBytes: 20,
       mayCarryKnowledge: false,
     });
+
     expect(
       addGrepPassages(state.artifact, [
         passage('a.md:1-1', '1: a', [1]),
@@ -342,6 +348,7 @@ describe('grep artifact text accounting', () => {
       maxBytes: 100_000,
       mayCarryKnowledge: true,
     });
+
     // An empty artifact already holds the notice's bytes back, without its
     // own terminator: the first passage takes that one.
     expect(grepArtifactBytes(artifact)).toBe(
@@ -361,19 +368,23 @@ describe('grep artifact text accounting', () => {
       maxBytes: 10,
       mayCarryKnowledge: false,
     });
+
     expect(grepArtifactBytes(artifact)).toBe(0);
   });
 
   it('accepts the passage that exactly fills the bound', () => {
     const one = passage('a.md:1-1', '1: a', [1]);
+
     const bytes = grepPassageBlockLines(undefined, one, false).reduce(
       (total, line) => total + Buffer.byteLength(line, 'utf8') + 1,
       0,
     );
+
     const artifact = createGrepArtifact({
       maxBytes: bytes,
       mayCarryKnowledge: false,
     });
+
     expect(addGrepPassages(artifact, [one])).toBe(true);
     // The next passage would pass the bound, so it is not stored and the walk
     // must stop.
@@ -409,18 +420,23 @@ describe('grep artifact text accounting', () => {
     const cut = passage('a.md:1-2', '1: a\n2: b', [1], { cut: true });
     const next = passage('a.md:3-4', '3: c\n*4: d', [4]);
     const extra = passage('a.md:5-6', '5: e\n*6: f', [6]);
+
     const bytesOf = (lines: ReadonlyArray<string>): number =>
       lines.reduce(
         (total, line) => total + Buffer.byteLength(line, 'utf8') + 1,
         0,
       );
+
     const cutBytes = bytesOf(grepPassageBlockLines(undefined, cut, false));
+
     const added = bytesOf(
       grepPassageBlockLines(undefined, next, false).slice(1),
     );
+
     const addedExtra = bytesOf(
       grepPassageBlockLines(undefined, extra, false).slice(1),
     );
+
     const artifact = createGrepArtifact({
       maxBytes: cutBytes + added,
       mayCarryKnowledge: false,
@@ -465,6 +481,7 @@ describe('grep artifact text accounting', () => {
       maxBytes: 100_000,
       mayCarryKnowledge: true,
     });
+
     addGrepPassages(withKnowledge, [
       passage('kb://space/a.md:1-1', '1: a', [1]),
     ]);
@@ -475,6 +492,7 @@ describe('grep artifact text accounting', () => {
       maxBytes: 100_000,
       mayCarryKnowledge: true,
     });
+
     addGrepPassages(plain, [passage('/r/a.md:1-1', '1: a', [1])]);
     expect(grepArtifactHasNotice(plain)).toBe(false);
   });

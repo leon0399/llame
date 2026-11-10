@@ -8,6 +8,7 @@ const moduleMockMethods = new Set(["doMock", "mock", "unstable_mockModule"]);
 
 function importedName(node: ESTree.Node): string | null {
   if (node.type !== "ImportSpecifier") return null;
+
   return node.imported.type === "Identifier"
     ? node.imported.name
     : node.imported.value;
@@ -18,6 +19,7 @@ function isTestFrameworkObject(
   expression: ESTree.Expression,
 ): expression is ESTree.IdentifierReference {
   if (expression.type !== "Identifier") return false;
+
   if (
     (expression.name === "vi" || expression.name === "jest") &&
     sourceCode.isGlobalReference(expression)
@@ -26,9 +28,11 @@ function isTestFrameworkObject(
   }
 
   const variable = resolveVariable(sourceCode, expression);
+
   if (variable === null || variable.defs.length === 0) {
     return expression.name === "vi" || expression.name === "jest";
   }
+
   return variable.defs.some((definition) => {
     if (
       definition.type !== "ImportBinding" ||
@@ -36,8 +40,10 @@ function isTestFrameworkObject(
     ) {
       return false;
     }
+
     const source = definition.parent.source.value;
     const name = importedName(definition.node);
+
     return (
       (source === "vitest" && name === "vi") ||
       (source === "@jest/globals" && name === "jest")
@@ -55,8 +61,10 @@ function moduleMockCall(
     !("computed" in callee)
   )
     return false;
+
   if (!isTestFrameworkObject(sourceCode, callee.object)) return false;
   const property = callee.property;
+
   const method = callee.computed
     ? property.type === "Literal" &&
       (property.value === "doMock" ||
@@ -67,6 +75,7 @@ function moduleMockCall(
     : property.type === "Identifier"
       ? property.name
       : null;
+
   return method !== null && moduleMockMethods.has(method);
 }
 
@@ -86,8 +95,10 @@ function moduleMockCall(
  */
 function isWorkspaceSpecifier(node: ESTree.Node | undefined): boolean {
   if (node === undefined) return true;
+
   if (node.type !== "Literal" || typeof node.value !== "string") return true;
   const specifier = node.value;
+
   return (
     specifier.startsWith(".") ||
     specifier.startsWith("@/") ||
@@ -117,7 +128,9 @@ export const noModuleMockingRule = defineRule({
           node.callee.type === "V8IntrinsicExpression"
         )
           return;
+
         if (!moduleMockCall(context.sourceCode, node.callee)) return;
+
         if (!isWorkspaceSpecifier(node.arguments[0])) return;
         context.report({ node, messageId: "moduleMock" });
       },

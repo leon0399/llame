@@ -13,6 +13,7 @@ export class ContextIncompatibleError extends ModelContextExecutionError {
   constructor(message: string, options?: ErrorOptions) {
     super(message);
     this.name = 'ContextIncompatibleError';
+
     if (options?.cause !== undefined) {
       this.cause = options.cause;
     }

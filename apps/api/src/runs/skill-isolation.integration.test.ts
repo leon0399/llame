@@ -41,6 +41,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
   let source: string;
   let knowledgeRoot: string;
   const tools = ['read', 'edit', 'write'];
+
   /**
    * The shipped credential rejects, verbatim from
    * `llame.config.jsonc.example`'s recommended `read` group.
@@ -72,6 +73,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       },
     ],
   };
+
   let skillsOnlyHarness: WorkerHarness;
   let skillsOnlyUserId: string;
 
@@ -140,6 +142,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
 
   afterAll(async () => {
     if (skillsOnlyHarness) await skillsOnlyHarness.close();
+
     if (harness) await harness.close();
     await rm(source, { recursive: true, force: true });
     await rm(knowledgeRoot, { recursive: true, force: true });
@@ -151,6 +154,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
         const run = await harness.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(runId, userId),
         );
+
         return run &&
           ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
           ? run
@@ -165,17 +169,23 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, userId),
     );
+
     const byCallId = new Map<string, ToolResult>();
+
     for (const event of events) {
       if (event.eventType !== 'tool.completed') continue;
       const payload: unknown = event.payload;
+
       if (!isRecord(payload)) continue;
       const toolCallId = payload.toolCallId;
       const output = payload.output;
+
       if (!isString(toolCallId)) continue;
       const result = toolResultOf(output);
+
       if (result !== undefined) byCallId.set(toolCallId, result);
     }
+
     return byCallId;
   }
 
@@ -184,12 +194,15 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     if (!isRecord(output)) return undefined;
     const status = output['status'];
     const message = output['message'];
+
     // Success results are an open record tagged by status, so the tag can be
     // applied without asserting a shape the payload already satisfies.
     if (status === 'success') return { ...output, status: 'success' };
+
     if (status === 'error' && isString(message)) {
       return { status, type: String(output['type']), message };
     }
+
     return undefined;
   }
 
@@ -202,11 +215,14 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       finalText: 'Isolation attempt finished.',
       calls: [...calls],
     });
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('completed');
+
     return toolOutputs(seeded.runId);
   }
 
@@ -223,10 +239,12 @@ describe('skills cannot escalate authority through the Run boundary', () => {
         { id: 'only-skill', name: 'read', input: { path: 'skill://escalate' } },
       ],
     });
+
     const seeded = await seedAndDispatchRun(skillsOnlyHarness, {
       userId: skillsOnlyUserId,
       modelId,
     });
+
     const settled = await waitFor(
       async () => {
         const run = await skillsOnlyHarness.tenantDb.runAs(
@@ -234,6 +252,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
           (tx) =>
             new RunsRepository(tx).findById(seeded.runId, skillsOnlyUserId),
         );
+
         return run &&
           ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
           ? run
@@ -242,6 +261,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       30_000,
       'skills-only Run to settle',
     );
+
     expect(settled.status).toBe('completed');
 
     const events = await skillsOnlyHarness.tenantDb.runAs(
@@ -249,9 +269,11 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       (tx) =>
         new RunEventsRepository(tx).listByRunId(seeded.runId, skillsOnlyUserId),
     );
+
     const completed = events.find(
       (event) => event.eventType === 'tool.completed',
     );
+
     // The read must SUCCEED, not merely occur: a `tool.completed` carrying
     // `toolName: 'read'` also fires when the read settles as unavailable, which
     // is what the sibling test below asserts for an absolute path in this same
@@ -273,10 +295,12 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       finalText: 'Attempted.',
       calls: [{ id: 'only-abs', name: 'read', input: { path: '/etc/passwd' } }],
     });
+
     const seeded = await seedAndDispatchRun(skillsOnlyHarness, {
       userId: skillsOnlyUserId,
       modelId,
     });
+
     await waitFor(
       async () => {
         const run = await skillsOnlyHarness.tenantDb.runAs(
@@ -284,6 +308,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
           (tx) =>
             new RunsRepository(tx).findById(seeded.runId, skillsOnlyUserId),
         );
+
         return run &&
           ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
           ? run
@@ -298,9 +323,11 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       (tx) =>
         new RunEventsRepository(tx).listByRunId(seeded.runId, skillsOnlyUserId),
     );
+
     const completed = events.find(
       (event) => event.eventType === 'tool.completed',
     );
+
     // No executor identity exists here, so an absolute path fails closed rather
     // than resolving through the skill directory or a Knowledge root.
     expect(completed?.payload).toMatchObject({
@@ -311,6 +338,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
 
   it('refuses an absolute-path mutation and leaves no file behind', async () => {
     const target = join(tmpdir(), `skill-escape-${randomUUID()}.txt`);
+
     const outputs = await runScript([
       {
         id: 'escalate-abs-write',
@@ -347,6 +375,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     const service = harness.moduleRef.get(KnowledgeSpaceService, {
       strict: false,
     });
+
     const otherSpace = await service.provisionForOwner(otherUserId, {
       name: 'Other owner private',
     });
@@ -380,12 +409,14 @@ describe('skills cannot escalate authority through the Run boundary', () => {
     ]);
 
     const bash: ToolResult | undefined = outputs.get('escalate-bash');
+
     // Either the call is refused as unavailable, or it never reaches a tool
     // result at all because the SDK rejects an unadvertised name. Both mean the
     // same thing: no shell ran.
     if (bash !== undefined) {
       expect(bash).toMatchObject({ status: 'error', type: 'not_available' });
     }
+
     // `id` from a real shell reports a uid; nothing here may.
     expect(JSON.stringify([...outputs])).not.toMatch(/uid=\d+/u);
     expect(JSON.stringify([...outputs])).not.toContain('gid=');
@@ -419,6 +450,7 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       join(source, 'escalate', 'references.md'),
       '# References\n',
     );
+
     const outputs = await runScript([
       {
         id: 'escalate-ok',
@@ -446,10 +478,12 @@ describe('skills cannot escalate authority through the Run boundary', () => {
         },
       ],
     });
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('completed');
 
     const outputs = await toolOutputs(seeded.runId);

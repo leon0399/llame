@@ -197,9 +197,11 @@ export const Cancelled: Story = {
   ),
   play: async ({ canvas }) => {
     await expect(canvas.getAllByText("Cancelled")).toHaveLength(2);
+
     const message = canvas.getByText(
       "The run was cancelled before this tool finished.",
     );
+
     await expect(message).toBeInTheDocument();
     await expect(canvas.queryByText("Error")).not.toBeInTheDocument();
     await expect(message.parentElement).toHaveClass(

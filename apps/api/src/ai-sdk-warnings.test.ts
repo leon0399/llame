@@ -25,7 +25,9 @@ function loggedLines(warnings: Array<Warning>): string {
   const lines = warn.mock.calls
     .map((call) => call.map((part) => String(part)).join(' '))
     .join('\n');
+
   warn.mockRestore();
+
   return lines;
 }
 
@@ -69,6 +71,7 @@ describe('logModelWarnings', () => {
           openai: { itemId: ITEM_ID, reasoningEncryptedContent: ENCRYPTED },
         },
       });
+
       const model = new MockLanguageModelV3({
         provider: 'openai.responses',
         modelId: 'gpt-test',
@@ -100,6 +103,7 @@ describe('logModelWarnings', () => {
       const logged = warn.mock.calls
         .map((call) => call.map((argument) => String(argument)).join(' '))
         .join('\n');
+
       expect(logged).toContain('AI SDK warning (openai.responses / gpt-test)');
       expect(logged).toContain('Non-OpenAI reasoning parts are not supported');
       expect(logged).not.toContain(REASONING);

@@ -12,6 +12,7 @@ const TEST_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
+
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import {
   buildRecencyDigestBaseline,
@@ -178,24 +179,29 @@ describe('recency digest baseline', () => {
     const pinned = Array.from({ length: 10 }, (_, index) =>
       chat(`pinned-${index}`),
     );
+
     // The repository returns pinned chats in owner-rank order. Make the second
     // chat more active so this test proves the digest preserves rank instead
     // of silently re-sorting pinned entries by updatedAt.
     pinned[0].updatedAt = new Date('2026-08-01T00:00:00.000Z');
     pinned[1].updatedAt = new Date('2026-08-26T00:00:00.000Z');
+
     const recent = Array.from({ length: 10 }, (_, index) =>
       chat(`recent-${index}`),
     );
+
     const findByOwner = vi
       .spyOn(ChatsRepository.prototype, 'findByOwner')
       .mockImplementation((_owner, filter) =>
         Promise.resolve(filter?.pinned === 'only' ? pinned : recent),
       );
+
     const countByOwner = vi
       .spyOn(ChatsRepository.prototype, 'countByOwner')
       .mockImplementation((_owner, filter) =>
         Promise.resolve(filter.pinned === 'only' ? 30 : 247),
       );
+
     const findEarliest = vi
       .spyOn(MessagesRepository.prototype, 'findEarliestUserMessagePerChat')
       .mockImplementation((chatIds) =>
@@ -216,12 +222,15 @@ describe('recency digest baseline', () => {
           })),
         ),
       );
+
     const countPerChat = vi
       .spyOn(MessagesRepository.prototype, 'countPerChat')
       .mockImplementation((chatIds) =>
         Promise.resolve(new Map(chatIds.map((chatId) => [chatId, 1]))),
       );
+
     const tx: Db = drizzle.mock({ schema });
+
     const tenantDb: TenantRunner = {
       runAs: (_owner, fn) => fn(tx),
     };
@@ -292,12 +301,14 @@ describe('recency digest baseline', () => {
 
   it('renders one stored baseline byte-identically and exposes no told-set id', () => {
     const service = new SystemPromptsService();
+
     const model = {
       id: 'model',
       systemPromptTemplate:
         '{{#each chats.pinned}}{{title}}|{{date}}|{{messageCount}}|{{excerpt}}\n{{/each}}' +
         '{{#each chats.recent}}{{title}}|{{date}}|{{messageCount}}|{{excerpt}}\n{{/each}}',
     };
+
     const baseline = buildRecencyDigestBaseline({
       pinned: [
         {
@@ -319,11 +330,13 @@ describe('recency digest baseline', () => {
       anchor: TEST_ANCHOR,
       chats: baseline,
     }).text;
+
     const second = service.render({
       model,
       anchor: TEST_ANCHOR,
       chats: baseline,
     }).text;
+
     expect(second).toBe(first);
     expect(first).not.toContain('never-render-this-id');
   });
@@ -331,6 +344,7 @@ describe('recency digest baseline', () => {
   it('does not let digest state affect advertised or executable tools', () => {
     const allowed = new Set(['search_conversations']);
     const withoutDigest = resolveAdvertisedTools(allowed);
+
     const baseline = buildRecencyDigestBaseline({
       pinned: [
         {
@@ -348,6 +362,7 @@ describe('recency digest baseline', () => {
       recentTotal: 1,
       compiledOn: new Date('2026-08-12T00:00:00.000Z'),
     });
+
     new SystemPromptsService().render({
       model: {
         id: 'model',
@@ -533,7 +548,9 @@ describe('recency digest disclosure accounting', () => {
     messageCount: 2,
     excerpt: 'p',
   };
+
   const recent = { title: 'Recent', date: '2026-08-13', messageCount: 3 };
+
   const baseline = {
     pinned: [pinned],
     recent: [recent],
@@ -543,6 +560,7 @@ describe('recency digest disclosure accounting', () => {
     recentTotal: 1,
     compiledOn: '2026-08-13',
   };
+
   const disclosed = (
     pinnedIndexes: Array<number>,
     recentIndexes: Array<number>,

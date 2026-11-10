@@ -8,9 +8,12 @@ import { join } from "node:path";
  */
 export function machineConfigDir(): string {
   const override = process.env["LLAME_MACHINE_CONFIG_DIR"];
+
   if (override !== undefined && override.length > 0) return override;
   const xdg = process.env["XDG_CONFIG_HOME"];
+
   if (xdg !== undefined && xdg.length > 0) return join(xdg, "llame-machine");
+
   return join(homedir(), ".config", "llame-machine");
 }
 
@@ -37,8 +40,10 @@ export function sentryOptions():
   | { readonly dsn: string; readonly environment: string }
   | undefined {
   const dsn = process.env["SENTRY_DSN"];
+
   if (dsn === undefined || dsn.length === 0) return undefined;
   const environment = process.env["SENTRY_ENVIRONMENT"];
+
   return {
     dsn,
     environment:

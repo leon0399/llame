@@ -55,16 +55,21 @@ export async function promoteNextQueueItem(
   const { chatId, userId } = input.completed;
   // The locked Chat row decides: a missing or archived Chat promotes nothing.
   const chat = await new ChatsRepository(tx).lock(chatId, userId);
+
   if (!chat || chat.archivedAt !== null) return undefined;
+
   const item = await new ChatDeliveriesRepository(tx).firstPendingQueueItem(
     chatId,
     userId,
   );
+
   if (!item || !settingsStillValid(item.settings, input)) return undefined;
+
   // A savepoint, so an item that stopped being pending leaves no message and
   // no Run behind while the completed Run's own settlement commits.
   try {
     const started = await tx.transaction((inner) => startItemRun(inner, item));
+
     return started?.job;
   } catch (error) {
     if (error instanceof ItemNoLongerPending) return undefined;
@@ -85,6 +90,7 @@ function settingsStillValid(
 ): boolean {
   try {
     resolveSendSettings(input.models, input.enabledPermissionModes, settings);
+
     return true;
   } catch {
     return false;
@@ -107,8 +113,10 @@ export async function startItemRun(
     senderUserId: item.ownerUserId,
     parts: item.parts,
   });
+
   // The id is already a message: nothing to promote safely, so the item waits.
   if (!message) return undefined;
+
   const { run } = await createRunForMessage(
     tx,
     {
@@ -121,12 +129,15 @@ export async function startItemRun(
     },
     message,
   );
+
   const delivered = await new ChatDeliveriesRepository(tx).markDelivered(
     item.id,
     item.ownerUserId,
     { messageId: message.id, runId: run.id },
   );
+
   if (!delivered) throw new ItemNoLongerPending();
+
   return {
     delivered,
     job: {

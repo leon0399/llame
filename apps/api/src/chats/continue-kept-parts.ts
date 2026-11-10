@@ -42,9 +42,11 @@ export function continueKeptParts(
   parts: ReadonlyArray<unknown>,
 ): Array<unknown> {
   const lastSettled = parts.findLastIndex(isSettledToolPart);
+
   if (lastSettled === -1) return [];
 
   let end = lastSettled + 1;
+
   while (end < parts.length && isContextItemPart(parts[end])) end += 1;
 
   return parts.slice(0, end);

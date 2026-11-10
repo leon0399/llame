@@ -120,6 +120,7 @@ type BootOptions = {
 
 async function boot(options: BootOptions): Promise<Harness> {
   const peer = createProtocolPeer({ roots: ['/srv'], ...options.peer });
+
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
     .useValue({ assertReady: () => Promise.resolve() })
@@ -142,14 +143,18 @@ async function boot(options: BootOptions): Promise<Harness> {
       }),
     )
     .compile();
+
   const app = moduleRef.createNestApplication();
   configureApp(app);
   await app.listen(0);
   const server: unknown = app.getHttpServer();
+
   if (!isHttpServer(server)) {
     throw new Error('Expected Nest to expose a Node HTTP server');
   }
+
   const http = server;
+
   const registered = await request(http)
     .post('/auth/v1/register')
     .send({
@@ -157,8 +162,10 @@ async function boot(options: BootOptions): Promise<Harness> {
       password: 'password123',
       name: 'Machine checkout owner',
     });
+
   const body: unknown = registered.body;
   expectRegisteredUserId(body);
+
   return {
     app,
     http,
@@ -191,12 +198,14 @@ describe('/api/v1/checkouts on a Machine', () => {
         answers: { 'fs.stat': STAT, 'git.inspect': { value: INSPECTED } },
       },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .send({ path: LOCATOR })
         .expect(201);
+
       const checkout = checkoutSchema.parse(response.body);
       expect(checkout).toMatchObject({
         executorId: `machine:${MACHINE}`,
@@ -211,6 +220,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         .get('/api/v1/repositories')
         .set('Cookie', harness.cookie)
         .expect(200);
+
       expect(catalog.body).toMatchObject([
         { canonicalRemote: 'github.com/leon0399/llame' },
       ]);
@@ -222,10 +232,12 @@ describe('/api/v1/checkouts on a Machine', () => {
         await tx`INSERT INTO chats (id, owner_user_id, title, workspace_root)
                   VALUES (${chatId}, ${harness.userId}, 'bound', ${LOCATOR})`;
       });
+
       const listed = await request(harness.http)
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);
+
       const rows = z.array(checkoutSchema).parse(listed.body);
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ chatIds: [chatId] });
@@ -257,6 +269,7 @@ describe('/api/v1/checkouts on a Machine', () => {
           'ssh: connect to host nas.example port 22: Connection refused',
       },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
@@ -267,10 +280,12 @@ describe('/api/v1/checkouts on a Machine', () => {
       expect(failureSchema.parse(response.body)).toMatchObject({
         code: 'machine_unavailable',
       });
+
       const listed = await request(harness.http)
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);
+
       expect(listed.body).toEqual([]);
     } finally {
       await harness.app.close();
@@ -286,6 +301,7 @@ describe('/api/v1/checkouts on a Machine', () => {
       }),
       peer: { roots: ['/srv'], answers: { 'fs.stat': STAT } },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
@@ -298,10 +314,12 @@ describe('/api/v1/checkouts on a Machine', () => {
       expect(failure.message).toContain(
         'Update the daemon on that Machine to use git operations on it.',
       );
+
       const listed = await request(harness.http)
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);
+
       expect(listed.body).toEqual([]);
       const machine = await harness.peer.session(0);
       expect(machine.requests).not.toContain('git.inspect');
@@ -313,6 +331,7 @@ describe('/api/v1/checkouts on a Machine', () => {
   it('stores the canonical locator when the daemon sends a raw host path', async () => {
     const raw = '/srv/a#b/100%';
     const canonical = 'machine://nas/srv/a%23b/100%25';
+
     const harness = await boot({
       tools: tools({
         nativeExecutorId: 'hub-host',
@@ -335,6 +354,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         },
       },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
@@ -378,6 +398,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         },
       },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
@@ -405,6 +426,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         answers: { 'fs.stat': { error: 'path_not_registered' } },
       },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
@@ -413,10 +435,12 @@ describe('/api/v1/checkouts on a Machine', () => {
         .expect(403);
 
       expect(failureSchema.parse(response.body).code).toBe('permission_denied');
+
       const listed = await request(harness.http)
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);
+
       expect(listed.body).toEqual([]);
     } finally {
       await harness.app.close();
@@ -439,6 +463,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         answers: { 'fs.stat': STAT, 'git.inspect': { value: INSPECTED } },
       },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')

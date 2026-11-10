@@ -48,11 +48,13 @@ test.describe("anonymous auth flows", () => {
 
     await page.getByLabel(/email/i).fill("missing@example.com");
     await page.getByLabel(/password/i).fill("wrong-password");
+
     const loginResponse = page.waitForResponse(
       (response) =>
         response.url().endsWith("/auth/v1/login") &&
         response.request().method() === "POST",
     );
+
     await page.getByRole("button", { name: /^sign in$/i }).click();
 
     expect((await loginResponse).status()).toBe(401);
@@ -129,9 +131,11 @@ test.describe("anonymous auth flows", () => {
     // expand it first so the trigger is a stable full-width row instead of a
     // tooltip-wrapped icon that can stay "unstable" for the click.
     const expand = page.getByRole("button", { name: "Expand sidebar" });
+
     if (await expand.isVisible()) {
       await expand.click();
     }
+
     await page.getByRole("button", { name: freshAccount.email }).click();
     await page.getByRole("menuitem", { name: /log out/i }).click();
 

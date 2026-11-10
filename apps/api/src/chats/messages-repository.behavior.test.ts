@@ -12,6 +12,7 @@ import { RunningReplyRepository } from './running-reply-repository';
 import type { RunningReplyUsage } from '../runs/run-reply-finalizer';
 
 type QueryValue = ReadonlyArray<unknown>;
+
 type MessageInsert = typeof schema.messages.$inferInsert;
 
 const RUNNING_USAGE: RunningReplyUsage = {
@@ -21,6 +22,7 @@ const RUNNING_USAGE: RunningReplyUsage = {
   attemptId: 'attempt-1',
   modelId: 'model-a',
 };
+
 const NOT_RUNNING_SQL = `("messages"."usage" ->> 'status') is distinct from 'running'`;
 const REPLACEABLE_SQL = `("messages"."usage" -> 'status') is not null and ("messages"."usage" ->> 'status') is distinct from 'completed'`;
 
@@ -30,10 +32,13 @@ function queryResult<T>(
 ) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+
   const values = (value: MessageInsert | Array<MessageInsert>) => {
     onValues?.(value);
+
     return terminal;
   };
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -87,6 +92,7 @@ function makeDb(options: {
   vi.spyOn(db, 'execute').mockImplementation(() =>
     asQuery(queryResult(execute.shift() ?? [])),
   );
+
   return db;
 }
 
@@ -148,6 +154,7 @@ describe('MessagesRepository query windows and conversation reads', () => {
       ],
       distinct: [[{ messages: message(5) }]],
     });
+
     const repository = new MessagesRepository(db);
 
     await expect(
@@ -169,6 +176,7 @@ describe('MessagesRepository query windows and conversation reads', () => {
       select: [[{ chatId: chat.id, value: 3 }]],
       distinct: [[]],
     });
+
     const repository = new MessagesRepository(db);
 
     await expect(
@@ -187,6 +195,7 @@ describe('MessagesRepository query windows and conversation reads', () => {
 
   it('rejects invalid conversation locators and parses eligible neighbors', async () => {
     const target = message(7);
+
     const db = makeDb({
       execute: [
         [
@@ -203,6 +212,7 @@ describe('MessagesRepository query windows and conversation reads', () => {
         ],
       ],
     });
+
     const repository = new MessagesRepository(db);
 
     await expect(
@@ -254,6 +264,7 @@ describe('MessagesRepository query windows and conversation reads', () => {
         ],
       ],
     });
+
     const repository = new MessagesRepository(db);
 
     await expect(
@@ -277,6 +288,7 @@ describe('MessagesRepository writes', () => {
     const insertedRows: Array<unknown> = [];
     const createdRows = [createdUser, createdAssistant];
     let insertCall = 0;
+
     const transaction = vi
       .spyOn(db, 'transaction')
       .mockImplementation(async (callback) => {
@@ -287,13 +299,16 @@ describe('MessagesRepository writes', () => {
           select: () => asQuery(queryResult([{ value: insertCall }])),
           insert: () => {
             const created = createdRows[insertCall++];
+
             if (created === undefined) throw new Error('unexpected insert');
+
             return asQuery(
               queryResult([created], (row) => insertedRows.push(row)),
             );
           },
         } as never);
       });
+
     const repository = new MessagesRepository(db);
 
     await repository.createMany(
@@ -337,14 +352,17 @@ describe('MessagesRepository writes', () => {
   it('returns existing turn state and updates only a retryable assistant', async () => {
     const user = message(1);
     const assistant = { ...message(2, 'assistant'), inReplyTo: user.id };
+
     const updated = {
       ...assistant,
       parts: [{ type: 'text', text: 'updated' }],
     };
+
     const db = makeDb({
       select: [[{ messages: user }], [{ messages: assistant }]],
       update: [[updated]],
     });
+
     const repository = new MessagesRepository(db);
 
     await expect(
@@ -380,12 +398,15 @@ function recordingQuery<T>(
     rejectWith === undefined
       ? Promise.resolve(rows)
       : Promise.reject(rejectWith);
+
   const chain =
     (method: string) =>
     (...args: Array<unknown>) => {
       calls.push({ method, argument: args[0], condition: args[1] });
+
       return terminal;
     };
+
   return Object.assign(terminal, {
     from: chain('from'),
     where: chain('where'),
@@ -418,11 +439,13 @@ function sequencingDb(
   const db: Db = drizzle.mock({ schema });
   const calls: Array<ChainCall> = [];
   let attempt = 0;
+
   const transaction = vi
     .spyOn(db, 'transaction')
     .mockImplementation(async (callback) => {
       const step = attempts[Math.min(attempt, attempts.length - 1)];
       attempt += 1;
+
       // SAFETY: insertWithChatSequence uses only select/insert on its tx.
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       return callback({
@@ -438,8 +461,10 @@ function sequencingDb(
           ),
       } as never);
     });
+
   const insertedRow = () =>
     calls.find((call) => call.method === 'values')?.argument;
+
   return { db, calls, transaction, insertedRow };
 }
 
@@ -449,6 +474,7 @@ const sequenceViolation = (fields: UnknownRecord) =>
 describe('MessagesRepository chat sequence assignment', () => {
   it('takes the next sequence after the chat max and returns the inserted row', async () => {
     const created = message(5);
+
     const { db, insertedRow } = sequencingDb([
       { maxRows: [{ value: 4 }], created },
     ]);
@@ -476,6 +502,7 @@ describe('MessagesRepository chat sequence assignment', () => {
     const nullMax = sequencingDb([
       { maxRows: [{ value: null }], created: message(1) },
     ]);
+
     await new MessagesRepository(nullMax.db).create({
       chatId: chat.id,
       role: 'user',
@@ -528,6 +555,7 @@ describe('MessagesRepository chat sequence assignment', () => {
 
   it('retries the whole transaction when the chat-sequence index conflicts', async () => {
     const created = message(6);
+
     const { db, transaction } = sequencingDb([
       {
         maxRows: [{ value: 4 }],
@@ -551,6 +579,7 @@ describe('MessagesRepository chat sequence assignment', () => {
 
   it('recognises the conflict from the error message alone', async () => {
     const created = message(2);
+
     const { db, transaction } = sequencingDb([
       {
         fails: Object.assign(
@@ -575,6 +604,7 @@ describe('MessagesRepository chat sequence assignment', () => {
 
   it('recognises the conflict when the driver error is nested under cause', async () => {
     const created = message(2);
+
     const { db, transaction } = sequencingDb([
       {
         fails: Object.assign(new Error('insert failed'), {
@@ -603,6 +633,7 @@ describe('MessagesRepository chat sequence assignment', () => {
       constraint_name: 'messages_pkey',
       message: 'duplicate key value violates unique constraint "messages_pkey"',
     });
+
     const { db, transaction } = sequencingDb([{ fails: other }]);
 
     await expect(
@@ -620,6 +651,7 @@ describe('MessagesRepository chat sequence assignment', () => {
       code: '40001',
       constraint_name: 'messages_chat_seq_unique_idx',
     });
+
     const { db, transaction } = sequencingDb([{ fails: other }]);
 
     await expect(
@@ -636,6 +668,7 @@ describe('MessagesRepository chat sequence assignment', () => {
     const nullCause = Object.assign(new Error('connection reset'), {
       cause: null,
     });
+
     const { db, transaction } = sequencingDb([{ fails: nullCause }]);
 
     await expect(
@@ -653,6 +686,7 @@ describe('MessagesRepository chat sequence assignment', () => {
       code: '23505',
       constraint_name: 'messages_chat_seq_unique_idx',
     });
+
     const { db, transaction } = sequencingDb([{ fails: conflict }]);
 
     await expect(
@@ -802,9 +836,11 @@ describe('MessagesRepository read shapes', () => {
   it('skips the query entirely for an empty id set', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
+
     const distinct = vi
       .spyOn(db, 'selectDistinctOn')
       .mockImplementation(() => asQuery(recordingQuery([], calls)));
+
     const select = vi
       .spyOn(db, 'select')
       .mockImplementation(() => asQuery(recordingQuery([], calls)));
@@ -832,9 +868,11 @@ describe('MessagesRepository read shapes', () => {
   it('filters checkpoint rows before the preview lateral pick and recency counts', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
+
     const distinct = vi
       .spyOn(db, 'selectDistinctOn')
       .mockImplementation(() => asQuery(recordingQuery([], calls)));
+
     vi.spyOn(db, 'select').mockImplementation(() =>
       asQuery(recordingQuery([], calls)),
     );
@@ -849,16 +887,20 @@ describe('MessagesRepository read shapes', () => {
 
     expect(distinct).toHaveBeenCalledTimes(1);
     expect(distinct).toHaveBeenCalledWith([schema.messages.chatId]);
+
     // [0] is the lateral subquery's predicate, [1] the outer owner scope.
     const predicates = calls.flatMap((call) =>
       call.method === 'where' ? [call.argument] : [],
     );
+
     expect(predicates).toHaveLength(4);
     const previewPredicate = predicates[0];
     const countPredicate = predicates[3];
+
     if (!is(previewPredicate, SQL) || !is(countPredicate, SQL)) {
       throw new Error('Expected preview/count predicates');
     }
+
     const previewSql = new PgDialect().sqlToQuery(previewPredicate);
     expect(previewSql.sql).toContain('"messages"."role" in ($1, $2)');
     expect(previewSql.sql).toContain(NOT_RUNNING_SQL);
@@ -868,15 +910,18 @@ describe('MessagesRepository read shapes', () => {
     expect(countSql.params).toEqual([chat.ownerUserId, chat.id, 'checkpoint']);
     // Every chat row joins its own top-1 pick, so the join itself is ON true.
     const lateral = calls.find((call) => call.method === 'innerJoinLateral');
+
     if (!is(lateral?.condition, SQL)) {
       throw new Error('Expected the lateral join condition');
     }
+
     expect(new PgDialect().sqlToQuery(lateral.condition).sql).toBe('true');
   });
 
   it('writes nothing for an empty bulk copy', async () => {
     const db: Db = drizzle.mock({ schema });
     const calls: Array<ChainCall> = [];
+
     const insert = vi
       .spyOn(db, 'insert')
       .mockImplementation(() => asQuery(recordingQuery([], calls)));
@@ -987,15 +1032,19 @@ async function renderedStatement<Result>(
   run: (repository: MessagesRepository, db: Db) => Promise<Result>,
 ) {
   const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: { logQuery: (sql, params) => statements.push({ sql, params }) },
   });
+
   await run(new MessagesRepository(db), db).catch(() => undefined);
   const [statement] = statements;
+
   if (statements.length !== 1 || statement === undefined) {
     throw new Error(`Expected one statement, saw ${statements.length}`);
   }
+
   return statement;
 }
 
@@ -1083,6 +1132,7 @@ async function renderedUpsert(
                   .returning()
                   .toSQL(),
               );
+
               return Promise.resolve(returned);
             },
           }),
@@ -1090,12 +1140,14 @@ async function renderedUpsert(
       }),
     } as never),
   );
+
   const result = await new RunningReplyRepository(db).upsertRunningReply({
     chatId: chat.id,
     inReplyTo: 'user-message',
     usage: RUNNING_USAGE,
     followUpAction,
   });
+
   return { statements, result };
 }
 
@@ -1188,6 +1240,7 @@ describe('Running replies', () => {
   it('reports whether the write-through matched a reply', async () => {
     const db = makeDb({ update: [[{ id: 'reply' }], []] });
     const repository = new RunningReplyRepository(db);
+
     const input = {
       chatId: chat.id,
       inReplyTo: 'user-message',

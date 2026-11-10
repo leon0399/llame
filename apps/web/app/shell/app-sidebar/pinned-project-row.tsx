@@ -163,6 +163,7 @@ function PinnedProjectMenu({
   const unpinMutation = useUnpinItem();
   const archiveMutation = useSetProjectArchive();
   const isArchived = pin.item.archivedAt !== null;
+
   return (
     <PinRowMenu
       isActive={isActive}
@@ -199,7 +200,9 @@ function PinnedProjectDialogs({
     pin.itemId,
     dialogs.editOpen,
   );
+
   const full = isFetching ? undefined : data;
+
   return (
     <ProjectDialogs
       project={full ?? { id: pin.itemId, name: pin.item.name }}
@@ -216,10 +219,13 @@ function useProjectExpansion() {
   const iconOnly = state === "collapsed" && !isMobile;
   const [open, setOpen] = useState(false);
   const [wasIconOnly, setWasIconOnly] = useState(iconOnly);
+
   if (wasIconOnly !== iconOnly) {
     setWasIconOnly(iconOnly);
+
     if (iconOnly) setOpen(false);
   }
+
   return { open: open && !iconOnly, onOpenChange: setOpen };
 }
 

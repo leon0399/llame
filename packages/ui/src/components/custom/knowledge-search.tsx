@@ -38,6 +38,7 @@ const outputSchema = z.looseObject({
 });
 
 type KnowledgeSearchOutput = z.infer<typeof outputSchema>;
+
 type KnowledgeResult = z.infer<typeof resultSchema>;
 
 /** Props for the dedicated `knowledge_search` tool row. */
@@ -51,6 +52,7 @@ const locatorRangePattern = /:(\d+)-(\d+)$/u;
  *  locator), so two spaces with one name stay distinguishable. */
 function KnowledgePassage({ result }: { result: KnowledgeResult }) {
   const range = locatorRangePattern.exec(result.locator);
+
   return (
     <li className="space-y-1">
       <p className="text-xs">
@@ -103,6 +105,7 @@ function knowledgeDetailRows(
 
 function KnowledgeResults({ output }: { output: KnowledgeSearchOutput }) {
   const count = output.results.length;
+
   return (
     <>
       <ToolSection
@@ -142,6 +145,7 @@ export function KnowledgeSearchTool({
   state,
 }: KnowledgeSearchToolProps): ReactElement {
   const result = outputSchema.safeParse(output).data;
+
   return (
     <ToolRow
       name="knowledge_search"

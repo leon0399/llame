@@ -24,10 +24,13 @@ export async function observe<T>(
     void promise.catch(() => undefined);
     throw new KnowledgeFilesystemError('knowledge_cancelled');
   }
+
   if (signal === undefined) return promise;
+
   return new Promise<T>((resolve, reject) => {
     const onAbort = () =>
       reject(new KnowledgeFilesystemError('knowledge_cancelled'));
+
     signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
       (value) => {
@@ -48,21 +51,28 @@ export async function observeResource<T extends { close(): Promise<void> }>(
 ): Promise<T> {
   throwIfAborted(signal);
   const promise = factory();
+
   if (signal === undefined) return promise;
+
   return new Promise<T>((resolve, reject) => {
     let aborted = false;
+
     const onAbort = () => {
       aborted = true;
       reject(new KnowledgeFilesystemError('knowledge_cancelled'));
     };
+
     signal.addEventListener('abort', onAbort, { once: true });
     promise.then(
       (resource) => {
         signal.removeEventListener('abort', onAbort);
+
         if (aborted) {
           void resource.close().catch(() => undefined);
+
           return;
         }
+
         resolve(resource);
       },
       (error: unknown) => {
@@ -79,15 +89,18 @@ export async function closeResource(
 ): Promise<void> {
   let failed = false;
   let failure: unknown;
+
   try {
     await resource.close();
   } catch (error) {
     failed = true;
     failure = error;
   }
+
   if (signal?.aborted) {
     throw new KnowledgeFilesystemError('knowledge_cancelled');
   }
+
   if (failed) throw failure;
 }
 

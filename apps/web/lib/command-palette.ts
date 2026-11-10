@@ -21,6 +21,7 @@ export function isPaletteToggle(
   isMac: boolean,
 ): boolean {
   const modifier = isMac ? e.metaKey : e.ctrlKey;
+
   return modifier && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k";
 }
 
@@ -31,6 +32,7 @@ export function isNewChatShortcut(
   isMac: boolean,
 ): boolean {
   const modifier = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+
   return (
     modifier &&
     e.shiftKey &&

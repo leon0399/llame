@@ -237,12 +237,14 @@ describe('the steps admission derives for the kept calls', () => {
       toolPart(CALL_ID, 'first'),
       toolPart(CALL_ID_2, 'second'),
     ];
+
     const sourceContinued = continueStateFromEvents([
       {
         eventType: 'run.continued',
         payload: { parts: inherited, steps: { [CALL_ID]: 0, [CALL_ID_2]: 0 } },
       },
     ]);
+
     const sourceParts: Array<MessagePart> = [
       ...inherited,
       toolPart('call-own', 'own'),
@@ -289,6 +291,7 @@ describe('the step numbers admission stamps on the kept parts', () => {
 
   it('keeps text between calls of one step in that step', () => {
     const between: MessagePart = { type: 'text', text: 'between' };
+
     const parts = [
       toolPart(CALL_ID, 'first'),
       between,
@@ -417,10 +420,12 @@ describe('the step numbers admission stamps on the kept parts', () => {
     // its calls and their text, then the Continue Run's own parts follow. The
     // kept step and the new one stay separate.
     const sourceParts = [reasoning, text, toolPart(CALL_ID, 'first')];
+
     const steps = continuedCallSteps({
       keptParts: sourceParts,
       sourceEvents: [requestEvent(CALL_ID, 0)],
     });
+
     const kept = withKeptSteps(sourceParts, steps);
     const reply = [...kept, { type: 'text', text: 'done', step: 1 }];
 
@@ -454,6 +459,7 @@ describe('the step numbers admission stamps on the kept parts', () => {
 
   it('replays a kept reasoning part and its metadata on the same model', () => {
     const metadata = { openai: { itemId: 'rs-1', encryptedContent: 'ENC' } };
+
     const lines = project([
       {
         type: 'reasoning',
@@ -487,6 +493,7 @@ describe('the step numbers admission stamps on the kept parts', () => {
 describe('the snapshot parts a Continue rebuild owns', () => {
   it("keeps every non-item part and only this Run's items", () => {
     const ownRunId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+
     const ownItem = {
       type: 'data-context',
       data: {
@@ -497,6 +504,7 @@ describe('the snapshot parts a Continue rebuild owns', () => {
         text: 'own',
       },
     };
+
     const keptItem = {
       type: 'data-context',
       data: {
@@ -507,6 +515,7 @@ describe('the snapshot parts a Continue rebuild owns', () => {
         text: 'kept',
       },
     };
+
     const text: MessagePart = { type: 'text', text: 'half' };
 
     expect(ownSnapshotParts([text, keptItem, ownItem], ownRunId)).toEqual([

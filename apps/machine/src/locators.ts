@@ -32,7 +32,9 @@ function rootPattern(root: string): RegExp {
     // lookahead: every absolute path starts with it.
     return /(?<![\w./-])\/(?=[^\s'"])/gu;
   }
+
   const escaped = root.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+
   return new RegExp(`(?<![\\w.\\/-])${escaped}(?=/|$|['"\\s:,)\\]])`, "gu");
 }
 

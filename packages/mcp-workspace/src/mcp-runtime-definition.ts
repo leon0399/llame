@@ -40,6 +40,7 @@ export type MutableStdioDefinition = {
   cwd?: string;
   protectedValues?: ReadonlyArray<string>;
 };
+
 type MutableRemoteDefinition = {
   url: string;
   headers?: Readonly<Record<string, string>>;
@@ -55,28 +56,37 @@ export function frozenRuntimeDefinition(
       transport: 'stdio',
       command: definition.command,
     };
+
     if (definition.args !== undefined) {
       stdio.args = Object.freeze([...definition.args]);
     }
+
     if (definition.env !== undefined) {
       stdio.env = Object.freeze({ ...definition.env });
     }
+
     if (definition.cwd !== undefined) stdio.cwd = definition.cwd;
+
     if (definition.protectedValues !== undefined) {
       stdio.protectedValues = Object.freeze([...definition.protectedValues]);
     }
+
     return Object.freeze(stdio);
   }
 
   const remote: MutableRemoteDefinition = {
     url: definition.url,
   };
+
   if (definition.headers !== undefined) {
     remote.headers = Object.freeze({ ...definition.headers });
   }
+
   if (definition.protectedValues !== undefined) {
     remote.protectedValues = Object.freeze([...definition.protectedValues]);
   }
+
   if (definition.fetch !== undefined) remote.fetch = definition.fetch;
+
   return Object.freeze(remote);
 }

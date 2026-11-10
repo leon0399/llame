@@ -133,8 +133,10 @@ function quoteLines(text: string): Array<string> {
  */
 function resultBlock(result: RawResult, rank: number): TextBlock | undefined {
   const host = URL.parse(result.url)?.host;
+
   if (!host) return undefined;
   const published = result.published?.slice(0, ISO_DATE_WIDTH);
+
   return {
     locators: [result.url],
     lines: [
@@ -178,17 +180,21 @@ function assemble(
   const lines = [
     `[engine: ${oneLine(output.engine)}; query: ${oneLine(output.query)}]`,
   ];
+
   const ranges: Array<WebSearchTextBlock> = [];
   // The framing line is artifact line 1, and the notes that follow the blocks
   // hold no finding.
   let next = 2;
+
   for (const [index, block] of blocks.entries()) {
     if (index > 0) {
       lines.push('');
       next += 1;
     }
+
     const start = next;
     lines.push(...block.lines);
+
     for (const line of block.lines) next += renderedLineSpan(line);
     ranges.push({
       locators: block.locators,
@@ -197,11 +203,13 @@ function assemble(
       text: block.lines.join('\n'),
     });
   }
+
   const notice = output.truncationNotice;
   lines.push(
     ...(output.notes ?? []).map((note) => `[${oneLine(note)}]`),
     ...(notice ? [`[${oneLine(notice)}]`] : []),
   );
+
   return { text: lines.join('\n'), blocks: ranges };
 }
 
@@ -215,12 +223,16 @@ export function renderWebSearchOutput(
 ): RenderedWebSearchText | undefined {
   if (output.kind === 'answer') return assemble(output, [answerBlock(output)]);
   const blocks: Array<TextBlock> = [];
+
   for (const [index, item] of output.results.entries()) {
     const block = resultBlock(item, index + 1);
+
     if (block === undefined) return undefined;
     blocks.push(block);
   }
+
   blocks.push(...(output.answers ?? []).map(answerBlock));
+
   return assemble(output, blocks);
 }
 
@@ -230,5 +242,6 @@ export function renderWebSearchOutput(
  */
 export function renderWebSearchText(result: ToolResult): string | undefined {
   const parsed = webSearchOutputSchema.safeParse(result);
+
   return parsed.success ? renderWebSearchOutput(parsed.data)?.text : undefined;
 }

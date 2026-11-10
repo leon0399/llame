@@ -59,8 +59,11 @@ beforeEach(async () => {
 afterEach(async () => {
   daemon.input.end();
   await daemon.session.done;
+
   for (const server of localServers) server.closeAllConnections();
+
   for (const httpFixture of httpFixtures) await httpFixture.stop();
+
   for (const name of touchedVariables) delete process.env[name];
   await fixture.cleanup();
 });
@@ -121,15 +124,21 @@ async function awaitRelayed(
     for (const notification of opened.notifications) {
       if (notification.method !== MCP_MESSAGE_NOTIFICATION) continue;
       const params = notification.params;
+
       if (!isSerializableRecord(params)) continue;
       const message = params["message"];
+
       if (isSerializableRecord(message) && message["id"] === id) return message;
     }
+
     return undefined;
   };
+
   await waitFor(() => find() !== undefined);
   const message = find();
+
   if (message === undefined) throw new Error("the relay answered nothing");
+
   return message;
 }
 
@@ -145,11 +154,14 @@ function notificationsOf(
 /** Every diagnostic line the daemon reported on this channel. */
 function diagnosticsOf(opened: TestChannel): ReadonlyArray<string> {
   const texts: Array<string> = [];
+
   for (const params of notificationsOf(opened, MCP_STDERR_NOTIFICATION)) {
     if (!isSerializableRecord(params)) continue;
     const text = params["text"];
+
     if (isStringValue(text)) texts.push(text);
   }
+
   return texts;
 }
 
@@ -157,6 +169,7 @@ function diagnosticsOf(opened: TestChannel): ReadonlyArray<string> {
 function errorMessageOf(error: unknown): string {
   if (!isSerializableRecord(error)) return "";
   const message = error["message"];
+
   return isString(message) ? message : "";
 }
 
@@ -170,11 +183,13 @@ async function openServer(
   root: string = fixture.root,
 ): Promise<OpenedServer> {
   const opened = daemon.open();
+
   const result = await opened.channel.request("mcp.open", {
     envelope: envelope(),
     root,
     server,
   });
+
   return { opened, result };
 }
 
@@ -183,10 +198,12 @@ function listenLocal(
 ): Promise<string> {
   const server = createServer(handler);
   localServers.push(server);
+
   return new Promise((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
+
       if (address === null || isString(address))
         reject(new Error("the test server has no TCP address"));
       else resolve(`http://127.0.0.1:${String(address.port)}/mcp`);
@@ -315,10 +332,12 @@ describe("mcp.open with a stdio server", () => {
         { REPO_TOKEN: `{env:${SECRET_VARIABLE}}` },
       ),
     });
+
     const discovered = await daemon.call("mcp.servers", {
       envelope: envelope(),
       root: fixture.root,
     });
+
     expect(discovered).toMatchObject({
       servers: [{ name: "greeter", state: "available" }],
     });
@@ -369,6 +388,7 @@ describe("mcp.open with a stdio server", () => {
       () => undefined,
       (error: unknown) => error,
     );
+
     expect(outcome).toMatchObject({ code: "invalid_params" });
     expect(errorMessageOf(outcome)).toContain("no server named absent");
   });
@@ -385,6 +405,7 @@ describe("mcp.open with a stdio server", () => {
       () => undefined,
       (error: unknown) => error,
     );
+
     expect(outcome).toMatchObject({ code: "invalid_params" });
     expect(errorMessageOf(outcome)).toContain(HUB_ONLY_VARIABLE);
   });
@@ -410,6 +431,7 @@ describe("mcp.open with a stdio server", () => {
       () => undefined,
       (error: unknown) => error,
     );
+
     expect(outcome).toMatchObject({ code: "internal" });
     expect(errorMessageOf(outcome)).toContain(
       "mcp.open: the server could not be started",
@@ -499,6 +521,7 @@ describe("mcp.open with an HTTP server", () => {
     const httpFixture = await startMcpHttpFixture({
       sessionId: "machine-fixture-session",
     });
+
     httpFixtures.push(httpFixture);
     await writeWorkspaceConfig({
       "web-server": { type: "http", url: httpFixture.url },
@@ -560,10 +583,12 @@ describe("mcp.open with an HTTP server", () => {
       targetHits += 1;
       response.end("hit");
     });
+
     const redirecting = await listenLocal((_request, response) => {
       response.writeHead(302, { location: "http://127.0.0.1:1/elsewhere" });
       response.end();
     });
+
     await writeWorkspaceConfig({
       redirected: { type: "http", url: redirecting },
     });

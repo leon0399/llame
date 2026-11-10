@@ -84,7 +84,9 @@ class FakeMachine {
       envelope: params.envelope,
       signal,
     });
+
     if (signal?.aborted) throw signal.reason;
+
     if (this.config.hang === true && signal !== undefined) {
       return new Promise<JsonValue>((_resolve, reject) => {
         signal.addEventListener('abort', () =>
@@ -92,25 +94,34 @@ class FakeMachine {
         );
       });
     }
+
     if (this.config.failure !== undefined) throw this.config.failure;
+
     const override =
       this.config.refusals?.[params.path] ??
       this.config.payloads?.[params.path];
+
     if (override !== undefined) return override;
+
     if (method === 'fs.list') return this.list(params.path);
+
     if (method === 'fs.stat') return this.stat(params.path);
+
     return this.read(params.path);
   };
 
   private list(filePath: string): JsonValue {
     const node = this.followed(filePath);
+
     if (node?.kind !== 'directory') {
       return refusal('not_regular_file', 'The path is not a directory.');
     }
+
     const entries = Object.entries(node.children).map(([name, child]) => ({
       name,
       kind: child.kind,
     }));
+
     return {
       entries,
       totalCount: entries.length,
@@ -120,10 +131,14 @@ class FakeMachine {
 
   private stat(filePath: string): JsonValue {
     const node = this.at(filePath);
+
     if (node === undefined) return { kind: 'missing', isLink: false };
+
     if (node.kind !== 'link') return { kind: node.kind, isLink: false };
     const target = node.target;
+
     if (target === undefined) return { kind: 'missing', isLink: true };
+
     return {
       kind: target.kind === 'link' ? 'other' : target.kind,
       isLink: true,
@@ -132,7 +147,9 @@ class FakeMachine {
 
   private read(filePath: string): JsonValue {
     const node = this.followed(filePath);
+
     if (node === undefined) return refusal('not_found', 'File not found.');
+
     if (node.kind === 'directory') {
       return {
         status: 'success',
@@ -142,9 +159,11 @@ class FakeMachine {
         truncated: false,
       };
     }
+
     if (node.kind !== 'file') {
       return refusal('not_regular_file', 'The path is not a regular file.');
     }
+
     return {
       status: 'success',
       kind: 'file',
@@ -157,21 +176,28 @@ class FakeMachine {
   /** The node at one path, following a link wherever it appears. */
   private at(filePath: string): FakeNode | undefined {
     let node: FakeNode | undefined = this.root;
+
     for (const segment of filePath.split('/').filter((part) => part !== '')) {
       let current: FakeNode | undefined = node;
+
       while (current?.kind === 'link') current = current.target;
+
       if (current === undefined || current.kind !== 'directory') {
         return undefined;
       }
+
       node = current.children[segment];
     }
+
     return node;
   }
 
   /** The node at one path, following a link in its last segment too. */
   private followed(filePath: string): FakeNode | undefined {
     let node = this.at(filePath);
+
     while (node?.kind === 'link') node = node.target;
+
     return node;
   }
 }
@@ -231,7 +257,9 @@ async function snapshotSkills(
     request: machine.request,
     ...options,
   });
+
   if (sources === undefined) throw new Error('Expected Machine skill sources.');
+
   return sources;
 }
 
@@ -255,7 +283,9 @@ function temporaryDirectory(label: string): string {
   const created = mkdtempSync(
     path.join(tmpdir(), `llame-machine-skills-${label}-`),
   );
+
   temporaryDirectories.push(created);
+
   return created;
 }
 
@@ -277,9 +307,11 @@ describe('snapshotMachineSkillSources', () => {
     const sources = await snapshotSkills(machine);
 
     expect(sources.diagnostics).toEqual([]);
+
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
       workspaceSkillSources(MACHINE_ROOT),
     );
+
     expect(snapshot.available).toBe(true);
     expect(namesIn(snapshot)).toEqual(['deploy']);
     expect(snapshot.entries[0]).toMatchObject({
@@ -318,6 +350,7 @@ describe('snapshotMachineSkillSources', () => {
     );
 
     const sources = await snapshotSkills(machine);
+
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
       workspaceSkillSources(MACHINE_ROOT),
     );
@@ -340,6 +373,7 @@ describe('snapshotMachineSkillSources', () => {
     );
 
     const sources = await snapshotSkills(machine);
+
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
       workspaceSkillSources(MACHINE_ROOT),
     );
@@ -374,6 +408,7 @@ describe('snapshotMachineSkillSources', () => {
       '/home/me/shop/.agents/skills/notes',
       '/home/me/shop/.agents/skills/broken',
     ]);
+
     for (const child of ['notes', 'broken']) {
       expect(
         machine.calls.filter((call) =>
@@ -404,6 +439,7 @@ describe('snapshotMachineSkillSources', () => {
     );
 
     const sources = await snapshotSkills(machine);
+
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
       workspaceSkillSources(MACHINE_ROOT),
     );
@@ -426,6 +462,7 @@ describe('snapshotMachineSkillSources', () => {
         await snapshotMachineSkillSources({ root, request: machine.request }),
       ).toBeUndefined();
     }
+
     expect(machine.calls).toEqual([]);
   });
 
@@ -497,9 +534,11 @@ describe('snapshotMachineSkillSources', () => {
 
   it('stops at the request bound and reports the sources it skipped', async () => {
     const children: Record<string, FakeNode> = {};
+
     for (let index = 0; index < 200; index += 1) {
       children[`skill-${index}`] = packageNode(`skill-${index}`);
     }
+
     const machine = new FakeMachine(agentsSkills(children));
 
     const sources = await snapshotSkills(machine);
@@ -519,6 +558,7 @@ describe('snapshotMachineSkillSources', () => {
 
   it('stops at the byte bound', async () => {
     const children: Record<string, FakeNode> = {};
+
     for (let index = 0; index < 100; index += 1) {
       children[`skill-${index}`] = directory({
         'SKILL.md': file(
@@ -526,6 +566,7 @@ describe('snapshotMachineSkillSources', () => {
         ),
       });
     }
+
     const machine = new FakeMachine(agentsSkills(children));
 
     const sources = await snapshotSkills(machine);
@@ -651,6 +692,7 @@ describe('snapshotMachineSkillSources', () => {
     );
 
     const sources = await snapshotSkills(machine);
+
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
       workspaceSkillSources(MACHINE_ROOT),
     );
@@ -675,6 +717,7 @@ describe('snapshotMachineSkillSources', () => {
     );
 
     const sources = await snapshotSkills(machine);
+
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
       workspaceSkillSources(MACHINE_ROOT),
     );
@@ -704,6 +747,7 @@ describe('snapshotMachineSkillSources', () => {
     );
 
     const sources = await snapshotSkills(machine);
+
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
       workspaceSkillSources(MACHINE_ROOT),
     );
@@ -720,12 +764,15 @@ describe('snapshotMachineSkillSources', () => {
   it('delegates every non-Machine key to the host file system', async () => {
     const host = temporaryDirectory('host');
     createHostPackage(host, 'host-skill');
+
     const machine = new FakeMachine(
       agentsSkills({ deploy: packageNode('deploy') }),
     );
+
     const sources = await snapshotSkills(machine);
 
     const reads = vi.spyOn(NODE_SKILL_FILE_SYSTEM, 'readTextFile');
+
     try {
       const snapshot = new SkillCatalog([host], sources.fileSystem).getSnapshot(
         workspaceSkillSources(MACHINE_ROOT),
@@ -738,6 +785,7 @@ describe('snapshotMachineSkillSources', () => {
     } finally {
       reads.mockRestore();
     }
+
     expect(sources.fileSystem.fileKind(path.join(host, 'missing'))).toBe(
       'missing',
     );
@@ -750,6 +798,7 @@ describe('snapshotMachineSkillSources', () => {
     const machine = new FakeMachine(
       agentsSkills({ deploy: packageNode('deploy') }),
     );
+
     const sources = await snapshotSkills(machine);
 
     expect(
@@ -777,6 +826,7 @@ describe('snapshotMachineSkillSources', () => {
         'my shop',
       ),
     );
+
     const root = 'machine://devl/home/me/my shop';
     const sources = await snapshotSkills(machine, root);
 
@@ -785,6 +835,7 @@ describe('snapshotMachineSkillSources', () => {
     const collapsed = workspaceSkillSources(root).map((source) =>
       path.join(source),
     );
+
     const raw = [
       'machine://devl/home/me/my shop/.agents/skills',
       'machine://devl/home/me/my shop/.claude/skills',
@@ -795,9 +846,11 @@ describe('snapshotMachineSkillSources', () => {
       const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
         spellings,
       );
+
       expect(namesIn(snapshot)).toEqual(['deploy']);
       expect(snapshot.entries[0].available).toBe(true);
     }
+
     expect(machine.calls).toContainEqual(
       expect.objectContaining({
         method: 'fs.read',
@@ -838,6 +891,7 @@ describe('snapshotMachineSkillSources', () => {
         linked: link(packageNode('linked')),
       }),
     );
+
     const controller = new AbortController();
 
     const sources = await snapshotSkills(machine, MACHINE_ROOT, {
@@ -848,6 +902,7 @@ describe('snapshotMachineSkillSources', () => {
     expect(machine.calls.map((call) => call.method)).toEqual(
       expect.arrayContaining(['fs.list', 'fs.read', 'fs.stat']),
     );
+
     for (const call of machine.calls) {
       expect(call.signal).toBeDefined();
       expect(call.signal?.aborted).toBe(false);
@@ -869,6 +924,7 @@ describe('snapshotMachineSkillSources', () => {
       name: 'Error',
       message: 'The Machine devl is unreachable.',
     };
+
     expect(notAnError).not.toBeInstanceOf(Error);
 
     const machine = new FakeMachine(
@@ -1094,6 +1150,7 @@ describe('snapshotMachineSkillSources', () => {
 
   it('stops at the byte bound a package reaches exactly', async () => {
     const document = skillDocument('huge');
+
     const machine = new FakeMachine(
       agentsSkills({
         huge: directory({

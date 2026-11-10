@@ -31,6 +31,7 @@ describe("useStreamRepair", () => {
     const props = repairProps({
       interruption: { runId: "run-1", seq: 1 },
     });
+
     renderRepair(props);
 
     expect(props.attach).toHaveBeenCalledTimes(1);
@@ -48,6 +49,7 @@ describe("useStreamRepair", () => {
     const props = repairProps({
       interruption: { runId: "run-1", seq: 1 },
     });
+
     const { rerender } = renderRepair(props);
     expect(props.attach).toHaveBeenCalledTimes(1);
 
@@ -63,10 +65,12 @@ describe("useStreamRepair", () => {
   it("backs off with equal jitter between consecutive failures, then gives up", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
+
     try {
       const props = repairProps();
       const { rerender } = renderRepair(props);
       let current = props;
+
       const interrupt = () => {
         current = {
           ...current,
@@ -114,10 +118,12 @@ describe("useStreamRepair", () => {
   it("replaces a pending retry instead of stacking a second one", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
+
     try {
       const props = repairProps({
         interruption: { runId: "run-1", seq: 1 },
       });
+
       const { rerender } = renderRepair(props);
       expect(props.attach).toHaveBeenCalledTimes(1);
 
@@ -138,10 +144,12 @@ describe("useStreamRepair", () => {
   it("drops a pending retry once another run takes over the transcript", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
+
     try {
       const props = repairProps({ currentRunId: "run-1" });
       const { rerender } = renderRepair(props);
       let current: RepairProps = props;
+
       const update = (changes: Partial<RepairProps>) => {
         current = { ...current, ...changes };
         rerender(current);
@@ -166,10 +174,12 @@ describe("useStreamRepair", () => {
   it("counts failures from zero once a stream is flowing again", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
+
     try {
       const props = repairProps({
         interruption: { runId: "run-1", seq: 1 },
       });
+
       const { rerender } = renderRepair(props);
       rerender({ ...props, interruption: { runId: "run-1", seq: 2 } });
       act(() => void vi.advanceTimersByTime(500));
@@ -195,10 +205,12 @@ describe("useStreamRepair", () => {
   it("drops a pending retry when the chat unmounts", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0);
+
     try {
       const props = repairProps({
         interruption: { runId: "run-1", seq: 1 },
       });
+
       const { rerender, unmount } = renderRepair(props);
       rerender({ ...props, interruption: { runId: "run-1", seq: 2 } });
 

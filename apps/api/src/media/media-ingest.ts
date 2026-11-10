@@ -9,10 +9,13 @@ import sharp from 'sharp';
 
 /** Largest accepted original, checked before any decode. */
 export const MEDIA_MAX_BYTES = 20 * 1024 * 1024;
+
 /** Largest accepted original area, checked from the header before decode. */
 export const MEDIA_MAX_PIXELS = 40_000_000;
+
 /** Long-edge bound of the model variant. */
 export const MODEL_MAX_EDGE = 2000;
+
 /** Byte bound of the model variant: 3.75 MiB. */
 export const MODEL_MAX_BYTES = 3_932_160;
 
@@ -21,6 +24,7 @@ const MODEL_DOWNSCALE_STEP = 0.75;
 
 /** Longest side of an unstored image's display-only thumbnail. */
 export const THUMBNAIL_MAX_EDGE = 256;
+
 /** Largest thumbnail data URL, in characters. */
 export const THUMBNAIL_MAX_CHARS = 65_536;
 const THUMBNAIL_QUALITY = 60;
@@ -70,9 +74,11 @@ export const ORIGINAL_MEDIA_TYPES = [
   'image/gif',
   'image/webp',
 ] as const;
+
 export type OriginalMediaType = (typeof ORIGINAL_MEDIA_TYPES)[number];
 
 export const MODEL_MEDIA_TYPES = ['image/png', 'image/jpeg'] as const;
+
 export type ModelMediaType = (typeof MODEL_MEDIA_TYPES)[number];
 
 type EncodedImage<TMediaType extends string> = {
@@ -121,10 +127,13 @@ export async function prepareMedia(input: Buffer): Promise<PreparedMedia> {
   const header = await readHeader(input).catch(() => {
     throw new MediaIngestError(MEDIA_REFUSAL.unsupportedImage);
   });
+
   const mediaType = MEDIA_TYPE_BY_FORMAT[header.format];
+
   if (mediaType === undefined) {
     throw new MediaIngestError(MEDIA_REFUSAL.unsupportedImage);
   }
+
   if (header.width * header.height > MEDIA_MAX_PIXELS) {
     throw new MediaIngestError(MEDIA_REFUSAL.imageTooLarge);
   }
@@ -175,6 +184,7 @@ async function decodeModelPixels(input: Buffer): Promise<ModelPixels> {
     .toColourspace('srgb')
     .raw()
     .toBuffer({ resolveWithObject: true });
+
   return {
     data,
     width: info.width,
@@ -200,7 +210,9 @@ export async function encodeModelVariant(
       channels: pixels.channels,
     },
   };
+
   const png = await sharp(pixels.data, raw).png().toBuffer();
+
   if (png.length <= maxBytes) {
     return {
       mediaType: 'image/png',
@@ -213,12 +225,14 @@ export async function encodeModelVariant(
   for (let scale = 1; ; scale *= MODEL_DOWNSCALE_STEP) {
     const width = Math.max(1, Math.round(pixels.width * scale));
     const height = Math.max(1, Math.round(pixels.height * scale));
+
     const jpeg = await sharp(pixels.data, raw)
       .resize(width, height)
       // JPEG has no alpha; composite transparent pixels onto white.
       .flatten({ background: '#ffffff' })
       .jpeg({ quality: MODEL_JPEG_QUALITY })
       .toBuffer();
+
     if (jpeg.length <= maxBytes || (width === 1 && height === 1)) {
       return { mediaType: 'image/jpeg', width, height, bytes: jpeg };
     }
@@ -245,7 +259,9 @@ export async function encodeThumbnail(
     })
     .webp({ quality: THUMBNAIL_QUALITY })
     .toBuffer();
+
   const url = `${THUMBNAIL_PREFIX}${webp.toString('base64')}`;
+
   return url.length <= THUMBNAIL_MAX_CHARS ? url : undefined;
 }
 

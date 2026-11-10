@@ -21,7 +21,9 @@ let gfmTable: typeof GfmTableSyntax;
 let gfmTableFromMarkdown: typeof GfmTableExtension;
 
 type RootHeading = { depth: number; line: number; headEnd: number };
+
 type Fixture = { name: string; source: string };
+
 /** A root table: its header row to its last body row. */
 type TableSpan = { startLine: number; endLine: number };
 
@@ -497,25 +499,31 @@ const DIVERGENT_TABLE_FIXTURES: ReadonlyArray<
 
 function delimiterText(nativeLine: string): string {
   let text = nativeLine.endsWith("\n") ? nativeLine.slice(0, -1) : nativeLine;
+
   if (text.endsWith("\r")) text = text.slice(0, -1);
+
   return text.replace(/^\uFEFF/u, "").replace(/[ \t]+$/u, "");
 }
 
 function closedFrontmatterCloser(source: string): number | undefined {
   const lines = splitSourceLines(source);
+
   if (lines.length === 0 || delimiterText(lines[0]) !== "---") {
     return undefined;
   }
 
   for (let index = 1; index < lines.length; index += 1) {
     const delimiter = delimiterText(lines[index]);
+
     if (delimiter === "---" || delimiter === "...") return index;
   }
+
   return undefined;
 }
 
 function blankClosedFrontmatter(source: string): string {
   const closer = closedFrontmatterCloser(source);
+
   if (closer === undefined) return source;
 
   return splitSourceLines(source)
@@ -527,12 +535,14 @@ function blankClosedFrontmatter(source: string): string {
 
 function nativeLineAt(source: string, offset: number | undefined): number {
   if (offset === undefined) throw new Error("Expected a source offset");
+
   return source.slice(0, offset).split("\n").length;
 }
 
 /** Offset of the line after the one containing `offset`. */
 function nextLineOffset(source: string, offset: number): number {
   if (source[offset] === "\r" && source[offset + 1] === "\n") return offset + 2;
+
   return offset + 1;
 }
 
@@ -554,10 +564,12 @@ function expectedHeadings(source: string, gfm = false): Array<RootHeading> {
     // mdast starts a setext heading at the link reference definitions that
     // open its paragraph; the heading itself starts on the line after them.
     const previous = tree.children[index - 1];
+
     const definitionEnd =
       previous?.type === "definition"
         ? previous.position?.end.offset
         : undefined;
+
     const start = child.position?.start.offset;
     expected.push({
       depth: child.depth,
@@ -605,7 +617,9 @@ function oracleTables(source: string): Array<TableSpan> {
     if (child.type !== "table" || child.children.length < 2) return [];
     const start = child.children[0]?.position?.start.line;
     const end = child.position?.end.line;
+
     if (start === undefined || end === undefined) return [];
+
     return [{ startLine: start, endLine: end }];
   });
 }
@@ -615,11 +629,14 @@ function oracleTables(source: string): Array<TableSpan> {
 function trackedTables(source: string): Array<TableSpan> {
   const tracker = new MarkdownRootTableTracker();
   const spans: Array<TableSpan> = [];
+
   const scanner = createMarkdownScanner({
     onLine: (line) => {
       const pair = tracker.accept(line);
+
       if (pair === undefined) return;
       const last = spans.at(-1);
+
       if (last !== undefined && last.startLine === pair.header.line)
         last.endLine = line.line;
       else spans.push({ startLine: pair.header.line, endLine: line.line });
@@ -628,6 +645,7 @@ function trackedTables(source: string): Array<TableSpan> {
 
   for (const nativeLine of splitSourceLines(source)) scanner.push(nativeLine);
   scanner.end();
+
   return spans;
 }
 

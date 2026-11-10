@@ -34,6 +34,7 @@ const meta = {
 } satisfies Meta<typeof BashTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

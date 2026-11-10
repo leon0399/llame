@@ -65,6 +65,7 @@ export function reserveManagedProcessSlot(
   if (activeProcesses >= context.maxProcesses) return processLimitReached();
   activeProcesses += 1;
   let released = false;
+
   return {
     release: () => {
       if (released) return;
@@ -78,12 +79,16 @@ export function reserveManagedProcessSlot(
 export function measureManagedInput(input: BashCommandInput): number {
   const args = input.args ?? [];
   let size = Buffer.byteLength(input.command, "utf8");
+
   for (const arg of args) size += Buffer.byteLength(arg, "utf8") + 1;
+
   if (input.cwd !== undefined) size += Buffer.byteLength(input.cwd, "utf8") + 1;
+
   for (const [key, value] of Object.entries(input.env ?? {})) {
     size +=
       Buffer.byteLength(key, "utf8") + Buffer.byteLength(value, "utf8") + 2;
   }
+
   return size;
 }
 
@@ -104,10 +109,12 @@ function resolveWorkingDirectory(
 ): { readonly cwd: string } | BashUnavailableResult {
   const literal = input.cwd ?? ".";
   const cwd = resolve(context.workingDirectory, literal);
+
   try {
     accessSync(cwd, constants.X_OK);
     const directory = opendirSync(cwd);
     directory.closeSync();
+
     return { cwd };
   } catch {
     return unusableWorkingDirectory(literal);
@@ -120,6 +127,7 @@ function rejectLimits(
   options: ExecuteManagedBashOptions,
 ): BashUnavailableResult | BashTimedOutResult | null {
   const tool = resolveConfiguredTool(input.command);
+
   if (tool === null) {
     return {
       status: "error",
@@ -127,6 +135,7 @@ function rejectLimits(
       message: "Command is outside the configured managed tool set.",
     };
   }
+
   if (measureManagedInput(input) > context.inputBound) {
     return {
       status: "error",
@@ -134,10 +143,13 @@ function rejectLimits(
       message: "Command input exceeds the managed input bound.",
     };
   }
+
   if (activeProcesses >= context.maxProcesses) return processLimitReached();
+
   if (options.timeoutSignal?.aborted) {
     return timedOutResult(context, options);
   }
+
   if (options.signal?.aborted) {
     return {
       status: "error",
@@ -145,6 +157,7 @@ function rejectLimits(
       message: "Command was cancelled before start.",
     };
   }
+
   return null;
 }
 
@@ -154,8 +167,10 @@ function rejectIfNotAdmitted(
   options: ExecuteManagedBashOptions,
 ): BashUnavailableResult | BashTimedOutResult | null {
   const boundary = requireManagedBoundary(context);
+
   if (boundary) return boundary;
   const collision = managedEnvironmentCollision(input.env);
+
   if (collision !== undefined) {
     return {
       status: "error",
@@ -163,8 +178,11 @@ function rejectIfNotAdmitted(
       message: `Environment variable ${collision} cannot replace a managed base variable.`,
     };
   }
+
   const limits = rejectLimits(input, context, options);
+
   if (limits) return limits;
+
   return null;
 }
 
@@ -174,12 +192,15 @@ function admitExecution(
   options: ExecuteManagedBashOptions,
 ): RunRequest | BashUnavailableResult | BashTimedOutResult {
   const rejected = rejectIfNotAdmitted(input, context, options);
+
   if (rejected) return rejected;
 
   const cwdResult = resolveWorkingDirectory(input, context);
+
   if ("type" in cwdResult) return cwdResult;
 
   const tool = resolveConfiguredTool(input.command);
+
   if (tool === null) {
     return {
       status: "error",
@@ -209,7 +230,9 @@ export async function executeManagedBash(
   options: ExecuteManagedBashOptions = {},
 ): Promise<BashResult> {
   const admitted = admitManagedBash(input, context, options);
+
   if ("type" in admitted) return admitted;
+
   return admitted.run();
 }
 
@@ -226,9 +249,11 @@ export function admitManagedBash(
   options: ExecuteManagedBashOptions = {},
 ): AdmittedBashExecution | BashUnavailableResult | BashTimedOutResult {
   const request = admitExecution(input, context, options);
+
   if ("type" in request) return request;
   activeProcesses += 1;
   let reserved = true;
+
   return {
     cwd: request.cwd,
     release: () => {
@@ -244,6 +269,7 @@ export function admitManagedBash(
           message: "Command admission has already been consumed or released.",
         };
       reserved = false;
+
       return runAdmitted(request);
     },
   };
@@ -254,6 +280,7 @@ async function runAdmitted(request: RunRequest): Promise<BashResult> {
     if (request.options.timeoutSignal?.aborted) {
       return timedOutResult(request.context, request.options);
     }
+
     if (request.options.signal?.aborted) {
       return {
         status: "error",
@@ -261,6 +288,7 @@ async function runAdmitted(request: RunRequest): Promise<BashResult> {
         message: "Command was cancelled before start.",
       };
     }
+
     return await spawnManaged(request);
   } finally {
     activeProcesses -= 1;
@@ -291,6 +319,7 @@ function timedOutResult(
 function spawnManaged(request: RunRequest): Promise<BashResult> {
   return new Promise((resolve) => {
     let child: ChildProcess;
+
     try {
       child = spawn(request.tool, [...request.args], {
         cwd: request.cwd,
@@ -305,8 +334,10 @@ function spawnManaged(request: RunRequest): Promise<BashResult> {
         type: "unavailable",
         message: "Configured tool could not be started.",
       });
+
       return;
     }
+
     watchManagedChild(
       child,
       {

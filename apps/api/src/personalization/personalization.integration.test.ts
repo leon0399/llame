@@ -50,8 +50,10 @@ describe('/api/v1/me/personalization (HTTP)', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password, name });
+
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
@@ -154,6 +156,7 @@ describe('/api/v1/me/personalization (HTTP)', () => {
 
   it('does not echo authored content back in a validation error', async () => {
     const secret = `do-not-log-${tag}`;
+
     const res = await patch(cookieA, {
       preferredName: secret.repeat(PERSONALIZATION_CAPS.preferredName),
     }).expect(400);

@@ -9,18 +9,22 @@ import {
 import { fetchVendorJson, type VendorFetch } from './http';
 
 const SearxngPayloadSchema = z.object({ results: z.array(z.unknown()) });
+
 const SearxngResultSchema = z.object({
   title: z.string(),
   url: z.string(),
   content: z.string().optional(),
   publishedDate: z.string().nullable().optional(),
 });
+
 const WEEK_NOTE = 'SearXNG mapped week recency to month.';
 
 function mapSearxngResult(value: unknown): Array<RawResult> {
   const parsed = SearxngResultSchema.safeParse(value);
+
   if (!parsed.success) return [];
   const { data } = parsed;
+
   return [
     {
       title: data.title,
@@ -37,21 +41,25 @@ function searchUrl(baseUrl: string, request: EngineRequest): URL {
   const url = new URL('search', base);
   url.searchParams.set('q', request.query);
   url.searchParams.set('format', 'json');
+
   if (request.recency !== undefined)
     url.searchParams.set(
       'time_range',
       request.recency === 'week' ? 'month' : request.recency,
     );
+
   return url;
 }
 
 function searxngFetch(fetch: VendorFetch): VendorFetch {
   return async (input, init) => {
     const response = await fetch(input, init);
+
     if (response.status === 403) {
       await response.body?.cancel().catch(() => undefined);
       throw new EngineFailure('upstream_error');
     }
+
     return response;
   };
 }
@@ -62,8 +70,10 @@ export function createSearxngEngine(
   deps: { readonly fetch: VendorFetch },
 ): Engine {
   const fetch = searxngFetch(deps.fetch);
+
   return async (request: EngineRequest) => {
     const extra = request.recency === 'week' ? { notes: [WEEK_NOTE] } : {};
+
     const payload = await fetchVendorJson(
       searchUrl(config.baseUrl, request).href,
       { method: 'GET', headers: { Accept: 'application/json' } },
@@ -74,11 +84,13 @@ export function createSearxngEngine(
       },
       SearxngPayloadSchema,
     );
+
     // Canonicalize before cutting, so a URL that fails validation never takes
     // a result slot from a valid one below it.
     const results = canonicalizeResults(
       payload.results.flatMap(mapSearxngResult),
     ).slice(0, request.limit);
+
     return results.length > 0
       ? { kind: 'results', results, ...extra }
       : { kind: 'empty', ...extra };

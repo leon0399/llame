@@ -51,6 +51,7 @@ let pages: Map<string, () => Response>;
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
   const url = new URL(request.url);
+
   return `${request.method} ${url.pathname}${url.search}`;
 }
 
@@ -70,11 +71,14 @@ const meta = {
     fetchMock = stubFetch();
     fetchMock.mockImplementation((input) => {
       const respond = pages.get(routeOf(input));
+
       if (respond === undefined) {
         throw new Error(`unrouted fetch in story: ${routeOf(input)}`);
       }
+
       return Promise.resolve(respond());
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -94,6 +98,7 @@ const meta = {
 } satisfies Meta<typeof MediaGallery>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -134,6 +139,7 @@ export const LoadsNextPage: Story = {
 
     const [first] = within(grid).getAllByRole("listitem");
     const preview = first!.querySelector("[class*='aspect-square']");
+
     if (preview === null) throw new Error("card has no square preview");
     const box = preview.getBoundingClientRect();
     await expect(Math.round(box.width)).toBe(Math.round(box.height));
@@ -201,8 +207,10 @@ export const LoadFailedRetries: Story = {
         () => {
           if (!failed) {
             failed = true;
+
             return new Response(null, { status: 500 });
           }
+
           return jsonResponse({
             items: [image(1, "lisbon-map.png")],
             nextCursor: null,
@@ -240,8 +248,10 @@ export const NextPageFailedRetries: Story = {
         () => {
           if (!failed) {
             failed = true;
+
             return new Response(null, { status: 500 });
           }
+
           return jsonResponse({
             items: [image(1, "sintra.jpg")],
             nextCursor: null,

@@ -15,10 +15,12 @@ function isString(value: unknown): value is string {
 
 function partsText(parts: unknown, kind: "text" | "reasoning"): string {
   if (!Array.isArray(parts)) return "";
+
   return (
     parts
       .filter((p): p is MaybePart => {
         if (!isNonNullObject(p)) return false;
+
         // SAFETY: `isNonNullObject` above confirmed `p` is a non-null
         // object; `MaybePart`'s fields are optional and `unknown`-typed, so
         // this only unlocks property access — it asserts no value type.
@@ -40,6 +42,7 @@ function modelLabel(
   // SAFETY: `isNonNullObject` above confirmed `usage` is a non-null object;
   // `modelId` is read here still unvalidated and checked next.
   const modelId = (usage as { modelId?: unknown }).modelId;
+
   return isString(modelId) ? modelDisplayName(modelId, models) : undefined;
 }
 
@@ -61,25 +64,30 @@ export function chatToMarkdown(
   for (const message of messages) {
     if (message.role !== "user" && message.role !== "assistant") continue;
     const text = partsText(message.parts, "text");
+
     // Repair at the exported value only: the stored parts keep the provider's
     // exact text (see `@workspace/ui/lib/reasoning-blocks`).
     const reasoning = separateGluedReasoningBlocks(
       partsText(message.parts, "reasoning"),
     );
+
     if (!text && !reasoning) continue;
 
     const model =
       message.role === "assistant"
         ? modelLabel(message.usage, models)
         : undefined;
+
     const parts: Array<string> = [
       message.role === "user"
         ? "**You**"
         : `**Assistant**${model ? ` · ${model}` : ""}`,
     ];
+
     if (reasoning) {
       parts.push(`> _Reasoning:_ ${reasoning.replaceAll("\n", "\n> ")}`);
     }
+
     if (text) parts.push(text);
     blocks.push(parts.join("\n\n"));
   }
@@ -93,5 +101,6 @@ export function slugifyTitle(title: string): string {
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, "-")
     .replaceAll(/^-+|-+$/g, "");
+
   return slug || "chat";
 }

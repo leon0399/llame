@@ -121,6 +121,7 @@ describe('inheritForkedChatState', () => {
       recencyDigestRebakedFrom: latest.id,
       skillCatalogRebakedFrom: latest.id,
     });
+
     const onlyFirst = inheritForkedChatState(source, [first]);
     const firstCopyId = onlyFirst.messageIds.get(first.id);
 
@@ -194,11 +195,13 @@ describe('inheritForkedChatState', () => {
 describe('copiedMessageRows', () => {
   it('writes dense sequences and remaps a checkpoint boundary to the copied row', () => {
     const first = row('message-1', 10);
+
     const second = row('message-2', 20, {
       role: 'assistant',
       senderUserId: null,
       inReplyTo: first.id,
     });
+
     const checkpointRow = checkpoint('checkpoint-1', 30, second.seq);
     const rows = [first, second, checkpointRow];
 
@@ -224,6 +227,7 @@ describe('copiedMessageRows', () => {
   it('copies owner content, createdAt, usage, and attachments verbatim', () => {
     const createdAt = new Date('2026-09-13T10:00:00.000Z');
     const usage = { status: 'completed', totalTokens: 42 };
+
     const rows = [
       row('message-1', 1, {
         parts: [{ type: 'text', text: 'question' }],

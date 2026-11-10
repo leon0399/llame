@@ -88,17 +88,22 @@ export function followUpRunRequest(
 ): FollowUpRunRequest | null {
   if (value === undefined) return null;
   const rawMode = "permissionMode" in value ? value.permissionMode : undefined;
+
   const permissionMode =
     isPermissionMode(rawMode) && rawMode !== "default" ? rawMode : undefined;
+
   if ("action" in value && value.action === "continue") {
     return {
       action: "continue",
       ...(permissionMode !== undefined && { permissionMode }),
     };
   }
+
   if (!("action" in value) || value.action !== "regenerate") return null;
+
   if (!("modelId" in value) || !isNonBlankString(value.modelId)) return null;
   const effort = "effort" in value ? value.effort : undefined;
+
   return {
     action: "regenerate",
     modelId: value.modelId,
@@ -131,7 +136,9 @@ function prepareFollowUpRun(
   userMessageId: string,
 ): PreparedChatRequest {
   const request = followUpRunRequest(options.followUp);
+
   if (request === null) throw new Error(NO_FOLLOW_UP_ACTION_ERROR);
+
   return {
     api: buildFollowUpRunUrl(options.chatId, userMessageId),
     body: request,
@@ -147,9 +154,11 @@ function prepareChatSend(
   message: Pick<UIMessage, "id" | "parts">,
 ): PreparedChatRequest {
   const { modelId, effort, permissionMode } = options;
+
   if (modelId === undefined || modelId.trim().length === 0) {
     throw new Error(NO_MODEL_SELECTED_ERROR);
   }
+
   return {
     api: buildChatMessagesUrl(options.chatId),
     body: {
@@ -168,9 +177,11 @@ export function prepareSendMessagesRequest(
   options: ChatTransportRequestOptions,
 ): PreparedChatRequest {
   const lastMessage = options.messages.at(-1);
+
   if (!lastMessage) {
     throw new Error("Cannot send an empty chat request");
   }
+
   return options.trigger === "regenerate-message"
     ? prepareFollowUpRun(options, lastMessage.id)
     : prepareChatSend(options, lastMessage);

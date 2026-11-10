@@ -20,13 +20,16 @@ import {
 /** The problem message of one refused name, or `undefined` when accepted. */
 function problemOf(name: string): string | undefined {
   const named = namedWorktree(name);
+
   return 'message' in named ? named.message : undefined;
 }
 
 /** The name one accepted value produces. */
 function accepted(name: string): WorktreeName {
   const named = namedWorktree(name);
+
   if ('message' in named) throw new Error(`Refused: ${named.message}`);
+
   return named;
 }
 
@@ -147,6 +150,7 @@ describe('worktree base refs', () => {
 describe('generated names', () => {
   it('draws one adjective, one noun, and four hex characters', () => {
     const picks = [0, 1];
+
     const name = generatedWorktreeName({
       int: () => picks.shift() ?? 0,
       bytes: () => Buffer.from([0xab, 0xcd]),
@@ -160,9 +164,11 @@ describe('generated names', () => {
   it('draws each word within its own table and the suffix from two bytes', () => {
     const bounds: Array<number> = [];
     const bytes = vi.fn(() => Buffer.from([0xab, 0xcd]));
+
     const name = generatedWorktreeName({
       int: (max) => {
         bounds.push(max);
+
         return max - 1;
       },
       bytes,

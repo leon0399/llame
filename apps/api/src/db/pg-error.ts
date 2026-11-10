@@ -7,7 +7,9 @@ import { isRecord, isString } from '@workspace/runtime-safety';
  */
 export function pgErrorCode(err: unknown): string | undefined {
   if (!isRecord(err)) return undefined;
+
   if (isString(err['code'])) return err['code'];
+
   return isRecord(err['cause']) && isString(err['cause']['code'])
     ? err['cause']['code']
     : undefined;

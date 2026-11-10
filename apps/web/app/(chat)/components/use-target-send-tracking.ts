@@ -30,6 +30,7 @@ function useTargetSendState(
       ) {
         return false;
       }
+
       targetSendStateRef.current = { status };
       window.history.replaceState(
         window.history.state,
@@ -41,6 +42,7 @@ function useTargetSendState(
         ),
       );
       onTargetSendFinished();
+
       return true;
     },
     [chatId, onTargetSendFinished, targetSeq],
@@ -73,9 +75,12 @@ function useOnSendStarted({
         "",
         draftChatPathWithHash(chatId, "sent", ""),
       );
+
       if (sessionKind === "fresh") dispatch({ type: "send-started" });
+
       return;
     }
+
     if (sessionKind !== "fresh") return;
     window.history.replaceState(
       window.history.state,
@@ -94,6 +99,7 @@ function useOnSendFailed(
 ) {
   return useCallback(() => {
     const targetSendState = targetSendStateRef.current;
+
     if (targetSeq !== null) {
       if (targetSendState?.status !== "active") return;
       targetSendStateRef.current = { status: "failed" };
@@ -103,6 +109,7 @@ function useOnSendFailed(
         draftChatPathWithHash(chatId, null, targetSendState.hash),
       );
     }
+
     dispatch({ type: "send-failed" });
   }, [chatId, targetSeq, dispatch, targetSendStateRef]);
 }
@@ -117,14 +124,17 @@ function useOnFinished(
     if (targetSeq !== null) {
       if (!consumeTargetSend("finished")) return false;
       dispatch({ type: "finished" });
+
       return true;
     }
+
     window.history.replaceState(
       window.history.state,
       "",
       draftChatPathWithHash(chatId, null, window.location.hash),
     );
     dispatch({ type: "finished" });
+
     return true;
   }, [chatId, consumeTargetSend, targetSeq, dispatch]);
 }
@@ -146,6 +156,7 @@ export function useTargetSendTracking(params: {
 }) {
   const { chatId, targetSeq, sessionKind, dispatch, onTargetSendFinished } =
     params;
+
   const { targetSendStateRef, consumeTargetSend } = useTargetSendState(
     chatId,
     targetSeq,
@@ -156,6 +167,7 @@ export function useTargetSendTracking(params: {
     () => consumeTargetSend("interrupted"),
     [consumeTargetSend],
   );
+
   const onSendStarted = useOnSendStarted({
     chatId,
     targetSeq,
@@ -163,12 +175,14 @@ export function useTargetSendTracking(params: {
     dispatch,
     targetSendStateRef,
   });
+
   const onSendFailed = useOnSendFailed(
     chatId,
     targetSeq,
     dispatch,
     targetSendStateRef,
   );
+
   const onFinished = useOnFinished(
     chatId,
     targetSeq,

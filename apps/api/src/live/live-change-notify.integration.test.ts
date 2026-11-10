@@ -39,16 +39,20 @@ describeIfDb('llame_notify_change triggers', () => {
     predicate: (p: Payload) => boolean,
   ): Promise<Payload> => {
     const deadline = Date.now() + 5000;
+
     while (Date.now() < deadline) {
       const hit = received.find(predicate);
+
       if (hit) return hit;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+
     throw new Error('notification not received');
   };
 
   const newChat = (owner: string, title: string): Promise<string> => {
     const id = crypto.randomUUID();
+
     return tenantDb
       .runAs(owner, (tx) =>
         new ChatsRepository(tx).createIfAbsent({
@@ -95,6 +99,7 @@ describeIfDb('llame_notify_change triggers', () => {
     await sql`INSERT INTO users (id, name, email) VALUES (${a}, 'L', ${`l-${a}@t.com`})`;
     await listener.listen('llame_changes', (raw) => {
       const parsed: unknown = JSON.parse(raw);
+
       if (isRecord(parsed)) received.push(parsed);
     });
   });
@@ -111,6 +116,7 @@ describeIfDb('llame_notify_change triggers', () => {
     const payload = await waitForPayload(
       (p) => p['k'] === 'chat' && p['chat'] === chatId,
     );
+
     expect(payload).toEqual({
       k: 'chat',
       owner: a,
@@ -154,6 +160,7 @@ describeIfDb('llame_notify_change triggers', () => {
 
   it('resolves a run event owner and chat through runs, and notifies status changes', async () => {
     const chatId = await newChat(a, 'Run chat');
+
     const runId = await tenantDb.runAs(a, async (tx) => {
       const message = await new MessagesRepository(tx).create({
         chatId,
@@ -161,14 +168,17 @@ describeIfDb('llame_notify_change triggers', () => {
         senderUserId: a,
         parts: [{ type: 'text', text: 'go' }],
       });
+
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: message.id,
         userId: a,
         modelId: 'system:openai:gpt-5.4-mini',
       });
+
       return run.id;
     });
+
     await waitForPayload(
       (p) => p['k'] === 'run' && p['run'] === runId && p['status'] === 'queued',
     );
@@ -178,9 +188,11 @@ describeIfDb('llame_notify_change triggers', () => {
         toolName: 'secret_tool',
       }),
     );
+
     const payload = await waitForPayload(
       (p) => p['k'] === 'run_event' && p['run'] === runId,
     );
+
     expect(payload).toEqual({
       k: 'run_event',
       owner: a,
@@ -219,6 +231,7 @@ describeIfDb('llame_notify_change triggers', () => {
     const payload = await waitForPayload(
       (p) => p['k'] === 'chat_deliveries' && p['chat'] === chatId,
     );
+
     expect(payload).toEqual({ k: 'chat_deliveries', owner: a, chat: chatId });
     expect(JSON.stringify(payload)).not.toContain('secret queued text');
   });
@@ -231,6 +244,7 @@ describeIfDb('llame_notify_change triggers', () => {
     const payload = await waitForPayload(
       (p) => p['k'] === 'machine' && p['machine'] === name,
     );
+
     // Instance-wide: the payload names the Machine and no owner, and carries
     // no row content beyond it.
     expect(payload).toEqual({ k: 'machine', machine: name, deleted: false });

@@ -121,6 +121,7 @@ describe('MCP failure policy', () => {
       hasSession: false,
       message: 'unauthorized invalid session; reconnect immediately',
     } as McpFailureSignal;
+
     // SAFETY: same deliberate excess `message` property as localFailure above.
     const reconnectingFailure = {
       stage: 'call',

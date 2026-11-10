@@ -21,6 +21,7 @@ function fakeInstanceConfig(embeddingModelId: string | null) {
       chats: { ...BUILT_IN_DEFAULTS.search.chats, embeddingModelId },
     },
   };
+
   return { config } satisfies InstanceConfigReader;
 }
 
@@ -44,6 +45,7 @@ describe('SearchEmbedDispatchService.enqueueChatEmbed', () => {
   it('is off-by-default: no ensureQueue, no send, when no corpus model is configured', async () => {
     const ensureQueue = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockResolvedValue('job-id');
+
     const service = new SearchEmbedDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
       fakeInstanceConfig(null),
@@ -58,6 +60,7 @@ describe('SearchEmbedDispatchService.enqueueChatEmbed', () => {
   it('enqueues with the coalescing singletonKey when a corpus model is configured', async () => {
     const ensureQueue = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockResolvedValue('job-id');
+
     const service = new SearchEmbedDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
       fakeInstanceConfig('model-a'),
@@ -77,8 +80,10 @@ describe('SearchEmbedDispatchService.enqueueChatEmbed', () => {
     const warnSpy = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const ensureQueue = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockRejectedValue(new Error('queue down'));
+
     const service = new SearchEmbedDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
       fakeInstanceConfig('model-a'),
@@ -94,8 +99,10 @@ describe('SearchEmbedDispatchService.enqueueChatEmbed', () => {
       .fn()
       .mockRejectedValueOnce(new Error('transient'))
       .mockResolvedValue(undefined);
+
     const enqueue = vi.fn().mockResolvedValue('job-id');
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+
     const service = new SearchEmbedDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
       fakeInstanceConfig('model-a'),
@@ -119,6 +126,7 @@ describe('SearchEmbedDispatchService.enqueueChatEmbedStrict', () => {
   it('enqueues with the coalescing singletonKey, same shape as the best-effort method', async () => {
     const ensureQueue = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockResolvedValue('job-id');
+
     const service = new SearchEmbedDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
       fakeInstanceConfig('model-a'),
@@ -137,6 +145,7 @@ describe('SearchEmbedDispatchService.enqueueChatEmbedStrict', () => {
   it('propagates a failed enqueue instead of swallowing it — the whole point of the strict variant', async () => {
     const ensureQueue = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockRejectedValue(new Error('queue down'));
+
     const service = new SearchEmbedDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
       fakeInstanceConfig('model-a'),
@@ -150,6 +159,7 @@ describe('SearchEmbedDispatchService.enqueueChatEmbedStrict', () => {
   it('propagates a failed ensureQueue instead of swallowing it', async () => {
     const ensureQueue = vi.fn().mockRejectedValue(new Error('boot failed'));
     const enqueue = vi.fn().mockResolvedValue('job-id');
+
     const service = new SearchEmbedDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
       fakeInstanceConfig('model-a'),

@@ -79,7 +79,9 @@ function tracedParams<M extends MachineMethod>(
 ): MachineMethodParams[M] {
   const { 'sentry-trace': sentryTrace, baggage } = Sentry.getTraceData();
   const params = call.params;
+
   if (sentryTrace === undefined || !('envelope' in params)) return params;
+
   return {
     ...params,
     envelope: {
@@ -247,6 +249,7 @@ export class MachineSession {
   /** The handshake's result; one attempt per session, never retried. */
   ready(): Promise<HelloResult> {
     this.handshake ??= this.performHandshake();
+
     return this.handshake;
   }
 
@@ -264,6 +267,7 @@ export class MachineSession {
     // protocol's stream request only observes aborts after it is written, so a
     // pre-aborted signal must fail here rather than reach it.
     options.signal?.throwIfAborted();
+
     // Additive git methods: a daemon that predates them answers no request for
     // one, so the refusal happens before a frame is written.
     if (
@@ -271,13 +275,17 @@ export class MachineSession {
       this.helloResult?.methods?.includes(call.method) !== true
     )
       throw new MachineUpdateRequiredError(this.name, call.method);
+
     return Sentry.startSpan(machineRpcSpan(call.method), async () => {
       const channel = this.openStream();
       const before = this.framesWritten;
+
       const answer = channel.request(call.method, tracedParams(call), {
         signal: options.signal,
       });
+
       const sent = this.framesWritten > before;
+
       try {
         return await answer;
       } catch (error) {
@@ -300,11 +308,14 @@ export class MachineSession {
     // Refused before the span starts: a manual span left open by a throw
     // would never be sent.
     const channel = this.openStream();
+
     return Sentry.startSpanManual(machineRpcSpan(call.method), (span) => {
       const before = this.framesWritten;
+
       const answer = channel.request(call.method, tracedParams(call), {
         signal: options.signal,
       });
+
       const sent = this.framesWritten > before;
       const result = this.reclassify(answer, sent, options.signal);
       result.then(
@@ -314,6 +325,7 @@ export class MachineSession {
           span.end();
         },
       );
+
       return { channel, result };
     });
   }
@@ -327,21 +339,27 @@ export class MachineSession {
   private receive(chunk: Buffer): void {
     this.heartbeat.record();
     const events = this.framer.push(chunk);
+
     for (const event of events) {
       if (event.kind === 'oversize') {
         this.finish({ kind: 'failure', reason: 'session_lost' });
+
         return;
       }
+
       this.deliver(event.line);
     }
   }
 
   private deliver(line: string): void {
     const decoded = decodeFrame(line);
+
     if (decoded.ok) {
       this.multiplexer.handle(decoded.frame);
+
       return;
     }
+
     if (decoded.streamId === undefined) return;
     // The frame names a stream, so the refusal travels back on that stream
     // instead of the session going silent.
@@ -363,8 +381,10 @@ export class MachineSession {
         // The link is gone. Ending the session rejects every pending stream,
         // and `framesWritten` keeps this frame honestly unsent.
         this.finish({ kind: 'failure', reason: 'session_lost' });
+
         return;
       }
+
       this.multiplexer.refuseStream(
         frame.s,
         'internal',
@@ -396,8 +416,10 @@ export class MachineSession {
     input: EndInput & { end?: MachineLinkEnd },
   ): MachineSessionEndReason {
     if (input.kind === 'failure') return input.reason;
+
     if (input.kind === 'closed') return 'closed';
     const end = input.end;
+
     return end === undefined
       ? classifySshLinkFailure(this.established, '')
       : classifySshLinkFailure(this.established, end.diagnostic);
@@ -405,6 +427,7 @@ export class MachineSession {
 
   private openStream(): MachineChannel {
     const end = this.end;
+
     if (end !== undefined)
       throw new MachineUnavailableError(
         this.name,
@@ -412,6 +435,7 @@ export class MachineSession {
         false,
         'The Machine session has already ended.',
       );
+
     try {
       return this.multiplexer.open();
     } catch (error) {
@@ -431,13 +455,17 @@ export class MachineSession {
       () => this.finish({ kind: 'failure', reason: 'unreachable' }),
       this.handshakeTimeoutMs,
     );
+
     timer.unref();
+
     try {
       const answer = this.multiplexer.control.request('hello', {
         protocolVersion: PROTOCOL_VERSION,
         hubVersion: this.hubVersion,
       });
+
       const hello = readHelloResult(await answer);
+
       if (hello === undefined || hello.protocolVersion !== PROTOCOL_VERSION) {
         this.finish({ kind: 'failure', reason: 'incompatible_version' });
         throw new MachineUnavailableError(
@@ -447,8 +475,10 @@ export class MachineSession {
           'The Machine answered an unusable handshake.',
         );
       }
+
       this.established = true;
       this.helloResult = hello;
+
       return hello;
     } catch (error) {
       // A daemon that refuses the handshake — the only refusal the protocol
@@ -462,6 +492,7 @@ export class MachineSession {
           `The Machine refused the handshake: ${error.message}`,
         );
       }
+
       throw this.failure(error, false, undefined);
     } finally {
       clearTimeout(timer);
@@ -480,14 +511,18 @@ export class MachineSession {
     signal: AbortSignal | undefined,
   ): Error {
     if (error instanceof MachineProtocolError) return error;
+
     if (error instanceof MachineUnavailableError) return error;
+
     // A caller's own cancellation is not a Machine failure.
     if (signal?.aborted === true) return toError(error);
     const end = this.end;
+
     const reason =
       end !== undefined && end.reason !== 'closed'
         ? end.reason
         : 'session_lost';
+
     return new MachineUnavailableError(
       this.name,
       reason,

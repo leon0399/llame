@@ -68,6 +68,7 @@ export function loadProductUserAgent(
   access: ManifestFileAccess = DEFAULT_MANIFEST_FILE_ACCESS,
 ): string {
   let parsed: unknown;
+
   try {
     parsed = JSON.parse(access.readFile(MANIFEST_PATH));
   } catch {
@@ -75,11 +76,14 @@ export function loadProductUserAgent(
       `${MANIFEST_REQUIREMENT} — this deployment's manifest is missing, unreadable, or not valid JSON.`,
     );
   }
+
   const version = isRecord(parsed) ? parsed.version : undefined;
+
   if (!isString(version) || version.trim().length === 0) {
     throw new InstanceConfigError(
       `${MANIFEST_REQUIREMENT} with a non-blank "version" — this deployment's manifest declares none.`,
     );
   }
+
   return `${PRODUCT_NAME}/${version}`;
 }

@@ -424,6 +424,7 @@ import {
 export type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']> & {
   readonly told: NonNullable<Chat['skillCatalogTold']>;
 };
+
 type WorkspaceWrites = {
   readonly told: Chat['workspaceTold'];
   readonly toldFrom: Chat['workspaceToldFrom'];
@@ -543,6 +544,7 @@ type PreparedAttemptContext = ModelRequestContext & {
   workspaceWrites?: WorkspaceWrites;
   untitled: boolean;
 };
+
 type CompactionTriggerInput = {
   run: ExecuteRunInput;
   prepared: PreparedExecutionContext;
@@ -568,6 +570,7 @@ type PreparedFirstStep = {
   readonly turnInstructions: TurnInstructions;
   readonly turnGit: TurnGit;
 };
+
 type AttemptDigestInputs = {
   shareRecentChats: ResolvedMemorySettings;
   promptDigestBaseline: Chat['recencyDigestBaseline'];
@@ -681,6 +684,7 @@ type ExecuteRunInput = {
 };
 
 type ModelStreamResult = ReturnType<ModelClient['streamText']>;
+
 type ConsumeStreamOptions = Parameters<ModelStreamResult['consumeStream']>[0];
 
 /**
@@ -735,6 +739,7 @@ function callAbortSignal(
   interrupt: AbortSignal | undefined,
 ): AbortSignal | undefined {
   if (run === undefined) return interrupt;
+
   return interrupt === undefined ? run : AbortSignal.any([run, interrupt]);
 }
 
@@ -742,6 +747,7 @@ const noNextCall: AttemptRun['nextCall'] = () => undefined;
 
 /** Adapter locator decisions have their own cap and cannot crowd out hops or probes. */
 const MAX_ADAPTER_DECISIONS = 16;
+
 /**
  * AbortSignal.abort(reason) tag for the worker's own in-process wall-clock
  * timeout (design D7 mechanism 1). Both a timeout and a user-requested cancel
@@ -750,6 +756,7 @@ const MAX_ADAPTER_DECISIONS = 16;
  * timeout is recorded as run.expired, never run.cancelled.
  */
 export const RUN_TIMEOUT_ABORT_REASON = 'run-timeout';
+
 /**
  * AbortSignal.abort(reason) tag for the worker's execution ceiling — the
  * substrate bound a run reaches when no budget is configured. It settles as
@@ -781,11 +788,13 @@ export function classifyAbortedRun(
   signal: AbortSignal | undefined,
 ): 'cancelled' | 'expired' | 'failed' {
   if (signal?.reason === NATIVE_MUTATION_ABORT_REASON) return 'failed';
+
   return signal?.reason === RUN_TIMEOUT_ABORT_REASON ||
     signal?.reason === RUN_CEILING_ABORT_REASON
     ? 'expired'
     : 'cancelled';
 }
+
 /**
  * Resolve the permission mode accepted on a Run against the modes available
  * to the worker. Kept standalone so the worker's frozen mode decision can be
@@ -801,6 +810,7 @@ export function resolveEffectivePermissionMode(
   workerModes: ReadonlyArray<PermissionMode>,
 ): PermissionMode {
   if (accepted === 'read-only') return 'read-only';
+
   return accepted === 'bypass' && workerModes.includes('bypass')
     ? 'bypass'
     : 'default';
@@ -889,21 +899,26 @@ function appendDerivedDecision(
   const isAddress = decision.kind === 'address';
   const isAdapter = decision.kind === 'adapter';
   let recordedCount = 0;
+
   for (const recorded of decisions) {
     const sameAddress = isAddress && recorded.kind === 'address';
     const sameAdapter = isAdapter && recorded.kind === 'adapter';
+
     const sameGeneric =
       !isAddress &&
       !isAdapter &&
       recorded.kind !== 'address' &&
       recorded.kind !== 'adapter';
+
     if (sameAddress || sameAdapter || sameGeneric) recordedCount += 1;
   }
+
   const limit = isAddress
     ? MAX_ADDRESS_DECISIONS
     : isAdapter
       ? MAX_ADAPTER_DECISIONS
       : MAX_DERIVED_DECISIONS;
+
   if (recordedCount >= limit) return;
   decisions.push(
     decision.count === undefined
@@ -929,6 +944,7 @@ export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
  */
 type InstanceConfigWithIdentity = InstanceConfigReader &
   Partial<ProductIdentityReader>;
+
 /**
  * The injected model capability: selection validation, plus the client factory
  * when the value is the real service. A test double that only validates
@@ -1104,6 +1120,7 @@ export class RunExecutionService {
   ): Promise<void> {
     if (!this.artifactHostFilesEnabled()) return;
     void sweepArtifactDirectories();
+
     if ((chat?.artifactSeq ?? 0) === 0) return;
     await reconcileArtifactFiles({
       tenantDb: this.tenantDb,
@@ -1137,6 +1154,7 @@ export class RunExecutionService {
     assistantTurn?: AssistantTurnWrite;
   }) {
     const { telemetry, ...terminalInput } = input;
+
     const settlement = await this.finishRun({
       ...terminalInput,
       ...(telemetry !== undefined && {
@@ -1147,14 +1165,17 @@ export class RunExecutionService {
       }),
       synthesizedTurnTelemetry: telemetry,
     });
+
     if (settlement.outcome === 'errored') {
       throw new Error(`Could not durably settle terminal run ${input.runId}.`);
     }
+
     await this.afterAssistantTurn(
       settlement.assistantMessage,
       input.userId,
       telemetry,
     );
+
     return settlement;
   }
 
@@ -1165,9 +1186,11 @@ export class RunExecutionService {
     // attributed to its owner's opaque id, on the job's isolation scope.
     Sentry.setConversationId(request.chatId);
     Sentry.setUser({ id: request.userId });
+
     const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
       ? new AbortController()
       : undefined;
+
     const input = nativeAbort
       ? {
           ...request,
@@ -1184,34 +1207,41 @@ export class RunExecutionService {
     const claim = await this.tenantDb.runAs(input.userId, async (tx) => {
       const runs = new RunsRepository(tx);
       const events = new RunEventsRepository(tx);
+
       if (input.abortSignal?.aborted) {
         const status = classifyAbortedRun(input.abortSignal);
         const message = this.abortedRunMessage(status, input.abortSignal);
+
         const finished = await runs.markFinished(
           input.runId,
           input.userId,
           status,
           { error: { message } },
         );
+
         return {
           settledReply: await this.settleAtClaim(tx, finished, status, message),
         };
       }
 
       const started = await runs.markStarted(input.runId, input.userId);
+
       if (!started) {
         const current = await runs.findById(input.runId, input.userId);
+
         if (
           current?.cancelRequestedAt == null ||
           isTerminalRunStatus(current.status)
         ) {
           return { settledReply: undefined };
         }
+
         const cancelled = await runs.markFinished(
           input.runId,
           input.userId,
           'cancelled',
         );
+
         return {
           settledReply: await this.settleAtClaim(
             tx,
@@ -1241,6 +1271,7 @@ export class RunExecutionService {
       const startedEvent = await events.append(input.runId, 'run.started', {
         attemptId: started.activeAttemptId,
       });
+
       return {
         effort: started.effort ?? undefined,
         permissionMode: started.permissionMode,
@@ -1250,15 +1281,18 @@ export class RunExecutionService {
         nativeDeliverySequence: startedEvent.sequence,
       };
     });
+
     if ('settledReply' in claim) {
       // A reply finalized in place keeps its creation time, so only the
       // post-commit touch and reindex make its settled content searchable.
       await this.afterAssistantTurn(claim.settledReply, input.userId);
       throw new RunNotRunnableError(input.runId);
     }
+
     if ('nativeRecovery' in claim) {
       const message =
         'A previous host command, file mutation, or MCP dispatch may have executed. This Run will not replay it.';
+
       await this.settleTerminalRun({
         userId: input.userId,
         runId: input.runId,
@@ -1269,10 +1303,12 @@ export class RunExecutionService {
       });
       throw new RunNotRunnableError(input.runId);
     }
+
     const { effort, permissionMode, attemptId } = claim;
     // Every attempt, a crash retry included, reads the Run's current message
     // from the Run row, not from the job: a delivery moved it (run-steering D3).
     const firstSegment = claim.messageId === input.userMessage.id;
+
     const attempt = await this.executeAttempt({
       input: firstSegment
         ? input
@@ -1285,6 +1321,7 @@ export class RunExecutionService {
       firstSegment,
       createdMessage: input.userMessage,
     });
+
     return this.chainSegments(attempt);
   }
 
@@ -1306,7 +1343,9 @@ export class RunExecutionService {
               messageId,
             ),
           );
+
     if (message === undefined) throw new RunNotRunnableError(input.runId);
+
     return {
       ...input,
       userMessage: toRunUserMessage(message),
@@ -1323,6 +1362,7 @@ export class RunExecutionService {
   private chainSegments(first: AttemptRun): ModelStreamResult {
     let last = first;
     let drained: Promise<void> | undefined;
+
     const drain = (options?: ConsumeStreamOptions): Promise<void> => {
       drained ??= (async () => {
         for (;;) {
@@ -1331,12 +1371,15 @@ export class RunExecutionService {
             ? result.consumeStream(options)
             : result.text);
           const following = nextCall();
+
           if (following === undefined) return;
           last = await following;
         }
       })();
+
       return drained;
     };
+
     return wrapStreamTextResult(first.result, {
       consumeStream: () => ({ value: drain }),
       text: () => ({ value: drain().then(() => last.result.text) }),
@@ -1365,7 +1408,9 @@ export class RunExecutionService {
       firstSegment,
       createdMessage,
     } = attempt;
+
     const { client } = input;
+
     // A Continue Run starts from the kept parts its admission recorded, in the
     // same transaction as its own row (turn-actions D5). Every later read of
     // this attempt — the request, the collector, the in-Run region — reads
@@ -1374,11 +1419,14 @@ export class RunExecutionService {
     const continued = firstSegment
       ? await this.loadContinueState(input)
       : undefined;
+
     const effectivePermissionMode =
       this.resolveEffectivePermissionMode(permissionMode);
+
     if (input.abortSignal?.aborted) {
       await this.settleAbortedRun(input, attemptId);
     }
+
     // The segment of a delivered message: a new attempt of this Run, in this
     // worker, with no new claim.
     const startDelivered = (delivery: DeliveredBoundary): Promise<AttemptRun> =>
@@ -1400,6 +1448,7 @@ export class RunExecutionService {
     const workspaceChat = await this.tenantDb.runAs(input.userId, (tx) =>
       new ChatsRepository(tx).findById(input.chatId, input.userId),
     );
+
     const workspacePreparation = await this.prepareWorkspace(
       input,
       nativeDeliverySequence,
@@ -1407,7 +1456,9 @@ export class RunExecutionService {
       workspaceChat,
       effectivePermissionMode,
     );
+
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
+
     // The attempt's one git read starts here and runs beside the MCP start, the
     // skill resolution, and the prompt imports; preparation awaits it last.
     const gitObservation = this.startGitObservation(
@@ -1417,6 +1468,7 @@ export class RunExecutionService {
       workspaceRoot,
       effectivePermissionMode,
     );
+
     // The attempt's one Workspace MCP listing, filled at attempt start or at
     // the entry that sets a binding, so a same-root re-entry reads no
     // configuration again (read-only-permission-mode D6).
@@ -1425,12 +1477,14 @@ export class RunExecutionService {
     // A `read-only` attempt starts, holds, and composes no Workspace MCP
     // client: no key reaches the catalog, the resolver, or the attempt hold.
     await this.restoreArtifactFiles(input, workspaceChat);
+
     const workspaceMcpKey = await this.startWorkspaceMcp(
       input.chatId,
       boundWorkspaceMcpKey,
       effectivePermissionMode,
       workspaceMcpListing,
     );
+
     const attemptDynamicResolver = this.attemptDynamicResolver(workspaceMcpKey);
 
     // Explicit `$skill` activation runs BEFORE context assembly, because the
@@ -1445,6 +1499,7 @@ export class RunExecutionService {
       effectivePermissionMode,
       continued !== undefined,
     );
+
     // The attempt's view of its owner's media: prompt imports, admission,
     // compaction, and the step composer all read descriptors and bytes through
     // it, each read in its own short owner-scoped transaction, and it holds the
@@ -1473,6 +1528,7 @@ export class RunExecutionService {
     let attemptContext: PreparedAttemptContext;
     let turnInstructions: TurnInstructions;
     let turnGit: TurnGit;
+
     try {
       const firstStep = await this.prepareAttemptForFirstStep({
         run: input,
@@ -1489,6 +1545,7 @@ export class RunExecutionService {
         gitObservation,
         firstSegment,
       });
+
       prepared = firstStep.request;
       attemptContext = firstStep.context;
       turnInstructions = firstStep.turnInstructions;
@@ -1497,6 +1554,7 @@ export class RunExecutionService {
       if (input.abortSignal?.aborted) {
         await this.settleAbortedRun(input, attemptId);
       }
+
       if (error instanceof ModelContextExecutionError) {
         const message = error.message;
         // Fenced by the claim: the failure that ends preparation may BE the
@@ -1512,9 +1570,12 @@ export class RunExecutionService {
           error: { message, code: error.code },
         });
       }
+
       throw error;
     }
+
     const { system, messages, untitled, tools: executableTools } = prepared;
+
     const boundExecutables = new Map<string, AttemptToolBinding>(
       executableTools.map(({ declaration, executor, server }) => [
         declaration.id,
@@ -1546,11 +1607,13 @@ export class RunExecutionService {
     let firstOutputDeltaMs: number | undefined;
     let outputDeltaCount = 0;
     let generationMs = 0;
+
     const noteOutputDelta = (text: string): void => {
       if (text.length === 0) return;
       firstOutputDeltaMs ??= Date.now() - streamStartedAt;
       outputDeltaCount += 1;
     };
+
     const buildAssistantTelemetry = (
       finishReason: TurnTelemetry['finishReason'],
       status: TurnTelemetry['status'],
@@ -1607,7 +1670,9 @@ export class RunExecutionService {
         });
         throw new RunNotRunnableError(input.runId);
       }
+
       if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
+
       // A salvaged answer completed the reply while the Run stayed live: this
       // attempt settles the Run completed (the finalizer leaves that reply
       // untouched) instead of dispatching a second answer. A pending item
@@ -1618,9 +1683,11 @@ export class RunExecutionService {
         status: 'completed',
         attemptId,
       });
+
       if (settlement.outcome === 'delivered') {
         return startDelivered(settlement.delivery);
       }
+
       throw new RunNotRunnableError(input.runId);
     }
 
@@ -1636,6 +1703,7 @@ export class RunExecutionService {
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
     const assistantPartCollector = createAssistantPartCollector();
+
     // The kept parts are the transcript's prefix, so every terminal writer of
     // this attempt persists them once, ahead of its own parts (D5). The kept
     // boundary ends on a settled tool part or an in-Run item, which is why no
@@ -1656,6 +1724,7 @@ export class RunExecutionService {
     let inRunItems = createInRunContextItems();
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
+
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- generic run-event payload dispatcher: shape depends on `eventType` (a discriminated union `RunEventsRepository.append` accepts), and every call site below already constructs the correct literal shape (see `persistDelta`/`persistReasoning`/`recordToolRequested`); this is the single serialization chokepoint, not a validation boundary.
     const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
       deltaWrites = deltaWrites.then(async () => {
@@ -1670,14 +1739,17 @@ export class RunExecutionService {
             );
           },
         );
+
         if (!recorded) progressWriteFailed = true;
       });
     };
+
     // Each buffered `model.delta` event carries the adapter part id of the
     // text it holds, so the durable reconstructor rebuilds the same part
     // boundaries the live collector saw (design A7). The buffer is drained
     // before the id is switched, so one event never spans two ids.
     let textPartId: string | undefined;
+
     const persistDelta = (text: string | null) => {
       if (text !== null) {
         enqueueEvent('model.delta', {
@@ -1687,6 +1759,7 @@ export class RunExecutionService {
         });
       }
     };
+
     // A text part's opaque provider metadata (design A7) rides its own
     // `model.delta`, keyed by the part's adapter id: the Responses wire
     // attaches the item id to the part's start and end, never to a delta, so
@@ -1730,6 +1803,7 @@ export class RunExecutionService {
     // behind.
     const reasoningDeltas = createDeltaBuffer();
     let reasoningPartId: string | undefined;
+
     const persistReasoning = (text: string | null) => {
       if (text !== null) {
         enqueueEvent('reasoning.delta', {
@@ -1739,6 +1813,7 @@ export class RunExecutionService {
         });
       }
     };
+
     const persistReasoningMetadata = (
       partId: string | undefined,
       providerMetadata: ProviderMetadata,
@@ -1799,6 +1874,7 @@ export class RunExecutionService {
       sshClient: this.sshClient,
       executorGit: this.executorGit,
     };
+
     const { maxStepsPerRun, callTimeoutSeconds } =
       this.instanceConfig.config.tools;
 
@@ -1828,6 +1904,7 @@ export class RunExecutionService {
     // and a run with no tool step at all still numbers its parts from the
     // offset.
     let currentStepNumber = 0;
+
     const openToolCalls = new Map<
       string,
       {
@@ -1861,12 +1938,14 @@ export class RunExecutionService {
         done?: Promise<void>;
       }
     >();
+
     // The opaque provider metadata each call's stream part carried (design
     // A7), keyed by its id. A SEPARATE map from `openToolCalls`: the consumer
     // reports the metadata before the SDK executes the call, i.e. before
     // `reserveToolRequest` and admission, so the entry exists first and the
     // request records what it holds. The call's settlement consumes it.
     const pendingToolMetadata = new Map<string, ProviderMetadata>();
+
     // Reserve the persisted part and the open-call entry at request time (before
     // admission), so part order stays correct even if the call is later
     // rejected and settled by the completion path.
@@ -1892,9 +1971,11 @@ export class RunExecutionService {
         ...(origin !== undefined && { origin }),
         ...(sdkRefusal !== undefined && { sdkRefusal }),
       });
+
       if (origin === undefined)
         assistantPartCollector.toolRequested(toolCallId);
     };
+
     // Emit `tool.requested` with the trusted decision once admission resolves.
     // Its durable write is awaited before `tool.started`, so a rejection never
     // produces a false start and an allowed call cannot dispatch first.
@@ -1916,21 +1997,28 @@ export class RunExecutionService {
         // The stored part carries the reply-wide number instead (design D5).
         stepNumber: currentStepNumber,
       };
+
       if (permission !== undefined) payload.permission = permission;
+
       if (origin !== undefined) payload.origin = origin;
       const providerMetadata = pendingToolMetadata.get(toolCallId);
+
       if (providerMetadata !== undefined) {
         payload.providerMetadata = providerMetadata;
       }
+
       enqueueEvent('tool.requested', payload);
       const open = openToolCalls.get(toolCallId);
+
       if (open !== undefined) open.requested = true;
     };
+
     // Ids whose outcome has already been durably recorded. At-most-once per
     // call across BOTH the event log and the persisted part — the collector
     // has its own guard, but without this one enqueueEvent fires a second
     // tool.completed for a call the collector correctly ignored.
     const settledToolCallIds = new Set<string>();
+
     // A derived-locator decision (a hop, probe candidate, adapter target, or
     // refused address) reaches run execution through the tool context while
     // the executor runs — after `tool.requested` is already durable — so it
@@ -1942,10 +2030,12 @@ export class RunExecutionService {
       decision: DerivedDecision,
     ): void => {
       const open = openToolCalls.get(toolCallId);
+
       if (open === undefined) return;
       const decisions = (open.derivedDecisions ??= []);
       appendDerivedDecision(decisions, decision);
     };
+
     const recordToolCompleted = (
       toolCallId: string,
       toolName: string,
@@ -1957,6 +2047,7 @@ export class RunExecutionService {
       if (settledToolCallIds.has(toolCallId)) {
         return;
       }
+
       settledToolCallIds.add(toolCallId);
       const open = openToolCalls.get(toolCallId);
       const permission = open?.permission;
@@ -1966,6 +2057,7 @@ export class RunExecutionService {
       const providerMetadata = pendingToolMetadata.get(toolCallId);
       pendingToolMetadata.delete(toolCallId);
       openToolCalls.delete(toolCallId);
+
       // A model `read` of an unstored file keeps its bytes on the result's
       // part and event; the bound is decided here, once, before either is
       // written, so the live step, the event, the stored part, and a rebuilt
@@ -1980,10 +2072,13 @@ export class RunExecutionService {
         status: result.status,
         used: retainedBytesUsed,
       });
+
       retainedBytesUsed = retained.used;
+
       if (retained.record === undefined) {
         media.retainedMedia.delete(toolCallId);
       }
+
       const payload: ToolCompletedEventPayload = {
         toolCallId,
         toolName,
@@ -1998,12 +2093,16 @@ export class RunExecutionService {
         }),
         ...(interrupted && { interrupted: true as const }),
       };
+
       if (permission !== undefined) payload.permission = permission;
+
       if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
         payload.derivedDecisions = derivedDecisions;
       }
+
       if (open?.origin !== undefined) payload.origin = open.origin;
       enqueueEvent('tool.completed', payload);
+
       // A system-origin call is durable audit, not assistant activity.
       if (open?.origin !== undefined) return;
       assistantPartCollector.tool(
@@ -2060,6 +2159,7 @@ export class RunExecutionService {
       // Without this await, finishRun's terminal event can commit before the
       // settlement events, and a process kill in that window permanently loses them.
       await deltaWrites;
+
       if (!progressWriteFailed) return true;
       await this.settleProgressWriteFailure({
         userId: input.userId,
@@ -2067,6 +2167,7 @@ export class RunExecutionService {
         attemptId,
         telemetry,
       });
+
       return false;
     };
 
@@ -2091,17 +2192,23 @@ export class RunExecutionService {
     ): Promise<void> => {
       const open = openToolCalls.get(toolCallId);
       const started = decision.decision === 'allow';
+
       if (open !== undefined) {
         open.permission = decision;
+
         // Only a started call has a classification; its part records the tool
         // that ran it, and a rejected call's part records `null`.
         if (started) open.classification = classification;
       }
+
       emitToolRequested(toolCallId, toolName, args, decision, origin);
+
       if (started) {
         enqueueEvent('tool.started', { toolCallId, toolName, classification });
       }
+
       await deltaWrites;
+
       if (progressWriteFailed) {
         throw new Error('Tool activity could not be recorded.');
       }
@@ -2122,6 +2229,7 @@ export class RunExecutionService {
       reserveToolRequest(toolCallId, 'read', toolInput, {
         origin: ORIGIN_INSTRUCTIONS,
       });
+
       const result = await runTool(
         nativeReadTool,
         toolInput,
@@ -2143,11 +2251,15 @@ export class RunExecutionService {
             ORIGIN_INSTRUCTIONS,
           ),
       );
+
       recordToolCompleted(toolCallId, 'read', toolInput, result);
+
       return result;
     };
+
     const admitsRead = (path: string): boolean =>
       previewToolPermission(nativeReadTool, { path }, toolContext);
+
     const inRunProducer = this.beginInRunAttempt(
       input,
       turnInstructions,
@@ -2167,10 +2279,13 @@ export class RunExecutionService {
     const stoppedCalls: Array<StoppedCall> = [];
     // `native.result` writes of MCP calls whose attempt committed mid-interrupt.
     const lateMcpWrites: Array<Promise<void>> = [];
+
     const fateOf = (toolName: string): InterruptFate => {
       const executor = toolAdditions.executorFor(toolName);
+
       return executor === undefined ? 'cancel' : interruptFateOf(executor);
     };
+
     const settleInterrupted = (
       shouldSettle: (call: { toolName: string; started: boolean }) => boolean,
       mcpWrites: Array<Promise<void>>,
@@ -2179,14 +2294,18 @@ export class RunExecutionService {
         // System-origin reads finish on their own and are no model call.
         if (call.origin !== undefined) continue;
         const started = call.classification !== undefined;
+
         if (!shouldSettle({ toolName: call.toolName, started })) continue;
+
         const { result, stopped } = interruptSettlementOf({
           toolName: call.toolName,
           started,
           mcpDispatched: call.mcpDispatched === true,
         });
+
         if (stopped) {
           stoppedCalls.push({ toolName: call.toolName, toolCallId });
+
           // A later retry of a sent MCP call must not find a bare attempt.
           if (call.toolName.startsWith('mcp__')) {
             mcpWrites.push(
@@ -2194,6 +2313,7 @@ export class RunExecutionService {
             );
           }
         }
+
         // A call still waiting on admission has no request event yet; the
         // stream and the event-rebuilt reply drop a completion without one.
         // No classification is set, so the call stays not started.
@@ -2205,6 +2325,7 @@ export class RunExecutionService {
             undefined,
           );
         }
+
         recordToolCompleted(
           toolCallId,
           call.toolName,
@@ -2214,6 +2335,7 @@ export class RunExecutionService {
         );
       }
     };
+
     /**
      * Settles the open calls once, by fate: a call that never started, and each
      * started `cancel` call but bash, at once; a `finish` call after it
@@ -2232,6 +2354,7 @@ export class RunExecutionService {
             done !== undefined && fateOf(toolName) === 'finish' ? [done] : [],
           ),
         );
+
         if (
           [...openToolCalls.values()].some(
             ({ origin, toolName }) =>
@@ -2246,9 +2369,11 @@ export class RunExecutionService {
             mcpWrites,
           );
         }
+
         await Promise.all(mcpWrites);
         await deltaWrites;
       })());
+
     const executeBoundTool = async (
       declaration: ModelToolDeclaration,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validates tool arguments against the declaration schema before this trusted wrapper runs.
@@ -2261,17 +2386,22 @@ export class RunExecutionService {
       persistDelta(deltas.flush());
       reserveToolRequest(toolCallId, declaration.id, args);
       const executor = toolAdditions.executorFor(declaration.id);
+
       if (executor === undefined) {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
+
       // A `cancel` call also stops on its segment's interrupt signal, which is
       // separate from the Run's cancellation (run-steering D7).
       const open = openToolCalls.get(toolCallId);
+
       const interruptSignal =
         interruptFateOf(executor) === 'cancel' ? segment?.signal : undefined;
+
       if (open !== undefined && interruptSignal !== undefined) {
         open.interruptSignal = interruptSignal;
       }
+
       const result = await runTool(
         executor,
         args,
@@ -2283,6 +2413,7 @@ export class RunExecutionService {
             recordDerivedDecision(toolCallId, decision),
           onMcpDispatchRecorded: () => {
             if (open !== undefined) open.mcpDispatched = true;
+
             // The attempt committed after the interrupt settled the call as
             // not run: record its result so a retry finds no bare attempt.
             if (settledToolCallIds.has(toolCallId)) {
@@ -2311,6 +2442,7 @@ export class RunExecutionService {
             decision,
             executor.classification,
           );
+
           if (decision.decision === 'allow') {
             // The trigger follows admission, not the result: a call that is
             // allowed loads its directory whether or not it then failed, and a
@@ -2323,6 +2455,7 @@ export class RunExecutionService {
           }
         },
       );
+
       return { executor, result };
     };
 
@@ -2343,16 +2476,19 @@ export class RunExecutionService {
         result,
       });
       const open = openToolCalls.get(toolCallId);
+
       if (open?.interruptSignal?.aborted && !input.abortSignal?.aborted) {
         // An owner interrupt aborted this call. Bash gets its bounded chance to
         // report its own proven result, which the interrupt marks; every other
         // call is settled by the interrupt settlement (run-steering D7). A
         // call the abort reached between admission and spawn never ran.
         const neverRan = isCancelledBeforeExecution(result, declaration.id);
+
         const provenBash =
           isBashTool(executor) &&
           !neverRan &&
           !(result.status === 'error' && result.type === 'outcome_unknown');
+
         if (neverRan && isBashTool(executor)) {
           recordToolCompleted(
             toolCallId,
@@ -2379,6 +2515,7 @@ export class RunExecutionService {
         const settledAfterAbort =
           isBashTool(executor) &&
           !(result.status === 'error' && result.type === 'outcome_unknown');
+
         if (settledAfterAbort) {
           recordToolCompleted(toolCallId, declaration.id, args, result);
         } else {
@@ -2387,6 +2524,7 @@ export class RunExecutionService {
       } else {
         recordToolCompleted(toolCallId, declaration.id, args, result);
       }
+
       // Live bash and MCP unknowns stay observations; only uncertain native
       // file mutations (edit/write) abort the model loop here.
       if (
@@ -2400,6 +2538,7 @@ export class RunExecutionService {
           'Host command or mutation outcome is unknown; the Run cannot continue.',
         );
       }
+
       return result;
     };
 
@@ -2407,9 +2546,11 @@ export class RunExecutionService {
       declaration: ModelToolDeclaration,
     ): ToolSet[string] => {
       const initialExecutor = boundExecutables.get(declaration.id)?.executor;
+
       if (initialExecutor === undefined) {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
+
       // Every result reaches the model through the one rendering: a native
       // file tool as its serialized text — the SDK output type its media
       // reference needs — and every other tool as its JSON value. An image
@@ -2428,10 +2569,13 @@ export class RunExecutionService {
             ({ executor, result }) =>
               settleBoundTool(declaration, args, toolCallId, executor, result),
           );
+
           // An interrupt waits for each call whose fate is `finish`; the call's
           // entry exists once `executeBoundTool` has reserved it.
           const open = openToolCalls.get(toolCallId);
+
           if (open !== undefined) open.done = running.then(noop, noop);
+
           return running;
         },
         toModelOutput: ({
@@ -2455,6 +2599,7 @@ export class RunExecutionService {
             ),
           ),
       });
+
       return definition.type === 'provider'
         ? definition
         : { ...definition, strict: false };
@@ -2475,6 +2620,7 @@ export class RunExecutionService {
         createModelToolDefinition(declaration),
       ]),
     );
+
     const hasTools = Object.keys(toolSet).length > 0;
 
     // Reserve termination settlement synchronously on the PARENT run signal.
@@ -2487,7 +2633,9 @@ export class RunExecutionService {
       if (openToolCalls.size === 0 || parentAbortSettlement) {
         return;
       }
+
       const status = classifyAbortedRun(input.abortSignal);
+
       // An expired run's terminal message names its abort REASON (a configured
       // budget or the execution ceiling) rather than "a tool was interrupted",
       // so it reads like every other expired settlement.
@@ -2495,9 +2643,11 @@ export class RunExecutionService {
         status === 'expired'
           ? expiredRunMessage(input.abortSignal)
           : toolTerminationMessage(status);
+
       const hasBashCall = [...openToolCalls.values()].some(
         ({ toolName }) => toolName === 'bash',
       );
+
       settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
       parentAbortSettlement = (async () => {
         if (hasBashCall) {
@@ -2505,8 +2655,10 @@ export class RunExecutionService {
             setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
           });
         }
+
         settleOpenToolCalls(status);
         await deltaWrites;
+
         if (progressWriteFailed) {
           await this.failRunProgressPersistence({
             userId: input.userId,
@@ -2514,12 +2666,15 @@ export class RunExecutionService {
             attemptId,
             telemetry: buildAssistantTelemetry(null, 'error'),
           });
+
           return;
         }
+
         const assistantTelemetry = buildAssistantTelemetry(
           null,
           turnStatusForTerminalRun(status),
         );
+
         try {
           await this.settleTerminalRun({
             userId: input.userId,
@@ -2546,14 +2701,17 @@ export class RunExecutionService {
         }
       })();
     };
+
     const removeParentAbortListener = () => {
       input.abortSignal?.removeEventListener('abort', settleToolsOnParentAbort);
     };
+
     // Each model call of the attempt is one `streamText` (the segment's first,
     // and one more whenever a step end found nothing left to deliver), so the
     // abort listener and the workspace hold belong to the call.
     let endWorkspaceAttempt = noop;
     let stopCause: 'cancel' | 'delivery' | undefined;
+
     // The step end's one query: a pending item or a recorded cancellation
     // stops the call after the step's tool results (run-steering D3).
     const stopWhenExtra = async (): Promise<boolean> => {
@@ -2564,13 +2722,16 @@ export class RunExecutionService {
           userId: input.userId,
         }),
       );
+
       return stopCause !== undefined;
     };
+
     const callStream = async (
       callMessages: typeof messages,
       stepBase: number,
     ): Promise<AttemptRun> => {
       let nextCall = noNextCall;
+
       if (input.abortSignal?.aborted) {
         settleToolsOnParentAbort();
       } else {
@@ -2578,32 +2739,41 @@ export class RunExecutionService {
           once: true,
         });
       }
+
       endWorkspaceAttempt = this.beginWorkspaceAttempt(
         input.chatId,
         workspaceMcpKey,
       );
+
       // This call's segment controller: the run-control listener aborts it on an
       // owner interrupt while the call is in flight (run-steering D7).
       const callSegment =
         this.segmentAborts?.beginSegment(input.runId, attemptId) ??
         new AbortController();
+
       segment = callSegment;
       interruptSettlement = undefined;
       stoppedCalls.length = 0;
       const callSignal = callAbortSignal(input.abortSignal, callSegment.signal);
+
       const onInterrupt = () => {
         settleOnInterrupt().catch(noop);
       };
+
       callSegment.signal.addEventListener('abort', onInterrupt, { once: true });
+
       const closeSegment = () => {
         callSegment.signal.removeEventListener('abort', onInterrupt);
         this.segmentAborts?.endSegment(input.runId, callSegment);
       };
+
       const stoppedByInterrupt = (): boolean =>
         callSegment.signal.reason === INTERRUPT_ABORT_REASON &&
         !input.abortSignal?.aborted;
+
       const partsBefore = assistantPartCollector.parts().length;
       let stepsStarted = 0;
+
       // The stop is a delivery with cause `interrupt` (run-steering D4): the
       // reply closes `aborted`, and the Run stays live on the delivered
       // message. An item the owner withdrew in the meantime continues the same
@@ -2622,6 +2792,7 @@ export class RunExecutionService {
         },
       ) => {
         const { telemetry } = modelCompleted;
+
         const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
           deliverPendingSteering(tx, {
             run: { runId: input.runId, userId: input.userId },
@@ -2637,6 +2808,7 @@ export class RunExecutionService {
             ...extra,
           }),
         );
+
         if (boundary.kind === 'delivered') {
           await this.afterAssistantTurn(
             boundary.closedReply,
@@ -2645,14 +2817,17 @@ export class RunExecutionService {
           );
           nextCall = () => startDelivered(boundary);
         }
+
         return boundary.kind;
       };
+
       const deliverInterrupt = async (): Promise<void> => {
         persistReasoning(reasoningDeltas.flush());
         persistDelta(deltas.flush());
         await deltaWrites;
         await Promise.all(lateMcpWrites);
         const segmentSteps = stepBase + Math.max(stepsStarted, 1);
+
         if (progressWriteFailed) {
           await this.settleProgressWriteFailure({
             userId: input.userId,
@@ -2660,16 +2835,21 @@ export class RunExecutionService {
             attemptId,
             telemetry: buildAssistantTelemetry(null, 'error', segmentSteps),
           });
+
           return;
         }
+
         assistantPartCollector.markInterrupted();
+
         const closing = abortedByInterrupt(
           buildAssistantTelemetry(null, 'aborted', segmentSteps),
         );
+
         const boundaryKind = await deliverAtBoundary(
           { finishReason: null, telemetry: closing },
           { stoppedCalls: [...stoppedCalls] },
         );
+
         if (boundaryKind === 'nothing-pending') {
           nextCall = () => {
             // The settled calls carry their results, and the projection leaves
@@ -2682,8 +2862,10 @@ export class RunExecutionService {
                   continuedMediaKey(partsBefore + partIndex),
               },
             );
+
             mergeRetainedMedia(media.retainedMedia, produced.retainedMedia);
             inRunItems = createInRunContextItems();
+
             return callStream(
               [...callMessages, ...produced.messages],
               segmentSteps,
@@ -2692,11 +2874,13 @@ export class RunExecutionService {
         } else if (boundaryKind === 'cancelled') {
           // The items stay pending and the Run settles cancelled.
           const message = 'Run was cancelled.';
+
           const telemetry = buildAssistantTelemetry(
             null,
             'aborted',
             segmentSteps,
           );
+
           await this.settleTerminalRun({
             userId: input.userId,
             runId: input.runId,
@@ -2714,7 +2898,9 @@ export class RunExecutionService {
           });
         }
       };
+
       stopCause = undefined;
+
       try {
         const result = client.streamText({
           onRequestUsage: (usage, requestGenerationMs) => {
@@ -2759,6 +2945,7 @@ export class RunExecutionService {
                   staged.push(part);
                 },
               });
+
               // An item joins the attempt only once it is committed onto the
               // running reply, before the request that first carries it (design
               // D3); a step that fails first never sent it.
@@ -2768,10 +2955,12 @@ export class RunExecutionService {
                   ...staged,
                 ]);
               }
+
               for (const part of staged) {
                 inRunItems.stage(part);
                 assistantPartCollector.contextItem(part);
               }
+
               // Recomputed from the step's own messages on every step, so a
               // retained override is replaced rather than accumulated (D1).
               return inRunItems.applyToStep(messages);
@@ -2803,10 +2992,12 @@ export class RunExecutionService {
             }) => {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
+
               const result =
                 reason === 'not_available'
                   ? refusalResult(toolName)
                   : invalidCallResult(toolName);
+
               // No 'tool.started': the call never genuinely ran (a refusal
               // is distinguished downstream by requested+completed with no
               // started in between). No permission decision: an unavailable or
@@ -2835,6 +3026,7 @@ export class RunExecutionService {
               if (providerMetadata === undefined) return;
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
+
               // Only a delivery that binds to a stored part is durable: an id
               // that has produced no text yet holds its metadata in the
               // collector, and a part that never produces text keeps none (A7).
@@ -2844,17 +3036,22 @@ export class RunExecutionService {
                 providerMetadata,
                 stepOffset + currentStepNumber,
               );
+
               if (bound !== undefined) persistTextMetadata(partId, bound);
+
               return;
             }
+
             noteOutputDelta(text);
             streamedText += text;
+
             const bound = assistantPartCollector.text(
               text,
               partId,
               providerMetadata,
               stepOffset + currentStepNumber,
             );
+
             // Time-injected push: age-based flushes (#50 live-channel
             // granularity) stay pure inside the buffer.
             // Cross-flush on a modality switch: reasoning and text stream one at
@@ -2867,13 +3064,16 @@ export class RunExecutionService {
             // Text intervened: the next reasoning delta opens a new part, so the
             // id it carries is not the one the drained buffer belonged to.
             reasoningPartId = undefined;
+
             // Drain before adopting a new id so a buffered event never spans
             // two adapter parts (the collector splits on the same transition).
             if (partId !== textPartId) {
               persistDelta(deltas.flush());
               textPartId = partId;
             }
+
             persistDelta(deltas.push(text, Date.now()));
+
             // A start's held metadata binds with this text, and its part must
             // be durable first.
             if (bound !== undefined) {
@@ -2886,6 +3086,7 @@ export class RunExecutionService {
             // counts, exactly as answer text does (#155). The metadata-only
             // deliveries below carry no text and do not.
             noteOutputDelta(text);
+
             // A metadata-only delivery: a reasoning part's start/end carries the
             // opaque provider metadata but no delta of its own (design D15/D18).
             // Drain the buffer first so the durable log keeps the part's text
@@ -2906,6 +3107,7 @@ export class RunExecutionService {
               ) {
                 persistDelta(deltas.flush());
               }
+
               persistReasoning(reasoningDeltas.flush());
               persistReasoningMetadata(partId, providerMetadata);
               assistantPartCollector.reasoning(
@@ -2914,14 +3116,17 @@ export class RunExecutionService {
                 providerMetadata,
                 stepOffset + currentStepNumber,
               );
+
               return;
             }
+
             // Drain before adopting a new id so a buffered event never spans
             // two adapter parts (the collector splits on the same transition).
             if (partId !== reasoningPartId) {
               persistReasoning(reasoningDeltas.flush());
               reasoningPartId = partId;
             }
+
             // A text-bearing delivery is recorded as text alone. The opaque
             // metadata a wire may also attach to a delta (Responses repeats the
             // item id on every summary delta) is not the delivery a later
@@ -2947,19 +3152,25 @@ export class RunExecutionService {
             endWorkspaceAttempt();
             removeParentAbortListener();
             closeSegment();
+
             // An owner interrupt stopped the call: settle its open calls by
             // fate and deliver the pending items, instead of ending the Run.
             if (stoppedByInterrupt()) {
               await settleOnInterrupt();
+
               if (!input.abortSignal?.aborted) {
                 await deliverInterrupt();
+
                 return;
               }
             }
+
             if (parentAbortSettlement) {
               await parentAbortSettlement;
+
               return;
             }
+
             // On the request thread the stream has already sent HTTP headers, so
             // this error can't reach an exception filter — log + record it.
             this.logger.error(
@@ -2970,6 +3181,7 @@ export class RunExecutionService {
             const status = input.abortSignal?.aborted
               ? classifyAbortedRun(input.abortSignal)
               : 'failed';
+
             // A cancelled or superseded Run is not a fault.
             if (status === 'failed') {
               Sentry.captureException(error, {
@@ -2979,17 +3191,21 @@ export class RunExecutionService {
                 },
               });
             }
+
             const assistantTelemetry = buildAssistantTelemetry(
               null,
               turnStatusForTerminalRun(status),
             );
+
             const progressFailureTelemetry =
               status === 'failed'
                 ? assistantTelemetry
                 : buildAssistantTelemetry(null, 'error');
+
             persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
             await deltaWrites;
+
             if (progressWriteFailed) {
               await this.settleProgressWriteFailure({
                 userId: input.userId,
@@ -2997,18 +3213,22 @@ export class RunExecutionService {
                 attemptId,
                 telemetry: progressFailureTelemetry,
               });
+
               return;
             }
+
             // A stalled model stream is a model-level failure, not an abort: it
             // ends the run terminally `failed` under its own error code so the
             // cause survives on the run and its event (the same treatment
             // `outcome_unknown` gets), and the job succeeds without a retry.
             const idleCode =
               error instanceof ModelStreamIdleError ? error.code : undefined;
+
             const message =
               status === 'expired'
                 ? expiredRunMessage(input.abortSignal)
                 : errorMessageWithoutParams(error);
+
             // Settle before reading parts: a call still open here was rendered
             // as running live, and an unsettled part is filtered out of
             // history — so without this the live view and the reload disagree.
@@ -3017,6 +3237,7 @@ export class RunExecutionService {
             ) {
               return;
             }
+
             const turn: AssistantTurnWrite = {
               chatId: input.chatId,
               inReplyTo: input.userMessage.id,
@@ -3028,6 +3249,7 @@ export class RunExecutionService {
               parts: assistantPartCollector.parts(),
               telemetry: assistantTelemetry,
             };
+
             const finish = await this.finishRun({
               userId: input.userId,
               runId: input.runId,
@@ -3059,13 +3281,17 @@ export class RunExecutionService {
             endWorkspaceAttempt();
             removeParentAbortListener();
             closeSegment();
+
             if (parentAbortSettlement) {
               await parentAbortSettlement;
+
               return;
             }
+
             // The segment's steps so far: a withdrawal continues the segment in
             // another call, whose own count restarts at zero.
             const segmentSteps = stepBase + stepCount;
+
             // `streamedText === ''` makes the `startsWith` check vacuously true
             // (every string starts with the empty string), so that case is
             // already covered by this branch — there is no second case to guard.
@@ -3077,11 +3303,14 @@ export class RunExecutionService {
                 stepOffset + currentStepNumber,
               );
             }
+
             // A `tool-calls` finish that only our step-end check caused ends the
             // call at a step boundary, not the Run (run-steering D3).
             const stopped =
               finishReason === 'tool-calls' ? stopCause : undefined;
+
             let status: TerminalRunStatus;
+
             if (input.abortSignal?.aborted) {
               status = classifyAbortedRun(input.abortSignal);
             } else if (finishReason === 'error') {
@@ -3091,11 +3320,13 @@ export class RunExecutionService {
             } else {
               status = 'completed';
             }
+
             // Drain buffered reasoning + deltas BEFORE the terminal events so the
             // log reads in stream order: …model.delta, model.completed, run.completed.
             persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
             await deltaWrites;
+
             if (progressWriteFailed) {
               await this.settleProgressWriteFailure({
                 userId: input.userId,
@@ -3107,8 +3338,10 @@ export class RunExecutionService {
                   segmentSteps,
                 ),
               });
+
               return;
             }
+
             // Persist the collected thinking as reasoning parts in occurrence
             // order: displayed on reload, and replayed to the reply's own model
             // under the model rule (D7) — a summarization request included
@@ -3123,6 +3356,7 @@ export class RunExecutionService {
                 data: { stepsUsed: cappedAt, maxSteps: cappedAt },
               });
             }
+
             const settleRun = async (
               settling: TerminalRunStatus,
             ): Promise<void> => {
@@ -3131,6 +3365,7 @@ export class RunExecutionService {
                 turnStatusForTerminalRun(settling),
                 segmentSteps,
               );
+
               const progressFailureTelemetry =
                 settling === 'failed'
                   ? assistantTelemetry
@@ -3139,6 +3374,7 @@ export class RunExecutionService {
                       'error',
                       segmentSteps,
                     );
+
               // Normally a no-op — a completed run settled every call through the
               // toolSet wrapper. It fires for the narrow finish-races-abort case,
               // where a call can still be open when this path wins.
@@ -3151,18 +3387,21 @@ export class RunExecutionService {
               ) {
                 return;
               }
+
               const turn: AssistantTurnWrite = {
                 chatId: input.chatId,
                 inReplyTo: input.userMessage.id,
                 parts: assistantPartCollector.parts(),
                 telemetry: assistantTelemetry,
               };
+
               // A cancellation that only the step-end check found: no abort
               // reached this worker, so the settlement names its own cause.
               const recorded =
                 settling === 'cancelled' && !input.abortSignal?.aborted
                   ? { message: 'Run was cancelled.' }
                   : undefined;
+
               const finish = await this.finishRun({
                 userId: input.userId,
                 runId: input.runId,
@@ -3200,11 +3439,13 @@ export class RunExecutionService {
                   ? closedTelemetry(finish.delivery, turn.telemetry)
                   : turn.telemetry,
               );
+
               // The final answer met a pending item: the Run stays live on the
               // delivered message (run-steering D5).
               if (finish.outcome === 'delivered') {
                 const { delivery } = finish;
                 nextCall = () => startDelivered(delivery);
+
                 return;
               }
 
@@ -3224,6 +3465,7 @@ export class RunExecutionService {
               ) {
                 return;
               }
+
               if (assistantTelemetry.status === 'completed') {
                 await this.postCompletedRunWork({
                   chatId: input.chatId,
@@ -3234,20 +3476,25 @@ export class RunExecutionService {
                 });
               }
             };
+
             if (stopped !== 'delivery' || status !== 'completed') {
               await settleRun(status);
+
               return;
             }
+
             // The step-end check saw a pending item: deliver it, or continue.
             const closingTelemetry = buildAssistantTelemetry(
               finishReason,
               'completed',
               segmentSteps,
             );
+
             const boundaryKind = await deliverAtBoundary(
               { usage, finishReason, telemetry: closingTelemetry },
               { baselines: attemptContext },
             );
+
             if (boundaryKind === 'nothing-pending') {
               // Another call over the same reply: the request carries what the
               // segment produced so far, and the step count restarts at zero.
@@ -3258,6 +3505,7 @@ export class RunExecutionService {
                 // the next call stages its own against the new Run boundary.
                 const next = inRunItems.applyToStep(carried) ?? carried;
                 inRunItems = createInRunContextItems();
+
                 return callStream(next, segmentSteps);
               };
             } else if (boundaryKind === 'cancelled') {
@@ -3266,17 +3514,20 @@ export class RunExecutionService {
             }
           },
         });
+
         return { result, nextCall: () => nextCall() };
       } catch (error) {
         endWorkspaceAttempt();
         removeParentAbortListener();
         closeSegment();
+
         // A synchronous throw from streamText (provider/config validation before
         // any callback can fire) would otherwise strand the claimed run at
         // 'running_model' until the deadman sweep expires it — fail it now.
         if (input.abortSignal?.aborted) {
           await this.settleAbortedRun(input, attemptId);
         }
+
         const message = errorMessageWithoutParams(error);
         // This attempt holds the claim; a reclaim during the synchronous throw
         // must reject this write rather than let the superseded attempt publish.
@@ -3291,6 +3542,7 @@ export class RunExecutionService {
         throw error;
       }
     };
+
     return callStream(messages, 0);
   }
 
@@ -3316,11 +3568,13 @@ export class RunExecutionService {
     readonly toldGit: GitToldState;
   }> {
     const messagesRepo = new MessagesRepository(tx);
+
     const checkpoint = await messagesRepo.findActiveCheckpoint(
       input.chatId,
       input.userId,
       { beforeSeq: input.userMessage.seq },
     );
+
     const history = await messagesRepo.findByChatId(
       input.chatId,
       input.userId,
@@ -3329,6 +3583,7 @@ export class RunExecutionService {
         sinceSeq: checkpoint?.absorbedThroughSeq,
       },
     );
+
     return {
       context: buildContext(toStoredMessages(history), {
         systemPrompt,
@@ -3362,9 +3617,12 @@ export class RunExecutionService {
     key: WorkspaceMcpKey | undefined,
   ): () => void {
     const clients = this.workspaceMcp;
+
     if (clients === undefined) return () => {};
+
     if (key !== undefined) clients.beginAttempt(key);
     let ended = false;
+
     return () => {
       if (ended) return;
       ended = true;
@@ -3385,21 +3643,28 @@ export class RunExecutionService {
     listing: WorkspaceMcpListingCell,
   ): Promise<WorkspaceMcpKey | undefined> {
     const clients = this.workspaceMcp;
+
     // Without clients no key reaches anything downstream: the resolver, the
     // attempt hold, and the catalog all require `this.workspaceMcp`.
     if (clients === undefined) return undefined;
+
     if (key === undefined) {
       await clients.stopForChat(chatId);
+
       return undefined;
     }
+
     if (mode === 'read-only') {
       await Promise.all([
         clients.stopStale(key),
         clients.listUnstartedOnce(listing, key),
       ]);
+
       return undefined;
     }
+
     await clients.startForChat(key);
+
     return key;
   }
 
@@ -3409,6 +3674,7 @@ export class RunExecutionService {
     if (key === undefined || this.workspaceMcp === undefined) {
       return this.dynamicToolResolver;
     }
+
     return this.workspaceMcp.resolverFor(key, this.dynamicToolResolver);
   }
 
@@ -3431,9 +3697,11 @@ export class RunExecutionService {
     const root = preparation.root;
     const chat = preparation.chat;
     const generation = chat?.workspaceGeneration;
+
     if (root === undefined || chat === undefined || generation === undefined) {
       return undefined;
     }
+
     return { chatId: chat.id, root, generation };
   }
   private async prepareWorkspace(
@@ -3446,6 +3714,7 @@ export class RunExecutionService {
     const root = chat?.workspaceRoot;
     const executorId = chat?.workspaceExecutorId;
     const generation = chat?.workspaceGeneration;
+
     if (root === undefined || root === null || executorId === undefined) {
       return { root: undefined, chat, detaching: false };
     }
@@ -3453,7 +3722,9 @@ export class RunExecutionService {
     if (executorId === null || generation === undefined) {
       return { root: undefined, chat, detaching: false };
     }
+
     const machineName = parseMachineExecutorId(executorId);
+
     if (machineName !== undefined) {
       return this.prepareMachineWorkspace({
         input,
@@ -3466,11 +3737,13 @@ export class RunExecutionService {
         effectivePermissionMode,
       });
     }
+
     const reason = await this.workspaceDetachReason(
       root,
       executorId,
       effectivePermissionMode,
     );
+
     if (reason === undefined) return { root, chat, detaching: false };
 
     return this.detachWorkspace({
@@ -3516,6 +3789,7 @@ export class RunExecutionService {
       skillDirectories: this.instanceConfig.config.skills.directories,
       warn: (message) => this.logger.warn(message),
     });
+
     if (decision.kind === 'detach') {
       return this.detachWorkspace({
         input: params.input,
@@ -3527,6 +3801,7 @@ export class RunExecutionService {
         removedMachine: decision.removedMachine,
       });
     }
+
     return {
       root: params.root,
       chat: params.chat,
@@ -3563,11 +3838,14 @@ export class RunExecutionService {
         reason: params.reason,
       }),
     );
+
     if (detached === 'fence_lost') {
       throw new RunNotRunnableError(params.input.runId);
     }
+
     if (detached === 'detached') {
       await this.workspaceMcp?.stopForChat(params.input.chatId);
+
       return {
         root: undefined,
         detaching: true,
@@ -3579,6 +3857,7 @@ export class RunExecutionService {
         }),
       };
     }
+
     // A concurrent enter/exit won the generation compare-and-set. Do not
     // reuse the root that failed this attempt's checks.
     return { root: undefined, chat: params.chat, detaching: false };
@@ -3590,12 +3869,16 @@ export class RunExecutionService {
     effectivePermissionMode: PermissionMode,
   ): Promise<WorkspaceDetachReason | undefined> {
     const currentExecutorId = this.instanceConfig.config.tools.nativeExecutorId;
+
     if (currentExecutorId === undefined) return 'executor_absent';
+
     if (currentExecutorId !== executorId) return 'executor_mismatch';
 
     try {
       const entry = await stat(root);
+
       if (!entry.isDirectory()) return 'root_missing';
+
       if ((await realpath(root)) !== root) return 'root_moved';
     } catch {
       return 'root_missing';
@@ -3604,12 +3887,14 @@ export class RunExecutionService {
     if (!this.instanceConfig.config.tools.allowed.includes('enter_workspace')) {
       return 'tool_not_allowed';
     }
+
     const decision = decidePermission(
       this.permissionPolicy,
       effectivePermissionMode,
       (evaluate) =>
         evaluate({ toolId: 'enter_workspace', args: { path: root } }),
     );
+
     return decision.decision === 'allow' ? undefined : 'permission_rejected';
   }
 
@@ -3639,6 +3924,7 @@ export class RunExecutionService {
     followUp: boolean,
   ): Promise<ReadonlySet<string>> {
     const config = this.instanceConfig.config;
+
     if (
       !config.tools.allowed.includes('read') ||
       (config.skills.directories.length === 0 &&
@@ -3646,17 +3932,21 @@ export class RunExecutionService {
     ) {
       return new Set();
     }
+
     // `partsToText` keeps only text parts: not context items, tool output,
     // reasoning, or attachments. Activation scans exactly the user's own words.
     const text = partsToText(input.userMessage.parts);
     const mentions = parseSkillMentions(text);
+
     if (mentions.length === 0) return new Set();
+
     const baseContext = this.buildSystemReadContext(
       input,
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
     );
+
     // What a prior attempt of this Run already resolved. Reading it first is
     // what makes recovery replay stored observations rather than re-reading a
     // package that may have changed. A follow-up Run reads the whole message
@@ -3671,6 +3961,7 @@ export class RunExecutionService {
         ...(!followUp && { runId: input.runId }),
       }),
     );
+
     const outcome = await activateSkills({
       mentions,
       resolved,
@@ -3707,6 +3998,7 @@ export class RunExecutionService {
         }),
       );
     }
+
     return outcome.selection;
   }
 
@@ -3720,14 +4012,18 @@ export class RunExecutionService {
    */
   private async resolvePromptImports(step: PromptImportStep): Promise<void> {
     const { input } = step;
+
     const readAllowed =
       this.instanceConfig.config.tools.allowed.includes('read');
+
     if (step.detaching || !readAllowed) return;
+
     const message = {
       id: input.userMessage.id,
       chatId: input.chatId,
       runId: input.runId,
     };
+
     // A follow-up Run reuses the item an earlier Run of the turn stored and
     // reads no target again, so it asks for any Run of the message rather than
     // this one (turn-actions D8).
@@ -3735,6 +4031,7 @@ export class RunExecutionService {
       input.userId,
       async (tx) => {
         const repository = new PromptImportPartsRepository(tx);
+
         return {
           stored: await repository.find({
             id: message.id,
@@ -3745,14 +4042,19 @@ export class RunExecutionService {
         };
       },
     );
+
     // Presence is authoritative even when an older reader cannot decode payload.
     if (stored !== undefined) return;
+
     const { outcomes, omitted } = await resolvePromptImportTargets(
       this.promptImportRequest(step),
     );
+
     // An aborted attempt publishes nothing; the abort settles the Run.
     if (input.abortSignal?.aborted) return;
+
     if (outcomes.length === 0 && omitted.length === 0) return;
+
     const item = createPromptImportsItem({
       runId: input.runId,
       outcomes,
@@ -3760,11 +4062,13 @@ export class RunExecutionService {
       retained: step.retainedMedia,
       retainedBefore,
     });
+
     // An omitted target's read may have kept its bytes before the output bound
     // dropped it, and nothing in the item names them.
     for (const locator of omitted) {
       step.retainedMedia.delete(promptImportMediaKey(input.runId, locator));
     }
+
     await this.tenantDb.runAs(input.userId, (tx) =>
       new PromptImportPartsRepository(tx).appendForRun({ ...message, item }),
     );
@@ -3780,17 +4084,20 @@ export class RunExecutionService {
    */
   private promptImportRequest(step: PromptImportStep): PromptImportRequest {
     const { input } = step;
+
     // One signal bounds the whole pass: the Run's abort, or the work budget
     // measured from now. In-flight reads run under it.
     const signal = AbortSignal.any([
       ...(input.abortSignal ? [input.abortSignal] : []),
       AbortSignal.timeout(PROMPT_IMPORT_WORK_MS),
     ]);
+
     const media = createToolMediaStore(
       new MediaService(this.tenantDb),
       input.userId,
       step.retainedMedia,
     );
+
     const context: ToolContext = {
       ...this.buildSystemReadContext(
         input,
@@ -3802,6 +4109,7 @@ export class RunExecutionService {
       abortSignal: signal,
       media,
     };
+
     return {
       text: partsToText(input.userMessage.parts),
       signal,
@@ -3819,6 +4127,7 @@ export class RunExecutionService {
         previewToolPermission(nativeReadTool, { path }, context),
       probeHost: async (path) => {
         const { kind } = await statHostPath(path);
+
         return kind === 'file' || kind === 'directory';
       },
       probeMachine: (name, path) =>
@@ -3834,13 +4143,16 @@ export class RunExecutionService {
       probeKnowledge: (locator) => this.probePromptKnowledge(context, locator),
       probeMedia: async (locator) => {
         const id = parseMediaLocator(locator);
+
         if (id === undefined) return undefined;
+
         return (await media.findMedia(id)) === undefined
           ? undefined
           : mediaLocator(id);
       },
       readImport: async (path, ordinal, locator) => {
         const key = promptImportMediaKey(input.runId, locator);
+
         const { result, admission } = await this.readTurnInstructionPage(
           input,
           {
@@ -3854,6 +4166,7 @@ export class RunExecutionService {
           ['prompt-import', input.runId, step.attemptId, ordinal].join('-'),
           ORIGIN_PROMPT_IMPORT,
         );
+
         // The imported body is the same text the model receives for this
         // read (prompt-imports "Imported results equal native read output").
         return {
@@ -3878,9 +4191,12 @@ export class RunExecutionService {
   ): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
     const rest = locator.slice(`${KNOWLEDGE_LOCATOR_SCHEME}://`.length);
     const parsed = parseKnowledgeLocator(rest);
+
     if ('type' in parsed) return undefined;
+
     try {
       const target = await resolveKnowledgeLocator(context, locator, rest);
+
       return 'status' in target ? undefined : formatKnowledgeLocator(parsed);
     } catch (error) {
       if (
@@ -3889,6 +4205,7 @@ export class RunExecutionService {
       ) {
         return PROMPT_IMPORT_KNOWLEDGE_CANCELLED;
       }
+
       throw error;
     }
   }
@@ -3901,6 +4218,7 @@ export class RunExecutionService {
    */
   private hostInstructionsLoadable(): boolean {
     const tools = this.instanceConfig.config.tools;
+
     return (
       tools.nativeExecutorId !== undefined && tools.allowed.includes('read')
     );
@@ -3914,6 +4232,7 @@ export class RunExecutionService {
    */
   private knowledgeInstructionsLoadable(): boolean {
     const config = this.instanceConfig.config;
+
     return (
       config.knowledge.root !== undefined &&
       config.tools.allowed.includes('read')
@@ -3976,6 +4295,7 @@ export class RunExecutionService {
     'artifactMaxBytes' | 'artifactReadable' | 'artifactHostFiles'
   > {
     const { artifacts, allowed } = this.instanceConfig.config.tools;
+
     return {
       artifactMaxBytes: artifacts.maxBytes,
       artifactReadable: allowed.includes('read'),
@@ -4008,6 +4328,7 @@ export class RunExecutionService {
         toolAllowlist: this.instanceConfig.config.tools.allowed,
       }),
     };
+
     const toolContext =
       gates.host || gates.knowledge || gates.machine
         ? this.buildSystemReadContext(
@@ -4017,13 +4338,17 @@ export class RunExecutionService {
             effectivePermissionMode,
           )
         : undefined;
+
     // One allocator per attempt, shared by the accepted-turn load and the
     // attempt's in-Run steps, so two reads never collide in the event log.
     let ordinal = 0;
+
     const nextToolCallId = (): string => {
       ordinal += 1;
+
       return `instructions-${input.runId}-${attemptId}-${ordinal}`;
     };
+
     const turn: TurnInstructions = {
       root: preparation.root,
       ...this.turnInstructionWorlds(input, toolContext, gates, nextToolCallId),
@@ -4034,6 +4359,7 @@ export class RunExecutionService {
       part: undefined,
       seenCanonicalPaths: seenInstructionPaths,
     };
+
     // The load runs through the same door a compaction rebuild does, so
     // "before the first request" and "against the rebuilt history" cannot
     // drift apart.
@@ -4043,6 +4369,7 @@ export class RunExecutionService {
       input,
       seenInstructionPaths,
     );
+
     return turn;
   }
 
@@ -4070,6 +4397,7 @@ export class RunExecutionService {
         admitsRead: undefined,
       };
     }
+
     const readPage: ReadPage = async (selectorPath, canonicalPath) =>
       (
         await this.readTurnInstructionPage(
@@ -4081,6 +4409,7 @@ export class RunExecutionService {
           canonicalPath,
         )
       ).result;
+
     return {
       readPage: gates.host ? readPage : undefined,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
@@ -4109,7 +4438,9 @@ export class RunExecutionService {
     gates: PromptImportTriggerGates,
   ): Promise<ReadonlyArray<PromptImportTrigger>> {
     if (this.inRunProducer?.prepareTurn === undefined) return [];
+
     if (!gates.host && !gates.knowledge && !gates.machine) return [];
+
     const stored = await this.tenantDb.runAs(input.userId, (tx) =>
       new PromptImportPartsRepository(tx).find({
         id: input.userMessage.id,
@@ -4117,7 +4448,9 @@ export class RunExecutionService {
         runId: input.runId,
       }),
     );
+
     const payload = stored?.data.payload;
+
     return payload === undefined
       ? []
       : derivePromptImportTriggers(payload.imports, gates);
@@ -4133,6 +4466,7 @@ export class RunExecutionService {
     readPage: ReadPage,
   ): InRunAttempt['knowledge'] {
     if (!this.knowledgeInstructionsLoadable()) return undefined;
+
     return {
       readPage,
       probe: createKnowledgeInstructionProbe({
@@ -4160,6 +4494,7 @@ export class RunExecutionService {
   ): Promise<void> {
     const producer = this.inRunProducer;
     const admitsRead = turn.admitsRead;
+
     // The root load needs a binding and the host world; prompt-import
     // triggers need neither a binding nor the host world (design D4). The
     // producer ignores a host trigger of a Run without the host reader.
@@ -4170,6 +4505,7 @@ export class RunExecutionService {
     ) {
       return;
     }
+
     const part = await producer.prepareTurn({
       runId: input.runId,
       workspaceRoot: turn.root,
@@ -4180,11 +4516,15 @@ export class RunExecutionService {
       seenKeys: seenCanonicalPaths,
       abortSignal: input.abortSignal,
     });
+
     const previous = turn.part;
+
     if (previous !== undefined) {
       const index = stagedParts.indexOf(previous);
+
       if (index >= 0) stagedParts.splice(index, 1);
     }
+
     turn.part = part;
     // The item's `files` payload names the canonical paths it discloses; the
     // producer keeps no per-attempt state for the caller to ask.
@@ -4192,6 +4532,7 @@ export class RunExecutionService {
       part === undefined
         ? seenCanonicalPaths
         : new Set([...seenCanonicalPaths, ...instructionsSeenPaths([part])]);
+
     if (part !== undefined) placeRailPart(stagedParts, part);
   }
 
@@ -4217,6 +4558,7 @@ export class RunExecutionService {
     const toolInput = { path: selectorPath };
     const derivedDecisions: Array<DerivedDecisionRecord> = [];
     let admission: PermissionDecision | undefined;
+
     const observed = await runTool(
       nativeReadTool,
       toolInput,
@@ -4230,6 +4572,7 @@ export class RunExecutionService {
       this.instanceConfig.config.tools.callTimeoutSeconds,
       (decision) => {
         admission = decision;
+
         return this.recordSystemReadAdmission(
           input,
           toolCallId,
@@ -4239,6 +4582,7 @@ export class RunExecutionService {
         );
       },
     );
+
     await this.recordSystemReadCompletion(
       input,
       toolCallId,
@@ -4246,6 +4590,7 @@ export class RunExecutionService {
       observed,
       derivedDecisions,
     );
+
     return { result: observed, admission };
   }
 
@@ -4280,6 +4625,7 @@ export class RunExecutionService {
         permission: decision,
         origin,
       });
+
       // Started only for an allowed call, and only after the request is
       // durable — the same ordering the model-initiated path uses.
       if (decision.decision === 'allow') {
@@ -4307,9 +4653,11 @@ export class RunExecutionService {
         output: result,
         origin,
       };
+
       if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
         payload.derivedDecisions = derivedDecisions;
       }
+
       return new RunEventsRepository(tx).append(
         input.runId,
         'tool.completed',
@@ -4352,6 +4700,7 @@ export class RunExecutionService {
       boundarySeq: input.boundarySeq,
       triggeringUserSeq: input.run.userMessage.seq,
     });
+
     const fits = requestFitsContextWindow({
       system: input.prepared.system,
       messages: input.prepared.messages,
@@ -4360,19 +4709,23 @@ export class RunExecutionService {
       reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
       media: input.media,
     });
+
     if (!fits) {
       if (plan === null) {
         throw new ContextIncompatibleError(
           'The complete request exceeds the target model context window and no committed turn is left to summarize.',
         );
       }
+
       return { variant: 'window', plan };
     }
+
     // The stored triggering row: its prompt-imports item, appended after the
     // Run was queued, carries references the queued parts do not.
     const triggerParts =
       input.historyRows.find((row) => row.seq === input.run.userMessage.seq)
         ?.parts ?? input.run.userMessage.parts;
+
     if (
       plan !== null &&
       input.media !== undefined &&
@@ -4384,7 +4737,9 @@ export class RunExecutionService {
     ) {
       return { variant: 'threshold', plan };
     }
+
     const measured = await this.measureAttemptContextTokens(input);
+
     if (
       measured <
       resolveCompactionThreshold({
@@ -4394,6 +4749,7 @@ export class RunExecutionService {
     ) {
       return undefined;
     }
+
     return plan === null ? undefined : { variant: 'threshold', plan };
   }
 
@@ -4415,6 +4771,7 @@ export class RunExecutionService {
           { beforeSeq: input.run.userMessage.seq },
         ),
     );
+
     const counted = countedContextTokens({
       previousCompleted: previousCompleted && {
         messageId: previousCompleted.run.messageId,
@@ -4423,6 +4780,7 @@ export class RunExecutionService {
       rows: input.historyRows,
       boundarySeq: input.boundarySeq,
     });
+
     if (counted === undefined) {
       return estimateModelRequestTokens({
         system: input.prepared.system,
@@ -4431,6 +4789,7 @@ export class RunExecutionService {
         media: input.media,
       });
     }
+
     return (
       counted.contextTokens +
       estimateContinuationTokens({
@@ -4471,6 +4830,7 @@ export class RunExecutionService {
   ): string {
     if (status === 'failed')
       return 'Native mutation outcome is unknown; inspect the file before a new attempt.';
+
     return status === 'expired'
       ? expiredRunMessage(signal)
       : 'Run was cancelled before model inference.';
@@ -4488,14 +4848,17 @@ export class RunExecutionService {
     message: string,
   ): Promise<Message | undefined> {
     if (!finished) return undefined;
+
     const reply = await finalizeRunReply(tx, {
       run: finished,
       status,
       models: this.instanceConfig.config.models,
     });
+
     await new RunEventsRepository(tx).append(finished.id, `run.${status}`, {
       message,
     });
+
     return reply;
   }
 
@@ -4510,6 +4873,7 @@ export class RunExecutionService {
   ): Promise<FinishRunResult> {
     const finish = await this.finishRun(input);
     await this.afterAssistantTurn(finish.assistantMessage, input.userId);
+
     return finish;
   }
 
@@ -4527,6 +4891,7 @@ export class RunExecutionService {
   ): Promise<never> {
     const status = classifyAbortedRun(input.abortSignal);
     const message = this.abortedRunMessage(status, input.abortSignal);
+
     const finish = await this.finishRunWithoutCollector({
       userId: input.userId,
       runId: input.runId,
@@ -4535,11 +4900,13 @@ export class RunExecutionService {
       runPayload: { status, message },
       error: { message },
     });
+
     if (finish.outcome === 'errored') {
       throw new Error(
         `Could not durably settle aborted run ${input.runId}; retry required.`,
       );
     }
+
     throw new RunNotRunnableError(input.runId);
   }
 
@@ -4577,6 +4944,7 @@ export class RunExecutionService {
     telemetry: AssistantTurnTelemetry;
   }): Promise<void> {
     const message = 'Run progress could not be persisted.';
+
     try {
       await this.settleTerminalRun({
         userId: input.userId,
@@ -4608,12 +4976,14 @@ export class RunExecutionService {
   ): Promise<boolean> {
     try {
       await this.tenantDb.runAs(userId, write);
+
       return true;
     } catch (error) {
       this.logger.error(
         `Failed to record run progress for run ${runId}`,
         loggableError(error),
       );
+
       return false;
     }
   }
@@ -4639,6 +5009,7 @@ export class RunExecutionService {
    */
   private async finishRun(input: FinishRunInput): Promise<FinishRunResult> {
     const finish = await this.commitFinishRun(input);
+
     if (
       finish.outcome === 'won' &&
       finish.promoted !== undefined &&
@@ -4646,6 +5017,7 @@ export class RunExecutionService {
     ) {
       await this.dispatchPromotedRun(this.runDispatch, finish.promoted);
     }
+
     return finish;
   }
 
@@ -4678,6 +5050,7 @@ export class RunExecutionService {
         `Failed to finish run ${input.runId}`,
         loggableError(error),
       );
+
       // The whole turn rolled back, including an answer the user already
       // watched stream. Atomicity is a guarantee about what readers can
       // OBSERVE, not a reason to throw the answer away when the bookkeeping
@@ -4712,6 +5085,7 @@ export class RunExecutionService {
         models: this.instanceConfig.config.models,
         baselines: input,
       });
+
       if (delivery.kind === 'delivered') {
         return {
           outcome: 'delivered',
@@ -4720,19 +5094,23 @@ export class RunExecutionService {
         };
       }
     }
+
     const runsRepo = new RunsRepository(tx);
+
     const finished = await runsRepo.markFinished(
       input.runId,
       input.userId,
       input.status,
       { error: input.error, attemptId: input.attemptId },
     );
+
     if (!finished) {
       return this.handleLostFinish(tx, input, runsRepo);
     }
 
     // Completeness reads the reply before the finalizer settles it.
     await this.finalizeAssistantTurnTelemetry(tx, input, finished);
+
     const assistantMessage = await finalizeRunReply(tx, {
       run: finished,
       status: input.status,
@@ -4741,17 +5119,22 @@ export class RunExecutionService {
       telemetry: input.synthesizedTurnTelemetry,
       models: this.instanceConfig.config.models,
     });
+
     const events = new RunEventsRepository(tx);
+
     if (input.modelCompleted) {
       await events.append(input.runId, 'model.completed', input.modelCompleted);
     }
+
     // The baselines only the winning turn establishes live in the system
     // prompt, so they ride this attempt-fenced transaction; a losing attempt
     // can never freeze a prompt the winner never rendered.
     if (input.status === 'completed') {
       await persistFirstEpochBaselines(tx, finished, input);
     }
+
     await events.append(input.runId, `run.${input.status}`, input.runPayload);
+
     // A recorded cancellation means the owner asked to stop: nothing starts.
     const promoted =
       input.status === 'completed' &&
@@ -4764,6 +5147,7 @@ export class RunExecutionService {
               this.instanceConfig.config.tools.permissionModes,
           })
         : undefined;
+
     return {
       outcome: 'won',
       assistantMessage,
@@ -4787,13 +5171,16 @@ export class RunExecutionService {
       input.userId,
       { eventTypes: ['run.delivered'] },
     );
+
     const event = delivered.findLast(
       ({ payload }) =>
         isRecord(payload) && payload['messageId'] === input.userMessage.id,
     );
+
     if (!isRecord(event?.payload) || event.payload['cause'] !== 'interrupt') {
       return undefined;
     }
+
     return createInterruptedItem({
       runId: input.runId,
       stoppedCalls: stoppedCallsOf(event.payload),
@@ -4837,9 +5224,11 @@ export class RunExecutionService {
     // Telemetry-bearing writers share one object between the completed event
     // and assistant turn, so finalizing the event's object finalizes both.
     const telemetry = input.modelCompleted?.telemetry;
+
     if (!telemetry) {
       return;
     }
+
     await finalizeUsageCompleteness(tx, {
       userId: input.userId,
       runId: input.runId,
@@ -4865,6 +5254,7 @@ export class RunExecutionService {
   ): Promise<FinishRunResult> {
     const current = await runsRepo.findById(input.runId, input.userId);
     const turn = input.assistantTurn;
+
     const assistantMessage =
       turn === undefined ||
       current === undefined ||
@@ -4878,6 +5268,7 @@ export class RunExecutionService {
             turn,
             current.status === 'expired',
           );
+
     return {
       outcome: 'lost',
       finalStatus: current?.status,
@@ -4902,15 +5293,19 @@ export class RunExecutionService {
     salvage: boolean,
   ): Promise<Message | undefined> {
     const messagesRepo = new MessagesRepository(tx);
+
     const state = await messagesRepo.findTurnState(
       turn.chatId,
       input.userId,
       turn.inReplyTo,
     );
+
     if (!ownsLiveReply(state.assistantMessage, input.attemptId, salvage)) {
       return undefined;
     }
+
     await this.finalizeAssistantTurnTelemetry(tx, input, run, turn);
+
     return persistReply(messagesRepo, state, {
       chatId: turn.chatId,
       inReplyTo: turn.inReplyTo,
@@ -4948,6 +5343,7 @@ export class RunExecutionService {
       abortSignal: input.abortSignal,
       git: this.gitWorld(input, turnGit, workspaceRoot, admitsRead),
     };
+
     // The rail's order: the git item of one step precedes its instructions.
     return composeAttemptProducers([
       this.gitProducer?.beginAttempt(attempt),
@@ -4963,7 +5359,9 @@ export class RunExecutionService {
     admitsRead: (path: string) => boolean,
   ): InRunGitWorld | undefined {
     const snapshots = this.gitSnapshots;
+
     if (snapshots === undefined) return undefined;
+
     return {
       observe: (root) =>
         this.observeGit(snapshots, admitsRead, {
@@ -4983,6 +5381,7 @@ export class RunExecutionService {
   ): Promise<GitObservation> {
     const readAllowlisted =
       this.instanceConfig.config.tools.allowed.includes('read');
+
     return observeWorkspaceRoot(
       { snapshots, executors: this.executorGit, readAllowlisted },
       {
@@ -5006,14 +5405,18 @@ export class RunExecutionService {
   ): Promise<GitObservation> | undefined {
     const { root, machine } = preparation;
     const snapshots = this.gitSnapshots;
+
     if (this.gitProducer === undefined || snapshots === undefined) return;
+
     if (root === undefined) return;
+
     const toolContext = this.buildSystemReadContext(
       input,
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
     );
+
     return this.observeGit(
       snapshots,
       (path) => previewToolPermission(nativeReadTool, { path }, toolContext),
@@ -5035,15 +5438,18 @@ export class RunExecutionService {
     >,
   ): Promise<Message | undefined> {
     const turn = input.assistantTurn;
+
     if (!turn) {
       return undefined;
     }
+
     try {
       return await this.tenantDb.runAs(input.userId, async (tx) => {
         const run = await new RunsRepository(tx).findById(
           input.runId,
           input.userId,
         );
+
         // The terminal transaction rolled back: the reply still holds this
         // attempt's `running` row unless a later attempt has reset it.
         return this.persistAttemptTurn(tx, input, run, turn, true);
@@ -5053,6 +5459,7 @@ export class RunExecutionService {
         `Failed to salvage the assistant turn for run ${input.runId}`,
         loggableError(error),
       );
+
       return undefined;
     }
   }
@@ -5134,6 +5541,7 @@ export class RunExecutionService {
     if (!telemetry || !assistantMessage.inReplyTo) {
       return;
     }
+
     emitCompletedTurnTelemetryLog(turnTelemetryLogger, {
       chatId: assistantMessage.chatId,
       messageId: assistantMessage.id,
@@ -5184,6 +5592,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
   ): Promise<ContinueState | undefined> {
     if (input.followUpAction !== 'continue') return undefined;
+
     const event = await this.tenantDb.runAs(input.userId, (tx) =>
       new RunEventsRepository(tx).findFirstByType(
         input.runId,
@@ -5191,6 +5600,7 @@ export class RunExecutionService {
         'run.continued',
       ),
     );
+
     return event === undefined ? undefined : continueStateFromEvents([event]);
   }
 
@@ -5251,8 +5661,10 @@ export class RunExecutionService {
       workspaceChat,
       workspaceRoot,
     );
+
     const disclosures: Array<PromptChatsDisclosure> = [];
     let catalog: AttemptToolCatalog;
+
     try {
       catalog = await this.composeAttemptCatalog(
         tx,
@@ -5267,8 +5679,10 @@ export class RunExecutionService {
           `Tool "${error.toolId}" description rendered empty.`,
         );
       }
+
       throw error;
     }
+
     const system = this.renderAttemptSystemPrompt({
       model: promptInputs.model,
       anchor: promptInputs.anchor,
@@ -5277,7 +5691,9 @@ export class RunExecutionService {
       skills: promptInputs.skillState.baseline,
       admittedToolIds: catalog.admittedIds,
     });
+
     disclosures.push(system.chatsDisclosure);
+
     const prompt: AttemptPromptContext = {
       ...promptInputs,
       ...(await this.accountAttemptDigestDisclosure({
@@ -5288,10 +5704,12 @@ export class RunExecutionService {
       })),
       systemPrompt: system.text,
     };
+
     const effectiveContext = this.resolveAttemptEffectiveContext(
       prompt,
       catalog,
     );
+
     if (afterPublication) {
       await this.persistAttemptPromptReceipt(
         tx,
@@ -5300,6 +5718,7 @@ export class RunExecutionService {
         effectiveContext,
       );
     }
+
     const staged = await this.deriveAttemptStagedContext({
       tx,
       input,
@@ -5312,13 +5731,16 @@ export class RunExecutionService {
       // (turn-actions D8).
       followUp: input.followUpAction != null,
     });
+
     const built = await this.rebuildContextForChat(
       tx,
       input,
       prompt.systemPrompt,
       continued,
     );
+
     const { freeze, told } = prompt.skillState;
+
     return {
       ...built.context,
       seenInstructionPaths: built.seenInstructionPaths,
@@ -5384,6 +5806,7 @@ export class RunExecutionService {
             privateParts: true,
             mediaKey: continuedMediaKey,
           });
+
     const estimatePass = await this.prepareAttemptContext(
       input.run,
       input.attemptId,
@@ -5394,6 +5817,7 @@ export class RunExecutionService {
       input.workspacePreparation.machine,
       input.continued,
     );
+
     const turnInstructions = await this.loadTurnInstructions(
       input.run,
       input.workspacePreparation,
@@ -5404,11 +5828,13 @@ export class RunExecutionService {
       estimatePass.seenInstructionPaths,
       estimatePass.stagedParts,
     );
+
     const turnGit: TurnGit = {
       observation: await input.gitObservation,
       part: undefined,
       toldText: undefined,
     };
+
     refreshTurnGit({
       turn: turnGit,
       stagedParts: estimatePass.stagedParts,
@@ -5419,11 +5845,13 @@ export class RunExecutionService {
     // build read and from the kept parts it sends after them.
     mergeRetainedMedia(input.media.retainedMedia, estimatePass.retainedMedia);
     mergeRetainedMedia(input.media.retainedMedia, kept.retainedMedia);
+
     const estimated = await this.assembleAttemptRequest(
       estimatePass,
       input.dynamicResolver,
       kept.messages,
     );
+
     // The same admission the step composer will make on this request, so the
     // trigger sees the not-attached result the request will carry.
     // Compaction plans only before the Run's first model step: a segment start,
@@ -5447,6 +5875,7 @@ export class RunExecutionService {
             )),
         })
       : undefined;
+
     const summary =
       trigger === undefined
         ? undefined
@@ -5481,8 +5910,10 @@ export class RunExecutionService {
                   media: input.media,
                 },
           );
+
     let context = estimatePass;
     let request = estimated;
+
     if (summary !== undefined && summary !== null) {
       await this.publishPreStepCompaction({
         run: input.run,
@@ -5491,6 +5922,7 @@ export class RunExecutionService {
         model: estimatePass.model,
         workspaceRoot: input.workspacePreparation.root,
       });
+
       // Re-read rather than reuse the Workspace-prepared row: the publication
       // just moved the digest baseline, the skill baseline and the workspace
       // told-set, and this pass must render and disclose the epoch they now
@@ -5498,6 +5930,7 @@ export class RunExecutionService {
       const rebakedChat = await this.tenantDb.runAs(input.run.userId, (tx) =>
         new ChatsRepository(tx).findById(input.run.chatId, input.run.userId),
       );
+
       context = await this.prepareAttemptContext(
         input.run,
         input.attemptId,
@@ -5543,6 +5976,7 @@ export class RunExecutionService {
         ),
       );
     }
+
     if (
       !requestFitsContextWindow({
         system: request.system,
@@ -5563,6 +5997,7 @@ export class RunExecutionService {
         'The complete request still exceeds the target model context window after one compaction.',
       );
     }
+
     return { request, context, turnInstructions, turnGit };
   }
 
@@ -5607,7 +6042,9 @@ export class RunExecutionService {
       input.run.userId,
       (tx) => this.memory.getForOwnerForBinding(tx, input.run.userId),
     );
+
     let digestCandidate: RecencyDigestResolution | null = null;
+
     if (initialShareRecentChats.shareRecentChats) {
       try {
         digestCandidate = await this.recencyDigest.resolveCandidate(
@@ -5621,6 +6058,7 @@ export class RunExecutionService {
         digestCandidate = null;
       }
     }
+
     await this.tenantDb.runAs(input.run.userId, async (tx) => {
       // A reclaimed or terminated attempt must not move epoch state under the
       // live one. The write fence locks the non-terminal runs row for this
@@ -5634,20 +6072,24 @@ export class RunExecutionService {
         input.attemptId,
         { activeAttemptId: input.attemptId },
       );
+
       if (!fenced) {
         throw new ModelContextExecutionError(
           `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
         );
       }
+
       const messagesRepo = new MessagesRepository(tx);
       const chatsRepo = new ChatsRepository(tx);
       // Chats before memory, matching the chat loop, which locks the chats row
       // in `touch` and only then takes `FOR SHARE` on memory settings.
       const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
+
       const shareRecentChats = await this.memory.getForOwnerForBinding(
         tx,
         input.run.userId,
       );
+
       // Every publication of this chat takes the row lock above first, so this
       // read is the race verdict: a surviving row means another attempt already
       // published this boundary and re-baked the epoch for it.
@@ -5660,12 +6102,14 @@ export class RunExecutionService {
       ) {
         return;
       }
+
       const checkpoint = await messagesRepo.createCheckpoint({
         chatId: input.run.chatId,
         absorbedThroughSeq: input.summary.uptoSeq,
         part: createCompactionCheckpointPart(input.summary.summary),
         usage: input.summary.usage,
       });
+
       await this.rebakeCheckpointEpoch({
         tx,
         run: input.run,
@@ -5691,6 +6135,7 @@ export class RunExecutionService {
     digestCandidate: RecencyDigestResolution | null;
   }): Promise<void> {
     const chatsRepo = new ChatsRepository(input.tx);
+
     const skillState =
       input.chat === undefined
         ? undefined
@@ -5701,6 +6146,7 @@ export class RunExecutionService {
             workspaceRoot: input.workspaceRoot,
             latestCheckpointId: input.checkpointId,
           });
+
     if (
       input.chat?.recencyDigestBaseline != null &&
       input.digestCandidate !== null &&
@@ -5717,6 +6163,7 @@ export class RunExecutionService {
         rebakedFrom: input.checkpointId,
       });
     }
+
     if (skillState?.freeze !== undefined) {
       await chatsRepo.setSkillCatalogBaseline({
         chatId: input.run.chatId,
@@ -5725,6 +6172,7 @@ export class RunExecutionService {
         rebakedFrom: input.checkpointId,
       });
     }
+
     if (skillState?.told !== undefined) {
       await chatsRepo.updateSkillCatalogTold(
         input.run.chatId,
@@ -5732,6 +6180,7 @@ export class RunExecutionService {
         [...skillState.told],
       );
     }
+
     if (input.chat !== undefined) {
       // Advance the epoch identity and reset the told root, so the snapshot the
       // checkpoint absorbed is re-established by the request it precedes. A
@@ -5754,13 +6203,16 @@ export class RunExecutionService {
   ): Promise<AttemptPromptInputs> {
     const chatsRepo = new ChatsRepository(tx);
     const chat = workspaceChat;
+
     if (!chat) {
       throw new ModelContextExecutionError(
         `Chat ${input.chatId} was deleted before context preparation.`,
       );
     }
+
     const model = this.models.validateModelSelection(input.client.model);
     const user = await this.personalization.resolvePromptUser(input.userId);
+
     // Bounded by the triggering turn, like the history cut and the epoch
     // markers: a pre-step checkpoint publishes above the message it was
     // published for, so an unbounded read could name an epoch this request is
@@ -5770,17 +6222,21 @@ export class RunExecutionService {
       input.userId,
       { beforeSeq: input.userMessage.seq },
     );
+
     const digest = await this.resolveAttemptDigest({
       tx,
       input,
       chatsRepo,
       chat,
     });
+
     const instanceTimezone = resolveInstanceTimezone(this.logger);
+
     const anchor = formatTemporalAnchor(
       checkpoint?.createdAt ?? chat.createdAt,
       instanceTimezone,
     );
+
     const skillState = this.resolveSkillTurnState({
       run: input,
       chat,
@@ -5788,6 +6244,7 @@ export class RunExecutionService {
       workspaceRoot,
       latestCheckpointId: checkpoint?.id ?? null,
     });
+
     return {
       ...digest,
       chat,
@@ -5812,6 +6269,7 @@ export class RunExecutionService {
    */
   private skillCatalogFor(root: string | undefined): SkillCatalogPort {
     if (root === undefined) return this.skillCatalog;
+
     return this.machineSkillCatalogs.get(root) ?? this.skillCatalog;
   }
 
@@ -5862,7 +6320,9 @@ export class RunExecutionService {
       input.tx,
       input.input.userId,
     );
+
     let digestCandidate: RecencyDigestResolution | undefined;
+
     if (shareRecentChats.shareRecentChats) {
       try {
         digestCandidate = await this.recencyDigest.resolveCandidate(
@@ -5874,6 +6334,7 @@ export class RunExecutionService {
         // caught error to a log entry or execution error.
         this.logger.error('recency_digest_resolution_failed');
       }
+
       // Consent and the chat's digest epoch are both rechecked after candidate
       // resolution and before the prompt, receipt, and staged context are
       // prepared. Resolution reads the owner's other chats, so a compaction
@@ -5885,16 +6346,19 @@ export class RunExecutionService {
         input.tx,
         input.input.userId,
       );
+
       const recheckedChat = await input.chatsRepo.findById(
         input.input.chatId,
         input.input.userId,
       );
+
       const epochAdvanced =
         recheckedChat === undefined ||
         recheckedChat.recencyDigestRebakedFrom !==
           input.chat.recencyDigestRebakedFrom ||
         canonicalJson(recheckedChat.recencyDigestBaseline ?? null) !==
           canonicalJson(input.chat.recencyDigestBaseline ?? null);
+
       if (!shareRecentChats.shareRecentChats || epochAdvanced) {
         digestCandidate = undefined;
       }
@@ -5924,14 +6388,17 @@ export class RunExecutionService {
     disclosures: ReadonlyArray<PromptChatsDisclosure>;
   }): Promise<AttemptDigestDisclosure> {
     const { chat, digestCandidate, promptDigestBaseline } = input.prompt;
+
     if (digestCandidate === undefined || promptDigestBaseline === null) {
       return { digestDelta: null };
     }
+
     const disclosed = disclosedRecencyDigestEntries({
       baseline: promptDigestBaseline,
       disclosures: input.disclosures,
       candidates: digestCandidate.candidates,
     });
+
     if (chat.recencyDigestBaseline === null) {
       return {
         recencyDigestInitialization: {
@@ -5941,18 +6408,22 @@ export class RunExecutionService {
         digestDelta: null,
       };
     }
+
     if (chat.recencyDigestTold === null) {
       return { digestDelta: null };
     }
+
     // Prior told state wins over this render: a later append may have told
     // the model a pin change the immutable baseline still contradicts.
     const toldChatIds = new Set(
       chat.recencyDigestTold.map(({ chatId }) => chatId),
     );
+
     const told = [
       ...chat.recencyDigestTold,
       ...disclosed.filter(({ chatId }) => !toldChatIds.has(chatId)),
     ];
+
     return {
       digestDelta: deriveRecencyDigestDelta({
         candidate: digestCandidate,
@@ -5983,7 +6454,9 @@ export class RunExecutionService {
       webSearch: this.webSearch,
       admittedToolIds: input.admittedToolIds,
     };
+
     let rendered: RenderedPrompt;
+
     if (input.chats === null) {
       rendered = this.systemPrompts.render(renderInput);
     } else {
@@ -5996,9 +6469,11 @@ export class RunExecutionService {
         throw new Error('Failed to render system prompt');
       }
     }
+
     if (rendered.text.trim().length === 0) {
       throw new ModelContextExecutionError('System prompt rendered empty.');
     }
+
     return rendered;
   }
 
@@ -6014,14 +6489,18 @@ export class RunExecutionService {
     disclosures: Array<PromptChatsDisclosure>,
   ): Promise<AttemptToolCatalog> {
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
+
     const callTimeoutSeconds =
       this.instanceConfig.config.tools.callTimeoutSeconds;
+
     const codeOwnedCandidates = await this.knowledgeCandidates.resolve({
       tx,
       ownerUserId: input.userId,
       allowedToolRules,
     });
+
     const operatorCandidates = this.mcpRuntime.snapshotCandidates();
+
     const dynamicCandidates =
       workspaceMcpKey !== undefined && this.workspaceMcp !== undefined
         ? this.workspaceMcp.snapshotCandidates(
@@ -6029,6 +6508,7 @@ export class RunExecutionService {
             operatorCandidates,
           )
         : operatorCandidates;
+
     return composeAttemptToolCatalog({
       allowedToolRules,
       callTimeoutSeconds,
@@ -6038,6 +6518,7 @@ export class RunExecutionService {
         if (source.type !== 'code_owned' || !isToolPromptId(id)) {
           return description;
         }
+
         const rendered = this.toolPromptRenderer.render({
           toolId: id,
           model: prompt.model,
@@ -6046,7 +6527,9 @@ export class RunExecutionService {
           chats: prompt.promptDigestBaseline ?? undefined,
           admittedToolIds,
         });
+
         disclosures.push(rendered.chatsDisclosure);
+
         return rendered.text;
       },
     });
@@ -6078,11 +6561,13 @@ export class RunExecutionService {
       attemptId,
       { activeAttemptId: attemptId },
     );
+
     if (!bound) {
       throw new ModelContextExecutionError(
         `Run ${input.runId} was reclaimed before receipt publication.`,
       );
     }
+
     await new SystemPromptReceiptsRepository(tx).create({
       ownerUserId: input.userId,
       runId: input.runId,
@@ -6110,6 +6595,7 @@ export class RunExecutionService {
       input.prompt,
       input.followUp,
     );
+
     // The model switch, the digest supersession marker and the temporal anchor
     // are authored once per accepted turn, by the Run's first dispatch: an
     // earlier dispatch already stored them on the trigger. A follow-up Run
@@ -6119,27 +6605,34 @@ export class RunExecutionService {
     // digest after that dispatch, so its marker is still untold.
     const priorDispatch =
       baseline.ownAvailability !== null || baseline.priorTurnDispatched;
+
     // The model-switch item is the one exception to the keep rule: it names the
     // model of an earlier Run, so the first dispatch of a Regenerate Run
     // compares again and replaces it (turn-actions D8).
     const regenerateFirstDispatch =
       input.input.followUpAction === 'regenerate' &&
       baseline.ownAvailability === null;
+
     const stagedParts: Array<MessagePart> = [];
+
     // A delivered interrupt leads its message with the notice, authored by the
     // segment's first dispatch (run-steering D7).
     if (baseline.ownAvailability === null) {
       const interrupted = await this.deliveredInterrupt(input.tx, input.input);
+
       if (interrupted !== undefined) stagedParts.push(interrupted);
     }
+
     if (!priorDispatch || regenerateFirstDispatch) {
       const modelChange = this.deriveModelChangeItem(
         baseline,
         input.input,
         input.prompt,
       );
+
       if (modelChange !== undefined) stagedParts.push(modelChange);
     }
+
     // The notice a Regenerate owes the turn follows the switch that names the
     // model making the new attempt. Admission decided once per turn and recorded
     // the answer in `run.created`, so every attempt reads the same value; its
@@ -6149,32 +6642,39 @@ export class RunExecutionService {
       regenerateFirstDispatch &&
       (await readCreatedFlags(input.tx, input.input.runId, input.input.userId))
         .notice;
+
     if (owesNotice) {
       stagedParts.push(
         createRegenerateNoticeItem({ runId: input.input.runId }),
       );
     }
+
     const availability = deriveAttemptAvailabilityItem({
       runId: input.input.runId,
       baseline,
       manifest: input.effectiveContext.availabilityManifest,
       afterPublication: input.afterPublication,
     });
+
     if (availability !== undefined) stagedParts.push(availability);
+
     const workspaceContext = this.deriveWorkspaceContext({
       runId: input.input.runId,
       chat: input.prompt.chat,
       latestCheckpointId: input.prompt.checkpoint?.id ?? null,
       machine: input.machine,
     });
+
     stagedParts.push(...workspaceContext.parts);
     const workspaceWrites = workspaceContext.writes;
     // Workspace items are rail-only and precede the skill catalog notice.
     // Their text never enters the system prompt.
     const skillNotice = input.prompt.skillState.notice;
+
     if (skillNotice !== undefined) {
       stagedParts.push(skillNotice.item);
     }
+
     stagedParts.push(
       ...deriveRecencyDigestItems({
         baseline,
@@ -6183,6 +6683,7 @@ export class RunExecutionService {
         markerUntold: !priorDispatch || input.afterPublication,
       }),
     );
+
     if (!priorDispatch) {
       stagedParts.push(
         createTemporalItem({
@@ -6192,6 +6693,7 @@ export class RunExecutionService {
         }),
       );
     }
+
     return {
       stagedParts,
       placement: priorDispatch ? 'append' : 'rank',
@@ -6217,6 +6719,7 @@ export class RunExecutionService {
     // latest segment that did, so only a request after the latest delivery
     // makes this attempt a retry (run-steering D3).
     const segment = await currentSegmentState(tx, run.runId, run.userId);
+
     // An earlier attempt of this segment dispatched when its dispatch
     // transaction wrote the Run's availability record (`[]` included). Its
     // items stay on the trigger and its told state has advanced, so this
@@ -6226,6 +6729,7 @@ export class RunExecutionService {
       ? ((await runsRepo.findById(run.runId, run.userId))
           ?.turnToolAvailability ?? null)
       : null;
+
     // Model selection is established by any reply, failed and checkpointed
     // ones included (design D5): a failed reply's switch item was stored at its
     // dispatch, and a checkpoint can absorb every earlier reply.
@@ -6251,6 +6755,7 @@ export class RunExecutionService {
           beforeSeq: run.userMessage.seq,
         })
       : undefined;
+
     const previousDispatched = followUp
       ? await runsRepo.findDispatchedBaselineForTurn(run.chatId, run.userId, {
           messageId: run.userMessage.id,
@@ -6279,6 +6784,7 @@ export class RunExecutionService {
       (prompt.checkpoint !== undefined &&
         prompt.checkpoint.absorbedThroughSeq >=
           previousDispatched.triggeringUserSeq);
+
     return {
       ownAvailability,
       previousReplyModelId,
@@ -6299,6 +6805,7 @@ export class RunExecutionService {
     prompt: AttemptPromptContext,
   ): MessagePart | undefined {
     const { previousReplyModelId } = baseline;
+
     // Compared with the catalog id the item names as the new model, so a
     // notice is authored only when the two ids it states actually differ.
     if (
@@ -6307,6 +6814,7 @@ export class RunExecutionService {
     ) {
       return undefined;
     }
+
     // The reply records the selected id alone, and the body names the model
     // that id belonged to, so it is resolved against the operator catalog this
     // service already reads at construction. A model the catalog no longer
@@ -6314,6 +6822,7 @@ export class RunExecutionService {
     const previousModel = this.instanceConfig.config.models.find(
       (model) => model.id === previousReplyModelId,
     );
+
     return createModelChangeItem({
       oldModel: previousModel ?? { id: previousReplyModelId },
       newModel: prompt.model,
@@ -6329,15 +6838,19 @@ export class RunExecutionService {
   }): WorkspaceStagedContext {
     const currentRoot = input.chat.workspaceRoot;
     const latestCheckpointId = input.latestCheckpointId;
+
     const toldRoot =
       input.chat.workspaceToldFrom === latestCheckpointId
         ? input.chat.workspaceTold
         : null;
+
     const rawDetachReason = input.chat.workspaceDetachReason;
+
     const detachReason =
       rawDetachReason !== null && isWorkspaceDetachReason(rawDetachReason)
         ? rawDetachReason
         : null;
+
     const parts: Array<MessagePart> = [];
     let writes: WorkspaceWrites | undefined;
     let toldAvailable: boolean | undefined;
@@ -6358,15 +6871,18 @@ export class RunExecutionService {
         clearDetachReason: detachReason !== null,
       };
     }
+
     // One narration per availability transition: the state the Chat was last
     // told about against the one this attempt decided. A removed Machine is
     // the detach notice's story, not this one.
     const machine = input.machine;
+
     const narration = machineAvailabilityNarration({
       runId: input.runId,
       machine,
       toldAvailable: input.chat.workspaceToldAvailable,
     });
+
     if (narration !== undefined) {
       parts.push(narration.part);
       toldAvailable = narration.available;
@@ -6376,6 +6892,7 @@ export class RunExecutionService {
         clearDetachReason: false,
       };
     }
+
     if (detachReason !== null) {
       parts.push(
         createWorkspaceDetachNoticeItem({
@@ -6390,6 +6907,7 @@ export class RunExecutionService {
         clearDetachReason: true,
       };
     }
+
     return {
       parts,
       ...(writes !== undefined && {
@@ -6422,6 +6940,7 @@ export class RunExecutionService {
     },
   ): Promise<void> {
     const { run, context } = input;
+
     // Reassigning the identical UUID is a deliberate no-op that still makes a
     // stale attempt return no row. The record is written even when it is `[]`:
     // it is what marks this Run as dispatched (design D11).
@@ -6436,13 +6955,16 @@ export class RunExecutionService {
         ),
       },
     );
+
     if (!fenced) throw new RunNotRunnableError(run.runId);
+
     // A cancellation recorded where no abort reached this worker (another
     // process, or a delivery between two segments) ends the Run before the
     // request goes out.
     if (fenced.cancelRequestedAt !== null) {
       throw new CancellationRecordedError(run.runId);
     }
+
     const stored = await new AcceptedTurnPartsRepository(tx).storeAtDispatch({
       id: run.userMessage.id,
       chatId: run.chatId,
@@ -6450,9 +6972,11 @@ export class RunExecutionService {
       placement: context.placement,
       removeModelSwitch: context.removesModelSwitch,
     });
+
     // The chat was deleted out from under a claimed run; executing past that
     // would send a request on behalf of a run nobody can see.
     if (!stored.applied) throw new RunNotRunnableError(run.runId);
+
     // The reset drops an earlier attempt's output and in-Run items together.
     const reply = await new RunningReplyRepository(tx).upsertRunningReply({
       chatId: run.chatId,
@@ -6466,8 +6990,10 @@ export class RunExecutionService {
       }),
       followUpAction: run.followUpAction ?? null,
     });
+
     if (!reply) throw new ReplyAlreadyCompletedError(run.runId);
     const chatsRepo = new ChatsRepository(tx);
+
     if (context.recencyDigestTold !== undefined) {
       await chatsRepo.updateRecencyDigestTold(
         run.chatId,
@@ -6475,6 +7001,7 @@ export class RunExecutionService {
         context.recencyDigestTold,
       );
     }
+
     if (context.skillCatalogNoticeTold !== undefined) {
       await chatsRepo.updateSkillCatalogTold(
         run.chatId,
@@ -6482,6 +7009,7 @@ export class RunExecutionService {
         context.skillCatalogNoticeTold,
       );
     }
+
     if (context.workspaceWrites !== undefined) {
       await new WorkspaceBindingRepository(tx).setTold({
         chatId: run.chatId,
@@ -6494,6 +7022,7 @@ export class RunExecutionService {
         }),
       });
     }
+
     // `model.requested` describes the target inference, not the summary
     // inference that may have preceded it.
     await new RunEventsRepository(tx).append(run.runId, 'model.requested', {
@@ -6525,6 +7054,7 @@ export class RunExecutionService {
         attemptId,
         { activeAttemptId: attemptId },
       );
+
       const stored =
         fenced !== undefined &&
         (await new RunningReplyRepository(tx).updateRunningReplyParts({
@@ -6533,6 +7063,7 @@ export class RunExecutionService {
           attemptId,
           parts,
         }));
+
       if (!stored) throw new RunNotRunnableError(input.runId);
     });
   }
@@ -6549,6 +7080,7 @@ function triggerRefCount(parts: ReadonlyArray<unknown>): number {
       isContextItemPart(part) ? count + promptImportMarkerCount(part) : count,
     0,
   );
+
   return fileMediaIds(parts).length + imports;
 }
 
@@ -6571,6 +7103,7 @@ function settleRetainedMedia(input: {
   readonly used: number;
 }): RetainedSettlement {
   const { retainedMedia, toolCallId, used } = input;
+
   if (
     input.toolName !== 'read' ||
     input.origin !== undefined ||
@@ -6578,12 +7111,16 @@ function settleRetainedMedia(input: {
   ) {
     return { used };
   }
+
   const entry = retainedMedia.get(toolCallId);
+
   if (entry === undefined) return { used };
   const settled = boundRetained(entry, used);
+
   if (settled.record !== undefined && 'exceeded' in settled.record) {
     retainedMedia.set(toolCallId, exceededEntry(entry));
   }
+
   return settled;
 }
 
@@ -6598,6 +7135,7 @@ function retainedReadRef(
   ref: ReadMediaRef | undefined,
 ): ToolMediaRef | undefined {
   if (ref === undefined || !isUnstoredMedia(ref)) return ref;
+
   return retainedMedia.has(toolCallId)
     ? { ...ref, key: toolCallId }
     : undefined;
@@ -6615,12 +7153,14 @@ function requestMessages(
   keptMessages: ReadonlyArray<ModelRequestContext['messages'][number]>,
 ): Array<ModelRequestContext['messages'][number]> {
   if (context.triggerParts === undefined) return context.messages;
+
   // A dispatch that replaces the model-switch item drops the stored one from
   // the request as well as from the row, so the model reads one switch item
   // (turn-actions D8).
   const triggerParts = context.removesModelSwitch
     ? context.triggerParts.filter((part) => !isModelSwitchItem(part))
     : context.triggerParts;
+
   const messages = [...context.messages];
   messages[messages.length - 1] = {
     role: 'user',
@@ -6632,6 +7172,7 @@ function requestMessages(
       ),
     ),
   };
+
   return [...messages, ...keptMessages];
 }
 
@@ -6646,7 +7187,9 @@ function stagedContextTexts(
   return stagedParts.flatMap((part) => {
     if (!isContextItemPart(part)) return [];
     const text = part.data.text;
+
     if (text === undefined || text.length === 0) return [];
+
     return [{ type: 'text' as const, text }];
   });
 }
@@ -6665,11 +7208,13 @@ function deriveAttemptAvailabilityItem(input: {
 }): MessagePart | undefined {
   const { ownAvailability, previousDispatched, startsEpoch } = input.baseline;
   let previous: Array<TurnToolAvailabilityEntry> | undefined;
+
   if (ownAvailability !== null && !input.afterPublication) {
     previous = ownAvailability;
   } else if (!startsEpoch) {
     previous = previousDispatched?.run.turnToolAvailability ?? undefined;
   }
+
   const payload =
     previous === undefined
       ? deriveToolAvailabilityPayload({ current: input.manifest })
@@ -6677,6 +7222,7 @@ function deriveAttemptAvailabilityItem(input: {
           current: input.manifest,
           previous,
         });
+
   return payload
     ? createToolAvailabilityItem({ runId: input.runId, payload })
     : undefined;
@@ -6696,12 +7242,14 @@ function deriveRecencyDigestItems(input: {
 }): Array<MessagePart> {
   const { baseline, runId, prompt } = input;
   const items: Array<MessagePart> = [];
+
   // The marker reports the re-bake to the first attempt that can dispatch
   // after it — the new epoch's first turn — so it rides the same boundary.
   const digestRebaked =
     input.markerUntold &&
     baseline.startsEpoch &&
     prompt.chat.recencyDigestRebakedFrom === prompt.checkpoint?.id;
+
   if (
     digestRebaked &&
     prompt.chat.recencyDigestBaseline !== null &&
@@ -6709,6 +7257,7 @@ function deriveRecencyDigestItems(input: {
   ) {
     items.push(createRecencyDigestSupersessionItem({ runId }));
   }
+
   if (prompt.digestDelta) {
     items.push(
       createRecencyDigestDeltaItem({
@@ -6720,6 +7269,7 @@ function deriveRecencyDigestItems(input: {
       }),
     );
   }
+
   return items;
 }
 

@@ -58,6 +58,7 @@ const config: StorybookConfig = {
     configurePreBundledStoryDeps(config);
     configureWebAlias(config, webRoot);
     configureBrowserNodeGlobals(config);
+
     return config;
   },
 };
@@ -189,12 +190,14 @@ function configureWebAlias(config: ViteFinalConfig, webRoot: string): void {
   // so existing entries are preserved. The record form's index signature
   // already types `replacement` as `string` — no cast needed.
   const existingAlias = config.resolve.alias;
+
   const aliasArray = Array.isArray(existingAlias)
     ? existingAlias
     : Object.entries(existingAlias ?? {}).map(([find, replacement]) => ({
         find,
         replacement,
       }));
+
   config.resolve.alias = [
     ...aliasArray,
     { find: /^@\//, replacement: `${webRoot}/` },

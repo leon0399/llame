@@ -41,7 +41,9 @@ export function deriveSkillCatalogDelta(input: {
   const advertisedNames = new Set(input.advertised.map((entry) => entry.name));
   const added = input.advertised.filter((entry) => !toldNames.has(entry.name));
   const removed = input.told.filter((name) => !advertisedNames.has(name));
+
   if (added.length === 0 && removed.length === 0) return null;
+
   return {
     added,
     removed,
@@ -63,6 +65,7 @@ export function skillCatalogDeltaFits(delta: SkillCatalogDelta): boolean {
   if (delta.added.length + delta.removed.length > SKILL_BASELINE_MAX_ENTRIES) {
     return false;
   }
+
   const bytes = [
     ...delta.added,
     ...delta.removed.map((name) => ({ name, description: '' })),
@@ -73,6 +76,7 @@ export function skillCatalogDeltaFits(delta: SkillCatalogDelta): boolean {
       Buffer.byteLength(entry.description, 'utf8'),
     0,
   );
+
   return bytes <= SKILL_BASELINE_MAX_BYTES;
 }
 

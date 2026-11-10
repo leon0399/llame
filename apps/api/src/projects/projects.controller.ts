@@ -64,6 +64,7 @@ export class ProjectsController {
     @Body() input: CreateProjectDto,
   ): Promise<ProjectResponse> {
     const project = await this.projectsService.createProject(userId, input);
+
     return toProjectResponse(project);
   }
 
@@ -76,6 +77,7 @@ export class ProjectsController {
     @Query() query: ListProjectsQueryDto,
   ): Promise<Array<ProjectResponse>> {
     const list = await this.projectsService.listProjects(userId, query);
+
     return list.map(toProjectResponse);
   }
 
@@ -91,6 +93,7 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ProjectResponse> {
     const project = await this.projectsService.getProjectById(id, userId);
+
     if (!project) {
       throw new NotFoundException(`Project ${id} not found`);
     }
@@ -117,6 +120,7 @@ export class ProjectsController {
     @Body() input: UpdateProjectDto,
   ): Promise<ProjectResponse> {
     const project = await this.projectsService.updateProject(id, userId, input);
+
     if (!project) {
       throw new NotFoundException(`Project ${id} not found`);
     }
@@ -139,6 +143,7 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     const deleted = await this.projectsService.deleteProject(id, userId);
+
     if (!deleted) {
       throw new NotFoundException(`Project ${id} not found`);
     }
@@ -165,6 +170,7 @@ export class ProjectsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<Array<ProjectRepositoryLinkWithDefaultsResponse>> {
     const rows = await this.projectsService.listProjectRepositories(userId, id);
+
     return rows.map(({ link, defaults }) =>
       toProjectRepositoryLinkWithDefaultsResponse(link, defaults),
     );
@@ -267,6 +273,7 @@ export class ProjectsController {
       id,
       query,
     );
+
     return { projectId: id, ...location };
   }
 }

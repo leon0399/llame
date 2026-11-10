@@ -20,8 +20,10 @@ function attachmentViews(parts: UIMessage["parts"]) {
   parts.forEach((part, index) => {
     if (part.type !== "file") return;
     const sources = storedImageSources(part.url);
+
     if (sources === null) return;
     const key = String(index);
+
     if (part.mediaType.startsWith("image/")) {
       const alt = part.filename ?? "Attached image";
       items.push({ key, kind: "image", src: sources.thumbnail, alt });
@@ -35,6 +37,7 @@ function attachmentViews(parts: UIMessage["parts"]) {
       });
     }
   });
+
   return { items, slides };
 }
 
@@ -48,9 +51,12 @@ function attachmentViews(parts: UIMessage["parts"]) {
  *  nothing to load and are skipped. */
 export function MessageAttachments({ message }: { message: UIMessage }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
+
   if (message.role !== "user") return null;
   const { items, slides } = attachmentViews(message.parts);
+
   if (items.length === 0) return null;
+
   return (
     <>
       <MediaThumbnailRow

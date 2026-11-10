@@ -65,6 +65,7 @@ const created: Array<string> = [];
 function tempDirectory(prefix = 'checkout-api-'): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   created.push(directory);
+
   return directory;
 }
 
@@ -86,15 +87,18 @@ function repository(options: { readonly remote?: string } = {}): string {
   writeFileSync(join(directory, 'README.md'), 'readme\n');
   runGit(directory, ['add', 'README.md']);
   runGit(directory, ['commit', '--quiet', '--message', 'first']);
+
   if (options.remote !== undefined) {
     runGit(directory, ['remote', 'add', 'origin', options.remote]);
   }
+
   return directory;
 }
 
 function linkedWorktree(main: string, branch: string): string {
   const target = join(tempDirectory('checkout-worktree-'), branch);
   runGit(main, ['worktree', 'add', '--quiet', '-b', branch, target]);
+
   return target;
 }
 
@@ -107,16 +111,19 @@ const ALLOW_TMP: PermissionGroup = {
 };
 
 const idSchema = z.object({ id: z.guid() });
+
 const failureSchema = z.looseObject({
   statusCode: z.number(),
   code: z.string(),
   message: z.string(),
 });
+
 const repositorySchema = z.looseObject({
   id: z.guid(),
   displayName: z.string(),
   canonicalRemote: z.string().nullable(),
 });
+
 const checkoutSchema = z.looseObject({
   id: z.guid(),
   repositoryId: z.guid(),
@@ -161,6 +168,7 @@ async function boot(options: BootOptions): Promise<Harness> {
     .useValue({ assertReady: () => Promise.resolve() })
     .overrideProvider(InstanceConfigService)
     .useValue({ config: { ...BUILT_IN_DEFAULTS, tools: options.tools } });
+
   if (options.inspect !== undefined) {
     const { inspect } = options;
     builder.overrideProvider(LOCAL_GIT).useValue({
@@ -168,15 +176,19 @@ async function boot(options: BootOptions): Promise<Harness> {
       inspect: (input: { readonly path: string }) => inspect(input.path),
     });
   }
+
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
   configureApp(app);
   await app.listen(0);
   const server: unknown = app.getHttpServer();
+
   if (!isHttpServer(server)) {
     throw new Error('Expected Nest to expose a Node HTTP server');
   }
+
   const http = server;
+
   const registered = await request(http)
     .post('/auth/v1/register')
     .send({
@@ -184,8 +196,10 @@ async function boot(options: BootOptions): Promise<Harness> {
       password: 'password123',
       name: 'Checkout owner',
     });
+
   const body: unknown = registered.body;
   expectRegisteredUserId(body);
+
   return { app, http, cookie: cookieOf(registered), userId: body.user.id };
 }
 
@@ -246,10 +260,12 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       chatIds: [],
       leaseChatId: null,
     });
+
     const repositories = await request(harness.http)
       .get('/api/v1/repositories')
       .set('Cookie', harness.cookie)
       .expect(200);
+
     const catalog = z.array(repositorySchema).parse(repositories.body);
     expect(catalog).toHaveLength(1);
     expect(catalog[0]).toMatchObject({
@@ -264,10 +280,12 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     const response = await post({ path: clone }).expect(409);
 
     expect(response.body).toMatchObject({ code: 'path_taken' });
+
     const list = await request(harness.http)
       .get('/api/v1/checkouts')
       .set('Cookie', harness.cookie)
       .expect(200);
+
     expect(list.body).toHaveLength(1);
   });
 
@@ -287,18 +305,23 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
 
   it('refuses to delete a repository or a main row while worktrees remain', async () => {
     const guarded = repository();
+
     const guardedMain = checkoutSchema.parse(
       (await post({ path: guarded }).expect(201)).body,
     );
+
     const childPaths = ['guarded-one', 'guarded-two'].map((branch) =>
       linkedWorktree(guarded, branch),
     );
+
     const children: Array<z.infer<typeof checkoutSchema>> = [];
+
     for (const path of childPaths) {
       children.push(
         checkoutSchema.parse((await post({ path }).expect(201)).body),
       );
     }
+
     const listed = () =>
       request(harness.http)
         .get(`/api/v1/checkouts?repositoryId=${guardedMain.repositoryId}`)
@@ -309,6 +332,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .delete(`/api/v1/repositories/${guardedMain.repositoryId}`)
       .set('Cookie', harness.cookie)
       .expect(409);
+
     expect(failureSchema.parse(refusedRepository.body)).toMatchObject({
       statusCode: 409,
       code: 'worktrees_present',
@@ -320,6 +344,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .delete(`/api/v1/checkouts/${guardedMain.id}`)
       .set('Cookie', harness.cookie)
       .expect(409);
+
     expect(failureSchema.parse(refusedMain.body)).toMatchObject({
       code: 'worktrees_present',
     });
@@ -330,6 +355,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .parse((await listed()).body)
       .map((row) => row.id)
       .sort();
+
     expect(survivors).toEqual(
       [guardedMain.id, ...children.map((row) => row.id)].sort(),
     );
@@ -341,6 +367,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         .set('Cookie', harness.cookie)
         .expect(204);
     }
+
     await request(harness.http)
       .delete(`/api/v1/checkouts/${guardedMain.id}`)
       .set('Cookie', harness.cookie)
@@ -361,12 +388,14 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         remote: 'https://github.com/leon0399/other',
       })
       .expect(201);
+
     const declared = idSchema.parse(other.body);
 
     const mismatch = await post({
       path: repository({ remote: 'git@github.com:leon0399/llame.git' }),
       repositoryId: declared.id,
     }).expect(422);
+
     expect(mismatch.body).toMatchObject({ code: 'origin_mismatch' });
   });
 
@@ -379,10 +408,12 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .get('/api/v1/repositories')
       .set('Cookie', harness.cookie)
       .expect(200);
+
     const adopted = z
       .array(repositorySchema)
       .parse(repositories.body)
       .find((row) => row.id === registered.repositoryId);
+
     expect(adopted).toMatchObject({
       displayName: join(bare).split('/').at(-1),
       canonicalRemote: null,
@@ -398,6 +429,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         remote: 'https://github.com/leon0399/llame-alias-new',
       })
       .expect(201);
+
     const aliased = idSchema.parse(target.body);
     await request(harness.http)
       .post(`/api/v1/repositories/${aliased.id}/aliases`)
@@ -457,6 +489,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .set('Cookie', harness.cookie)
       .send({ worktreeBase: '/tmp/llame-trees' })
       .expect(200);
+
     expect(updated.body).toMatchObject({ worktreeBase: '/tmp/llame-trees' });
 
     const relative = await request(harness.http)
@@ -464,6 +497,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .set('Cookie', harness.cookie)
       .send({ worktreeBase: 'trees/llame' })
       .expect(422);
+
     expect(relative.body).toMatchObject({ code: 'invalid_worktree_base' });
 
     const otherExecutor = await request(harness.http)
@@ -471,6 +505,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .set('Cookie', harness.cookie)
       .send({ worktreeBase: 'machine://nas/srv/trees' })
       .expect(422);
+
     expect(otherExecutor.body).toMatchObject({ code: 'invalid_worktree_base' });
 
     const worktreeRow = await request(harness.http)
@@ -478,6 +513,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .set('Cookie', harness.cookie)
       .send({ worktreeBase: '/tmp/trees' })
       .expect(422);
+
     expect(worktreeRow.body).toMatchObject({ code: 'invalid_worktree_base' });
   });
 
@@ -488,6 +524,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     const second = crypto.randomUUID();
     await sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${harness.userId}, true)`;
+
       for (const [chatId, root] of [
         [first, clone],
         [second, clone],
@@ -497,6 +534,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         await tx`INSERT INTO chats (id, owner_user_id, title, workspace_root)
                   VALUES (${chatId}, ${harness.userId}, 'bound', ${root})`;
       }
+
       await tx`INSERT INTO worktree_leases (owner_user_id, chat_id, checkout_id, base_ref, base_commit)
                 VALUES (${harness.userId}, ${leased}, ${worktreeCheckoutId}, 'main', ${LEASE_BASE_COMMIT})`;
     });
@@ -527,13 +565,16 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         permissions: { enter_workspace: ALLOW_TMP },
       }),
     });
+
     try {
       const foreignCookie = foreign.cookie;
+
       const read = await request(foreign.http)
         .patch(`/api/v1/repositories/${repositoryId}`)
         .set('Cookie', foreignCookie)
         .send({ displayName: 'hijacked' })
         .expect(404);
+
       expect(read.body).toMatchObject({ code: 'not_found' });
       await request(foreign.http)
         .delete(`/api/v1/repositories/${repositoryId}`)
@@ -548,11 +589,13 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         .delete(`/api/v1/checkouts/${mainCheckoutId}`)
         .set('Cookie', foreignCookie)
         .expect(404);
+
       const selector = await request(foreign.http)
         .post('/api/v1/checkouts')
         .set('Cookie', foreignCookie)
         .send({ path: repository(), repositoryId })
         .expect(404);
+
       expect(selector.body).toMatchObject({ code: 'not_found' });
 
       // The owner's rows are untouched by any of it.
@@ -560,6 +603,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);
+
       expect(
         z.array(checkoutSchema).parse(mine.body).length,
       ).toBeGreaterThanOrEqual(3);
@@ -574,8 +618,10 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .set('Cookie', harness.cookie)
       .send({ displayName: 'scratch' })
       .expect(201);
+
     const scratch = repository();
     const scratchRepository = idSchema.parse(beyond.body);
+
     const created2 = checkoutSchema.parse(
       (
         await post({
@@ -591,10 +637,12 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .expect(204);
 
     expect(existsSync(scratch)).toBe(true);
+
     const list = await request(harness.http)
       .get(`/api/v1/checkouts?repositoryId=${scratchRepository.id}`)
       .set('Cookie', harness.cookie)
       .expect(200);
+
     expect(list.body).toEqual([]);
   });
 
@@ -606,6 +654,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     const registered = checkoutSchema.parse(
       (await post({ path: subdirectory }).expect(201)).body,
     );
+
     expect(registered).toMatchObject({
       path: parent,
       kind: 'main',
@@ -618,9 +667,11 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
 
   it('keeps a remote-less worktree under the repository of its main row', async () => {
     const main = repository();
+
     const mainRow = checkoutSchema.parse(
       (await post({ path: main }).expect(201)).body,
     );
+
     const worktree = linkedWorktree(main, 'remote-less-feature');
 
     const registered = checkoutSchema.parse(
@@ -661,6 +712,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       post({ path: first }),
       post({ path: second }),
     ]);
+
     expect([a.status, b.status]).toEqual([201, 201]);
     const firstRow = checkoutSchema.parse(a.body);
     const secondRow = checkoutSchema.parse(b.body);
@@ -676,6 +728,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
             .expect(200)
         ).body,
       );
+
     expect(
       catalog.filter(
         (row) => row.canonicalRemote === `github.com/leon0399/${slug}`,
@@ -693,6 +746,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       post({ path: first }),
       post({ path: second }),
     ]);
+
     expect([a.status, b.status]).toEqual([201, 201]);
     const firstRow = checkoutSchema.parse(a.body);
     const secondRow = checkoutSchema.parse(b.body);
@@ -709,6 +763,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
             .expect(200)
         ).body,
       );
+
     expect(rows.filter((row) => row.kind === 'main')).toHaveLength(1);
   });
 
@@ -719,14 +774,17 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       post({ path: clone }),
       post({ path: clone }),
     ]);
+
     const statuses = responses
       .map((response) => response.status)
       .sort((a, b) => a - b);
+
     expect(statuses).toEqual([201, 409]);
 
     const created = checkoutSchema.parse(
       responses.find((response) => response.status === 201)?.body,
     );
+
     const rows = z
       .array(checkoutSchema)
       .parse(
@@ -737,6 +795,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
             .expect(200)
         ).body,
       );
+
     expect(rows).toHaveLength(1);
   });
 });
@@ -744,6 +803,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
 describe('checkout registration gates', () => {
   it('refuses a local path on a process without a native executor', async () => {
     const inspect = vi.fn();
+
     const harness = await boot({
       tools: tools({
         nativeExecutorId: undefined,
@@ -752,18 +812,22 @@ describe('checkout registration gates', () => {
       }),
       inspect,
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .send({ path: repository() })
         .expect(503);
+
       expect(response.body).toMatchObject({ code: 'executor_unavailable' });
       expect(inspect).not.toHaveBeenCalled();
+
       const list = await request(harness.http)
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);
+
       expect(list.body).toEqual([]);
     } finally {
       await harness.app.close();
@@ -772,6 +836,7 @@ describe('checkout registration gates', () => {
 
   it('requires the enter_workspace allowlist entry before any git call', async () => {
     const inspect = vi.fn();
+
     const harness = await boot({
       tools: tools({
         nativeExecutorId: 'test-host',
@@ -780,12 +845,14 @@ describe('checkout registration gates', () => {
       }),
       inspect,
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .send({ path: repository() })
         .expect(403);
+
       expect(response.body).toMatchObject({ code: 'tool_not_allowed' });
       expect(inspect).not.toHaveBeenCalled();
     } finally {
@@ -797,6 +864,7 @@ describe('checkout registration gates', () => {
   // submitted-path decision came first.
   it('decides the submitted path before probing it, and starts no git call', async () => {
     const inspect = vi.fn();
+
     const harness = await boot({
       tools: tools({
         nativeExecutorId: 'test-host',
@@ -807,12 +875,14 @@ describe('checkout registration gates', () => {
       }),
       inspect,
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .send({ path: join(tmpdir(), `unallowed-${crypto.randomUUID()}`) })
         .expect(403);
+
       expect(response.body).toMatchObject({ code: 'permission_denied' });
       expect(inspect).not.toHaveBeenCalled();
     } finally {
@@ -822,6 +892,7 @@ describe('checkout registration gates', () => {
 
   it('refuses a rejected main clone behind an allowed subdirectory', async () => {
     const clone = repository();
+
     const harness = await boot({
       tools: tools({
         nativeExecutorId: 'test-host',
@@ -834,14 +905,17 @@ describe('checkout registration gates', () => {
         },
       }),
     });
+
     try {
       const subdirectory = join(clone, 'nested');
       mkdirSync(subdirectory);
+
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .send({ path: subdirectory })
         .expect(403);
+
       expect(response.body).toMatchObject({ code: 'permission_denied' });
     } finally {
       await harness.app.close();
@@ -851,6 +925,7 @@ describe('checkout registration gates', () => {
   it('refuses a rejected main clone behind an allowed linked worktree', async () => {
     const main = repository();
     const worktree = linkedWorktree(main, 'allowed');
+
     const harness = await boot({
       tools: tools({
         nativeExecutorId: 'test-host',
@@ -863,12 +938,14 @@ describe('checkout registration gates', () => {
         },
       }),
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .send({ path: worktree })
         .expect(403);
+
       expect(response.body).toMatchObject({ code: 'permission_denied' });
     } finally {
       await harness.app.close();
@@ -889,6 +966,7 @@ describe('checkout registration gates', () => {
           stderr: 'git did not finish',
         }),
     });
+
     const failed = await boot({
       tools: tools({
         nativeExecutorId: 'test-host',
@@ -902,13 +980,16 @@ describe('checkout registration gates', () => {
           stderr: 'fatal: bad object HEAD',
         }),
     });
+
     try {
       const path = repository();
+
       const timeout = await request(timedOut.http)
         .post('/api/v1/checkouts')
         .set('Cookie', timedOut.cookie)
         .send({ path })
         .expect(502);
+
       expect(timeout.body).toMatchObject({ code: 'git_failed' });
 
       const failure = await request(failed.http)
@@ -916,6 +997,7 @@ describe('checkout registration gates', () => {
         .set('Cookie', failed.cookie)
         .send({ path })
         .expect(502);
+
       const failureBody = failureSchema.parse(failure.body);
       expect(failureBody.code).toBe('git_failed');
       expect(failureBody.message).toContain('fatal: bad object HEAD');
@@ -924,6 +1006,7 @@ describe('checkout registration gates', () => {
         .get('/api/v1/checkouts')
         .set('Cookie', failed.cookie)
         .expect(200);
+
       expect(list.body).toEqual([]);
     } finally {
       await timedOut.app.close();

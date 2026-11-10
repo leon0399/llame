@@ -34,6 +34,7 @@ function admission(
   } = {},
 ) {
   const toolContext = context(map, { permissionMode: options.mode });
+
   return modelGitAdmission({
     readAllowlisted: options.readAllowlisted ?? true,
     admitsRead: (path) =>
@@ -88,6 +89,7 @@ describe('modelGitAdmission', () => {
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', regex: DOT_GIT }] },
     };
+
     const check = admission(map);
 
     expect(check('/home/user/Projects/monorepo/.git')).toBe(false);
@@ -117,6 +119,7 @@ describe('modelGitAdmission', () => {
         reject: [{ field: 'path', literal: '/home/dev/main/.git' }],
       },
     };
+
     const check = admission(map);
 
     expect(check('/home/dev/worktrees/w/.git')).toBe(true);
@@ -128,10 +131,12 @@ describe('modelGitAdmission', () => {
       bash: { allow: [{ field: 'command', regex: '^git status$' }] },
       read: { allow: true, reject: [{ field: 'path', regex: DOT_GIT }] },
     };
+
     const bashRejectsGit: ToolPermissionMap = {
       bash: { allow: true, reject: [{ field: 'command', regex: '^git' }] },
       read: { allow: true },
     };
+
     const bashOnly: ToolPermissionMap = {
       bash: { allow: true },
     };

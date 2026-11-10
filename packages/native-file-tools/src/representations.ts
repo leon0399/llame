@@ -25,5 +25,6 @@ export function outlineReader(mediaType: string | undefined): OutlineReader {
   for (const [type, reader] of Object.entries(OUTLINE_READERS)) {
     if (type === mediaType) return reader;
   }
+
   throw new NativeFileError("invalid_selector", OUTLINE_UNSUPPORTED_MESSAGE);
 }

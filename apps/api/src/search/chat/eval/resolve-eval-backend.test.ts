@@ -13,6 +13,7 @@ describe('resolveSecret', () => {
 
   beforeEach(() => {
     originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+
     for (const k of ENV_KEYS) delete process.env[k];
     tmpDir = mkdtempSync(path.join(tmpdir(), 'llame-eval-secret-'));
   });

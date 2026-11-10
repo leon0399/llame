@@ -268,6 +268,7 @@ describe('MCP Streamable HTTP test fixture', () => {
   it('scripts delayed errors, oversized JSON, and oversized SSE events', async () => {
     const oversizedJson = 'j'.repeat(ONE_MIB + 1);
     const oversizedSse = 's'.repeat(ONE_MIB + 1);
+
     const actions: Array<McpFixtureResponse> = [
       {
         kind: 'raw',
@@ -281,6 +282,7 @@ describe('MCP Streamable HTTP test fixture', () => {
         events: [{ id: '1', data: oversizedSse, rawData: true }],
       },
     ];
+
     const fixture = await createMcpTestFixture({ 'tools/call': actions });
 
     try {
@@ -329,6 +331,7 @@ describe('MCP Streamable HTTP test fixture', () => {
           },
         ],
       });
+
       try {
         await rpc(callFirst.url, 'tools/call');
         expect(callToolRequestIndex(callFirst)).toBe(0);
@@ -339,6 +342,7 @@ describe('MCP Streamable HTTP test fixture', () => {
       const noCalls = await createMcpTestFixture({
         initialize: [mcpStreamableHttpInitialize({ sessionId: 'session' })],
       });
+
       try {
         await rpc(noCalls.url, 'initialize');
         expect(() => callToolRequestIndex(noCalls)).toThrow(

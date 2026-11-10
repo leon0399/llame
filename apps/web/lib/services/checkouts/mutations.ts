@@ -50,6 +50,7 @@ export async function registerCheckout(
 
 export function useRegisterCheckout() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: registerCheckout,
     onSuccess: () => {
@@ -68,6 +69,7 @@ export async function removeCheckoutWorktree(id: string): Promise<void> {
 
 export function useRemoveCheckoutWorktree() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: removeCheckoutWorktree,
     onSuccess: () => {

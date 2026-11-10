@@ -34,6 +34,7 @@ async function sshdListens(container: StartedTestContainer): Promise<boolean> {
     '-c',
     'exec 3<>/dev/tcp/127.0.0.1/22',
   ]);
+
   return probe.exitCode === 0;
 }
 
@@ -46,10 +47,12 @@ export async function startForRestart(
 ): Promise<void> {
   execFileSync('docker', ['start', container.getId()], { stdio: 'ignore' });
   const deadline = Date.now() + SSHD_STARTUP_MS;
+
   while (Date.now() < deadline) {
     if (await sshdListens(container)) return;
     await delay(SSHD_POLL_MS);
   }
+
   throw new Error(
     `${container.getName()} did not serve sshd within ${String(SSHD_STARTUP_MS)}ms of starting.`,
   );
@@ -61,6 +64,7 @@ export async function ensureRunning(
 ): Promise<void> {
   try {
     await container.exec(['true']);
+
     return;
   } catch (error) {
     // A container the previous test stopped is expected; anything else says so
@@ -70,5 +74,6 @@ export async function ensureRunning(
       error instanceof Error ? error.message : String(error),
     );
   }
+
   await startForRestart(container);
 }

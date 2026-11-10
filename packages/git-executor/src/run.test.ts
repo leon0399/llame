@@ -48,6 +48,7 @@ describe("runGitProcess", () => {
   it("kills a running git at the deadline and reports a typed timeout", async () => {
     const previousPath = process.env["PATH"];
     blockingGitOnPath();
+
     try {
       const started = Date.now();
       const result = await runGitProcess(["--version"], { timeoutMs: 200 });
@@ -70,6 +71,7 @@ describe("runGitProcess", () => {
       mode: 0o755,
     });
     process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+
     try {
       const started = Date.now();
       const result = await runGitProcess(["--version"], { timeoutMs: 200 });
@@ -101,6 +103,7 @@ describe("runGitProcess", () => {
     );
     const previousPath = process.env["PATH"];
     process.env["PATH"] = `${shim}:${previousPath ?? ""}`;
+
     try {
       const result = await runGitProcess(["--version"], { timeoutMs: 5000 });
 
@@ -114,12 +117,15 @@ describe("runGitProcess", () => {
   it("kills a running git when the caller aborts the call", async () => {
     const previousPath = process.env["PATH"];
     blockingGitOnPath();
+
     try {
       const controller = new AbortController();
+
       const call = runGitProcess(["--version"], {
         timeoutMs: 30_000,
         signal: controller.signal,
       });
+
       controller.abort();
 
       await expect(call).resolves.toMatchObject({ status: "timed_out" });
@@ -138,12 +144,14 @@ describe("runGitProcess", () => {
       mode: 0o755,
     });
     process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+
     try {
       const result = await runGitProcess([], { timeoutMs: 5000 });
 
       if (result.status !== "ok") {
         throw new Error(`expected a clean call, got ${result.status}`);
       }
+
       expect(result.stdout).toMatch(/^GIT_TERMINAL_PROMPT=0$/mu);
       expect(result.stdout).toMatch(/^LC_ALL=C$/mu);
       expect(result.stdout).toMatch(/^GIT_OPTIONAL_LOCKS=0$/mu);
@@ -175,8 +183,10 @@ describe("runGitProcess", () => {
       mode: 0o755,
     });
     process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
+
     try {
       const without = await runGitProcess([], { timeoutMs: 5000 });
+
       const pinned = await runGitProcess([], {
         timeoutMs: 5000,
         ceiling: "/some/parent",
@@ -195,8 +205,10 @@ describe("runGitProcess", () => {
     const previousPath = process.env["PATH"];
     const directory = mkdtempSync(join(tmpdir(), "git-executor-large-"));
     created.push(directory);
+
     const script = (bytes: number) =>
       `#!/bin/sh\nhead -c ${bytes} /dev/zero | tr '\\0' a\n`;
+
     try {
       writeFileSync(join(directory, "git"), script(1_048_577), { mode: 0o755 });
       process.env["PATH"] = `${directory}:${previousPath ?? ""}`;
@@ -221,6 +233,7 @@ describe("runGitProcess", () => {
     if (result.status !== "failed") {
       throw new Error(`expected a failed call, got ${result.status}`);
     }
+
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("unknown option");
   });

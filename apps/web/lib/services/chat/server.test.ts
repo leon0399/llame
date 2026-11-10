@@ -40,20 +40,24 @@ describe("fetchInitialChatMessages", () => {
         new Promise<Response>((_resolve, reject) => {
           const request =
             input instanceof Request ? input : new Request(input, init);
+
           request.signal.addEventListener("abort", () => {
             reject(new DOMException("Aborted", "AbortError"));
           });
         }),
     );
+
     vi.stubGlobal("fetch", fetchMock);
 
     const result = fetchInitialChatMessages("chat-1", fakeDeps());
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const [request] = fetchMock.mock.calls[0]!;
+
     if (!(request instanceof Request)) {
       throw new Error("expected fetch to receive a Request");
     }
+
     expect(request.url).toBe(
       "http://localhost:3001/api/v1/chats/chat-1/messages?limit=100",
     );
@@ -66,12 +70,14 @@ describe("fetchInitialChatMessages", () => {
     const expectedAbort = expect(result).rejects.toMatchObject({
       name: "AbortError",
     });
+
     await vi.advanceTimersByTimeAsync(5000);
     await expectedAbort;
   });
 
   it("keeps the timeout active while reading the history body", async () => {
     let requestSignal: AbortSignal | undefined;
+
     const readBody = vi.fn(
       () =>
         new Promise<never>((_resolve, reject) => {
@@ -80,17 +86,21 @@ describe("fetchInitialChatMessages", () => {
           });
         }),
     );
+
     const fetchMock = vi.fn<typeof fetch>(
       (input: RequestInfo | URL, init?: RequestInit) => {
         const request =
           input instanceof Request ? input : new Request(input, init);
+
         requestSignal = request.signal;
 
         const response = new Response(null, { status: 200 });
         vi.spyOn(response, "text").mockImplementation(readBody);
+
         return Promise.resolve(response);
       },
     );
+
     vi.stubGlobal("fetch", fetchMock);
 
     const result = fetchInitialChatMessages("chat-1", fakeDeps()).then(
@@ -98,6 +108,7 @@ describe("fetchInitialChatMessages", () => {
       (error: unknown) =>
         error instanceof DOMException ? error.name : "rejected",
     );
+
     await vi.waitFor(() => expect(readBody).toHaveBeenCalled());
 
     await vi.advanceTimersByTimeAsync(5000);
@@ -110,6 +121,7 @@ describe("fetchInitialChatMessages", () => {
     const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(new Response(null, { status: 404 })),
     );
+
     vi.stubGlobal("fetch", fetchMock);
     const deps = fakeDeps();
 
@@ -134,6 +146,7 @@ describe("fetchDraftChatMessages", () => {
     const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(new Response(null, { status: 404 })),
     );
+
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -147,6 +160,7 @@ describe("fetchDraftChatMessages", () => {
     const firstPageMessages = Array.from({ length: 100 }, (_, index) =>
       rawChatMessage({ id: `message-${index}`, seq: index + 101 }),
     );
+
     const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(
         new Response(
@@ -162,6 +176,7 @@ describe("fetchDraftChatMessages", () => {
         ),
       ),
     );
+
     vi.stubGlobal("fetch", fetchMock);
 
     const page = await fetchDraftChatMessages("chat-1", "fresh", fakeDeps());
@@ -176,6 +191,7 @@ describe("fetchDraftChatMessages", () => {
       const fetchMock = vi.fn<typeof fetch>(() =>
         Promise.resolve(new Response(null, { status: 401 })),
       );
+
       vi.stubGlobal("fetch", fetchMock);
       const deps = fakeDeps();
 
@@ -203,6 +219,7 @@ describe("fetchDraftChatMessages", () => {
         ),
       ),
     );
+
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(

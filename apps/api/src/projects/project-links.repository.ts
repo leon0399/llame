@@ -72,6 +72,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -89,6 +90,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -116,6 +118,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         ],
       })
       .returning();
+
     return created;
   }
 
@@ -138,6 +141,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         ),
       )
       .returning();
+
     return updated;
   }
 
@@ -175,6 +179,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         ),
       )
       .returning({ id: projectRepositories.id });
+
     return deleted.length > 0;
   }
 
@@ -184,6 +189,7 @@ export class ProjectLinksRepository implements StartLocationSource {
     linkIds: ReadonlyArray<string>,
   ): Promise<Array<ProjectRepositoryDefault>> {
     if (linkIds.length === 0) return [];
+
     return this.db
       .select()
       .from(projectRepositoryDefaults)
@@ -215,6 +221,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -241,6 +248,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         desc(projectRepositoryDefaults.id),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -268,6 +276,7 @@ export class ProjectLinksRepository implements StartLocationSource {
         set: { checkoutId: input.checkoutId, updatedAt: new Date() },
       })
       .returning();
+
     return row;
   }
 
@@ -340,6 +349,7 @@ export class ProjectLinksRepository implements StartLocationSource {
           isNull(chats.archivedAt),
         ),
       );
+
     return rows[0]?.chats ?? 0;
   }
 }

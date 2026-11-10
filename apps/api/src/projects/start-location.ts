@@ -40,6 +40,7 @@ import {
  */
 
 export const ISOLATION_DEFAULTS = ['reuse', 'worktree'] as const;
+
 export type IsolationDefault = (typeof ISOLATION_DEFAULTS)[number];
 
 // The reason labels of design D10: the policy decides, or another open chat
@@ -49,6 +50,7 @@ export const ISOLATION_REASONS = [
   'clone_in_use',
   'no_link',
 ] as const;
+
 export type IsolationReason = (typeof ISOLATION_REASONS)[number];
 
 export type StartLocationInput = {
@@ -141,12 +143,15 @@ export async function resolveStartLocation(
   input: StartLocationInput,
 ): Promise<StartLocation> {
   const context: ResolverContext = { source, ownerUserId, input };
+
   const links =
     project === null ? [] : await source.listLinks(ownerUserId, project.id);
+
   const repository = await resolveRepositoryStep(context, project, links);
 
   let executorId = repository.executorId;
   let checkoutId = repository.checkoutId;
+
   if (repository.repositoryId === null) {
     // Without a repository the executor order still applies: the request's
     // `executorId`, else the project default. Only the checkout steps need a
@@ -168,6 +173,7 @@ export async function resolveStartLocation(
     checkoutId === null
       ? undefined
       : await source.findCheckout(ownerUserId, checkoutId);
+
   const isolation = await resolveIsolationDefault(
     context,
     repository.link,
@@ -190,12 +196,14 @@ async function resolveRepositoryStep(
   if (context.input.checkoutId !== undefined) {
     return resolveNamedCheckout(context, links, context.input.checkoutId);
   }
+
   // Never a silent primary when several links have none.
   const link =
     context.input.repositoryId === undefined
       ? (links.find((row) => row.isPrimary) ??
         (links.length === 1 ? links[0] : undefined))
       : await ownedRepositoryLink(context, links, context.input.repositoryId);
+
   return {
     link,
     // The request's repository is the first step of the order, and it stays
@@ -220,15 +228,19 @@ async function resolveNamedCheckout(
     context.ownerUserId,
     checkoutId,
   );
+
   if (checkout === undefined) {
     throw new NotFoundException(`Checkout ${checkoutId} not found`);
   }
+
   if (checkout.kind !== 'main') {
     throw new UnprocessableEntityException(
       'A worktree checkout cannot start a chat; name its main checkout.',
     );
   }
+
   assertCheckoutAgrees(checkout, context.input);
+
   return {
     link: links.find((row) => row.repositoryId === checkout.repositoryId),
     repositoryId: checkout.repositoryId,
@@ -250,6 +262,7 @@ function assertCheckoutAgrees(
       'The named repository does not hold that checkout.',
     );
   }
+
   if (
     input.executorId !== undefined &&
     input.executorId !== checkout.executorId
@@ -271,9 +284,11 @@ async function ownedRepositoryLink(
     context.ownerUserId,
     repositoryId,
   );
+
   if (repository === undefined) {
     throw new NotFoundException(`Repository ${repositoryId} not found`);
   }
+
   return links.find((row) => row.repositoryId === repository.id);
 }
 
@@ -284,6 +299,7 @@ async function resolveExecutorStep(
   repositoryId: string,
 ): Promise<ExecutorStep> {
   const requested = context.input.executorId;
+
   if (requested !== undefined) {
     return executorForLink(context, link?.id, repositoryId, requested);
   }
@@ -292,6 +308,7 @@ async function resolveExecutorStep(
     link === undefined
       ? undefined
       : await context.source.findLatestDefault(context.ownerUserId, link.id);
+
   if (latest !== undefined) {
     return { executorId: latest.executorId, checkoutId: latest.checkoutId };
   }
@@ -304,6 +321,7 @@ async function resolveExecutorStep(
       project.defaultExecutorId,
     );
   }
+
   return executorWithAnyMainCheckout(context, repositoryId);
 }
 
@@ -326,12 +344,14 @@ async function executorForLink(
           linkId,
           executorId,
         );
+
   if (remembered !== undefined) {
     return {
       executorId: remembered.executorId,
       checkoutId: remembered.checkoutId,
     };
   }
+
   return {
     executorId,
     checkoutId: onlyMainCheckoutId(
@@ -357,10 +377,13 @@ async function executorWithAnyMainCheckout(
     context.ownerUserId,
     repositoryId,
   );
+
   const executorId = [...new Set(mains.map((row) => row.executorId))].sort()[0];
+
   if (executorId === undefined) {
     return { executorId: null, checkoutId: null };
   }
+
   return {
     executorId,
     checkoutId: onlyMainCheckoutId(
@@ -385,6 +408,7 @@ async function resolveIsolationDefault(
       isolationChats: 0,
     };
   }
+
   // A policy other than `inherit` selects its own default, and the composer
   // labels it as the project's policy.
   if (link.isolation !== 'inherit') {
@@ -394,6 +418,7 @@ async function resolveIsolationDefault(
       isolationChats: 0,
     };
   }
+
   // `inherit`: another open chat that already binds the source checkout turns
   // the worktree start on, so the new chat does not share a tree in use.
   const isolationChats =
@@ -404,6 +429,7 @@ async function resolveIsolationDefault(
           checkout.path,
           checkout.executorId,
         );
+
   return {
     isolation: isolationChats > 0 ? 'worktree' : 'reuse',
     isolationReason: isolationChats > 0 ? 'clone_in_use' : 'project_policy',

@@ -41,6 +41,7 @@ describe('runOwnerBatches', () => {
 
   it('one rejection does not suppress the other outcomes in its 20-wide batch', async () => {
     const ownerIds = Array.from({ length: 20 }, (_, i) => `u${i}`);
+
     const runAsOwner = vi.fn((ownerId: string) =>
       ownerId === 'u10'
         ? Promise.reject(new Error('connection reset'))
@@ -71,6 +72,7 @@ describe('runOwnerBatches', () => {
     expect(affectedOwners).toBe(45);
     expect(failures).toEqual([]);
     expect(runAsOwner).toHaveBeenCalledTimes(45);
+
     for (const id of ownerIds) {
       expect(runAsOwner).toHaveBeenCalledWith(id);
     }
@@ -88,6 +90,7 @@ describe('runOwnerBatches', () => {
 
   it('every owner failing is still reported per-owner, not collapsed', async () => {
     const ownerIds = ['u1', 'u2', 'u3'];
+
     const runAsOwner = vi.fn((ownerId: string) =>
       Promise.reject(new Error(`boom-${ownerId}`)),
     );

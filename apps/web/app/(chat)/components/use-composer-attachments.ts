@@ -45,9 +45,11 @@ export type ComposerAttachment = {
 };
 
 type AttachmentList = ReadonlyArray<ComposerAttachment>;
+
 type UpdateAttachments = (
   change: (current: AttachmentList) => AttachmentList,
 ) => void;
+
 type UploadAttachment = (key: string, file: File) => void;
 
 interface AttachmentListState {
@@ -122,23 +124,28 @@ function useModelInputSupport(items: AttachmentList) {
   const models = useModelsQuery().data?.models;
   const model = models?.find((candidate) => candidate.id === selectedModel);
   const declared = model?.input ?? [];
+
   const supported = {
     image: model === undefined || declared.includes("image"),
     pdf: declared.includes("pdf"),
   };
+
   const label = model ? modelDisplayName(model.id, models) : "Selected model";
   let blockReason: string | null = null;
+
   for (const { descriptor, file } of items) {
     // The server identifies uploaded bytes; pending files use their MIME type.
     const kind =
       (descriptor?.mediaType ?? file.type) === ATTACHABLE_PDF_TYPE
         ? "pdf"
         : "image";
+
     if (!supported[kind]) {
       blockReason = `${label} has no ${kind} input`;
       break;
     }
   }
+
   return { supported, label, blockReason };
 }
 
@@ -148,16 +155,20 @@ function useModelInputSupport(items: AttachmentList) {
 function useAttachmentList(): AttachmentListState {
   const [items, setItems] = useState<AttachmentList>([]);
   const itemsRef = useRef<AttachmentList>(items);
+
   const update = useCallback<UpdateAttachments>((change) => {
     itemsRef.current = change(itemsRef.current);
     setItems(itemsRef.current);
   }, []);
+
   useEffect(() => () => revokePreviews(itemsRef.current), []);
+
   return { items, itemsRef, update };
 }
 
 function useUploader(update: UpdateAttachments): UploadAttachment {
   const queryClient = useQueryClient();
+
   return useCallback<UploadAttachment>(
     (key, file) => {
       const patch = (change: Partial<ComposerAttachment>) =>
@@ -166,6 +177,7 @@ function useUploader(update: UpdateAttachments): UploadAttachment {
             item.key === key ? { ...item, ...change } : item,
           ),
         );
+
       patch({ status: "uploading" });
       uploadAttachment(file).then(
         (descriptor) => {
@@ -190,7 +202,9 @@ async function storedAttachment(
 ): Promise<ComposerAttachment | null> {
   try {
     const descriptor = await fetchMediaDescriptor(part.url);
+
     if (descriptor === null) return null;
+
     return {
       key: safeRandomUUID(),
       file: new File([], descriptor.name, { type: descriptor.mediaType }),
@@ -213,14 +227,17 @@ function useAttachmentEdits(
     revokePreviews(merged.slice(MAX_COMPOSER_ATTACHMENTS));
     update(() => merged.slice(0, MAX_COMPOSER_ATTACHMENTS));
   };
+
   return {
     restore,
     restoreFiles: async (files) => {
       const stored = await Promise.all(files.map(storedAttachment));
       const restored = stored.filter((item) => item !== null);
+
       if (restored.length < files.length) {
         toast("Some attachments could not be restored");
       }
+
       restore(restored);
     },
     remove: (key) => {
@@ -229,6 +246,7 @@ function useAttachmentEdits(
     },
     retry: (key) => {
       const item = itemsRef.current.find((candidate) => candidate.key === key);
+
       if (item) upload(key, item.file);
     },
   };
@@ -242,6 +260,7 @@ function attachableFiles(
 ) {
   const accepted: Array<File> = [];
   let refused: AttachableKind | null = null;
+
   for (const file of files) {
     const kind =
       file.type === ATTACHABLE_PDF_TYPE
@@ -249,11 +268,15 @@ function attachableFiles(
         : ATTACHABLE_IMAGE_TYPES.includes(file.type)
           ? "image"
           : null;
+
     if (kind === null) continue;
+
     if (supported[kind]) accepted.push(file);
     else refused ??= kind;
   }
+
   if (refused) toast(`${label} has no ${refused} input`);
+
   return accepted;
 }
 
@@ -271,15 +294,19 @@ export function useComposerAttachments(): ComposerAttachments {
 
   const add = (files: Iterable<File>) => {
     const accepted = attachableFiles(files, supported, label);
+
     if (accepted.length === 0) return;
     const room = MAX_COMPOSER_ATTACHMENTS - itemsRef.current.length;
+
     const added = accepted.slice(0, Math.max(room, 0)).map((file) => ({
       key: safeRandomUUID(),
       file,
       previewUrl: URL.createObjectURL(file),
       status: "uploading" as const,
     }));
+
     update((current) => [...current, ...added]);
+
     for (const { key, file } of added) upload(key, file);
   };
 

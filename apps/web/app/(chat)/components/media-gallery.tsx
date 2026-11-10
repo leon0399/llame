@@ -22,6 +22,7 @@ import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 
 const GRID_CLASS_NAME =
   "grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6";
+
 const SKELETON_TILE_COUNT = 12;
 
 /** The loaded pages as grid tiles and the image-only lightbox slides. An
@@ -30,9 +31,12 @@ const SKELETON_TILE_COUNT = 12;
 function galleryViews(pages: ReadonlyArray<MediaPageResponse>) {
   const items: Array<MediaThumbnailItem> = [];
   const slides: Array<MediaLightboxSlide> = [];
+
   for (const media of pages.flatMap((page) => page.items)) {
     const sources = storedImageSources(media.locator);
+
     if (sources === null) continue;
+
     if ("pages" in media) {
       items.push({
         key: media.id,
@@ -42,6 +46,7 @@ function galleryViews(pages: ReadonlyArray<MediaPageResponse>) {
       });
       continue;
     }
+
     items.push({
       key: media.id,
       kind: "image",
@@ -55,6 +60,7 @@ function galleryViews(pages: ReadonlyArray<MediaPageResponse>) {
       caption: mediaCaption(media.locator, media),
     });
   }
+
   return { items, slides };
 }
 
@@ -79,21 +85,28 @@ function useLoadMoreSentinel(query: NextPageState, pageCount: number) {
   const { hasNextPage } = query;
   useEffect(() => {
     const sentinel = sentinelRef.current;
+
     if (sentinel === null || !hasNextPage) return;
+
     const observer = new IntersectionObserver(
       (entries) => {
         const { isFetchingNextPage, isFetchNextPageError, fetchNextPage } =
           latest.current;
+
         if (!entries.some((entry) => entry.isIntersecting)) return;
+
         if (isFetchingNextPage || isFetchNextPageError) return;
         fetchNextPage();
       },
       // Start loading a screen ahead, so scrolling rarely meets the end.
       { rootMargin: "100% 0px" },
     );
+
     observer.observe(sentinel);
+
     return () => observer.disconnect();
   }, [hasNextPage, pageCount, latest]);
+
   return sentinelRef;
 }
 
@@ -138,6 +151,7 @@ function GalleryGrid({
   slides: ReadonlyArray<MediaLightboxSlide>;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
+
   return (
     <>
       <ul aria-label="Media" className={GRID_CLASS_NAME}>
@@ -170,6 +184,7 @@ export function MediaGallery() {
   const sentinelRef = useLoadMoreSentinel(query, query.data?.pages.length ?? 0);
 
   if (query.isPending) return <GallerySkeleton />;
+
   if (query.isError && query.data === undefined) {
     return (
       <GalleryMessage onRetry={() => void query.refetch()}>
@@ -177,12 +192,15 @@ export function MediaGallery() {
       </GalleryMessage>
     );
   }
+
   const { items, slides } = galleryViews(query.data.pages);
+
   if (items.length === 0) {
     return (
       <GalleryMessage>Images and PDFs you attach appear here.</GalleryMessage>
     );
   }
+
   return (
     <div className="flex flex-col gap-3">
       <GalleryGrid items={items} slides={slides} />

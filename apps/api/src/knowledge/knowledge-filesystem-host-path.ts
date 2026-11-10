@@ -47,31 +47,37 @@ export async function resolveKnowledgeHostPath(
   if (relativePath === undefined) return directory;
   const components = validatePath(relativePath);
   let current = directory;
+
   for (const [index, component] of components.entries()) {
     throwIfAborted(options.signal);
     current = path.join(current, component);
     const isLeaf = index === components.length - 1;
+
     const stats = await statOrCreate(current, port, {
       allowMissing: options.allowMissing,
       // The leaf is the file the caller is about to create; only the
       // directories above it are made here.
       create: options.createDirectories === true && !isLeaf,
     });
+
     // Nothing under a missing component can exist, so the rest of the path is
     // joined unchecked. When creating, only the leaf can be missing, and the
     // slice is empty.
     if (stats === undefined) {
       return path.join(current, ...components.slice(index + 1));
     }
+
     if (stats.isSymbolicLink()) {
       throw new KnowledgeFilesystemError('knowledge_not_found');
     }
+
     if (!isLeaf && !stats.isDirectory()) {
       // Present but unusable is a different answer from absent, and the write
       // contract reports it as such on every scheme.
       throw new KnowledgeFilesystemError('knowledge_not_directory');
     }
   }
+
   return current;
 }
 
@@ -92,10 +98,14 @@ async function statOrCreate(
     const missing =
       error instanceof KnowledgeFilesystemError &&
       error.code === 'knowledge_not_found';
+
     if (!missing || intent.allowMissing !== true) throw error;
+
     if (!intent.create) return undefined;
   }
+
   await port.mkdir(current);
+
   // Re-stat rather than assume: the creation raced if anything else won, and
   // a symbolic link that lost the race is still refused by the caller.
   return port.lstat(current);

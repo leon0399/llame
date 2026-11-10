@@ -94,6 +94,7 @@ function requestedSlice(
   options: DirectoryListingOptions,
 ): FlatSlice {
   const { offset, end } = sliceWindow(options, entries.length);
+
   return { offset, end, selected: entries.slice(offset, end) };
 }
 
@@ -103,6 +104,7 @@ function requestedSlice(
  */
 function wantsFlatSlice(options: DirectoryListingOptions): boolean {
   const { offset, limit, pending } = options;
+
   return offset !== undefined || limit !== undefined || pending !== undefined;
 }
 
@@ -114,6 +116,7 @@ export function renderCollectedDirectoryParts(
 ): DirectorySuccess | DirectoryFailure {
   const roots = [...rootEntries];
   roots.sort(compareEntries);
+
   if (roots.length > DIRECTORY_TRAVERSAL_BUDGET) {
     return {
       status: "error",
@@ -125,9 +128,11 @@ export function renderCollectedDirectoryParts(
 
   const header = options.displayPath ?? targetPath;
   const cap = resultBudget(options);
+
   if (!wantsFlatSlice(options))
     return renderTreeListing(header, roots, [...children], cap);
   const slice = requestedSlice(roots, options);
+
   return renderFlatListing(header, roots, slice, cap);
 }
 
@@ -154,8 +159,11 @@ type ChildBlockInfo = {
 
 function classifyEntry(entry: DirentLike): EntryKind {
   if (entry.isSymbolicLink()) return "symlink";
+
   if (entry.isDirectory()) return "directory";
+
   if (entry.isFile()) return "file";
+
   return "special";
 }
 
@@ -174,9 +182,13 @@ function formatEntry(entry: DirEntry, indent: string): string {
 
 function formatLink(entry: DirEntry, indent: string): string {
   const line = `${indent}- ${entry.name}@`;
+
   if (entry.target === undefined) return line;
+
   if (entry.targetKind === "directory") return `${line}/ -> ${entry.target}`;
+
   if (entry.targetKind === "file") return `${line} -> ${entry.target}`;
+
   // Dangling, unresolvable, or leading to a special entry: the raw link text
   // is the only target the listing can state.
   return `${line}? -> ${entry.target}`;
@@ -185,7 +197,9 @@ function formatLink(entry: DirEntry, indent: string): string {
 export function compareEntries(a: DirEntry, b: DirEntry): number {
   const aDir = a.kind === "directory" ? 0 : 1;
   const bDir = b.kind === "directory" ? 0 : 1;
+
   if (aDir !== bDir) return aDir - bDir;
+
   return a.name.localeCompare(b.name);
 }
 
@@ -202,20 +216,25 @@ async function readDirEntries(
   overBudget: boolean;
 }> {
   const dir = await port.opendir(dirPath);
+
   try {
     const entries: Array<DirEntry> = [];
     let totalCount = 0;
     let overBudget = false;
     let dirent = await dir.read();
+
     while (dirent !== null) {
       totalCount += 1;
+
       if (!overBudget && entries.length < DIRECTORY_TRAVERSAL_BUDGET) {
         entries.push({ name: dirent.name, kind: classifyEntry(dirent) });
       } else {
         overBudget = true;
       }
+
       dirent = await dir.read();
     }
+
     return { entries, totalCount, overBudget };
   } finally {
     await dir.close();
@@ -230,14 +249,17 @@ async function resolveLinkTarget(
   try {
     const canonical = await port.realpath(linkPath);
     const target = await port.stat(linkPath);
+
     if (target.isDirectory() || target.isFile()) {
       entry.target = canonical;
       entry.targetKind = target.isDirectory() ? "directory" : "file";
+
       return;
     }
   } catch {
     // Dangling or unresolvable; only the raw link text remains below.
   }
+
   try {
     entry.target = await port.readlink(linkPath);
   } catch {
@@ -288,12 +310,15 @@ async function readChildDirs(
   port: DirectoryPort,
 ): Promise<Array<ChildDir>> {
   const dirEntries = rootEntries.filter((e) => e.kind === "directory");
+
   return Promise.all(
     dirEntries.map(async (entry) => {
       const childPath = `${targetPath}/${entry.name}`;
+
       try {
         const child = await readDirEntries(port, childPath);
         child.entries.sort(compareEntries);
+
         return {
           name: entry.name,
           entries: child.entries,
@@ -336,13 +361,17 @@ export async function listDirectory(
 
   if (wantsFlatSlice(options)) {
     const slice = requestedSlice(root.entries, options);
+
     if (linkTargets) await resolveLinkTargets(port, targetPath, slice.selected);
+
     return renderFlatListing(header, root.entries, slice, cap);
   }
 
   const children = await readChildDirs(root.entries, targetPath, port);
+
   if (linkTargets)
     await resolveTreeLinkTargets(port, targetPath, root.entries, children);
+
   return renderTreeListing(header, root.entries, children, cap);
 }
 
@@ -355,9 +384,11 @@ function renderFlatListing(
   const { offset, end, selected } = slice;
 
   const lines: Array<string> = [targetPath];
+
   for (const entry of selected) {
     lines.push(formatEntry(entry, "  "));
   }
+
   const content = lines.join("\n") + "\n";
 
   const result = directoryResult(targetPath, entries.length, {
@@ -365,6 +396,7 @@ function renderFlatListing(
     truncated: end < entries.length,
     nextOffset: end < entries.length ? end : undefined,
   });
+
   return boundFlatResult(result, offset, cap);
 }
 
@@ -374,14 +406,17 @@ function renderChildBlock(child: ChildDir) {
 
   if (child.overBudget) {
     lines.push(`${indent}… ${child.totalCount} entries`);
+
     return { lines };
   }
 
   const cap = DIRECTORY_CHILD_CAP;
   const shown = child.entries.slice(0, cap);
+
   for (const entry of shown) {
     lines.push(formatEntry(entry, indent));
   }
+
   if (child.entries.length > cap) {
     lines.push(`${indent}… ${child.entries.length - cap} more`);
   }
@@ -399,8 +434,10 @@ function assembleTreeLines(
 
   for (const entry of rootEntries) {
     lines.push(formatEntry(entry, "  "));
+
     if (entry.kind !== "directory") continue;
     const child = childMap.get(entry.name);
+
     if (!child) continue;
     const block = renderChildBlock(child);
     childBlocks.push({
@@ -408,6 +445,7 @@ function assembleTreeLines(
       childLines: block.lines,
       totalCount: child.totalCount,
     });
+
     for (const line of block.lines) lines.push(line);
   }
 
@@ -427,14 +465,17 @@ function renderTreeListing(
     });
 
   const childMap = new Map<string, ChildDir>();
+
   for (const child of children) childMap.set(child.name, child);
 
   const assembled = assembleTreeLines(targetPath, rootEntries, childMap);
+
   const fitted = fitTreeContent(
     { targetPath, rootEntries, childBlocks: assembled.childBlocks },
     assembled.lines.join("\n") + "\n",
     cap,
   );
+
   return fitted === undefined
     ? truncateRequestedLevel(
         targetPath,
@@ -463,13 +504,16 @@ function fitTreeContent(
       directoryResult(tree.targetPath, tree.rootEntries.length, page),
       cap,
     );
+
   if (fits({ content, truncated: false })) return { content, truncated: false };
+
   const elided = elideChildBlocks(
     tree.targetPath,
     tree.rootEntries,
     tree.childBlocks,
     cap,
   );
+
   return fits(elided) ? elided : undefined;
 }
 
@@ -481,12 +525,14 @@ function elideChildBlocks(
 ) {
   const elided = new Set<string>();
   const blocksByName = new Map<string, ChildBlockInfo>();
+
   for (const block of childBlocks) blocksByName.set(block.name, block);
 
   for (const block of [...childBlocks].reverse()) {
     if (block.childLines.length === 0) continue;
     elided.add(block.name);
     const content = buildContent(targetPath, rootEntries, blocksByName, elided);
+
     if (
       fitsResultCap(
         directoryResult(targetPath, rootEntries.length, {
@@ -513,27 +559,36 @@ function buildContent(
   elided: Set<string>,
 ): string {
   const lines: Array<string> = [targetPath];
+
   for (const entry of rootEntries) {
     lines.push(formatEntry(entry, "  "));
+
     if (entry.kind !== "directory") continue;
     const block = blocksByName.get(entry.name);
+
     if (!block) continue;
+
     if (elided.has(entry.name)) {
       const marker = elisionMarker(block.totalCount);
+
       if (marker) lines.push(marker);
     } else {
       for (const line of block.childLines) lines.push(line);
     }
   }
+
   return lines.join("\n") + "\n";
 }
 
 function indexChildBlocks(childBlocks: Array<ChildBlockInfo>) {
   const byName = new Map<string, ChildBlockInfo>();
+
   for (const block of childBlocks) byName.set(block.name, block);
+
   const elided = new Set(
     childBlocks.flatMap((b) => (b.childLines.length > 0 ? [b.name] : [])),
   );
+
   return { byName, elided };
 }
 
@@ -556,12 +611,15 @@ function pageBeforeFirstEntry(
     { offset: 0, end: rootEntries.length, selected: rootEntries },
     cap,
   );
+
   if (flat.status === "error") return flat;
+
   const header = directoryResult(targetPath, rootEntries.length, {
     content: `${targetPath}\n`,
     truncated: true,
     nextOffset: 0,
   });
+
   // A header-only page repeats the path in its continuation, so the whole
   // flat level can fit where the header and that notice do not.
   return fitsResultCap(header, cap) ? header : flat;
@@ -576,23 +634,30 @@ function truncateRequestedLevel(
   const { byName, elided } = indexChildBlocks(childBlocks);
   const lines: Array<string> = [targetPath];
   const count = rootEntries.length;
+
   const page = (content: string, truncated: boolean, nextOffset?: number) =>
     directoryResult(targetPath, count, { content, truncated, nextOffset });
+
   const fits = (candidate: Array<string>, nextOffset: number) =>
     fitsResultCap(page(candidate.join("\n") + "\n", true, nextOffset), cap);
 
   for (const [entryIndex, entry] of rootEntries.entries()) {
     const block = byName.get(entry.name);
+
     const marker =
       block && elided.has(block.name)
         ? elisionMarker(block.totalCount)
         : undefined;
+
     const added = [formatEntry(entry, "  "), ...(marker ? [marker] : [])];
+
     if (!fits([...lines, ...added], entryIndex + 1)) {
       if (entryIndex === 0)
         return pageBeforeFirstEntry(targetPath, rootEntries, cap);
+
       return page(lines.join("\n") + "\n", true, entryIndex);
     }
+
     lines.push(...added);
   }
 

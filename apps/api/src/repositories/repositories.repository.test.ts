@@ -15,6 +15,7 @@ const INSTANT = new Date('2026-10-24T00:00:00.000Z');
 
 function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -23,12 +24,15 @@ function makeMockDb() {
       },
     },
   });
+
   return { db, queries };
 }
 
 function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
   const query = queries.at(-1);
+
   if (!query) throw new Error('expected a logged database query');
+
   return query;
 }
 
@@ -89,6 +93,7 @@ function asDbQuery<T>(query: T): never {
 function queryResult<T>(rows: Array<T>) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -125,6 +130,7 @@ function makeStubDb(rows: {
   vi.spyOn(db, 'delete').mockImplementation(() =>
     asDbQuery(queryResult(rows.delete ?? [])),
   );
+
   return db;
 }
 
@@ -546,10 +552,12 @@ describe('RepositoriesRepository checkouts', () => {
 
   it('creates a checkout with owner, executor, and path as the conflict key', async () => {
     const { db, queries } = makeMockDb();
+
     const checkout = checkoutRow({
       kind: 'worktree',
       parentCheckoutId: 'parent-1',
     });
+
     await new RepositoriesRepository(db)
       .createCheckout({
         ownerUserId: checkout.ownerUserId,
@@ -675,6 +683,7 @@ describe('RepositoriesRepository checkouts', () => {
 describe('RepositoriesRepository chatsBoundTo', () => {
   it('answers an empty map without querying when no paths are requested', async () => {
     const { db, queries } = makeMockDb();
+
     const bound = await new RepositoriesRepository(db).chatsBoundTo(
       'owner-a',
       [],
@@ -711,6 +720,7 @@ describe('RepositoriesRepository chatsBoundTo', () => {
         { id: 'chat-4', root: null },
       ],
     });
+
     const bound = await new RepositoriesRepository(db).chatsBoundTo('owner-a', [
       '/repo',
       '/other',
@@ -728,6 +738,7 @@ describe('RepositoriesRepository chatsBoundTo', () => {
 describe('RepositoriesRepository leaseChats', () => {
   it('answers an empty map without querying when no checkouts are requested', async () => {
     const { db, queries } = makeMockDb();
+
     const leases = await new RepositoriesRepository(db).leaseChats(
       'owner-a',
       [],
@@ -765,6 +776,7 @@ describe('RepositoriesRepository leaseChats', () => {
         { checkoutId: 'checkout-2', chatId: 'chat-other' },
       ],
     });
+
     const leases = await new RepositoriesRepository(db).leaseChats('owner-a', [
       'checkout-1',
       'checkout-2',

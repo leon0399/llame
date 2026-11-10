@@ -40,6 +40,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -54,6 +55,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
         tx`INSERT INTO repositories (id, owner_user_id, display_name, canonical_remote)
            VALUES (${id}, ${owner}, 'llame', ${remote})`,
     );
+
     return id;
   }
 
@@ -79,6 +81,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
              'registered'
            )`,
     );
+
     return id;
   }
 
@@ -104,6 +107,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
   it('the harness is meaningful: every table is ENABLED and FORCED', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
@@ -112,12 +116,14 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       FROM pg_class
       WHERE relname IN ('repositories', 'repository_aliases', 'checkouts', 'worktree_leases')
       ORDER BY relname`;
+
     expect(rows.map((row) => row.relname)).toEqual([
       'checkouts',
       'repositories',
       'repository_aliases',
       'worktree_leases',
     ]);
+
     for (const row of rows) {
       expect(row.relrowsecurity).toBe(true);
       expect(row.relforcerowsecurity).toBe(true);
@@ -129,12 +135,14 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       userA,
       `github.com/leon0399/isolated-${crypto.randomUUID()}`,
     );
+
     const checkoutId = await seedCheckout(userA, repositoryId);
 
     const seen = await asUser(
       userB,
       (tx) => tx`SELECT id FROM checkouts WHERE id = ${checkoutId}`,
     );
+
     expect(seen.length).toBe(0);
 
     const updated = await asUser(
@@ -142,12 +150,14 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       (tx) =>
         tx`UPDATE repositories SET display_name = 'hijacked' WHERE id = ${repositoryId} RETURNING id`,
     );
+
     expect(updated.length).toBe(0);
 
     const deleted = await asUser(
       userB,
       (tx) => tx`DELETE FROM checkouts WHERE id = ${checkoutId} RETURNING id`,
     );
+
     expect(deleted.length).toBe(0);
 
     const [ownerRow] = await asUser(
@@ -155,11 +165,14 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       (tx) =>
         tx`SELECT display_name FROM repositories WHERE id = ${repositoryId}`,
     );
+
     expect(ownerRow?.display_name).toBe('llame');
+
     const [ownerCheckout] = await asUser(
       userA,
       (tx) => tx`SELECT id FROM checkouts WHERE id = ${checkoutId}`,
     );
+
     expect(ownerCheckout?.id).toBe(checkoutId);
   });
 
@@ -213,6 +226,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
         `github.com/leon0399/parent-owner-${crypto.randomUUID()}`,
       ),
     );
+
     // B's own repository, so only the composite parent key can refuse the row.
     const ownRepository = await seedRepository(
       userB,
@@ -236,6 +250,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       (tx) =>
         tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatA}, ${userA}, 'A chat')`,
     );
+
     const checkoutB = await seedCheckout(
       userB,
       await seedRepository(
@@ -259,11 +274,13 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       userA,
       `github.com/leon0399/detached-${crypto.randomUUID()}`,
     );
+
     const checkoutId = await seedCheckout(userA, repositoryId, {
       kind: 'worktree',
       parentCheckoutId: await seedCheckout(userA, repositoryId),
       branch: null,
     });
+
     const chatA = crypto.randomUUID();
     await asUser(
       userA,
@@ -279,12 +296,14 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
                   (${userA}, ${chatA}, ${checkoutId}, 'HEAD~1', ${LEASE_BASE_COMMIT})
            RETURNING id`,
     );
+
     expect(leases.length).toBe(2);
 
     const [row] = await asUser(
       userA,
       (tx) => tx`SELECT branch FROM checkouts WHERE id = ${checkoutId}`,
     );
+
     expect(row?.branch).toBeNull();
   });
 
@@ -293,12 +312,15 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       userA,
       `github.com/leon0399/cascade-${crypto.randomUUID()}`,
     );
+
     const mainId = await seedCheckout(userA, repositoryId);
+
     const worktreeId = await seedCheckout(userA, repositoryId, {
       kind: 'worktree',
       parentCheckoutId: mainId,
       branch: 'feature',
     });
+
     const chatA = crypto.randomUUID();
     await asUser(
       userA,
@@ -322,12 +344,15 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       (tx) =>
         tx`SELECT id FROM checkouts WHERE id IN (${mainId}, ${worktreeId})`,
     );
+
     expect(checkoutsLeft.length).toBe(0);
+
     const leasesLeft = await asUser(
       userA,
       (tx) =>
         tx`SELECT id FROM worktree_leases WHERE checkout_id = ${worktreeId}`,
     );
+
     expect(leasesLeft.length).toBe(0);
 
     // The chat keeps its row; only the checkout records are gone.
@@ -335,6 +360,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       userA,
       (tx) => tx`SELECT id FROM chats WHERE id = ${chatA}`,
     );
+
     expect(chat?.id).toBe(chatA);
   });
 
@@ -343,7 +369,9 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       userA,
       `github.com/leon0399/main-cascade-${crypto.randomUUID()}`,
     );
+
     const mainId = await seedCheckout(userA, repositoryId);
+
     const worktreeId = await seedCheckout(userA, repositoryId, {
       kind: 'worktree',
       parentCheckoutId: mainId,
@@ -355,19 +383,23 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       userA,
       (tx) => tx`SELECT id FROM checkouts WHERE id = ${worktreeId}`,
     );
+
     expect(left.length).toBe(0);
   });
 
   it('two owners hold the same path on one executor, each seeing only its own', async () => {
     const path = `/srv/shared-${crypto.randomUUID()}`;
+
     const repositoryA = await seedRepository(
       userA,
       `github.com/leon0399/shared-a-${crypto.randomUUID()}`,
     );
+
     const repositoryB = await seedRepository(
       userB,
       `github.com/leon0399/shared-b-${crypto.randomUUID()}`,
     );
+
     const checkoutA = await seedCheckout(userA, repositoryA, { path });
     const checkoutB = await seedCheckout(userB, repositoryB, { path });
 
@@ -375,10 +407,12 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       userA,
       (tx) => tx`SELECT id FROM checkouts WHERE path = ${path}`,
     );
+
     const seenByB = await asUser(
       userB,
       (tx) => tx`SELECT id FROM checkouts WHERE path = ${path}`,
     );
+
     expect(seenByA.map((row) => row.id)).toEqual([checkoutA]);
     expect(seenByB.map((row) => row.id)).toEqual([checkoutB]);
   });
@@ -393,6 +427,7 @@ describeIfDb('RLS integration — repository catalog isolation', () => {
       (tx: SqlClient) =>
         tx`SELECT id FROM repositories WHERE id = ${repositoryId}`,
     );
+
     expect(rows.length).toBe(0);
   });
 });

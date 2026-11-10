@@ -46,19 +46,23 @@ export class KnowledgeToolRuntimeResolver implements KnowledgeToolResolver {
       KNOWLEDGE_SPACE_MAX_LIMIT,
       after,
     );
+
     const spaces = rows.slice(0, KNOWLEDGE_SPACE_MAX_LIMIT).map((row) => ({
       id: row.knowledgeSpaceId,
       name: row.name,
       createdAt: row.createdAt,
     }));
+
     const last = spaces.at(-1);
     const page: KnowledgeToolSpacePage = { spaces };
+
     if (rows.length > KNOWLEDGE_SPACE_MAX_LIMIT && last !== undefined) {
       return {
         ...page,
         nextCursor: { createdAt: last.createdAt, id: last.id },
       };
     }
+
     return page;
   }
 

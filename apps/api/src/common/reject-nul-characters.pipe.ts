@@ -3,12 +3,15 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 
 function containsNul(value: unknown): boolean {
   if (isString(value)) return value.includes('\u0000');
+
   if (Array.isArray(value)) return value.some(containsNul);
+
   if (isRecord(value)) {
     return Object.entries(value).some(
       ([key, entry]) => key.includes('\u0000') || containsNul(entry),
     );
   }
+
   return false;
 }
 
@@ -24,6 +27,7 @@ export class RejectNulCharactersPipe implements PipeTransform {
         'Request values must not contain NUL characters.',
       );
     }
+
     return value;
   }
 }

@@ -25,6 +25,7 @@ import { executeConversationRead } from '../tools/conversation-read';
 import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'TEST_DATABASE_URL is required for conversation provenance acceptance',
@@ -46,6 +47,7 @@ const canonicalContentResultSchema = z.object({
   limit: z.number().int().positive().max(2000),
   excerpt: z.string(),
 });
+
 const searchToolPartSchema = z.object({
   type: z.literal('tool-search_conversations'),
   output: z.object({
@@ -53,6 +55,7 @@ const searchToolPartSchema = z.object({
     results: z.array(canonicalContentResultSchema),
   }),
 });
+
 const readToolPartSchema = z.object({
   type: z.literal('tool-conversation_read'),
   output: z.object({
@@ -64,6 +67,7 @@ const readToolPartSchema = z.object({
     nextOffset: z.number().int().nonnegative().safe().optional(),
   }),
 });
+
 const toolEventPayloadSchema = z.object({ toolName: z.string() });
 
 type SourcePart =
@@ -73,20 +77,25 @@ type SourcePart =
 function searchToolPart(parts: ReadonlyArray<unknown>) {
   for (const part of parts) {
     const parsed = searchToolPartSchema.safeParse(part);
+
     if (parsed.success) return parsed.data;
   }
+
   return undefined;
 }
 
 function readToolParts(parts: ReadonlyArray<unknown>) {
   return parts.flatMap((part) => {
     const parsed = readToolPartSchema.safeParse(part);
+
     const candidate = z
       .object({ type: z.literal('tool-conversation_read') })
       .safeParse(part);
+
     if (candidate.success && !parsed.success) {
       throw new Error(`Invalid persisted read output: ${parsed.error.message}`);
     }
+
     return parsed.success ? [parsed.data] : [];
   });
 }
@@ -130,12 +139,14 @@ describe('conversation provenance acceptance — queued lexical search and canon
   ) {
     const { role = 'user', usage } = options;
     const chatId = crypto.randomUUID();
+
     const message = await harness.tenantDb.runAs(ownerUserId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId,
         title,
       });
+
       return new MessagesRepository(tx).create({
         chatId,
         role,
@@ -144,6 +155,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
         ...(usage !== undefined && { usage }),
       });
     });
+
     return { chatId, message };
   }
 
@@ -159,6 +171,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
         ? `${SEARCH_QUERY} 😀 source line`
         : `source line ${index.toString().padStart(4, '0')}`,
     );
+
     const source = await seedSource(ownerA, 'Episodic acceptance source', [
       {
         type: 'text',
@@ -172,6 +185,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
       { type: 'tool-call', toolName: 'hidden_tool', input: { secret: true } },
       { type: 'text', text: 'final visible part' },
     ]);
+
     await new SearchIndexService(harness.tenantDb).reindexChat(
       source.chatId,
       ownerA,
@@ -184,6 +198,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
       continueRead: true,
       finalText: 'The canonical source was read.',
     });
+
     const target = await seedAndDispatchRun(harness, {
       userId: ownerA,
       modelId,
@@ -193,29 +208,36 @@ describe('conversation provenance acceptance — queued lexical search and canon
     const completed = await waitFor(
       async () => {
         const run = await runStatus(target.runId, ownerA);
+
         return run?.status === 'completed' ? run : undefined;
       },
       30_000,
       'the queued search and read run to complete',
     );
+
     expect(completed.status).toBe('completed');
 
     const messages = await harness.tenantDb.runAs(ownerA, (tx) =>
       new MessagesRepository(tx).findByChatId(target.chatId, ownerA),
     );
+
     const assistant = messages.find(
       (message) =>
         message.role === 'assistant' &&
         message.inReplyTo === target.userMessage.id,
     );
+
     if (!assistant) throw new Error('Expected persisted assistant reply');
 
     const search = searchToolPart(assistant.parts);
+
     if (!search) throw new Error('Expected persisted search tool output');
     const contentResult = search.output.results[0];
+
     if (!contentResult) {
       throw new Error('Expected a canonical content search result');
     }
+
     expect(contentResult).toMatchObject({
       chatId: source.chatId,
       messageSeq: source.message.seq,
@@ -228,16 +250,21 @@ describe('conversation provenance acceptance — queued lexical search and canon
     expect(JSON.stringify(contentResult)).not.toContain('hidden_tool');
 
     const readParts = readToolParts(assistant.parts);
+
     if (readParts.length !== 2) {
       const partTypes = assistant.parts.flatMap((part) => {
         const parsed = z.object({ type: z.string() }).safeParse(part);
+
         return parsed.success ? [parsed.data.type] : [];
       });
+
       throw new Error(
         `Expected two persisted reads, found: ${partTypes.join(', ')}`,
       );
     }
+
     const firstReadOutput = readParts[0]?.output;
+
     if (!firstReadOutput)
       throw new Error('Expected first persisted read output');
     expect(firstReadOutput).toMatchObject({
@@ -254,9 +281,11 @@ describe('conversation provenance acceptance — queued lexical search and canon
     expect(firstReadOutput.nextOffset).toBeTypeOf('number');
 
     const secondReadOutput = readParts[1]?.output;
+
     if (!secondReadOutput) {
       throw new Error('Expected second persisted read output');
     }
+
     expect(secondReadOutput).toMatchObject({
       status: 'success',
       chatId: source.chatId,
@@ -281,6 +310,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
     const persistedObservations = JSON.stringify(
       readParts.map((part) => part.output),
     );
+
     await removeChat(ownerA, source.chatId);
 
     await expect(
@@ -300,15 +330,19 @@ describe('conversation provenance acceptance — queued lexical search and canon
     const afterDeletion = await harness.tenantDb.runAs(ownerA, (tx) =>
       new MessagesRepository(tx).findByChatId(target.chatId, ownerA),
     );
+
     const afterAssistant = afterDeletion.find(
       (message) =>
         message.role === 'assistant' &&
         message.inReplyTo === target.userMessage.id,
     );
+
     const persistedAfterDeletion = readToolParts(afterAssistant?.parts ?? []);
+
     if (persistedAfterDeletion.length !== 2) {
       throw new Error('Expected both persisted reads after source deletion');
     }
+
     expect(
       JSON.stringify(persistedAfterDeletion.map((part) => part.output)),
     ).toBe(persistedObservations);
@@ -320,12 +354,14 @@ describe('conversation provenance acceptance — queued lexical search and canon
     const foreign = await seedSource(ownerB, 'Foreign and retryable source', [
       { type: 'text', text: `${FOREIGN_QUERY} foreign owner source` },
     ]);
+
     const retryable = await seedSource(
       ownerB,
       'Retryable source',
       [{ type: 'text', text: RETRYABLE_MARKER }],
       { role: 'assistant', usage: { status: 'error' } },
     );
+
     await new SearchIndexService(harness.tenantDb).reindexChat(
       foreign.chatId,
       ownerB,
@@ -341,11 +377,13 @@ describe('conversation provenance acceptance — queued lexical search and canon
       query: FOREIGN_QUERY,
       finalText: 'No owner-authorized source was available.',
     });
+
     const target = await seedAndDispatchRun(harness, {
       userId: ownerA,
       modelId,
       text: 'Search only my own history.',
     });
+
     await waitFor(
       async () =>
         (await runStatus(target.runId, ownerA))?.status === 'completed'
@@ -358,10 +396,13 @@ describe('conversation provenance acceptance — queued lexical search and canon
     const targetMessages = await harness.tenantDb.runAs(ownerA, (tx) =>
       new MessagesRepository(tx).findByChatId(target.chatId, ownerA),
     );
+
     const targetAssistant = targetMessages.find(
       (message) => message.role === 'assistant',
     );
+
     const search = searchToolPart(targetAssistant?.parts ?? []);
+
     if (!search) throw new Error('Expected cross-tenant search output');
     expect(search.output.results).toEqual([]);
     expect(JSON.stringify(search.output)).not.toContain('foreign owner source');
@@ -395,11 +436,13 @@ describe('conversation provenance acceptance — queued lexical search and canon
       query: RETRYABLE_MARKER,
       finalText: 'No retryable source was available.',
     });
+
     const retryableSearch = await seedAndDispatchRun(harness, {
       userId: ownerB,
       modelId: retryableSearchModelId,
       text: 'Search my history for retryable assistant content.',
     });
+
     await waitFor(
       async () =>
         (await runStatus(retryableSearch.runId, ownerB))?.status === 'completed'
@@ -408,18 +451,23 @@ describe('conversation provenance acceptance — queued lexical search and canon
       30_000,
       'the retryable-source search run to complete',
     );
+
     const retryableSearchMessages = await harness.tenantDb.runAs(ownerB, (tx) =>
       new MessagesRepository(tx).findByChatId(retryableSearch.chatId, ownerB),
     );
+
     const retryableSearchAssistant = retryableSearchMessages.find(
       (message) => message.role === 'assistant',
     );
+
     const retryableSearchOutput = searchToolPart(
       retryableSearchAssistant?.parts ?? [],
     )?.output;
+
     if (!retryableSearchOutput) {
       throw new Error('Expected retryable-source search output');
     }
+
     expect(retryableSearchOutput.results).toEqual([]);
     expect(JSON.stringify(retryableSearchOutput)).not.toContain(
       RETRYABLE_MARKER,
@@ -434,6 +482,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
   it('settles a queued cancellation through the existing worker runner path', async () => {
     const modelId = `conversation-cancel-${Date.now()}`;
     harness.models.register(modelId, { kind: 'hang' });
+
     const seed = await seedAndDispatchRun(harness, {
       userId: ownerA,
       modelId,

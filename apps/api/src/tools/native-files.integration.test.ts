@@ -46,6 +46,7 @@ describe('native file authority and durable effects', () => {
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL;
+
     if (!url) throw new Error('Integration database was not provisioned.');
     sql = postgres(url, { max: 2 });
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
@@ -57,32 +58,40 @@ describe('native file authority and durable effects', () => {
     path = join(directory, 'notes');
     await writeFile(path, 'before\nFoo\nafter\n');
     const chatId = randomUUID();
+
     const run = await tenantDb.runAs(owner, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: owner,
         title: 'Native files',
       });
+
       const message = await new MessagesRepository(tx).create({
         chatId,
         senderUserId: owner,
         role: 'user',
         parts: [{ type: 'text', text: 'Edit the native file.' }],
       });
+
       const runs = new RunsRepository(tx);
+
       const run = await runs.create({
         chatId,
         userId: owner,
         messageId: message.id,
         modelId: 'native-test',
       });
+
       await runs.markStarted(run.id, owner);
+
       const started = await new RunEventsRepository(tx).append(
         run.id,
         'run.started',
       );
+
       return { id: run.id, startedSequence: started.sequence };
     });
+
     runId = run.id;
     context = {
       configuredCredentials: [],
@@ -111,13 +120,16 @@ describe('native file authority and durable effects', () => {
   const claimDelivery = () =>
     tenantDb.runAs(owner, async (tx) => {
       const started = await new RunsRepository(tx).markStarted(runId, owner);
+
       if (!started) return undefined;
+
       if (
         started.workerId !== null &&
         (await new NativeFilesRepository(tx).hasMutation(runId))
       ) {
         return undefined;
       }
+
       return (await new RunEventsRepository(tx).append(runId, 'run.started'))
         .sequence;
     });
@@ -145,9 +157,11 @@ describe('native file authority and durable effects', () => {
     const result = await runTool(bashTool, input, context, 5);
     expect(result).toMatchObject({ status: 'success', stdout: 'completed' });
     expect(await readFile(path, 'utf8')).toBe('changed');
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.map((event) => event.eventType)).toEqual([
       'run.started',
       'native.attempt',
@@ -171,13 +185,17 @@ describe('native file authority and durable effects', () => {
     expect(
       await runTool(bashTool, { command: 'x'.repeat(8001) }, context, 5),
     ).toMatchObject({ type: 'unavailable' });
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.map((event) => event.eventType)).toEqual(['run.started']);
+
     const run = await tenantDb.runAs(owner, (tx) =>
       new RunsRepository(tx).findById(runId, owner),
     );
+
     expect(run?.workerId).toBeNull();
   });
 
@@ -186,16 +204,20 @@ describe('native file authority and durable effects', () => {
     await mkdir(emptyPath);
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
     vi.stubEnv('PATH', emptyPath);
+
     const result = await runTool(
       bashTool,
       { command: 'printf never' },
       context,
       5,
     );
+
     expect(result).toMatchObject({ type: 'unavailable' });
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.map((event) => event.eventType)).toEqual([
       'run.started',
       'native.attempt',
@@ -219,11 +241,14 @@ describe('native file authority and durable effects', () => {
       { ...context, userId: otherOwner },
       5,
     );
+
     expect(result).toMatchObject({ type: 'executor_unavailable' });
     expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.map((event) => event.eventType)).toEqual(['run.started']);
   });
 
@@ -232,16 +257,20 @@ describe('native file authority and durable effects', () => {
       status: 'success',
       content: '1: before\n2: Foo\n3: after\n',
     });
+
     const run = await tenantDb.runAs(owner, (tx) =>
       new RunsRepository(tx).findById(runId, owner),
     );
+
     expect(run?.workerId).toBe('host-a');
+
     const result = await runTool(
       nativeEditTool,
       { path, oldText: 'Foo', newText: 'Bar' },
       { ...context, nativeExecutorId: 'host-b', toolCallId: randomUUID() },
       5,
     );
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'executor_unavailable',
@@ -253,9 +282,11 @@ describe('native file authority and durable effects', () => {
     const args = { path, oldText: 'Foo', newText: 'Bar' };
     const result = await runTool(nativeEditTool, args, context, 5);
     expect(result).toMatchObject({ status: 'success', replacements: 1 });
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.map((event) => event.eventType)).toEqual([
       'run.started',
       'native.attempt',
@@ -303,11 +334,14 @@ describe('native file authority and durable effects', () => {
     expect(
       sequences.every((sequence): sequence is number => sequence !== undefined),
     ).toBe(true);
+
     const latestSequence = Math.max(
       ...sequences.filter((sequence) => sequence !== undefined),
     );
+
     const latestIndex = sequences.indexOf(latestSequence);
     const calls = sequences.map((_, index) => `delivery-${index}`);
+
     const results = await Promise.all(
       sequences.map((deliverySequence, index) =>
         runTool(
@@ -334,12 +368,15 @@ describe('native file authority and durable effects', () => {
     expect(await readFile(path, 'utf8')).toBe(
       `before\nBar-${latestIndex}\nafter\n`,
     );
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     const attempts = events.filter(
       (event) => event.eventType === 'native.attempt',
     );
+
     expect(attempts).toHaveLength(1);
     expect(attempts[0]?.payload).toMatchObject({
       toolCallId: calls[latestIndex],
@@ -348,11 +385,13 @@ describe('native file authority and durable effects', () => {
 
   it('rejects a stale read after a newer delivery claim', async () => {
     const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
+
     const olderSequence = Math.min(
       ...sequences.filter(
         (sequence): sequence is number => sequence !== undefined,
       ),
     );
+
     const newerSequence = Math.max(
       ...sequences.filter(
         (sequence): sequence is number => sequence !== undefined,
@@ -390,11 +429,13 @@ describe('native file authority and durable effects', () => {
 
   it('does not bind a stale delivery host before the current delivery succeeds', async () => {
     const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
+
     const olderSequence = Math.min(
       ...sequences.filter(
         (sequence): sequence is number => sequence !== undefined,
       ),
     );
+
     const newerSequence = Math.max(
       ...sequences.filter(
         (sequence): sequence is number => sequence !== undefined,
@@ -447,17 +488,21 @@ describe('native file authority and durable effects', () => {
     'rejects a redelivery after the first %s attempt is admitted',
     async (operation) => {
       const sequence = context.nativeDeliverySequence;
+
       const first = await begin({
         deliverySequence: sequence,
         toolCallId: 'first-mutation',
         operation,
       });
+
       expect(first).toBeUndefined();
 
       expect(await claimDelivery()).toBeUndefined();
+
       const events = await tenantDb.runAs(owner, (tx) =>
         new RunEventsRepository(tx).listByRunId(runId, owner),
       );
+
       expect(
         events.filter((event) => event.eventType === 'run.started'),
       ).toHaveLength(1);
@@ -482,13 +527,16 @@ describe('native file authority and durable effects', () => {
           operation,
         }),
       ]);
+
       expect(results.filter((result) => result === undefined)).toHaveLength(1);
       expect(
         results.filter((result) => result?.type === 'outcome_unknown'),
       ).toHaveLength(1);
+
       const events = await tenantDb.runAs(owner, (tx) =>
         new RunEventsRepository(tx).listByRunId(runId, owner),
       );
+
       expect(
         events.filter((event) => event.eventType === 'native.attempt'),
       ).toHaveLength(1);
@@ -528,6 +576,7 @@ describe('native file authority and durable effects', () => {
         5,
       ),
     ]);
+
     expect(first).toMatchObject({ status: 'success' });
     expect(second).toMatchObject({
       status: 'error',
@@ -565,6 +614,7 @@ describe('native file authority and durable effects', () => {
       { ...context, toolCallId: randomUUID() },
       5,
     );
+
     expect(refused).toMatchObject({ status: 'error', type: 'file_exists' });
     expect(refused).toHaveProperty(
       'message',
@@ -624,12 +674,14 @@ describe('native file authority and durable effects', () => {
     // The mirror guard of create mode: asserting the file exists fails when it
     // does not, and creates neither the file nor the directories above it.
     const absent = join(directory, 'nested', 'missing');
+
     const refused = await runTool(
       nativeWriteTool,
       { path: absent, content: 'new\n', replace: true },
       { ...context, toolCallId: randomUUID() },
       5,
     );
+
     expect(refused).toMatchObject({ status: 'error', type: 'not_found' });
     expect(refused).toHaveProperty(
       'message',
@@ -645,9 +697,11 @@ describe('native file authority and durable effects', () => {
     const args = { path, content: 'replaced\n', replace: true };
     const result = await runTool(nativeWriteTool, args, context, 5);
     expect(result).toMatchObject({ status: 'success', replaced: true });
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.map((event) => event.eventType)).toEqual([
       'run.started',
       'native.attempt',
@@ -681,10 +735,12 @@ describe('native file authority and durable effects', () => {
 
   it("stores no read image and keeps media locators inside the reading owner's store", async () => {
     const media = new MediaService(tenantDb);
+
     const ownerContext: ToolContext = {
       ...context,
       media: createToolMediaStore(media, owner, new Map()),
     };
+
     const otherContext: ToolContext = {
       configuredCredentials: [],
       userId: otherOwner,
@@ -693,6 +749,7 @@ describe('native file authority and durable effects', () => {
       permissionPolicy: compileTestPermissionPolicy(),
       media: createToolMediaStore(media, otherOwner, new Map()),
     };
+
     const ownedObjects = () =>
       tenantDb.runAs(owner, (tx) =>
         tx
@@ -700,6 +757,7 @@ describe('native file authority and durable effects', () => {
           .from(schema.mediaObjects)
           .where(eq(schema.mediaObjects.ownerUserId, owner)),
       );
+
     const image = join(directory, 'shot.png');
     const bytes = await randomPng();
     await writeFile(image, bytes);
@@ -710,6 +768,7 @@ describe('native file authority and durable effects', () => {
       ownerContext,
       5,
     );
+
     expect(read).toMatchObject({
       status: 'success',
       kind: 'image',
@@ -726,7 +785,9 @@ describe('native file authority and durable effects', () => {
       bytes,
       source: 'shot.png',
     });
+
     const locator = `media://${upload.id}`;
+
     for (const selector of [':1', ':raw', ':img']) {
       expect(
         await runTool(
@@ -737,6 +798,7 @@ describe('native file authority and durable effects', () => {
         ),
       ).toMatchObject({ status: 'error', type: 'invalid_selector' });
     }
+
     expect(
       await runTool(nativeReadTool, { path: locator }, ownerContext, 5),
     ).toEqual({
@@ -748,12 +810,14 @@ describe('native file authority and durable effects', () => {
       height: 8,
       path: locator,
     });
+
     const foreign = await runTool(
       nativeReadTool,
       { path: locator },
       otherContext,
       5,
     );
+
     expect(foreign).toMatchObject({
       status: 'error',
       type: 'not_found',
@@ -792,6 +856,7 @@ describe('kb:// mutations under real owner binding', () => {
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL;
+
     if (!url) throw new Error('Integration database was not provisioned.');
     sql = postgres(url, { max: 2 });
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
@@ -800,10 +865,12 @@ describe('kb:// mutations under real owner binding', () => {
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'kb-mutate-'));
+
     const spaces = new KnowledgeSpaceService(
       tenantDb,
       new KnowledgeSpaceLocalResolver(root),
     );
+
     resolver = new KnowledgeToolRuntimeResolver(spaces);
     spaceId = (await spaces.provisionForOwner(owner)).id;
     otherSpaceId = (await spaces.provisionForOwner(otherOwner)).id;
@@ -811,32 +878,40 @@ describe('kb:// mutations under real owner binding', () => {
     await writeFile(notePath(otherSpaceId, 'note.md'), 'not yours\n');
 
     const chatId = randomUUID();
+
     const run = await tenantDb.runAs(owner, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: owner,
         title: 'Knowledge mutations',
       });
+
       const message = await new MessagesRepository(tx).create({
         chatId,
         senderUserId: owner,
         role: 'user',
         parts: [{ type: 'text', text: 'Edit the note.' }],
       });
+
       const runs = new RunsRepository(tx);
+
       const created = await runs.create({
         chatId,
         userId: owner,
         messageId: message.id,
         modelId: 'kb-test',
       });
+
       await runs.markStarted(created.id, owner);
+
       const started = await new RunEventsRepository(tx).append(
         created.id,
         'run.started',
       );
+
       return { id: created.id, startedSequence: started.sequence };
     });
+
     runId = run.id;
     // No `nativeExecutorId`: a kb:// mutation must work on a worker that has
     // never accepted host authority.
@@ -889,6 +964,7 @@ describe('kb:// mutations under real owner binding', () => {
       context,
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       operation: 'edit',
@@ -900,19 +976,23 @@ describe('kb:// mutations under real owner binding', () => {
     expect(await readFile(notePath(spaceId, 'note.md'), 'utf8')).toBe(
       'alpha\ndelta\ngamma\n',
     );
+
     const run = await tenantDb.runAs(owner, (tx) =>
       new RunsRepository(tx).findById(runId, owner),
     );
+
     expect(run?.workerId).toBeNull();
   });
 
   it('settles a refused edit so a retry replays it instead of re-running', async () => {
     await writeFile(notePath(spaceId, 'twice.md'), 'same\nsame\n');
+
     const args = {
       path: locator(spaceId, 'twice.md'),
       oldText: 'same',
       newText: 'x',
     };
+
     const failure = await runTool(nativeEditTool, args, context, 5);
     expect(failure).toMatchObject({
       status: 'error',
@@ -928,6 +1008,7 @@ describe('kb:// mutations under real owner binding', () => {
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.map((event) => event.eventType)).toEqual([
       'run.started',
       'native.attempt',
@@ -996,12 +1077,14 @@ describe('kb:// mutations under real owner binding', () => {
 
   it('replaces an existing note under the locator envelope', async () => {
     const target = locator(spaceId, 'note.md');
+
     const result = await runTool(
       nativeWriteTool,
       { path: target, content: 'delta\n', replace: true },
       context,
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       operation: 'write',
@@ -1023,6 +1106,7 @@ describe('kb:// mutations under real owner binding', () => {
       context,
       5,
     );
+
     expect(missingLeaf).toMatchObject({
       status: 'error',
       type: 'not_found',
@@ -1072,6 +1156,7 @@ describe('kb:// mutations under real owner binding', () => {
       content: 'delta\n',
       replace: true,
     };
+
     const result = await runTool(nativeWriteTool, args, context, 5);
     expect(result).toMatchObject({ status: 'success', replaced: true });
     await writeFile(notePath(spaceId, 'note.md'), 'independently restored\n');
@@ -1147,9 +1232,11 @@ describe('kb:// mutations under real owner binding', () => {
     expect(await readFile(notePath(otherSpaceId, 'note.md'), 'utf8')).toBe(
       'not yours\n',
     );
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     expect(events.some((event) => event.eventType === 'native.attempt')).toBe(
       false,
     );
@@ -1193,12 +1280,15 @@ describe('kb:// mutations under real owner binding', () => {
       context,
       5,
     );
+
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
     );
+
     const attempt = events.find(
       (event) => event.eventType === 'native.attempt',
     );
+
     expect(attempt?.payload).toMatchObject({
       operation: 'edit',
       path: locator(spaceId, 'note.md'),

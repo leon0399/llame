@@ -23,16 +23,20 @@ export const noArrayFilterMapRule = defineRule({
     return {
       CallExpression(node) {
         const outer = arrayMethodTarget(node.callee);
+
         if (outer === null || (outer.name !== "map" && outer.name !== "filter"))
           return;
         const innerCall = unwrapArrayExpression(outer.object);
+
         if (innerCall.type !== "CallExpression") return;
         const inner = arrayMethodTarget(innerCall.callee);
+
         if (
           inner === null ||
           inner.name !== (outer.name === "map" ? "filter" : "map")
         )
           return;
+
         if (!isKnownArrayExpression(context.sourceCode, inner.object)) return;
         context.report({
           node,

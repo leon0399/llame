@@ -77,6 +77,7 @@ describe('skills.directories instance configuration', () => {
       writeConfig(JSON.stringify({ skills: { directories: [source] } }));
 
       let message = '';
+
       try {
         loadInstanceConfig({ SKILL_ROOT: '/resolved/secret/root' });
       } catch (error) {

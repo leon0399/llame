@@ -38,6 +38,7 @@ describe('WorkerProfileService — profile resolution', () => {
     const service = new WorkerProfileService(
       fakeInstanceConfig(BUILT_IN_DEFAULTS.workers),
     );
+
     expect(service.profileName).toBe('all');
   });
 
@@ -45,6 +46,7 @@ describe('WorkerProfileService — profile resolution', () => {
     const service = new WorkerProfileService(
       fakeInstanceConfig(BUILT_IN_DEFAULTS.workers),
     );
+
     expect(service.concurrencyFor('runs')).toBe(1);
     expect(service.concurrencyFor('search-reindex')).toBe(1);
     expect(service.concurrencyFor('sessions-cleanup')).toBe(1);
@@ -53,9 +55,11 @@ describe('WorkerProfileService — profile resolution', () => {
 
   it('`web` (empty profile) resolves every group to null — no consumer registers anything', () => {
     process.env[ENV_KEY] = 'web';
+
     const service = new WorkerProfileService(
       fakeInstanceConfig(BUILT_IN_DEFAULTS.workers),
     );
+
     expect(service.concurrencyFor('runs')).toBeNull();
     expect(service.concurrencyFor('search-reindex')).toBeNull();
     expect(service.concurrencyFor('sessions-cleanup')).toBeNull();
@@ -64,9 +68,11 @@ describe('WorkerProfileService — profile resolution', () => {
 
   it('a profile with a SUBSET of groups resolves only those — the rest are null (taint routing)', () => {
     process.env[ENV_KEY] = 'heavy';
+
     const service = new WorkerProfileService(
       fakeInstanceConfig({ ...BUILT_IN_DEFAULTS.workers, heavy: { runs: 3 } }),
     );
+
     expect(service.concurrencyFor('runs')).toBe(3);
     expect(service.concurrencyFor('search-reindex')).toBeNull();
     expect(service.concurrencyFor('sessions-cleanup')).toBeNull();
@@ -87,9 +93,11 @@ describe('WorkerProfileService — profile resolution', () => {
 
   it('an empty/blank-string LLAME_WORKER_PROFILE falls back to the default `all`, not to an empty profile name', () => {
     process.env[ENV_KEY] = '   ';
+
     const service = new WorkerProfileService(
       fakeInstanceConfig(BUILT_IN_DEFAULTS.workers),
     );
+
     expect(service.profileName).toBe('all');
   });
 });

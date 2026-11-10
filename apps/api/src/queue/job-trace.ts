@@ -52,18 +52,23 @@ export function publishTraced<T extends object>(
       'messaging.destination.name': queue,
     },
   };
+
   return Sentry.startSpan(span, async (active) => {
     const trace = Sentry.getTraceData();
+
     const payload =
       Object.keys(trace).length === 0
         ? data
         : { ...data, [TRACE_FIELD]: trace };
+
     active.setAttribute(
       'messaging.message.body.size',
       Buffer.byteLength(JSON.stringify(payload)),
     );
     const id = await send(payload);
+
     if (id !== null) active.setAttribute('messaging.message.id', id);
+
     return id;
   });
 }
@@ -98,12 +103,14 @@ export function processTraced(
 ): Promise<void> {
   const parsed = tracedPayloadSchema.safeParse(job.data);
   const trace = parsed.success ? parsed.data[TRACE_FIELD] : undefined;
+
   const span = {
     name: `process ${queue}`,
     op: 'queue.process',
     forceTransaction: true,
     attributes: processAttributes(queue, job),
   };
+
   const runReported = () =>
     Sentry.startSpan(span, async () => {
       try {
@@ -113,6 +120,7 @@ export function processTraced(
         throw error;
       }
     });
+
   return Sentry.withIsolationScope(() =>
     Sentry.continueTrace(
       { sentryTrace: trace?.['sentry-trace'], baggage: trace?.baggage },

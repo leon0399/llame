@@ -91,6 +91,7 @@ export async function runGrepScan(
   input: GrepScanInput,
 ): Promise<GrepScanResult> {
   const state = createScanState(input);
+
   const walk = startGrepWalk({
     scopes: input.scopes,
     patterns: input.patterns,
@@ -101,10 +102,13 @@ export async function runGrepScan(
     now: input.now,
     consumedBytes: () => state.consumed.bytes,
   });
+
   try {
     for (;;) {
       const event = await walk.take();
+
       if (event === undefined) break;
+
       if (await takeEvent(state, walk, event)) break;
     }
   } finally {
@@ -113,6 +117,7 @@ export async function runGrepScan(
     walk.stop();
     await walk.done;
   }
+
   return buildResult(state);
 }
 
@@ -151,11 +156,13 @@ function createScanState(input: GrepScanInput): ScanState {
 function startPointOf(input: GrepScanInput): ScanState["startPoint"] {
   if (input.cursor !== undefined)
     return { scopeIndex: input.cursor.scopeIndex, rel: input.cursor.rel };
+
   const first = input.scopes.reduce<GrepScope | undefined>(
     (earliest, scope) =>
       earliest === undefined || scope.index < earliest.index ? scope : earliest,
     undefined,
   );
+
   return first === undefined ? undefined : { scopeIndex: first.index, rel: "" };
 }
 
@@ -168,6 +175,7 @@ async function takeEvent(
   switch (event.kind) {
     case "scope":
       state.scopeIndex = event.scopeIndex;
+
       return false;
     case "record":
       return takeRecord(state, event);
@@ -176,6 +184,7 @@ async function takeEvent(
       // on the same file ends there, without the bound's warning.
       if (state.page.full || !pageHasFileRoom(state)) return true;
       stopAt(state, event.reason);
+
       return true;
     case "candidate":
       return takeCandidate(state, walk, event);
@@ -193,10 +202,12 @@ function takeRecord(
   // The record's entries wait behind its exclusions: a page that ends before
   // an exclusion re-lists them, so counting them here would double the bound.
   if (!takeIgnored(state, record)) return true;
+
   if (record.links > 0 && !addWarning(state, "link", record.links)) return true;
   state.consumed.entries += record.entries;
   const { reached } = record;
   const scopeIndex = state.scopeIndex;
+
   if (reached === undefined || scopeIndex === undefined) return false;
   state.position = { scopeIndex, rel: reached };
   // A stop before a passage ends the page at this entry, so the page keeps
@@ -205,7 +216,9 @@ function takeRecord(
     state.page.reserveFloor,
     grepContinuationUnits({ scopeIndex: state.widestIndex, rel: reached }),
   );
+
   if (pastStartPoint(state, reached)) state.progressed = true;
+
   return false;
 }
 
@@ -218,14 +231,17 @@ function takeIgnored(
   record: Extract<GrepWalkEvent, { readonly kind: "record" }>,
 ): boolean {
   if (record.ignored.length === 0 && !record.ignoredAtLeast) return true;
+
   const prior = {
     ...state.ignored,
     paths: [...state.ignored.paths],
   };
+
   if (record.ignoredAtLeast) state.ignored.atLeast = true;
   // The producer caps the whole call at `ignoredReported`, so every path the
   // record carries is new here.
   state.ignored.paths.push(...record.ignored);
+
   // The ignored line renders beside the continuation line, so it adds to the
   // reserve the page keeps back rather than replacing the cursor's room.
   const limits = {
@@ -241,14 +257,18 @@ function takeIgnored(
         spellGrepHostScopeLocator,
       ),
   };
+
   // A line the page can no longer hold ends it before this exclusion; the
   // next call reports the directory instead.
   if (!holdsGrownReserve(state.page, limits, state.page.warningReserve)) {
     state.ignored = prior;
     state.page.full = true;
+
     return false;
   }
+
   state.limits = limits;
+
   return true;
 }
 
@@ -256,8 +276,11 @@ function takeIgnored(
 function pastStartPoint(state: ScanState, rel: string): boolean {
   const start = state.startPoint;
   const scopeIndex = state.scopeIndex;
+
   if (start === undefined || scopeIndex === undefined) return false;
+
   if (scopeIndex !== start.scopeIndex) return scopeIndex > start.scopeIndex;
+
   return compareRel(rel, start.rel) > 0;
 }
 
@@ -276,15 +299,21 @@ async function takeCandidate(
   // lost on resume.
   if (state.page.full || !pageHasFileRoom(state)) return true;
   const bound = boundBeforeFile(state);
+
   if (bound !== undefined) {
     stopAt(state, bound);
+
     return true;
   }
+
   if (event.read === undefined) {
     state.readRefused += 1;
+
     return false;
   }
+
   reserveForFile(state, event);
+
   return applyOutcome(state, event, await walk.awaitTask(event));
 }
 
@@ -314,24 +343,30 @@ function applyOutcome(
     case "skip":
       if (!addWarning(state, outcome.warning)) return true;
       state.consumed.files += 1;
+
       return false;
     case "stopped":
       state.consumed.files += 1;
       state.consumed.bytes += outcome.bytes;
       stopInsideFile(state, event, outcome.reason);
+
       return true;
     case "refused":
       if (!addWarning(state, outcome.refusal)) return true;
       state.consumed.files += 1;
       state.consumed.bytes += outcome.bytes;
+
       return false;
     case "passages":
       state.consumed.files += 1;
       state.consumed.bytes += outcome.bytes;
+
       // A file whose hold limit kept content out may hold matches the page
       // never saw, so the call cannot claim to be complete.
       if (outcome.holdStopped) state.holdStopped = true;
+
       if (emitPassages(state, event, outcome)) state.progressed = true;
+
       return false;
   }
 }
@@ -349,6 +384,7 @@ function stopInsideFile(
   // A page that cannot hold the stop's line ends before it: the file is named
   // by the next call, which re-checks the bound with a fresh one.
   if (!stopAt(state, reason)) return;
+
   if (state.progressed) return;
   // The page ends here with no passage to hold, so the unfinished line and
   // the cursor are what must fit; a file that completes never reserves it.
@@ -369,9 +405,12 @@ function stopInsideFile(
 /** The bound or deadline that stops the walk before this file, if any. */
 function boundBeforeFile(state: ScanState): GrepWarningKind | undefined {
   const budget = state.input.budget;
+
   if (budget.bytes !== null && state.consumed.bytes >= budget.bytes)
     return "byte_bound";
+
   if (state.input.now() > state.deadlineAt) return "deadline";
+
   return undefined;
 }
 
@@ -379,6 +418,7 @@ function boundBeforeFile(state: ScanState): GrepWarningKind | undefined {
 function pageHasFileRoom(state: ScanState): boolean {
   if (state.page.files < state.input.budget.limit) return true;
   state.page.full = true;
+
   return false;
 }
 
@@ -394,6 +434,7 @@ function emitPassages(
 ): number {
   const visible = scan.passages;
   const cappedAt = exhaustedAt(event.resume, visible) ?? scan.cappedAt;
+
   const emitted = appendGrepFile(state.page, state.limits, {
     scopeIndex: event.scopeIndex,
     rel: event.rel,
@@ -401,15 +442,18 @@ function emitPassages(
     passages: visible,
     cappedAt,
   });
+
   cappedMark(state, {
     file: event,
     visible,
     cappedAt,
     emitted,
   });
+
   // A file whose passage did not fit kept nothing: it is walked again by the
   // next page, so it must not enter this page's counts.
   if (emitted > 0) markPage(state);
+
   return emitted;
 }
 
@@ -429,6 +473,7 @@ function markPage(state: ScanState): void {
 /** The counts one result reports: the kept ones, or none for a page cut before a passage. */
 function reportedCounts(state: ScanState): PageMark {
   if (!state.page.full || state.stop !== undefined) return state;
+
   return (
     state.pageMark ?? {
       warnings: new Map(),
@@ -454,10 +499,13 @@ type CappedMark = {
  */
 function cappedMark(state: ScanState, mark: CappedMark): void {
   const { file, visible, cappedAt, emitted } = mark;
+
   if (cappedAt === undefined) return;
+
   const index = visible.findIndex(
     (passage) => passageStartLine(passage.locator) === cappedAt,
   );
+
   if (index === -1 || index >= emitted) return;
   state.capped.push({
     scopeIndex: file.scopeIndex,
@@ -475,12 +523,14 @@ function exhaustedAt(
   visible: ReadonlyArray<GrepPassage>,
 ): number | undefined {
   if (resume?.truncated !== true || visible.length === 0) return undefined;
+
   return passageStartLine(visible[0].locator);
 }
 
 function stopAt(state: ScanState, kind: GrepWarningKind): boolean {
   if (!addWarning(state, kind)) return false;
   state.stop = kind;
+
   return true;
 }
 
@@ -497,20 +547,26 @@ function addWarning(
   const previous = state.warnings.get(kind);
   state.warnings.set(kind, (previous ?? 0) + count);
   const reserve = grepWarningsUnits(state.warnings);
+
   if (holdsGrownReserve(state.page, state.limits, reserve)) {
     state.page.warningReserve = reserve;
+
     return true;
   }
+
   if (previous === undefined) state.warnings.delete(kind);
   else state.warnings.set(kind, previous);
   state.page.full = true;
+
   return false;
 }
 
 function buildResult(state: ScanState): GrepScanResult {
   const complete =
     state.stop === undefined && !state.page.full && !state.holdStopped;
+
   const counted = reportedCounts(state);
+
   return {
     results: state.page.results,
     complete,
@@ -541,6 +597,7 @@ function buildResult(state: ScanState): GrepScanResult {
  */
 function cursorOf(state: ScanState): string | undefined {
   const last = state.page.last;
+
   if (last !== undefined) {
     return encodeGrepCursor({
       scopeIndex: last.scopeIndex,
@@ -551,18 +608,23 @@ function cursorOf(state: ScanState): string | undefined {
       inputHash: state.input.inputHash,
     });
   }
+
   const position = state.position;
+
   if (position === undefined) {
     // A resumed call that stopped before it reached anything past its own
     // cursor hands that cursor back: a scope restart would move behind it.
     const incoming = state.input.cursor;
+
     if (
       incoming !== undefined &&
       (state.scopeIndex === undefined ||
         state.scopeIndex <= incoming.scopeIndex)
     )
       return encodeGrepCursor(incoming);
+
     if (state.scopeIndex === undefined) return undefined;
+
     return encodeGrepCursor({
       kind: "position",
       scopeIndex: state.scopeIndex,
@@ -570,6 +632,7 @@ function cursorOf(state: ScanState): string | undefined {
       inputHash: state.input.inputHash,
     });
   }
+
   return encodeGrepCursor({
     kind: "position",
     scopeIndex: position.scopeIndex,

@@ -54,6 +54,7 @@ describe("useCreateChat", () => {
     );
     const queryClient = newTestQueryClient();
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
     const { result } = renderHook(() => useCreateChat(), {
       wrapper: wrapperWithClient(queryClient),
     });

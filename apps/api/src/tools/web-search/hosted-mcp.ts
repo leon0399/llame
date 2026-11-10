@@ -14,17 +14,24 @@ export const McpCallResultSchema = z.object({
   isError: z.boolean().optional(),
   structuredContent: z.unknown().optional(),
 });
+
 export type McpCallResult = z.infer<typeof McpCallResultSchema>;
+
 const McpTextPartSchema = z.object({
   type: z.literal('text'),
   text: z.string(),
 });
+
 const McpErrorSchema = z.object({ statusCode: z.number().optional() });
 
 type HttpTransport = Parameters<typeof createMCPClient>[0]['transport'];
+
 type HostedTool = Required<Pick<Tool<unknown, unknown>, 'execute'>>;
+
 type HostedToolSet = Readonly<Record<string, HostedTool>>;
+
 type HostedSession = { readonly client: MCPClient; readonly tool: HostedTool };
+
 type SessionSlot = {
   readonly session: Promise<HostedSession>;
   /** Calls using this session now; a dropped slot closes its client at zero. */
@@ -65,6 +72,7 @@ type HostedMcpOptions = {
 export function mcpTextParts(value: McpCallResult): Array<string> {
   return value.content.flatMap((part): Array<string> => {
     const parsed = McpTextPartSchema.safeParse(part);
+
     return parsed.success ? [parsed.data.text] : [];
   });
 }
@@ -74,8 +82,11 @@ function classifyError(
   error: unknown,
 ): 'auth' | 'rate_limited' | 'upstream_error' {
   const status = McpErrorSchema.safeParse(error).data?.statusCode;
+
   if (status === 401 || status === 403) return 'auth';
+
   if (status === 429) return 'rate_limited';
+
   return 'upstream_error';
 }
 
@@ -85,10 +96,12 @@ async function waitForSession(
 ): Promise<HostedSession> {
   signal.throwIfAborted();
   let onAbort: (() => void) | undefined;
+
   const aborted = new Promise<never>((_, reject) => {
     onAbort = () => reject(new Error('Hosted MCP session wait aborted'));
     signal.addEventListener('abort', onAbort, { once: true });
   });
+
   try {
     return await Promise.race([session, aborted]);
   } finally {
@@ -98,7 +111,9 @@ async function waitForSession(
 
 function toolFromSet(value: HostedToolSet, toolName: string): HostedTool {
   const tool = value[toolName];
+
   if (tool === undefined) throw new EngineFailure('upstream_error');
+
   return tool;
 }
 
@@ -123,7 +138,9 @@ function createTransportFetch(
   return async (input, init) => {
     const headers = new Headers(init?.headers);
     const userAgent = getUserAgent();
+
     if (userAgent !== undefined) headers.set('User-Agent', userAgent);
+
     return boundedFetch(input, { ...init, headers });
   };
 }
@@ -138,7 +155,9 @@ function createTransport(
     redirect: 'error',
     fetch,
   };
+
   if (options.headers !== undefined) transport.headers = options.headers;
+
   return transport;
 }
 
@@ -160,18 +179,23 @@ function createSessionCache(
   toolName: string,
 ): SessionCache {
   let slot: SessionSlot | undefined;
+
   /** Forget a session for later calls; its client closes when it is idle. */
   const drop = (target: SessionSlot): void => {
     target.dropped = true;
+
     if (slot === target) slot = undefined;
   };
+
   const acquire = (): SessionSlot => {
     if (slot !== undefined) return slot;
     const initialization = openSession(transport, toolName);
+
     const session = waitForSession(
       initialization,
       AbortSignal.timeout(HOSTED_MCP_SESSION_TIMEOUT_MS),
     );
+
     const current: SessionSlot = { session, inFlight: 0, dropped: false };
     // A failed handshake does not stay cached, and a client that arrives after
     // the handshake gave up is closed instead of leaking.
@@ -182,11 +206,14 @@ function createSessionCache(
         .catch(() => undefined);
     });
     slot = current;
+
     return current;
   };
+
   const closeIfIdle = (target: SessionSlot): void => {
     if (target.dropped && target.inFlight === 0) closeSession(target);
   };
+
   return { acquire, drop, closeIfIdle };
 }
 
@@ -208,8 +235,10 @@ async function callHostedTool<TArguments, TResult>(
   const current = deps.cache.acquire();
   current.inFlight += 1;
   let toolError = false;
+
   try {
     const { tool } = await waitForSession(current.session, signal);
+
     const parsed = McpCallResultSchema.safeParse(
       await tool.execute(args, {
         toolCallId: deps.toolName,
@@ -217,12 +246,15 @@ async function callHostedTool<TArguments, TResult>(
         abortSignal: signal,
       }),
     );
+
     if (!parsed.success) throw new EngineFailure('upstream_error');
     toolError = parsed.data.isError === true;
+
     return interpret(parsed.data);
   } catch (error: unknown) {
     // A caller's abort is not a vendor failure, and it keeps the session.
     if (signal.aborted) signal.throwIfAborted();
+
     // A tool-level error arrives as HTTP 200: the transport is healthy, so its
     // session stays for the next call. Any other failure poisons it.
     if (!toolError) deps.cache.drop(current);
@@ -243,9 +275,11 @@ export function createHostedMcp<TArguments>(
     fetch: options.fetch,
     maxResponseBytes: VENDOR_RESPONSE_MAX_BYTES,
   });
+
   // The callers' agents are identical per instance; the latest one wins any
   // request still in flight, as the single transport serves them all.
   let userAgent: string | undefined;
+
   const cache = createSessionCache(
     createTransport(
       options,
@@ -253,6 +287,7 @@ export function createHostedMcp<TArguments>(
     ),
     options.toolName,
   );
+
   const deps: CallDeps = {
     cache,
     toolName: options.toolName,
@@ -260,6 +295,7 @@ export function createHostedMcp<TArguments>(
       userAgent = value;
     },
   };
+
   return {
     call: (args, context, interpret) =>
       callHostedTool(deps, args, context, interpret),

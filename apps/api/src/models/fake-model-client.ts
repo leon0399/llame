@@ -44,9 +44,11 @@ function fakeResponseChunks(
     { type: 'stream-start', warnings: [] },
     { type: 'text-start', id: 'fake-response' },
   ];
+
   if (response.length > 0) {
     chunks.push({ type: 'text-delta', id: 'fake-response', delta: response });
   }
+
   chunks.push(
     { type: 'text-end', id: 'fake-response' },
     {
@@ -58,6 +60,7 @@ function fakeResponseChunks(
       },
     },
   );
+
   return chunks;
 }
 
@@ -75,6 +78,7 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
   let resolveCompletion: () => void = noop;
   const onFinish = createModelStreamFinishCallback(input.onFinish);
   let rejectCompletion: (reason?: unknown) => void = noop;
+
   const completion = new Promise<void>((resolve, reject) => {
     resolveCompletion = resolve;
     rejectCompletion = reject;
@@ -110,6 +114,7 @@ function streamFakeResponse(
   client: Pick<ModelClient, 'input' | 'contextWindowTokens'>,
 ) {
   const { handlers, completion } = createFakeStreamOutcome(input);
+
   const streamOptions = {
     model: new MockLanguageModelV3({
       provider: 'fake',
@@ -126,11 +131,13 @@ function streamFakeResponse(
     abortSignal: input.abortSignal,
     ...handlers,
   };
+
   applyToolCallingOptions(streamOptions, input, createToolCallGate());
   // Text-only unless a test assigns the client an `input`.
   installStepPreparation(streamOptions, input, client);
   applyRequestUsageCallback(streamOptions, input);
   const result = streamText(streamOptions);
+
   return wrapStreamTextResult(result, {
     text: (target) => ({
       value: Promise.all([target.text, completion]).then(([text]) => text),
@@ -159,8 +166,10 @@ export function createFakeModelClient(
         responses.length === 0
           ? ''
           : responses[responseIndex++ % responses.length];
+
       return streamFakeResponse(response, input, client);
     },
   };
+
   return client;
 }

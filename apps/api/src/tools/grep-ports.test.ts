@@ -54,6 +54,7 @@ async function withTree<T>(callback: (root: string) => Promise<T>): Promise<T> {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), 'grep-ports-')),
   );
+
   try {
     return await callback(root);
   } finally {
@@ -89,6 +90,7 @@ async function packageFixture(root: string): Promise<string> {
     path.join(directory, 'missing.md'),
     path.join(directory, 'gone.md'),
   );
+
   return directory;
 }
 
@@ -103,12 +105,14 @@ describe('joinedPath', () => {
 describe('readBoundedFileBytes', () => {
   it('reads one byte past the bound and never buffers the rest', async () => {
     const positions: Array<number> = [];
+
     const bytes = await readBoundedFileBytes(
       {
         read: (buffer, offset, length, position) => {
           positions.push(position);
           // Fill the chunk so the helper has to decide where to stop.
           buffer.fill(0x61, offset, offset + length);
+
           return Promise.resolve({ bytesRead: length });
         },
       },
@@ -124,18 +128,21 @@ describe('readBoundedFileBytes', () => {
 
   it('stops when the handle runs out of bytes and when the signal aborts', async () => {
     let reads = 0;
+
     const shortReads = await readBoundedFileBytes(
       {
         read: (buffer, offset, length) => {
           reads += 1;
           const bytesRead = Math.min(4, length);
           buffer.fill(0x61, offset, offset + bytesRead);
+
           return Promise.resolve({ bytesRead });
         },
       },
       10,
       undefined,
     );
+
     expect(shortReads.byteLength).toBe(11);
     expect(reads).toBe(3);
 
@@ -155,9 +162,11 @@ describe('createHostWalkPort', () => {
   /** The ignore-policy reader of one host port; a host port always carries one. */
   function ignoreReader(root: string) {
     const port = createHostWalkPort(root, undefined);
+
     return (rel: string) => {
       if (port.ignoreFiles === undefined)
         throw new Error('a host port reads ignore files');
+
       return port.ignoreFiles(rel);
     };
   }
@@ -181,18 +190,22 @@ describe('createHostWalkPort', () => {
       await expect(absent.list('')).rejects.toMatchObject({
         result: NOT_FOUND_RESULT,
       });
+
       // A path component that is a file: the same message a missing one gets.
       const belowFile = createHostWalkPort(
         path.join(root, 'plain.txt', 'child'),
         undefined,
       );
+
       await expect(belowFile.list('')).rejects.toMatchObject({
         result: NOT_FOUND_RESULT,
       });
+
       const tooLong = createHostWalkPort(
         path.join(root, 'x'.repeat(300)),
         undefined,
       );
+
       await expect(tooLong.list('')).rejects.toMatchObject({
         result: HOST_REFUSAL_RESULT,
       });
@@ -227,6 +240,7 @@ describe('createHostWalkPort', () => {
       const text = `${'x'.repeat(1024 * 1024)}tail\n`;
       await writeFile(path.join(root, 'big.md'), text);
       const opened = await createHostWalkPort(root, undefined).open('big.md');
+
       if (!('chunks' in opened)) throw new Error('a regular file opens');
       expect(opened.size).toBe(Buffer.byteLength(text));
       // Compare with `equals`: a deep `toEqual` on a mebibyte walks every
@@ -259,6 +273,7 @@ describe('createHostWalkPort', () => {
     await withTree(async (root) => {
       await writeFile(path.join(root, 'note.md'), 'needle\n');
       const opened = await createHostWalkPort(root, undefined).open('note.md');
+
       if (!('chunks' in opened)) throw new Error('a regular file opens');
       expect(opened.size).toBe(7);
       expect(await collectStreamBytes(opened.chunks)).toEqual(
@@ -279,11 +294,13 @@ describe('createHostWalkPort', () => {
     const wholeFileRead = vi.spyOn(handlePrototype, 'readFile');
     const chunkRead = vi.spyOn(handlePrototype, 'read');
     await opened.close();
+
     try {
       const stream = await createHostWalkPort(
         '/proc/self/status',
         undefined,
       ).open('');
+
       if (!('chunks' in stream)) throw new Error('procfs status opens');
       expect((await collectStreamBytes(stream.chunks)).length).toBeGreaterThan(
         0,
@@ -300,9 +317,11 @@ describe('createHostWalkPort', () => {
     await withTree(async (root) => {
       await writeFile(path.join(root, 'big.md'), 'x'.repeat(200_000));
       const controller = new AbortController();
+
       const opened = await createHostWalkPort(root, controller.signal).open(
         'big.md',
       );
+
       if (!('chunks' in opened)) throw new Error('a regular file opens');
       const iterator = opened.chunks[Symbol.asyncIterator]();
       // The first chunk arrives, so the abort lands between reads rather
@@ -324,12 +343,15 @@ describe('createHostWalkPort', () => {
     const handlePrototype = Object.getPrototypeOf(opened) as FileHandle;
     const chunkRead = vi.spyOn(handlePrototype, 'read');
     await opened.close();
+
     try {
       chunkRead.mockRejectedValueOnce(new Error('EIO'));
+
       const stream = await createHostWalkPort(
         '/proc/self/status',
         undefined,
       ).open('');
+
       if (!('chunks' in stream)) throw new Error('procfs status opens');
       const seen = await drainStream(stream.chunks, 4);
       expect(seen).toStrictEqual([{ kind: 'unreadable' }]);
@@ -345,6 +367,7 @@ describe('createHostWalkPort', () => {
       const openHandles = async () => (await readdir('/proc/self/fd')).length;
       await port.open('pipe');
       const before = await openHandles();
+
       for (let index = 0; index < 20; index += 1) {
         await expect(port.open('pipe')).resolves.toStrictEqual({
           kind: 'unreadable',
@@ -353,6 +376,7 @@ describe('createHostWalkPort', () => {
           createHostWalkPort('/dev/null', undefined).open(''),
         ).resolves.toStrictEqual({ kind: 'unreadable' });
       }
+
       expect(await openHandles()).toBeLessThanOrEqual(before + 2);
     });
   });
@@ -363,6 +387,7 @@ describe('createHostWalkPort', () => {
       const port = createHostWalkPort(root, undefined);
       const openHandles = async () => (await readdir('/proc/self/fd')).length;
       const first = await port.open('note.md');
+
       if (!('chunks' in first)) throw new Error('a regular file opens');
       expect(await collectStreamBytes(first.chunks)).toEqual(
         Buffer.from('needle\n'),
@@ -371,9 +396,11 @@ describe('createHostWalkPort', () => {
 
       for (let index = 0; index < 20; index += 1) {
         const opened = await port.open('note.md');
+
         if (!('chunks' in opened)) throw new Error('a regular file opens');
         await collectStreamBytes(opened.chunks);
       }
+
       await port.open('absent.md');
 
       expect(await openHandles()).toBeLessThanOrEqual(before + 2);
@@ -437,6 +464,7 @@ describe('createHostWalkPort', () => {
       const controller = new AbortController();
       controller.abort();
       const port = createHostWalkPort(root, controller.signal);
+
       if (port.ignoreFiles === undefined)
         throw new Error('a host port reads ignore files');
       await expect(port.ignoreFiles('')).rejects.toMatchObject({
@@ -450,10 +478,12 @@ describe('createHostWalkPort', () => {
       await mkdir(path.join(root, 'repo/sub'), { recursive: true });
       const controller = new AbortController();
       controller.abort();
+
       const port = createHostWalkPort(
         path.join(root, 'repo/sub'),
         controller.signal,
       );
+
       if (port.ignoreAncestors === undefined)
         throw new Error('a host port reads ancestor ignore files');
       await expect(port.ignoreAncestors()).rejects.toMatchObject({
@@ -470,6 +500,7 @@ describe('createHostWalkPort', () => {
       await writeFile(path.join(root, 'repo/.gitignore'), 'dist/\n');
       await writeFile(path.join(root, 'repo/.ignore'), 'cache/\n');
       const port = createHostWalkPort(path.join(root, 'repo/sub'), undefined);
+
       if (port.ignoreAncestors === undefined)
         throw new Error('a host port reads ancestor ignore files');
       const files = await port.ignoreAncestors();
@@ -509,11 +540,13 @@ describe('createKnowledgeWalkPort', () => {
         path.join(directory, 'link.md'),
       );
       const port = createKnowledgeWalkPort(bindingOf(root), '', undefined);
+
       const patterns = compileGrepPatterns({
         patterns: ['needle'],
         literal: false,
         ignoreCase: false,
       });
+
       if (!patterns.ok) throw new Error('the fixture pattern compiles');
 
       const scan = await runGrepScan({
@@ -557,6 +590,7 @@ describe('createKnowledgeWalkPort', () => {
         'absent',
         undefined,
       );
+
       await expect(port.list('')).rejects.toMatchObject({
         result: { status: 'error', type: 'knowledge_space_unavailable' },
       });
@@ -571,6 +605,7 @@ describe('createKnowledgeWalkPort', () => {
       await writeFile(path.join(directory, 'big.md'), text);
       const port = createKnowledgeWalkPort(bindingOf(root), '', undefined);
       const opened = await port.open('big.md');
+
       if (!('chunks' in opened)) throw new Error('a Space file opens');
       expect(opened.size).toBe(Buffer.byteLength(text));
       // Compare with `equals`: a deep `toEqual` on a mebibyte walks every
@@ -719,6 +754,7 @@ describe('createSkillWalkPort', () => {
       const file = path.join(root, 'SKILL.md');
       await writeFile(file, 'needle\n');
       const opened = await createSkillWalkPort(file, undefined).open('');
+
       if (!('chunks' in opened)) throw new Error('a package file opens');
       expect(await collectStreamBytes(opened.chunks)).toEqual(
         Buffer.from('needle\n'),
@@ -739,9 +775,11 @@ describe('createSkillWalkPort', () => {
   it('streams a package file and announces its size', async () => {
     await withTree(async (root) => {
       const directory = await packageFixture(root);
+
       const opened = await createSkillWalkPort(directory, undefined).open(
         'SKILL.md',
       );
+
       if (!('chunks' in opened)) throw new Error('a package file opens');
       expect(opened.size).toBe(7);
       expect(await collectStreamBytes(opened.chunks)).toEqual(
@@ -756,6 +794,7 @@ describe('createSkillWalkPort', () => {
       const port = createSkillWalkPort(directory, undefined);
       const openHandles = async () => (await readdir('/proc/self/fd')).length;
       const first = await port.open('SKILL.md');
+
       if (!('chunks' in first)) throw new Error('a package file opens');
       expect(await collectStreamBytes(first.chunks)).toEqual(
         Buffer.from('needle\n'),
@@ -764,9 +803,11 @@ describe('createSkillWalkPort', () => {
 
       for (let index = 0; index < 20; index += 1) {
         const opened = await port.open('SKILL.md');
+
         if (!('chunks' in opened)) throw new Error('a package file opens');
         await collectStreamBytes(opened.chunks);
       }
+
       await port.open('absent.md');
 
       expect(await openHandles()).toBeLessThanOrEqual(before + 2);

@@ -63,13 +63,16 @@ export class WorktreeRemovalService {
     const checkout = await this.tenantDb.runAs(ownerUserId, (tx) =>
       new RepositoriesRepository(tx).findCheckout(ownerUserId, checkoutId),
     );
+
     if (checkout === undefined) throw notFound();
+
     if (checkout.kind !== 'worktree') {
       throw repositoryFailure(
         'invalid_path',
         'Only a worktree checkout can be removed this way; delete the row to forget a main checkout.',
       );
     }
+
     return checkout;
   }
 
@@ -86,6 +89,7 @@ export class WorktreeRemovalService {
   ): Promise<void> {
     const state = await this.readState(target, checkout);
     const { counts, upstream } = state;
+
     if (
       counts.staged > 0 ||
       counts.unstaged > 0 ||
@@ -97,6 +101,7 @@ export class WorktreeRemovalService {
         'The worktree holds uncommitted changes.',
       );
     }
+
     if (
       (upstream === null || upstream.gone || upstream.ahead === null) &&
       !(await this.holdsBaseCommit(ownerUserId, checkout, state.head))
@@ -106,6 +111,7 @@ export class WorktreeRemovalService {
         'The worktree has no usable upstream and its HEAD is not the recorded base commit.',
       );
     }
+
     if (upstream !== null && upstream.ahead !== null && upstream.ahead > 0) {
       throw repositoryFailure(
         'worktree_not_clean',
@@ -122,9 +128,11 @@ export class WorktreeRemovalService {
     const located = await this.executors
       .locateEntry(target, checkout.path)
       .catch((error: unknown) => throwExecutorFailure(error));
+
     if (located.status === 'error') {
       throw repositoryFailure('git_failed', gitFailureMessage(located));
     }
+
     const state = await this.executors
       .state(target, checkout.path, {
         gitEntry: located.gitEntry,
@@ -132,9 +140,11 @@ export class WorktreeRemovalService {
         submodules: 'check',
       })
       .catch((error: unknown) => throwExecutorFailure(error));
+
     if (state.status === 'error') {
       throw repositoryFailure('git_failed', gitFailureMessage(state));
     }
+
     return state;
   }
 
@@ -147,9 +157,11 @@ export class WorktreeRemovalService {
     const removed = await this.executors
       .removeWorktree(target, checkout.path)
       .catch((error: unknown) => throwExecutorFailure(error));
+
     if (removed.status === 'error') {
       throw repositoryFailure('git_failed', gitFailureMessage(removed));
     }
+
     await this.tenantDb.runAs(ownerUserId, (tx) =>
       new RepositoriesRepository(tx).deleteCheckout(ownerUserId, checkout.id),
     );
@@ -164,29 +176,34 @@ export class WorktreeRemovalService {
    */
   private canRemove(checkout: Checkout): ExecutorTarget {
     let target: ExecutorTarget | undefined;
+
     try {
       target = this.executors.locate(checkout.path);
     } catch (error) {
       throwExecutorFailure(error);
     }
+
     if (!this.config.config.tools.allowed.includes(WORKSPACE_TOOL_ID)) {
       throw repositoryFailure(
         'tool_not_allowed',
         `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this path may not be inspected.`,
       );
     }
+
     const decision = decidePermission(this.policy, OWNER_ROUTE, (evaluate) =>
       evaluate({
         toolId: WORKSPACE_TOOL_ID,
         args: { path: projectNativeFilePath(checkout.path) },
       }),
     );
+
     if (decision.decision === 'reject') {
       throw repositoryFailure(
         'permission_denied',
         'The host access policy does not allow this path.',
       );
     }
+
     return target;
   }
 
@@ -199,6 +216,7 @@ export class WorktreeRemovalService {
     const lease = await this.tenantDb.runAs(ownerUserId, (tx) =>
       new RepositoriesRepository(tx).findLease(ownerUserId, checkout.id),
     );
+
     return lease !== undefined && head !== null && lease.baseCommit === head;
   }
 }

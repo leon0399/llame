@@ -32,6 +32,7 @@ export function imageSizeLabel({
   mediaType,
 }: MediaImageSize): string {
   const format = mediaType.replace(/^image\//, "").toUpperCase();
+
   return `${width}×${height} ${format}`;
 }
 
@@ -83,9 +84,11 @@ function measureFit(
   image: HTMLImageElement,
 ): FitMeasure | null {
   if (!image.complete || image.naturalWidth === 0) return prev;
+
   const zoomable =
     image.naturalWidth > image.offsetWidth ||
     image.naturalHeight > image.offsetHeight;
+
   return prev?.key === key && prev.zoomable === zoomable
     ? prev
     : { key, zoomable };
@@ -108,18 +111,23 @@ function useImageZoom(key: string, image: HTMLImageElement | null): ImageZoom {
   // starts it fitted again without remounting the toolbar (which would
   // drop focus).
   const [actualSizeKey, setActualSizeKey] = useState<string | null>(null);
+
   if (actualSizeKey !== null && actualSizeKey !== key) setActualSizeKey(null);
   const [fit, setFit] = useState<FitMeasure | null>(null);
   const zoomable = fit?.key === key && fit.zoomable;
   const actualSize = zoomable && actualSizeKey === key;
   useEffect(() => {
     if (!image || actualSize) return;
+
     const observer = new ResizeObserver(() =>
       setFit((prev) => measureFit(prev, key, image)),
     );
+
     observer.observe(image);
+
     return () => observer.disconnect();
   }, [image, actualSize, key]);
+
   return {
     zoomable,
     actualSize,
@@ -153,6 +161,7 @@ function LightboxImage({ slide, zoom, imageRef }: LightboxImageProps) {
         },
       }
     : {};
+
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-auto">
       <div
@@ -192,6 +201,7 @@ function LightboxSlideView({
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const zoom = useImageZoom(slide.key, image);
   const several = previous !== undefined || next !== undefined;
+
   return (
     <>
       <DialogTitle className="sr-only">{slide.alt}</DialogTitle>
@@ -273,6 +283,7 @@ function slideAt(
   openKey: string | null,
 ) {
   const index = slides.findIndex((slide) => slide.key === openKey);
+
   return {
     slide: slides[index],
     previous: index > 0 ? slides[index - 1] : undefined,
@@ -301,7 +312,9 @@ export function MediaLightbox({
   const { slide, previous, next } = slideAt(slides, openKey);
   // The last shown slide stays rendered while the dialog animates out.
   const [shown, setShown] = useState(slide);
+
   if (slide !== undefined && slide !== shown) setShown(slide);
+
   return (
     <Dialog
       open={slide !== undefined}
@@ -314,6 +327,7 @@ export function MediaLightbox({
           const target =
             (event.key === "ArrowLeft" && previous) ||
             (event.key === "ArrowRight" && next);
+
           if (!target) return;
           event.preventDefault();
           onOpenKeyChange(target.key);

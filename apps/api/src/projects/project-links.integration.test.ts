@@ -33,10 +33,12 @@ import { cookieOf, expectRegisteredUserId } from '../testing/support';
 vi.setConfig({ testTimeout: 60_000 });
 
 const projectSchema = z.looseObject({ id: z.guid(), name: z.string() });
+
 const repositorySchema = z.looseObject({
   id: z.guid(),
   displayName: z.string(),
 });
+
 const linkSchema = z.looseObject({
   id: z.guid(),
   projectId: z.guid(),
@@ -45,6 +47,7 @@ const linkSchema = z.looseObject({
   isPrimary: z.boolean(),
   isolation: z.enum(['inherit', 'always_worktree', 'never']),
 });
+
 const linkWithDefaultsSchema = linkSchema.extend({
   defaults: z.array(
     z.looseObject({
@@ -54,6 +57,7 @@ const linkWithDefaultsSchema = linkSchema.extend({
     }),
   ),
 });
+
 const startLocationSchema = z.looseObject({
   projectId: z.guid(),
   repositoryId: z.guid().nullable(),
@@ -84,13 +88,16 @@ async function boot(): Promise<Harness> {
     .overrideProvider(InstanceConfigService)
     .useValue({ config: BUILT_IN_DEFAULTS })
     .compile();
+
   const app = moduleRef.createNestApplication();
   configureApp(app);
   await app.listen(0);
   const server: unknown = app.getHttpServer();
+
   if (!isHttpServer(server)) {
     throw new Error('Expected Nest to expose a Node HTTP server');
   }
+
   const registered = await request(server)
     .post('/auth/v1/register')
     .send({
@@ -98,8 +105,10 @@ async function boot(): Promise<Harness> {
       password: 'password123',
       name: 'Project links owner',
     });
+
   const body: unknown = registered.body;
   expectRegisteredUserId(body);
+
   return {
     app,
     http: server,
@@ -120,6 +129,7 @@ describe('project repository links over HTTP', () => {
   const asOwner = <T>(userId: string, fn: (tx: Sql) => Promise<T>) =>
     sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -137,6 +147,7 @@ describe('project repository links over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ name: 'llame development' })
       .expect(201);
+
     projectId = projectSchema.parse(project.body).id;
 
     const repository = await request(owner.http)
@@ -144,6 +155,7 @@ describe('project repository links over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ displayName: 'llame-core' })
       .expect(201);
+
     repositoryId = repositorySchema.parse(repository.body).id;
 
     const second = await request(owner.http)
@@ -151,6 +163,7 @@ describe('project repository links over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ displayName: 'notes' })
       .expect(201);
+
     otherRepositoryId = repositorySchema.parse(second.body).id;
 
     checkoutId = crypto.randomUUID();
@@ -227,6 +240,7 @@ describe('project repository links over HTTP', () => {
     const links = z
       .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, projectId).expect(200)).body);
+
     expect(links.filter((link) => link.isPrimary)).toHaveLength(1);
     expect(links.find((link) => link.isPrimary)?.repositoryId).toBe(
       otherRepositoryId,
@@ -241,6 +255,7 @@ describe('project repository links over HTTP', () => {
     const after = z
       .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, projectId).expect(200)).body);
+
     expect(after.filter((link) => link.isPrimary)).toHaveLength(1);
     expect(after.find((link) => link.isPrimary)?.repositoryId).toBe(
       repositoryId,
@@ -263,6 +278,7 @@ describe('project repository links over HTTP', () => {
     const links = z
       .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, projectId).expect(200)).body);
+
     const withDefaults = links.find((row) => row.repositoryId === repositoryId);
 
     const [defaultsRow] = withDefaults?.defaults ?? [];
@@ -276,6 +292,7 @@ describe('project repository links over HTTP', () => {
       (tx) =>
         tx`SELECT count(*)::int AS count FROM project_repository_defaults`,
     );
+
     const first = startLocationSchema.parse(
       (
         await request(owner.http)
@@ -284,6 +301,7 @@ describe('project repository links over HTTP', () => {
           .expect(200)
       ).body,
     );
+
     const second = startLocationSchema.parse(
       (
         await request(owner.http)
@@ -292,6 +310,7 @@ describe('project repository links over HTTP', () => {
           .expect(200)
       ).body,
     );
+
     const after = await asOwner(
       owner.userId,
       (tx) =>
@@ -329,6 +348,7 @@ describe('project repository links over HTTP', () => {
           .expect(201)
       ).body,
     );
+
     await request(other.http)
       .post(`/api/v1/projects/${otherProject.id}/repositories`)
       .set('Cookie', other.cookie)
@@ -352,6 +372,7 @@ describe('project repository links over HTTP', () => {
           .expect(201)
       ).body,
     );
+
     await request(owner.http)
       .post(`/api/v1/projects/${archived.id}/repositories`)
       .set('Cookie', owner.cookie)
@@ -403,6 +424,7 @@ describe('project repository links over HTTP', () => {
     const links = z
       .array(linkWithDefaultsSchema)
       .parse((await linksOf(owner, projectId).expect(200)).body);
+
     expect(links.map((link) => link.repositoryId)).toEqual([otherRepositoryId]);
 
     const [remaining] = await asOwner(
@@ -411,6 +433,7 @@ describe('project repository links over HTTP', () => {
         tx`SELECT count(*)::int AS count FROM project_repository_defaults d
            JOIN project_repositories l ON l.id = d.project_repository_id`,
     );
+
     expect(remaining.count).toBe(0);
 
     const [rows] = await asOwner(
@@ -419,6 +442,7 @@ describe('project repository links over HTTP', () => {
         (SELECT count(*)::int FROM repositories WHERE id = ${repositoryId}) AS repositories,
         (SELECT count(*)::int FROM checkouts WHERE id = ${checkoutId}) AS checkouts`,
     );
+
     expect(rows).toEqual({ repositories: 1, checkouts: 1 });
   });
 
@@ -428,6 +452,7 @@ describe('project repository links over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ defaultExecutorId: 'machine:nas' })
       .expect(200);
+
     expect(set.body).toMatchObject({ defaultExecutorId: 'machine:nas' });
 
     const cleared = await request(owner.http)
@@ -435,6 +460,7 @@ describe('project repository links over HTTP', () => {
       .set('Cookie', owner.cookie)
       .send({ defaultExecutorId: null })
       .expect(200);
+
     expect(cleared.body).toMatchObject({ defaultExecutorId: null });
   });
 
@@ -460,6 +486,7 @@ describe('project repository links over HTTP', () => {
         (SELECT project_id FROM chats WHERE id = ${chatId}) AS chat_project,
         (SELECT count(*)::int FROM repositories WHERE id IN (${repositoryId}, ${otherRepositoryId})) AS repositories`,
     );
+
     expect(rows).toEqual({
       links: 0,
       defaults: 0,

@@ -188,6 +188,7 @@ export class FollowUpAdmissionService {
     if ('refusal' in outcome) {
       throw outcome.refusal;
     }
+
     return outcome;
   }
 
@@ -207,23 +208,29 @@ export class FollowUpAdmissionService {
           'A continue request does not name a model',
         );
       }
+
       if (request.effort !== undefined) {
         throw new BadRequestException(
           'A continue request does not name an effort',
         );
       }
+
       return {
         action: 'continue',
         permissionMode: this.permissionMode(request),
       };
     }
+
     if (request.action !== 'regenerate') {
       throw new BadRequestException('action must be continue or regenerate');
     }
+
     if (request.modelId === undefined) {
       throw new BadRequestException('A regenerate request must name a model');
     }
+
     const model = this.models.validateModelSelection(request.modelId);
+
     return {
       action: 'regenerate',
       modelId: request.modelId,
@@ -251,17 +258,21 @@ export class FollowUpAdmissionService {
     input: { chatId: string; userId: string; userMessageId: string },
   ): Promise<Message> {
     const chat = await chatsRepo.findById(input.chatId, input.userId);
+
     if (!chat) {
       throw new NotFoundException(`Chat ${input.chatId} not found`);
     }
+
     // The row lock comes before the archive check (design D1): an archive that
     // commits after the lock is seen by the next request, not this one. The
     // lock writes nothing, so a refused request leaves the Chat untouched; the
     // admitted path bumps `updated_at` below, once the turn is accepted.
     const locked = await chatsRepo.lock(input.chatId, input.userId);
+
     if (!locked) {
       throw new NotFoundException(`Chat ${input.chatId} not found`);
     }
+
     assertNotArchived(locked);
 
     const { userMessage } = await messagesRepo.findTurnState(
@@ -269,9 +280,11 @@ export class FollowUpAdmissionService {
       input.userId,
       input.userMessageId,
     );
+
     if (!userMessage) {
       throw new NotFoundException(`Message ${input.userMessageId} not found`);
     }
+
     if (
       await messagesRepo.hasLaterUserMessage(
         input.chatId,
@@ -283,6 +296,7 @@ export class FollowUpAdmissionService {
         'A follow-up request applies to the latest user message only',
       );
     }
+
     return userMessage;
   }
 
@@ -298,13 +312,16 @@ export class FollowUpAdmissionService {
     permissionMode: PermissionMode,
   ): Promise<AdmissionOutcome> {
     const decision = await this.continueDecision(tx, input, userMessage);
+
     if ('refusal' in decision) {
       return decision;
     }
+
     const { latestRun, source, effort } = decision;
 
     // Accepted: the Chat is the turn's latest activity again.
     await new ChatsRepository(tx).touch(input.chatId, input.userId);
+
     const { run } = await createRunForMessage(
       tx,
       {
@@ -345,13 +362,16 @@ export class FollowUpAdmissionService {
     validated: Extract<ValidatedFollowUp, { action: 'regenerate' }>,
   ): Promise<AdmissionOutcome> {
     const decision = await this.regenerateDecision(tx, input, userMessage);
+
     if ('refusal' in decision) {
       return decision;
     }
+
     const { latestRun, notice, replacesUsage } = decision;
 
     // Accepted: the Chat is the turn's latest activity again.
     await new ChatsRepository(tx).touch(input.chatId, input.userId);
+
     const { run } = await createRunForMessage(
       tx,
       {
@@ -394,16 +414,19 @@ export class FollowUpAdmissionService {
   ): Promise<RegenerateDecision> {
     try {
       const latestRun = await this.latestTurnRun(tx, input, userMessage);
+
       if (!isTerminalRunStatus(latestRun.status)) {
         throw new ConflictException(
           `A ${latestRun.status} Run cannot be regenerated`,
         );
       }
+
       const reply = await new MessagesRepository(tx).findReply(
         input.chatId,
         input.userId,
         userMessage.id,
       );
+
       return {
         latestRun,
         // The notice is owed once per turn: the replaced reply has to hold a
@@ -420,6 +443,7 @@ export class FollowUpAdmissionService {
       };
     } catch (error) {
       if (!isFollowUpRefusal(error)) throw error;
+
       return { refusal: error };
     }
   }
@@ -439,9 +463,11 @@ export class FollowUpAdmissionService {
         input,
         userMessage,
       );
+
       return { latestRun, source, effort: this.storedEffort(latestRun) };
     } catch (error) {
       if (!isFollowUpRefusal(error)) throw error;
+
       return { refusal: error };
     }
   }
@@ -464,7 +490,9 @@ export class FollowUpAdmissionService {
     const keptParts = continueKeptParts(
       source.parts,
     ) as ReadonlyArray<MessagePart>;
+
     const steps = await this.keptSteps(tx, userId, sourceRunId, keptParts);
+
     return {
       action: 'continue',
       sourceRunId,
@@ -489,9 +517,11 @@ export class FollowUpAdmissionService {
     keptParts: ReadonlyArray<MessagePart>,
   ): Promise<KeptStepNumbers> {
     const events = new RunEventsRepository(tx);
+
     const sourceEvents = await events.listByRunId(sourceRunId, userId, {
       eventTypes: ['tool.requested'],
     });
+
     // A source Run that continued one itself holds the numbers of the calls it
     // inherited — and the offset of its own — in its own `run.continued`
     // event, so a Continue of it keeps the chain's numbering.
@@ -500,6 +530,7 @@ export class FollowUpAdmissionService {
       userId,
       'run.continued',
     );
+
     return continuedCallSteps({
       keptParts,
       ...(sourceContinued !== undefined && {
@@ -516,6 +547,7 @@ export class FollowUpAdmissionService {
    */
   private storedEffort(latestRun: Run): string | undefined {
     const model = this.models.validateModelSelection(latestRun.modelId);
+
     return latestRun.effort === null
       ? undefined
       : this.models.resolveEffortSelection(model, latestRun.effort);
@@ -535,9 +567,11 @@ export class FollowUpAdmissionService {
       input.chatId,
       input.userId,
     );
+
     if (latestRun?.messageId !== userMessage.id) {
       throw new ConflictException('The message has no Run to follow up');
     }
+
     return latestRun;
   }
 
@@ -552,11 +586,13 @@ export class FollowUpAdmissionService {
     userMessage: Message,
   ): Promise<{ latestRun: Run; source: Message }> {
     const latestRun = await this.latestTurnRun(tx, input, userMessage);
+
     const reply = await new MessagesRepository(tx).findReply(
       input.chatId,
       input.userId,
       userMessage.id,
     );
+
     return { latestRun, source: this.continuableReply(latestRun, reply) };
   }
 
@@ -574,12 +610,15 @@ export class FollowUpAdmissionService {
         `A ${latestRun.status} Run cannot be continued`,
       );
     }
+
     if (reply === undefined) {
       throw new ConflictException(
         'The Run that can be continued left no reply',
       );
     }
+
     const usage = reply.usage;
+
     if (
       !isRecord(usage) ||
       usage['runId'] !== latestRun.id ||
@@ -589,6 +628,7 @@ export class FollowUpAdmissionService {
         'The reply does not belong to a Run that can be continued',
       );
     }
+
     return reply;
   }
 }

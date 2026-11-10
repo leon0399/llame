@@ -169,7 +169,9 @@ function protocolError(error: JsonRpcError): MachineProtocolError {
   const data = isSerializableRecord(error.error.data)
     ? error.error.data
     : undefined;
+
   const code = data === undefined ? undefined : data["code"];
+
   return new MachineProtocolError(
     isStringValue(code) && isMachineErrorCode(code) ? code : "internal",
     error.error.message,
@@ -185,16 +187,20 @@ function closeStream(
   if (state.closed) return;
   state.closed = true;
   state.controller.abort();
+
   if (!state.control) {
     session.streams.delete(state.id);
     session.closedIds.add(state.id);
   }
+
   const pending = state.pending;
   state.pending = undefined;
+
   if (pending !== undefined) {
     pending.detach();
     pending.reject(new StreamClosedError(state.id, reason));
   }
+
   state.closes.forEach((handler) => handler());
 }
 
@@ -206,11 +212,14 @@ function closeStream(
 function cancelStream(session: StreamSession, state: StreamState): void {
   if (!state.control) {
     closeStream(session, state, "cancelled");
+
     return;
   }
+
   state.replyId = undefined;
   const pending = state.pending;
   state.pending = undefined;
+
   if (pending !== undefined) {
     pending.detach();
     pending.reject(new StreamClosedError(state.id, "cancelled"));
@@ -220,12 +229,15 @@ function cancelStream(session: StreamSession, state: StreamState): void {
 function settleStream(state: StreamState, message: JsonRpcMessage): void {
   const pending = state.pending;
   const id = "id" in message ? message.id : undefined;
+
   if (pending === undefined || id !== pending.id) return;
   state.pending = undefined;
+
   // The control stream carries one request after another; a numbered stream
   // stays spent after its single request.
   if (state.control) state.replyId = undefined;
   pending.detach();
+
   if ("result" in message) pending.resolve(message.result);
   else if ("error" in message) pending.reject(protocolError(message));
 }
@@ -238,20 +250,26 @@ function receiveMessage(
   if ("method" in message) {
     if (message.method === CANCEL_NOTIFICATION) {
       cancelStream(session, state);
+
       return;
     }
+
     if (!("id" in message)) {
       state.notifications.forEach((handler) => handler(message));
+
       return;
     }
+
     // The control stream carries the handshake and keeps accepting requests;
     // a numbered stream carries exactly the one that opened it.
     if (state.control && session.onRequest !== undefined) {
       state.replyId = message.id;
       session.onRequest(streamChannel(session, state), message);
     }
+
     return;
   }
+
   settleStream(state, message);
 }
 
@@ -269,14 +287,19 @@ function acceptRequest(
 function handleFrame(session: StreamSession, frame: Frame): void {
   if (session.closed) return;
   const open = session.streams.get(frame.s);
+
   if (open !== undefined) {
     receiveMessage(session, open, frame.m);
+
     return;
   }
+
   if (frame.s === CONTROL_STREAM_ID) {
     receiveMessage(session, session.control, frame.m);
+
     return;
   }
+
   if (
     session.closedIds.has(frame.s) ||
     session.onRequest === undefined ||
@@ -284,8 +307,10 @@ function handleFrame(session: StreamSession, frame: Frame): void {
     !("id" in frame.m)
   ) {
     session.onUnknownFrame?.(frame);
+
     return;
   }
+
   if (session.streams.size >= session.maxOpenStreams) {
     session.closedIds.add(frame.s);
     session.send({
@@ -296,8 +321,10 @@ function handleFrame(session: StreamSession, frame: Frame): void {
         "The session already carries the maximum number of streams.",
       ),
     });
+
     return;
   }
+
   acceptRequest(session, frame.s, frame.m);
 }
 
@@ -331,7 +358,9 @@ function respondOnStream(
   build: (id: JsonRpcId) => JsonRpcMessage,
 ): void {
   const id = state.replyId;
+
   if (id === undefined) return;
+
   // A control request gets exactly one reply; a second one is dropped.
   if (state.control) state.replyId = undefined;
   sendOnStream(session, state, build(id));
@@ -342,11 +371,15 @@ function abortLink(
   onAbort: () => void,
 ): () => void {
   if (signal === undefined) return () => {};
+
   if (signal.aborted) {
     onAbort();
+
     return () => {};
   }
+
   signal.addEventListener("abort", onAbort, { once: true });
+
   return () => signal.removeEventListener("abort", onAbort);
 }
 
@@ -358,12 +391,16 @@ function refuseRequest(
 ): Error | undefined {
   if (state.closed || session.closed)
     return new StreamClosedError(state.id, "closed");
+
   if (signal?.aborted === true) {
     cancelStream(session, state);
+
     return new StreamClosedError(state.id, "cancelled");
   }
+
   if (state.replyId !== undefined)
     return new Error(`Stream ${state.id} already carries a request.`);
+
   return undefined;
 }
 
@@ -377,18 +414,22 @@ function requestOnStream<M extends MachineMethod>(
   },
 ): Promise<JsonValue> {
   const refusal = refuseRequest(session, state, call.options?.signal);
+
   if (refusal !== undefined) return Promise.reject(refusal);
   // A numbered stream carries one request, under its own id; the control
   // stream carries many, each under a fresh id.
   const id = state.control ? state.requests : state.id;
   state.requests += 1;
   state.replyId = id;
+
   return new Promise<JsonValue>((resolve, reject) => {
     const detach = abortLink(call.options?.signal, () => {
       notifyOnStream(session, state, CANCEL_NOTIFICATION);
       cancelStream(session, state);
     });
+
     state.pending = { id, resolve, reject, detach };
+
     try {
       sendOnStream(session, state, {
         jsonrpc: "2.0",
@@ -448,6 +489,7 @@ function streamChannel(
 
 function openStream(session: StreamSession): MachineChannel {
   if (session.closed) throw new Error("The Machine session is closed.");
+
   if (session.streams.size >= session.maxOpenStreams)
     throw new Error(
       "The Machine session already carries the maximum number of streams.",
@@ -456,6 +498,7 @@ function openStream(session: StreamSession): MachineChannel {
   // Ids only grow, so a closed stream's id is never handed out again.
   session.nextId += 1;
   session.streams.set(state.id, state);
+
   return streamChannel(session, state);
 }
 
@@ -469,16 +512,19 @@ function refuseStream(
     streamId === CONTROL_STREAM_ID
       ? session.control
       : session.streams.get(streamId);
+
   if (state === undefined || state.closed) return;
   session.send({
     s: streamId,
     m: errorMessage(state.replyId ?? streamId, code, message),
   });
+
   if (!state.control) closeStream(session, state, "closed");
 }
 
 function closeSession(session: StreamSession): void {
   session.closed = true;
+
   // Closing removes exactly the entry the loop is on, so iterating the live
   // map visits every open stream once.
   for (const state of session.streams.values())
@@ -500,6 +546,7 @@ export function createFrameMultiplexer(
     nextId: 1,
     closed: false,
   };
+
   return {
     control: streamChannel(session, session.control),
     get openStreams() {

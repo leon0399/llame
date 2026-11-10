@@ -212,9 +212,11 @@ describe('importTargets', () => {
     const fence = '```';
     const bodyLength = 64 * 1024 - fence.length * 2 - 2;
     let references = '[x][r]';
+
     while (references.length + 4 <= bodyLength) {
       references = `[${references}][r]`;
     }
+
     const source = `${fence}\n${references}${' '.repeat(
       bodyLength - references.length,
     )}\n${fence}`;
@@ -277,6 +279,7 @@ describe('importTargets', () => {
     const unmatchedBrackets = '['.repeat(65_536);
     const unmatchedQuotes = '@"'.repeat(32_768);
     const unterminatedQuoteChunk = ' @a.md';
+
     const unterminatedQuotes = (
       '@"' +
       unterminatedQuoteChunk.repeat(
@@ -285,6 +288,7 @@ describe('importTargets', () => {
     ).slice(0, 64 * 1024);
 
     const completeBacktickChunk = ' @`a`';
+
     const completeBackticks = completeBacktickChunk.repeat(
       Math.floor((64 * 1024) / completeBacktickChunk.length),
     );

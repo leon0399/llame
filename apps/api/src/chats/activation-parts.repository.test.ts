@@ -47,6 +47,7 @@ type PartsUpdate = { readonly parts: Array<unknown> };
 function queryResult(rows: QueryValue, onSet?: (value: PartsUpdate) => void) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
+
   return Object.assign(terminal, {
     from: chain,
     where: chain,
@@ -54,6 +55,7 @@ function queryResult(rows: QueryValue, onSet?: (value: PartsUpdate) => void) {
     limit: chain,
     set: (value: PartsUpdate) => {
       onSet?.(value);
+
       return terminal;
     },
     returning: () => terminal,
@@ -84,6 +86,7 @@ function fakeDb(
   const db: Db = drizzle.mock({ schema });
   vi.spyOn(db, 'select').mockImplementation(() => {
     reads.push(null);
+
     return asQuery(queryResult(rows.selected ?? [{ parts }]));
   });
   vi.spyOn(db, 'update').mockImplementation(() =>
@@ -93,6 +96,7 @@ function fakeDb(
       }),
     ),
   );
+
   return { db, writes, reads };
 }
 
@@ -102,6 +106,7 @@ const append = (
   rows?: { readonly selected?: QueryValue; readonly updated?: QueryValue },
 ) => {
   const { db, writes, reads } = fakeDb(parts, rows);
+
   return new ActivationPartsRepository(db)
     .appendForRun({
       id: MESSAGE_ID,
@@ -171,6 +176,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
 
   it('inserts again for a different Run on the same message', async () => {
     const otherRun = '22222222-3333-4444-8555-666666666666';
+
     const { applied } = await append(
       [item('skill-activation', otherRun)],
       [item('skill-activation', RUN_ID)],
@@ -239,10 +245,12 @@ describe('ActivationPartsRepository.appendForRun', () => {
     expect(applied).toBe(true);
     // Exactly one row appended, carrying only the selection that was missing.
     expect(writes[0]).toHaveLength(2);
+
     const appended = writes[0].filter(
       (part) =>
         isContextItemPart(part) && part.data.payload['skill'] === 'research',
     );
+
     expect(appended).toHaveLength(1);
     expect(
       writes[0].filter(
@@ -263,6 +271,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       payload: { kind: 'omission', skills: ['research', 'writing'] },
       text: 'omitted research, writing',
     });
+
     const activation = createContextItemPart({
       producer: 'skill-activation',
       form: 'notice',
@@ -274,10 +283,12 @@ describe('ActivationPartsRepository.appendForRun', () => {
     const { applied, writes } = await append([omission], [activation]);
 
     expect(applied).toBe(true);
+
     const omissions = writes[0].filter(
       (part) =>
         isContextItemPart(part) && part.data.payload['kind'] === 'omission',
     );
+
     expect(omissions).toHaveLength(1);
     expect(
       omissions.flatMap((part) =>
@@ -290,6 +301,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       'skill://research/references/checklist.md',
       'skill://research/references/example.md',
     ];
+
     const omission = createContextItemPart({
       producer: 'skill-activation',
       form: 'notice',
@@ -303,6 +315,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       },
       text: 'omitted',
     });
+
     const activation = createContextItemPart({
       producer: 'skill-activation',
       form: 'notice',
@@ -317,6 +330,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       (part) =>
         isContextItemPart(part) && part.data.payload['kind'] === 'omission',
     );
+
     expect(isContextItemPart(rebuilt) ? rebuilt.data.payload : {}).toEqual({
       kind: 'omission',
       skills: ['writing'],
@@ -338,6 +352,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       },
       text: 'omitted',
     });
+
     const activation = createContextItemPart({
       producer: 'skill-activation',
       form: 'notice',
@@ -352,6 +367,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       (part) =>
         isContextItemPart(part) && part.data.payload['kind'] === 'omission',
     );
+
     expect(isContextItemPart(rebuilt) ? rebuilt.data.payload : {}).toEqual({
       kind: 'omission',
       skills: [],
@@ -361,6 +377,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
 
   it('does not fold import overflow into the skill remainder count', async () => {
     const imports = ['skill://research/one.md', 'skill://research/two.md'];
+
     const omission = createContextItemPart({
       producer: 'skill-activation',
       form: 'notice',
@@ -373,6 +390,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       },
       text: 'omitted',
     });
+
     const activation = createContextItemPart({
       producer: 'skill-activation',
       form: 'notice',
@@ -387,6 +405,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       (part) =>
         isContextItemPart(part) && part.data.payload['kind'] === 'omission',
     );
+
     expect(isContextItemPart(rebuilt) ? rebuilt.data.payload : {}).toEqual({
       kind: 'omission',
       skills: [],
@@ -403,6 +422,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       payload: { kind: 'omission', skills: ['research'] },
       text: 'omitted research',
     });
+
     const activation = createContextItemPart({
       producer: 'skill-activation',
       form: 'notice',
@@ -487,6 +507,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       [omission(['beta', 'alpha'])],
       [omission(['alpha', 'beta'])],
     );
+
     expect(same.applied).toBe(false);
 
     // A different set is a different fact and must be stored.
@@ -494,6 +515,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       [omission(['alpha'])],
       [omission(['alpha', 'beta'])],
     );
+
     expect(wider.applied).toBe(true);
   });
   it('includes imported locators in omission identity', async () => {
@@ -510,12 +532,14 @@ describe('ActivationPartsRepository.appendForRun', () => {
       [omission(['skill://research/a.md', 'skill://research/b.md'])],
       [omission(['skill://research/b.md', 'skill://research/a.md'])],
     );
+
     expect(same.applied).toBe(false);
 
     const different = await append(
       [omission(['skill://research/a.md'])],
       [omission(['skill://research/b.md'])],
     );
+
     expect(different.applied).toBe(true);
   });
 
@@ -564,10 +588,12 @@ describe('ActivationPartsRepository.appendForRun', () => {
     );
 
     expect(applied).toBe(true);
+
     const omissions = (writes[0] ?? []).filter(
       (part) =>
         isContextItemPart(part) && part.data.payload['kind'] === 'omission',
     );
+
     expect(omissions).toHaveLength(1);
     expect(
       isContextItemPart(omissions[0])
@@ -605,6 +631,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       (part) =>
         isContextItemPart(part) && part.data.payload['kind'] === 'omission',
     );
+
     expect(
       isContextItemPart(rebuilt) ? rebuilt.data.payload : {},
     ).toMatchObject({ skills: ['beta'], beyond: 5 });
@@ -638,6 +665,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
       (part) =>
         isContextItemPart(part) && part.data.payload['kind'] === 'omission',
     );
+
     expect(omissions).toHaveLength(1);
   });
 
@@ -667,7 +695,9 @@ describe('ActivationPartsRepository.appendForRun', () => {
         payload: { kind: 'omission', skills },
         text: 'omitted',
       });
+
     const otherRun = '22222222-3333-4444-8555-666666666666';
+
     const stored = [
       { type: 'text', text: 'user words' },
       item('tool-availability', RUN_ID),
@@ -718,6 +748,7 @@ describe('ActivationPartsRepository.appendForRun', () => {
         Array.isArray(part.data.payload['skills']) &&
         part.data.payload['skills'].length === 2,
     );
+
     expect(stale).toBeDefined();
   });
 });

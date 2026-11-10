@@ -45,6 +45,7 @@ const MACHINES = {
 
 function connectorFor(options: ProtocolPeerOptions = {}) {
   const peer = createProtocolPeer(options);
+
   return {
     peer,
     connector: new MachineConnector({
@@ -58,6 +59,7 @@ function connectorFor(options: ProtocolPeerOptions = {}) {
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -80,6 +82,7 @@ function stubFence() {
   const begin = vi
     .spyOn(NativeFilesRepository.prototype, 'begin')
     .mockResolvedValue(undefined);
+
   const append = vi
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue({
@@ -89,6 +92,7 @@ function stubFence() {
       payload: null,
       createdAt: new Date(),
     });
+
   return { begin, append };
 }
 
@@ -192,6 +196,7 @@ describe('machineConnector', () => {
       machines: undefined,
       hubVersion: '9.9.9',
     });
+
     expect(machineConnector(context({ machines: disabled }))).toBeUndefined();
   });
 });
@@ -375,6 +380,7 @@ describe('readBytesChunk', () => {
       seq: 1,
       data: Buffer.from('hello').toString('base64'),
     });
+
     expect(chunk?.toString('utf8')).toBe('hello');
   });
 
@@ -526,6 +532,7 @@ describe('readProcBashResult', () => {
       stderr: '',
       truncated: false,
     };
+
     expect(readProcBashResult({ ...base, durationMs: 0 })).toEqual({
       ...base,
       durationMs: 0,
@@ -620,6 +627,7 @@ describe('readProcBashResult', () => {
     expect(
       readProcBashResult({ ...MANAGED, type: 'timed_out' }),
     ).toBeUndefined();
+
     for (const refusal of [
       { type: 'cancelled', message: 'stopped' },
       { type: 'outcome_unknown', attemptId: 'attempt-9', message: 'lost' },
@@ -682,9 +690,11 @@ describe('runMachineMutation', () => {
 
   it('records no attempt for a Machine that cannot be reached', async () => {
     const { begin } = stubFence();
+
     const { connector, peer } = connectorFor({
       openFailure: () => 'ssh: connect to host box port 22: Connection refused',
     });
+
     await expect(
       runMachineMutation(context({ machines: connector }), TARGET, () =>
         Promise.resolve({ status: 'success' }),
@@ -725,9 +735,11 @@ describe('runMachineMutation', () => {
       type: 'outcome_unknown',
       message: 'recorded',
     };
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(prior);
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
     const { connector } = connectorFor();
+
     const perform = vi.fn((): Promise<ToolResult> =>
       Promise.resolve({ status: 'success' }),
     );
@@ -742,6 +754,7 @@ describe('runMachineMutation', () => {
   it('settles a request that reached the link as an unknown outcome', async () => {
     const { append } = stubFence();
     const { connector } = connectorFor();
+
     const result = await runMachineMutation(
       context({ machines: connector }),
       TARGET,
@@ -785,6 +798,7 @@ describe('runMachineMutation', () => {
     const { connector } = connectorFor();
     const controller = new AbortController();
     controller.abort();
+
     const perform = vi.fn((): Promise<ToolResult> =>
       Promise.resolve({ status: 'success' }),
     );
@@ -802,6 +816,7 @@ describe('runMachineMutation', () => {
   it('decides one attempt once across concurrent mutations', async () => {
     stubFence();
     const { connector, peer } = connectorFor();
+
     const call = () =>
       runMachineMutation(context({ machines: connector }), TARGET, () =>
         Promise.resolve({ status: 'success' }),
@@ -816,6 +831,7 @@ describe('runMachineMutation', () => {
     const { connector } = connectorFor();
     const order: Array<string> = [];
     let releaseFirst!: () => void;
+
     const firstGate = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
@@ -827,14 +843,17 @@ describe('runMachineMutation', () => {
         order.push('first:start');
         await firstGate;
         order.push('first:end');
+
         return { status: 'success' };
       },
     );
+
     const second = runMachineMutation(
       context({ machines: connector, toolCallId: 'call-2' }),
       TARGET,
       () => {
         order.push('second:start');
+
         return Promise.resolve({ status: 'success' });
       },
     );

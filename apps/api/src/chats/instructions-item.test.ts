@@ -153,6 +153,7 @@ describe('a bundle of loaded files', () => {
       ],
       denied: [],
     });
+
     const text = bodyOf(part);
 
     // Owner-maintained and possibly stale, said once for the whole bundle
@@ -231,6 +232,7 @@ describe('a bundle of loaded files', () => {
       ],
       denied: [],
     });
+
     const text = bodyOf(part);
 
     expect(text).toContain(
@@ -299,6 +301,7 @@ describe('a bundle of loaded files', () => {
       ],
       denied: [],
     });
+
     const text = bodyOf(part);
 
     expect([...text.matchAll(/<\/system-reminder>/gu)]).toHaveLength(1);
@@ -321,6 +324,7 @@ describe('a bundle of loaded files', () => {
       ],
       denied: [],
     });
+
     const text = bodyOf(part);
 
     // The body's own pair is inert; the two real blocks are the only openers.
@@ -341,6 +345,7 @@ describe('a bundle of loaded files', () => {
       ],
       denied: [],
     });
+
     const text = bodyOf(part);
 
     // The template's own `</file>` must end the real block, not a forged one.
@@ -400,6 +405,7 @@ describe('a bundle of loaded files', () => {
 
   it('removes a denied path once the same path loaded successfully', () => {
     const loadedPath = '/home/u/repo/AGENTS.md';
+
     const part = createInstructionsItem({
       runId: RUN_ID,
       files: [loaded(loadedPath, 'Repository rules.')],
@@ -541,6 +547,7 @@ describe('the derived seen set', () => {
     const userMessage = [
       item('instructions', [['/repo/AGENTS.md', '/repo/AGENTS.md']]),
     ];
+
     const assistantMessage = [
       item('instructions', [
         ['/repo/apps/api/AGENTS.md', '/repo/apps/api/AGENTS.md'],
@@ -548,9 +555,11 @@ describe('the derived seen set', () => {
         ['/repo/AGENTS.md', '/repo/AGENTS.md'],
       ]),
     ];
+
     const otherProducer = [
       item('workspace', [['/repo/CLAUDE.md', '/repo/CLAUDE.md']]),
     ];
+
     const malformed = [
       createContextItemPart({
         producer: 'instructions',
@@ -560,6 +569,7 @@ describe('the derived seen set', () => {
         text: 'body',
       }),
     ];
+
     const notAnItem = [{ type: 'text', text: 'hello' }];
 
     expect(

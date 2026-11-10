@@ -63,13 +63,17 @@ export class WorkspaceBindingRepository {
   > {
     if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
     const current = await this.lockChat(input.chatId, input.ownerUserId);
+
     if (current === undefined) return { status: 'fence_lost' };
 
     const unchanged = this.unchangedEnter(current, input);
+
     if (unchanged !== undefined) return unchanged;
 
     const updated = await this.bindChat(input);
+
     if (updated === undefined) return { status: 'fence_lost' };
+
     return {
       status: current.workspaceRoot === null ? 'bound' : 'switched',
       previousRoot: current.workspaceRoot,
@@ -93,11 +97,15 @@ export class WorkspaceBindingRepository {
     if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
+
     if (current === undefined) return { status: 'fence_lost' };
+
     if (current.workspaceRoot === null) return { status: 'unbound' };
 
     const updated = await this.clearChat(input);
+
     if (updated === undefined) return { status: 'fence_lost' };
+
     return {
       status: 'cleared',
       previousRoot: current.workspaceRoot,
@@ -117,7 +125,9 @@ export class WorkspaceBindingRepository {
     if (!(await this.fenceRun(input))) return 'fence_lost';
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
+
     if (current === undefined) return 'stale';
+
     if (
       current.workspaceRoot === null ||
       current.workspaceGeneration !== input.expectedGeneration
@@ -126,6 +136,7 @@ export class WorkspaceBindingRepository {
     }
 
     const updated = await this.detachChat(input);
+
     return updated === 1 ? 'detached' : 'stale';
   }
 
@@ -181,8 +192,11 @@ export class WorkspaceBindingRepository {
     | { status: 'conflict' | 'not_found' }
   > {
     const current = await this.lockChat(input.chatId, input.ownerUserId);
+
     if (current === undefined) return { status: 'not_found' };
+
     if (await this.holdsMessageOrRun(input)) return { status: 'conflict' };
+
     if (
       current.workspaceRoot !== null &&
       !(await this.isItsOwnCreationRoot(input))
@@ -191,7 +205,9 @@ export class WorkspaceBindingRepository {
     }
 
     const updated = await this.bindChat(input);
+
     if (updated === undefined) return { status: 'not_found' };
+
     return { status: 'bound', generation: updated.workspaceGeneration };
   }
 
@@ -205,7 +221,9 @@ export class WorkspaceBindingRepository {
       .from(messages)
       .where(eq(messages.chatId, input.chatId))
       .limit(1);
+
     if (message !== undefined) return true;
+
     const [run] = await this.db
       .select({ id: runs.id })
       .from(runs)
@@ -213,6 +231,7 @@ export class WorkspaceBindingRepository {
         and(eq(runs.chatId, input.chatId), eq(runs.userId, input.ownerUserId)),
       )
       .limit(1);
+
     return run !== undefined;
   }
 
@@ -245,6 +264,7 @@ export class WorkspaceBindingRepository {
         ),
       )
       .limit(1);
+
     return lease !== undefined;
   }
 
@@ -264,6 +284,7 @@ export class WorkspaceBindingRepository {
     ) {
       return undefined;
     }
+
     return {
       status: 'unchanged',
       previousRoot: current.workspaceRoot,
@@ -284,6 +305,7 @@ export class WorkspaceBindingRepository {
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)))
       .for('update')
       .limit(1);
+
     return current;
   }
 
@@ -315,6 +337,7 @@ export class WorkspaceBindingRepository {
         ),
       )
       .returning({ workspaceGeneration: chats.workspaceGeneration });
+
     return updated;
   }
 
@@ -340,6 +363,7 @@ export class WorkspaceBindingRepository {
         ),
       )
       .returning({ workspaceGeneration: chats.workspaceGeneration });
+
     return updated;
   }
 
@@ -369,6 +393,7 @@ export class WorkspaceBindingRepository {
         ),
       )
       .returning({ id: chats.id });
+
     return updated.length;
   }
 
@@ -381,6 +406,7 @@ export class WorkspaceBindingRepository {
     bindExecutorId?: string;
   }): Promise<boolean> {
     const native = new NativeFilesRepository(this.db);
+
     if (
       !(await native.isCurrentDelivery({
         runId: input.runId,
@@ -391,6 +417,7 @@ export class WorkspaceBindingRepository {
     ) {
       return false;
     }
+
     return input.bindExecutorId === undefined
       ? true
       : native.bind(input.runId, input.ownerUserId, input.bindExecutorId);

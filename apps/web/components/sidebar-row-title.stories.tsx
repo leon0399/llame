@@ -14,6 +14,7 @@ function titleParts(canvasElement: HTMLElement, text: string) {
   const node = within(canvasElement).getByText(text);
   // SAFETY: SidebarRowTitle always renders its text span inside its clip span.
   const clip = node.parentElement as HTMLElement;
+
   return { node, clip };
 }
 
@@ -44,6 +45,7 @@ const meta = {
 } satisfies Meta<typeof SidebarRowTitle>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -147,6 +149,7 @@ export const OutsideARow: Story = {
   args: { text: "Loose title" },
   beforeEach: () => {
     warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     return () => {
       warn.mockRestore();
     };

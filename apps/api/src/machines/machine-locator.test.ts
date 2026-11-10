@@ -111,6 +111,7 @@ describe('parseMachineLocator', () => {
   ])('refuses %s', (value, message) => {
     const parsed = parseMachineLocator(value);
     expect(parsed.kind).toBe('invalid');
+
     if (parsed.kind !== 'invalid') throw new Error('unreachable');
     expect(parsed.message).toContain(message);
   });

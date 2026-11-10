@@ -6,6 +6,7 @@ import createPaddingLineRule from "../vendor/eslint-stylistic/padding-line-betwe
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "expectedBlankLine" };
 
 tester.run("anti-slop/require-readable-spacing", requireReadableSpacingRule, {

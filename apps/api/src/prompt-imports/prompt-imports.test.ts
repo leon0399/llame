@@ -48,6 +48,7 @@ const OK: ToolResult = { status: 'success', truncated: false };
 
 function createHarness(options: HarnessOptions = {}) {
   let now = 1000;
+
   const calls = {
     admits: new Array<string>(),
     hostProbes: new Array<string>(),
@@ -58,8 +59,10 @@ function createHarness(options: HarnessOptions = {}) {
     /** The entry locator each read was issued for, in read order. */
     readLocators: new Array<string>(),
   };
+
   const existing = new Set(options.existing ?? []);
   const controller = new AbortController();
+
   const run = (text: string) =>
     resolvePromptImports({
       text,
@@ -72,17 +75,20 @@ function createHarness(options: HarnessOptions = {}) {
       ...options,
       admitsRead: (path) => {
         calls.admits.push(path);
+
         return !(options.reject?.(path) ?? false);
       },
       probeHost: (path) => {
         calls.hostProbes.push(path);
         now += options.probeCostMs ?? 0;
         options.onProbe?.(controller);
+
         return Promise.resolve(existing.has(path));
       },
       probeMachine: (name, path) => {
         calls.machineProbes.push({ name, path });
         now += options.probeCostMs ?? 0;
+
         return (
           options.probeMachine?.(name, path) ??
           Promise.resolve(options.machine?.[`${name}${path}`])
@@ -91,6 +97,7 @@ function createHarness(options: HarnessOptions = {}) {
       probeKnowledge: (locator) => {
         calls.knowledgeProbes.push(locator);
         now += options.probeCostMs ?? 0;
+
         return (
           options.probeKnowledge?.(locator) ??
           Promise.resolve(options.knowledge?.[locator])
@@ -99,6 +106,7 @@ function createHarness(options: HarnessOptions = {}) {
       probeMedia: (locator) => {
         calls.mediaProbes.push(locator);
         now += options.probeCostMs ?? 0;
+
         return Promise.resolve(
           options.media?.includes(locator) === true ? locator : undefined,
         );
@@ -108,6 +116,7 @@ function createHarness(options: HarnessOptions = {}) {
         calls.readLocators.push(locator);
         now += options.readCostMs ?? 0;
         options.onRead?.(path, controller);
+
         return Promise.resolve({
           result: options.result?.(path) ?? OK,
           text: options.body?.(path) ?? `body of ${path}`,
@@ -116,6 +125,7 @@ function createHarness(options: HarnessOptions = {}) {
       },
       nowMs: () => now,
     });
+
   return { calls, controller, run };
 }
 
@@ -308,6 +318,7 @@ describe('resolvePromptImports resolution', () => {
       },
     ]);
     expect(result.outcomes).toHaveLength(2);
+
     for (const outcome of result.outcomes) {
       expect(outcome).not.toHaveProperty('resolved');
     }
@@ -411,6 +422,7 @@ describe('resolvePromptImports Machine targets', () => {
 
   it('canonicalizes an uppercase and percent-encoded locator for the read', async () => {
     const canonical = 'machine://dev/notes/a b.md';
+
     const { calls, run } = createHarness({
       machine: { 'dev/notes/a b.md': canonical },
     });
@@ -455,6 +467,7 @@ describe('resolvePromptImports Machine targets', () => {
 
   it('projects a relative marker through a Machine Workspace root', async () => {
     const target = 'machine://dev/work/repo/notes/a.md';
+
     const { calls, run } = createHarness({
       workspaceRoot: 'machine://dev/work/repo',
       hostAvailable: false,
@@ -746,6 +759,7 @@ describe('resolvePromptImports bounds', () => {
     // tokens escape to 65,000 units, plus 536 plain characters.
     const escaped = '<skill>'.repeat(5000);
     const body = `${escaped}${'a'.repeat(MAX_PROMPT_IMPORT_BYTES / 2 - 13 * 5000)}`;
+
     const { run } = createHarness({
       body: () => body,
     });
@@ -902,6 +916,7 @@ describe('resolvePromptImports abort', () => {
     const { calls, controller, run } = createHarness({
       existing: ['/repo/a.md'],
     });
+
     controller.abort();
 
     const result = await run('@a.md @https://x.test/0 @leo');
@@ -963,12 +978,14 @@ describe('resolvePromptImports image entries', () => {
   const FOREIGN = 'media://0190f5e2-7c1a-7b3e-9d4f-00000000000b';
   /** A thumbnail near its 64 KiB cap, so counting it would close the bound. */
   const THUMBNAIL = `data:image/webp;base64,${'A'.repeat(60_000)}`;
+
   const UNSTORED = {
     thumbnail: THUMBNAIL,
     width: 1600,
     height: 900,
     mediaType: 'image/png',
   } as const;
+
   /** The native image result `read` returns for an unstored `path`. */
   const imageResult = (path: string): ToolResult => ({
     status: 'success',
@@ -979,6 +996,7 @@ describe('resolvePromptImports image entries', () => {
     display: { thumbnail: THUMBNAIL },
     path,
   });
+
   /** The native image result `read` returns for the owner's `MEDIA`. */
   const mediaResult: ToolResult = {
     status: 'success',
@@ -988,9 +1006,11 @@ describe('resolvePromptImports image entries', () => {
     width: 1600,
     height: 900,
   };
+
   /** The model-facing envelope of an image result: no display data. */
   const envelope = (path: string) =>
     JSON.stringify({ ...imageResult(path), display: undefined });
+
   const isImage = (path: string) => path.endsWith('.png');
 
   it('turns an image read into an unstored image entry whose body is the read envelope', async () => {
@@ -1017,6 +1037,7 @@ describe('resolvePromptImports image entries', () => {
 
   it('keeps the size and type of an image read whose thumbnail exceeded the cap', async () => {
     const { thumbnail: _thumbnail, ...original } = UNSTORED;
+
     const { run } = createHarness({
       existing: ['/repo/noise.png'],
       result: (path) => ({
@@ -1176,18 +1197,21 @@ describe('resolvePromptImports image entries', () => {
 
 describe('resolvePromptImports PDF entries', () => {
   const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+
   const pdf = {
     kind: 'pdf',
     mediaType: 'application/pdf',
     pages: 15,
     byteSize: 2 * 1024 * 1024,
   } as const;
+
   const result = (path: string): ToolResult => ({
     status: 'success',
     ...pdf,
     path,
     ...(path === MEDIA && { media: MEDIA }),
   });
+
   const envelope = (path: string) => JSON.stringify(result(path));
 
   it.each([
@@ -1219,6 +1243,7 @@ describe('resolvePromptImports PDF entries', () => {
       result,
       body: envelope,
     });
+
     const targets = [
       'paper.pdf',
       ...Array.from({ length: 8 }, (_, i) => `https://x.test/${i}`),
@@ -1235,9 +1260,11 @@ describe('resolvePromptImports PDF entries', () => {
 
   it('charges only the PDF envelope so a following text target still fits', async () => {
     const pdfPath = '/repo/paper.pdf';
+
     const text = 'a'.repeat(
       MAX_PROMPT_IMPORT_BYTES - Buffer.byteLength(envelope(pdfPath)),
     );
+
     const { run } = createHarness({
       existing: [pdfPath],
       result: (path) => (path === pdfPath ? result(path) : OK),
@@ -1320,12 +1347,14 @@ describe('resolvePromptImports native read schemes', () => {
   const MACHINE = 'machine://box/etc/hostname';
   const KB = 'kb://notes/a.md';
   const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+
   /** Probed sources need a target their probe finds; any other scheme reads directly. */
   const probed = new Map([
     ['machine', MACHINE],
     ['kb', KB],
     ['media', MEDIA],
   ]);
+
   // `artifact://` names a resource of the current Chat, so its marker stays
   // prose (tool-result-artifacts D12) and is not one of the attempted targets.
   const markers = readLocatorSchemes()

@@ -18,9 +18,11 @@ type MessageTargetState =
 
 export function parseMessageTargetHash(hash: string): number | null {
   const match = MESSAGE_TARGET_HASH.exec(hash);
+
   if (match === null) return null;
 
   const sequence = Number(match[1]);
+
   return Number.isSafeInteger(sequence) ? sequence : null;
 }
 
@@ -54,6 +56,7 @@ export function useMessageTarget(chatId: string): MessageTargetControl {
 
     syncHash();
     window.addEventListener("hashchange", syncHash);
+
     return () => window.removeEventListener("hashchange", syncHash);
   }, [chatId]);
 

@@ -184,6 +184,7 @@ describe("applyLiveMessage", () => {
       chatQueryKeys.infinite({ projectId: ID.project }),
       pages(),
     );
+
     return client;
   }
 
@@ -201,6 +202,7 @@ describe("applyLiveMessage", () => {
         },
       ],
     );
+
     const updated = chat(ID.a, "2026-10-05T00:00:00.000Z", {
       title: "Renamed",
     });
@@ -230,6 +232,7 @@ describe("applyLiveMessage", () => {
 
   it("inserts a new chat only into the lists whose filters it matches", () => {
     const client = seeded();
+
     const fresh = chat(ID.c, "2026-10-06T00:00:00.000Z", {
       projectId: ID.project,
     });
@@ -388,17 +391,20 @@ describe("applyLiveMessage", () => {
     applyLiveMessage(client, { type: "pins.replaced", items });
 
     expect(client.getQueryData(pinQueryKeys.list())).toEqual(items);
+
     const refetched = invalidate.mock.calls.flatMap(([filters]) =>
       client
         .getQueryCache()
         .findAll(filters)
         .map((query) => JSON.stringify(query.queryKey)),
     );
+
     expect(refetched).toEqual([JSON.stringify(pinnedKey)]);
   });
 
   it("replaces the pending items of the Chat a chat.deliveries message names", () => {
     const client = new QueryClient();
+
     const item = {
       id: ID.b,
       chatId: ID.a,
@@ -409,6 +415,7 @@ describe("applyLiveMessage", () => {
       permissionMode: "default" as const,
       createdAt: "2026-10-01T00:00:00.000Z",
     };
+
     client.setQueryData(chatQueryKeys.deliveries(ID.a), { items: [] });
     client.setQueryData(chatQueryKeys.deliveries(ID.c), { items: [] });
 
@@ -456,6 +463,7 @@ describe("applyLiveMessage", () => {
     const names = client
       .getQueryData<Array<MachineResponse>>(machinesQueryKeys.list())
       ?.map((current) => current.name);
+
     expect(names).toEqual(["devl", "staging", "box"]);
     expect(
       client.getQueryData<Array<MachineResponse>>(machinesQueryKeys.list())?.[0]

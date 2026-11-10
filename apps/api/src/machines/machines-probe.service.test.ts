@@ -63,6 +63,7 @@ describe('MachinesProbeService', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+
     if (originalProfile === undefined) delete process.env[PROFILE_ENV];
     else process.env[PROFILE_ENV] = originalProfile;
   });
@@ -80,6 +81,7 @@ describe('MachinesProbeService', () => {
           ) => Promise<void>;
         }
       | undefined;
+
     // A mocked generic method infers a concrete instantiation that cannot
     // structurally satisfy `consume`'s own `<Q>`. Typing the mock at the probe
     // queue's fixed instantiation lets its implementation capture the handler
@@ -89,8 +91,10 @@ describe('MachinesProbeService', () => {
       .fn<ConsumeMockFn>()
       .mockImplementation((_definition, handler) => {
         registered = { handler };
+
         return Promise.resolve('probe-consumer');
       });
+
     const queue: Queue = {
       ensureQueue: () => Promise.resolve(),
       enqueue: () => Promise.resolve(null),
@@ -100,14 +104,18 @@ describe('MachinesProbeService', () => {
       cancel: () => Promise.resolve(),
       jobState: () => Promise.resolve('absent'),
     };
+
     const ensureQueue = vi.spyOn(queue, 'ensureQueue');
     const consume = vi.spyOn(queue, 'consume');
     const schedule = vi.spyOn(queue, 'schedule');
+
     const connector = new MachineConnector({
       machines: options.enabled ? MACHINES : undefined,
       hubVersion: '9.9.9',
     });
+
     const reachable = vi.spyOn(connector, 'reachable').mockResolvedValue(true);
+
     const status = new MachinesStatusRepository(
       drizzle.mock({ schema }),
       new TenantDbService({
@@ -115,16 +123,20 @@ describe('MachinesProbeService', () => {
           callback(drizzle.mock({ schema })),
       }),
     );
+
     const pruneExcept = vi
       .spyOn(status, 'pruneExcept')
       .mockResolvedValue(options.pruned);
+
     const profileName = options.concurrency === null ? 'web' : 'all';
     process.env[PROFILE_ENV] = profileName;
+
     // The profile service logs its own resolution at construction; only what
     // the probe itself logs is under test here.
     const log = vi
       .spyOn(Logger.prototype, 'log')
       .mockImplementation(() => undefined);
+
     const workerProfile = new WorkerProfileService({
       config: {
         ...BUILT_IN_DEFAULTS,
@@ -137,7 +149,9 @@ describe('MachinesProbeService', () => {
         },
       },
     });
+
     log.mockClear();
+
     return {
       service: new MachinesProbeService(
         queue,
@@ -154,6 +168,7 @@ describe('MachinesProbeService', () => {
       probe: () => {
         if (registered === undefined)
           throw new Error('the probe consumer was never registered');
+
         // The probe carries no data and ignores its metadata: this is the
         // queue's own parsed payload, so the tick runs against real input.
         return registered.handler(MACHINES_PROBE_QUEUE.parse?.({}) ?? {}, {

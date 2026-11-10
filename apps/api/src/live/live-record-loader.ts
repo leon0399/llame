@@ -74,6 +74,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
         new ChatsRepository(tx).findById(chatId, owner),
         new MessagesRepository(tx).findLatestPerOwnedChat(owner, chatId),
       ]);
+
       return chat ? toChatListItemResponse(chat, lastMessage) : undefined;
     });
   }
@@ -90,6 +91,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
   /** The row the trigger named, in the same shape `GET /api/v1/machines` uses. */
   async machine(name: string): Promise<MachineResponse | undefined> {
     const row = await this.machines.findForLive(name);
+
     return row && toMachineResponse(machineStatusView(name, row, Date.now()));
   }
 
@@ -99,6 +101,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
         projectId,
         owner,
       );
+
       return project ? toProjectResponse(project) : undefined;
     });
   }
@@ -114,6 +117,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
   run(owner: string, runId: string) {
     return this.tenantDb.runAs(owner, async (tx) => {
       const run = await new RunsRepository(tx).findById(runId, owner);
+
       return run ? toRunResponse(run) : undefined;
     });
   }

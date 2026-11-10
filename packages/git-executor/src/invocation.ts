@@ -94,6 +94,7 @@ export function absoluteGitPath(
   if (value.includes("\0")) {
     return invalidInput("A git path must not contain a NUL byte.");
   }
+
   return isAbsolute(value)
     ? { path: value }
     : invalidInput("A git path must be absolute.");
@@ -110,12 +111,14 @@ export function processFailure(
   result: Exclude<GitProcessResult, { readonly status: "ok" }>,
 ): GitFailure {
   const stderr = redactCredentials(result.stderr).trim();
+
   const type =
     result.status === "timed_out"
       ? "timed_out"
       : NOT_A_REPOSITORY.test(stderr)
         ? "not_a_repository"
         : "git_failed";
+
   return gitFailure(type, stderr);
 }
 
@@ -137,10 +140,13 @@ export async function withGit<T>(
 ): Promise<T> {
   const endsAt = Date.now() + options.timeoutMs;
   const hooksDirectory = await mkdtemp(join(tmpdir(), "llame-git-hooks-"));
+
   const prefix = options.pinned
     ? pinnedPrefixArguments(hooksDirectory, directory)
     : gitPrefixArguments(hooksDirectory, directory);
+
   const ceiling = options.pinned ? dirname(directory) : undefined;
+
   const git: GitRunner = (args) =>
     runGitProcess([...prefix, ...args], {
       timeoutMs: endsAt - Date.now(),
@@ -148,6 +154,7 @@ export async function withGit<T>(
       ceiling,
       noLazyFetch: options.pinned,
     });
+
   try {
     return await work(git);
   } finally {

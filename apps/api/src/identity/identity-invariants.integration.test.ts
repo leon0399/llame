@@ -54,6 +54,7 @@ describeIfDb(
     const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
       sql.begin(async (tx: SqlClient) => {
         await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
         return fn(tx);
       });
 
@@ -62,6 +63,7 @@ describeIfDb(
       const id = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, ${name}, ${`${name}-${id}@test.com`})`;
       userIds.push(id);
+
       return id;
     }
 
@@ -96,15 +98,18 @@ describeIfDb(
                 WHERE id = ${rootId} OR path LIKE ${`${rootId}/%`}
                 ORDER BY length(path) DESC
               `;
+
               for (const node of subtree) {
                 await tx`DELETE FROM org_units WHERE id = ${node.id}`;
               }
             });
           }
         }
+
         if (userIds.length > 0) {
           await sql`DELETE FROM users WHERE id = ANY(${userIds})`;
         }
+
         await sql.end();
       }
     });
@@ -112,10 +117,12 @@ describeIfDb(
     describe('D1 — path/parent integrity', () => {
       it('a path that does not match its parent’s current path is rejected at commit, even via direct SQL', async () => {
         const owner = await makeUser('Path Owner');
+
         const root = await identity.createRootOrg({
           userId: owner,
           name: 'Acme',
         });
+
         rootIds.push(root.id);
 
         // owner legitimately holds `owner` on root.id, so the RLS WITH CHECK
@@ -153,21 +160,26 @@ describeIfDb(
 
       it('concurrent move + createChild-under-a-descendant serializes on the shared tree-root lock', async () => {
         const owner = await makeUser('Concurrency Owner');
+
         const root = await identity.createRootOrg({
           userId: owner,
           name: 'ConcurrencyRoot',
         });
+
         rootIds.push(root.id);
+
         const team = await identity.createChildOrg({
           userId: owner,
           parentId: root.id,
           name: 'Team',
         });
+
         const project = await identity.createChildOrg({
           userId: owner,
           parentId: team.id,
           name: 'Project',
         });
+
         const ops = await identity.createChildOrg({
           userId: owner,
           parentId: root.id,
@@ -175,10 +187,13 @@ describeIfDb(
         });
 
         let resolveALocked: () => void;
+
         const aLocked = new Promise<void>((resolve) => {
           resolveALocked = resolve;
         });
+
         let resolveProceed: () => void;
+
         const proceed = new Promise<void>((resolve) => {
           resolveProceed = resolve;
         });
@@ -202,10 +217,13 @@ describeIfDb(
         await aLocked;
 
         let resolveBAttempted: () => void;
+
         const bAttempted = new Promise<void>((resolve) => {
           resolveBAttempted = resolve;
         });
+
         let childId = '';
+
         // Session B mirrors OrgUnitsRepository.createChild under `project` —
         // a STRICT DESCENDANT of `team`, the unit session A is moving, never
         // the same row. Per-row/subtree-root locking alone would let this
@@ -215,8 +233,10 @@ describeIfDb(
           await tx`SELECT set_config('app.current_user_id', ${owner}, true)`;
           resolveBAttempted();
           await tx`SELECT id FROM org_units WHERE id = ${root.id} FOR UPDATE`;
+
           const [freshParent] =
             await tx`SELECT path FROM org_units WHERE id = ${project.id}`;
+
           childId = crypto.randomUUID();
           await tx`INSERT INTO org_units (id, parent_id, name, path, created_by)
                     VALUES (${childId}, ${project.id}, 'RaceChild', ${freshParent.path} || '/' || ${childId}, ${owner})`;
@@ -238,6 +258,7 @@ describeIfDb(
           (tx) =>
             tx`SELECT path, parent_id FROM org_units WHERE id = ${childId}`,
         );
+
         // Session B (the race loser, blocked on the tree-root lock) observed
         // session A's (the winner's) already-committed result: the child's
         // path is rooted through team's NEW location under `ops`, never the
@@ -251,21 +272,26 @@ describeIfDb(
 
       it('a partial reparent that leaves descendants stale is rejected at commit (F2 — checks both directions)', async () => {
         const owner = await makeUser('Partial Reparent Owner');
+
         const root = await identity.createRootOrg({
           userId: owner,
           name: 'PartialRoot',
         });
+
         rootIds.push(root.id);
+
         const team = await identity.createChildOrg({
           userId: owner,
           parentId: root.id,
           name: 'Team',
         });
+
         const project = await identity.createChildOrg({
           userId: owner,
           parentId: team.id,
           name: 'Project',
         });
+
         const ops = await identity.createChildOrg({
           userId: owner,
           parentId: root.id,
@@ -302,6 +328,7 @@ describeIfDb(
             (tx) => tx`SELECT path FROM org_units WHERE id = ${project.id}`,
           ),
         ]);
+
         expect(teamAfter[0].path).toBe(team.path);
         expect(projectAfter[0].path).toBe(project.path);
       });
@@ -310,10 +337,12 @@ describeIfDb(
     describe('D2 — last-owner protection', () => {
       it('the sole owner of a root org cannot revoke their own membership', async () => {
         const owner = await makeUser('Sole Owner (leave)');
+
         const root = await identity.createRootOrg({
           userId: owner,
           name: 'SoleCo',
         });
+
         rootIds.push(root.id);
 
         await expect(
@@ -329,15 +358,18 @@ describeIfDb(
           (tx) =>
             tx`SELECT role FROM memberships WHERE user_id = ${owner} AND org_unit_id = ${root.id}`,
         );
+
         expect(stillThere).toEqual([{ role: 'owner' }]);
       });
 
       it('the sole owner of a root org cannot be demoted', async () => {
         const owner = await makeUser('Sole Owner (demote)');
+
         const root = await identity.createRootOrg({
           userId: owner,
           name: 'SoleCo2',
         });
+
         rootIds.push(root.id);
 
         await expect(
@@ -352,10 +384,12 @@ describeIfDb(
       it('a co-owner may leave a root org that still has another owner', async () => {
         const ownerA = await makeUser('Co-owner A');
         const ownerB = await makeUser('Co-owner B');
+
         const root = await identity.createRootOrg({
           userId: ownerA,
           name: 'Duo',
         });
+
         rootIds.push(root.id);
 
         // Owner-tier grant of `owner` (D3) — ownerA mints ownerB as co-owner.
@@ -375,16 +409,19 @@ describeIfDb(
           (tx) =>
             tx`SELECT user_id, role FROM memberships WHERE org_unit_id = ${root.id}`,
         );
+
         expect(remaining).toEqual([{ user_id: ownerB, role: 'owner' }]);
       });
 
       it('demoting a non-last owner (a co-owner remains) succeeds', async () => {
         const ownerA = await makeUser('Demotable Owner A');
         const ownerB = await makeUser('Demotable Owner B');
+
         const root = await identity.createRootOrg({
           userId: ownerA,
           name: 'Trio',
         });
+
         rootIds.push(root.id);
         await identity.grantMembership({
           callerId: ownerA,
@@ -404,11 +441,13 @@ describeIfDb(
           (tx) =>
             tx`SELECT role FROM memberships WHERE user_id = ${ownerA} AND org_unit_id = ${root.id}`,
         );
+
         expect(role).toEqual([{ role: 'admin' }]);
       });
 
       it('deleting a leaf org unit cascades its memberships, even a sole owner’s (unit deletion stays allowed)', async () => {
         const owner = await makeUser('Deleter Owner');
+
         const root = await identity.createRootOrg({
           userId: owner,
           name: 'ToDelete',
@@ -423,15 +462,18 @@ describeIfDb(
           owner,
           (tx) => tx`SELECT id FROM memberships WHERE org_unit_id = ${root.id}`,
         );
+
         expect(gone.length).toBe(0);
       });
 
       it('deleting a user who is the sole owner of a root org is blocked', async () => {
         const owner = await makeUser('Undeletable Owner');
+
         const root = await identity.createRootOrg({
           userId: owner,
           name: 'BlocksDeletion',
         });
+
         rootIds.push(root.id);
 
         // Direct call on the raw postgres.js client (not through Drizzle), so
@@ -447,10 +489,12 @@ describeIfDb(
       it('concurrent departures of both owners cannot orphan the org (F3 — TOCTOU closed by locking inside the trigger)', async () => {
         const ownerA = await makeUser('Concurrent Departure A');
         const ownerB = await makeUser('Concurrent Departure B');
+
         const root = await identity.createRootOrg({
           userId: ownerA,
           name: 'ConcurrentDepartureRoot',
         });
+
         rootIds.push(root.id);
         await identity.grantMembership({
           callerId: ownerA,
@@ -460,10 +504,13 @@ describeIfDb(
         });
 
         let resolveALocked: () => void;
+
         const aLocked = new Promise<void>((resolve) => {
           resolveALocked = resolve;
         });
+
         let resolveProceed: () => void;
+
         const proceed = new Promise<void>((resolve) => {
           resolveProceed = resolve;
         });
@@ -485,9 +532,11 @@ describeIfDb(
         await aLocked;
 
         let resolveBAttempted: () => void;
+
         const bAttempted = new Promise<void>((resolve) => {
           resolveBAttempted = resolve;
         });
+
         const leaveBPromise = sql.begin(async (tx: SqlClient) => {
           await tx`SELECT set_config('app.current_user_id', ${ownerB}, true)`;
           resolveBAttempted();
@@ -504,17 +553,21 @@ describeIfDb(
           leaveAPromise,
           leaveBPromise,
         ]);
+
         const outcomes = [aResult.status, bResult.status];
         expect(outcomes.filter((s) => s === 'fulfilled')).toHaveLength(1);
+
         // Both sessions use the raw postgres.js client directly (not
         // Drizzle), so the driver error surfaces as-is — `.code`, not
         // `.cause.code`.
         const rejected = [aResult, bResult].find(
           (r): r is PromiseRejectedResult => r.status === 'rejected',
         );
+
         if (!rejected) {
           throw new Error('Expected exactly one rejected attempt');
         }
+
         expect(rejected.reason).toMatchObject({ code: 'OW001' });
 
         const remainingOwners = await asUser(
@@ -522,6 +575,7 @@ describeIfDb(
           (tx) =>
             tx`SELECT user_id FROM memberships WHERE org_unit_id = ${root.id} AND role = 'owner'`,
         );
+
         expect(remainingOwners.length).toBe(1);
       });
     });
@@ -548,10 +602,12 @@ describeIfDb(
       it('a creator who transferred ownership and left cannot re-grant themselves owner, via the service or direct SQL', async () => {
         const creator = await makeUser('Departed Creator');
         const heir = await makeUser('Heir Owner');
+
         const root = await identity.createRootOrg({
           userId: creator,
           name: 'Handed Over',
         });
+
         rootIds.push(root.id);
         await identity.grantMembership({
           callerId: creator,
@@ -583,10 +639,12 @@ describeIfDb(
       it('a creator demoted to viewer who then left cannot re-grant themselves owner, via the service or direct SQL', async () => {
         const creator = await makeUser('Demoted Creator');
         const heir = await makeUser('Demoting Owner');
+
         const root = await identity.createRootOrg({
           userId: creator,
           name: 'Demoted',
         });
+
         rootIds.push(root.id);
         await identity.grantMembership({
           callerId: creator,
@@ -623,10 +681,12 @@ describeIfDb(
 
       it('the atomic bootstrap still mints the creator as owner, through the service and through direct SQL in one transaction', async () => {
         const creator = await makeUser('Bootstrap Creator');
+
         const root = await identity.createRootOrg({
           userId: creator,
           name: 'Fresh',
         });
+
         rootIds.push(root.id);
         expect(await rosterOf(creator, root.id)).toEqual([
           { user_id: creator, role: 'owner' },
@@ -662,9 +722,11 @@ describeIfDb(
             if (userId !== null) {
               await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
             }
+
             const [row] = await tx<
               Array<{ fresh: boolean }>
             >`SELECT llame_org_unit_is_fresh_root(${unitId}::uuid) AS fresh`;
+
             return row?.fresh;
           });
 
@@ -695,6 +757,7 @@ describeIfDb(
                  has_function_privilege('app', p.oid, 'EXECUTE') AS app_execute
           FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
           WHERE p.proname = 'llame_org_unit_is_fresh_root'`;
+
         expect(fn).toMatchObject({
           definer: true,
           config: ['search_path=public'],
@@ -749,11 +812,13 @@ describeIfDb(
           orgUnitId: root.id,
           role: 'admin',
         });
+
         const child = await identity.createChildOrg({
           userId: bob,
           parentId: root.id,
           name: 'C',
         });
+
         await identity.grantMembership({
           callerId: bob,
           userId: bob,
@@ -780,6 +845,7 @@ describeIfDb(
         await expect(
           tenantDb.runAs(bob, async (tx) => {
             const repo = new OrgUnitsRepository(tx);
+
             return repo.moveToRoot({ id: child.id });
           }),
         ).rejects.toMatchObject({
@@ -813,11 +879,13 @@ describeIfDb(
         const alice = await makeUser('F1 Promoting Owner');
         const root = await identity.createRootOrg({ userId: alice, name: 'R' });
         rootIds.push(root.id);
+
         const child = await identity.createChildOrg({
           userId: alice,
           parentId: root.id,
           name: 'C',
         });
+
         await identity.grantMembership({
           callerId: alice,
           userId: alice,
@@ -848,11 +916,13 @@ describeIfDb(
         const alice = await makeUser('F1 Racing Owner');
         const root = await identity.createRootOrg({ userId: alice, name: 'R' });
         rootIds.push(root.id);
+
         const child = await identity.createChildOrg({
           userId: alice,
           parentId: root.id,
           name: 'C',
         });
+
         await identity.grantMembership({
           callerId: alice,
           userId: alice,
@@ -865,19 +935,24 @@ describeIfDb(
         // Executor form: the API's TypeScript lib predates
         // `Promise.withResolvers`.
         let resolveRevoked: () => void;
+
         const revoked = new Promise<void>((resolve) => {
           resolveRevoked = resolve;
         });
+
         let resolveCommitB: () => void;
+
         const commitB = new Promise<void>((resolve) => {
           resolveCommitB = resolve;
         });
+
         const revoke = sql.begin(async (tx: SqlClient) => {
           await tx`SELECT set_config('app.current_user_id', ${alice}, true)`;
           await tx`DELETE FROM memberships WHERE user_id = ${alice} AND org_unit_id = ${child.id}`;
           resolveRevoked();
           await commitB;
         });
+
         await revoked;
 
         // Session A promotes C. Its snapshot still sees B's uncommitted
@@ -886,14 +961,17 @@ describeIfDb(
         // bigint key splits into classid/objid; other suites' locks differ).
         const promote = asUser(alice, (tx) => promoteIn(tx, child));
         let waiting = 0;
+
         for (let poll = 0; waiting === 0 && poll < 1000; poll++) {
           const [row] = await sql<Array<{ waiting: number }>>`
             SELECT count(*)::int AS waiting FROM pg_locks
             WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
               AND ((classid::bigint << 32) | objid::bigint)
                 = hashtextextended(${child.id}, 0)`;
+
           waiting = row?.waiting ?? 0;
         }
+
         expect(waiting).toBe(1);
         resolveCommitB!();
 
@@ -910,16 +988,20 @@ describeIfDb(
         const owner = await makeUser('F2 Source Owner');
         const subOwner = await makeUser('F2 Unit Owner');
         const admin = await makeUser('F2 Admin');
+
         const rootA = await identity.createRootOrg({
           userId: owner,
           name: 'A',
         });
+
         rootIds.push(rootA.id);
+
         const y = await identity.createChildOrg({
           userId: owner,
           parentId: rootA.id,
           name: 'Y',
         });
+
         await identity.grantMembership({
           callerId: owner,
           userId: subOwner,
@@ -932,10 +1014,12 @@ describeIfDb(
           orgUnitId: rootA.id,
           role: 'admin',
         });
+
         const rootB = await identity.createRootOrg({
           userId: admin,
           name: 'B',
         });
+
         rootIds.push(rootB.id);
 
         await expect(
@@ -951,6 +1035,7 @@ describeIfDb(
           userId: subOwner,
           name: 'S',
         });
+
         rootIds.push(rootS.id);
         await expect(
           asUser(subOwner, (tx) => promoteIn(tx, y)),
@@ -981,31 +1066,39 @@ describeIfDb(
       it('F2: an admin cannot launder owner tier by moving their own root into the tree first', async () => {
         const owner = await makeUser('Chain Source Owner');
         const admin = await makeUser('Chain Admin');
+
         const rootA = await identity.createRootOrg({
           userId: owner,
           name: 'A',
         });
+
         rootIds.push(rootA.id);
+
         const c = await identity.createChildOrg({
           userId: owner,
           parentId: rootA.id,
           name: 'C',
         });
+
         await identity.grantMembership({
           callerId: owner,
           userId: admin,
           orgUnitId: rootA.id,
           role: 'admin',
         });
+
         const rootB = await identity.createRootOrg({
           userId: admin,
           name: 'B',
         });
+
         rootIds.push(rootB.id);
+
         const rootD = await identity.createRootOrg({
           userId: admin,
           name: 'D',
         });
+
         rootIds.push(rootD.id);
 
         // 1. Moving your own root into another tree is still allowed: B's
@@ -1042,16 +1135,20 @@ describeIfDb(
         const owner = await makeUser('F3 Sole Owner');
         const root = await identity.createRootOrg({ userId: owner, name: 'R' });
         rootIds.push(root.id);
+
         const child = await identity.createChildOrg({
           userId: owner,
           parentId: root.id,
           name: 'C',
         });
+
         const other = await identity.createRootOrg({
           userId: owner,
           name: 'S',
         });
+
         rootIds.push(other.id);
+
         const otherChild = await identity.createChildOrg({
           userId: owner,
           parentId: other.id,
@@ -1068,11 +1165,13 @@ describeIfDb(
             ),
           ).rejects.toMatchObject({ code: 'OW001' });
         }
+
         const owners = await asUser(
           owner,
           (tx) =>
             tx`SELECT user_id FROM memberships WHERE org_unit_id = ${root.id} AND role = 'owner'`,
         );
+
         expect(owners).toEqual([{ user_id: owner }]);
       });
 
@@ -1087,6 +1186,7 @@ describeIfDb(
           orgUnitId: root.id,
           role: 'admin',
         });
+
         const child = await identity.createChildOrg({
           userId: creator,
           parentId: root.id,

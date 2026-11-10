@@ -17,6 +17,7 @@ const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 const subscribeToReducedMotion = (onChange: () => void) => {
   const query = window.matchMedia(REDUCED_MOTION);
   query.addEventListener("change", onChange);
+
   return () => query.removeEventListener("change", onChange);
 };
 
@@ -45,11 +46,14 @@ export function sharedPrefixLength(a: string, b: string): number {
   const right = charsOf(b);
   const limit = Math.min(left.length, right.length);
   let i = 0;
+
   while (i < limit && left[i] === right[i]) i += 1;
+
   return i;
 }
 
 type TypewriterPhase = "delete" | "type";
+
 type TypewriterFrame = {
   text: string;
   phase: TypewriterPhase;
@@ -117,6 +121,7 @@ function runTypewriterAnimation(
   // re-render that did not change the title.
   if (!animates || target === previous) {
     if (displayRef.current !== target) settle();
+
     return undefined;
   }
 
@@ -134,6 +139,7 @@ function runTypewriterAnimation(
       targetRef.current,
       phase,
     );
+
     if (!frame) return;
     displayRef.current = frame.text;
     setDisplay(frame.text);
@@ -142,6 +148,7 @@ function runTypewriterAnimation(
   };
 
   tick();
+
   return () => clearTimeout(timer);
 }
 
@@ -166,6 +173,7 @@ export function useTypewriter(
     prefersReducedMotion,
     prefersReducedMotionOnServer,
   );
+
   const animates = enabled && !reducedMotion;
 
   const [display, setDisplay] = useState(target);

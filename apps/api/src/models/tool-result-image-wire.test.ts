@@ -34,13 +34,16 @@ const CHAT = { id: 'chat-test', lane: 'main' } as const;
 const USER_AGENT = 'llame/0.0.0-test';
 const ENVELOPE = `{"status":"success","kind":"image","media":"media://${ID}"}`;
 const ENVELOPE2 = `{"status":"success","kind":"image","media":"media://${ID2}"}`;
+
 /** The model variant bytes the fake resolver serves for `ID` and `ID2`. */
 const VARIANT_BASE64 = Buffer.from([ID.codePointAt(35) ?? 0]).toString(
   'base64',
 );
+
 const VARIANT2_BASE64 = Buffer.from([ID2.codePointAt(35) ?? 0]).toString(
   'base64',
 );
+
 const VISION: ReadonlyArray<ModelInput> = ['text', 'image'];
 
 const messages: Array<ModelMessage> = [
@@ -140,10 +143,13 @@ const base = {
 
 /** An unstored read image the current attempt holds, or does not. */
 const SHOT = { locator: '/work/shot.png', width: 1600, height: 900 };
+
 const UNSTORED_ENVELOPE =
   '{"status":"success","kind":"image","mediaType":"image/png","width":1600,"height":900,"path":"/work/shot.png"}';
+
 const HELD_BYTES = Buffer.from([1, 2, 3, 4]);
 const HELD_BASE64 = HELD_BYTES.toString('base64');
+
 const HELD_IMAGE = {
   ...SHOT,
   model: {
@@ -153,6 +159,7 @@ const HELD_IMAGE = {
     data: HELD_BASE64,
   },
 };
+
 const unstoredMessages: Array<ModelMessage> = messages.map((message) =>
   message.role === 'tool'
     ? {
@@ -195,12 +202,15 @@ async function sentBody(
   const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
     Promise.resolve(response()),
   );
+
   const previousFetch = globalThis.fetch;
   globalThis.fetch = fetchMock;
+
   try {
     const resolver =
       scenario.media ??
       fakeResolver([descriptor(ID), descriptor(ID2)]).resolver;
+
     if (scenario.held) resolver.retainedMedia.set('call-1', HELD_IMAGE);
     await expect(
       build(input).streamText({
@@ -210,9 +220,12 @@ async function sentBody(
       }).text,
     ).resolves.toBe('done');
     const [request, init] = fetchMock.mock.calls[0] ?? [];
+
     if (request === undefined) throw new Error('no request was sent');
     const body: unknown = JSON.parse(await new Request(request, init).text());
+
     if (!isRecord(body)) throw new TypeError('expected a JSON request body');
+
     return body;
   } finally {
     globalThis.fetch = previousFetch;
@@ -307,6 +320,7 @@ describe('a replayed read image on each wire', () => {
     /** The sent `role: tool` messages. */
     const toolMessages = (body: UnknownRecord): Array<UnknownRecord> => {
       const sent: unknown = body.messages;
+
       return Array.isArray(sent)
         ? sent.filter(isRecord).filter(({ role }) => role === 'tool')
         : [];
@@ -359,6 +373,7 @@ describe('a replayed read image on each wire', () => {
         },
       ]);
       const serialized = JSON.stringify(body);
+
       for (const absent of [
         'Image from',
         'Files from tool results:',
@@ -388,12 +403,14 @@ describe('a replayed read image on each wire', () => {
 
 describe('an unstored read image on each wire', () => {
   const held = { messages: unstoredMessages, held: true };
+
   /** An attempt whose read recorded that its message bound is exceeded. */
   const exceededEntry = {
     messages: unstoredMessages,
     media: (() => {
       const resolver = fakeResolver([descriptor(ID), descriptor(ID2)]).resolver;
       resolver.retainedMedia.set('call-1', { ...SHOT, exceeded: true });
+
       return resolver;
     })(),
     held: false,
@@ -541,6 +558,7 @@ describe('an unstored read image on each wire', () => {
         },
       ]);
       const serialized = JSON.stringify(body);
+
       for (const absent of [
         'Image from',
         'Files from tool results:',
@@ -556,6 +574,7 @@ describe('an owner PDF attachment on each wire', () => {
   const PDF_BYTES = readFileSync(
     join(__dirname, '../media/testing/pdf/one-page.pdf'),
   );
+
   const PDF_DATA_URL = `data:application/pdf;base64,${PDF_BYTES.toString('base64')}`;
   const LABEL = { type: 'text', text: `PDF 1 (media://${ID}):` };
   const PROMPT = 'Summarize the paper.';
@@ -570,6 +589,7 @@ describe('an owner PDF attachment on each wire', () => {
         byteSize: PDF_BYTES.length,
       }),
     ]);
+
     return {
       ...resolver,
       loadModelBytes: (ids) =>
@@ -578,6 +598,7 @@ describe('an owner PDF attachment on each wire', () => {
         ),
     };
   };
+
   const attached = (): Scenario => ({
     messages: [
       {
@@ -599,16 +620,20 @@ describe('an owner PDF attachment on each wire', () => {
 
   const responses = (input: ReadonlyArray<ModelInput>) =>
     createOpenAIModelClient({ ...base, input });
+
   const codex = (input: ReadonlyArray<ModelInput>) =>
     createOpenAICodexModelClient({ ...base, accountId: 'acct', input });
+
   const completions = (input: ReadonlyArray<ModelInput>) =>
     createOpenAICompletionsModelClient({
       ...base,
       baseUrl: 'https://api.example.test/v1',
       input,
     });
+
   const openCodeGo = (input: ReadonlyArray<ModelInput>) =>
     createOpenCodeGoModelClient({ ...base, input });
+
   const anthropic = (input: ReadonlyArray<ModelInput>) =>
     createAnthropicModelClient({
       ...base,
@@ -699,6 +724,7 @@ describe('an owner PDF attachment on each wire', () => {
 
   describe('a read PDF', () => {
     const locator = '/work/paper.pdf';
+
     const envelope = JSON.stringify({
       status: 'success',
       kind: 'pdf',
@@ -707,6 +733,7 @@ describe('an owner PDF attachment on each wire', () => {
       byteSize: PDF_BYTES.length,
       path: locator,
     });
+
     const read = (): Scenario => {
       const media = paperResolver();
       media.retainedMedia.set('call-1', {
@@ -714,6 +741,7 @@ describe('an owner PDF attachment on each wire', () => {
         pages: 1,
         data: PDF_BYTES.toString('base64'),
       });
+
       return {
         media,
         held: false,
@@ -774,6 +802,7 @@ describe('an owner PDF attachment on each wire', () => {
           READS_PDF,
           read(),
         );
+
         expect(Array.isArray(body.messages) && body.messages.slice(2)).toEqual([
           { role: 'tool', tool_call_id: 'call-1', content: envelope },
           {
@@ -798,6 +827,7 @@ describe('an owner PDF attachment on each wire', () => {
         READS_PDF,
         read(),
       );
+
       expect(body.messages).toContainEqual({
         role: 'user',
         content: [
@@ -839,6 +869,7 @@ describe('an owner PDF attachment on each wire', () => {
         ),
       );
       expect(serialized).toContain(JSON.stringify(LABEL.text));
+
       for (const absent of [
         'application/pdf',
         'file_data',

@@ -5,6 +5,7 @@ import { noVacuousThrowAssertionRule } from "./no-vacuous-throw-assertion.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "vacuous" };
 
 tester.run(

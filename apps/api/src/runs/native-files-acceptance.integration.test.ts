@@ -59,6 +59,7 @@ describe('native files through the model loop and durable worker', () => {
         const run = await harness.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(runId, userId),
         );
+
         return run &&
           ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
           ? run
@@ -93,19 +94,24 @@ describe('native files through the model loop and durable worker', () => {
   it('reads, edits, rereads and creates through the actual model tool loop', async () => {
     const modelId = `native-${randomUUID()}`;
     registerScript(modelId);
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(path, 'utf8')).toBe('before\nBar\nafter\n');
     expect(await readFile(created, 'utf8')).toBe('created bytes\n');
+
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     const completed = events
       .filter((event) => event.eventType === 'tool.completed')
       .map((event) => event.payload);
+
     expect(completed).toHaveLength(4);
     expect(completed[0]).toMatchObject({
       toolName: 'read',
@@ -126,11 +132,13 @@ describe('native files through the model loop and durable worker', () => {
       toolName: 'read',
       output: { content: 'before\nBar\nafter\n' },
     });
+
     for (const callId of ['native-edit', 'native-write']) {
       const matching = events.filter(
         (event) =>
           isRecord(event.payload) && event.payload.toolCallId === callId,
       );
+
       const types = matching.map((event) => event.eventType);
       expect(
         types.filter((type) =>
@@ -153,30 +161,36 @@ describe('native files through the model loop and durable worker', () => {
         },
       ],
     });
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(path, 'utf8')).toBe('replaced bytes\n');
 
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     const matching = events.filter(
       (event) =>
         isRecord(event.payload) &&
         event.payload.toolCallId === 'native-replace',
     );
+
     const types = matching.map((event) => event.eventType);
     expect(
       types.filter((type) =>
         ['native.attempt', 'native.result', 'tool.completed'].includes(type),
       ),
     ).toEqual(['native.attempt', 'native.result', 'tool.completed']);
+
     const completed = matching.find(
       (event) => event.eventType === 'tool.completed',
     )?.payload;
+
     expect(completed).toMatchObject({
       toolName: 'write',
       output: {
@@ -198,6 +212,7 @@ describe('native files through the model loop and durable worker', () => {
       harness.tenantDb,
       new KnowledgeSpaceLocalResolver(knowledgeRoot),
     );
+
     const spaceId = (await spaces.provisionForOwner(userId)).id;
     const note = join(knowledgeRoot, spaceId, 'note.md');
     await writeFile(note, 'alpha\nbeta\n');
@@ -214,19 +229,23 @@ describe('native files through the model loop and durable worker', () => {
         },
       ],
     });
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(note, 'utf8')).toBe('replaced\n');
 
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     const attempt = events.find(
       (event) => event.eventType === 'native.attempt',
     );
+
     expect(attempt?.payload).toMatchObject({
       operation: 'write',
       path: locator,
@@ -234,9 +253,11 @@ describe('native files through the model loop and durable worker', () => {
     // The locator is the recorded target and the result's identity; the
     // resolved host path never reaches the model or the event log.
     expect(JSON.stringify(events)).not.toContain(knowledgeRoot);
+
     const completed = events
       .filter((event) => event.eventType === 'tool.completed')
       .map((event) => event.payload);
+
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({
       toolName: 'write',
@@ -260,21 +281,26 @@ describe('native files through the model loop and durable worker', () => {
         message: 'Unsettled prior mutation.',
       },
     );
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('failed');
     expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
     await expect(stat(created)).rejects.toMatchObject({ code: 'ENOENT' });
+
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     const names = events
       .filter((event) => event.eventType === 'tool.requested')
       .map((event) =>
         isRecord(event.payload) ? event.payload.toolName : undefined,
       );
+
     expect(names).toEqual(['read', 'edit']);
   });
 
@@ -285,11 +311,13 @@ describe('native files through the model loop and durable worker', () => {
     async (operation) => {
       const modelId = `native-retry-${randomUUID()}`;
       registerScript(modelId);
+
       const seeded = await seedRun({
         tenantDb: harness.tenantDb,
         userId,
         modelId,
       });
+
       const deliverySequence = await harness.tenantDb.runAs(
         userId,
         async (tx) => {
@@ -298,7 +326,9 @@ describe('native files through the model loop and durable worker', () => {
             userId,
             { workerId: 'lost-host' },
           );
+
           if (!started) throw new Error('Native recovery Run did not start.');
+
           return (
             await new RunEventsRepository(tx).append(
               seeded.runId,
@@ -307,6 +337,7 @@ describe('native files through the model loop and durable worker', () => {
           ).sequence;
         },
       );
+
       await harness.tenantDb.runAs(userId, (tx) =>
         new NativeFilesRepository(tx).begin({
           runId: seeded.runId,
@@ -333,11 +364,13 @@ describe('native files through the model loop and durable worker', () => {
   it('replays a settled replace into the terminal run instead of executing it again', async () => {
     const modelId = `native-replace-replay-${randomUUID()}`;
     registerScript(modelId);
+
     const seeded = await seedRun({
       tenantDb: harness.tenantDb,
       userId,
       modelId,
     });
+
     const settled = {
       status: 'success',
       operation: 'write',
@@ -345,6 +378,7 @@ describe('native files through the model loop and durable worker', () => {
       replaced: true,
       lineCount: 1,
     };
+
     // A redelivery of a Run that already settled a replace: the attempt and
     // its result are recorded, and one tool activity was left open.
     const deliverySequence = await harness.tenantDb.runAs(
@@ -355,10 +389,13 @@ describe('native files through the model loop and durable worker', () => {
           userId,
           { workerId: 'lost-host' },
         );
+
         if (!started) throw new Error('Native replay Run did not start.');
         const events = new RunEventsRepository(tx);
+
         const sequence = (await events.append(seeded.runId, 'run.started'))
           .sequence;
+
         await events.append(seeded.runId, 'tool.requested', {
           toolCallId: 'native-replay',
           toolName: 'write',
@@ -373,9 +410,11 @@ describe('native files through the model loop and durable worker', () => {
           toolCallId: 'native-replay',
           result: settled,
         });
+
         return sequence;
       },
     );
+
     expect(deliverySequence).toBeGreaterThan(0);
 
     await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
@@ -390,15 +429,19 @@ describe('native files through the model loop and durable worker', () => {
     // The replace ran once, in the lost attempt; the redelivery neither
     // repeated it nor replaced the bytes it published.
     expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     expect(
       events.filter((event) => event.eventType === 'native.attempt'),
     ).toHaveLength(1);
+
     const completed = events.find(
       (event) => event.eventType === 'tool.completed',
     );
+
     expect(completed?.payload).toMatchObject({
       toolCallId: 'native-replay',
       toolName: 'write',
@@ -412,6 +455,7 @@ describe('native files through the model loop and durable worker', () => {
       harness.tenantDb,
       new KnowledgeSpaceLocalResolver(knowledgeRoot),
     );
+
     const space = await spaces.provisionForOwner(userId);
     const note = join(knowledgeRoot, space.id, 'note.md');
     await writeFile(note, 'alpha\nbeta\n');
@@ -428,11 +472,13 @@ describe('native files through the model loop and durable worker', () => {
         },
       ],
     });
+
     const seeded = await seedRun({
       tenantDb: harness.tenantDb,
       userId,
       modelId,
     });
+
     // The stored result already carries the Knowledge envelope, so the replay
     // returns it without re-resolving the Space or touching the filesystem.
     const settled = {
@@ -443,6 +489,7 @@ describe('native files through the model loop and durable worker', () => {
       lineCount: 1,
       knowledgeSpaceId: space.id,
     };
+
     const deliverySequence = await harness.tenantDb.runAs(
       userId,
       async (tx) => {
@@ -451,10 +498,13 @@ describe('native files through the model loop and durable worker', () => {
           userId,
           { workerId: 'lost-host' },
         );
+
         if (!started) throw new Error('Knowledge replay Run did not start.');
         const events = new RunEventsRepository(tx);
+
         const sequence = (await events.append(seeded.runId, 'run.started'))
           .sequence;
+
         await events.append(seeded.runId, 'tool.requested', {
           toolCallId: 'kb-replay',
           toolName: 'write',
@@ -469,9 +519,11 @@ describe('native files through the model loop and durable worker', () => {
           toolCallId: 'kb-replay',
           result: settled,
         });
+
         return sequence;
       },
     );
+
     expect(deliverySequence).toBeGreaterThan(0);
 
     await dispatchRun({ queue: harness.queue, ...seeded, userId, modelId });
@@ -484,15 +536,19 @@ describe('native files through the model loop and durable worker', () => {
       harness.models.streamCalls.filter((call) => call.modelId === modelId),
     ).toHaveLength(0);
     expect(await readFile(note, 'utf8')).toBe('alpha\nbeta\n');
+
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     expect(
       events.filter((event) => event.eventType === 'native.attempt'),
     ).toHaveLength(1);
+
     const completed = events.find(
       (event) => event.eventType === 'tool.completed',
     );
+
     expect(completed?.payload).toMatchObject({
       toolCallId: 'kb-replay',
       toolName: 'write',
@@ -504,10 +560,12 @@ describe('native files through the model loop and durable worker', () => {
 
   it('refuses another owner Space through the worker and mutates nothing', async () => {
     const otherUserId = await createUser(harness.db, 'native-acceptance-other');
+
     const spaces = new KnowledgeSpaceService(
       harness.tenantDb,
       new KnowledgeSpaceLocalResolver(knowledgeRoot),
     );
+
     const otherSpace = await spaces.provisionForOwner(otherUserId);
     const note = join(knowledgeRoot, otherSpace.id, 'note.md');
     await writeFile(note, 'not yours\n');
@@ -524,25 +582,30 @@ describe('native files through the model loop and durable worker', () => {
         },
       ],
     });
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId,
     });
+
     expect((await terminal(seeded.runId)).status).toBe('completed');
     expect(await readFile(note, 'utf8')).toBe('not yours\n');
 
     const events = await harness.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     // The Space is resolved under the Run owner's own access, so another
     // owner's identifier is one closed result and the mutation never reaches
     // the fence: no attempt, no mutation, no host path.
     expect(
       events.filter((event) => event.eventType === 'native.attempt'),
     ).toHaveLength(0);
+
     const completed = events
       .filter((event) => event.eventType === 'tool.completed')
       .map((event) => event.payload);
+
     expect(completed).toHaveLength(1);
     expect(completed[0]).toMatchObject({
       toolName: 'write',
@@ -559,6 +622,7 @@ describe('native files through the model loop and durable worker', () => {
       harness.tenantDb,
       new KnowledgeSpaceLocalResolver(knowledgeRoot),
     );
+
     const spaceId = (await spaces.provisionForOwner(userId)).id;
     const note = join(knowledgeRoot, spaceId, 'note.md');
     await writeFile(note, 'alpha\nbeta\n');
@@ -575,11 +639,13 @@ describe('native files through the model loop and durable worker', () => {
         },
       ],
     });
+
     const seeded = await seedRun({
       tenantDb: harness.tenantDb,
       userId,
       modelId,
     });
+
     const deliverySequence = await harness.tenantDb.runAs(
       userId,
       async (tx) => {
@@ -588,12 +654,15 @@ describe('native files through the model loop and durable worker', () => {
           userId,
           { workerId: 'lost-host' },
         );
+
         if (!started) throw new Error('Knowledge recovery Run did not start.');
+
         return (
           await new RunEventsRepository(tx).append(seeded.runId, 'run.started')
         ).sequence;
       },
     );
+
     // No executor binding: a locator was never bound to the lost worker.
     await harness.tenantDb.runAs(userId, (tx) =>
       new NativeFilesRepository(tx).begin({

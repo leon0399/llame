@@ -48,6 +48,7 @@ describe("sanitizeAuthoredText", () => {
   it("lets a closer pop through phantom openers left by prose tag mentions", () => {
     const authored =
       "<instructions>\nALWAYS follow <answering_rules>\n<answering_rules>1. x</answering_rules>\n</instructions>";
+
     expect(sanitizeAuthoredText(authored)).toBe(authored);
 
     expect(sanitizeAuthoredText("<a><b></a></b>")).toBe("<a><b></a>&lt;/b&gt;");

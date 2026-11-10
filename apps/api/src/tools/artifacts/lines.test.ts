@@ -84,6 +84,7 @@ describe('artifact line numbering', () => {
     for (const piece of artifactLinePieces(body)) {
       expect(piece.length).toBeLessThanOrEqual(ARTIFACT_LINE_UNITS);
     }
+
     expect(artifactLinePieces(body).join('')).toBe(body);
   });
 

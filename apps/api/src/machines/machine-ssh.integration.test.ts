@@ -87,12 +87,14 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
 
   it('resolves the included alias through the bastion and runs roots.list, fs.read, and proc.bash', async () => {
     const harness = connect(fixture.connection());
+
     try {
       await expect(
         request(harness, 'roots.list', { envelope: ENVELOPE }),
       ).resolves.toEqual({
         roots: [MACHINE_SSHD_ROOT],
       });
+
       const read = readFsReadResult(
         await request(harness, 'fs.read', {
           envelope: ENVELOPE,
@@ -100,6 +102,7 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
           options: { displayPrefix: `machine://${MACHINE_SSHD_NAME}` },
         }),
       );
+
       if (read?.status !== 'success' || read.kind !== 'file')
         throw new Error(
           `fs.read did not return the file: ${JSON.stringify(read)}`,
@@ -123,12 +126,14 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
 
   it('refuses a jump-host key that is missing from the pinned file, sending nothing', async () => {
     const harness = connect(fixture.connection({ pinBastion: false }));
+
     try {
       const error = refusal(
         await request(harness, 'roots.list', { envelope: ENVELOPE }).catch(
           rejection,
         ),
       );
+
       expect(error).toBeInstanceOf(MachineUnavailableError);
       expect(error.reason).toBe('host_key_mismatch');
       // `sent` is the hub's own count of frames written: nothing reached the box.
@@ -142,12 +147,14 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
     const unpinned = connect(
       fixture.connection({ pinBastion: false, weaken: true }),
     );
+
     try {
       const error = refusal(
         await request(unpinned, 'roots.list', { envelope: ENVELOPE }).catch(
           rejection,
         ),
       );
+
       expect(error.reason).toBe('host_key_mismatch');
       expect(error.sent).toBe(false);
     } finally {
@@ -157,6 +164,7 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
     // The same included configuration still reaches a pinned Machine, and the
     // `ControlMaster auto` it asks for never creates a socket.
     const pinned = connect(fixture.connection({ weaken: true }));
+
     try {
       await expect(
         request(pinned, 'roots.list', { envelope: ENVELOPE }),
@@ -172,14 +180,17 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
 
   it('fails within the connect timeout when a hop silently drops packets', async () => {
     const harness = connect(fixture.connection());
+
     try {
       await fixture.dropPackets(fixture.bastion);
       const started = Date.now();
+
       const error = refusal(
         await request(harness, 'roots.list', { envelope: ENVELOPE }).catch(
           rejection,
         ),
       );
+
       const elapsed = Date.now() - started;
       expect(error.reason).toBe('unreachable');
       expect(error.sent).toBe(false);
@@ -199,6 +210,7 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
 
   it('reports the Machine unreachable while the box is stopped, and recovers when it runs again', async () => {
     const harness = connect(fixture.connection());
+
     try {
       await expect(
         request(harness, 'roots.list', { envelope: ENVELOPE }),
@@ -207,12 +219,15 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
       });
 
       fixture.stopForRestart(fixture.box);
+
       const error = refusal(
         await request(harness, 'roots.list', { envelope: ENVELOPE }).catch(
           rejection,
         ),
       );
+
       expect(['unreachable', 'session_lost']).toContain(error.reason);
+
       // The stop took a live session with it, so whether this request's frame
       // had already gone out is a race; `sent` reports which side of it the
       // request landed on, and only a sent request has an unknown outcome.
@@ -232,14 +247,17 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
   it('kills the remote process group when the session is lost during a long bash', async () => {
     const harness = connect(fixture.connection());
     const marker = `sleep ${String(LONG_BASH_SECONDS)}`;
+
     try {
       const running = request(harness, 'proc.bash', {
         envelope: ENVELOPE,
         command: marker,
       }).catch(rejection);
+
       await waitForBoxProcess(fixture, marker, true);
 
       const link = harness.transports.at(-1);
+
       if (link === undefined)
         throw new Error('The Machine link was never opened.');
       // The link is lost, as a network failure would lose it.
@@ -258,11 +276,13 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
 
   it('carries two concurrent requests over one SSH process', async () => {
     const harness = connect(fixture.connection());
+
     try {
       const slow = request(harness, 'proc.bash', {
         envelope: ENVELOPE,
         command: 'sleep 2',
       });
+
       await expect(
         request(harness, 'roots.list', { envelope: ENVELOPE }),
       ).resolves.toEqual({
@@ -304,7 +324,9 @@ function connect(connection: MachineSshdConnection): Harness {
   const ssh = createMachineSshTransportFactory({
     ssh: connection.machines.ssh,
   });
+
   const transports: Array<MachineTransport> = [];
+
   const connector = new MachineConnector({
     machines: connection.machines,
     hubVersion: HUB_VERSION,
@@ -312,10 +334,12 @@ function connect(connection: MachineSshdConnection): Harness {
       open: (transportRequest) => {
         const transport = ssh.open(transportRequest);
         transports.push(transport);
+
         return transport;
       },
     },
   });
+
   return {
     connector,
     transports,
@@ -354,11 +378,14 @@ async function waitForBoxProcess(
   present: boolean,
 ): Promise<void> {
   const deadline = Date.now() + PROCESS_POLL_TIMEOUT_MS;
+
   while (Date.now() < deadline) {
     const listing = await sshd.execIn(sshd.box, ['ps', '-eo', 'args']);
+
     if (listing.stdout.includes(marker) === present) return;
     await delay(PROCESS_POLL_MS);
   }
+
   throw new Error(
     `The box never ${present ? 'started' : 'stopped'} a process matching "${marker}".`,
   );
@@ -373,6 +400,7 @@ function sshProcessCount(): number {
       encoding: 'utf8',
     },
   );
+
   return listing
     .split('\n')
     .filter((line) => line.includes(MACHINE_SSHD_REMOTE_COMMAND)).length;
@@ -395,14 +423,17 @@ async function rawSshHello(
     ['-F', connection.sshConfig.path, '-T', '--', MACHINE_SSHD_ALIAS, command],
     { stdio: ['pipe', 'pipe', 'pipe'] },
   );
+
   const framer = createLineFramer();
   const answers: Array<Frame> = [];
   let stdout = '';
   child.stdout.on('data', (chunk: Buffer) => {
     stdout += chunk.toString('utf8');
+
     for (const event of framer.push(chunk)) {
       if (event.kind !== 'line') continue;
       const decoded = decodeFrame(event.line);
+
       if (decoded.ok) answers.push(decoded.frame);
     }
   });
@@ -418,12 +449,15 @@ async function rawSshHello(
     }),
   );
   const deadline = Date.now() + HANDSHAKE_POLL_TIMEOUT_MS;
+
   while (answers.length === 0 && Date.now() < deadline)
     await delay(PROCESS_POLL_MS);
   child.kill();
 
   const first = answers.at(0);
+
   if (first === undefined) return { hello: undefined, stdout };
+
   return {
     hello: 'result' in first.m ? readHelloResult(first.m.result) : undefined,
     stdout,

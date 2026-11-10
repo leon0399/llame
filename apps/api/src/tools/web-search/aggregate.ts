@@ -67,12 +67,15 @@ function classifyOutcome(
 ): ChildRun {
   if (outcome.kind === 'empty')
     return { child, kind: 'empty', notes: outcome.notes };
+
   if (outcome.kind === 'answer') {
     const citations = canonicalizeCitations(outcome.citations);
+
     // The rest is a failed child, so the aggregate can still answer from its
     // result children.
     if (!isGrounded(outcome.answer, citations))
       return { child, kind: 'failure', failureClass: 'ungrounded' };
+
     return {
       child,
       kind: 'answer',
@@ -82,8 +85,10 @@ function classifyOutcome(
       notes: outcome.notes,
     };
   }
+
   // Each child holds its own fetch bound, whatever it returned.
   const results = distinctResults(canonicalizeResults(outcome.results), limit);
+
   return results.length === 0
     ? { child, kind: 'empty', notes: outcome.notes }
     : { child, kind: 'results', results, notes: outcome.notes };
@@ -94,6 +99,7 @@ async function runChild(
   request: EngineRequest,
 ): Promise<ChildRun> {
   const outcome = await runOne(child.engine, child.timeoutSeconds, request);
+
   return isFailureClass(outcome)
     ? { child, kind: 'failure', failureClass: outcome }
     : classifyOutcome(child, outcome, request.limit);
@@ -113,19 +119,23 @@ function updateGroup(
     group.children.add(childIndex);
     group.score += 1 / (60 + rank);
   }
+
   if (rank < group.bestRank) {
     group.url = result.url;
     group.bestRank = rank;
     group.bestChild = childIndex;
   }
+
   if (group.title === '' && isNonEmpty(result.title))
     group.title = result.title;
+
   if (
     result.snippet !== undefined &&
     (group.snippet === undefined ||
       result.snippet.length > group.snippet.length)
   )
     group.snippet = result.snippet;
+
   if (group.published === undefined && isNonEmpty(result.published))
     group.published = result.published;
 }
@@ -142,7 +152,9 @@ function groupResult(group: ResultGroup): RawResult {
 /** The results one child contributes to the merge; an answer contributes its citations. */
 function runResults(run: ChildRun): ReadonlyArray<RawResult> {
   if (run.kind === 'results') return run.results;
+
   if (run.kind !== 'answer') return [];
+
   return run.citations.slice(0, run.candidateBound).map((citation) => ({
     title: citation.title ?? '',
     url: citation.url,
@@ -160,6 +172,7 @@ function mergeResultGroups(
       const rank = resultIndex + 1;
       const key = groupingKey(result.url);
       let group = groups.get(key);
+
       if (group === undefined) {
         group = {
           url: '',
@@ -173,9 +186,11 @@ function mergeResultGroups(
         };
         groups.set(key, group);
       }
+
       updateGroup(group, result, rank, childIndex);
     });
   });
+
   return [...groups.values()]
     .sort(
       (left, right) =>
@@ -225,11 +240,13 @@ function mergedOutcome(
   notes: ReadonlyArray<string>,
 ): EngineOutcome {
   const answers = attachedAnswers(runs);
+
   const result = {
     kind: 'results' as const,
     results: mergeResultGroups(runs, limit),
     ...(answers.length > 0 && { answers }),
   };
+
   return notes.length === 0 ? result : { ...result, notes };
 }
 
@@ -245,6 +262,7 @@ export function createAggregateEngine(
 ): Engine {
   return async (request) => {
     if (request.signal.aborted) throwAbort(request.signal);
+
     // A skipped child's run is a plain value, wrapped so every element the
     // aggregator receives is a promise.
     const runs = await Promise.all(
@@ -258,8 +276,10 @@ export function createAggregateEngine(
             }),
       ),
     );
+
     if (request.signal.aborted) throwAbort(request.signal);
     const notes = [...outcomeNotes(runs), ...childNotes(runs)];
+
     if (runs.some((run) => run.kind === 'results' || run.kind === 'answer')) {
       return mergedOutcome(
         runs,
@@ -267,9 +287,11 @@ export function createAggregateEngine(
         notes,
       );
     }
+
     if (runs.some((run) => run.kind === 'empty')) {
       return { kind: 'empty' as const, notes };
     }
+
     // An aggregate that skipped every child makes a local decision, not a
     // vendor failure; the chain records `unsupported` and advances like any
     // other class.

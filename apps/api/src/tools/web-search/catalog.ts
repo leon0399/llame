@@ -11,8 +11,10 @@ import {
 } from '../../instance-config/prompt-loader';
 
 type EngineType = WebSearchEngineConfig['type'];
+
 /** The per-type vendor bounds, typed so a child of any type is read the same way. */
 const LIMITS: Readonly<Record<EngineType, EngineLimits>> = ENGINE_LIMITS;
+
 /** The configured engines by id, so one catalog build looks each child up once. */
 type EngineIndex = ReadonlyMap<string, WebSearchEngineConfig>;
 
@@ -66,9 +68,12 @@ function catalogValue(value: string): string {
 /** A query bound as prose; an unbounded engine states the tool's own bound. */
 function boundText(bound: QueryBound): string {
   const parts: Array<string> = [];
+
   if (bound.codePoints !== undefined)
     parts.push(`${bound.codePoints} characters`);
+
   if (bound.words !== undefined) parts.push(`${bound.words} words`);
+
   return parts.length === 0
     ? `${TOOL_QUERY_MAX} characters`
     : parts.join(' and ');
@@ -85,11 +90,15 @@ function chainPosition(
   id: string,
 ): string {
   const index = config.chain.indexOf(id);
+
   if (index !== -1) return `position ${index + 1} in the default chain`;
+
   const parent = config.chain.find((candidate) => {
     const engine = byId.get(candidate)!;
+
     return engine.type === 'aggregate' && engine.engines.includes(id);
   });
+
   return parent === undefined
     ? 'not in the default chain'
     : `runs in the default chain through ${parent}`;
@@ -106,16 +115,21 @@ function aggregateQueryLimit(
 ): string {
   const bounds = children.flatMap((id) => {
     const query = LIMITS[byId.get(id)!.type].query;
+
     return query === undefined ? [] : [query];
   });
+
   const codePoints = bounds.map((bound) => bound.codePoints);
+
   const words = bounds.flatMap((bound) =>
     bound.words === undefined ? [] : [bound.words],
   );
+
   const bound: QueryBound = {
     ...(codePoints.length > 0 && { codePoints: Math.min(...codePoints) }),
     ...(words.length > 0 && { words: Math.min(...words) }),
   };
+
   return `${boundText(bound)}, under which no child is skipped`;
 }
 
@@ -125,11 +139,13 @@ function engineKind(
   engine: WebSearchEngineConfig,
 ): PromptWebSearchEngineItem['kind'] {
   if (engine.type === 'model-hosted') return 'answer';
+
   if (
     engine.type === 'aggregate' &&
     engine.engines.some((id) => byId.get(id)!.type === 'model-hosted')
   )
     return 'results with answers';
+
   return 'results';
 }
 
@@ -141,9 +157,11 @@ function objectiveUse(
   if (engine.type !== 'aggregate') {
     return OBJECTIVE_USE[engine.type];
   }
+
   const childUsesOne = engine.engines.some(
     (id) => OBJECTIVE_USE[byId.get(id)!.type] !== undefined,
   );
+
   return childUsesOne
     ? 'objective passed to each child that accepts one'
     : undefined;
@@ -156,6 +174,7 @@ function engineItem(
   engine: WebSearchEngineConfig,
 ): PromptWebSearchEngineItem {
   const objective = objectiveUse(byId, engine);
+
   return {
     id: catalogValue(engine.id),
     type: engine.type,
@@ -190,9 +209,11 @@ export function webSearchEngineItems(
   config: WebSearchConfig | undefined,
 ): PromptWebSearchInput | undefined {
   if (config === undefined) return undefined;
+
   const byId: EngineIndex = new Map(
     config.engines.map((engine) => [engine.id, engine]),
   );
+
   return {
     engines: config.engines.map((engine) => engineItem(config, byId, engine)),
   };

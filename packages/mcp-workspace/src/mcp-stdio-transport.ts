@@ -53,13 +53,17 @@ function withLineFragments(
   protectedValues: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
   const expanded = new Set(protectedValues);
+
   for (const value of protectedValues) {
     if (!value.includes('\n')) continue;
+
     for (const fragment of value.split('\n')) {
       const trimmed = fragment.trim();
+
       if (trimmed.length >= MIN_PROTECTED_FRAGMENT_CHARS) expanded.add(trimmed);
     }
   }
+
   return [...expanded];
 }
 
@@ -96,9 +100,11 @@ export class DiagnosticBuffer {
     // is not a substring match — the surviving fragment of a credential would
     // then be emitted unredacted by the final flush.
     let accepted = text;
+
     if (text.length > room) {
       const head = text.slice(0, room);
       const lastNewline = head.lastIndexOf('\n');
+
       // No safe cut point at all (one chunk with no embedded newline within
       // the remaining room): drop it rather than retain a fragment that might
       // be half of a secret. Crucially, this chunk contributed nothing kept,
@@ -108,7 +114,9 @@ export class DiagnosticBuffer {
       if (lastNewline === -1) return;
       accepted = head.slice(0, lastNewline + 1);
     }
+
     this.retained += accepted.length;
+
     if (accepted.length === 0) return;
 
     // Scan only the newly appended region: a terminator cannot appear in text
@@ -120,11 +128,13 @@ export class DiagnosticBuffer {
 
     let start = 0;
     let newline = this.pending.indexOf('\n', searchFrom);
+
     while (newline !== -1) {
       this.release(this.pending.slice(start, newline));
       start = newline + 1;
       newline = this.pending.indexOf('\n', start);
     }
+
     if (start > 0) this.pending = this.pending.slice(start);
   }
 
@@ -182,31 +192,38 @@ export class BoundedReadBuffer {
     if (this.limitExceeded) {
       throw new McpStdioMessageLimitError(this.maxBytes);
     }
+
     const lastBufferedNewline = this.buffer?.lastIndexOf(0x0a) ?? -1;
     let messageBytes = (this.buffer?.length ?? 0) - (lastBufferedNewline + 1);
     let start = 0;
+
     while (start < chunk.length) {
       const newline = chunk.indexOf(0x0a, start);
       const end = newline === -1 ? chunk.length : newline;
       messageBytes += end - start;
+
       if (messageBytes > this.maxBytes) {
         this.limitExceeded = true;
         this.buffer = undefined;
         throw new McpStdioMessageLimitError(this.maxBytes);
       }
+
       if (newline === -1) break;
       messageBytes = 0;
       start = newline + 1;
     }
+
     this.buffer = this.buffer ? Buffer.concat([this.buffer, chunk]) : chunk;
   }
 
   readMessage(): JSONRPCMessage | null {
     if (this.buffer === undefined) return null;
     const index = this.buffer.indexOf('\n');
+
     if (index === -1) return null;
     const line = this.buffer.toString('utf8', 0, index).replace(/\r$/u, '');
     this.buffer = this.buffer.subarray(index + 1);
+
     return deserializeMessage(line);
   }
 
@@ -268,6 +285,7 @@ export class BoundedStdioTransport {
     if (this.process) {
       throw new Error('BoundedStdioTransport already started!');
     }
+
     return new Promise((resolve, reject) => {
       const child = spawn(this.config.command, [...(this.config.args ?? [])], {
         // Merged over the base allowlist, matching the pinned SDK's own
@@ -279,6 +297,7 @@ export class BoundedStdioTransport {
         windowsHide: process.platform === 'win32',
         ...(this.config.cwd !== undefined && { cwd: this.config.cwd }),
       });
+
       this.process = child;
 
       child.on('error', (error) => {
@@ -308,14 +327,17 @@ export class BoundedStdioTransport {
       this.onerror?.(error instanceof Error ? error : new Error(String(error)));
       this.process?.kill('SIGKILL');
       this.readBuffer.clear();
+
       return;
     }
+
     this.drainMessages();
   }
 
   private drainMessages(): void {
     while (true) {
       let message: JSONRPCMessage | null;
+
       try {
         message = this.readBuffer.readMessage();
       } catch (error) {
@@ -326,6 +348,7 @@ export class BoundedStdioTransport {
         );
         continue;
       }
+
       if (message === null) break;
       this.onmessage?.(message);
     }
@@ -333,28 +356,37 @@ export class BoundedStdioTransport {
 
   async close(): Promise<void> {
     const processToClose = this.process;
+
     if (processToClose === undefined) {
       this.readBuffer.clear();
+
       return;
     }
+
     this.process = undefined;
+
     const closed = new Promise<void>((resolve) => {
       processToClose.once('close', () => resolve());
     });
+
     try {
       processToClose.stdin?.end();
     } catch {
       // ignore
     }
+
     await Promise.race([closed, delay(2000)]);
+
     if (processToClose.exitCode === null) {
       try {
         processToClose.kill('SIGTERM');
       } catch {
         // ignore
       }
+
       await Promise.race([closed, delay(2000)]);
     }
+
     if (processToClose.exitCode === null) {
       try {
         processToClose.kill('SIGKILL');
@@ -362,6 +394,7 @@ export class BoundedStdioTransport {
         // ignore
       }
     }
+
     this.readBuffer.clear();
   }
 
@@ -369,9 +402,12 @@ export class BoundedStdioTransport {
     return new Promise((resolve, reject) => {
       if (!this.process?.stdin) {
         reject(new Error('Not connected'));
+
         return;
       }
+
       const json = serializeMessage(message);
+
       if (this.process.stdin.write(json)) {
         resolve();
       } else {

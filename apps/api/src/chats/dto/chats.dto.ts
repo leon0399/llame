@@ -67,6 +67,7 @@ function parseSafeIntegerQueryValue(value: unknown): number | null | undefined {
   }
 
   const parsed = Number(value);
+
   return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
 }
 
@@ -76,6 +77,7 @@ type HistoryCursorValue = number | null | undefined;
 class HistoryCursorsExclusiveConstraint implements ValidatorConstraintInterface {
   validate(_value: HistoryCursorValue, args: ValidationArguments): boolean {
     const query = args.object;
+
     return (
       !('beforeSeq' in query) ||
       !('targetSeq' in query) ||
@@ -617,6 +619,7 @@ export function toSharedChatResponse(
     messages: messages.flatMap((m) => {
       // Only the conversation (user + assistant) is public — never system/tool.
       if (m.role !== 'user' && m.role !== 'assistant') return [];
+
       return [
         {
           id: m.id,

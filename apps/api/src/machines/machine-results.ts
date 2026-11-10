@@ -117,8 +117,10 @@ function readLineRange(
   value: SerializableValue,
 ): NativeLineRange | null | undefined {
   if (value === null) return null;
+
   if (!isSerializableRecord(value)) return undefined;
   const { startLine, endLine } = value;
+
   return isCount(startLine) && isCount(endLine)
     ? { startLine, endLine }
     : undefined;
@@ -133,11 +135,14 @@ function readLineRanges(
   // untrusted, and `readLineRange` rebuilds it from validated fields.
   const entries = value as ReadonlyArray<SerializableValue>;
   const ranges: Array<NativeLineRange> = [];
+
   for (const entry of entries) {
     const range = readLineRange(entry);
+
     if (range === undefined || range === null) return undefined;
     ranges.push(range);
   }
+
   return ranges;
 }
 
@@ -190,8 +195,11 @@ export function readNativeFailure(
   if (!isSerializableRecord(value) || value['status'] !== 'error')
     return undefined;
   const { type, message, count } = value;
+
   if (!isText(message) || !isNativeFailureType(type)) return undefined;
+
   if (isCount(count)) return { status: 'error', type, message, count };
+
   return { status: 'error', type, message };
 }
 
@@ -207,19 +215,23 @@ export function isNativeFailure(
 export function readHelloResult(value: JsonValue): HelloResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { protocolVersion, daemonVersion, roots, methods } = value;
+
   if (!isCount(protocolVersion) || !isText(daemonVersion) || !isTextList(roots))
     return undefined;
+
   const hello: HelloResult = {
     protocolVersion,
     daemonVersion,
     roots: [...roots],
   };
+
   // A daemon that predates the git methods sends no list at all. A malformed
   // one is read as absent too, because the handshake is still usable: its file
   // tools and `bash` keep working while a git call asks for an update.
   const listed = isTextList(methods)
     ? GIT_METHODS.filter((method) => methods.includes(method))
     : [];
+
   return listed.length === 0 ? hello : { ...hello, methods: listed };
 }
 
@@ -228,18 +240,24 @@ export function readRootsListResult(
 ): RootsListResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { roots } = value;
+
   return isTextList(roots) ? { roots: [...roots] } : undefined;
 }
 
 export function readFsStatResult(value: JsonValue): FsStatResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { kind, isLink, size, realPath } = value;
+
   if (!isFlag(isLink) || !isFsStatKind(kind)) return undefined;
   const sized = isCount(size);
   const located = isText(realPath);
+
   if (sized && located) return { kind, isLink, size, realPath };
+
   if (sized) return { kind, isLink, size };
+
   if (located) return { kind, isLink, realPath };
+
   return { kind, isLink };
 }
 
@@ -247,7 +265,9 @@ export function readFsStatResult(value: JsonValue): FsStatResult | undefined {
 function readFsListEntry(value: SerializableValue): FsListEntry | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { name, kind } = value;
+
   if (!isText(name) || !isFsListEntryKind(kind)) return undefined;
+
   return { name, kind };
 }
 
@@ -256,11 +276,14 @@ function readFsListEntries(
 ): ReadonlyArray<FsListEntry> | undefined {
   if (!isUntrustedList(value)) return undefined;
   const entries: Array<FsListEntry> = [];
+
   for (const entry of value) {
     const read = readFsListEntry(entry);
+
     if (read === undefined) return undefined;
     entries.push(read);
   }
+
   return entries;
 }
 
@@ -268,32 +291,44 @@ function readFsListEntries(
 function fieldOf(value: JsonValue, key: string): SerializableValue {
   if (!isSerializableRecord(value)) return undefined;
   const fields = Object.entries(value);
+
   for (const [name, field] of fields) if (name === key) return field;
+
   return undefined;
 }
 
 export function readFsListResult(value: JsonValue): FsListResult | undefined {
   const failure = readNativeFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value)) return undefined;
   const { totalCount, truncated } = value;
   const list = readFsListEntries(fieldOf(value, 'entries') ?? null);
+
   if (list === undefined || !isCount(totalCount) || !isFlag(truncated))
     return undefined;
+
   return { entries: list, totalCount, truncated };
 }
 
 /** A `fs.read` answer: the local file or media success shape, or a refusal. */
 export function readFsReadResult(value: JsonValue): FsReadResult | undefined {
   const failure = readNativeFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value) || value['status'] !== 'success')
     return undefined;
   const { kind, path } = value;
+
   if (!isText(path)) return undefined;
+
   if (kind === 'image' || kind === 'pdf')
     return readMediaRead(value, kind, path);
+
   if (kind !== 'file' && kind !== 'directory') return undefined;
+
   return readFileRead(value, kind, path);
 }
 
@@ -304,13 +339,16 @@ function readMediaRead(
   path: string,
 ): NativeMediaReadResult | undefined {
   const { mediaType, realPath } = value;
+
   if (!isText(mediaType)) return undefined;
+
   const media: NativeMediaReadResult = {
     status: 'success',
     kind,
     mediaType,
     path,
   };
+
   return isText(realPath) ? { ...media, realPath } : media;
 }
 
@@ -331,11 +369,13 @@ function readFileRead(
     entryCount,
     representation,
   } = value;
+
   if (!isText(content) || !isFlag(truncated)) return undefined;
   const requestedRange = readLineRange(value['requestedRange']);
   const shownRange = readLineRange(value['shownRange']);
   const requestedRanges = readLineRanges(value['requestedRanges']);
   const shownRanges = readLineRanges(value['shownRanges']);
+
   return {
     status: 'success',
     kind,
@@ -357,9 +397,12 @@ function readFileRead(
 /** A `fs.bytes` answer: the byte length and media type, or a refusal. */
 export function readFsBytesResult(value: JsonValue): FsBytesResult | undefined {
   const failure = readNativeFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value)) return undefined;
   const { size, mediaType } = value;
+
   return isCount(size) && isText(mediaType) ? { size, mediaType } : undefined;
 }
 
@@ -368,10 +411,13 @@ function readMcpServerEntry(
 ): McpServerEntry | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { name, state, transport, diagnostic } = value;
+
   if (!isText(name) || !isMcpServerState(state)) return undefined;
   const entry: McpServerEntry = { name, state };
+
   if (isMcpTransportKind(transport))
     return withDiagnostic({ ...entry, transport }, diagnostic);
+
   return withDiagnostic(entry, diagnostic);
 }
 
@@ -387,11 +433,14 @@ function readMcpServerEntries(
 ): ReadonlyArray<McpServerEntry> | undefined {
   if (!isUntrustedList(value)) return undefined;
   const servers: Array<McpServerEntry> = [];
+
   for (const entry of value) {
     const read = readMcpServerEntry(entry);
+
     if (read === undefined) return undefined;
     servers.push(read);
   }
+
   return servers;
 }
 
@@ -400,6 +449,7 @@ export function readMcpServersResult(
 ): McpServersResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const entries = readMcpServerEntries(fieldOf(value, 'servers') ?? null);
+
   return entries === undefined ? undefined : { servers: entries };
 }
 
@@ -407,6 +457,7 @@ export function readMcpServersResult(
 export function readMcpOpenResult(value: JsonValue): McpOpenResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { protectedValues } = value;
+
   return isTextList(protectedValues)
     ? { protectedValues: [...protectedValues] }
     : undefined;
@@ -420,8 +471,10 @@ export function readMcpOpenResult(value: JsonValue): McpOpenResult | undefined {
  */
 function isScopeRelativePath(value: string): boolean {
   if (value.includes('\u0000')) return false;
+
   // A leading `/` yields an empty first segment, which the rule below refuses.
   if (value === '') return true;
+
   return value
     .split('/')
     .every((segment) => segment !== '' && segment !== '.' && segment !== '..');
@@ -429,22 +482,32 @@ function isScopeRelativePath(value: string): boolean {
 
 function readGrepPassage(value: SerializableValue): FsGrepPassage | undefined {
   if (!isSerializableRecord(value)) return undefined;
+
   const { path, startLine, endLine, content, matches, truncated, capped, cut } =
     value;
+
   if (!isText(path) || !isScopeRelativePath(path)) return undefined;
+
   if (!isCount(startLine) || startLine < 1) return undefined;
+
   if (!isCount(endLine) || endLine < startLine) return undefined;
   const matchLines = matches ?? null;
+
   if (!isText(content) || !isUntrustedList(matchLines)) return undefined;
   const lines: Array<number> = [];
+
   for (const match of matchLines) {
     if (!isCount(match) || match < startLine || match > endLine)
       return undefined;
     lines.push(match);
   }
+
   if (truncated !== undefined && truncated !== true) return undefined;
+
   if (capped !== undefined && capped !== true) return undefined;
+
   if (cut !== undefined && cut !== true) return undefined;
+
   return {
     path,
     startLine,
@@ -462,11 +525,14 @@ function readGrepPassages(
 ): ReadonlyArray<FsGrepPassage> | undefined {
   if (!isUntrustedList(value)) return undefined;
   const passages: Array<FsGrepPassage> = [];
+
   for (const entry of value) {
     const passage = readGrepPassage(entry);
+
     if (passage === undefined) return undefined;
     passages.push(passage);
   }
+
   return passages;
 }
 
@@ -475,12 +541,15 @@ function readGrepWarnings(
 ): ReadonlyArray<FsGrepWarning> | undefined {
   if (!isUntrustedList(value)) return undefined;
   const warnings: Array<FsGrepWarning> = [];
+
   for (const entry of value) {
     if (!isSerializableRecord(entry)) return undefined;
     const { kind, count } = entry;
+
     if (!isFsGrepWarningKind(kind) || !isCount(count)) return undefined;
     warnings.push({ kind, count });
   }
+
   return warnings;
 }
 
@@ -488,12 +557,15 @@ function readGrepWarnings(
 function readGrepIgnored(value: JsonValue): FsGrepIgnored | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { paths, atLeast } = value;
+
   if (!isTextList(paths) || !isFlag(atLeast)) return undefined;
   const relative: Array<string> = [];
+
   for (const path of paths) {
     if (path === '' || !isScopeRelativePath(path)) return undefined;
     relative.push(path);
   }
+
   return { paths: relative, atLeast };
 }
 
@@ -502,27 +574,34 @@ function readGrepIgnoredField(
   value: SerializableRecord,
 ): FsGrepIgnored | null | undefined {
   const field = fieldOf(value, 'ignored');
+
   if (field === undefined) return undefined;
+
   return readGrepIgnored(field) ?? null;
 }
 
 function readGrepConsumed(value: JsonValue): FsGrepConsumed | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { files, entries, bytes } = value;
+
   if (!isCount(files) || !isCount(entries) || !isCount(bytes)) return undefined;
+
   return { files, entries, bytes };
 }
 
 /** An `fs.grep` answer: the passages the daemon walked, or a refusal. */
 export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
   const failure = readNativeFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isSerializableRecord(value) || value['ok'] !== true) return undefined;
   const { complete, cursor, progressed, unfinished } = value;
   const results = readGrepPassages(fieldOf(value, 'results') ?? null);
   const warnings = readGrepWarnings(fieldOf(value, 'warnings') ?? null);
   const consumed = readGrepConsumed(fieldOf(value, 'consumed') ?? null);
   const ignored = readGrepIgnoredField(value);
+
   if (
     results === undefined ||
     warnings === undefined ||
@@ -532,15 +611,19 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
     ignored === null
   )
     return undefined;
+
   if (cursor !== undefined && !isText(cursor)) return undefined;
+
   if (
     unfinished !== undefined &&
     !(isText(unfinished) && isScopeRelativePath(unfinished))
   )
     return undefined;
+
   // A complete page has resumed past every file: naming one as unfinished
   // would let the hub answer "complete" with no cursor to resume from.
   if (complete && unfinished !== undefined) return undefined;
+
   const success: FsGrepSuccess = {
     ok: true,
     results,
@@ -549,6 +632,7 @@ export function readFsGrepResult(value: JsonValue): FsGrepResult | undefined {
     consumed,
     progressed,
   };
+
   return {
     ...success,
     ...(isText(cursor) && { cursor }),

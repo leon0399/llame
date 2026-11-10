@@ -3,6 +3,7 @@
 // Empty bodies are the point: declaration merging adds NavigatorUA onto the
 // built-in globals — a type alias cannot merge into lib.dom's interfaces.
 declare interface Navigator extends NavigatorUA {}
+
 declare interface WorkerNavigator extends NavigatorUA {}
 
 // https://wicg.github.io/ua-client-hints/#navigatorua

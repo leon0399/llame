@@ -33,8 +33,10 @@ describe("process-group settlement", () => {
         child.stdout?.emit("end");
         child.stderr?.emit("end");
       });
+
       return Promise.resolve(true);
     });
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -64,6 +66,7 @@ describe("process-group settlement", () => {
     vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
       true,
     );
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -71,6 +74,7 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     clock.mockReturnValue(2240);
     child.emit("close", 0, null);
 
@@ -88,6 +92,7 @@ describe("process-group settlement", () => {
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     vi.spyOn(processTree, "stopProcessGroup").mockResolvedValue(true);
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -106,6 +111,7 @@ describe("process-group settlement", () => {
     // `durationMs` is the deadline the watcher armed; `wallTimeMs` is what it
     // measured from spawn to the stop, which is what the message names.
     expect(result).toMatchObject({ type: "timed_out", durationMs: 30_000 });
+
     if (!("wallTimeMs" in result))
       throw new Error("Expected a measured wall time");
     expect(result.wallTimeMs).toBeGreaterThanOrEqual(30_000);
@@ -120,6 +126,7 @@ describe("process-group settlement", () => {
     vi.spyOn(processTree, "stopProcessGroup").mockReturnValue(
       Promise.resolve(true),
     );
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -149,6 +156,7 @@ describe("process-group settlement", () => {
     vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
       true,
     );
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -160,11 +168,13 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     child.stdout.emit("data", Buffer.from(`012345678901234${member}`));
     child.emit("close", 0, null);
 
     const result = await pending;
     expect(result).toMatchObject({ status: "success", truncated: true });
+
     if (!("stdout" in result)) throw new Error("Expected known output");
     expect(result.stdout).toBe("012345678901234[REDACTED]");
     expect(result.stdout).not.toContain(member);
@@ -180,6 +190,7 @@ describe("process-group settlement", () => {
       true,
     );
     const bytes = Buffer.from(`0123456789${member}`, "utf8");
+
     // The split lands inside the two-byte sequence of `л`, and the byte bound
     // does too; the streaming decoder must still see the member whole.
     const pending = new Promise<BashResult>((resolve) => {
@@ -193,12 +204,14 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     child.stdout.emit("data", bytes.subarray(0, 20));
     child.stdout.emit("data", bytes.subarray(20));
     child.emit("close", 0, null);
 
     const result = await pending;
     expect(result).toMatchObject({ status: "success", truncated: true });
+
     if (!("stdout" in result)) throw new Error("Expected known output");
     expect(result.stdout).toBe("0123456789");
     expect(result.stdout).not.toContain(member);
@@ -214,6 +227,7 @@ describe("process-group settlement", () => {
     vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
       true,
     );
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -225,11 +239,13 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     child.stdout.emit("data", Buffer.from(`0123456789${member}${member}X`));
     child.emit("close", 0, null);
 
     const result = await pending;
     expect(result).toMatchObject({ status: "success", truncated: true });
+
     if (!("stdout" in result)) throw new Error("Expected known output");
     expect(result.stdout).toBe("0123456789");
     expect(result.stdout).not.toContain(member);
@@ -244,6 +260,7 @@ describe("process-group settlement", () => {
     vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
       true,
     );
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -259,6 +276,7 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     // The capture limit lands after 24 bytes because the emoji cannot fit, so
     // a drop-before-find would leave the member's first character visible.
     child.stdout.emit("data", Buffer.from(`${"x".repeat(15)}SECRET-KE😀`));
@@ -266,6 +284,7 @@ describe("process-group settlement", () => {
 
     const result = await pending;
     expect(result).toMatchObject({ status: "success", truncated: true });
+
     if (!("stdout" in result)) throw new Error("Expected known output");
     expect(result.stdout).toBe("x".repeat(15));
     expect(result.stdout).not.toContain("S");
@@ -287,8 +306,10 @@ describe("process-group settlement", () => {
         child.stdout?.emit("end");
         child.stderr?.emit("end");
       });
+
       return Promise.resolve(true);
     });
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -303,6 +324,7 @@ describe("process-group settlement", () => {
 
     const result = await pending;
     expect(result).toMatchObject({ type: "timed_out", truncated: true });
+
     if (!("stdout" in result)) throw new Error("Expected known output");
     expect(result.stdout).toBe("prefix ");
     expect(result.stdout).not.toContain("\uFFFD");
@@ -316,6 +338,7 @@ describe("process-group settlement", () => {
     vi.spyOn(processTree, "waitForProcessGroupQuiescence").mockResolvedValue(
       true,
     );
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -327,6 +350,7 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     child.stdout.emit("data", Buffer.from("prefix SECRET"));
     child.emit("close", 0, null);
 
@@ -349,8 +373,10 @@ describe("process-group settlement", () => {
         child.stdout?.emit("end");
         child.stderr?.emit("end");
       });
+
       return Promise.resolve(true);
     });
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -375,21 +401,26 @@ describe("process-group settlement", () => {
     // OS response without leaving an unkillable process on the test host.
     const kill = process.kill.bind(process);
     let alive = true;
+
     const signals = vi
       .spyOn(process, "kill")
       .mockImplementation((pid, signal) => {
         if (pid !== -12_345) return kill(pid, signal);
+
         if (!alive) {
           const missing = new Error("Process group no longer exists");
           Object.assign(missing, { code: "ESRCH" });
           throw missing;
         }
+
         return true;
       });
+
     const child = new ChildProcess();
     Object.defineProperty(child, "pid", { value: 12_345 });
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -397,6 +428,7 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     expect(await pending).toMatchObject({
       type: "outcome_unknown",
       attemptId: "survivor",
@@ -416,6 +448,7 @@ describe("process-group settlement", () => {
     const child = new ChildProcess();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -423,6 +456,7 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     expect(await pending).toMatchObject({ type: "unavailable" });
     child.emit("error", new Error("spawn failed"));
   });
@@ -433,6 +467,7 @@ describe("process-group settlement", () => {
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     const kill = process.kill.bind(process);
+
     const signals = vi
       .spyOn(process, "kill")
       .mockImplementation((pid, signal) => {
@@ -441,8 +476,10 @@ describe("process-group settlement", () => {
           Object.assign(missing, { code: "ESRCH" });
           throw missing;
         }
+
         return kill(pid, signal);
       });
+
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
@@ -450,16 +487,19 @@ describe("process-group settlement", () => {
         resolve,
       );
     });
+
     child.emit("error", new Error("spawn failed after pid assignment"));
     expect(await pending).toMatchObject({
       type: "outcome_unknown",
       attemptId: "started-error",
     });
     expect(signals).toHaveBeenCalledWith(-12_346, "SIGKILL");
+
     const next = await executeManagedBash(
       { command: "bash", args: ["-c", "printf next"] },
       { ...context, durationMs: 1000 },
     );
+
     expect(next).toMatchObject({ status: "success", stdout: "next" });
   });
 });

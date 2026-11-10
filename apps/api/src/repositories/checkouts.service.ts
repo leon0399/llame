@@ -39,9 +39,11 @@ export class CheckoutsService {
     input: RegisterCheckoutInput,
   ): Promise<CheckoutSummary> {
     const checkout = await this.registration.register(ownerUserId, input);
+
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
       const [summary] = await summarize(repository, ownerUserId, [checkout]);
+
       return summary;
     });
   }
@@ -53,6 +55,7 @@ export class CheckoutsService {
   ): Promise<Array<CheckoutSummary>> {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
+
       return summarize(
         repository,
         ownerUserId,
@@ -75,20 +78,26 @@ export class CheckoutsService {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
       const checkout = await repository.findCheckout(ownerUserId, checkoutId);
+
       if (checkout === undefined) throw notFound();
+
       if (checkout.kind !== 'main') {
         throw invalidWorktreeBase(
           'A worktree checkout cannot carry a worktree base; placement hangs off its main clone.',
         );
       }
+
       const base = worktreeBaseFor(checkout, worktreeBase);
+
       const updated = await repository.setWorktreeBase(
         ownerUserId,
         checkoutId,
         base,
       );
+
       if (updated === undefined) throw notFound();
       const [summary] = await summarize(repository, ownerUserId, [updated]);
+
       return summary;
     });
   }
@@ -97,6 +106,7 @@ export class CheckoutsService {
   async deleteCheckout(ownerUserId: string, checkoutId: string): Promise<void> {
     await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new RepositoriesRepository(tx);
+
       // A `main` row with worktree children would cascade them while their
       // directories stay on the executor.
       if (
@@ -106,7 +116,9 @@ export class CheckoutsService {
       ) {
         throw worktreesPresent();
       }
+
       const deleted = await repository.deleteCheckout(ownerUserId, checkoutId);
+
       if (!deleted) throw notFound();
     });
   }
@@ -126,10 +138,12 @@ async function summarize(
     ownerUserId,
     rows.map((row) => row.path),
   );
+
   const leases = await repository.leaseChats(
     ownerUserId,
     rows.flatMap((row) => (row.kind === 'worktree' ? [row.id] : [])),
   );
+
   return rows.map((row) => ({
     ...row,
     chatIds: bound.get(row.path) ?? [],
@@ -145,6 +159,7 @@ async function summarize(
 function worktreeBaseFor(checkout: Checkout, submitted: string): string {
   if (isMachineLocator(submitted)) {
     const parsed = parseMachineLocator(submitted);
+
     if (
       parsed.kind !== 'path' ||
       machineExecutorId(parsed.name) !== checkout.executorId
@@ -153,22 +168,28 @@ function worktreeBaseFor(checkout: Checkout, submitted: string): string {
         'A worktree base must name the Machine of its own checkout.',
       );
     }
+
     const canonical = formatMachineLocator(parsed.name, parsed.path);
+
     if (canonical === undefined) {
       throw invalidWorktreeBase('A worktree base must be a locator path.');
     }
+
     return canonical;
   }
+
   if (checkout.executorId.startsWith('machine:')) {
     throw invalidWorktreeBase(
       'A worktree base on a Machine checkout must be a machine:// locator.',
     );
   }
+
   if (submitted.includes('\0') || !path.isAbsolute(submitted)) {
     throw invalidWorktreeBase(
       'A worktree base on a local checkout must be an absolute path.',
     );
   }
+
   return submitted;
 }
 

@@ -37,9 +37,11 @@ describe('model-context storage cutover migration', () => {
 
   it('backfills one deterministic system receipt and fences historical winners', () => {
     const sql = cutoverMigration();
+
     const noForce = sql.indexOf(
       'ALTER TABLE "runs" NO FORCE ROW LEVEL SECURITY',
     );
+
     const insert = sql.indexOf('INSERT INTO "system_prompt_receipts"');
     const force = sql.indexOf('ALTER TABLE "runs" FORCE ROW LEVEL SECURITY');
 
@@ -76,9 +78,11 @@ describe('model-context storage cutover migration', () => {
     const noForce = sql.indexOf(
       'ALTER TABLE "model_context_snapshots" NO FORCE ROW LEVEL SECURITY',
     );
+
     const force = sql.indexOf(
       'ALTER TABLE "model_context_snapshots" FORCE ROW LEVEL SECURITY',
     );
+
     expect(noForce).toBeGreaterThanOrEqual(0);
     expect(force).toBeGreaterThan(noForce);
   });
@@ -87,12 +91,15 @@ describe('model-context storage cutover migration', () => {
     const sql = cutoverMigration();
     expect(sql).toContain("to_regclass('public.model_context_snapshots')");
     expect(sql).toContain('CREATE UNIQUE INDEX IF NOT EXISTS');
+
     const drop = sql.indexOf(
       'DROP CONSTRAINT IF EXISTS "system_prompt_receipts_run_id_user_id_fk"',
     );
+
     const add = sql.indexOf(
       'ADD CONSTRAINT "system_prompt_receipts_run_id_user_id_fk"',
     );
+
     expect(drop).toBeGreaterThanOrEqual(0);
     expect(add).toBeGreaterThan(drop);
     expect(sql).toContain('DROP COLUMN IF EXISTS');

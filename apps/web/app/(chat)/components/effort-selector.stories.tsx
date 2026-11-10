@@ -108,6 +108,7 @@ const meta = {
 } satisfies Meta<typeof EffortSelector>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

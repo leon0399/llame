@@ -44,8 +44,10 @@ export function createHeartbeat(options: HeartbeatOptions): Heartbeat {
         if (now() - lastSeen >= intervalMs * misses) {
           stop();
           options.onLost();
+
           return;
         }
+
         options.sendPing();
       }, intervalMs);
       // Liveness never keeps the daemon alive on its own.

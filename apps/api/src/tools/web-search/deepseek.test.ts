@@ -17,16 +17,20 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 const DeepseekRequestSchema = z.object({
   query: z.string(),
   count: z.number(),
   ori_question: z.string().optional(),
 });
+
 type DeepseekRequest = z.infer<typeof DeepseekRequestSchema>;
+
 async function parseBody(
   init: RequestInit | undefined,
 ): Promise<DeepseekRequest> {
   const text = await new Response(init?.body ?? null).text();
+
   // SAFETY: The schema validates JSON parsed from the captured vendor request.
   return DeepseekRequestSchema.parse(JSON.parse(text) as unknown);
 }
@@ -49,6 +53,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-27T12:00:00.000Z'));
 });
+
 afterEach(() => vi.useRealTimers());
 
 describe('DeepSeek adapter', () => {
@@ -56,10 +61,12 @@ describe('DeepSeek adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     const result = await createDeepseekEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request());
+
     expect(recorded.seen().url).toBe(DEEPSEEK_SEARCH_URL);
     expect(recorded.seen().init?.method).toBe('POST');
     const headers = new Headers(recorded.seen().init?.headers);
@@ -100,10 +107,12 @@ describe('DeepSeek adapter', () => {
         ],
       }),
     );
+
     const result = await createDeepseekEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request({ recency: undefined }));
+
     expect(result).toStrictEqual({
       kind: 'results',
       results: [
@@ -124,13 +133,16 @@ describe('DeepSeek adapter', () => {
 
   it('cuts the objective to the vendor field limit without a note', async () => {
     const objective = `z${'o'.repeat(299)}`;
+
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     const result = await createDeepseekEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request({ objective }));
+
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: 'pgvector release after:2026-10-20',
       count: 7,
@@ -143,10 +155,12 @@ describe('DeepSeek adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     const result = await createDeepseekEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request({ query: 'x'.repeat(125) }));
+
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: 'x'.repeat(125),
       count: 7,
@@ -160,10 +174,12 @@ describe('DeepSeek adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     const result = await createDeepseekEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request({ query: 'x'.repeat(111) }));
+
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: `${'x'.repeat(111)} after:2026-10-20`,
       count: 7,
@@ -175,6 +191,7 @@ describe('DeepSeek adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     await createDeepseekEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
@@ -186,6 +203,7 @@ describe('DeepSeek adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     await createDeepseekEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
@@ -227,6 +245,7 @@ describe('DeepSeek adapter', () => {
             ),
         },
       );
+
       // The fixed message is the whole text: the body never reaches it.
       await expect(engine(request())).rejects.toMatchObject({
         failureClass,

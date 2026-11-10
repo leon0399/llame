@@ -66,10 +66,12 @@ export async function createRunForMessage(
 ): Promise<{ run: Run }> {
   const runsRepo = new RunsRepository(tx);
   const eventsRepo = new RunEventsRepository(tx);
+
   const superseded = await runsRepo.cancelActiveRunsForMessage(
     userMessage.id,
     input.userId,
   );
+
   for (const stale of superseded) {
     await eventsRepo.append(stale.id, 'run.cancelled', {
       reason: 'superseded by retry',
@@ -92,6 +94,7 @@ export async function createRunForMessage(
     ...(followUp?.action === 'regenerate' &&
       followUp.notice && { notice: true }),
   });
+
   if (followUp?.action === 'continue') {
     await eventsRepo.append(run.id, 'run.continued', {
       sourceRunId: followUp.sourceRunId,
@@ -136,6 +139,7 @@ async function createRunRow(
         'Another run is already in flight for this chat',
       );
     }
+
     throw error;
   }
 }

@@ -49,8 +49,10 @@ export function knowledgeLimitResult(): KnowledgeToolError {
 export function mapKnowledgeFailure(error: unknown): KnowledgeToolError {
   if (error instanceof KnowledgeFilesystemError) {
     if (error.code === 'knowledge_cancelled') throw error;
+
     return { status: 'error', type: error.code, message: error.message };
   }
+
   return knowledgeUnavailableResult();
 }
 
@@ -61,10 +63,13 @@ export function mapKnowledgeResolverFailure(
 ): KnowledgeToolError {
   if (error instanceof KnowledgeFilesystemError) {
     if (error.code === 'knowledge_cancelled') throw error;
+
     if (error.code === 'knowledge_space_unavailable') {
       return knowledgeUnavailableResult();
     }
+
     return mapKnowledgeFailure(error);
   }
+
   return knowledgeUnavailableResult();
 }

@@ -17,6 +17,7 @@ import type { ChatIdentity } from './model-client';
 import { createOpenAIModelClient } from './openai-model-client';
 
 const CHAT: ChatIdentity = { id: 'usage-test', lane: 'main' };
+
 const messages = [
   { role: 'user', content: 'Use the tool.' },
 ] satisfies Array<ModelMessage>;
@@ -83,20 +84,26 @@ describe('provider request usage receipts', () => {
         answerRequestUsage,
       ),
     ];
+
     let responseIndex = 0;
+
     const model = new MockLanguageModelV3({
       provider: 'openai.test',
       modelId: 'gpt-test',
       doStream: () => {
         const response = responses[responseIndex++];
+
         if (response === undefined) {
           throw new Error('Missing scripted provider response');
         }
+
         return Promise.resolve(response);
       },
     });
+
     const provider = vi.fn<OpenAIProvider>();
     provider.mockReturnValue(model);
+
     const client = createOpenAIModelClient(
       {
         providerModelId: 'gpt-test',
@@ -111,13 +118,17 @@ describe('provider request usage receipts', () => {
     const receipts: Array<LanguageModelUsage> = [];
     const onFinish = vi.fn();
     let startTool: () => void = () => undefined;
+
     const toolStarted = new Promise<void>((resolve) => {
       startTool = resolve;
     });
+
     let releaseTool: () => void = () => undefined;
+
     const toolGate = new Promise<void>((resolve) => {
       releaseTool = resolve;
     });
+
     let toolResolved = false;
 
     const result = client.streamText({
@@ -131,6 +142,7 @@ describe('provider request usage receipts', () => {
             startTool();
             await toolGate;
             toolResolved = true;
+
             return value;
           },
         }),
@@ -138,11 +150,13 @@ describe('provider request usage receipts', () => {
       onRequestUsage: (usage) => receipts.push(usage),
       onFinish,
     });
+
     const text = result.text;
 
     await toolStarted;
     let receiptCountWhileToolPending = 0;
     let toolWasPendingWhenReceiptWasChecked = false;
+
     try {
       await vi.waitFor(() => {
         expect(receipts).toHaveLength(1);
@@ -197,8 +211,10 @@ describe('provider request usage receipts', () => {
         modelId: 'gpt-test',
         doStream: () => Promise.resolve(providerResponse([], 'stop', usage)),
       });
+
       const provider = vi.fn<OpenAIProvider>();
       provider.mockReturnValue(model);
+
       const client = createOpenAIModelClient(
         {
           providerModelId: 'gpt-test',
@@ -209,6 +225,7 @@ describe('provider request usage receipts', () => {
         },
         { createOpenAI: () => provider, streamText },
       );
+
       const receipts: Array<LanguageModelUsage> = [];
 
       await expect(
@@ -229,8 +246,10 @@ describe('provider request usage receipts', () => {
       provider: 'openai.test',
       modelId: 'gpt-test',
     });
+
     const provider = vi.fn<OpenAIProvider>();
     provider.mockReturnValue(model);
+
     const config = {
       providerModelId: 'gpt-test',
       modelId: 'system:openai:gpt-test',
@@ -238,12 +257,14 @@ describe('provider request usage receipts', () => {
       userAgent: 'llame/test',
       requestHeaders: {},
     };
+
     const dependencies = { createOpenAI: () => provider, streamText };
 
     const configured = createOpenAIModelClient(
       { ...config, billing: 'subscription' },
       dependencies,
     );
+
     const undeclared = createOpenAIModelClient(config, dependencies);
 
     expect(configured.billing).toBe('subscription');

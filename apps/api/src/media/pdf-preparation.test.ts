@@ -26,7 +26,9 @@ const UNOPENABLE = {
   name: 'MediaIngestError',
   ...MEDIA_REFUSAL.unopenablePdf,
 };
+
 const TOO_LARGE = { name: 'MediaIngestError', ...MEDIA_REFUSAL.pdfTooLarge };
+
 const UNAVAILABLE = {
   name: 'MediaIngestError',
   ...MEDIA_REFUSAL.pdfUnavailable,
@@ -47,6 +49,7 @@ function fakeEntry(code: string, timeoutMs = 10_000) {
 /** A `%PDF-` body padded with spaces to `size` bytes. */
 function paddedPdf(size: number): Buffer {
   const head = Buffer.from('%PDF-1.7\n');
+
   return Buffer.concat([head, Buffer.alloc(size - head.length, 0x20)]);
 }
 
@@ -226,10 +229,13 @@ describe('parse child bounds', () => {
     // Real time on purpose: the bound kills a real child process, and the
     // ticking interval proves the parent's event loop stayed free meanwhile.
     let ticks = 0;
+
     const interval = setInterval(() => {
       ticks += 1;
     }, 10);
+
     const started = performance.now();
+
     try {
       await expect(
         preparePdf(
@@ -254,6 +260,7 @@ describe('parse child bounds', () => {
         'const held = []; for (let i = 0; i < 48; i += 1) held.push(Buffer.allocUnsafeSlow(1 << 26)); setTimeout(() => undefined, 60_000);',
         5000,
       );
+
       const started = performance.now();
 
       await expect(
@@ -297,6 +304,7 @@ describe('parse child bounds', () => {
       const { command, args } = fakeEntry(
         'process.stdout.write(\'{"pages":15,"encrypted":false}\')',
       );
+
       const child = spawnSync(
         'prlimit',
         ['--as=1610612736:1610612736', '--', command, ...args],
@@ -333,6 +341,7 @@ describe('parse child bounds', () => {
 
   it('runs at most two parsers at once and settles every call', async () => {
     const liveDir = mkdtempSync(path.join(tmpdir(), 'pdf-parse-live-'));
+
     // Each child registers itself, waits, then reports how many were live.
     const counting = pdfParseChild([
       '-e',
@@ -346,8 +355,10 @@ describe('parse child bounds', () => {
        }, 300);`,
       liveDir,
     ]);
+
     try {
       const input = fixture('one-page.pdf');
+
       const results = await Promise.all(
         Array.from({ length: 5 }, () => preparePdf(input, counting)),
       );
@@ -418,29 +429,35 @@ describe('cancelled PDF reads', () => {
       rmSync(after, { recursive: true, force: true });
     });
     const parked = parkedEntry(dir);
+
     const blockers = [
       preparePdf(fixture('one-page.pdf'), parked, signal),
       preparePdf(fixture('one-page.pdf'), parked, signal),
     ];
+
     jobs.push(...blockers);
     await waitUntil(() => startedPids(dir).length === 2, signal);
     const controller = new AbortController();
     const reason = new Error('call cancelled');
+
     const queued = preparePdf(
       fixture('one-page.pdf'),
       parked,
       AbortSignal.any([signal, controller.signal]),
     );
+
     jobs.push(queued);
     controller.abort(reason);
     await expect(queued).rejects.toBe(reason);
     writeFileSync(path.join(dir, 'gate'), '');
     await expect(Promise.all(blockers)).resolves.toEqual([1, 1]);
     expect(startedPids(dir)).toHaveLength(2);
+
     const following = [
       preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
       preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
     ];
+
     jobs.push(...following);
     await waitUntil(() => startedPids(after).length === 2, signal);
     writeFileSync(path.join(after, 'gate'), '');
@@ -463,11 +480,13 @@ describe('cancelled PDF reads', () => {
     });
     const controller = new AbortController();
     const reason = new Error('call cancelled');
+
     const pending = preparePdf(
       fixture('one-page.pdf'),
       parkedEntry(dir),
       AbortSignal.any([signal, controller.signal]),
     );
+
     jobs.push(pending);
     let closed = false;
     void pending.then(
@@ -480,6 +499,7 @@ describe('cancelled PDF reads', () => {
     );
     await waitUntil(() => startedPids(dir).length === 1, signal);
     controller.abort(reason);
+
     // Drain the async call chain without advancing to the child's close event.
     for (let tick = 0; tick < 16; tick += 1) await Promise.resolve();
     expect(closed).toBe(false);
@@ -488,10 +508,12 @@ describe('cancelled PDF reads', () => {
     expect(() => process.kill(pid, 0)).toThrow(
       expect.objectContaining({ code: 'ESRCH' }),
     );
+
     const following = [
       preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
       preparePdf(fixture('one-page.pdf'), parkedEntry(after), signal),
     ];
+
     jobs.push(...following);
     await waitUntil(() => startedPids(after).length === 2, signal);
     writeFileSync(path.join(after, 'gate'), '');
@@ -503,6 +525,7 @@ describe('cancelled PDF reads', () => {
     const controller = new AbortController();
     const reason = new Error('call cancelled');
     controller.abort(reason);
+
     try {
       await expect(
         preparePdf(

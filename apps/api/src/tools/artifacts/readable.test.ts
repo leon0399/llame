@@ -18,6 +18,7 @@ const MACHINE_ROOT = 'machine://devl/srv/app';
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
   const db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',

@@ -7,6 +7,7 @@ import { createTelegramAdapter } from './adapter';
 const adapter = createTelegramAdapter({ id: 'telegram', use: 'telegram' });
 const POST = 'https://t.me/durov/400?embed=1&mode=tme';
 const CHANNEL = 'https://t.me/s/durov';
+
 const WIDGET = [
   '<div class="tgme_widget_message" data-post="durov/400"><div class="tgme_widget_message_bubble">',
   '<div class="tgme_widget_message_author"><a class="tgme_widget_message_owner_name" href="https://t.me/durov"><span dir="auto">Pavel Durov</span></a></div>',
@@ -14,6 +15,7 @@ const WIDGET = [
   '<div class="tgme_widget_message_footer"><a class="tgme_widget_message_date" href="https://t.me/durov/400"><time datetime="2026-10-08T15:40:10+00:00"></time></a></div>',
   '</div></div>',
 ].join('');
+
 const HEADER =
   '<div class="tgme_channel_info"><div class="tgme_channel_info_header_title"><span dir="auto">Pavel Durov</span></div><div class="tgme_channel_info_header_username"><a href="https://t.me/durov">@durov</a></div></div>';
 
@@ -28,6 +30,7 @@ function html(body: string, finalUrl = POST): WebResponse {
 async function read(source: string, reply: Reply, url = POST) {
   const run = scriptedIo(new Map([[url, [reply]]]));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 

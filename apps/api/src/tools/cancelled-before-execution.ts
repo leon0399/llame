@@ -15,6 +15,7 @@ export function isCancelledBeforeExecution(
   toolId: string,
 ): boolean {
   const expected = cancelledBeforeExecution(toolId);
+
   return (
     result.status === 'error' &&
     result.type === expected.type &&

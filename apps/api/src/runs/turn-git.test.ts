@@ -37,6 +37,7 @@ describe('placeRailPart', () => {
       item('instructions'),
       { type: 'text', text: 'hi' },
     ];
+
     const git = item('git');
 
     placeRailPart(parts, git);
@@ -47,11 +48,13 @@ describe('placeRailPart', () => {
 
   it('places an instructions item after the git item', () => {
     const git = item('git');
+
     const parts: Array<MessagePart> = [
       item('workspace'),
       git,
       item('temporal'),
     ];
+
     const instructions = item('instructions');
 
     placeRailPart(parts, instructions);
@@ -75,10 +78,12 @@ describe('refreshTurnGit', () => {
     part: undefined,
     toldText: undefined,
   });
+
   const history = (
     text: string | undefined,
     root: string | null | undefined = '/repo',
   ): GitToldState => ({ text, root });
+
   const refresh = (
     turn: TurnGit,
     stagedParts: Array<MessagePart>,
@@ -97,10 +102,12 @@ describe('refreshTurnGit', () => {
 
   it('stages the item after the workspace snapshot', () => {
     const turn = fresh(CLEAN);
+
     const workspace = createWorkspaceSnapshotItem({
       runId: RUN_ID,
       root: '/repo',
     });
+
     const staged: Array<MessagePart> = [workspace, item('instructions')];
 
     refresh(turn, staged, history(undefined));
@@ -122,6 +129,7 @@ describe('refreshTurnGit', () => {
 
   it('tells again when this turn stages a snapshot of another root', () => {
     const turn = fresh(CLEAN);
+
     const staged: Array<MessagePart> = [
       createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/other' }),
     ];
@@ -135,6 +143,7 @@ describe('refreshTurnGit', () => {
 
   it('adds nothing when this turn re-tells the root the history holds', () => {
     const turn = fresh(CLEAN);
+
     const staged: Array<MessagePart> = [
       createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/repo' }),
     ];
@@ -147,6 +156,7 @@ describe('refreshTurnGit', () => {
 
   it('tells again when this turn stages a detach notice', () => {
     const turn = fresh(CLEAN);
+
     const staged: Array<MessagePart> = [
       createWorkspaceDetachNoticeItem({
         runId: RUN_ID,

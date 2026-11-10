@@ -29,6 +29,7 @@ function makeController(enabled: boolean) {
     machines: enabled ? MACHINES : undefined,
     hubVersion: '9.9.9',
   });
+
   const status = new MachinesStatusRepository(
     drizzle.mock({ schema }),
     new TenantDbService({
@@ -36,8 +37,10 @@ function makeController(enabled: boolean) {
         callback(drizzle.mock({ schema })),
     }),
   );
+
   const machines = new MachinesService(connector, status);
   const list = vi.spyOn(machines, 'list');
+
   return { controller: new MachinesController(connector, machines), list };
 }
 
@@ -53,6 +56,7 @@ describe('MachinesController.list', () => {
 
   it('maps every configured Machine view to the response shape', async () => {
     const { controller, list } = makeController(true);
+
     const views: ReadonlyArray<MachineStatusView> = [
       {
         name: 'devl',
@@ -75,6 +79,7 @@ describe('MachinesController.list', () => {
         roots: [],
       },
     ];
+
     list.mockResolvedValue(views);
 
     await expect(controller.list('user-1')).resolves.toEqual([

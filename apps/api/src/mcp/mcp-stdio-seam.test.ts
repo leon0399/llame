@@ -34,18 +34,21 @@ describe('stdio config-to-client seam', () => {
       }),
       'utf8',
     );
+
     // The loader takes its environment explicitly, so the path override
     // belongs in the same object rather than in process.env.
     const entry = loadInstanceConfig({
       SEAM_PAT: secret,
       LLAME_CONFIG_PATH: configPath,
     }).mcpServers.local;
+
     if (entry.type !== 'stdio') expect.unreachable('expected a stdio entry');
 
     // The config layer's job: the secret is protected, the literal path is not.
     expect(entry.protectedValues).toEqual([secret]);
 
     const seen: Array<string> = [];
+
     const client = await McpServerClient.connectStdio({
       serverId: 'local',
       command: entry.command,
@@ -70,6 +73,7 @@ describe('stdio config-to-client seam', () => {
 
     try {
       const discovery = await client.discover();
+
       const outcome = await discovery.tools[0].execute(
         { path: '/srv/data/notes.md' },
         { toolCallId: 'c1', messages: [] },

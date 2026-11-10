@@ -39,12 +39,14 @@ function fakeResponse(options: {
   const chunks: Array<string> = [];
   const status = vi.fn();
   const setHeader = vi.fn();
+
   const writable = new Writable({
     write(chunk: Buffer, _encoding, callback) {
       chunks.push(chunk.toString());
       callback();
     },
   });
+
   // The spies record the call and still perform it: `pipeline` ends the
   // writable itself, so a stub would leave the test hanging.
   const destroy = vi.spyOn(writable, 'destroy');
@@ -52,12 +54,14 @@ function fakeResponse(options: {
   Object.assign(writable, {
     status: (code: number) => {
       status(code);
+
       return writable;
     },
     setHeader,
     headersSent: options.headersSent ?? false,
     destroyed: options.destroyed ?? false,
   });
+
   return {
     response: asDouble<ChatStreamResponse>(writable),
     chunks,
@@ -80,8 +84,10 @@ function webResponse(body: FakeBody, status = 200): Response {
     status,
     headers: { 'content-type': 'text/event-stream' },
   });
+
   // The body is the value under test, which a real Response cannot wrap.
   Object.defineProperty(response, 'body', { value: body, configurable: true });
+
   return response;
 }
 
@@ -123,6 +129,7 @@ describe('requestAbortSignal', () => {
 describe('writeWebResponse', () => {
   it('copies the status and headers, then streams the body', async () => {
     const fake = fakeResponse({});
+
     const body = new ReadableStream<string>({
       start(controller) {
         controller.enqueue('chunk');
@@ -172,7 +179,9 @@ describe('writeWebResponse', () => {
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     const fake = fakeResponse({ headersSent: true });
+
     const body = new ReadableStream<string>({
       start(controller) {
         controller.error(new Error('provider dropped the connection'));
@@ -198,13 +207,16 @@ describe('writeWebResponse', () => {
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
+
     const controller = new AbortController();
     const fake = fakeResponse({ headersSent: true });
+
     const body = new ReadableStream<string>({
       start(streamController) {
         streamController.error(new Error('connection reset'));
       },
     });
+
     controller.abort();
 
     await writeWebResponse(
@@ -219,6 +231,7 @@ describe('writeWebResponse', () => {
 
   it('rethrows a failure before the headers were sent', async () => {
     const fake = fakeResponse({ headersSent: false });
+
     const body = new ReadableStream<string>({
       start(controller) {
         controller.error(new Error('body never started'));

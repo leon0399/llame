@@ -20,6 +20,7 @@ import {
 
 const textEncoder = new TextEncoder();
 const emptySchema = { type: 'object' as const, properties: {} };
+
 const executeOptions = {
   toolCallId: 'call',
   messages: [],
@@ -40,10 +41,12 @@ type StubScript = Readonly<Record<string, ReadonlyArray<StubHandler>>>;
 
 function parseBody(body: BodyInit | null | undefined): UnknownRecord | null {
   if (!isString(body)) return null;
+
   try {
     // SAFETY: JSON.parse returns any; asserting unknown forces isRecord's
     // check below rather than silently inheriting any.
     const parsed = JSON.parse(body) as unknown;
+
     return isRecord(parsed) ? parsed : null;
   } catch {
     return null;
@@ -52,7 +55,9 @@ function parseBody(body: BodyInit | null | undefined): UnknownRecord | null {
 
 function requestId(body: UnknownRecord | null): RequestId {
   const id = body?.['id'];
+
   if (isString(id) || isNumber(id)) return id;
+
   return undefined;
 }
 
@@ -112,7 +117,9 @@ function createStubTransport(script: StubScript) {
   const queues = new Map(
     Object.entries(script).map(([key, handlers]) => [key, [...handlers]]),
   );
+
   const requests: Array<StubRequest> = [];
+
   const fetchStub = (
     _input: RequestInfo | URL,
     init?: RequestInit,
@@ -120,25 +127,31 @@ function createStubTransport(script: StubScript) {
     const httpMethod = (init?.method ?? 'GET').toUpperCase();
     const body = parseBody(init?.body);
     const rpcMethod = body?.['method'];
+
     const key = isString(rpcMethod)
       ? rpcMethod
       : `$${httpMethod.toLowerCase()}`;
+
     const request: StubRequest = { key, id: requestId(body), body };
     requests.push(request);
     // The last scripted response for a key repeats: a transport may re-open
     // its inbound GET, and an unscripted 500 there would look like a drop.
     const queue = queues.get(key);
+
     const handler =
       queue === undefined || queue.length === 0
         ? undefined
         : queue.length === 1
           ? queue[0]
           : queue.shift();
+
     if (handler === undefined) {
       return Promise.resolve(new Response('unscripted', { status: 500 }));
     }
+
     return Promise.resolve(handler(request));
   };
+
   return { fetchStub, requests };
 }
 
@@ -161,12 +174,14 @@ async function connectStub(
   } = {},
 ) {
   const transport = createStubTransport(scriptWithDefaults(overrides));
+
   const client = await McpServerClient.connect({
     serverId: 'web',
     url: 'https://mcp.test/mcp',
     fetch: transport.fetchStub,
     ...config,
   });
+
   return { ...transport, client };
 }
 
@@ -223,6 +238,7 @@ describe('McpServerClient transport protocol', () => {
 
   it('reports refusals in original declaration order across admission phases', async () => {
     const oversized = declaration('bulky', 'x'.repeat(300 * 1024));
+
     const { client } = await connectStub({
       'tools/list': [jsonRpc({ tools: [declaration('***'), oversized] })],
     });
@@ -245,6 +261,7 @@ describe('McpServerClient transport protocol', () => {
 
   it('omits every refusal id that would echo a protected value', async () => {
     const secret = 'Bearer sentinel-credential';
+
     const { client } = await connectStub(
       {
         'tools/list': [
@@ -462,6 +479,7 @@ describe('McpServerClient transport protocol', () => {
   it('monitors an inbound GET stream advertised with an upper-case media type', async () => {
     const onDisconnect = vi.fn();
     let inbound: ReadableStreamDefaultController<Uint8Array> | undefined;
+
     const { client } = await connectStub(
       {
         $get: [
@@ -495,6 +513,7 @@ describe('McpServerClient transport protocol', () => {
   it('reports an open inbound GET stream that is not an event stream', async () => {
     const onDisconnect = vi.fn();
     let inbound: ReadableStreamDefaultController<Uint8Array> | undefined;
+
     const { client } = await connectStub(
       {
         $get: [
@@ -525,6 +544,7 @@ describe('McpServerClient transport protocol', () => {
 
   it('reports an inbound GET stream that fails while being read', async () => {
     const onDisconnect = vi.fn();
+
     const { client } = await connectStub(
       {
         $get: [
@@ -557,16 +577,20 @@ describe('McpServerClient transport protocol', () => {
   it('keeps a request-scoped transport rejection out of the disconnect callback', async () => {
     const onDisconnect = vi.fn();
     const transport = createStubTransport(scriptWithDefaults({}));
+
     const failingFetch = (
       input: RequestInfo | URL,
       init?: RequestInit,
     ): Promise<Response> => {
       const body = parseBody(init?.body);
+
       if (body?.['method'] === 'tools/list') {
         return Promise.reject(new Error('socket closed'));
       }
+
       return transport.fetchStub(input, init);
     };
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://mcp.test/mcp',
@@ -587,6 +611,7 @@ describe('McpServerClient transport protocol', () => {
 
   it('keeps a mid-session id change out of the disconnect callback', async () => {
     const onDisconnect = vi.fn();
+
     const transport = createStubTransport(
       scriptWithDefaults({
         initialize: [
@@ -600,6 +625,7 @@ describe('McpServerClient transport protocol', () => {
         ],
       }),
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://mcp.test/mcp',
@@ -718,6 +744,7 @@ describe('McpServerClient transport protocol', () => {
         sseFrames((id) => {
           const head = `{"jsonrpc":"2.0","id":${JSON.stringify(id)},`;
           const tail = `"result":${JSON.stringify(initializeResult())}}`;
+
           return `data: ${head}\r\ndata: ${tail}\r\n\r\n`;
         }),
       ],
@@ -735,6 +762,7 @@ describe('McpServerClient transport protocol', () => {
   it('reports an inbound GET whose transport rejects before any response', async () => {
     const onDisconnect = vi.fn();
     const transport = createStubTransport(scriptWithDefaults({}));
+
     const failingGet = (
       input: RequestInfo | URL,
       init?: RequestInit,
@@ -742,6 +770,7 @@ describe('McpServerClient transport protocol', () => {
       (init?.method ?? 'GET').toUpperCase() === 'GET'
         ? Promise.reject(new Error('inbound socket refused'))
         : transport.fetchStub(input, init);
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://mcp.test/mcp',
@@ -783,13 +812,16 @@ describe('McpServerClient transport protocol', () => {
 
   it('leaves no connection or shutdown timer pending after close', async () => {
     vi.useFakeTimers();
+
     try {
       const transport = createStubTransport(scriptWithDefaults({}));
+
       const client = await McpServerClient.connect({
         serverId: 'web',
         url: 'https://mcp.test/mcp',
         fetch: transport.fetchStub,
       });
+
       const pendingBeforeClose = vi.getTimerCount();
       await client.close();
       // Pinned, not compared to a free variable: a connect that left timers

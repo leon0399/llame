@@ -62,6 +62,7 @@ async function describeFollowed(target: string): Promise<Stats | undefined> {
  */
 async function canonicalTarget(target: string, depth: number): Promise<string> {
   if (depth > MAX_LINK_DEPTH) refuse();
+
   try {
     return await realpath(target);
   } catch (error) {
@@ -70,12 +71,17 @@ async function canonicalTarget(target: string, depth: number): Promise<string> {
     // place, and a read of it might still reach outside the roots.
     if (!isAbsentEntry(error)) refuse();
   }
+
   const parent = dirname(target);
+
   if (parent === target) return target;
   const entry = await describe(target);
+
   if (entry !== undefined && entry.isSymbolicLink()) {
     const hop = await readlink(target).catch(() => undefined);
+
     if (hop === undefined) refuse();
+
     // A relative link resolves from the directory the link really is in,
     // not the lexical parent, which may itself have been reached through a
     // link; `..` in the link text climbs from there.
@@ -84,6 +90,7 @@ async function canonicalTarget(target: string, depth: number): Promise<string> {
       depth + 1,
     );
   }
+
   return join(await canonicalTarget(parent, depth), basename(target));
 }
 
@@ -105,16 +112,20 @@ export function createRootGuard(roots: ReadonlyArray<string>): RootGuard {
         "A Machine path must be an absolute POSIX path.",
       );
     const lexical = resolve(path);
+
     // Lexical first, before any probe: a path outside the roots is refused
     // whether or not anything exists there.
     if (!isInsideRoots(canonicalRoots, lexical)) refuse();
     const canonical = await canonicalTarget(lexical, 0);
+
     if (!isInsideRoots(canonicalRoots, canonical)) refuse();
     const entry = await describe(lexical);
     const followed = await describeFollowed(lexical);
     const isLink = entry !== undefined && entry.isSymbolicLink();
+
     if (followed === undefined)
       return { path: lexical, canonical, kind: "missing", isLink };
+
     return {
       path: lexical,
       canonical,

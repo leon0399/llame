@@ -60,6 +60,7 @@ function configuredCodexModels(): ModelsService {
       ],
     },
   };
+
   return new ModelsService(instanceConfig);
 }
 
@@ -80,6 +81,7 @@ describeIfDb('Codex system-model owner isolation', () => {
 
     firstOwnerId = crypto.randomUUID();
     secondOwnerId = crypto.randomUUID();
+
     for (const [id, name] of [
       [firstOwnerId, 'Codex first owner'],
       [secondOwnerId, 'Codex second owner'],
@@ -109,24 +111,28 @@ describeIfDb('Codex system-model owner isolation', () => {
     expect(JSON.stringify(catalog)).not.toContain('integration-account-id');
 
     const chatId = crypto.randomUUID();
+
     const seeded = await tenantDb.runAs(firstOwnerId, async (tx) => {
       await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: firstOwnerId,
         title: 'Codex isolation secret',
       });
+
       const message = await new MessagesRepository(tx).create({
         chatId,
         role: 'user',
         senderUserId: firstOwnerId,
         parts: [{ type: 'text', text: 'Codex isolation secret' }],
       });
+
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: message.id,
         userId: firstOwnerId,
         modelId: CODEX_MODEL_ID,
       });
+
       return { run };
     });
 
@@ -154,6 +160,7 @@ describeIfDb('Codex system-model owner isolation', () => {
       },
       { mode: 'content', query: 'Codex isolation secret' },
     );
+
     expect(search).toMatchObject({ status: 'success', results: [] });
 
     await tenantDb.runAs(firstOwnerId, async (tx) => {

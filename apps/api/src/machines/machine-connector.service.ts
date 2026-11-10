@@ -122,9 +122,11 @@ export class MachineConnector {
     if (!this.enabled() || !this.isConfigured(name)) return false;
     const key = `${name}\u0000${attemptKey}`;
     const cached = this.reachability.get(key);
+
     if (cached !== undefined) return cached;
     const verdict = this.probe(name);
     this.remember(key, verdict);
+
     return verdict;
   }
 
@@ -138,6 +140,7 @@ export class MachineConnector {
     // A signal already aborted must not open a session for a call nobody wants.
     options.signal?.throwIfAborted();
     const session = await this.session(name);
+
     try {
       return await session.request({ method, params }, options);
     } finally {
@@ -160,6 +163,7 @@ export class MachineConnector {
     const session = await this.session(name);
     const handle = session.openChannel({ method, params }, options);
     handle.channel.onClose(() => this.armIdle(name));
+
     return handle;
   }
 
@@ -178,6 +182,7 @@ export class MachineConnector {
         () => undefined,
       ),
     );
+
     return next;
   }
 
@@ -187,6 +192,7 @@ export class MachineConnector {
       clearTimeout(entry.idleTimer);
       entry.session.close();
     }
+
     this.sessions.clear();
     this.ssh?.dispose();
     this.ssh = undefined;
@@ -202,9 +208,12 @@ export class MachineConnector {
     // channel) would let a reachable Machine read offline once its last
     // handshake left the inactivity window.
     const wasReady = this.sessions.get(name)?.session.isReady === true;
+
     try {
       const session = await this.session(name);
+
       if (wasReady) this.restampContact(name, session);
+
       return true;
     } catch {
       // Reachability is a yes/no question to the caller; why it failed is the
@@ -215,6 +224,7 @@ export class MachineConnector {
 
   private restampContact(name: string, session: MachineSession): void {
     const hello = session.hello;
+
     if (hello === undefined) return;
     this.recordContact(name, {
       hubProtocolVersion: PROTOCOL_VERSION,
@@ -226,8 +236,10 @@ export class MachineConnector {
 
   private remember(key: string, verdict: Promise<boolean>): void {
     this.reachability.set(key, verdict);
+
     while (this.reachability.size > REACHABILITY_CACHE_LIMIT) {
       const oldest = this.reachability.keys().next().value;
+
       if (oldest === undefined) return;
       this.reachability.delete(oldest);
     }
@@ -243,19 +255,25 @@ export class MachineConnector {
         'This Machine is not configured.',
       );
     const existing = this.sessions.get(name);
+
     if (existing !== undefined && existing.session.isReady)
       return existing.session;
     const opening = this.opening.get(name);
+
     if (opening !== undefined) return opening;
+
     const started = this.startSession(name).finally(() =>
       this.opening.delete(name),
     );
+
     this.opening.set(name, started);
+
     return started;
   }
 
   private async startSession(name: string): Promise<MachineSession> {
     const destination = this.hosts()[name]?.destination;
+
     if (destination === undefined)
       throw new MachineUnavailableError(
         name,
@@ -263,12 +281,14 @@ export class MachineConnector {
         false,
         'This Machine is not configured.',
       );
+
     const session = new MachineSession({
       name,
       transport: this.factory().open({ name, destination }),
       hubVersion: this.hubVersion,
       handshakeTimeoutMs: this.handshakeTimeoutMs,
     });
+
     this.sessions.set(name, { session });
     void session.ended.then((end) => this.onEnded(name, session, end));
     const hello = await session.ready();
@@ -279,6 +299,7 @@ export class MachineConnector {
       roots: boundMachineRoots(hello.roots),
     });
     this.armIdle(name);
+
     return session;
   }
 
@@ -288,10 +309,12 @@ export class MachineConnector {
     end: MachineSessionEnd,
   ): void {
     const entry = this.sessions.get(name);
+
     if (entry?.session === session) {
       clearTimeout(entry.idleTimer);
       this.sessions.delete(name);
     }
+
     // A clean close is llame's own doing, not a failure to report.
     if (end.reason === 'closed') return;
     this.recordContact(name, {
@@ -305,6 +328,7 @@ export class MachineConnector {
     contact: Omit<MachineContact, 'name' | 'at'>,
   ): void {
     const sink = this.onContact;
+
     if (sink === undefined) return;
     void this.writeContact(sink, {
       name,
@@ -329,11 +353,14 @@ export class MachineConnector {
 
   private armIdle(name: string): void {
     const entry = this.sessions.get(name);
+
     if (entry === undefined) return;
+
     if (entry.idleTimer !== undefined) {
       clearTimeout(entry.idleTimer);
       entry.idleTimer = undefined;
     }
+
     if (!entry.session.isReady || entry.session.openStreams > 0) return;
     const timer = setTimeout(() => this.idleOut(name, entry), this.idleCloseMs);
     timer.unref();
@@ -342,7 +369,9 @@ export class MachineConnector {
 
   private idleOut(name: string, entry: SessionEntry): void {
     entry.idleTimer = undefined;
+
     if (this.sessions.get(name) !== entry) return;
+
     // A stream may have opened while the idle timer was armed.
     if (entry.session.openStreams > 0) return;
     // A polite close, not a failure: the Machine reports nothing wrong.
@@ -352,6 +381,7 @@ export class MachineConnector {
   private factory(): MachineTransportFactory {
     if (this.injected !== undefined) return this.injected;
     const ssh = this.machines?.ssh;
+
     if (ssh === undefined)
       throw new MachineUnavailableError(
         'machine',
@@ -360,6 +390,7 @@ export class MachineConnector {
         'No Machine SSH settings are configured.',
       );
     this.ssh ??= createMachineSshTransportFactory({ ssh });
+
     return this.ssh;
   }
 }

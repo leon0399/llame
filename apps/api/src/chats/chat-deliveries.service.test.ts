@@ -23,16 +23,20 @@ function makeService() {
     dispatch: vi.fn().mockResolvedValue(undefined),
     jobState: vi.fn().mockResolvedValue('active'),
   });
+
   const models = {
     validateModelSelection: vi.fn(),
     resolveEffortSelection: vi.fn(),
   };
+
   const execute = vi.fn(() => Promise.resolve([]));
   const tx = asDouble<Db>({ execute });
+
   const tenantDb: TenantRunner = {
     runAs: <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
       callback(tx),
   };
+
   return {
     service: new ChatDeliveriesService(
       tenantDb,
@@ -144,6 +148,7 @@ describe('ChatDeliveriesService.changeMode', () => {
   it('answers 404 naming the Chat, and changes nothing, for a Chat the owner cannot see', async () => {
     const { service, lockChat, findActiveRun, changePendingMode } =
       makeService();
+
     lockChat.mockResolvedValue(undefined);
 
     await expect(
@@ -163,6 +168,7 @@ describe('ChatDeliveriesService.changeMode', () => {
       models,
       createMessage,
     } = makeService();
+
     lockChat.mockResolvedValue(
       asDouble<Chat>({ id: chatId, archivedAt: null }),
     );
@@ -192,6 +198,7 @@ describe('ChatDeliveriesService.changeMode', () => {
     async (mode, pointers) => {
       const { service, lockChat, findActiveRun, changePendingMode, execute } =
         makeService();
+
       lockChat.mockResolvedValue(
         asDouble<Chat>({ id: chatId, archivedAt: null }),
       );
@@ -203,9 +210,11 @@ describe('ChatDeliveriesService.changeMode', () => {
       const pointer = JSON.stringify(
         JSON.stringify({ runId: 'run-1', kind: 'interrupt' }),
       );
+
       const sent = execute.mock.calls.filter((call) =>
         JSON.stringify(call).includes(pointer),
       );
+
       expect(sent).toHaveLength(pointers);
     },
   );
@@ -219,6 +228,7 @@ describe('ChatDeliveriesService.changeMode', () => {
       models,
       createMessage,
     } = makeService();
+
     lockChat.mockResolvedValue(
       asDouble<Chat>({ id: chatId, archivedAt: null }),
     );

@@ -24,6 +24,7 @@ import {
 const useModelsQuery = mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
+
 const uploadAttachment = mocked(uploads.uploadAttachment);
 
 const TEXT_MODEL_ID = "system:openai:model-one";
@@ -126,7 +127,9 @@ function pdfDescriptorFor(file: File): MediaDescriptor {
 
 function filesTransfer(files: ReadonlyArray<File>): DataTransfer {
   const dataTransfer = new DataTransfer();
+
   for (const file of files) dataTransfer.items.add(file);
+
   return dataTransfer;
 }
 
@@ -154,12 +157,14 @@ function SelectedModel({
 }) {
   const { setSelectedModel } = useChatContext();
   useEffect(() => setSelectedModel(modelId), [modelId, setSelectedModel]);
+
   return children;
 }
 
 /** The composer with the real attachment hook over the mocked upload. */
 function AttachingComposer(args: ComponentProps<typeof ChatComposer>) {
   const attachments = useComposerAttachments();
+
   return <ChatComposer {...args} attachments={attachments} />;
 }
 
@@ -208,6 +213,7 @@ const meta = {
 } satisfies Meta<typeof ChatComposer>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -242,11 +248,13 @@ export const ControlStates: Story = {
   ),
   play: async ({ canvasElement }) => {
     const root = within(canvasElement);
+
     for (const state of ["s1", "s2", "s3"] as const) {
       const region = within(root.getByTestId(state));
       const stop = region.getByRole("button", { name: "Stop generation" });
       await expect(stop).toBeEnabled();
     }
+
     const s4 = within(root.getByTestId("s4"));
     const stopping = s4.getByRole("button", { name: "Stopping generation" });
     await expect(stopping).toBeDisabled();
@@ -497,6 +505,7 @@ export const PickerAndDropAttach: Story = {
   play: async ({ canvas, canvasElement, userEvent }) => {
     const picker =
       canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+
     await expect(picker).toHaveAttribute(
       "accept",
       "image/png,image/jpeg,image/gif,image/webp",
@@ -534,9 +543,11 @@ export const EleventhImageIgnored: Story = {
   render: attachingStory(VISION_MODEL_ID),
   play: async ({ canvas }) => {
     const form = canvas.getByPlaceholderText(PLACEHOLDER).closest("form");
+
     const ten = Array.from({ length: 10 }, (_, index) =>
       pngFile(`image-${index + 1}.png`),
     );
+
     dropFiles(form!, ten);
     const list = await canvas.findByRole("list", { name: "Attachments" });
     await waitFor(() =>
@@ -583,6 +594,7 @@ export const PdfAttachesFromPickerPasteAndDrop: Story = {
   play: async ({ args, canvas, canvasElement, userEvent }) => {
     const picker =
       canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+
     await expect(picker).toHaveAttribute("accept", "application/pdf");
     await userEvent.upload(picker!, pdfFile("picked.pdf"));
 
@@ -594,9 +606,11 @@ export const PdfAttachesFromPickerPasteAndDrop: Story = {
     await expect(within(list).queryByRole("link")).toBeNull();
 
     resolveHeldUpload(pdfDescriptorFor(pdfFile("picked.pdf")));
+
     const link = await within(list).findByRole("link", {
       name: "Open picked.pdf in a new tab",
     });
+
     await expect(link).toHaveAttribute(
       "href",
       expect.stringMatching(
@@ -701,6 +715,7 @@ export const PdfOnlyModelRefusesImage: Story = {
   play: async ({ canvas, canvasElement, userEvent }) => {
     const picker =
       canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+
     await expect(picker).toHaveAttribute("accept", "application/pdf");
     await expectUploadEnabled(canvas, userEvent, true);
 
@@ -797,6 +812,7 @@ export const MixedAttachmentsShareTheCap: Story = {
           item.querySelector("img")?.getAttribute("alt") ??
           item.querySelector("[title]")?.textContent,
       );
+
     await expect(order).toEqual([
       "image-1.png",
       "doc-2.pdf",
@@ -865,15 +881,18 @@ async function expectUploadEnabled(
   await userEvent.click(
     canvas.getByRole("button", { name: "Add files and more" }),
   );
+
   // The menu is portalled, so query the document, not the canvas.
   const upload = await screen.findByRole("menuitem", {
     name: "Upload photos & files",
   });
+
   await waitFor(() =>
     enabled
       ? expect(upload).not.toHaveAttribute("aria-disabled", "true")
       : expect(upload).toHaveAttribute("aria-disabled", "true"),
   );
+
   // The shortcut is announced only while it works.
   if (!enabled) await expect(upload).not.toHaveAttribute("aria-keyshortcuts");
   await userEvent.keyboard("{Escape}");
@@ -901,6 +920,7 @@ export const AddMenu: Story = {
   play: async ({ canvas, canvasElement, userEvent }) => {
     const picker =
       canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
+
     const openPicker = fn();
     picker!.addEventListener("click", (event) => {
       event.preventDefault();
@@ -909,14 +929,18 @@ export const AddMenu: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Add files and more" }),
     );
+
     const upload = await screen.findByRole("menuitem", {
       name: "Upload photos & files",
     });
+
     await expect(screen.getAllByRole("menuitem")).toEqual([upload]);
+
     // The chord this browser's platform uses, as command-palette.stories does.
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
     );
+
     await expect(upload).toHaveAttribute(
       "aria-keyshortcuts",
       isMac ? "Meta+U" : "Control+U",
@@ -954,6 +978,7 @@ const PROJECTS = [project("p1", "Trip planning"), project("p2", "Taxes")];
 /** The composer with a draft's project held in state, as the chat page does. */
 function FilingComposer(args: ComponentProps<typeof ChatComposer>) {
   const [projectId, setProjectId] = useState<string | null>(null);
+
   return (
     <ChatComposer
       {...args}
@@ -1018,6 +1043,7 @@ export const ProjectChip: Story = {
     const chip = await canvas.findByRole("button", {
       name: "Project Trip planning",
     });
+
     await userEvent.click(chip);
     await chooseRadio(userEvent, "Taxes");
     await closeMenus(userEvent);
@@ -1046,9 +1072,11 @@ export const LockedComposerIgnoresUploadShortcut: Story = {
   render: attachingStory(VISION_MODEL_ID),
   play: async ({ canvas }) => {
     await canvas.findByRole("button", { name: "Add files and more" });
+
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
     );
+
     // The picker click is a no-op inside the disabled fieldset either way,
     // so the observable is whether the listener claimed the chord.
     const chord = new KeyboardEvent("keydown", {
@@ -1058,6 +1086,7 @@ export const LockedComposerIgnoresUploadShortcut: Story = {
       bubbles: true,
       cancelable: true,
     });
+
     document.body.dispatchEvent(chord);
     await expect(chord.defaultPrevented).toBe(false);
   },
@@ -1115,6 +1144,7 @@ const B_MEDIA_ID = "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02";
 /** `file`'s upload descriptor under its own media id. */
 function storedDescriptor(file: File): MediaDescriptor {
   const id = file.name === "a.png" ? A_MEDIA_ID : B_MEDIA_ID;
+
   return { ...descriptorFor(file), id, locator: `media://${id}` };
 }
 
@@ -1199,6 +1229,7 @@ function TypingComposer({
   ...args
 }: ComponentProps<typeof ChatComposer> & { initialInput: string }) {
   const [input, setInput] = useState(initialInput);
+
   return <ChatComposer {...args} input={input} onInputChange={setInput} />;
 }
 
@@ -1214,6 +1245,7 @@ export const LongPromptKeepsItsScrollPosition: Story = {
   play: async ({ canvasElement, userEvent }) => {
     const textarea =
       within(canvasElement).getByRole<HTMLTextAreaElement>("textbox");
+
     // The offset only exists once the value overflows the maxHeight clamp.
     await waitFor(() =>
       expect(textarea.scrollHeight).toBeGreaterThan(textarea.clientHeight),

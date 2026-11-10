@@ -28,6 +28,7 @@ const UNSUPPORTED_GLOB_CHARACTERS = ["{", "}", "[", "]"] as const;
 
 /** A whole-segment `**`, the only pattern part that spans separators. */
 const ANY_SEGMENTS = "any-segments";
+
 type GlobSegment = RE2JS | typeof ANY_SEGMENTS;
 
 /**
@@ -38,23 +39,29 @@ type GlobSegment = RE2JS | typeof ANY_SEGMENTS;
 export function splitGrepScope(pathPart: string): GrepScopeSplitResult {
   const segments = pathPart.split("/");
   let offset = 0;
+
   for (const [position, segment] of segments.entries()) {
     if (!SCOPE_OPERATORS.some((operator) => segment.includes(operator))) {
       offset += segment.length + 1;
       continue;
     }
+
     const suffix = pathPart.slice(offset);
+
     const unsupported = UNSUPPORTED_GLOB_CHARACTERS.find((operator) =>
       suffix.includes(operator),
     );
+
     if (unsupported !== undefined)
       return { error: "unsupported_glob", operator: unsupported };
+
     return {
       prefix: literalPrefix(segments.slice(0, position)),
       globSuffix: suffix,
       endsWithSeparator: pathPart.endsWith("/"),
     };
   }
+
   return {
     prefix: pathPart,
     globSuffix: undefined,
@@ -89,6 +96,7 @@ export function decodeGrepLiteralSpelling(text: string): string {
 const HOST_SPELLINGS = new Map(
   [...LITERAL_SPELLINGS].map(([spelling, character]) => [character, spelling]),
 );
+
 /** A Machine locator already writes `%` as `%25`, so it spells the glob ones. */
 const MACHINE_SPELLINGS = new Map(
   [...HOST_SPELLINGS].filter(([character]) => character !== "%"),
@@ -119,6 +127,7 @@ function literalPrefix(kept: ReadonlyArray<string>): string {
   if (kept.length === 0) return "";
   const joined = kept.join("/");
   const base = joined.length === 0 ? "/" : joined;
+
   return base.endsWith("/") ? base : `${base}/`;
 }
 
@@ -130,14 +139,17 @@ function literalPrefix(kept: ReadonlyArray<string>): string {
 export function normalizeHostScope(path: string): string {
   const trailing = path.endsWith("/");
   const resolved = posix.resolve(path);
+
   return trailing && resolved !== "/" ? `${resolved}/` : resolved;
 }
 
 /** Compile a glob suffix into one segment matcher per path segment. */
 export function compileGlob(suffix: string): CompiledGlob {
   const trimmed = suffix.endsWith("/") ? suffix.slice(0, -1) : suffix;
+
   const segments: Array<GlobSegment> =
     trimmed.length === 0 ? [] : trimmed.split("/").map(toGlobSegment);
+
   return {
     matchesFile: (rel) => matchesWholePath(segments, rel),
     mayDescend: (relDir) =>
@@ -150,17 +162,20 @@ export function compileGlob(suffix: string): CompiledGlob {
 
 function toGlobSegment(segment: string): GlobSegment {
   if (segment === "**") return ANY_SEGMENTS;
+
   return RE2JS.compile(`^${segmentSource(segment)}$`);
 }
 
 /** `*` and `?` stay inside one segment; every other character is literal. */
 function segmentSource(segment: string): string {
   let source = "";
+
   for (const character of segment) {
     if (character === "*") source += "[^/]*";
     else if (character === "?") source += "[^/]";
     else source += RE2JS.quote(character);
   }
+
   return source;
 }
 
@@ -169,6 +184,7 @@ function matchesWholePath(
   rel: string,
 ): boolean {
   if (rel.length === 0) return false;
+
   return reachableStates(segments, rel.split("/")).includes(segments.length);
 }
 
@@ -181,7 +197,9 @@ function reachableStates(
   parts: ReadonlyArray<string>,
 ): Array<number> {
   let states = closure(segments, [0]);
+
   for (const part of parts) states = step(segments, states, part);
+
   return states;
 }
 
@@ -191,13 +209,18 @@ function closure(
   initial: ReadonlyArray<number>,
 ): Array<number> {
   const reached = [...initial];
+
   for (let index = 0; index < reached.length; index += 1) {
     const state = reached[index];
+
     if (state >= segments.length) continue;
+
     if (segments[state] !== ANY_SEGMENTS) continue;
+
     if (reached.includes(state + 1)) continue;
     reached.push(state + 1);
   }
+
   return reached;
 }
 
@@ -207,11 +230,14 @@ function step(
   part: string,
 ): Array<number> {
   const next: Array<number> = [];
+
   for (const state of states) {
     if (state >= segments.length) continue;
     const segment = segments[state];
+
     if (segment === ANY_SEGMENTS) next.push(state);
     else if (segment.test(part)) next.push(state + 1);
   }
+
   return closure(segments, next);
 }

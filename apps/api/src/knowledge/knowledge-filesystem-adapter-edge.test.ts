@@ -64,32 +64,41 @@ function port(options: PortOptions = {}): KnowledgeFilesystemPort {
   const bytes = options.bytes ?? Buffer.from('needle\n');
   const noteStats = options.noteStats ?? fileStats(bytes.length);
   const realpath = options.realpath ?? ((filePath: string) => filePath);
+
   return {
     lstat: vi.fn((filePath: string) => {
       const failure = options.lstatFailure?.(filePath);
+
       if (failure !== undefined) return Promise.reject(failure);
+
       if (filePath === ROOT)
         return Promise.resolve(options.rootStats ?? directoryStats);
+
       if (filePath === DIRECTORY) {
         return Promise.resolve(options.childStats ?? directoryStats);
       }
+
       return Promise.resolve(noteStats);
     }),
     opendir: vi.fn(() => {
       if (options.opendirFailure !== undefined) {
         return Promise.reject(options.opendirFailure);
       }
+
       let index = 0;
+
       const directory: KnowledgeFilesystemDirectory = {
         read: vi.fn(() => Promise.resolve(entries[index++] ?? null)),
         close: vi.fn(() => Promise.resolve()),
       };
+
       return Promise.resolve(directory);
     }),
     open: vi.fn(() => {
       if (options.openFailure !== undefined) {
         return Promise.reject(options.openFailure);
       }
+
       const file: KnowledgeFilesystemFile = {
         stat: vi.fn(() => Promise.resolve(noteStats)),
         read: vi.fn<KnowledgeFilesystemFile['read']>(
@@ -98,12 +107,15 @@ function port(options: PortOptions = {}): KnowledgeFilesystemPort {
               length,
               Math.max(0, bytes.length - position),
             );
+
             bytes.copy(buffer, offset, position, position + bytesRead);
+
             return Promise.resolve({ bytesRead });
           },
         ),
         close: vi.fn(() => Promise.resolve()),
       };
+
       return Promise.resolve(file);
     }),
     realpath: vi.fn((filePath: string) => Promise.resolve(realpath(filePath))),
@@ -122,6 +134,7 @@ async function walkBytes(
   if (!('chunks' in opened)) return opened;
   const bytes = await collectStreamBytes(opened.chunks);
   await opened.close();
+
   return bytes;
 }
 
@@ -131,7 +144,9 @@ describe('Knowledge filesystem adapter edge branches', () => {
       noteStats: fileStats(2),
       bytes: Buffer.from('x'),
     });
+
     const open = vi.spyOn(fileSystem, 'open');
+
     const budget = {
       remainingEntries: 100,
       remainingFiles: 10,
@@ -194,6 +209,7 @@ describe('Knowledge filesystem adapter edge branches', () => {
       lstatFailure: (filePath) =>
         filePath === ROOT ? new Error('permission denied') : undefined,
     });
+
     await expect(
       new KnowledgeFilesystemAdapter(binding(), unavailable).search(
         'needle',
@@ -206,6 +222,7 @@ describe('Knowledge filesystem adapter edge branches', () => {
     const directoryFailure = port({
       opendirFailure: Object.assign(new Error('gone'), { code: 'ENOENT' }),
     });
+
     await expect(
       new KnowledgeFilesystemAdapter(binding(), directoryFailure).search(
         'needle',
@@ -218,6 +235,7 @@ describe('Knowledge filesystem adapter edge branches', () => {
         throw new Error('permission denied');
       },
     });
+
     await expect(
       new KnowledgeFilesystemAdapter(binding(), realpathFailure).search(
         'needle',
@@ -228,10 +246,12 @@ describe('Knowledge filesystem adapter edge branches', () => {
 
   it('allows a file exactly at the search-file cap when the operation budget also fits', async () => {
     const bytes = Buffer.from('needle\n');
+
     const fileSystem = port({
       noteStats: fileStats(KNOWLEDGE_MAX_SEARCH_FILE_BYTES),
       bytes,
     });
+
     const budget = {
       remainingEntries: 100,
       remainingFiles: 1,
@@ -281,29 +301,36 @@ function walkPort(options: WalkPortOptions = {}): KnowledgeFilesystemPort {
   const entries = [...(options.entries ?? [])];
   const bytes = options.bytes ?? Buffer.from('needle\n');
   const notes = options.notes ?? fileStats(bytes.length);
+
   const directories = new Set([
     ROOT,
     DIRECTORY,
     ...(options.directories ?? []),
   ]);
+
   return {
     lstat: vi.fn((filePath: string) => {
       const held = options.holdStat?.(filePath);
+
       if (held !== undefined) return held;
+
       return Promise.resolve(
         directories.has(filePath) ? directoryStats : notes,
       );
     }),
     opendir: vi.fn(() => {
       let index = 0;
+
       const directory: KnowledgeFilesystemDirectory = {
         read: vi.fn(() => Promise.resolve(entries[index++] ?? null)),
         close: vi.fn(() => Promise.resolve()),
       };
+
       return Promise.resolve(directory);
     }),
     open: vi.fn(() => {
       if (options.openFile !== undefined) return options.openFile();
+
       const file: KnowledgeFilesystemFile = {
         stat: vi.fn(() => Promise.resolve(notes)),
         read: vi.fn<KnowledgeFilesystemFile['read']>(
@@ -312,12 +339,15 @@ function walkPort(options: WalkPortOptions = {}): KnowledgeFilesystemPort {
               length,
               Math.max(0, bytes.length - position),
             );
+
             bytes.copy(buffer, offset, position, position + bytesRead);
+
             return Promise.resolve({ bytesRead });
           },
         ),
         close: vi.fn(() => Promise.resolve()),
       };
+
       return Promise.resolve(file);
     }),
     realpath: vi.fn((filePath: string) => Promise.resolve(filePath)),
@@ -331,6 +361,7 @@ describe('Knowledge filesystem walk entries', () => {
       { length: KNOWLEDGE_MAX_ENTRIES + 1 },
       (_value, index) => fileEntry(`f${String(index)}.md`),
     );
+
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({ entries }),
@@ -384,9 +415,12 @@ describe('Knowledge filesystem walk probes', () => {
     lstat.mockImplementation((filePath: string) => {
       if (filePath !== `${DIRECTORY}/notes`) {
         const isDirectory = filePath === ROOT || filePath === DIRECTORY;
+
         return Promise.resolve(isDirectory ? directoryStats : fileStats(0));
       }
+
       stats += 1;
+
       return Promise.resolve(stats === 1 ? directoryStats : symlinkStats);
     });
 
@@ -401,12 +435,14 @@ describe('Knowledge filesystem walk probes', () => {
     const bytes = Buffer.from(
       Array.from({ length: 200 * 1024 }, (_value, index) => index % 251),
     );
+
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({ bytes }),
     );
 
     const opened = await adapter.openWalk('note.md');
+
     if (!('chunks' in opened)) throw new Error('a walk file opens');
     expect(opened.size).toBe(bytes.length);
     await expect(walkBytes(opened)).resolves.toEqual(bytes);
@@ -414,6 +450,7 @@ describe('Knowledge filesystem walk probes', () => {
 
   it('refuses a file whose fstat fails, and closes it', async () => {
     const closed = vi.fn(() => Promise.resolve());
+
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({
@@ -435,6 +472,7 @@ describe('Knowledge filesystem walk probes', () => {
 
   it('refuses a file that is not a regular file after the open, and closes it', async () => {
     const closed = vi.fn(() => Promise.resolve());
+
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({
@@ -455,6 +493,7 @@ describe('Knowledge filesystem walk probes', () => {
 
   it('ends a stream with a refusal when a later read fails, and closes it', async () => {
     const closed = vi.fn(() => Promise.resolve());
+
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({
@@ -474,6 +513,7 @@ describe('Knowledge filesystem walk probes', () => {
     );
 
     const opened = await adapter.openWalk('note.md');
+
     if (!('chunks' in opened)) throw new Error('a walk file opens');
     const seen = await drainStream(opened.chunks, 4);
     expect(seen).toHaveLength(2);
@@ -498,6 +538,7 @@ describe('Knowledge filesystem walk probes', () => {
       );
 
       const opened = await adapter.openWalk('note.md');
+
       if (!('chunks' in opened)) throw new Error('a walk file opens');
       const seen = await drainStream(opened.chunks, 4);
       expect(seen).toStrictEqual([{ kind: 'unreadable' }]);
@@ -542,6 +583,7 @@ describe('Knowledge filesystem walk probes', () => {
 
   it('propagates a cancellation instead of counting it as a refusal', async () => {
     const controller = new AbortController();
+
     const adapter = new KnowledgeFilesystemAdapter(
       binding(),
       walkPort({
@@ -551,6 +593,7 @@ describe('Knowledge filesystem walk probes', () => {
             stat: () => Promise.resolve(fileStats(6)),
             read: () => {
               controller.abort();
+
               return Promise.withResolvers<{ bytesRead: number }>().promise;
             },
             close: () => Promise.resolve(),
@@ -569,13 +612,16 @@ describe('Knowledge filesystem walk probes', () => {
     const component = `${DIRECTORY}/notes`;
     const started = Promise.withResolvers<void>();
     const held = Promise.withResolvers<KnowledgeFilesystemStats>();
+
     const fileSystem = walkPort({
       holdStat: (filePath) => {
         if (filePath !== component) return undefined;
         started.resolve();
+
         return held.promise;
       },
     });
+
     const adapter = new KnowledgeFilesystemAdapter(binding(), fileSystem);
     const open = vi.spyOn(fileSystem, 'open');
 

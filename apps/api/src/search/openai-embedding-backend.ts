@@ -54,19 +54,23 @@ export function classifyEmbeddingFailure(
   if (error instanceof EmbeddingBackendError) {
     return error;
   }
+
   if (APICallError.isInstance(error)) {
     const status = error.statusCode;
+
     const terminal =
       status !== undefined &&
       status >= 400 &&
       status < 500 &&
       status !== 408 &&
       status !== 429;
+
     return new EmbeddingBackendError(
       `embedding provider request failed${status !== undefined ? ` (HTTP ${status})` : ''}`,
       terminal,
     );
   }
+
   return new EmbeddingBackendError('embedding provider request failed', false);
 }
 
@@ -115,9 +119,11 @@ function describeInvalidVector(
   if (vector === undefined) {
     return 'embedding provider returned no vector for a requested document';
   }
+
   if (vector.length !== dimensions) {
     return `embedding provider returned a vector of length ${vector.length}, expected ${dimensions} — check the configured "dimensions" for this model`;
   }
+
   return 'embedding provider returned a non-finite value in the vector';
 }
 
@@ -145,10 +151,12 @@ function describeInvalidVector(
  */
 function assertResponseOrderPreserved(body: UnknownRecord): void {
   if (!Array.isArray(body.data)) return;
+
   const inOrder = body.data.every(
     (item, position) =>
       isRecord(item) && isNumber(item.index) && item.index === position,
   );
+
   if (!inOrder) {
     throw new EmbeddingBackendError(
       'embedding provider response order could not be verified',
@@ -175,16 +183,20 @@ function wrapFetchWithOrderVerification(
     init: Parameters<typeof fetch>[1],
   ) => {
     const response = await underlyingFetch(input, init);
+
     if (!response.ok) return response;
     let body: unknown;
+
     try {
       body = await response.clone().json();
     } catch {
       return response;
     }
+
     if (isRecord(body)) {
       assertResponseOrderPreserved(body);
     }
+
     return response;
   };
 }
@@ -250,6 +262,7 @@ async function embedChunk(
   );
 
   let embeddings: ReadonlyArray<ReadonlyArray<number>>;
+
   try {
     // maxRetries: 0 — retry is the caller's job (a pg-boss queue policy,
     // design D5); the SDK's own internal retry would multiply attempts on
@@ -258,11 +271,14 @@ async function embedChunk(
   } catch (error) {
     throw classifyEmbeddingFailure(error);
   }
+
   if (embeddings.length !== chunk.length) return [];
 
   const results: Array<EmbeddingResult> = [];
+
   for (let i = 0; i < chunk.length; i++) {
     const vector = embeddings[i];
+
     if (!isValidVector(vector, config.dimensions)) {
       // Terminal: see isValidVector's doc comment.
       throw new EmbeddingBackendError(
@@ -270,12 +286,14 @@ async function embedChunk(
         true,
       );
     }
+
     results.push({
       documentId: chunk[i].documentId,
       contentHash: chunk[i].contentHash,
       embedding: vector,
     });
   }
+
   return results;
 }
 
@@ -289,11 +307,13 @@ async function embedChunk(
  */
 function resolveBatchSize(configuredBatchSize: number | undefined): number {
   const batchSize = configuredBatchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE;
+
   if (batchSize < 1) {
     throw new RangeError(
       `createOpenAIEmbeddingBackend: batchSize must be >= 1, got ${batchSize}`,
     );
   }
+
   return batchSize;
 }
 
@@ -314,6 +334,7 @@ export function createOpenAIEmbeddingBackend(
     ...(config.baseUrl && { baseURL: config.baseUrl }),
     fetch: wrapFetchWithOrderVerification(dependencies.fetch ?? fetch),
   });
+
   const model = openai.textEmbeddingModel(config.providerModelId);
   const batchSize = resolveBatchSize(config.batchSize);
 
@@ -322,6 +343,7 @@ export function createOpenAIEmbeddingBackend(
     prefix: string | undefined,
   ): Promise<Array<EmbeddingResult>> {
     const results: Array<EmbeddingResult> = [];
+
     // Chunk ourselves so the configured batchSize is what actually reaches
     // the provider and is observable, rather than relying on embedMany's own
     // internal splitting (design D5). In practice a caller already sizes its
@@ -331,6 +353,7 @@ export function createOpenAIEmbeddingBackend(
       const chunk = documents.slice(start, start + batchSize);
       results.push(...(await embedChunk(model, chunk, prefix, config)));
     }
+
     return results;
   }
 
@@ -341,12 +364,14 @@ export function createOpenAIEmbeddingBackend(
         [{ documentId: '__query__', contentHash: '', content: text }],
         config.queryPrefix,
       );
+
       if (!result) {
         throw new EmbeddingBackendError(
           'embedding provider returned no vector for the query',
           false,
         );
       }
+
       return result.embedding;
     },
   };

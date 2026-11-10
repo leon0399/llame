@@ -55,6 +55,7 @@ describe('skillCatalogEnvelope', () => {
     const overCap = skillCatalogEnvelope([entry(1, padding + 1)], {
       offset: 0,
     });
+
     expect(overCap.skills).toHaveLength(0);
     expect(overCap.nextOffset).toBe(0);
   });
@@ -64,6 +65,7 @@ describe('skillCatalogEnvelope', () => {
     // token once the listing renders, so a page sized on the raw JSON would be
     // cut later by the runner and skip its continuation entries.
     const plain = Array.from({ length: 300 }, (_, index) => entry(index, 1000));
+
     const reserved = plain.map((item) => ({
       ...item,
       description: '<skill>'.repeat(125),
@@ -89,10 +91,12 @@ describe('skillCatalogEnvelope', () => {
     );
 
     const started = performance.now();
+
     const listing = skillCatalogEnvelope(entries, {
       offset: 0,
       limit: 999_999,
     });
+
     const elapsed = performance.now() - started;
 
     expect(listing.skillCount).toBe(50_000);

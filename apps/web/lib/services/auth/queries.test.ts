@@ -75,11 +75,13 @@ describe("auth transport boundaries", () => {
 
   it("submits registration through the credential-safe authenticated policy", async () => {
     const result = { user: { id: "u1" } };
+
     const input = {
       name: "Leo",
       email: "leo@example.com",
       password: "secret",
     };
+
     fetchMock.mockResolvedValue(jsonResponse(result));
 
     await expect(register(input)).resolves.toEqual(result);
@@ -147,6 +149,7 @@ describe("auth transport boundaries", () => {
       emailVerified: null,
       image: null,
     };
+
     fetchMock.mockResolvedValue(jsonResponse(user));
 
     await expect(fetchMeOptional()).resolves.toEqual(user);

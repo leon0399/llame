@@ -57,6 +57,7 @@ const meta = {
 } satisfies Meta<typeof KnowledgeSearchTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

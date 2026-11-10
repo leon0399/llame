@@ -41,12 +41,14 @@ type Remote = {
 /** The local bounds this call shares with a local `bash`. */
 function localBounds() {
   const { inputBound } = managedBashContext(context(remote()));
+
   return { inputBound };
 }
 
 /** A client whose answer is built from the nonce the script drew. */
 function remote(reply: (nonce: string) => SshRunOutcome = completed()): Remote {
   const runs: Array<SshRunRequest> = [];
+
   const client: SshClient = {
     resolve: () =>
       Promise.resolve({
@@ -55,15 +57,18 @@ function remote(reply: (nonce: string) => SshRunOutcome = completed()): Remote {
       }),
     run: (request) => {
       runs.push(request);
+
       const nonce =
         /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
           String(request.input),
         )?.[1] ?? '';
+
       return Promise.resolve(reply(nonce));
     },
     sshConfigText: () => undefined,
     dispose: () => undefined,
   };
+
   return { client, runs };
 }
 
@@ -95,6 +100,7 @@ function context(
   overrides: Partial<ToolContext> = {},
 ): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -117,6 +123,7 @@ function stubFence() {
   vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
     undefined,
   );
+
   const append = vi
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue({
@@ -126,6 +133,7 @@ function stubFence() {
       payload: null,
       createdAt: new Date(),
     });
+
   return { append };
 }
 
@@ -171,10 +179,12 @@ describe('ssh bash request bounds', () => {
     // The command, `-s`, and the resolved directory measure one byte more
     // than the bound together.
     const { inputBound } = localBounds();
+
     const over = await executeSshBash(context(remoteClient), {
       command: 'x'.repeat(inputBound - 7),
       cwd: CWD,
     });
+
     expect(over).toEqual({
       status: 'error',
       type: 'unavailable',
@@ -186,6 +196,7 @@ describe('ssh bash request bounds', () => {
       command: 'x'.repeat(inputBound - 8),
       cwd: CWD,
     });
+
     expect(within).toMatchObject({ status: 'success' });
     expect(remoteClient.runs).toHaveLength(1);
   });
@@ -201,12 +212,14 @@ describe('ssh bash credential redaction', () => {
       { length: 4000 },
       (_, line) => `line ${String(line)}`,
     ).join('\n');
+
     const remoteClient = remote((nonce) =>
       ended(
         `${nonce}:start\nprovider ${provider}\nmcp ${mcp}\nknowledge ${knowledge}\n${filler}\n`,
         `${nonce}:start\nstderr ${provider} ${mcp}\n${nonce}:end:0\n`,
       ),
     );
+
     const { append } = stubFence();
     const insertParts = stubArtifactWrites();
 
@@ -227,12 +240,14 @@ describe('ssh bash credential redaction', () => {
       .flatMap(([, written]) => written)
       .map((part) => part.content.toString('utf8'))
       .join('\n');
+
     expectRedacted(parts, [provider, mcp]);
     expect(parts).toContain(knowledge);
 
     const events = append.mock.calls
       .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
       .join('\n');
+
     expectRedacted(events, [provider, mcp]);
     expect(events).toContain(knowledge);
 
@@ -240,6 +255,7 @@ describe('ssh bash credential redaction', () => {
       input: String(remoteClient.runs[0]?.input),
       destination: remoteClient.runs[0]?.destination,
     });
+
     expect(sent).not.toContain(provider);
     expect(sent).not.toContain(mcp);
   });
@@ -247,9 +263,11 @@ describe('ssh bash credential redaction', () => {
   it('drops both halves of a member the stderr gap cut and a stdout cut prefix', async () => {
     const member = 'SECRET-KEY';
     const head = `head ${'x'.repeat(8100)}SEC`;
+
     const remoteClient = remote((nonce) => {
       const start = `${nonce}:start\n`;
       const diagnostic = `${start}${head}RET-KEY\n${nonce}:end:0\n`;
+
       return {
         ...ended(`${start}provider SECRET-`, diagnostic, 0, {
           stdout: true,
@@ -258,6 +276,7 @@ describe('ssh bash credential redaction', () => {
         diagnosticGap: start.length + head.length,
       };
     });
+
     stubFence();
 
     const result = await executeSshBash(
@@ -266,6 +285,7 @@ describe('ssh bash credential redaction', () => {
     );
 
     expect(result).toMatchObject({ status: 'success', cut: true });
+
     if (result.status !== 'success') throw new Error('Expected a known result');
     expect(result.stdout).toBe('provider ');
     expect(result.stdout).not.toContain('SECRET');
@@ -285,6 +305,7 @@ describe('ssh bash remote outcome', () => {
       reason: 'cancelled',
       diagnostic: '',
     }));
+
     stubFence();
 
     await expect(
@@ -318,6 +339,7 @@ describe('ssh bash remote outcome', () => {
         stdout: true,
       }),
     );
+
     stubFence();
 
     const result = await executeSshBash(context(remoteClient), {
@@ -337,6 +359,7 @@ describe('ssh bash remote outcome', () => {
         { stderr: true },
       ),
     );
+
     stubFence();
 
     const result = await executeSshBash(context(remoteClient), {
@@ -354,6 +377,7 @@ describe('ssh bash remote outcome', () => {
         `${nonce}:refuse:not_regular_file\n${nonce}:end:0\n`,
       ),
     );
+
     stubFence();
 
     const result = await executeSshBash(context(remoteClient), {

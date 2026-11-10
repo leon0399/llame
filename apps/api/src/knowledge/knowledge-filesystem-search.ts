@@ -27,6 +27,7 @@ export function compareSearchMatches(
   right: KnowledgeFilesystemSearchMatch,
 ): number {
   const pathOrder = compareNames(left.path, right.path);
+
   return pathOrder !== 0 ? pathOrder : left.offset - right.offset;
 }
 
@@ -79,31 +80,42 @@ function advanceActiveInterval(
   ctx: KnowledgeSearchEmitContext,
 ): KnowledgeSearchActiveInterval | undefined {
   const { line, previousLine, occurrence } = step;
+
   if (occurrence !== undefined) {
     if (line.line <= active.end + 2) {
       appendKnowledgeSearchLookahead(active);
       appendKnowledgeSearchLine(active, line);
       active.end = Math.max(active.end, line.line + 1);
       active.lastOccurrence = occurrence;
+
       if (line.line > active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1) {
         splitKnowledgeSearchPartition(active, occurrence, ctx);
       } else if (active.partitionFirstOccurrence === undefined) {
         active.partitionFirstOccurrence = occurrence;
       }
+
       return active;
     }
+
     emitFinalKnowledgeSearchPartition(active, active.end, ctx);
+
     return startKnowledgeSearchInterval(line, previousLine, occurrence);
   }
+
   if (line.line <= active.end) {
     appendKnowledgeSearchLine(active, line);
+
     return active;
   }
+
   active.lookahead.push(line);
+
   if (line.line > active.end + 2) {
     emitFinalKnowledgeSearchPartition(active, active.end, ctx);
+
     return undefined;
   }
+
   return active;
 }
 
@@ -124,6 +136,7 @@ function advanceKnowledgeSearchLine(
   scan: KnowledgeSearchScan,
 ): KnowledgeSearchActiveInterval | undefined {
   const match = findLineOccurrence(line.text, scan.queryFolded);
+
   const occurrence =
     match === undefined ? undefined : { line: line.line, ...match };
 
@@ -132,7 +145,9 @@ function advanceKnowledgeSearchLine(
       ? undefined
       : startKnowledgeSearchInterval(line, previousLine, occurrence);
   }
+
   const step: KnowledgeSearchLineStep = { line, previousLine, occurrence };
+
   return advanceActiveInterval(step, active, scan.ctx);
 }
 
@@ -148,15 +163,18 @@ export async function collectKnowledgePassages(
   options: KnowledgeFilesystemPassageOptions = {},
 ): Promise<Array<KnowledgeFilesystemSearchMatch>> {
   const queryFolded = query.toLowerCase();
+
   if (queryFolded.length === 0) return [];
 
   const passages: Array<KnowledgeFilesystemSearchMatch> = [];
+
   const ctx: KnowledgeSearchEmitContext = {
     relativePath,
     passages,
     after: options.after,
     maxResults: options.maxResults ?? Number.POSITIVE_INFINITY,
   };
+
   const scan: KnowledgeSearchScan = { queryFolded, ctx };
   let previousLine: KnowledgeLogicalLine | undefined;
   let active: KnowledgeSearchActiveInterval | undefined;
@@ -185,8 +203,10 @@ function startKnowledgeSearchInterval(
   occurrence: KnowledgeSearchOccurrence,
 ): KnowledgeSearchActiveInterval {
   const start = Math.max(0, line.line - 1);
+
   const partitionLines =
     previousLine?.line === start ? [previousLine, line] : [line];
+
   return {
     start,
     end: line.line + 1,
@@ -204,6 +224,7 @@ function appendKnowledgeSearchLookahead(
   for (const line of active.lookahead) {
     appendKnowledgeSearchLine(active, line);
   }
+
   active.lookahead.length = 0;
 }
 
@@ -222,12 +243,15 @@ function findLineOccurrence(
 ): Omit<KnowledgeSearchOccurrence, 'line'> | undefined {
   const folded = line.toLowerCase();
   const matchOffset = folded.indexOf(queryFolded);
+
   if (matchOffset < 0) return undefined;
   const sourceOffset = codePointOffsetForFoldedOffset(line, matchOffset);
+
   const sourceEnd = codePointOffsetForFoldedOffset(
     line,
     matchOffset + queryFolded.length,
   );
+
   return {
     offset: sourceOffset,
     length: Math.max(1, sourceEnd - sourceOffset),
@@ -241,27 +265,34 @@ function makePassageExcerpt(
 ): string {
   const source = lines.map((line) => `${line.text}${line.delimiter}`).join('');
   const codePoints = Array.from(source);
+
   if (codePoints.length <= KNOWLEDGE_MAX_SNIPPET_CODE_POINTS) return source;
 
   let matchStart = 0;
   const occurrenceIndex = occurrence.line - partitionStart;
+
   for (const line of lines.slice(0, occurrenceIndex)) {
     matchStart += Array.from(`${line.text}${line.delimiter}`).length;
   }
+
   matchStart += occurrence.offset;
   const matchEnd = matchStart + occurrence.length;
   const visibleLength = KNOWLEDGE_MAX_SNIPPET_CODE_POINTS - 2;
   let windowStart = Math.max(0, matchStart - Math.floor(visibleLength / 2));
   let windowEnd = Math.min(codePoints.length, windowStart + visibleLength);
+
   if (windowEnd < matchEnd) {
     windowStart = Math.max(0, matchEnd - visibleLength);
     windowEnd = Math.min(codePoints.length, windowStart + visibleLength);
   }
+
   if (windowEnd - windowStart < visibleLength) {
     windowStart = Math.max(0, windowEnd - visibleLength);
   }
+
   const prefix = windowStart > 0 ? '…' : '';
   const suffix = windowEnd < codePoints.length ? '…' : '';
+
   return `${prefix}${codePoints.slice(windowStart, windowEnd).join('')}${suffix}`;
 }
 
@@ -281,8 +312,10 @@ function emitFinalKnowledgeSearchPartition(
   ctx: KnowledgeSearchEmitContext,
 ): void {
   const end = Math.min(active.end, finalEnd);
+
   if (end < active.partitionStart) return;
   const length = end - active.partitionStart + 1;
+
   if (length <= KNOWLEDGE_MAX_READ_LINES) {
     appendKnowledgeSearchPassage(
       active.partitionLines.slice(0, length),
@@ -290,6 +323,7 @@ function emitFinalKnowledgeSearchPartition(
       active.partitionFirstOccurrence,
       ctx,
     );
+
     return;
   }
 
@@ -297,6 +331,7 @@ function emitFinalKnowledgeSearchPartition(
     active.partitionStart + KNOWLEDGE_MAX_READ_LINES - 1,
     active.lastOccurrence.line - 1,
   );
+
   const firstLength = boundary - active.partitionStart + 1;
   appendKnowledgeSearchPassage(
     active.partitionLines.slice(0, firstLength),
@@ -337,6 +372,7 @@ function appendKnowledgeSearchPassage(
   ctx: KnowledgeSearchEmitContext,
 ): void {
   const { relativePath, passages, after, maxResults } = ctx;
+
   if (
     occurrence === undefined ||
     !isAfterSearchCursor(
@@ -347,6 +383,7 @@ function appendKnowledgeSearchPassage(
   ) {
     return;
   }
+
   passages.push({
     path: relativePath,
     offset,
@@ -362,11 +399,14 @@ async function* iterateKnowledgeLogicalLines(
   let lineStart = 0;
   let line = 0;
   let scannedCodeUnits = 0;
+
   for (let index = 0; index < text.length; index += 1) {
     scannedCodeUnits += 1;
+
     if (scannedCodeUnits % 65_536 === 0) {
       await yieldKnowledgeSearch(signal);
     }
+
     if (text.charCodeAt(index) !== 10) continue;
     const hasCr = index > lineStart && text.charCodeAt(index - 1) === 13;
     yield {
@@ -374,14 +414,18 @@ async function* iterateKnowledgeLogicalLines(
       text: text.slice(lineStart, hasCr ? index - 1 : index),
       delimiter: hasCr ? '\r\n' : '\n',
     };
+
     if (line % 256 === 0) {
       await yieldKnowledgeSearch(signal);
     }
+
     lineStart = index + 1;
   }
+
   if (lineStart < text.length) {
     yield { line, text: text.slice(lineStart), delimiter: '' };
   }
+
   throwIfAborted(signal);
 }
 
@@ -398,6 +442,7 @@ function isAfterSearchCursor(
   after: KnowledgeFilesystemSearchAfter | undefined,
 ): boolean {
   if (after === undefined) return true;
+
   return (
     compareNames(match.path, after.path) > 0 ||
     (match.path === after.path && match.offset > after.offset)
@@ -410,10 +455,12 @@ function codePointOffsetForFoldedOffset(
 ): number {
   let foldedCodeUnits = 0;
   let codePoints = 0;
+
   for (const character of value) {
     if (foldedCodeUnits >= foldedOffset) break;
     foldedCodeUnits += character.toLowerCase().length;
     codePoints += 1;
   }
+
   return codePoints;
 }

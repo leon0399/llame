@@ -75,12 +75,14 @@ export class AuthService {
   ): Promise<AuthTokenResponse> {
     const email = normalizeEmail(input.email);
     const existing = await this.usersService.getUserByEmail(email);
+
     if (existing) {
       throw new ConflictException('User already exists');
     }
 
     const passwordHash = await this.passwordService.hash(input.password);
     let user: User;
+
     try {
       user = await this.usersService.createUser({
         email,
@@ -94,6 +96,7 @@ export class AuthService {
       if (isUniqueViolation(error)) {
         throw new ConflictException('User already exists');
       }
+
       throw error;
     }
 
@@ -106,6 +109,7 @@ export class AuthService {
   ): Promise<AuthTokenResponse> {
     const email = normalizeEmail(input.email);
     const user = await this.usersService.getUserByEmail(email);
+
     if (!user?.password) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -114,6 +118,7 @@ export class AuthService {
       input.password,
       user.password,
     );
+
     if (!passwordMatches) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -130,6 +135,7 @@ export class AuthService {
     // statement that stamps last_seen_at (or a read-only fast path within the
     // debounce window) — no SELECT→check→UPDATE TOCTOU, no hot-path write.
     const tokenHash = this.sessionTokenService.hashToken(token);
+
     const session = await this.sessionsRepository.findActiveAndTouch(
       tokenHash,
       {
@@ -137,6 +143,7 @@ export class AuthService {
         touchDebounceMs: SESSION_TOUCH_DEBOUNCE_MS,
       },
     );
+
     if (!session?.userId?.trim()) {
       // Housekeeping, not authorization: an expired/idle row serves no one —
       // and a housekeeping failure must never turn into an auth 500 (the
@@ -151,6 +158,7 @@ export class AuthService {
           `Stale-session delete failed (cleanup cron will catch it): ${error instanceof Error ? error.message : String(error)}`,
         );
       }
+
       return undefined;
     }
 
@@ -159,6 +167,7 @@ export class AuthService {
 
   async getCurrentUser(userId: string): Promise<PublicUserResponse> {
     const user = await this.usersService.getUserById(userId);
+
     if (!user) {
       throw new UnauthorizedException();
     }
@@ -191,6 +200,7 @@ export class AuthService {
       currentSessionId,
       SESSION_IDLE_TTL_MS,
     );
+
     if (!current) {
       throw new UnauthorizedException();
     }
@@ -245,6 +255,7 @@ export class AuthService {
     }
 
     const token = this.sessionTokenService.generateToken();
+
     const session = await this.sessionsRepository.create({
       userId: user.id,
       tokenHash: this.sessionTokenService.hashToken(token),

@@ -86,11 +86,14 @@ describe('buildHybridSearchQuery', () => {
       /(?<!\w)fused AS \(/,
       /(?<!\w)ranked AS \(/,
     ];
+
     const positions = order.map((cte) => {
       const at = text.search(cte);
       expect(at, `missing CTE: ${String(cte)}`).toBeGreaterThanOrEqual(0);
+
       return at;
     });
+
     expect(positions).toStrictEqual([...positions].sort((a, b) => a - b));
   });
 
@@ -303,6 +306,7 @@ describe('buildHybridSearchQuery', () => {
 
   it('adds a range-preference bonus UNION ALL in doc_fused when rangePreference is configured (#198 D5)', () => {
     const rangePred = sql`d.first_message_at < ${'2026-09-01'} AND d.last_message_at >= ${'2026-08-01'}`;
+
     const { sql: text, params } = compile(
       config({ rangePreference: { predicate: rangePred, weight: 0.25 } }),
     );
@@ -324,6 +328,7 @@ describe('rrfScore — preferred range arithmetic (#198 D5)', () => {
 
   it('an in-range fts doc ~20 ranks below an out-of-range one overtakes it', () => {
     const outOfRange = rrfScore([{ weight: W.fts, rank: 1 }], K);
+
     const inRange =
       rrfScore([{ weight: W.fts, rank: 21 }], K) + W_PREF / (K + 1);
 
@@ -332,6 +337,7 @@ describe('rrfScore — preferred range arithmetic (#198 D5)', () => {
 
   it('an in-range fts doc ~100 ranks below an out-of-range one does not overtake it', () => {
     const outOfRange = rrfScore([{ weight: W.fts, rank: 1 }], K);
+
     const inRange =
       rrfScore([{ weight: W.fts, rank: 101 }], K) + W_PREF / (K + 1);
 

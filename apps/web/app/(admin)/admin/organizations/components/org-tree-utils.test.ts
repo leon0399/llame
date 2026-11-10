@@ -45,24 +45,28 @@ const org1 = unit({
   path: "org1",
   directRole: "owner",
 });
+
 const teamA = unit({
   id: "teamA",
   parentId: "org1",
   type: "team",
   path: "org1/teamA",
 });
+
 const deptB = unit({
   id: "deptB",
   parentId: "org1",
   type: "department",
   path: "org1/deptB",
 });
+
 const teamC = unit({
   id: "teamC",
   parentId: "deptB",
   type: "team",
   path: "org1/deptB/teamC",
 });
+
 const org2 = unit({ id: "org2", type: "organization", path: "org2" });
 const units = [org1, teamA, deptB, teamC, org2];
 

@@ -46,9 +46,11 @@ export function createRenderedContextItem(input: {
     form: input.form,
     body: input.body,
   });
+
   if (text === null) {
     throw new TypeError('Invalid server-authored context item producer');
   }
+
   return createContextItemPart({
     producer: input.producer,
     ...(input.form !== undefined && { form: input.form }),

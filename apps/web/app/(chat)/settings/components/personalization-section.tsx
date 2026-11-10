@@ -49,6 +49,7 @@ function PersonalizationCardHeader({ description }: { description: string }) {
 
 function CharacterCount({ value, cap }: { value: string; cap: number }) {
   const remaining = cap - value.length;
+
   // Silent until it could plausibly matter — a counter reading 12/8000 is noise
   // that trains you to ignore the one reading 40 left.
   if (remaining > cap * COUNTER_VISIBLE_WITHIN) return null;
@@ -133,6 +134,7 @@ function PersonalizationFieldControl({
       />
     );
   }
+
   return (
     <Textarea
       id={field.id}
@@ -517,8 +519,10 @@ function PersonalizationForm({
 
 export function PersonalizationSection() {
   const { data, isPending, draft, ...state } = usePersonalizationDraft();
+
   if (isPending || !data || !draft) {
     return <PersonalizationSkeleton />;
   }
+
   return <PersonalizationForm data={data} draft={draft} {...state} />;
 }

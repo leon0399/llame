@@ -4,12 +4,14 @@ import { resolve } from "node:path";
 import { expect, test } from "../../support/fixtures";
 
 const PDF_NAME = "paper.pdf";
+
 const PDF_BYTES = readFileSync(
   resolve(
     __dirname,
     "../../../apps/api/src/media/testing/pdf/fifteen-pages.pdf",
   ),
 );
+
 const ORIGINAL_URL = /\/api\/v1\/media\/[0-9a-f-]{36}\/original$/;
 
 // The native PDF viewer requires full Chromium rather than headless shell.
@@ -61,9 +63,11 @@ test("a PDF reaches a PDF-only model and opens its original after reload", async
   await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/);
 
   await page.reload();
+
   const originalLink = log.getByRole("link", {
     name: `Open ${PDF_NAME} in a new tab`,
   });
+
   await expect(originalLink).toBeVisible();
   await expect(originalLink).toHaveAttribute("href", ORIGINAL_URL);
   await expect(originalLink).toHaveAttribute("target", "_blank");
@@ -77,6 +81,7 @@ test("a PDF reaches a PDF-only model and opens its original after reload", async
   const originalUrl = await originalLink.evaluate(
     (anchor: HTMLAnchorElement) => anchor.href,
   );
+
   const original = await page.request.get(originalUrl);
   expect(original.headers()["content-type"]).toContain("application/pdf");
   expect(await original.body()).toEqual(PDF_BYTES);

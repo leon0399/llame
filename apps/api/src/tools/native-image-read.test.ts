@@ -45,7 +45,9 @@ function shown(result: unknown) {
   const { display, ...rest } = z
     .looseObject({ display: z.object({ thumbnail: z.string() }) })
     .parse(result);
+
   expect(display.thumbnail).toMatch(/^data:image\/webp;base64,/u);
+
   return rest;
 }
 
@@ -89,11 +91,13 @@ type FakeMedia = {
 function fakeMedia(): FakeMedia {
   const lookups: Array<string> = [];
   const objects = [mediaObject(OWNED, 'owner')];
+
   return {
     lookups,
     service: {
       findOwned: (owner, id) => {
         lookups.push(id);
+
         return Promise.resolve(
           objects.find(
             (entry) => entry.id === id && entry.ownerUserId === owner,
@@ -130,6 +134,7 @@ describe('native media reads', () => {
 
   function context(overrides: Partial<ToolContext> = {}): ToolContext {
     const db: Db = drizzle.mock({ schema });
+
     return {
       userId: 'owner',
       chatId: 'chat',
@@ -151,10 +156,13 @@ describe('native media reads', () => {
   /** The attempt's retained entry for `key`, its base64 summarized. */
   function held(key = 'call') {
     const entry = memory.get(key);
+
     if (entry === undefined || 'pages' in entry || 'exceeded' in entry) {
       return undefined;
     }
+
     const { model, ...image } = entry;
+
     return {
       ...image,
       model: {
@@ -209,6 +217,7 @@ describe('native media reads', () => {
   it('returns the same envelope and keeps the variant for a model without image input', async () => {
     const path = join(directory, 'shot.png');
     await writeFile(path, shot);
+
     const textOnly = context({
       media: createToolMediaStore(media.service, 'owner', memory),
     });
@@ -242,14 +251,18 @@ describe('native media reads', () => {
       height: upload.model.height,
     });
     expect(upload.model).toMatchObject({ width: 2000, height: 500 });
+
     const { display } = z
       .object({ display: z.object({ thumbnail: z.string() }) })
       .parse(result);
+
     const url = display.thumbnail;
     expect(url.length).toBeLessThanOrEqual(THUMBNAIL_MAX_CHARS);
+
     const thumbnail = await sharp(
       Buffer.from(url.split(',')[1] ?? '', 'base64'),
     ).metadata();
+
     expect(thumbnail).toMatchObject({ format: 'webp', width: 256, height: 64 });
     expect(media.lookups).toEqual([]);
   });
@@ -345,6 +358,7 @@ describe('native media reads', () => {
   it('decodes nothing for a read the policy denies', async () => {
     const path = join(directory, 'shot.png');
     await writeFile(path, shot);
+
     const result = await runTool(
       nativeReadTool,
       { path },
@@ -372,6 +386,7 @@ describe('native media reads', () => {
       const path = join(directory, 'paper.dat');
       await writeFile(path, bytes);
       const locator = scheme === 'file' ? `file://${path}` : path;
+
       const result = await runTool(
         nativeReadTool,
         { path: locator },
@@ -437,6 +452,7 @@ describe('native media reads', () => {
 
     it('keeps the Knowledge attribution and notice, exposes no host path or media locator, and leaves the file unchanged', async () => {
       const locator = `kb://${SPACE}/diagrams/flow.png`;
+
       const result = await runTool(
         nativeReadTool,
         { path: locator },
@@ -465,6 +481,7 @@ describe('native media reads', () => {
       const path = join(directory, SPACE, 'diagrams', 'paper.pdf');
       await writeFile(path, bytes);
       const locator = `kb://${SPACE}/diagrams/paper.pdf`;
+
       const result = await runTool(
         nativeReadTool,
         { path: locator },
@@ -545,6 +562,7 @@ describe('native media reads', () => {
       );
       await writeFile(join(skillDirectory, 'paper.pdf'), bytes);
       const locator = 'skill://documents/paper.pdf';
+
       const result = await runTool(
         nativeReadTool,
         { path: locator },
@@ -659,6 +677,7 @@ describe('native media reads', () => {
         mediaContext(),
         5,
       );
+
       const write = await runTool(
         nativeWriteTool,
         { path: `media://${OWNED}`, content: 'x' },
@@ -787,6 +806,7 @@ describe('native media reads', () => {
           byteSize: shot.length,
           readBytes: () => {
             abort.abort(reason);
+
             return Promise.resolve(shot);
           },
           signal: abort.signal,

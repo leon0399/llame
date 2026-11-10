@@ -42,6 +42,7 @@ import { SearchEmbedDispatchService } from './search-embed-dispatch.service';
  * to resolve without a path change.
  */
 import { EMBED_INPUT_VERSION } from './embed-input-version';
+
 export { EMBED_INPUT_VERSION };
 
 /**
@@ -84,11 +85,13 @@ export function resolveEmbeddingBackendConfig(
   providers: ReadonlyArray<ProviderConfig>,
 ): OpenAIEmbeddingBackendConfig {
   const provider = providers.find((p) => p.id === model.provider);
+
   if (!provider) {
     throw new Error(
       `embeddingModels[${model.id}].provider: "${model.provider}" is not defined in providers[] — cannot build the embed backend`,
     );
   }
+
   // Only the OpenAI wires back embeddings (config-loader's own boot check
   // above rejects any other reference): the check is an allowlist, not a
   // denial of the one type known when it was written — `anthropic-messages`
@@ -102,17 +105,23 @@ export function resolveEmbeddingBackendConfig(
       `embeddingModels[${model.id}].provider: "${model.provider}" does not support embeddings`,
     );
   }
+
   const config: OpenAIEmbeddingBackendConfig = {
     providerModelId: model.providerModelId,
     dimensions: model.dimensions,
     batchSize: model.batchSize,
   };
+
   if (provider.key !== null) config.credential = provider.key;
+
   if (provider.baseUrl !== null) config.baseUrl = provider.baseUrl;
+
   if (model.documentPrefix !== undefined) {
     config.documentPrefix = model.documentPrefix;
   }
+
   if (model.queryPrefix !== undefined) config.queryPrefix = model.queryPrefix;
+
   return config;
 }
 
@@ -165,6 +174,7 @@ async function persistEmbeddingSuccess(
   // pgvector's text-input literal is a JSON-shaped array, e.g. "[0.1,0.2]" —
   // bound as text with an explicit ::vector cast (no native JS→vector type).
   const vectorLiteral = JSON.stringify(result.embedding);
+
   const updated = await tx.execute(sql`
     UPDATE search_chat_documents
     SET embedding = ${vectorLiteral}::vector,
@@ -174,6 +184,7 @@ async function persistEmbeddingSuccess(
         embedding_fail_reason = NULL
     WHERE ${embedGuardWhere(result.documentId, result.contentHash, priorEmbedInputVersion)}
   `);
+
   return updated.count > 0;
 }
 
@@ -207,6 +218,7 @@ async function persistEmbeddingFailure(
         embedding_fail_reason = ${reason}
     WHERE ${embedGuardWhere(row.id, row.contentHash, row.priorEmbedInputVersion)}
   `);
+
   return updated.count > 0;
 }
 
@@ -248,6 +260,7 @@ async function reuseIdenticalEmbeddings(
 ): Promise<ReadonlySet<string>> {
   const destination = searchChatDocuments;
   const source = reuseSource;
+
   const reused = await tx
     .update(destination)
     .set({
@@ -271,6 +284,7 @@ async function reuseIdenticalEmbeddings(
       ),
     )
     .returning({ id: destination.id });
+
   return new Set(reused.map((row) => row.id));
 }
 
@@ -317,6 +331,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       }
     | undefined {
     const modelId = this.instanceConfig.config.search.chats.embeddingModelId;
+
     if (!modelId) {
       // Off-by-default: the whole layer is inert. No ensureQueue, no
       // consumer, no provider client — an instance that never declares a
@@ -329,16 +344,19 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     // configured instance on a profile that omits this group learns it here,
     // not by watching coverage never move.
     const concurrency = this.workerProfile.concurrencyFor('search-embed');
+
     if (concurrency === null) {
       this.logger.warn(
         `Embedding is configured (corpus model "${modelId}") but this process's active worker profile does not include 'search-embed' — no embed jobs are consumed here. Ensure some deployed process covers this group.`,
       );
+
       return undefined;
     }
 
     const model = this.instanceConfig.config.embeddingModels.find(
       (candidate) => candidate.id === modelId,
     );
+
     if (!model) {
       // Unreachable while config-loader keeps `search.chats.embeddingModelId`
       // validated against `embeddingModels[].id` — defense-in-depth, not a
@@ -346,19 +364,23 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       this.logger.error(
         `Embedding model "${modelId}" is not declared in embeddingModels[] — cannot start the embed consumer.`,
       );
+
       return undefined;
     }
+
     const backend = createOpenAIEmbeddingBackend(
       resolveEmbeddingBackendConfig(
         model,
         this.instanceConfig.config.providers,
       ),
     );
+
     return { model, backend, concurrency };
   }
 
   async onApplicationBootstrap(): Promise<void> {
     const resolved = this.resolveActiveEmbedModel();
+
     if (resolved === undefined) return;
     const { model, backend, concurrency } = resolved;
 
@@ -402,6 +424,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
         model,
         backend,
       );
+
       // Nothing outstanding, or a stuck batch that made zero progress
       // (design trap: an unthrottled retry loop) — stop without
       // re-enqueueing. The 5-minute sweep is the natural backoff for a
@@ -411,6 +434,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
         return;
       }
     }
+
     // Bounded by MAX_BATCHES with work still outstanding — page, don't load
     // (design D5). Best-effort + coalesced by the dispatch service's own
     // contract, so this is safe even if a job for this chat is already
@@ -431,19 +455,24 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     await this.tenantDb.runAs(ownerUserId, async (tx) => {
       for (const result of results) {
         const row = byId.get(result.documentId);
+
         if (!row) continue; // defensive: embedDocuments only ever returns ids it was sent
+
         const wrote = await persistEmbeddingSuccess(
           tx,
           result,
           row.priorEmbedInputVersion,
           { modelKey: model.id, inputVersion: EMBED_INPUT_VERSION },
         );
+
         if (wrote) written += 1;
       }
+
       if (written > 0) {
         await ensureBindingLedgerRow(tx, model);
       }
     });
+
     return written;
   }
 
@@ -474,9 +503,11 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     this.logger.warn(
       `Embed batch for chat ${chatId}: backend returned ${results.length}/${outstanding.length} vector(s) and none persisted — leaving the rest outstanding for the next sweep`,
     );
+
     const bound = await this.tenantDb.runAsPublic((tx) =>
       findEmbeddingBinding(tx, model.id),
     );
+
     if (!bound) {
       throw new EmbeddingBackendError(
         `embedding backend returned ${results.length} of ${outstanding.length} vectors on the first batch for model "${model.id}"; no vector persisted, so no backlog sweep can recover this chat`,
@@ -503,18 +534,23 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     | undefined
   > {
     const batchSize = model.batchSize;
+
     const outstanding = await this.tenantDb.runAs(chatRef.ownerUserId, (tx) =>
       this.queryOutstandingBatch(tx, chatRef, model.id, batchSize),
     );
+
     if (outstanding.length === 0) return undefined;
     const hasMore = outstanding.length === batchSize;
+
     const reused = await this.reuseIdenticalInput(
       chatRef.ownerUserId,
       outstanding,
       model,
     );
+
     const pending = outstanding.filter((row) => !reused.has(row.id));
     const byId = new Map(pending.map((row) => [row.id, row]));
+
     // Design D11: embed `content` verbatim — role labels, original casing,
     // never `normalized_content`.
     const documents: Array<EmbeddingDocumentInput> = pending.map((row) => ({
@@ -522,6 +558,7 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       contentHash: row.contentHash,
       content: row.content,
     }));
+
     return { pending, reusedCount: reused.size, hasMore, byId, documents };
   }
 
@@ -540,9 +577,11 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
         outstanding.map((row) => row.id),
         { modelKey: model.id, inputVersion: EMBED_INPUT_VERSION },
       );
+
       if (reused.size > 0) {
         await ensureBindingLedgerRow(tx, model);
       }
+
       return reused;
     });
   }
@@ -563,16 +602,20 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
   ): Promise<{ processedCount: number; hasMore: boolean }> {
     const chatRef: ChatRef = { chatId, ownerUserId };
     const loaded = await this.loadOutstandingBatch(chatRef, model);
+
     if (loaded === undefined) {
       return { processedCount: 0, hasMore: false };
     }
+
     const { pending, reusedCount, hasMore, byId, documents } = loaded;
+
     if (pending.length === 0) {
       // Every outstanding row took an existing vector: no provider call.
       return { processedCount: reusedCount, hasMore };
     }
 
     let results: Array<EmbeddingResult>;
+
     try {
       // Trap 6: exactly one persist-batch per embedDocuments call. The
       // adapter's own internal chunking already splits by the model's
@@ -595,10 +638,13 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
       byId,
       model,
     );
+
     if (written === 0) {
       await this.assertRecoverableZeroWrite(chatId, model, results, pending);
+
       return { processedCount: 0, hasMore: false };
     }
+
     return { processedCount: reusedCount + written, hasMore };
   }
 
@@ -614,11 +660,13 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
     const { chatId, ownerUserId } = chatRef;
     const { outstanding, modelId, hasMore } = batch;
     const classified = classifyEmbeddingFailure(error);
+
     if (!classified.terminal) {
       // Transient: rethrow so the queue's own retry policy (retryLimit 5,
       // exponential backoff) governs — no progress recorded this pass.
       throw classified;
     }
+
     // Terminal (D16): tombstone every outstanding document in THIS batch
     // with the same failure reason — one call issued the whole batch, so
     // one terminal classification (e.g. a dimension misconfiguration or an
@@ -632,15 +680,19 @@ export class SearchEmbedWorker implements OnApplicationBootstrap {
           { modelKey: modelId, inputVersion: EMBED_INPUT_VERSION },
           classified.message,
         );
+
         if (wrote) tombstoned += 1;
       }
     });
+
     if (tombstoned === 0) {
       this.logger.warn(
         `Embed batch for chat ${chatId} tombstoned nothing after a terminal failure — every row was superseded between read and write`,
       );
+
       return { processedCount: 0, hasMore: false };
     }
+
     return { processedCount: tombstoned, hasMore };
   }
 

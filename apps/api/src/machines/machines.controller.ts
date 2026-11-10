@@ -46,6 +46,7 @@ export class MachinesController {
   async list(@CurrentUser() userId: string): Promise<Array<MachineResponse>> {
     if (!this.connector.enabled()) throw new NotFoundException();
     const views = await this.machines.list(userId);
+
     return views.map(toMachineResponse);
   }
 }

@@ -22,6 +22,7 @@ describe('a typed git refusal', () => {
       type: 'invalid_input',
       message: 'A git path must be absolute.',
     });
+
     for (const type of ['not_a_repository', 'timed_out', 'git_failed']) {
       expect(
         readGitWorktreeRemoveResult({
@@ -152,6 +153,7 @@ describe('readGitLocateResult', () => {
       gitEntry: 'machine://devl/srv/app/.git',
       kind: 'directory',
     });
+
     for (const type of [
       'no_repository_in_root',
       'root_missing',
@@ -229,6 +231,7 @@ describe('readGitStateResult', () => {
       commits: [],
       remotes: [],
     };
+
     expect(readGitStateResult(quiet, MACHINE)).toEqual(quiet);
   });
 
@@ -243,6 +246,7 @@ describe('readGitStateResult', () => {
         updatedAt: null,
       },
     };
+
     expect(readGitStateResult(gone, MACHINE)).toEqual(gone);
   });
 

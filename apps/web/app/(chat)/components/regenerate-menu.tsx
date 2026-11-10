@@ -40,9 +40,11 @@ function composerRegenerateRequest(
   chatId: string,
 ): FollowUpRunRequest | null {
   const { selectedModel, selectedEffort, getPermissionMode } = composer;
+
   // Regenerate always names a model; until the catalog resolved one there is
   // nothing to submit.
   if (selectedModel === undefined) return null;
+
   return {
     action: "regenerate",
     modelId: selectedModel,

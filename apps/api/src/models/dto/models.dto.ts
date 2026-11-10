@@ -163,16 +163,23 @@ export function toAvailableModelResponse(
     // Copied for the same singleton reason as `tags` and `reasoning` below.
     input: [...model.input],
   };
+
   if (model.name !== undefined) response.name = model.name;
+
   if (model.description !== undefined) response.description = model.description;
+
   if (model.tags !== undefined) response.tags = [...model.tags];
+
   if (model.icon !== undefined) response.icon = model.icon;
+
   if (model.pricingUsdPer1M !== undefined) {
     response.pricingUsdPer1M = model.pricingUsdPer1M;
   }
+
   if (model.knowledgeCutoff !== undefined) {
     response.knowledgeCutoff = model.knowledgeCutoff;
   }
+
   // Copied, like `tags` above: the catalog is a process-lifetime singleton, so
   // handing a response object the config's own array would let a later mutation
   // reach every subsequent caller.
@@ -184,9 +191,14 @@ export function toAvailableModelResponse(
       })),
     };
   }
+
   if (model.website !== undefined) response.website = model.website;
+
   if (model.apiDocs !== undefined) response.apiDocs = model.apiDocs;
+
   if (model.modelPage !== undefined) response.modelPage = model.modelPage;
+
   if (model.releasedAt !== undefined) response.releasedAt = model.releasedAt;
+
   return response;
 }

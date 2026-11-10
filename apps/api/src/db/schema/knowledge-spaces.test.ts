@@ -5,6 +5,7 @@ import { knowledgeSpaces } from './index';
 describe('knowledge_spaces schema', () => {
   it('stores an opaque stable ID, label, and timestamps without owner uniqueness', () => {
     const config = getTableConfig(knowledgeSpaces);
+
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column]),
     );
@@ -40,7 +41,9 @@ describe('knowledge_spaces schema', () => {
       const clauses = [policy.using, policy.withCheck].flatMap((clause) =>
         clause === undefined ? [] : [JSON.stringify(clause)],
       );
+
       expect(clauses.length).toBeGreaterThan(0);
+
       for (const clause of clauses) {
         expect(clause).toContain('app.current_user_id');
       }

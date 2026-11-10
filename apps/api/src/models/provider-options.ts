@@ -41,7 +41,9 @@ function isJsonValue(value: unknown): value is JSONValue {
   ) {
     return true;
   }
+
   if (Array.isArray(value)) return value.every(isJsonValue);
+
   return isRecord(value) && Object.values(value).every(isJsonValue);
 }
 
@@ -88,10 +90,13 @@ export function composeProviderOptions(input: {
     input.effort,
     input.invariants,
   ];
+
   const composed: ProviderOptionRecord = {};
+
   for (const layer of layers) {
     if (layer !== undefined) mergeInto(composed, layer);
   }
+
   return Object.keys(composed).length === 0 ? undefined : composed;
 }
 
@@ -123,15 +128,19 @@ function mergeInto(
       delete target[key];
       continue;
     }
+
     const existing: JSONValue | undefined = Object.hasOwn(target, key)
       ? target[key]
       : undefined;
+
     if (isOptionObject(value)) {
       const nested = isOptionObject(existing) ? existing : {};
       mergeInto(nested, value);
+
       if (nested !== existing) defineOption(target, key, nested);
       continue;
     }
+
     defineOption(target, key, structuredClone(value));
   }
 }
@@ -173,8 +182,11 @@ function stripReservedPaths(
   ) {
     return operator;
   }
+
   const stripped = structuredClone(operator);
+
   for (const path of reservedPaths) deleteAtPath(stripped, path.split('.'));
+
   return stripped;
 }
 
@@ -187,10 +199,14 @@ function deleteAtPath(
   segments: ReadonlyArray<string>,
 ): void {
   const [segment, ...rest] = segments;
+
   if (rest.length === 0) {
     delete record[segment];
+
     return;
   }
+
   const nested = record[segment];
+
   if (isOptionObject(nested)) deleteAtPath(nested, rest);
 }

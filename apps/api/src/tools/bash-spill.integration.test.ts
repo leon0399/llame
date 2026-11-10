@@ -22,6 +22,7 @@ import { spillBashResult } from './bash-spill';
 import { type ToolContext, type ToolResult } from './types';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error('TEST_DATABASE_URL is required for bash spill tests');
 }
@@ -62,6 +63,7 @@ describe('bash stream spill', () => {
     const chat = await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: owner, title: 'Bash' }),
     );
+
     return {
       configuredCredentials: [],
       userId: owner,
@@ -93,6 +95,7 @@ describe('bash stream spill', () => {
   function contentOf(result: ToolResult): string {
     if (result.status !== 'success' || !isString(result['content']))
       throw new Error(`Expected a read success, got ${JSON.stringify(result)}`);
+
     return result['content'];
   }
 
@@ -102,6 +105,7 @@ describe('bash stream spill', () => {
     const result = await spillBashResult(toolContext, successful(log));
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(result.artifact).toBe('artifact://bash-1');
     // The recorded result holds the preview and the locator, not the stream.
@@ -113,30 +117,38 @@ describe('bash stream spill', () => {
     const first = contentOf(
       await read(toolContext, 'artifact://bash-1/stdout:1-3'),
     );
+
     expect(first).toContain('1: line 00000');
     expect(first).toContain('3: line 00002');
+
     const last = contentOf(
       await read(toolContext, 'artifact://bash-1/stdout:30000'),
     );
+
     expect(last).toContain('line 29999');
   });
 
   it('numbers a one-line JSON stdout in pieces and reads the pieces', async () => {
     const toolContext = await context();
+
     const json = JSON.stringify({
       items: Array.from({ length: 4000 }, (_, index) => index),
     });
+
     const result = await spillBashResult(toolContext, successful(json));
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     // One source line of about 20,000 units counts as three artifact lines.
     expect(result.truncationNotice).toBe(
       'full result: artifact://bash-1/stdout (3 lines)',
     );
+
     const first = contentOf(
       await read(toolContext, 'artifact://bash-1/stdout:1-1'),
     );
+
     expect(first).toContain('1: {"items":[');
     // The first piece is the 8,000-unit prefix of the one source line.
     const piece = first.slice(first.indexOf(': ') + 2).trimEnd();

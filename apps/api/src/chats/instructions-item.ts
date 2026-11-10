@@ -74,6 +74,7 @@ export function isInstructionsPayload(
   if (!isExactRecord(value, ['files', 'denied'])) return false;
   const files = value['files'];
   const denied = value['denied'];
+
   return (
     Array.isArray(files) &&
     // A bundle exists only because a trigger loaded a file; an empty one would
@@ -92,6 +93,7 @@ function isInstructionsPayloadFile(
     value !== null &&
     typeof value === 'object' &&
     Object.hasOwn(value, 'importedBy');
+
   if (
     !isExactRecord(value, [
       'path',
@@ -102,6 +104,7 @@ function isInstructionsPayloadFile(
   ) {
     return false;
   }
+
   // SAFETY: `isExactRecord` above confirmed `value` is an object with exactly
   // the accepted file-entry keys; each field is validated individually below.
   return (
@@ -123,6 +126,7 @@ export function createInstructionsItem(input: {
 }): AuthoredContextItemPart {
   const files: Array<InstructionsPayloadFile> = input.files.map((file) => {
     const importedBy = file.importedBy;
+
     return {
       path: file.path,
       canonicalPath: file.canonicalPath,
@@ -130,18 +134,23 @@ export function createInstructionsItem(input: {
       ...(importedBy !== undefined && { importedBy }),
     };
   });
+
   const loadedPaths = new Set(files.map((file) => file.path));
+
   const denied = [...new Set(input.denied)].filter(
     (path) => !loadedPaths.has(path),
   );
+
   const payload: InstructionsPayload = {
     files,
     denied,
   };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isInstructionsPayload(payload)) {
     throw new TypeError('Invalid server-authored instructions metadata');
   }
+
   return createRenderedContextItem({
     producer: 'instructions',
     form: 'notice',
@@ -212,14 +221,18 @@ function renderInstructions(
  */
 export function instructionsSeenPaths(parts: Iterable<unknown>): Set<string> {
   const seen = new Set<string>();
+
   for (const part of parts) {
     if (!isContextItemPart(part) || part.data.producer !== 'instructions') {
       continue;
     }
+
     if (!isInstructionsPayload(part.data.payload)) continue;
+
     for (const file of part.data.payload.files) {
       seen.add(file.canonicalPath);
     }
   }
+
   return seen;
 }

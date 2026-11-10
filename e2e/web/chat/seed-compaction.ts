@@ -22,6 +22,7 @@ export type SeedCompactionUsage = {
  */
 function usageColumnSql(usage: SeedCompactionUsage | undefined): string {
   if (!usage) return "NULL";
+
   return `'${escapeSqlLiteral(
     JSON.stringify({
       inputTokens: usage.inputTokens,

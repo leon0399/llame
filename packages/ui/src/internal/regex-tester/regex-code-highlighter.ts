@@ -7,9 +7,11 @@ import {
 import { REGEX_TOKEN_ATTRIBUTE } from "#regex-tester/token";
 
 export type CodeHighlighterPlugin = NonNullable<PluginConfig["code"]>;
+
 type HighlightResult = NonNullable<
   ReturnType<CodeHighlighterPlugin["highlight"]>
 >;
+
 type ThemedToken = HighlightResult["tokens"][number][number];
 
 const underlineStyle = {
@@ -76,6 +78,7 @@ const decorateLine = (
       if (candidate.start > pos && candidate.start < end) {
         cuts.add(candidate.start);
       }
+
       if (candidate.end > pos && candidate.end < end) {
         cuts.add(candidate.end);
       }
@@ -86,6 +89,7 @@ const decorateLine = (
     for (let i = 0; i < bounds.length - 1; i += 1) {
       const [from, to] = [bounds[i], bounds[i + 1]];
       const content = token.content.slice(from - pos, to - pos);
+
       const candidate = candidates.find(
         (entry) => from >= entry.start && to <= entry.end,
       );
@@ -123,6 +127,7 @@ const decorateResult = (result: HighlightResult): HighlightResult => {
     }
 
     changed = true;
+
     return decorateLine(line, candidates);
   });
 

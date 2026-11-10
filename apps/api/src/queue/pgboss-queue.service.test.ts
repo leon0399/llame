@@ -38,6 +38,7 @@ function makeQueueService() {
   const unschedule = vi.fn().mockResolvedValue(undefined);
   const cancel = vi.fn().mockResolvedValue(undefined);
   const getJobById = vi.fn().mockResolvedValue(null);
+
   const boss = {
     createQueue,
     updateQueue,
@@ -48,11 +49,13 @@ function makeQueueService() {
     cancel,
     getJobById,
   };
+
   const pgBoss = { boss };
   // SAFETY: PgBossQueueService only reads `boss` from this double, and every
   // method it calls is represented by a resolving spy above.
   // eslint-disable-next-line typescript/no-unsafe-type-assertion -- the test double implements the service's one consumed property
   const service = new PgBossQueueService(pgBoss as never);
+
   return {
     service,
     createQueue,
@@ -111,7 +114,9 @@ type ProviderClass = abstract new (...args: Array<never>) => object;
  */
 function selfParamTypesOf(target: ProviderClass): Array<SelfParamType> {
   const metadata: unknown = Reflect.getMetadata('self:paramtypes', target);
+
   if (!Array.isArray(metadata)) return [];
+
   return metadata.filter(isSelfParamType);
 }
 
@@ -139,6 +144,7 @@ describe('PgBossQueueService dependency injection', () => {
 describe('PgBossQueueService queue operations', () => {
   it('creates dead-letter and main queues with the declared policy', async () => {
     const { service, createQueue, updateQueue } = makeQueueService();
+
     const queue = defineQueue<{ value: string }>({
       name: 'work',
       options: {
@@ -189,6 +195,7 @@ describe('PgBossQueueService queue operations', () => {
 
   it('applies defaults without provisioning a dead-letter queue when disabled', async () => {
     const { service, createQueue, updateQueue } = makeQueueService();
+
     const queue = defineQueue<{ value: string }>({
       name: 'plain',
       options: { deadLetter: false },
@@ -266,6 +273,7 @@ describe('PgBossQueueService queue operations', () => {
 
   it('consumes parsed jobs with metadata and defaults to one local worker', async () => {
     const { service, work } = makeQueueService();
+
     // eslint-disable-next-line anti-slop/no-unknown-parameters -- this parser intentionally models the queue's unknown cross-process payload boundary
     const parse = vi.fn((data: unknown) => {
       if (
@@ -276,9 +284,12 @@ describe('PgBossQueueService queue operations', () => {
       ) {
         throw new TypeError('invalid test payload');
       }
+
       return { value: data.value };
     });
+
     const handler = vi.fn().mockResolvedValue(undefined);
+
     const queue = defineQueue<{ value: string }>({
       name: 'parsed',
       parse,
@@ -304,10 +315,12 @@ describe('PgBossQueueService queue operations', () => {
     );
     // eslint-disable-next-line typescript/no-unsafe-assignment -- Vitest's untyped mock call tuple is narrowed by the guard below
     const firstCallback = work.mock.calls[0]?.[2];
+
     // eslint-disable-next-line anti-slop/no-runtime-typeof -- narrow the mocked callback before invoking it
     if (typeof firstCallback !== 'function') {
       throw new Error('expected pg-boss work callback');
     }
+
     // eslint-disable-next-line typescript/no-unsafe-call -- the preceding guard narrows the mocked callback
     await firstCallback([
       { ...JOB_METADATA, id: 'job-1', data: { value: 'first' } },
@@ -343,10 +356,12 @@ describe('PgBossQueueService queue operations', () => {
     );
     // eslint-disable-next-line typescript/no-unsafe-assignment -- Vitest's untyped mock call tuple is narrowed by the guard below
     const secondCallback = work.mock.calls[1]?.[2];
+
     // eslint-disable-next-line anti-slop/no-runtime-typeof -- narrow the mocked callback before invoking it
     if (typeof secondCallback !== 'function') {
       throw new Error('expected pg-boss work callback');
     }
+
     // eslint-disable-next-line typescript/no-unsafe-call -- the preceding guard narrows the mocked callback
     await secondCallback([
       { ...JOB_METADATA, id: 'job-3', data: { value: 'plain' } },

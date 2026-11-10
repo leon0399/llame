@@ -39,13 +39,17 @@ import {
  * thumbnail renders above the bubble (`MessageAttachments`). */
 export function isVisibleSegment(segment: GroupedAssistantPart): boolean {
   if (segment.kind === "reasoning") return segment.text.trim() !== "";
+
   if (segment.part.type === "file") return false;
+
   if (segment.part.type === "data-run-delivered") return false;
+
   if (segment.part.type === "data-context") {
     return (
       isInstructionsPart(segment.part) || isPromptImportsPart(segment.part)
     );
   }
+
   return true;
 }
 

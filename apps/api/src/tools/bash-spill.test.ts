@@ -58,6 +58,7 @@ let insertWrites: ArtifactWrites;
 
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -140,6 +141,7 @@ describe('the bash stream preview', () => {
     );
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(String(result.stdout)).toContain('[lines ');
     expect(result.truncationNotice).toContain(
@@ -215,6 +217,7 @@ describe('the bash stream preview', () => {
     const result = await spillBashResult(testContext(), success(longLog()));
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     const lines = String(result.stdout).split('\n');
     expect(lines).toHaveLength(40 + 1 + 120);
@@ -234,6 +237,7 @@ describe('the bash stream preview', () => {
       testContext(),
       success('a'.repeat(20_000)),
     );
+
     const text = textOf(result);
 
     expect(text).not.toContain('[output cut at the bound]');
@@ -248,6 +252,7 @@ describe('the bash stream preview', () => {
       testContext(),
       success('a'.repeat(20_000), { truncated: true }),
     );
+
     const lines = textOf(result).split('\n');
 
     expect(lines).toContain('[output cut at the bound]');
@@ -308,6 +313,7 @@ describe('the bash artifact parts', () => {
     const json = JSON.stringify({
       items: Array.from({ length: 4000 }, (_, index) => index),
     });
+
     await spillBashResult(testContext(), success(json));
 
     const part = writtenParts()[0];
@@ -322,6 +328,7 @@ describe('the bash artifact parts', () => {
     // 400 lines exceed the 16,000-unit inline budget with 40 head and 120 tail
     // lines, and stay small enough that the CI runner renders them quickly.
     const log = longLog(400);
+
     const result = await spillBashResult(
       testContext(),
       success('', {
@@ -332,6 +339,7 @@ describe('the bash artifact parts', () => {
     );
 
     expect(result.status).toBe('error');
+
     if (result.status !== 'error') return;
     const lines = result.message.split('\n');
     expect(lines[0]).toBe('exit 1, 0.0 s');
@@ -361,6 +369,7 @@ describe('the bash artifact parts', () => {
     });
 
     expect(result.status).toBe('error');
+
     if (result.status !== 'error') return;
     expect(result.type).toBe('timed_out');
     expect(result.message.split('\n')[0]).toBe('timed out, 30.0 s');
@@ -377,6 +386,7 @@ describe('the bash spill boundaries', () => {
       stdout: 'a'.repeat(9000),
       stderr: '',
     });
+
     expect(result.streams.stdout).toBe('a'.repeat(9000));
     expect(result.artifact).toBeUndefined();
   });
@@ -396,6 +406,7 @@ describe('the bash spill boundaries', () => {
       stdout: `${'a'.repeat(8000)}\n${'a'.repeat(8000)}`,
       stderr: '',
     });
+
     expect(result.streams.stdout).toContain('[lines ');
     expect(result.artifact).toBe('artifact://bash-5');
   });
@@ -428,6 +439,7 @@ describe('the bash spill boundaries', () => {
       testContext({ abortSignal: AbortSignal.abort() }),
       success('a'.repeat(20_000)),
     );
+
     expect(insertWrites.insertParts).not.toHaveBeenCalled();
     expect(result).not.toHaveProperty('artifact');
   });
@@ -437,10 +449,12 @@ describe('the bash spill boundaries', () => {
       () => new Promise<void>(() => {}),
     );
     const controller = new AbortController();
+
     const pending = spillBashResult(
       testContext({ abortSignal: controller.signal }),
       success('a'.repeat(20_000)),
     );
+
     setTimeout(() => controller.abort(), 0);
     const result = await pending;
     expect(result).not.toHaveProperty('artifact');
@@ -457,6 +471,7 @@ describe('the bash spill boundaries', () => {
       }),
       success('a'.repeat(20_000)),
     );
+
     expect(result).toHaveProperty('artifact', 'artifact://bash-5');
   });
 });
@@ -472,6 +487,7 @@ describe('the bash spill failure paths', () => {
         truncated: true,
       }),
     );
+
     const timeout = await spillBashResult(testContext(), {
       status: 'error',
       type: 'timed_out',
@@ -484,6 +500,7 @@ describe('the bash spill failure paths', () => {
 
     for (const result of [failure, timeout]) {
       expect(result.status).toBe('error');
+
       if (result.status !== 'error') return;
       const lines = result.message.split('\n');
       expect(lines).toContain('[output cut at the bound]');
@@ -526,12 +543,14 @@ describe('the bash spill failure paths', () => {
     insertWrites.insertParts.mockRejectedValue(
       new Error('the database refused the write'),
     );
+
     const result = await spillBashResult(
       testContext(),
       success('a'.repeat(20_000)),
     );
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     expect(result.artifact).toBeUndefined();
     expect(result.truncationNotice).toBeUndefined();
@@ -546,6 +565,7 @@ describe('the bash spill failure paths', () => {
     const result = await spillBashResult(testContext(), success(longLog()));
 
     expect(result.status).toBe('success');
+
     if (result.status !== 'success') return;
     const lines = String(result.stdout).split('\n');
     expect(lines).toHaveLength(40 + 1 + 120);
@@ -595,6 +615,7 @@ describe('the bash tool spill on the host and over ssh', () => {
       createdAt: new Date(),
     });
     vi.stubEnv('BASH_WORKING_DIRECTORY', tmpdir());
+
     try {
       const result = await runTool(
         bashTool,
@@ -616,6 +637,7 @@ describe('the bash tool spill on the host and over ssh', () => {
 
   it('spills an ssh:// command whose stderr does not fit', async () => {
     const stderr = 'e'.repeat(20_000);
+
     const client: SshClient = {
       resolve: () =>
         Promise.resolve({
@@ -627,6 +649,7 @@ describe('the bash tool spill on the host and over ssh', () => {
           /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
             String(request.input),
           )?.[1] ?? '';
+
         return Promise.resolve({
           outcome: 'ended',
           stdout: Buffer.from(`${nonce}:start\n`),
@@ -640,6 +663,7 @@ describe('the bash tool spill on the host and over ssh', () => {
       sshConfigText: () => undefined,
       dispose: () => undefined,
     };
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
@@ -671,6 +695,7 @@ describe('the bash tool spill on the host and over ssh', () => {
       type: 'command_failed',
       artifact: 'artifact://bash-5',
     });
+
     if (result.status !== 'error') return;
     expect(result.message).toContain(
       '[lines 1-2 omitted; read artifact://bash-5/stderr:1-2]',
@@ -688,6 +713,7 @@ describe('the bash tool spill on the host and over ssh', () => {
 describe('the Machine bash spill', () => {
   it('keeps a failed Machine command’s tail and stores the whole stderr', async () => {
     const stderr = 'e'.repeat(32_000);
+
     const peer = createProtocolPeer({
       roots: ['/srv/app'],
       answers: {
@@ -703,6 +729,7 @@ describe('the Machine bash spill', () => {
         },
       },
     });
+
     const connector = new MachineConnector({
       machines: {
         ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
@@ -712,6 +739,7 @@ describe('the Machine bash spill', () => {
       transportFactory: peer.factory,
       handshakeTimeoutMs: 2000,
     });
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
@@ -729,6 +757,7 @@ describe('the Machine bash spill', () => {
     );
 
     expect(result.status).toBe('error');
+
     if (result.status !== 'error') return;
     expect(result.type).toBe('command_failed');
     const lines = result.message.split('\n');
@@ -759,6 +788,7 @@ describe('the Machine bash spill', () => {
         },
       },
     });
+
     const connector = new MachineConnector({
       machines: {
         ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
@@ -768,6 +798,7 @@ describe('the Machine bash spill', () => {
       transportFactory: peer.factory,
       handshakeTimeoutMs: 2000,
     });
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );

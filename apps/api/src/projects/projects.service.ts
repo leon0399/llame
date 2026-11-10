@@ -98,15 +98,19 @@ export class ProjectsService {
         projectId,
         ownerUserId,
       );
+
       if (project === undefined) {
         throw new NotFoundException(`Project ${projectId} not found`);
       }
+
       const links = new ProjectLinksRepository(tx);
       const rows = await links.listLinks(ownerUserId, project.id);
+
       const defaults = await links.listDefaults(
         ownerUserId,
         rows.map((row) => row.id),
       );
+
       return rows.map((link) => ({
         link,
         defaults: defaults.filter((row) => row.projectRepositoryId === link.id),
@@ -134,6 +138,7 @@ export class ProjectsService {
       if (pgErrorCode(error) === '23505') {
         throw new ConflictException(LINK_CONFLICT);
       }
+
       throw error;
     }
   }
@@ -148,23 +153,29 @@ export class ProjectsService {
       projectId,
       ownerUserId,
     );
+
     if (project === undefined) {
       throw new NotFoundException(`Project ${projectId} not found`);
     }
+
     assertNotArchived(project);
     const links = new ProjectLinksRepository(tx);
+
     const repository = await links.findRepository(
       ownerUserId,
       input.repositoryId,
     );
+
     if (repository === undefined) {
       throw new NotFoundException(`Repository ${input.repositoryId} not found`);
     }
+
     // The partial unique index admits one primary per project, so the previous
     // primary is cleared in the same transaction.
     if (input.isPrimary === true) {
       await links.clearPrimary(ownerUserId, project.id);
     }
+
     const created = await links.createLink({
       ownerUserId,
       projectId: project.id,
@@ -173,7 +184,9 @@ export class ProjectsService {
       isPrimary: input.isPrimary ?? false,
       isolation: input.isolation ?? 'inherit',
     });
+
     if (created === undefined) throw new ConflictException(LINK_CONFLICT);
+
     return created;
   }
 
@@ -187,16 +200,19 @@ export class ProjectsService {
       const updated = await this.tenantDb.runAs(ownerUserId, (tx) =>
         this.changeLink(tx, ownerUserId, { projectId, repositoryId }, patch),
       );
+
       if (updated === undefined) {
         throw new NotFoundException(
           `The project does not link repository ${repositoryId}`,
         );
       }
+
       return updated;
     } catch (error) {
       if (pgErrorCode(error) === '23505') {
         throw new ConflictException(LINK_CONFLICT);
       }
+
       throw error;
     }
   }
@@ -217,25 +233,31 @@ export class ProjectsService {
     link: ProjectRepository;
   }> {
     const { projectId, repositoryId } = target;
+
     const project = await new ProjectsRepository(tx).findById(
       projectId,
       ownerUserId,
     );
+
     if (project === undefined) {
       throw new NotFoundException(`Project ${projectId} not found`);
     }
+
     assertNotArchived(project);
     const links = new ProjectLinksRepository(tx);
+
     const link = await links.findLinkByRepository(
       ownerUserId,
       project.id,
       repositoryId,
     );
+
     if (link === undefined) {
       throw new NotFoundException(
         `The project does not link repository ${repositoryId}`,
       );
     }
+
     return { project, links, link };
   }
 
@@ -250,9 +272,11 @@ export class ProjectsService {
       ownerUserId,
       target,
     );
+
     if (patch.isPrimary === true) {
       await links.clearPrimary(ownerUserId, project.id);
     }
+
     return links.updateLink(ownerUserId, link.id, patch);
   }
 
@@ -268,6 +292,7 @@ export class ProjectsService {
         projectId,
         repositoryId,
       });
+
       await links.deleteLink(ownerUserId, project.id, link.id);
     });
   }
@@ -287,9 +312,11 @@ export class ProjectsService {
         projectId,
         ownerUserId,
       );
+
       if (project === undefined) {
         throw new NotFoundException(`Project ${projectId} not found`);
       }
+
       return resolveStartLocation(
         new ProjectLinksRepository(tx),
         ownerUserId,
@@ -314,18 +341,22 @@ export class ProjectsService {
     return this.tenantDb.runAs(ownerUserId, async (tx) => {
       const links = new ProjectLinksRepository(tx);
       const link = await links.findLinkById(ownerUserId, linkId);
+
       if (link === undefined) {
         throw new NotFoundException(
           `Project repository link ${linkId} not found`,
         );
       }
+
       const checkout = await links.findCheckout(ownerUserId, checkoutId);
       const problem = defaultTargetProblem(checkout, link, executorId);
+
       if (problem !== null) {
         throw new UnprocessableEntityException(
           `Checkout ${checkoutId} cannot be the default of link ${linkId} on executor ${executorId}: ${problem}.`,
         );
       }
+
       return links.upsertDefault({
         ownerUserId,
         projectRepositoryId: link.id,

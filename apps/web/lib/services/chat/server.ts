@@ -52,9 +52,11 @@ async function readSessionCookieOrRedirect(
 ): Promise<string> {
   const cookieStore = await deps.cookies();
   const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
+
   if (!sessionCookie) {
     deps.redirect(loginRedirectPath(request.chatId, request.phase));
   }
+
   return sessionCookie.value;
 }
 
@@ -68,9 +70,11 @@ function handleHistoryFetchError(
   if (status === 401) {
     deps.redirect(loginRedirectPath(request.chatId, request.phase));
   }
+
   if (status === 400) {
     deps.notFound();
   }
+
   if (status === 404) {
     if (request.allowMissing) return null;
     deps.notFound();
@@ -110,6 +114,7 @@ async function fetchChatHistory(
   );
 
   const controller = new AbortController();
+
   const timeoutId = setTimeout(
     () => controller.abort(),
     CHAT_HISTORY_FETCH_TIMEOUT_MS,

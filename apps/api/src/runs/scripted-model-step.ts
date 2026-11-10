@@ -93,12 +93,16 @@ function appendSpan(
   part: ScriptedReasoning | ScriptedText,
 ): void {
   const metadata = part.providerMetadata;
+
   const withMetadata =
     metadata === undefined ? {} : { providerMetadata: metadata };
+
   const text = part.text ?? '';
+
   switch (part.type) {
     case 'reasoning':
       parts.push({ type: 'reasoning-start', id: part.id, ...withMetadata });
+
       if (text.length > 0) {
         parts.push({
           type: 'reasoning-delta',
@@ -107,12 +111,15 @@ function appendSpan(
           ...withMetadata,
         });
       }
+
       if (part.open !== true) {
         parts.push({ type: 'reasoning-end', id: part.id, ...withMetadata });
       }
+
       return;
     case 'text':
       parts.push({ type: 'text-start', id: part.id, ...withMetadata });
+
       if (text.length > 0) {
         parts.push({
           type: 'text-delta',
@@ -121,6 +128,7 @@ function appendSpan(
           ...withMetadata,
         });
       }
+
       parts.push({ type: 'text-end', id: part.id, ...withMetadata });
   }
 }
@@ -134,6 +142,7 @@ function appendBlock(
     case 'reasoning':
     case 'text':
       appendSpan(parts, part);
+
       return;
     case 'tool-call':
       parts.push({
@@ -145,9 +154,11 @@ function appendBlock(
           providerMetadata: part.providerMetadata,
         }),
       });
+
       return;
     case 'error':
       parts.push({ type: 'error', error: new Error(part.message) });
+
       return;
     case 'hold':
       return;
@@ -165,10 +176,13 @@ export function scriptedStepParts(
   step: ScriptedStep,
 ): Array<LanguageModelV3StreamPart> {
   const parts: Array<LanguageModelV3StreamPart> = [];
+
   for (const part of step) {
     appendBlock(parts, part);
+
     if (part.type === 'error' || part.type === 'hold') return parts;
   }
+
   parts.push({
     type: 'finish',
     finishReason: {
@@ -179,6 +193,7 @@ export function scriptedStepParts(
     },
     usage: PROVIDER_ZERO_USAGE,
   });
+
   return parts;
 }
 

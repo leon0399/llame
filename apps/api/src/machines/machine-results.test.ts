@@ -324,6 +324,7 @@ describe('readFsReadResult', () => {
     const result = readFsReadResult(READ_ANSWER);
 
     expect(result).toStrictEqual({ ...READ_ANSWER });
+
     for (const field of RANGE_FIELDS)
       expect(Object.hasOwn(result ?? {}, field)).toBe(false);
   });
@@ -364,6 +365,7 @@ describe('readFsReadResult', () => {
       truncated: false,
       nextOffset: 0,
     };
+
     expect(readFsReadResult(file)).toEqual(file);
   });
 
@@ -444,6 +446,7 @@ describe('readFsReadResult', () => {
       requestedRange: null,
       shownRange: { startLine: 3, endLine: 4 },
     };
+
     expect(readFsReadResult(answer)).toEqual(answer);
   });
 
@@ -462,6 +465,7 @@ describe('readFsReadResult', () => {
       requestedRange: { startLine: 12, endLine: 40 },
       shownRange: { startLine: 11, endLine: 41 },
     });
+
     if (result === undefined) throw new Error('Expected a Machine file read');
     expect(renderToolResultText('read', result)).toBe(
       'machine://devl/a:11-41 of 216 lines\n12: a\n40: b\n41: c\n' +
@@ -686,6 +690,7 @@ describe('readFsGrepResult', () => {
     const page = readFsGrepResult(
       pageBody([], { ignored: { paths: ['m', 'n/x'], atLeast: false } }),
     );
+
     expect(page).toMatchObject({
       ignored: { paths: ['m', 'n/x'], atLeast: false },
     });
@@ -795,6 +800,7 @@ describe('readFsGrepResult', () => {
       type: 'not_found',
       message: 'File not found.',
     };
+
     expect(readFsGrepResult(refusal)).toEqual(refusal);
   });
 

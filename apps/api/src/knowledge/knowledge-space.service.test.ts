@@ -7,6 +7,7 @@ import { KnowledgeSpaceUnavailableError } from './knowledge-space.local-resolver
 import { KnowledgeSpaceService } from './knowledge-space.service';
 
 const SPACE_ID = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
+
 const SPACE = {
   knowledgeSpaceId: SPACE_ID,
   ownerUserId: 'owner-a',
@@ -22,24 +23,33 @@ function fakeDb(): Db {
 function makeService(root: string | undefined) {
   const tx = fakeDb();
   const events: Array<string> = [];
+
   const runAs: TenantRunner['runAs'] = async (ownerUserId, callback) => {
     events.push(`db:${ownerUserId}`);
+
     return callback(tx);
   };
+
   const tenantDb: TenantRunner = { runAs };
+
   const localResolver = {
     resolveRoot: vi.fn(() => {
       events.push('root');
+
       if (root === undefined) throw new KnowledgeSpaceUnavailableError();
+
       return root;
     }),
     ensureChild: vi.fn((_root: string, _id: string) => {
       events.push('child');
+
       return `${root}/${_id}`;
     }),
     resolveChild: vi.fn(() => `/srv/knowledge/${SPACE_ID}`),
   };
+
   const service = new KnowledgeSpaceService(tenantDb, localResolver);
+
   return { service, localResolver, events };
 }
 
@@ -94,11 +104,13 @@ describe('KnowledgeSpaceService', () => {
 
   it('lists a bounded owner page and returns a keyset cursor only when needed', async () => {
     const { service } = makeService('/srv/knowledge');
+
     const second = {
       ...SPACE,
       knowledgeSpaceId: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
       createdAt: new Date('2026-08-23T12:01:00.000Z'),
     };
+
     vi.spyOn(
       KnowledgeSpaceRepository.prototype,
       'listForOwnerPage',

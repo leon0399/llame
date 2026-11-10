@@ -23,6 +23,7 @@ function connector(
   enabled = true,
 ): RecordingConnector {
   const calls: Array<RecordedRequest> = [];
+
   return {
     calls,
     connector: {
@@ -30,6 +31,7 @@ function connector(
       isConfigured: (name: string) => configured && name === 'devl',
       request: (name, method, params, options) => {
         calls.push({ name, method, params, signal: options?.signal });
+
         return answer();
       },
     },
@@ -52,6 +54,7 @@ describe('probeMachinePromptTarget', () => {
         isLink: true,
       }),
     );
+
     const signal = new AbortController().signal;
     await expect(
       probeMachinePromptTarget(
@@ -84,6 +87,7 @@ describe('probeMachinePromptTarget', () => {
         isLink: false,
       }),
     );
+
     await expect(
       probeMachinePromptTarget(machine, identity, {
         name: 'devl',
@@ -99,6 +103,7 @@ describe('probeMachinePromptTarget', () => {
         isLink: false,
       }),
     );
+
     await expect(
       probeMachinePromptTarget(machine, identity, {
         name: 'devl',
@@ -111,6 +116,7 @@ describe('probeMachinePromptTarget', () => {
     const { connector: machine } = connector(() =>
       Promise.resolve({ kind: 42 }),
     );
+
     await expect(
       probeMachinePromptTarget(machine, identity, {
         name: 'devl',
@@ -123,6 +129,7 @@ describe('probeMachinePromptTarget', () => {
     const { connector: machine } = connector(() =>
       Promise.reject(new Error('unreachable')),
     );
+
     await expect(
       probeMachinePromptTarget(machine, identity, {
         name: 'devl',
@@ -142,6 +149,7 @@ describe('probeMachinePromptTarget', () => {
       true,
       false,
     );
+
     await expect(
       probeMachinePromptTarget(disabled.connector, identity, target),
     ).resolves.toBeUndefined();
@@ -153,6 +161,7 @@ describe('probeMachinePromptTarget', () => {
         isLink: false,
       }),
     );
+
     await expect(
       probeMachinePromptTarget(unconfigured.connector, identity, {
         name: 'gpu',

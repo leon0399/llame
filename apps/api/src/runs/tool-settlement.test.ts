@@ -7,6 +7,7 @@ describe('interruptSettlementOf (run-steering D7)', () => {
       started: true,
       mcpDispatched: false,
     });
+
     const read = interruptSettlementOf({
       toolName: 'read',
       started: false,

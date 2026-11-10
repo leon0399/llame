@@ -12,6 +12,7 @@ export function rejectsWebLocatorRead(
   url: string,
 ): boolean {
   const decision = evaluateWebLocatorRead(context, url);
+
   return (
     decision?.decision === 'reject' && decision.reference?.clauseIndex != null
   );
@@ -46,25 +47,32 @@ export function createResultRemoval(
 ): ResultRemoval {
   const hosts = excludedHosts.flatMap((host) => {
     const hostname = URL.parse(`http://${host}`)?.hostname;
+
     return hostname === undefined ? [] : [hostname.replace(/\.$/u, '')];
   });
+
   const decided = new Map<string, boolean>();
   const counted = new Set<string>();
+
   return {
     removes: (url) => {
       const key = canonicalUrl(url) ?? url;
       const cached = decided.get(key);
+
       if (cached !== undefined) return cached;
       // The key is canonical when `canonicalUrl` accepts the URL; its fallback
       // is raw text, which can still carry a root dot an exclusion drops.
       const host = URL.parse(key)?.hostname.replace(/\.$/u, '');
+
       const excluded =
         host !== undefined &&
         hosts.some(
           (candidate) => host === candidate || host.endsWith(`.${candidate}`),
         );
+
       const removed = excluded || rejectsWebLocatorRead(context, key);
       decided.set(key, removed);
+
       return removed;
     },
     count: (url) => {

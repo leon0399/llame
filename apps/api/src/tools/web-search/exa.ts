@@ -5,18 +5,22 @@ import { vendorCount } from './limits';
 import { recencyStart, splitSiteFilters } from './query';
 
 export const EXA_SEARCH_URL = 'https://api.exa.ai/search';
+
 const ExaResultSchema = z.object({
   title: z.string(),
   url: z.string(),
   publishedDate: z.string().optional(),
   highlights: z.array(z.string()).optional(),
 });
+
 const ExaPayloadSchema = z.object({ results: z.array(z.unknown()) });
 
 function mapExaResult(value: unknown): Array<RawResult> {
   const parsed = ExaResultSchema.safeParse(value);
+
   if (!parsed.success) return [];
   const { data } = parsed;
+
   return [
     {
       title: data.title,
@@ -34,6 +38,7 @@ function mapExaResult(value: unknown): Array<RawResult> {
 function requestBody(request: EngineRequest) {
   const filters = splitSiteFilters(request.query);
   const query = filters.query || request.query;
+
   return {
     query,
     objective: request.objective ?? query,
@@ -71,7 +76,9 @@ export function createExaEngine(
       },
       ExaPayloadSchema,
     );
+
     const results = payload.results.flatMap(mapExaResult);
+
     return results.length === 0
       ? { kind: 'empty' }
       : { kind: 'results', results };

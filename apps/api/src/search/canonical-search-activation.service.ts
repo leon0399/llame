@@ -63,11 +63,13 @@ export class CanonicalSearchCoverageService {
 
   assertReady(): Promise<void> {
     this.readiness ??= this.checkCoverage();
+
     return this.readiness;
   }
 
   private async checkCoverage(): Promise<void> {
     let report: ProjectionCoverage;
+
     try {
       await assertDiscoveryFunctionProvisioned(
         this.tenantDb,
@@ -77,6 +79,7 @@ export class CanonicalSearchCoverageService {
         this.tenantDb,
         CHUNKER_VERSION,
       );
+
       if (
         !isProjectionCoverageReady(report) &&
         (await this.enqueueStaleChats()) > 0
@@ -89,6 +92,7 @@ export class CanonicalSearchCoverageService {
         { cause: error },
       );
     }
+
     if (!isProjectionCoverageReady(report)) {
       throw new Error(
         'canonical conversation search cannot start until projection coverage is complete: ' +
@@ -105,6 +109,7 @@ export class CanonicalSearchCoverageService {
   ): Promise<ProjectionCoverage> {
     let report = initial;
     const deadline = Date.now() + COVERAGE_REPAIR_DEADLINE_MS;
+
     while (!isProjectionCoverageReady(report) && Date.now() < deadline) {
       await new Promise<void>((resolve) => {
         setTimeout(resolve, COVERAGE_REPAIR_POLL_MS);
@@ -114,6 +119,7 @@ export class CanonicalSearchCoverageService {
         CHUNKER_VERSION,
       );
     }
+
     return report;
   }
 
@@ -130,17 +136,20 @@ export class CanonicalSearchCoverageService {
         `),
       )),
     ];
+
     for (const row of stale) {
       await this.reindexDispatch.enqueueChatReindexStrict(
         row.chat_id,
         row.owner_user_id,
       );
     }
+
     if (stale.length > 0) {
       this.logger.log(
         `Enqueued ${stale.length} stale chat reindex job(s); waiting for projection coverage`,
       );
     }
+
     return stale.length;
   }
 }
@@ -163,6 +172,7 @@ export class CanonicalSearchActivationService implements OnApplicationBootstrap 
     ) {
       return;
     }
+
     await this.coverage.assertReady();
   }
 }

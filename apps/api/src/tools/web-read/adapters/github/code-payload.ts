@@ -72,9 +72,12 @@ export type GithubBlobResult =
 
 export function parseGithubBlob(body: string): GithubBlobResult | undefined {
   const value = parseGithub(z.unknown(), body);
+
   if (value === undefined) return undefined;
+
   if (Array.isArray(value)) return { kind: 'directory' };
   const result = BLOB_WIRE.safeParse(value);
+
   return result.success ? { kind: 'blob', payload: result.data } : undefined;
 }
 
@@ -88,7 +91,9 @@ export function parseGithubRepository(
   body: string,
 ): GithubRepositoryPayload | undefined {
   const result = parseGithub(REPOSITORY_WIRE, body);
+
   if (!result) return undefined;
+
   return {
     description: result.description ?? null,
     defaultBranch: result.default_branch,
@@ -101,9 +106,12 @@ export function parseGithubCommit(
   body: string,
 ): GithubCommitPayload | undefined {
   const result = parseGithub(COMMIT_WIRE, body);
+
   if (!result) return undefined;
   const author = result.author?.login ?? result.commit.author?.name;
+
   if (author === undefined || result.commit.author === null) return undefined;
+
   return {
     sha: result.sha,
     message: result.commit.message,

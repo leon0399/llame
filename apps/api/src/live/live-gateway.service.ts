@@ -40,10 +40,13 @@ import {
 import { LIVE_CHANNEL_ADDRESS } from './generated/live-protocol';
 
 export const LIVE_PATH = LIVE_CHANNEL_ADDRESS;
+
 /** Heartbeat and session re-validation cadence. */
 const HEARTBEAT_MS = 30_000;
+
 /** Open sockets per user (tabs and devices). */
 export const MAX_SOCKETS_PER_USER = 16;
+
 /** A socket this far behind is closed rather than buffered without bound. */
 const MAX_BUFFERED_BYTES = 1024 * 1024;
 
@@ -98,9 +101,11 @@ export class LiveGatewayService
     // tests that listen(0) get the upgrade handler too.
     // http.Server and https.Server both extend net.Server.
     const server: unknown = this.adapterHost.httpAdapter.getHttpServer();
+
     if (!(server instanceof Server)) {
       throw new Error('LiveGatewayService requires a Node HTTP server');
     }
+
     this.server = server;
     server.on('upgrade', this.onUpgrade);
     this.heartbeatTimer = setInterval(
@@ -113,10 +118,12 @@ export class LiveGatewayService
   onModuleDestroy(): void {
     clearInterval(this.heartbeatTimer);
     this.server?.off('upgrade', this.onUpgrade);
+
     // Each socket's close handler unsubscribes it.
     for (const live of this.sockets) {
       live.socket.close(1001, 'server shutting down');
     }
+
     this.sockets.clear();
     this.wss.close();
   }
@@ -131,18 +138,23 @@ export class LiveGatewayService
     // unhandled 'error' event that crashes the process.
     const onSocketError = () => socket.destroy();
     socket.on('error', onSocketError);
+
     const decision = await decideUpgrade(request, {
       allowedOrigins: this.allowedOrigins,
       validateToken: (token) => this.auth.validateToken(token),
       openSockets: (userId) => this.countFor(userId),
     });
+
     if (decision.kind === 'ignore') {
       socket.off('error', onSocketError);
+
       return; // not ours; leave it for any other handler
     }
+
     if (decision.kind === 'reject') {
       return reject(socket, decision.status, decision.reason);
     }
+
     if (socket.destroyed) return;
     socket.off('error', onSocketError);
     this.wss.handleUpgrade(request, socket, head, (ws) =>
@@ -158,18 +170,22 @@ export class LiveGatewayService
       alive: true,
       unsubscribe: () => undefined,
     };
+
     // Two streams: this owner's records, and the instance-wide ones every
     // connection may receive. A close ends both.
     const unsubscribeOwner = this.hub.subscribe(userId, (frame) =>
       this.deliver(live, frame),
     );
+
     const unsubscribeInstance = this.hub.subscribeInstance((frame) =>
       this.deliver(live, frame),
     );
+
     live.unsubscribe = () => {
       unsubscribeOwner();
       unsubscribeInstance();
     };
+
     this.sockets.add(live);
     socket.on('pong', () => {
       live.alive = true;
@@ -184,10 +200,13 @@ export class LiveGatewayService
 
   private deliver(live: LiveSocket, frame: string): void {
     if (live.socket.readyState !== WebSocket.OPEN) return;
+
     if (live.socket.bufferedAmount > MAX_BUFFERED_BYTES) {
       live.socket.close(CLOSE_TOO_SLOW, 'client too slow');
+
       return;
     }
+
     live.socket.send(frame);
   }
 
@@ -203,8 +222,10 @@ export class LiveGatewayService
         live.socket.terminate();
         continue;
       }
+
       live.alive = false;
       live.socket.ping();
+
       // Only a lookup that answers "no session" ends it; a failed lookup
       // keeps the socket until the next round, since 4401 signs the user out.
       const ended = await this.auth.validateToken(live.token).then(
@@ -213,9 +234,11 @@ export class LiveGatewayService
           this.logger.warn(
             `Live session check failed; keeping the socket: ${error instanceof Error ? error.message : 'unknown'}`,
           );
+
           return false;
         },
       );
+
       if (ended) {
         live.socket.close(CLOSE_SESSION_ENDED, 'session ended');
       }
@@ -224,7 +247,9 @@ export class LiveGatewayService
 
   private countFor(userId: string): number {
     let count = 0;
+
     for (const live of this.sockets) if (live.userId === userId) count += 1;
+
     return count;
   }
 }
@@ -251,21 +276,28 @@ export async function decideUpgrade(
   deps: UpgradeDeps,
 ): Promise<UpgradeDecision> {
   const path = (request.url ?? '').split('?')[0];
+
   if (path !== LIVE_PATH) return { kind: 'ignore' };
   const origin = request.headers.origin;
+
   if (origin !== undefined && !deps.allowedOrigins.has(origin)) {
     return { kind: 'reject', status: 403, reason: 'Forbidden' };
   }
+
   const token = getRequestToken(request);
+
   const session = token
     ? await deps.validateToken(token).catch(() => undefined)
     : undefined;
+
   if (!token || !session?.userId) {
     return { kind: 'reject', status: 401, reason: 'Unauthorized' };
   }
+
   if (deps.openSockets(session.userId) >= MAX_SOCKETS_PER_USER) {
     return { kind: 'reject', status: 429, reason: 'Too Many Requests' };
   }
+
   return { kind: 'accept', userId: session.userId, token };
 }
 

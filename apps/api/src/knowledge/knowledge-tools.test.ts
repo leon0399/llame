@@ -70,6 +70,7 @@ function context(
     knowledgeResolver: {
       listForOwnerPage: vi.fn(() => {
         if (resolverError !== undefined) return Promise.reject(resolverError);
+
         return Promise.resolve({
           spaces:
             resolvedBinding === null
@@ -85,6 +86,7 @@ function context(
       }),
       resolveBindingForOwnerById: vi.fn((_owner: string, id: string) => {
         if (resolverError !== undefined) return Promise.reject(resolverError);
+
         return Promise.resolve(
           resolvedBinding?.id === id ? resolvedBinding : undefined,
         );
@@ -112,9 +114,11 @@ function multiSpaceContext(
       ),
       createAdapter: vi.fn((currentBinding: KnowledgeFilesystemBinding) => {
         const adapter = adapters.get(currentBinding.id);
+
         if (adapter === undefined) {
           throw new Error('Missing fake Knowledge adapter');
         }
+
         return adapter;
       }),
     },
@@ -134,9 +138,11 @@ describe('Knowledge tool declarations', () => {
 
     for (const tool of [knowledgeSearchTool]) {
       const schema = tool.inputSchema;
+
       if (!isZodSchema(schema)) {
         throw new Error('Expected a Zod schema');
       }
+
       expect(() => {
         schema.parse({ ownerId: 'other-owner' });
       }).toThrow(ZodError);
@@ -153,6 +159,7 @@ describe('Knowledge tool declarations', () => {
     if (!isZodSchema(knowledgeSearchTool.inputSchema)) {
       throw new Error('Expected a Zod schema');
     }
+
     const schema = knowledgeSearchTool.inputSchema;
     expect(() => {
       schema.parse({ query: '😀'.repeat(200) });
@@ -210,16 +217,19 @@ describe('knowledge_search cursor continuation', () => {
       name: 'Second',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const spaceA: KnowledgeToolSpaceReference = {
       id: binding.id,
       name: 'First',
       createdAt: new Date(0),
     };
+
     const spaceB: KnowledgeToolSpaceReference = {
       id: bindingB.id,
       name: 'Second',
       createdAt: new Date(1),
     };
+
     const searchA = vi.fn<KnowledgeFilesystemAdapterPort['search']>(
       (_query, _limit, options) =>
         Promise.resolve(
@@ -233,6 +243,7 @@ describe('knowledge_search cursor continuation', () => {
               : [],
         ),
     );
+
     const searchB = vi.fn<KnowledgeFilesystemAdapterPort['search']>(
       (_query, _limit, options) =>
         Promise.resolve(
@@ -244,6 +255,7 @@ describe('knowledge_search cursor continuation', () => {
               ],
         ),
     );
+
     const toolContext = multiSpaceContext(
       [spaceA, spaceB],
       new Map([
@@ -258,6 +270,7 @@ describe('knowledge_search cursor continuation', () => {
 
     const pages: Array<ToolResult> = [];
     let cursor: string | undefined;
+
     for (let page = 0; page < 4; page += 1) {
       const result =
         cursor === undefined
@@ -270,7 +283,9 @@ describe('knowledge_search cursor continuation', () => {
               limit: 1,
               cursor,
             });
+
       pages.push(result);
+
       if (result.status !== 'success' || !isString(result.nextCursor)) break;
       cursor = result.nextCursor;
     }
@@ -298,30 +313,36 @@ describe('knowledge_search cursor continuation', () => {
       name: 'Before',
       directory: '/srv/knowledge/5f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const bindingAfter: KnowledgeFilesystemBinding = {
       ...binding,
       id: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
       name: 'After',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const spaceBefore = {
       id: bindingBefore.id,
       name: 'Before',
       createdAt: new Date(0),
     };
+
     const spaceAnchor = {
       id: binding.id,
       name: 'Anchor',
       createdAt: new Date(1),
     };
+
     const spaceAfter = {
       id: bindingAfter.id,
       name: 'After',
       createdAt: new Date(2),
     };
+
     const searchBefore = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.reject(new KnowledgeFilesystemError('knowledge_path_invalid')),
     );
+
     const searchAnchor = vi.fn<KnowledgeFilesystemAdapterPort['search']>(
       (_query, _limit, options) =>
         Promise.resolve(
@@ -333,9 +354,11 @@ describe('knowledge_search cursor continuation', () => {
             : [{ path: 'a.md', offset: 2, limit: 1, excerpt: 'a1' }],
         ),
     );
+
     const searchAfter = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([{ path: 'z.md', offset: 0, limit: 1, excerpt: 'z0' }]),
     );
+
     const toolContext = multiSpaceContext(
       [spaceBefore, spaceAnchor, spaceAfter],
       new Map([
@@ -354,11 +377,13 @@ describe('knowledge_search cursor continuation', () => {
       query: 'term',
       limit: 1,
     });
+
     expect(first).toMatchObject({
       status: 'success',
       complete: false,
       results: [{ ...attribution(binding.id, 'a.md', 0) }],
     });
+
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a continuation cursor');
     }
@@ -368,6 +393,7 @@ describe('knowledge_search cursor continuation', () => {
       limit: 1,
       cursor: first.nextCursor,
     });
+
     expect(second).toMatchObject({
       status: 'success',
       results: [{ ...attribution(binding.id, 'a.md', 2) }],
@@ -383,27 +409,32 @@ describe('knowledge_search cursor continuation', () => {
       name: 'Later',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const spaceAnchor = {
       id: binding.id,
       name: 'Anchor',
       createdAt: new Date(0),
     };
+
     const spaceLater = {
       id: bindingLater.id,
       name: 'Later',
       createdAt: new Date(1),
     };
+
     const bindingLast: KnowledgeFilesystemBinding = {
       ...binding,
       id: '8f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
       name: 'Last',
       directory: '/srv/knowledge/8f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const spaceLast = {
       id: bindingLast.id,
       name: 'Last',
       createdAt: new Date(2),
     };
+
     const searchAnchor = vi.fn<KnowledgeFilesystemAdapterPort['search']>(
       (_query, _limit, options) =>
         Promise.resolve(
@@ -415,6 +446,7 @@ describe('knowledge_search cursor continuation', () => {
             : [{ path: 'a.md', offset: 2, limit: 1, excerpt: 'a1' }],
         ),
     );
+
     const searchLater = vi
       .fn<KnowledgeFilesystemAdapterPort['search']>()
       .mockResolvedValueOnce([
@@ -426,9 +458,11 @@ describe('knowledge_search cursor continuation', () => {
       .mockResolvedValue([
         { path: 'b.md', offset: 4, limit: 1, excerpt: 'b2' },
       ]);
+
     const searchLast = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([{ path: 'c.md', offset: 0, limit: 1, excerpt: 'c0' }]),
     );
+
     const toolContext = multiSpaceContext(
       [spaceAnchor, spaceLater, spaceLast],
       new Map([
@@ -447,9 +481,11 @@ describe('knowledge_search cursor continuation', () => {
       query: 'term',
       limit: 1,
     });
+
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a continuation cursor');
     }
+
     const second = await knowledgeSearchTool.execute(toolContext, {
       query: 'term',
       limit: 1,
@@ -480,6 +516,7 @@ describe('knowledge_search cursor continuation', () => {
       name: 'Later',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const searchAnchor = vi.fn<KnowledgeFilesystemAdapterPort['search']>(
       (_query, _limit, options) =>
         Promise.resolve(
@@ -491,9 +528,11 @@ describe('knowledge_search cursor continuation', () => {
             : [{ path: 'a.md', offset: 2, limit: 1, excerpt: 'a1' }],
         ),
     );
+
     const searchLater = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.reject(new KnowledgeFilesystemError('knowledge_path_invalid')),
     );
+
     const toolContext = multiSpaceContext(
       [
         { id: binding.id, name: 'Anchor', createdAt: new Date(0) },
@@ -513,9 +552,11 @@ describe('knowledge_search cursor continuation', () => {
       query: 'term',
       limit: 1,
     });
+
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a continuation cursor');
     }
+
     const second = await knowledgeSearchTool.execute(toolContext, {
       query: 'term',
       limit: 1,
@@ -538,20 +579,24 @@ describe('knowledge_search cursor continuation', () => {
       name: 'Before',
       directory: '/srv/knowledge/5f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const bindingLater: KnowledgeFilesystemBinding = {
       ...binding,
       id: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
       name: 'Later',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const spaces = [
       { id: bindingBefore.id, name: 'Before', createdAt: new Date(0) },
       { id: binding.id, name: 'Anchor', createdAt: new Date(1) },
       { id: bindingLater.id, name: 'Later', createdAt: new Date(2) },
     ];
+
     const searchBefore = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.reject(new KnowledgeFilesystemError('knowledge_path_invalid')),
     );
+
     const searchAnchor = vi.fn<KnowledgeFilesystemAdapterPort['search']>(
       (_query, _limit, options) =>
         Promise.resolve(
@@ -565,11 +610,13 @@ describe('knowledge_search cursor continuation', () => {
               ),
         ),
     );
+
     const searchLater = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.reject(
         new KnowledgeFilesystemError('knowledge_space_unavailable'),
       ),
     );
+
     const toolContext = multiSpaceContext(
       spaces,
       new Map([
@@ -588,9 +635,11 @@ describe('knowledge_search cursor continuation', () => {
       query: 'term',
       limit: 1,
     });
+
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a continuation cursor');
     }
+
     const second = await knowledgeSearchTool.execute(toolContext, {
       query: 'term',
       limit: 1,
@@ -617,6 +666,7 @@ describe('knowledge_search cursor continuation', () => {
       search: () =>
         Promise.resolve([{ path, offset: 4, limit: 2, excerpt: 'needle' }]),
     });
+
     await expect(
       knowledgeSearchTool.execute(context(adapter), {
         query: 'needle',
@@ -635,7 +685,9 @@ describe('knowledge_search cursor continuation', () => {
         { path: 'a.md', offset: 4, limit: 1, excerpt: 'later' },
       ]),
     );
+
     const adapter = fakeAdapter({ search });
+
     const first = await knowledgeSearchTool.execute(context(adapter), {
       query: 'needle',
       limit: 1,
@@ -645,9 +697,11 @@ describe('knowledge_search cursor continuation', () => {
       status: 'success',
       results: [{ locator: passage(binding.id, 'a.md', 0) }],
     });
+
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a search continuation cursor');
     }
+
     const second = await knowledgeSearchTool.execute(context(adapter), {
       query: 'NEEDLE',
       limit: 1,
@@ -671,36 +725,44 @@ describe('knowledge_search cursor continuation', () => {
       name: 'Later',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const bindingAdded: KnowledgeFilesystemBinding = {
       ...binding,
       id: '8f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
       name: 'Added',
       directory: '/srv/knowledge/8f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const anchor = {
       id: binding.id,
       name: 'Anchor',
       createdAt: new Date(0),
     };
+
     const later = {
       id: bindingLater.id,
       name: 'Later',
       createdAt: new Date(1),
     };
+
     const added = {
       id: bindingAdded.id,
       name: 'Added',
       createdAt: new Date(2),
     };
+
     const searchAnchor = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([{ path: 'a.md', offset: 0, limit: 1, excerpt: 'a0' }]),
     );
+
     const searchLater = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([{ path: 'b.md', offset: 0, limit: 1, excerpt: 'b0' }]),
     );
+
     const searchAdded = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([{ path: 'c.md', offset: 0, limit: 1, excerpt: 'c0' }]),
     );
+
     const baseContext = multiSpaceContext(
       [anchor, later],
       new Map([
@@ -714,13 +776,16 @@ describe('knowledge_search cursor continuation', () => {
         [bindingAdded.id, fakeAdapter({ search: searchAdded })],
       ]),
     );
+
     let inventoryCall = 0;
+
     const toolContext: ToolContext = {
       ...baseContext,
       knowledgeResolver: {
         ...baseContext.knowledgeResolver!,
         listForOwnerPage: vi.fn(() => {
           inventoryCall += 1;
+
           return Promise.resolve({
             spaces: inventoryCall === 1 ? [anchor, later] : [later, added],
           });
@@ -732,9 +797,11 @@ describe('knowledge_search cursor continuation', () => {
       query: 'term',
       limit: 1,
     });
+
     if (first.status !== 'success' || !isString(first.nextCursor)) {
       throw new Error('Expected a continuation cursor');
     }
+
     const second = await knowledgeSearchTool.execute(toolContext, {
       query: 'term',
       limit: 1,
@@ -753,7 +820,9 @@ describe('knowledge_search cursor continuation', () => {
     const search = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([]),
     );
+
     const adapter = fakeAdapter({ search });
+
     const cursor = encodeKnowledgeSearchCursor({
       version: 1,
       query: 'needle',
@@ -796,6 +865,7 @@ describe('knowledge_search cursor continuation', () => {
         { path: 'b.md', offset: 0, limit: 1, excerpt: 'later' },
       ]),
     );
+
     const cursor = encodeKnowledgeSearchCursor({
       version: 1,
       query: 'needle',
@@ -838,13 +908,16 @@ describe('knowledge_search cursor continuation', () => {
       name: 'Before',
       directory: '/srv/knowledge/5f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const after: KnowledgeFilesystemBinding = {
       ...binding,
       id: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
       name: 'After',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const createdAt = new Date(0);
+
     const anchorSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([
         { path: 'a.md', offset: 0, limit: 1, excerpt: 'anchor' },
@@ -852,21 +925,25 @@ describe('knowledge_search cursor continuation', () => {
         { path: 'b.md', offset: 0, limit: 1, excerpt: 'anchor path later' },
       ]),
     );
+
     const afterSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([
         { path: 'c.md', offset: 0, limit: 1, excerpt: 'after' },
       ]),
     );
+
     const beforeSearch = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([
         { path: 'before.md', offset: 0, limit: 1, excerpt: 'before' },
       ]),
     );
+
     const spaces = [
       { id: before.id, name: 'Before', createdAt },
       { id: binding.id, name: 'Anchor', createdAt },
       { id: after.id, name: 'After', createdAt },
     ];
+
     const toolContext = multiSpaceContext(
       spaces,
       new Map([
@@ -880,6 +957,7 @@ describe('knowledge_search cursor continuation', () => {
         [after.id, fakeAdapter({ search: afterSearch })],
       ]),
     );
+
     const cursor = encodeKnowledgeSearchCursor({
       version: 1,
       query: 'needle',
@@ -975,6 +1053,7 @@ describe('knowledge_search', () => {
     const search = vi.fn<KnowledgeFilesystemAdapterPort['search']>(() =>
       Promise.resolve([]),
     );
+
     const adapter = fakeAdapter({ search });
     const toolContext = context(adapter);
     const resolver = toolContext.knowledgeResolver!;
@@ -1069,18 +1148,22 @@ describe('knowledge_search', () => {
       name: 'Same label',
       createdAt: new Date('2026-08-23T12:00:00.000Z'),
     };
+
     const bindingB: KnowledgeFilesystemBinding = {
       ...binding,
       id: '7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
       name: 'Same label',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const spaceB: KnowledgeToolSpaceReference = {
       id: bindingB.id,
       name: bindingB.name!,
       createdAt: new Date('2026-08-23T12:01:00.000Z'),
     };
+
     const budgets: Array<unknown> = [];
+
     const adapterA = fakeAdapter({
       search: vi.fn(
         (
@@ -1089,6 +1172,7 @@ describe('knowledge_search', () => {
           options: KnowledgeFilesystemSearchOptions = {},
         ) => {
           budgets.push(options.budget);
+
           return Promise.resolve([
             {
               path: 'a.md',
@@ -1100,6 +1184,7 @@ describe('knowledge_search', () => {
         },
       ),
     });
+
     const adapterB = fakeAdapter({
       search: vi.fn(
         (
@@ -1108,6 +1193,7 @@ describe('knowledge_search', () => {
           options: KnowledgeFilesystemSearchOptions = {},
         ) => {
           budgets.push(options.budget);
+
           return Promise.resolve([
             {
               path: 'b.md',
@@ -1119,6 +1205,7 @@ describe('knowledge_search', () => {
         },
       ),
     });
+
     const result = await knowledgeSearchTool.execute(
       multiSpaceContext(
         [spaceA, spaceB],
@@ -1154,20 +1241,25 @@ describe('knowledge_search', () => {
       name: 'Second',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const spaceA: KnowledgeToolSpaceReference = {
       id: binding.id,
       name: 'First',
       createdAt: new Date(0),
     };
+
     const spaceB: KnowledgeToolSpaceReference = {
       id: bindingB.id,
       name: 'Second',
       createdAt: new Date(1),
     };
+
     let firstPageSearched = false;
+
     const adapterA = fakeAdapter({
       search: vi.fn(() => {
         firstPageSearched = true;
+
         return Promise.resolve([
           {
             path: 'a.md',
@@ -1178,6 +1270,7 @@ describe('knowledge_search', () => {
         ]);
       }),
     });
+
     const adapterB = fakeAdapter({
       search: vi.fn(() =>
         Promise.resolve([
@@ -1190,18 +1283,23 @@ describe('knowledge_search', () => {
         ]),
       ),
     });
+
     const nextCursor = { createdAt: spaceA.createdAt, id: spaceA.id };
+
     const listForOwnerPage = vi.fn(
       (_owner: string, after?: KnowledgeSpaceCursor) => {
         if (after === undefined) {
           return Promise.resolve({ spaces: [spaceA], nextCursor });
         }
+
         if (!firstPageSearched) {
           throw new Error('The inventory was materialized before searching');
         }
+
         return Promise.resolve({ spaces: [spaceB] });
       },
     );
+
     const baseContext = multiSpaceContext(
       [spaceA, spaceB],
       new Map([
@@ -1213,6 +1311,7 @@ describe('knowledge_search', () => {
         [bindingB.id, adapterB],
       ]),
     );
+
     const toolContext: ToolContext = {
       ...baseContext,
       knowledgeResolver: {
@@ -1241,8 +1340,10 @@ describe('knowledge_search', () => {
       name: 'Other',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const adapterA = fakeAdapter({ search: vi.fn(() => Promise.resolve([])) });
     const adapterB = fakeAdapter({ search: vi.fn(() => Promise.resolve([])) });
+
     const toolContext = multiSpaceContext(
       [
         { id: binding.id, name: 'A', createdAt: new Date(0) },
@@ -1285,11 +1386,13 @@ describe('knowledge_search', () => {
       name: 'Revoked',
       createdAt: new Date(0),
     };
+
     const current = {
       id: binding.id,
       name: binding.name ?? binding.id,
       createdAt: new Date(1),
     };
+
     const adapter = fakeAdapter();
 
     await expect(
@@ -1328,6 +1431,7 @@ describe('knowledge_search', () => {
       name: 'Broken',
       directory: '/srv/knowledge/7f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e',
     };
+
     const adapterA = fakeAdapter({
       search: vi.fn(() =>
         Promise.resolve([
@@ -1340,11 +1444,13 @@ describe('knowledge_search', () => {
         ]),
       ),
     });
+
     const adapterB = fakeAdapter({
       search: vi.fn(() =>
         Promise.reject(new KnowledgeFilesystemError('knowledge_path_invalid')),
       ),
     });
+
     const result = await knowledgeSearchTool.execute(
       multiSpaceContext(
         [
@@ -1384,20 +1490,26 @@ describe('knowledge_search', () => {
       name: 'Working',
       createdAt: new Date(0),
     };
+
     const spaces = [workingSpace];
+
     const bindings = new Map<string, KnowledgeFilesystemBinding>([
       [binding.id, binding],
     ]);
+
     const adapters = new Map<string, KnowledgeFilesystemAdapterPort>([
       [binding.id, fakeAdapter()],
     ]);
+
     for (let index = 1; index <= 60; index += 1) {
       const id = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+
       const space = {
         id,
         name: `Broken ${'x'.repeat(90)}`,
         createdAt: new Date(index),
       };
+
       spaces.push(space);
       bindings.set(id, {
         id,
@@ -1427,9 +1539,11 @@ describe('knowledge_search', () => {
       complete: false,
       warningCount: 60,
     });
+
     if (result.status !== 'success' || !Array.isArray(result.warnings)) {
       throw new Error('Expected bounded warning details');
     }
+
     expect(result.warnings.length).toBeLessThan(60);
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(
       KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS,
@@ -1441,6 +1555,7 @@ describe('knowledge_search', () => {
       multiSpaceContext([], new Map(), new Map()),
       { query: 'term', limit: 5 },
     );
+
     expect(result).toEqual({
       status: 'error',
       type: 'knowledge_space_not_configured',
@@ -1454,7 +1569,9 @@ describe('knowledge_search', () => {
       name: 'Unavailable',
       createdAt: new Date(0),
     };
+
     const baseContext = multiSpaceContext([listedSpace], new Map(), new Map());
+
     const toolContext: ToolContext = {
       ...baseContext,
       knowledgeResolver: {
@@ -1480,7 +1597,9 @@ describe('knowledge_search', () => {
       name: 'Unavailable',
       createdAt: new Date(0),
     };
+
     const baseContext = multiSpaceContext([listedSpace], new Map(), new Map());
+
     const toolContext: ToolContext = {
       ...baseContext,
       knowledgeResolver: {
@@ -1552,6 +1671,7 @@ describe('Knowledge tool failure boundaries', () => {
       context(undefined, binding, new Error('/srv/knowledge secret')),
       { query: 'needle', limit: 5, knowledgeSpaceId: binding.id },
     );
+
     expect(resolverResult).toEqual({
       status: 'error',
       type: 'knowledge_space_unavailable',
@@ -1561,16 +1681,19 @@ describe('Knowledge tool failure boundaries', () => {
 
   it('propagates the trusted abort signal and cancellation to the runner', async () => {
     const abort = new AbortController();
+
     const adapter = fakeAdapter({
       search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(
         (_query, _limit, options = {}) => {
           expect(options.signal).toBe(abort.signal);
+
           return Promise.reject(
             new KnowledgeFilesystemError('knowledge_cancelled'),
           );
         },
       ),
     });
+
     const toolContext = { ...context(adapter), abortSignal: abort.signal };
 
     await expect(
@@ -1594,9 +1717,11 @@ describe('Knowledge tool failure boundaries', () => {
   it('records parent abort and call timeout through the canonical runner outcomes', async () => {
     const abort = new AbortController();
     let markStarted!: () => void;
+
     const started = new Promise<void>((resolve) => {
       markStarted = resolve;
     });
+
     const parentAbortAdapter = fakeAdapter({
       search: vi.fn<KnowledgeFilesystemAdapterPort['search']>(
         (_query, _limit, options = {}) =>
@@ -1617,6 +1742,7 @@ describe('Knowledge tool failure boundaries', () => {
       { ...context(parentAbortAdapter), abortSignal: abort.signal },
       15,
     );
+
     await started;
     abort.abort();
     await expect(parentAbortResult).resolves.toMatchObject({
@@ -1636,6 +1762,7 @@ describe('Knowledge tool failure boundaries', () => {
           }),
       ),
     });
+
     await expect(
       runTool(
         knowledgeSearchTool,
@@ -1775,6 +1902,7 @@ describe('knowledge_search unscoped cursor exclusion', () => {
           ]),
         ),
       });
+
     const context = multiSpaceContext(
       [
         { id: OLDER_ID, name: 'Older', createdAt: new Date(500) },

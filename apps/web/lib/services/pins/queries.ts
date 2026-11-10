@@ -39,9 +39,11 @@ export function selectPinnedChatMap(
   pins: Array<PinnedItem> | undefined,
 ): Map<string, string> {
   const map = new Map<string, string>();
+
   for (const pin of pins ?? []) {
     if (pin.itemType === "chat") map.set(pin.itemId, pin.pinnedAt);
   }
+
   return map;
 }
 
@@ -50,8 +52,10 @@ export function selectPinnedProjectMap(
   pins: Array<PinnedItem> | undefined,
 ): Map<string, string> {
   const map = new Map<string, string>();
+
   for (const pin of pins ?? []) {
     if (pin.itemType === "project") map.set(pin.itemId, pin.pinnedAt);
   }
+
   return map;
 }

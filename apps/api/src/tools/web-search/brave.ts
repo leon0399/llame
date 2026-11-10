@@ -5,6 +5,7 @@ import { fetchVendorJson, type VendorFetch } from './http';
 import { vendorCount } from './limits';
 
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';
+
 const FRESHNESS_BY_RECENCY: Readonly<
   Record<NonNullable<EngineRequest['recency']>, string>
 > = {
@@ -13,31 +14,39 @@ const FRESHNESS_BY_RECENCY: Readonly<
   month: 'pm',
   year: 'py',
 };
+
 const BraveResultSchema = z.object({
   title: z.string(),
   url: z.string(),
   description: z.string().optional(),
   page_age: z.string().optional(),
 });
+
 const BravePayloadSchema = z.object({
   web: z.object({ results: z.array(z.unknown()).optional() }).optional(),
 });
+
 type BravePayload = z.infer<typeof BravePayloadSchema>;
 
 function textContent(value: string): string {
   const document = parseHTML(
     `<!doctype html><html><body>${value}</body></html>`,
   ).document;
+
   return String(document.body.textContent);
 }
 
 function readResults(payload: BravePayload): ReadonlyArray<RawResult> {
   const values = payload.web?.results;
+
   if (values === undefined) return [];
+
   return values.flatMap((value) => {
     const result = BraveResultSchema.safeParse(value);
+
     if (!result.success) return [];
     const { data } = result;
+
     return [
       {
         title: textContent(data.title),
@@ -60,8 +69,10 @@ export function createBraveEngine(
     const url = new URL(BRAVE_SEARCH_URL);
     url.searchParams.set('q', request.query);
     url.searchParams.set('count', String(vendorCount('brave', request.limit)));
+
     if (request.recency !== undefined)
       url.searchParams.set('freshness', FRESHNESS_BY_RECENCY[request.recency]);
+
     const payload = await fetchVendorJson(
       url.href,
       {
@@ -78,7 +89,9 @@ export function createBraveEngine(
       },
       BravePayloadSchema,
     );
+
     const results = readResults(payload);
+
     return results.length === 0
       ? { kind: 'empty' }
       : { kind: 'results', results };

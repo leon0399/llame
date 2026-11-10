@@ -17,6 +17,7 @@ describe('ModelsController', () => {
   // to compare against.
   const catalogTags: Array<string> = ['flagship'];
   const catalogInput = ['text', 'image'] as const;
+
   const catalogReasoning = {
     effortLevels: [{ value: 'low', label: 'Low' }],
     defaultEffort: 'low',
@@ -89,6 +90,7 @@ describe('ModelsController', () => {
   it('does not expose provider header names or values in the GET models response', () => {
     const headerName = 'X-Operator-Header';
     const headerValue = 'operator-secret';
+
     const provider = {
       id: 'provider-with-headers',
       type: 'openai-responses',
@@ -96,6 +98,7 @@ describe('ModelsController', () => {
       baseUrl: null,
       headers: { [headerName]: [headerValue] },
     } satisfies ProviderConfig;
+
     const internalModel = Object.assign(
       {
         id: 'system:provider-with-headers:model',
@@ -174,6 +177,7 @@ describe('ModelsController', () => {
       if (!(error instanceof HttpException)) {
         throw new Error('Expected an HttpException', { cause: error });
       }
+
       expect(error.getStatus()).toBe(HttpStatus.SERVICE_UNAVAILABLE);
       expect(error.getResponse()).toEqual({
         statusCode: 503,
@@ -214,6 +218,7 @@ describe('ModelsController', () => {
 
     const response = toAvailableModelResponse(model);
     const reasoning = model.reasoning;
+
     if (reasoning === undefined) throw new Error('expected reasoning metadata');
 
     expect(response).toEqual(model);
@@ -290,6 +295,7 @@ describe('GET /api/v1/models with a configured credential set', () => {
         defaults: { modelId: 'system:p:model' },
       }),
     );
+
     const config = loadInstanceConfig({
       LLAME_CONFIG_PATH: configFile,
       CANARY_KEY: canaries.key,
@@ -297,6 +303,7 @@ describe('GET /api/v1/models with a configured credential set', () => {
       POSTGRES_URL: `postgres://app:${canaries.database}@db:5432/llame`,
       PGPASSWORD: canaries.password,
     });
+
     const members = configuredCredentials(config);
     expect(members).toEqual(
       expect.arrayContaining([
@@ -310,9 +317,11 @@ describe('GET /api/v1/models with a configured credential set', () => {
     const controller = new ModelsController(
       new ModelsService({ config, productUserAgent: 'llame/0.0.0-test' }),
     );
+
     const body = JSON.stringify(controller.listModels());
 
     expect(body).toContain('system:p:model');
+
     for (const member of members) {
       expect(body).not.toContain(member);
     }

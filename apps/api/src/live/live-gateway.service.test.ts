@@ -88,6 +88,7 @@ describe('decideUpgrade', () => {
         Promise.reject(new Error('database unavailable')),
       ),
     });
+
     expect(
       await decideUpgrade(
         request(LIVE_PATH, { authorization: 'Bearer good' }),

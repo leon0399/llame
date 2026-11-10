@@ -68,6 +68,7 @@ export function oneLine(value: string): string {
 function asRange(value: unknown): LineRange | undefined {
   if (!isRecord(value)) return undefined;
   const { startLine, endLine } = value;
+
   return isNumber(startLine) && isNumber(endLine)
     ? { startLine, endLine }
     : undefined;
@@ -77,10 +78,13 @@ function asRange(value: unknown): LineRange | undefined {
 function asRanges(value: unknown): Array<LineRange> {
   if (!Array.isArray(value)) return [];
   const ranges: Array<LineRange> = [];
+
   for (const entry of value) {
     const range = asRange(entry);
+
     if (range !== undefined) ranges.push(range);
   }
+
   return ranges;
 }
 
@@ -91,18 +95,22 @@ function formatRange(range: LineRange): string {
 function adapterLines(value: unknown): Array<string> {
   if (!isRecord(value)) return [];
   const parts: Array<string> = [];
+
   for (const part of [value.id, value.route, value.origin]) {
     if (isNonEmptyString(part)) parts.push(oneLine(part));
   }
+
   return parts.length === 0 ? [] : [`adapter: ${parts.join(" ")}`];
 }
 
 function noteLines(value: unknown): Array<string> {
   if (!Array.isArray(value)) return [];
   const lines: Array<string> = [];
+
   for (const entry of value) {
     if (isNonEmptyString(entry)) lines.push(`notes: ${oneLine(entry)}`);
   }
+
   return lines;
 }
 
@@ -110,18 +118,22 @@ function noteLines(value: unknown): Array<string> {
  *  every text shape that renders them after its header. */
 export function renderAttributionLines(result: UnknownRecord): Array<string> {
   const lines: Array<string> = [];
+
   for (const field of ATTRIBUTION_FIELDS) {
     const value = result[field];
+
     if (field === "adapter") lines.push(...adapterLines(value));
     else if (field === "notes") lines.push(...noteLines(value));
     else if (isNonEmptyString(value)) lines.push(`${field}: ${oneLine(value)}`);
   }
+
   return lines;
 }
 
 /** The noun a count takes: singular for one, plural otherwise. */
 function noun(count: number, singular: "line" | "entry"): string {
   if (count === 1) return singular;
+
   return singular === "entry" ? "entries" : "lines";
 }
 
@@ -138,28 +150,39 @@ function counted(count: number, singular: "line" | "entry"): string {
  *  scan can stop early, so it stores none. */
 function fileHeader(result: UnknownRecord): string {
   const path = isNonEmptyString(result.path) ? oneLine(result.path) : "";
+
   const total =
     result.representation === "outline" || !isNumber(result.lineCount)
       ? ""
       : ` of ${counted(result.lineCount, "line")}`;
+
   const ranges = asRanges(result.shownRanges);
+
   if (ranges.length > 0) {
     const form = result.representation === "raw" ? "raw:" : "";
+
     return `${path}:${form}${ranges.map(formatRange).join(",")}${total}`;
   }
+
   const shown = asRange(result.shownRange);
+
   if (shown !== undefined) {
     const form =
       result.representation === "raw" || result.representation === "outline"
         ? `${result.representation}:`
         : "";
+
     return `${path}:${form}${formatRange(shown)}${total}`;
   }
+
   const { nextOffset } = result;
+
   if (result.truncated === true && isNumber(nextOffset))
     return `${path}: line ${nextOffset} exceeds the result bound and was skipped`;
+
   if (result.shownRange === null && result.truncated !== true)
     return `${path}: empty`;
+
   return `${path}${total}`;
 }
 
@@ -170,6 +193,7 @@ function rangeSelector(
   endLine: number | undefined,
 ): string {
   const start = nextOffset + 1;
+
   return endLine === undefined || nextOffset >= endLine
     ? `${start}-`
     : `${start}-${endLine}`;
@@ -184,13 +208,17 @@ function rangeSelector(
 function multiSelector(ranges: Array<LineRange>, nextOffset: number): string {
   const line = nextOffset + 1;
   const at = ranges.findIndex((range) => line <= range.endLine);
+
   if (at < 0) return `${line}-`;
   const member = ranges[at];
+
   if (member === undefined) return `${line}-`;
+
   const head =
     line >= member.startLine
       ? rangeSelector(nextOffset, member.endLine)
       : formatRange(member);
+
   return [head, ...ranges.slice(at + 1).map(formatRange)].join(",");
 }
 
@@ -199,25 +227,30 @@ function resumeSelector(result: UnknownRecord, nextOffset: number): string {
   if (result.kind === "directory") return `${nextOffset + 1}-`;
   const { lineCount } = result;
   const requested = asRange(result.requestedRange)?.endLine;
+
   // A requested end at or past the known line count reaches the last line, so
   // the continuation is open-ended, the form the read tool resolves to it.
   const requestedEnd =
     isNumber(lineCount) && requested !== undefined && requested >= lineCount
       ? undefined
       : requested;
+
   if (result.representation === "outline")
     return `outline:${rangeSelector(nextOffset, requestedEnd)}`;
   const ranges = asRanges(result.requestedRanges);
+
   const requestedRanges = isNumber(lineCount)
     ? ranges.map((range) => ({
         ...range,
         endLine: Math.min(range.endLine, lineCount),
       }))
     : ranges;
+
   const selector =
     requestedRanges.length > 0
       ? multiSelector(requestedRanges, nextOffset)
       : rangeSelector(nextOffset, requestedEnd);
+
   // A raw read stays raw on the way in: a numbered window would drop the
   // verbatim view its `oldText` came from.
   return result.representation === "raw" ? `raw:${selector}` : selector;
@@ -229,7 +262,9 @@ function resumeSelector(result: UnknownRecord, nextOffset: number): string {
 function continuationLine(result: UnknownRecord): string | undefined {
   if (result.truncated !== true) return undefined;
   const { nextOffset } = result;
+
   if (!isNumber(nextOffset)) return undefined;
+
   // Nothing follows the last line: its header already says the line was
   // skipped, and a read past the end would be refused.
   if (
@@ -239,28 +274,36 @@ function continuationLine(result: UnknownRecord): string | undefined {
   )
     return undefined;
   let label = "";
+
   if (result.kind === "directory") {
     const { entryCount } = result;
+
     if (isNumber(entryCount))
       label = `${entryCount - nextOffset} more ${noun(entryCount - nextOffset, "entry")}. `;
   } else if (isNumber(result.lineCount)) {
     const left = result.lineCount - nextOffset;
     label = `${left} more ${noun(left, "line")}. `;
   }
+
   const path = isNonEmptyString(result.path) ? oneLine(result.path) : "";
+
   // Every colon a web locator's query or fragment opened is URL text, so a
   // trailing selector cannot follow one: `…?version=1:2001-` would request a
   // different URL than the one the source was read from. A host path takes
   // `?` and `#` as ordinary name characters and keeps its selector.
   const webLocatorTakesNoSelector =
     /^https?:\/\//iu.test(path) && /[?#]/u.test(path);
+
   if (result.kind !== "directory" && webLocatorTakesNoSelector) {
     const stated = isNumber(result.lineCount)
       ? `${result.lineCount - nextOffset} more ${noun(result.lineCount - nextOffset, "line")} not shown`
       : "more lines not shown";
+
     return `[${stated}; this locator takes no line selector]`;
   }
+
   const use = `Use ${path}:${resumeSelector(result, nextOffset)} to continue`;
+
   return `[${label}${use}]`;
 }
 
@@ -273,6 +316,7 @@ export function renderReadText(result: UnknownRecord): string {
   const content = isNonEmptyString(result.content) ? result.content : "";
   const body = content.replace(/\n$/u, "");
   const bodyLines = body === "" ? [] : [body];
+
   // A file frames its content with the header and the attribution lines; a
   // directory's stored content already opens with its path, so its
   // attribution follows the listing whose origin it names.
@@ -280,11 +324,15 @@ export function renderReadText(result: UnknownRecord): string {
     result.kind === "directory"
       ? [...bodyLines, ...renderAttributionLines(result)]
       : [fileHeader(result), ...renderAttributionLines(result), ...bodyLines];
+
   const continuation = continuationLine(result);
+
   if (continuation !== undefined) lines.push(continuation);
   const { truncationNotice } = result;
+
   if (isNonEmptyString(truncationNotice))
     lines.push(`[${oneLine(truncationNotice)}]`);
+
   return lines.join("\n");
 }
 
@@ -315,8 +363,10 @@ type EditDisplay = {
 
 function editDisplay(result: UnknownRecord): EditDisplay | undefined {
   const display = result.display;
+
   if (!isRecord(display)) return undefined;
   const { startLine, oldText, newText } = display;
+
   return isNumber(startLine) && isString(oldText) && isString(newText)
     ? { startLine, oldText, newText }
     : undefined;
@@ -328,8 +378,10 @@ function editHeader(result: UnknownRecord, display: EditDisplay): string {
   const total = isNumber(result.lineCount)
     ? ` (${counted(result.lineCount, "line")} total)`
     : "";
+
   const oldLines = blockLineCount(display.oldText);
   const newLines = blockLineCount(display.newText);
+
   return `edited ${mutationLocator(result)}: line ${display.startLine}, ${oldLines} -> ${counted(newLines, "line")}${total}`;
 }
 
@@ -338,6 +390,7 @@ function editHeader(result: UnknownRecord, display: EditDisplay): string {
 function legacyEditHeader(result: UnknownRecord): string {
   const shown = asRange(result.shownRange);
   const locator = mutationLocator(result);
+
   return shown === undefined
     ? `edited ${locator}`
     : `edited ${locator}: region from line ${shown.startLine}`;
@@ -352,21 +405,26 @@ export function renderEditText(result: UnknownRecord): string {
   const display = editDisplay(result);
   const content = isNonEmptyString(result.content) ? result.content : "";
   const body = content.replace(/\n$/u, "");
+
   const lines = [
     display === undefined
       ? legacyEditHeader(result)
       : editHeader(result, display),
     ...renderAttributionLines(result),
   ];
+
   if (body !== "") lines.push(body);
   // The marker names the executor's bound, so a cap-only cut must not print it:
   // the cap overwrites `truncated` and adds its own notice. A part stored
   // before `cut` existed has no notice unless the cap cut it.
   const { truncationNotice } = result;
   const capCut = isNonEmptyString(truncationNotice);
+
   if (result.cut === true || (result.truncated === true && !capCut))
     lines.push(REGION_CUT_MARKER);
+
   if (capCut) lines.push(`[${oneLine(truncationNotice)}]`);
+
   return lines.join("\n");
 }
 
@@ -377,9 +435,11 @@ export function renderEditText(result: UnknownRecord): string {
  */
 export function renderWriteText(result: UnknownRecord): string {
   const action = result.replaced === true ? "replaced" : "created";
+
   const total = isNumber(result.lineCount)
     ? ` (${counted(result.lineCount, "line")})`
     : "";
+
   return [
     `${action} ${mutationLocator(result)}${total}`,
     ...renderAttributionLines(result),

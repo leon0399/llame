@@ -33,8 +33,10 @@ export const useRunContextReceipt = fn((): MockedReceiptQuery => ({
 })).mockName("useRunContextReceipt");
 
 export const fetchRunContextReceipt = fn().mockName("fetchRunContextReceipt");
+
 export const runContextReceiptQueryOptions = fn().mockName(
   "runContextReceiptQueryOptions",
 );
+
 export const runIdToCancel = fn(() => null).mockName("runIdToCancel");
 export const cancelRun = fn().mockName("cancelRun");

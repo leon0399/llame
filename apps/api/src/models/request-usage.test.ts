@@ -11,6 +11,7 @@ import type { ChatIdentity, ModelStreamInput } from './model-client';
 import { applyRequestUsageCallback } from './request-usage';
 
 const CHAT: ChatIdentity = { id: 'request-window-test', lane: 'main' };
+
 const messages = [
   { role: 'user', content: 'Answer.' },
 ] satisfies Array<ModelMessage>;
@@ -61,33 +62,42 @@ async function receiptsFrom(
         }),
       }),
   });
+
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = { model, messages };
+
   const receipts: Array<Receipt> = [];
+
   const input: ModelStreamInput = {
     chat: CHAT,
     messages,
     onRequestUsage: (usage, generationMs) =>
       receipts.push({ usage, generationMs }),
   };
+
   applyRequestUsageCallback(streamOptions, input);
 
   const { stream } = await streamOptions.model.doStream({
     prompt: [],
   } satisfies LanguageModelV3CallOptions);
+
   const reading = (async () => {
     const reader = stream.getReader();
+
     for (;;) {
       const next = await reader.read();
+
       if (next.done) return;
     }
   })();
+
   // Past the response's last chunk, so the reader drains and settles.
   await vi.advanceTimersByTimeAsync(
     INITIAL_DELAY_MS + CHUNK_DELAY_MS * (chunks.length + 2),
   );
   await reading;
+
   return receipts;
 }
 

@@ -5,6 +5,7 @@ import { type EngineOutcome, type EngineRequest } from './chain';
 import { removalFor } from '../../testing/web-search-removal';
 import { type VendorFetch } from './http';
 import { requestUrl } from '../../testing/web-search-fetch';
+
 const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   query: 'site:example.test cats',
   objective: undefined,
@@ -16,17 +17,20 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 const response = (
   body: string,
   status = 200,
   headers: HeadersInit = { 'content-type': 'text/html; charset=UTF-8' },
 ): Response => new Response(body, { status, headers });
+
 const html = (results: string): string =>
   `<html><body>${results}</body></html>`;
 
 function formFrom(init: RequestInit | undefined): URLSearchParams {
   if (!(init?.body instanceof URLSearchParams))
     throw new TypeError('expected URLSearchParams request body');
+
   return init.body;
 }
 
@@ -44,12 +48,16 @@ async function runWith(
 ): Promise<{ output: EngineOutcome; init?: RequestInit; url: string }> {
   let seenUrl = '';
   let seenInit: RequestInit | undefined;
+
   const fetch: VendorFetch = (input, init) => {
     seenUrl = requestUrl(input);
     seenInit = init;
+
     return Promise.resolve(fetchResponse(body));
   };
+
   const output = await createDuckDuckGoEngine({ fetch })(request(overrides));
+
   return { output, init: seenInit, url: seenUrl };
 }
 
@@ -107,10 +115,12 @@ describe('DuckDuckGo HTML engine', () => {
         <div class="result__snippet">Second snippet</div>
       </div>
     `);
+
     const { output, init } = await runWith(body, {
       limit: 2,
       objective: 'compare pgvector benchmarks',
     });
+
     expect(formFrom(init).get('q')).toBe('site:example.test cats');
     expect(output).toStrictEqual({
       kind: 'results',
@@ -138,6 +148,7 @@ describe('DuckDuckGo HTML engine', () => {
         <a class="result__a" href="https://example.test/valid">Valid</a>
       </div>
     `);
+
     const { output } = await runWith(body, { recency: undefined, limit: 1 });
     expect(output).toStrictEqual({
       kind: 'results',
@@ -152,6 +163,7 @@ describe('DuckDuckGo HTML engine', () => {
         <a class="result__a" href="https://example.test/only">Only result</a>
       </div>
     `);
+
     const { output } = await runWith(body);
     expect(output).toStrictEqual({
       kind: 'results',
@@ -172,6 +184,7 @@ describe('DuckDuckGo HTML engine', () => {
           response('<div class="anomaly-modal">verify</div>', 202),
         ),
     });
+
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'challenge',
     });
@@ -185,6 +198,7 @@ describe('DuckDuckGo HTML engine', () => {
         </div>
       `),
     );
+
     expect(output).toStrictEqual({
       kind: 'results',
       results: [
@@ -204,6 +218,7 @@ describe('DuckDuckGo HTML engine', () => {
           response('{}', 200, { 'content-type': 'application/json' }),
         ),
     });
+
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -211,11 +226,13 @@ describe('DuckDuckGo HTML engine', () => {
 
   it('cancels a non-HTML body before rejecting', async () => {
     let cancelled = false;
+
     const body = new ReadableStream<Uint8Array>({
       cancel() {
         cancelled = true;
       },
     });
+
     const engine = createDuckDuckGoEngine({
       fetch: () =>
         Promise.resolve(
@@ -224,6 +241,7 @@ describe('DuckDuckGo HTML engine', () => {
           }),
         ),
     });
+
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -234,6 +252,7 @@ describe('DuckDuckGo HTML engine', () => {
     const engine = createDuckDuckGoEngine({
       fetch: () => Promise.resolve(response('', 429)),
     });
+
     await expect(engine(request())).rejects.toMatchObject({
       failureClass: 'rate_limited',
     });

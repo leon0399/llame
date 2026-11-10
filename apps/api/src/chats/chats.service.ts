@@ -56,14 +56,18 @@ function sharedForkRows(
   callerId: string,
 ): Array<CopyableMessage> {
   const sourceById = new Map(source.map((m) => [m.id, m]));
+
   return projected.flatMap((message) => {
     const row = sourceById.get(message.id);
+
     const imageOnly =
       message.role === 'user' &&
       message.parts.length === 0 &&
       row !== undefined &&
       fileMediaIds(row.parts).length > 0;
+
     if (imageOnly) return [];
+
     return [
       {
         id: message.id,
@@ -111,6 +115,7 @@ export class ChatsService {
         new ChatsRepository(tx).findByOwner(userId, filter),
         new MessagesRepository(tx).findLatestPerOwnedChat(userId),
       ]);
+
       const latestByChat = new Map(latest.map((m) => [m.chatId, m]));
 
       return chatList.map((chat) => ({
@@ -170,15 +175,18 @@ export class ChatsService {
     | undefined
   > {
     const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+
     if (!chat) {
       return undefined;
     }
 
     const scope = { chatId, ownerUserId, limit: options.limit };
+
     const window =
       options.targetSeq !== undefined
         ? await this.loadWindowAtTarget(tx, scope, options.targetSeq)
         : await this.loadWindowBeforeSeq(tx, scope, options.beforeSeq);
+
     if (!window) {
       return undefined;
     }
@@ -201,6 +209,7 @@ export class ChatsService {
     const checkpointIds = messages.flatMap((message) =>
       message.role === 'checkpoint' ? [message.id] : [],
     );
+
     if (checkpointIds.length === 0) {
       return messages;
     }
@@ -210,6 +219,7 @@ export class ChatsService {
       ownerUserId,
       checkpointIds,
     );
+
     return messages.map((message) =>
       message.role === 'checkpoint'
         ? { ...message, absorbedMessageCount: counts.get(message.id) ?? 0 }
@@ -224,11 +234,13 @@ export class ChatsService {
     targetSeq: number,
   ): Promise<Array<Message> | undefined> {
     const { chatId, ownerUserId, limit } = scope;
+
     const messages = await new MessagesRepository(tx).findByChatId(
       chatId,
       ownerUserId,
       { limit, maxSeq: targetSeq },
     );
+
     return messages.at(-1)?.seq === targetSeq ? messages : undefined;
   }
 
@@ -239,6 +251,7 @@ export class ChatsService {
     beforeSeq: number | undefined,
   ): Promise<Array<Message>> {
     const { chatId, ownerUserId, limit } = scope;
+
     return new MessagesRepository(tx).findByChatId(chatId, ownerUserId, {
       limit,
       maxSeq: beforeSeq === undefined ? undefined : beforeSeq - 1,
@@ -281,7 +294,9 @@ export class ChatsService {
       if (error instanceof HttpException) {
         throw error;
       }
+
       const code = pgErrorCode(error);
+
       // Sound today because project_id is the ONLY patchable FK on chats
       // (owner_user_id isn't patchable, so the WITH CHECK's other conjunct
       // can't fail). If chats ever gains another patchable FK, this catch
@@ -290,6 +305,7 @@ export class ChatsService {
       if (code === '23503' || code === '42501') {
         throw new NotFoundException('Project not found');
       }
+
       throw error;
     }
   }
@@ -310,6 +326,7 @@ export class ChatsService {
       'web',
       query,
     );
+
     const vectorParams =
       'vector' in embedResult
         ? { queryVector: embedResult.vector, modelKey: embedResult.modelKey }
@@ -347,9 +364,11 @@ export class ChatsService {
   ): Promise<{ chat: Chat; messages: Array<Message> } | undefined> {
     return this.tenantDb.runAsPublic(async (tx) => {
       const chat = await new ChatsRepository(tx).findPublicById(chatId);
+
       if (!chat) {
         return undefined;
       }
+
       const messages = await new MessagesRepository(tx).listPublicByChatId(
         chatId,
         {
@@ -360,6 +379,7 @@ export class ChatsService {
               : options.beforeSeq - 1,
         },
       );
+
       return { chat, messages };
     });
   }
@@ -431,11 +451,13 @@ export class ChatsService {
     callerId: string,
   ): Promise<Chat | undefined> {
     const shared = await this.getSharedChat(chatId);
+
     if (!shared) {
       return undefined;
     }
 
     const dto = toSharedChatResponse(shared.chat, shared.messages);
+
     const forked = await this.tenantDb.runAs(callerId, (tx) =>
       this.copyMessagesIntoNewChat(
         tx,
@@ -457,6 +479,7 @@ export class ChatsService {
     // real embed once the fork's projection actually exists. Coalesced by
     // singletonKey, so this early send is never wasted more than once.
     void this.embedDispatch.enqueueChatEmbed(forked.id, callerId);
+
     return forked;
   }
 
@@ -474,9 +497,11 @@ export class ChatsService {
       // in run-execution.service.ts#finishRun for the full argument.
       const runsRepo = new RunsRepository(tx);
       const active = await runsRepo.findActiveByChatId(chatId, userId);
+
       if (active) {
         await runsRepo.requestCancel(active.id, userId);
       }
+
       return new ChatsRepository(tx).deleteById(chatId, userId);
     });
   }
@@ -496,9 +521,11 @@ export class ChatsService {
     fromMessageId: string | undefined,
   ) {
     const source = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+
     if (!source) {
       throw new NotFoundException('Chat not found');
     }
+
     if (fromMessageId === undefined) {
       return { source, maxSeq: undefined };
     }
@@ -508,9 +535,11 @@ export class ChatsService {
       ownerUserId,
       fromMessageId,
     );
+
     if (!anchor) {
       throw new NotFoundException('Fork-point message not found in this chat');
     }
+
     return { source, maxSeq: anchor.seq };
   }
 
@@ -542,9 +571,11 @@ export class ChatsService {
       ownerUserId,
       maxSeq,
     );
+
     const toCopy = selectForkMessages(sourceMessages, maxSeq);
 
     const { messageIds, inherited } = inheritForkedChatState(source, toCopy);
+
     const created = await this.copyMessagesIntoNewChat(
       tx,
       ownerUserId,
@@ -553,11 +584,13 @@ export class ChatsService {
       inherited,
       messageIds,
     );
+
     await copyCitedArtifacts(tx, {
       sourceChatId: chatId,
       targetChatId: created.id,
       citations: citedArtifacts(toCopy.flatMap((message) => message.parts)),
     });
+
     return created;
   }
 
@@ -618,6 +651,7 @@ export class ChatsService {
     // chat-search-embeddings design D5 — see the sibling fork() above for
     // why this is safe to send before the reindex has run.
     void this.embedDispatch.enqueueChatEmbed(forked.id, ownerUserId);
+
     return forked;
   }
 }

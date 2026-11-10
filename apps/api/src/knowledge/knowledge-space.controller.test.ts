@@ -34,12 +34,14 @@ describe('KnowledgeSpaceController', () => {
 
   it('creates a named resource and sets its Location header', async () => {
     const provisionForOwner = vi.fn().mockResolvedValue(SPACE);
+
     const controller = new KnowledgeSpaceController({
       provisionForOwner,
       listForOwner: noOp,
       getForOwner: noOp,
       renameForOwner: noOp,
     });
+
     const response = { setHeader: vi.fn() };
 
     await expect(
@@ -63,6 +65,7 @@ describe('KnowledgeSpaceController', () => {
       items: [SPACE],
       nextCursor: 'opaque-cursor',
     });
+
     const controller = new KnowledgeSpaceController({
       provisionForOwner: noOp,
       listForOwner,
@@ -84,6 +87,7 @@ describe('KnowledgeSpaceController', () => {
 
   it('returns the same 404 shape for absent and other-owner IDs', async () => {
     const getForOwner = vi.fn().mockResolvedValue(undefined);
+
     const controller = new KnowledgeSpaceController({
       provisionForOwner: noOp,
       listForOwner: noOp,

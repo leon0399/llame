@@ -83,6 +83,7 @@ describe('collectKnowledgePassages', () => {
     const lines = Array.from({ length: 2001 }, (_value, index) =>
       index % 3 === 1 ? `needle ${index}` : `line ${index}`,
     );
+
     const passages = await collectKnowledgePassages(
       'trailing.md',
       lines.join('\n'),
@@ -189,6 +190,7 @@ describe('collectKnowledgePassages — excerpt windowing', () => {
 
   it('measures the window in code points, not UTF-16 code units', async () => {
     const source = `${'😀'.repeat(700)}NEEDLE${'😀'.repeat(700)}`;
+
     const passages = await collectKnowledgePassages(
       'astral.md',
       source,

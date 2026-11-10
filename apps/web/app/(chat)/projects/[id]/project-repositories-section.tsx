@@ -41,6 +41,7 @@ function RepositorySummary({
   // about them.
   const parts =
     repository === undefined ? [] : [repository.canonicalRemote ?? "No remote"];
+
   if (checkouts.status === "loaded") {
     const clones = checkouts.rows.filter((row) => row.kind === "main");
     const worktrees = checkouts.rows.length - clones.length;
@@ -49,8 +50,10 @@ function RepositorySummary({
         ? "No checkout"
         : countLabel(clones.length, "checkout"),
     );
+
     if (worktrees > 0) parts.push(countLabel(worktrees, "worktree"));
   }
+
   return (
     <span className="min-h-4 truncate text-xs text-muted-foreground">
       {parts.join(" · ")}
@@ -70,6 +73,7 @@ type RepositoryRowProps = {
  *  means something, and a summary line. Everything else is in its sheet. */
 function RepositoryRow({ showPrimary, ...props }: RepositoryRowProps) {
   const [open, setOpen] = React.useState(false);
+
   return (
     <li className="-mx-2">
       <button
@@ -105,6 +109,7 @@ function RepositoryRow({ showPrimary, ...props }: RepositoryRowProps) {
  *  above then show only their remotes. */
 function CheckoutsLoadError({ checkouts }: { checkouts: CheckoutsQuery }) {
   if (!checkouts.isError) return null;
+
   return (
     <li>
       <Alert variant="destructive">
@@ -142,14 +147,18 @@ function useRepositoriesSectionData(projectId: string) {
   const links = useProjectRepositoryLinksQuery(projectId);
   const repositories = useRepositoriesQuery();
   const checkouts = useCheckoutsQuery();
+
   const repositoryById = new Map(
     (repositories.data ?? []).map((repository) => [repository.id, repository]),
   );
+
   // A read that has not settled is not an empty list: rows and sheets say
   // which it is rather than report no checkouts.
   const checkoutsOf = (repositoryId: string): CheckoutsRead => {
     if (checkouts.isError) return { status: "error" };
+
     if (checkouts.data === undefined) return { status: "loading" };
+
     return {
       status: "loaded",
       rows: checkouts.data.filter(
@@ -157,6 +166,7 @@ function useRepositoriesSectionData(projectId: string) {
       ),
     };
   };
+
   return { links, repositoryById, checkoutsOf, checkouts };
 }
 
@@ -182,12 +192,16 @@ function RepositoriesBody({
 }) {
   const { links, repositoryById, checkoutsOf, checkouts } =
     useRepositoriesSectionData(projectId);
+
   if (links.isPending) return <Skeleton className="h-10 w-full" />;
+
   if (links.isError) {
     return <RepositoriesLoadError onRetry={() => void links.refetch()} />;
   }
+
   if (links.data.length === 0 && !drafting) return <RepositoriesEmpty />;
   const linked = new Set(links.data.map((link) => link.repositoryId));
+
   return (
     <ul className="flex flex-col gap-1">
       {links.data.map((link) => (
@@ -228,6 +242,7 @@ export function ProjectRepositoriesSection({
 }) {
   const headingId = React.useId();
   const [drafting, setDrafting] = React.useState(false);
+
   return (
     <section aria-labelledby={headingId} className="space-y-2 p-4">
       <div className="flex items-center justify-between gap-2">

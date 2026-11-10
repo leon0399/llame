@@ -62,6 +62,7 @@ describe('createFakeModelClient', () => {
     const onTextDelta = vi.fn();
     const onRequestUsage = vi.fn();
     const onFinish = vi.fn();
+
     const result = client.streamText({
       chat: CHAT,
       messages,
@@ -94,6 +95,7 @@ describe('createFakeModelClient', () => {
     const client = createFakeModelClient([]);
     const onTextDelta = vi.fn();
     const onFinish = vi.fn();
+
     const result = client.streamText({
       chat: CHAT,
       messages,
@@ -119,15 +121,19 @@ describe('createFakeModelClient', () => {
   it('does not resolve text until an async onFinish settles', async () => {
     const client = createFakeModelClient(['done']);
     let finish: () => void = () => undefined;
+
     const finishPromise = new Promise<void>((resolve) => {
       finish = () => resolve();
     });
+
     const onFinish = vi.fn(() => finishPromise);
+
     const textPromise = client.streamText({
       chat: CHAT,
       messages,
       onFinish,
     }).text;
+
     let textResolved = false;
 
     void textPromise.then(() => {
@@ -205,6 +211,7 @@ async function collectParts(
 describe('createFakeModelClient stream shape', () => {
   it('emits no text delta at all for an empty response', async () => {
     const client = createFakeModelClient([]);
+
     const parts = await collectParts(
       client.streamText({ chat: CHAT, messages }).fullStream,
     );
@@ -221,6 +228,7 @@ describe('createFakeModelClient stream shape', () => {
 
   it('opens and closes the text block under one id', async () => {
     const client = createFakeModelClient(['done']);
+
     const parts = await collectParts(
       client.streamText({ chat: CHAT, messages }).fullStream,
     );
@@ -233,6 +241,7 @@ describe('createFakeModelClient stream shape', () => {
           part.type === 'text-end',
       )
       .map((part) => ('id' in part ? part.id : undefined));
+
     expect(ids).toStrictEqual([
       'fake-response',
       'fake-response',

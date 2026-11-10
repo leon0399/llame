@@ -32,11 +32,14 @@ function fakeLink(): FakeLink {
   const stdout = new PassThrough();
   const stdin = new PassThrough();
   const stderr = new PassThrough();
+
   let onClose:
     | ((code: number | null, signal: string | null) => void)
     | undefined;
+
   let onError: ((error: Error) => void) | undefined;
   let kills = 0;
+
   return {
     pairs: { stdout, stdin, stderr },
     process: {
@@ -99,6 +102,7 @@ describe('createProcessTransport', () => {
   it('keeps stderr bounded', async () => {
     const link = fakeLink();
     const transport = createProcessTransport(link.process);
+
     for (let index = 0; index < 3; index += 1)
       link.pairs.stderr.write('x'.repeat(SSH_DIAGNOSTIC_BYTES));
     link.close(1, null);
@@ -133,20 +137,24 @@ describe('createMachineSshTransportFactory', () => {
   function factory() {
     const links: Array<FakeLink> = [];
     const calls: Array<{ command: string; args: ReadonlyArray<string> }> = [];
+
     const created = createMachineSshTransportFactory({
       ssh,
       spawn: (command, args) => {
         calls.push({ command, args });
         const link = fakeLink();
         links.push(link);
+
         return link.process;
       },
     });
+
     return { created, links, calls };
   }
 
   it('runs ssh through the generated configuration with -T and the forced command', () => {
     const { created, calls } = factory();
+
     try {
       created.open({ name: 'devl', destination: 'box' });
       created.open({ name: 'gpu', destination: 'me@gpu.lan:2222' });
@@ -175,6 +183,7 @@ describe('createMachineSshTransportFactory', () => {
 
   it('writes the safety block plus the include it was configured with, 0600', () => {
     const { created, calls } = factory();
+
     try {
       created.open({ name: 'devl', destination: 'box' });
       const path = of(calls[0]).args[1];
@@ -214,6 +223,7 @@ describe('createMachineSshTransportFactory through the real spawn seam', () => {
     knownHostsFile: '/etc/llame/machine_known_hosts',
     identityFile: '/etc/llame/machine_ed25519',
   };
+
   let bin: string;
   let previousPath: string | undefined;
 
@@ -247,6 +257,7 @@ describe('createMachineSshTransportFactory through the real spawn seam', () => {
       ].join('\n'),
     );
     const created = createMachineSshTransportFactory({ ssh });
+
     try {
       const link = created.open({ name: 'devl', destination: 'box' });
       const answer = firstChunk(link.input);
@@ -267,6 +278,7 @@ describe('createMachineSshTransportFactory through the real spawn seam', () => {
   it('ends with the spawn failure when no ssh exists to run', async () => {
     process.env['PATH'] = bin;
     const created = createMachineSshTransportFactory({ ssh });
+
     try {
       const link = created.open({ name: 'devl', destination: 'box' });
       const end = await link.ended;
@@ -293,6 +305,7 @@ describe('createMachineSshTransportFactory through the real spawn seam', () => {
         ['#!/bin/sh', 'echo up', 'read -r forever', 'exit 7', ''].join('\n'),
       );
       const created = createMachineSshTransportFactory({ ssh });
+
       try {
         const link = created.open({ name: 'devl', destination: 'box' });
         await expect(firstChunk(link.input)).resolves.toBe('up\n');
@@ -323,11 +336,13 @@ function firstChunk(stream: Readable): Promise<string> {
     resolve(chunk);
   });
   stream.once('error', reject);
+
   return promise;
 }
 
 /** Index with a clear failure instead of a non-null assertion. */
 function of<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('the fixture was not spawned');
+
   return value;
 }

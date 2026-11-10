@@ -22,8 +22,10 @@ export function storedImageSources(
   locator: string,
 ): { thumbnail: string; original: string } | null {
   const id = mediaIdFromLocator(locator);
+
   if (id === null) return null;
   const apiUrl = getApiUrl();
+
   return {
     thumbnail: `${apiUrl}${getGetMediaModelUrl(id)}`,
     original: `${apiUrl}${getGetMediaOriginalUrl(id)}`,

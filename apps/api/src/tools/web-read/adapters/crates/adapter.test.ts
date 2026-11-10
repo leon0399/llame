@@ -14,8 +14,10 @@ const adapter = createCratesAdapter(
   { id: 'crates', use: 'crates' },
   { origin: API_ORIGIN },
 );
+
 const API = `${API_ORIGIN}/api/v1/crates/demo`;
 const CRATE_URL = `${API}?include=default_version,keywords,categories,downloads`;
+
 const NOT_FOUND: WebFetchFailure = {
   type: 'http_status',
   message: 'HTTP 404',
@@ -57,6 +59,7 @@ function html(body: string): Reply {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map(({ url }) => url) };
 }
 
@@ -206,6 +209,7 @@ describe('crates.io adapter read', () => {
   it('follows the canonical name after a differently spelled URL', async () => {
     const spelled = `${API_ORIGIN}/api/v1/crates/Demo-Crate?include=default_version,keywords,categories,downloads`;
     const canonical = `${API_ORIGIN}/api/v1/crates/demo_crate/2.0.0`;
+
     const page = {
       ...cratePage,
       crate: { name: 'demo_crate', default_version: '2.0.0' },

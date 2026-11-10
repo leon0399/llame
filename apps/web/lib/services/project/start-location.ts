@@ -71,6 +71,7 @@ export async function fetchStartLocation(
     executorId: selection.executorId,
     checkoutId: selection.checkoutId,
   };
+
   return getProjectStartLocation(
     projectId,
     params,
@@ -100,8 +101,10 @@ export function machineNameFromExecutorId(
   executorId: string,
 ): string | undefined {
   const prefix = "machine:";
+
   if (!executorId.startsWith(prefix)) return undefined;
   const name = executorId.slice(prefix.length);
+
   return name.length === 0 ? undefined : name;
 }
 
@@ -127,6 +130,7 @@ export function executorLabel(
 ): string {
   const machineName = machineNameFromExecutorId(executorId);
   const machine = findMachineByName(machines, machineName);
+
   return machine?.name ?? machineName ?? executorId;
 }
 
@@ -138,10 +142,13 @@ function executorOption(
   const machineName = machineNameFromExecutorId(executorId);
   const machine = findMachineByName(machines, machineName);
   const label = executorLabel(executorId, machines);
+
   if (unavailable?.executorId === executorId) {
     return { executorId, label, reason: unavailable.reason };
   }
+
   if (machineName === undefined) return { executorId, label, reason: null };
+
   if (machine === undefined) {
     return {
       executorId,
@@ -149,9 +156,11 @@ function executorOption(
       reason: "This Machine is not configured.",
     };
   }
+
   if (machine.status === "online") {
     return { executorId, label, reason: null };
   }
+
   return {
     executorId,
     label,
@@ -181,11 +190,14 @@ export function executorOptions(
 ): Array<ExecutorOption> {
   if (input.repositoryId === null) return [];
   const counts = new Map<string, number>();
+
   for (const checkout of input.checkouts) {
     if (checkout.kind !== "main") continue;
+
     if (checkout.repositoryId !== input.repositoryId) continue;
     counts.set(checkout.executorId, (counts.get(checkout.executorId) ?? 0) + 1);
   }
+
   return [...counts]
     .map(([executorId, mainCheckouts]) => ({
       ...executorOption(input.machines, executorId, input.unavailable ?? null),
@@ -232,6 +244,7 @@ export function unavailableExecutor(
   failed: WorkspaceFailure | null,
 ): UnavailableExecutor | null {
   if (failed?.executorId === undefined) return null;
+
   switch (failed.status) {
     case "machine_unavailable":
       return {
@@ -255,6 +268,7 @@ function workspaceWarning(failed: WorkspaceFailure): LocationWarning {
     failed.status === "machine_update_required"
       ? "machine"
       : "workspace";
+
   return {
     step,
     message:
@@ -267,13 +281,16 @@ function workspaceWarning(failed: WorkspaceFailure): LocationWarning {
 /** The executor option the preview names, or null when none resolves. */
 function previewExecutor(input: ResolveLocationInput): ExecutorOption | null {
   const executorId = input.preview?.executorId;
+
   if (executorId === null || executorId === undefined) return null;
+
   const options = executorOptions({
     repositoryId: input.preview?.repositoryId ?? null,
     checkouts: input.checkouts,
     machines: input.machines,
     unavailable: unavailableExecutor(input.failed),
   });
+
   return options.find((option) => option.executorId === executorId) ?? null;
 }
 
@@ -287,14 +304,18 @@ function locationWarning(
   location: ResolvedLocation,
 ): LocationWarning | null {
   if (input.failed !== null) return workspaceWarning(input.failed);
+
   if (input.previewFailed) {
     return {
       step: "preview",
       message: "Could not resolve the start location.",
     };
   }
+
   const executor = location.executor;
+
   if (executor === null || executor.reason === null) return null;
+
   return {
     step: "machine",
     message: `${executor.label}: ${executor.reason}`,
@@ -308,6 +329,7 @@ function locationWarning(
 export function resolveLocation(input: ResolveLocationInput): ResolvedLocation {
   const preview = input.preview;
   const checkoutId = preview?.checkoutId ?? null;
+
   const location: ResolvedLocation = {
     repositoryId: preview?.repositoryId ?? null,
     executor: previewExecutor(input),
@@ -320,5 +342,6 @@ export function resolveLocation(input: ResolveLocationInput): ResolvedLocation {
     isolationChats: preview?.isolationChats ?? 0,
     warning: null,
   };
+
   return { ...location, warning: locationWarning(input, location) };
 }

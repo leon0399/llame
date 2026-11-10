@@ -73,6 +73,7 @@ describe('continueKeptParts', () => {
   it('keeps the context items directly after the last settled result', () => {
     const availability = contextItem('tool-availability');
     const temporal = contextItem('temporal');
+
     const parts = [
       text('step 1 text'),
       call('call-1', 'output-available'),
@@ -105,6 +106,7 @@ describe('continueKeptParts', () => {
 
   it('keeps a context item between two steps with the step it follows', () => {
     const availability = contextItem('tool-availability');
+
     const parts = [
       call('call-1', 'output-available'),
       availability,

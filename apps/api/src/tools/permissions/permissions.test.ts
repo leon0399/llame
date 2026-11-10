@@ -100,6 +100,7 @@ describe('evaluatePermission decision precedence', () => {
         reject: [{ field: 'command', literal: 'git push' }],
       },
     };
+
     expect(
       decide(map, 'bash', { command: 'git status && git push' }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
@@ -112,6 +113,7 @@ describe('evaluatePermission decision precedence', () => {
         allow: [{ field: 'command', literal: 'git status' }],
       },
     };
+
     expect(decide(map, 'bash', { command: 'git status' })).toMatchObject({
       decision: 'reject',
       reason: 'explicit_reject',
@@ -127,6 +129,7 @@ describe('evaluatePermission decision precedence', () => {
         ],
       },
     };
+
     expect(
       decide(map, 'bash', { command: 'rm file', cwd: '/repo' }),
     ).toMatchObject({ decision: 'allow', reason: 'matched_allow' });
@@ -142,6 +145,7 @@ describe('evaluatePermission decision precedence', () => {
         ],
       },
     });
+
     const reversed = compiled({
       bash: {
         allow: true,
@@ -151,6 +155,7 @@ describe('evaluatePermission decision precedence', () => {
         ],
       },
     });
+
     for (const args of [
       { command: 'git push' },
       { command: 'rm -rf /' },
@@ -170,6 +175,7 @@ describe('evaluatePermission decision precedence', () => {
         reject: [{ field: 'command', literal: 'git push' }],
       },
     };
+
     expect(decide(map, 'bash', { command: 'git push' })).toMatchObject({
       reference: { groupId: 'bash', list: 'reject', clauseIndex: 0 },
     });
@@ -221,6 +227,7 @@ describe('evaluatePermission value selection', () => {
         allow: [{ field: 'missing', literal: 'x' }],
       },
     });
+
     expect(
       evaluatePermission(policy, {
         toolId: 'mcp__demo__lookup',
@@ -264,6 +271,7 @@ describe('evaluatePermission value selection', () => {
     const numeric: ToolPermissionMap = {
       bash: { allow: [{ field: 'command', literal: '1' }] },
     };
+
     expect(decide(numeric, 'bash', { command: 1 })).toMatchObject({
       decision: 'reject',
       reason: 'no_allow',
@@ -281,6 +289,7 @@ describe('evaluatePermission value selection', () => {
       path: 'kb://SPACE/notes/a',
       blob: 'x'.repeat(1024 * 1024 + 1),
     });
+
     expect(decision).toMatchObject({
       decision: 'reject',
       reason: 'input_limit',
@@ -292,6 +301,7 @@ describe('evaluatePermission value selection', () => {
       (acc) => ({ child: acc }),
       'PRIVATE_MARKER',
     );
+
     expect(
       decide(map, 'write', { path: 'kb://SPACE/notes/a', tree: nested }),
     ).toMatchObject({ decision: 'reject', reason: 'input_limit' });

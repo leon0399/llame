@@ -60,6 +60,7 @@ type AuditRecord = {
 /** An allow-all tool context whose activation reads are recorded in `audit`. */
 export function auditedContext() {
   const audit: Array<AuditRecord> = [];
+
   const context: ToolContext = {
     userId: 'owner',
     chatId: 'chat',
@@ -70,6 +71,7 @@ export function auditedContext() {
     timeoutMs: 5000,
     tenantDb: { runAs: () => Promise.reject(new Error('no database in test')) },
   };
+
   return {
     audit,
     context,

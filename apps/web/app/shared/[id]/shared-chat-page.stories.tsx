@@ -67,6 +67,7 @@ function sharedChatBody(title: string | null) {
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
   const url = new URL(request.url);
+
   return `${request.method} ${url.pathname}${url.search}`;
 }
 
@@ -82,6 +83,7 @@ function answer(
   onHold: (release: () => void) => void,
 ) {
   if (!hold) return Promise.resolve(respond());
+
   return new Promise<Response>((resolve) => {
     onHold(() => resolve(respond()));
   });
@@ -91,6 +93,7 @@ function routeFetch() {
   fetchMock = stubFetch();
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
+
     if (key === SHARED_CHAT_ROUTE) {
       return answer(
         sharedChat,
@@ -98,7 +101,9 @@ function routeFetch() {
         (release) => (releaseSharedChat = release),
       );
     }
+
     if (key === ME_ROUTE) return Promise.resolve(me());
+
     if (key === FORK_ROUTE) {
       return answer(
         () => jsonResponse({ id: "forked-1" }),
@@ -106,6 +111,7 @@ function routeFetch() {
         (release) => (releaseFork = release),
       );
     }
+
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -129,6 +135,7 @@ const meta = {
     holdFork = false;
     routerPush.mockClear();
     routeFetch();
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -144,6 +151,7 @@ const meta = {
 } satisfies Meta<typeof SharedChatPage>;
 
 export default meta;
+
 // The meta's render supplies `params`, so no story sets args.
 type Story = StoryObj<typeof SharedChatPage>;
 
@@ -162,6 +170,7 @@ export const SignedOut: Story = {
     const login = await canvas.findByRole("link", {
       name: "Log in to continue",
     });
+
     await expect(login).toBeVisible();
     await expect(login).toHaveAttribute(
       "href",
@@ -283,6 +292,7 @@ export const SignedInFork: Story = {
     const fork = await canvas.findByRole("button", {
       name: "Fork to continue",
     });
+
     await expect(
       canvas.queryByRole("link", { name: "Log in to continue" }),
     ).not.toBeInTheDocument();

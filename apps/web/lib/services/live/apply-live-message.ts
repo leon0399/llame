@@ -90,6 +90,7 @@ export function invalidateOwnerLists(queryClient: QueryClient): void {
 }
 
 type PinFilter = "only" | "exclude" | "with" | undefined;
+
 type Membership = boolean | "unknown";
 
 /** Whether a record belongs in a list with these archive and pin filters. */
@@ -103,9 +104,13 @@ export function matchesListFilters(
     (filters.archived === "only"
       ? record.archivedAt !== null
       : record.archivedAt === null);
+
   if (!archivedOk) return false;
+
   if (filters.pinned !== "only" && filters.pinned !== "exclude") return true;
+
   if (!pinnedIds) return "unknown";
+
   return pinnedIds.has(record.id) === (filters.pinned === "only");
 }
 
@@ -113,6 +118,7 @@ function pinnedIdSet(
   queryClient: QueryClient,
 ): ReadonlySet<string> | undefined {
   const pins = queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list());
+
   return pins && new Set(pins.map((pin) => pin.itemId));
 }
 
@@ -124,13 +130,18 @@ export function placeRecord<T extends { id: string; updatedAt: string }>(
   sortByUpdatedAt: boolean,
 ): Array<T> {
   const index = items.findIndex((item) => item.id === record.id);
+
   if (!member) return items.filter((item) => item.id !== record.id);
+
   if (index >= 0 && !sortByUpdatedAt) {
     return items.map((item) => (item.id === record.id ? record : item));
   }
+
   const rest = items.filter((item) => item.id !== record.id);
+
   if (!sortByUpdatedAt) return [record, ...rest];
   const at = rest.findIndex((item) => item.updatedAt < record.updatedAt);
+
   return at < 0
     ? [...rest, record]
     : [...rest.slice(0, at), record, ...rest.slice(at)];
@@ -140,18 +151,23 @@ function applyChat(queryClient: QueryClient, chat: ChatListItemResponse): void {
   const { lastMessage: _lastMessage, ...detail } = chat;
   queryClient.setQueryData(chatQueryKeys.detail(chat.id), detail);
   const pinnedIds = pinnedIdSet(queryClient);
+
   for (const [queryKey, data] of queryClient.getQueriesData<
     InfiniteData<Array<ChatResponse>>
   >({ queryKey: chatQueryKeys.lists() })) {
     const filters = chatListFiltersFromKey(queryKey);
+
     if (!filters || !data) continue;
     const member = matchesListFilters(chat, filters, pinnedIds);
+
     const inProject =
       filters.projectId === undefined || filters.projectId === chat.projectId;
+
     if (member === "unknown") {
       void queryClient.invalidateQueries({ queryKey, exact: true });
       continue;
     }
+
     const sorted = filters.pinned !== "only";
     queryClient.setQueryData<InfiniteData<Array<ChatResponse>>>(queryKey, {
       ...data,
@@ -162,6 +178,7 @@ function applyChat(queryClient: QueryClient, chat: ChatListItemResponse): void {
       ),
     });
   }
+
   updateSearchResults(queryClient, chat.id, (result) => ({
     ...result,
     title: chat.title,
@@ -182,6 +199,7 @@ function removeChat(queryClient: QueryClient, chatId: string): void {
     queryKey: chatQueryKeys.detail(chatId),
     exact: true,
   });
+
   for (const [queryKey, data] of queryClient.getQueriesData<
     InfiniteData<Array<ChatResponse>>
   >({ queryKey: chatQueryKeys.lists() })) {
@@ -193,6 +211,7 @@ function removeChat(queryClient: QueryClient, chatId: string): void {
       ),
     });
   }
+
   updateSearchResults(queryClient, chatId, () => undefined);
   updatePinCards(queryClient, chatId, () => undefined);
 }
@@ -202,23 +221,28 @@ function applyProject(
   project: ProjectResponse,
 ): void {
   const pinnedIds = pinnedIdSet(queryClient);
+
   for (const [queryKey, data] of queryClient.getQueriesData<
     Array<ProjectResponse>
   >({
     queryKey: projectQueryKeys.lists(),
   })) {
     const filters = projectListFiltersFromKey(queryKey);
+
     if (!data || !filters) continue;
     const member = matchesListFilters(project, filters, pinnedIds);
+
     if (member === "unknown") {
       void queryClient.invalidateQueries({ queryKey, exact: true });
       continue;
     }
+
     queryClient.setQueryData(
       queryKey,
       placeRecord(data, project, member, filters.pinned !== "only"),
     );
   }
+
   updatePinCards(queryClient, project.id, (pin) =>
     pin.itemType === "project"
       ? {
@@ -246,6 +270,7 @@ function removeProject(queryClient: QueryClient, projectId: string): void {
       );
     }
   }
+
   updatePinCards(queryClient, projectId, () => undefined);
   // Chats filed into the project were moved by the server; refetch them.
   void queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
@@ -267,6 +292,7 @@ function applyMachine(
 ): void {
   const key = machinesQueryKeys.list();
   const machines = queryClient.getQueryData<Array<MachineResponse>>(key);
+
   // An unfetched list stays unfetched: its first read already has this
   // record, and seeding it here would show a list missing its siblings.
   if (!machines) return;
@@ -285,6 +311,7 @@ function applyMachine(
 function removeMachine(queryClient: QueryClient, name: string): void {
   const key = machinesQueryKeys.list();
   const machines = queryClient.getQueryData<Array<MachineResponse>>(key);
+
   if (!machines) return;
   queryClient.setQueryData(
     key,
@@ -309,6 +336,7 @@ function updateSearchResults(
       data.flatMap((result) => {
         if (result.id !== chatId) return [result];
         const next = update(result);
+
         return next ? [next] : [];
       }),
     );
@@ -321,12 +349,14 @@ function updatePinCards(
   update: (pin: PinnedItem) => PinnedItem | undefined,
 ): void {
   const pins = queryClient.getQueryData<Array<PinnedItem>>(pinQueryKeys.list());
+
   if (!pins?.some((pin) => pin.itemId === itemId)) return;
   queryClient.setQueryData(
     pinQueryKeys.list(),
     pins.flatMap((pin) => {
       if (pin.itemId !== itemId) return [pin];
       const next = update(pin);
+
       return next ? [next] : [];
     }),
   );

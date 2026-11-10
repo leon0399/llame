@@ -14,7 +14,9 @@ const MACHINE_ROOT = /^machine:\/\/([a-z0-9-]{1,63})(?:\/|$)/iu;
 /** The Machine a `machine://` Workspace root names, if it is one. */
 export function machineNameFromRoot(workspaceRoot: string): string | undefined {
   const match = MACHINE_ROOT.exec(workspaceRoot);
+
   if (match === null) return undefined;
+
   return match[1];
 }
 
@@ -26,10 +28,13 @@ export function machineNameFromRoot(workspaceRoot: string): string | undefined {
  */
 export function machinePathFromRoot(workspaceRoot: string): string | undefined {
   const match = MACHINE_ROOT.exec(workspaceRoot);
+
   if (match === null) return undefined;
+
   const encoded = match[0].endsWith("/")
     ? workspaceRoot.slice(match[0].length - 1)
     : "/";
+
   try {
     return decodeURIComponent(encoded);
   } catch {
@@ -44,5 +49,6 @@ export function findMachineByName<T extends { name: string }>(
 ): T | undefined {
   if (machineName === undefined) return undefined;
   const wanted = machineName.toLowerCase();
+
   return machines?.find((entry) => entry.name.toLowerCase() === wanted);
 }

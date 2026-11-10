@@ -5,10 +5,12 @@ import { frozenRuntimeDefinition, isStdio } from './mcp-runtime-definition';
 describe('frozenRuntimeDefinition', () => {
   it('copies and freezes remote protected values', () => {
     const protectedValues = ['remote-secret'];
+
     const result = frozenRuntimeDefinition({
       url: 'https://mcp.example.test',
       protectedValues,
     });
+
     if (isStdio(result)) throw new Error('expected a remote definition');
 
     expect(result.protectedValues).toEqual(['remote-secret']);
@@ -20,11 +22,13 @@ describe('frozenRuntimeDefinition', () => {
   it('copies and freezes remote headers and the injected fetch', () => {
     const headers = { authorization: 'Bearer token' };
     const fetch = (): Promise<Response> => Promise.resolve(new Response(''));
+
     const result = frozenRuntimeDefinition({
       url: 'https://mcp.example.test',
       headers,
       fetch,
     });
+
     if (isStdio(result)) throw new Error('expected a remote definition');
 
     expect(result.headers).toEqual({ authorization: 'Bearer token' });
@@ -44,6 +48,7 @@ describe('frozenRuntimeDefinition', () => {
     const args = ['--stdio'];
     const env = { TOKEN: 'stdio-secret' };
     const protectedValues = ['stdio-secret'];
+
     const result = frozenRuntimeDefinition({
       transport: 'stdio',
       command: 'node',
@@ -52,6 +57,7 @@ describe('frozenRuntimeDefinition', () => {
       cwd: '/workspace',
       protectedValues,
     });
+
     if (!isStdio(result)) throw new Error('expected a stdio definition');
 
     expect(result).toEqual({

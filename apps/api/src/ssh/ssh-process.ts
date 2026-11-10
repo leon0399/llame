@@ -54,8 +54,11 @@ export function classifySshLinkFailure(
   diagnostic: string,
 ): SshLinkFailureReason {
   if (established) return 'session_lost';
+
   if (SSH_HOST_KEY_MISMATCH.test(diagnostic)) return 'host_key_mismatch';
+
   if (SSH_AUTH_FAILED.test(diagnostic)) return 'auth_failed';
+
   return 'unreachable';
 }
 
@@ -67,12 +70,14 @@ export function collectSshDiagnostic(stderr: Readable): () => string {
     if (Buffer.byteLength(text) < SSH_DIAGNOSTIC_BYTES) text += chunk;
   });
   stderr.on('error', () => undefined);
+
   return () => text;
 }
 
 /** The production spawn: one `ssh` child process with piped stdio. */
 export const spawnSshProcess: SshSpawn = (command, args) => {
   const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+
   return {
     stdout: child.stdout,
     stdin: child.stdin,
@@ -91,10 +96,13 @@ export const spawnSshProcess: SshSpawn = (command, args) => {
  */
 function killProcessGroup(child: ChildProcess): void {
   const { pid } = child;
+
   if (pid === undefined) {
     child.kill('SIGKILL');
+
     return;
   }
+
   try {
     // The group id is the detached child's pid, so this reaches the `sh` and
     // `Match exec` children ssh leaves behind when it is killed alone.
@@ -116,6 +124,7 @@ export const spawnOneShotSshProcess: SshSpawn = (command, args) => {
     stdio: ['pipe', 'pipe', 'pipe'],
     detached: true,
   });
+
   return {
     stdout: child.stdout,
     stdin: child.stdin,

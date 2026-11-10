@@ -33,13 +33,16 @@ import type {
 } from '../models/model-catalog';
 import type { TemporalAnchor } from '../prompts/temporal-anchor';
 import type { WebSearchEngineConfig } from './web-search-config';
+
 export type {
   PromptChatsDisclosure,
   PromptChatsInput,
   PromptSkillsInput,
   PromptUserInput,
 } from '../models/model-catalog';
+
 export type { TemporalAnchor } from '../prompts/temporal-anchor';
+
 export type { PromptFileAccess } from '../prompts/template-engine';
 
 export type ToolPromptFileMap = Readonly<
@@ -226,6 +229,7 @@ function isPromptToolId(id: string): boolean {
   if (PROMPT_TOOL_RESERVED_KEYS.has(id) || !isToolId(id)) {
     return false;
   }
+
   return !id.startsWith('mcp__') || parseMcpToolId(id).success;
 }
 
@@ -287,6 +291,7 @@ export type RenderedPrompt = {
 export type ToolPromptRenderer = {
   render(input: ToolPromptRenderInput): RenderedPrompt;
 };
+
 /**
  * Renders one model's complete system prompt.
  *
@@ -346,6 +351,7 @@ export type ModelPromptLoader = {
 // (not rebuilt per `resolve()` call): none of these fixtures depend on the
 // model being resolved.
 const PROBE_USER: PromptUserInput = { preferredName: 'probe' };
+
 // The probe only needs both collections non-empty; entry CONTENT is
 // irrelevant to whether a template renders empty, so one entry serves both
 // lists.
@@ -355,6 +361,7 @@ const PROBE_CHAT_DIGEST_ENTRY: PromptChatDigestEntry = {
   messageCount: 1,
   excerpt: 'probe',
 };
+
 const PROBE_CHATS: PromptChatsInput = {
   pinned: [PROBE_CHAT_DIGEST_ENTRY],
   recent: [PROBE_CHAT_DIGEST_ENTRY],
@@ -364,6 +371,7 @@ const PROBE_CHATS: PromptChatsInput = {
   recentTotal: 1,
   compiledOn: '2000-01-01',
 };
+
 // The two collections gate independently of each other, not just of `user`:
 // an owner with only pinned chats and an owner with only recent ones are both
 // ordinary production inputs, and each omits one collection from the context
@@ -377,17 +385,20 @@ const PROBE_CHATS_PINNED_ONLY: PromptChatsInput = {
   recent: [],
   recentShown: 0,
 };
+
 const PROBE_CHATS_RECENT_ONLY: PromptChatsInput = {
   ...PROBE_CHATS,
   pinned: [],
   pinnedShown: 0,
 };
+
 // Representative anchor for boot probes — every combination supplies it, and
 // no probe exercises its absence, because no run can produce it.
 const PROBE_ANCHOR: TemporalAnchor = {
   systemTime: '2000-01-01 00:00+00:00',
   systemTimezone: 'UTC',
 };
+
 // The skill catalog gates independently of `user` and `chats`, so it joins the
 // cross product for the same reason: a template whose only content sits behind
 // `{{#if skills}}` renders empty for every chat whose catalog admits nothing.
@@ -395,6 +406,7 @@ const PROBE_SKILLS: PromptSkillsInput = {
   entries: [{ name: 'probe', description: 'probe' }],
   omitted: 0,
 };
+
 // The engine list gates independently too: a template whose only content is
 // the list renders empty for a deployment without a `webSearch` section.
 const PROBE_WEB_SEARCH: PromptWebSearchInput = {
@@ -541,16 +553,19 @@ function loadPromptFile(
 ): LoadedPromptFile {
   const resolvedPath = path.resolve(filePath);
   const cached = loadedFiles.get(resolvedPath);
+
   if (cached !== undefined) {
     return cached;
   }
 
   let isFile: boolean;
+
   try {
     isFile = access.isFile(resolvedPath);
   } catch (error) {
     throw promptReadError(field, error);
   }
+
   if (!isFile) {
     throw new InstanceConfigError(
       `${field}: prompt path must reference a regular file`,
@@ -558,6 +573,7 @@ function loadPromptFile(
   }
 
   let normalized: string;
+
   try {
     normalized = readPromptSource(resolvedPath, access);
   } catch (error) {
@@ -567,11 +583,14 @@ function loadPromptFile(
   if (normalized.length === 0) {
     throw new InstanceConfigError(`${field}: prompt file is empty`);
   }
+
   const loaded: LoadedPromptFile = {
     template: normalized,
     ...assertSupportedTemplate(normalized, field),
   };
+
   loadedFiles.set(resolvedPath, loaded);
+
   return loaded;
 }
 
@@ -591,11 +610,13 @@ function resolveModelPrompt(
   const { access, defaultPromptPath, configDirectory, loadedFiles } = state;
   const field = `models[${model.id}].systemPromptFile`;
   const override = model.systemPromptFile;
+
   // `path.resolve` returns an absolute second argument unchanged.
   const promptPath =
     override === undefined
       ? defaultPromptPath
       : path.resolve(configDirectory, override);
+
   const loadedPrompt = loadPromptFile(promptPath, field, access, loadedFiles);
   const { template: systemPromptTemplate, toolPredicateIds } = loadedPrompt;
   assertBootPromptNonEmpty(
@@ -642,6 +663,7 @@ export function createModelPromptLoader(
     },
   };
 }
+
 function assertToolPromptOverrideKeys(
   files: ToolPromptFileMap | undefined,
   field: string,
@@ -669,25 +691,31 @@ function loadToolPromptFiles(
   input: ToolPromptFileLoadInput,
 ): Map<ToolPromptId, LoadedPromptFile> {
   const loaded = new Map<ToolPromptId, LoadedPromptFile>();
+
   for (const [id, configuredPath] of Object.entries(input.files ?? {})) {
     if (configuredPath === null || configuredPath === undefined) {
       continue;
     }
+
     if (!isToolPromptId(id)) {
       throw new InstanceConfigError(
         `${input.field}: unsupported tool prompt override "${id}"`,
       );
     }
+
     const field = `${input.field}.${id}`;
+
     const loadedFile = loadPromptFile(
       path.resolve(input.configDirectory, configuredPath),
       field,
       input.access,
       input.loadedFiles,
     );
+
     assertBootToolDescriptionNonEmpty(loadedFile, field, input.models);
     loaded.set(id, loadedFile);
   }
+
   return loaded;
 }
 
@@ -697,17 +725,21 @@ function loadPackagedToolPromptFiles(
   models: ReadonlyArray<PromptModel>,
 ): Map<ToolPromptId, LoadedPromptFile> {
   const packaged = new Map<ToolPromptId, LoadedPromptFile>();
+
   for (const id of TOOL_PROMPT_IDS) {
     const field = `packaged tool description [${id}]`;
+
     const loadedFile = loadPromptFile(
       resolvePackagedToolDescriptionPath(id),
       field,
       access,
       loadedFiles,
     );
+
     assertBootToolDescriptionNonEmpty(loadedFile, field, models);
     packaged.set(id, loadedFile);
   }
+
   return packaged;
 }
 
@@ -729,6 +761,7 @@ function loadToolPromptSources(
     options.instancePromptFiles,
     'tools.promptFiles',
   );
+
   const instance = loadToolPromptFiles({
     files: options.instancePromptFiles,
     field: 'tools.promptFiles',
@@ -737,7 +770,9 @@ function loadToolPromptSources(
     loadedFiles,
     models,
   });
+
   const modelOverrides = new Map<string, Map<ToolPromptId, LoadedPromptFile>>();
+
   for (const model of models) {
     const field = `models[${model.id}].toolPromptFiles`;
     assertToolPromptOverrideKeys(model.toolPromptFiles, field);
@@ -753,6 +788,7 @@ function loadToolPromptSources(
       }),
     );
   }
+
   return { packaged, instance, modelOverrides };
 }
 
@@ -764,20 +800,25 @@ function selectToolPromptSources(
     string,
     ReadonlyMap<ToolPromptId, LoadedPromptFile>
   >();
+
   for (const model of options.models ?? []) {
     const selected = new Map<ToolPromptId, LoadedPromptFile>();
     const modelFiles = sources.modelOverrides.get(model.id);
+
     for (const id of TOOL_PROMPT_IDS) {
       const source =
         modelFiles?.get(id) ??
         sources.instance.get(id) ??
         sources.packaged.get(id);
+
       if (source !== undefined) {
         selected.set(id, source);
       }
     }
+
     selectedByModel.set(model.id, selected);
   }
+
   return selectedByModel;
 }
 
@@ -792,12 +833,14 @@ export function createToolPromptRenderer(
   const access = options.access ?? DEFAULT_PROMPT_FILE_ACCESS;
   const configDirectory = path.dirname(options.configPath);
   const loadedFiles = new Map<string, LoadedPromptFile>();
+
   const sources = loadToolPromptSources(
     options,
     access,
     configDirectory,
     loadedFiles,
   );
+
   const selectedByModel = selectToolPromptSources(options, sources);
 
   return {
@@ -806,11 +849,13 @@ export function createToolPromptRenderer(
         selectedByModel.get(input.model.id)?.get(input.toolId) ??
         sources.instance.get(input.toolId) ??
         sources.packaged.get(input.toolId);
+
       if (source === undefined) {
         throw new InstanceConfigError(
           `tool description "${input.toolId}" has no packaged source`,
         );
       }
+
       return renderSystemPromptTemplate({
         template: source.template,
         model: input.model,
@@ -869,7 +914,9 @@ function promptToolPredicateId(node: hbs.AST.Expression): string | undefined {
   ) {
     return undefined;
   }
+
   const id = node.parts[1];
+
   return isString(id) && isPromptToolId(id) ? id : undefined;
 }
 
@@ -890,10 +937,13 @@ function assertPath(
   if (!isPathExpression(node)) {
     throw unsupported(field, node.type);
   }
+
   const expression = node;
   const key = expression.parts.join('\0');
+
   const toolPredicateId =
     position === 'conditional' ? promptToolPredicateId(expression) : undefined;
+
   const permitted =
     !expression.data &&
     // Inside an iteration ONLY that collection's declared item fields resolve,
@@ -904,6 +954,7 @@ function assertPath(
       : PROMPT_CONTEXT_KEYS.has(key) ||
         (position === 'conditional' &&
           (PROMPT_GATE_KEYS.has(key) || toolPredicateId !== undefined)));
+
   // `depth > 0` is `../`, which climbs out of the projected context.
   if (expression.depth > 0 || !permitted) {
     throw unsupported(field, `{{${String(expression.original)}}}`);
@@ -926,15 +977,19 @@ function assertCollectionPath(
   if (!isPathExpression(node)) {
     throw unsupported(field, node.type);
   }
+
   const expression = node;
+
   const itemFields = PROMPT_COLLECTION_ITEM_FIELDS.get(
     expression.parts.join('\0'),
   );
+
   // Only a DECLARED collection is iterable — never a scalar, a gate-only path,
   // an unknown path, or anything reached through `../`.
   if (expression.depth > 0 || expression.data || itemFields === undefined) {
     throw unsupported(field, `{{${String(expression.original)}}}`);
   }
+
   return itemFields;
 }
 
@@ -946,11 +1001,13 @@ function assertMustacheStatement(
   if (!mustache.escaped) {
     throw unsupported(field, 'unescaped output');
   }
+
   // A parameterized value expression is a helper invocation; this also
   // covers subexpressions, which parse as a parameter.
   if (mustache.params.length > 0 || mustache.hash !== undefined) {
     throw unsupported(field, 'helper invocation');
   }
+
   assertPath(
     mustache.path,
     field,
@@ -971,6 +1028,7 @@ function assertEachBlock(
   if (itemFields !== undefined) {
     throw unsupported(field, 'nested each');
   }
+
   const collectionItemFields = assertCollectionPath(block.params[0], field);
   // The inverse arm renders only for an ABSENT collection, so it has no
   // item to read — but it keeps the item scope rather than falling back
@@ -986,9 +1044,11 @@ function assertBlockStatement(
   itemFields: ReadonlySet<string> | undefined,
 ): void {
   const helper = block.path.original;
+
   if (!isString(helper) || !ALLOWED_BLOCK_HELPERS.has(helper)) {
     throw unsupported(field, String(helper));
   }
+
   // Arity is validated here rather than left to the engine: handlebars
   // throws a bare Error at *render* time for a malformed conditional,
   // which would escape as an unwrapped failure naming neither the model
@@ -999,11 +1059,13 @@ function assertBlockStatement(
       `{{#${helper}}} with ${block.params.length} arguments`,
     );
   }
+
   // A hash argument can carry a SubExpression, which is a helper
   // invocation the params check alone would not see.
   if (block.hash !== undefined) {
     throw unsupported(field, 'helper invocation');
   }
+
   // `as |x|` binds a name that is outside the projected context.
   if (
     (block.program?.blockParams?.length ?? 0) > 0 ||
@@ -1014,6 +1076,7 @@ function assertBlockStatement(
 
   if (helper === 'each') {
     assertEachBlock(block, field, itemFields);
+
     return;
   }
 
@@ -1056,13 +1119,17 @@ function collectToolPredicateIds(
     if (!isBlockStatement(node)) {
       continue;
     }
+
     const helper = node.path.original;
+
     if (helper === 'if' || helper === 'unless') {
       const id = promptToolPredicateId(node.params[0]);
+
       if (id !== undefined) {
         ids.add(id);
       }
     }
+
     collectToolPredicateIds(node.program?.body ?? [], ids);
     collectToolPredicateIds(node.inverse?.body ?? [], ids);
   }
@@ -1078,13 +1145,16 @@ function hasLiteralContent(body: ReadonlyArray<hbs.AST.Statement>): boolean {
     if (isContentStatement(node)) {
       return node.value.trim().length > 0;
     }
+
     if (isBlockStatement(node)) {
       const block = node;
+
       return (
         hasLiteralContent(block.program?.body ?? []) ||
         hasLiteralContent(block.inverse?.body ?? [])
       );
     }
+
     return false;
   });
 }
@@ -1098,6 +1168,7 @@ function hasLiteralContent(body: ReadonlyArray<hbs.AST.Statement>): boolean {
  */
 function assertSupportedTemplate(prompt: string, field: string) {
   let ast: hbs.AST.Program;
+
   try {
     ast = parsePromptTemplate(prompt);
   } catch {
@@ -1112,6 +1183,7 @@ function assertSupportedTemplate(prompt: string, field: string) {
 
   const toolPredicateIds = new Set<string>();
   collectToolPredicateIds(ast.body, toolPredicateIds);
+
   return {
     referencesSkills: referencesSkillsNamespace(ast.body),
     toolPredicateIds: [...toolPredicateIds],
@@ -1133,13 +1205,18 @@ function referencesSkillsNamespace(
 ): boolean {
   for (const node of body) {
     if (isMustacheStatement(node) && pathRootsAtSkills(node.path)) return true;
+
     if (!isBlockStatement(node)) continue;
+
     for (const subject of node.params) {
       if (pathRootsAtSkills(subject)) return true;
     }
+
     if (referencesSkillsNamespace(node.program.body)) return true;
+
     if (referencesSkillsNamespace(node.inverse?.body ?? [])) return true;
   }
+
   return false;
 }
 
@@ -1173,20 +1250,26 @@ function userContext(user: PromptUserInput | undefined) {
       sanitizeAuthoredText,
     ),
   };
+
   const name = promptValue(user.name ?? undefined);
   const email = promptValue(user.email ?? undefined);
 
   const hasAuthored = Object.values(authored).some(
     (value) => value !== undefined,
   );
+
   type UserPromptContext = {
     personalization?: typeof authored;
     name?: typeof name;
     email?: typeof email;
   };
+
   const context: UserPromptContext = {};
+
   if (hasAuthored) context.personalization = authored;
+
   if (name !== undefined) context.name = name;
+
   if (email !== undefined) context.email = email;
 
   return Object.keys(context).length === 0 ? undefined : context;
@@ -1246,6 +1329,7 @@ function chatsContext(
 
   const pinned = chatListContext(chats.pinned, emitted.pinned);
   const recent = chatListContext(chats.recent, emitted.recent);
+
   if (pinned === undefined && recent === undefined) {
     return undefined;
   }
@@ -1259,6 +1343,7 @@ function chatsContext(
     recentTotal: typeof chats.recentTotal;
     compiledOn: ReturnType<typeof promptValue>;
   };
+
   const result: ChatsPromptContext = {
     // Numbers, not strings. `promptValue` wraps its result in a SafeString,
     // and a SafeString is an object — so a stringified `0` is TRUTHY, and an
@@ -1271,8 +1356,11 @@ function chatsContext(
     recentTotal: chats.recentTotal,
     compiledOn: promptValue(chats.compiledOn),
   };
+
   if (pinned !== undefined) result.pinned = pinned;
+
   if (recent !== undefined) result.recent = recent;
+
   return result;
 }
 
@@ -1285,6 +1373,7 @@ function skillsContext(skills: PromptSkillsInput | undefined) {
   if (skills === undefined || skills.entries.length === 0) {
     return undefined;
   }
+
   return {
     entries: skills.entries.map((entry) => ({
       name: promptValue(entry.name),
@@ -1313,6 +1402,7 @@ function webSearchContext(webSearch: PromptWebSearchInput | undefined) {
   if (webSearch === undefined || webSearch.engines.length === 0) {
     return undefined;
   }
+
   return {
     engines: webSearch.engines.map((engine) => ({
       id: promptSafeString(engine.id),
@@ -1336,7 +1426,9 @@ function projectToolPredicates(
   const tools = Object.fromEntries(
     (admittedToolIds ?? []).map((id) => [id, true] as const),
   );
+
   Object.setPrototypeOf(tools, null);
+
   return tools;
 }
 
@@ -1367,6 +1459,7 @@ function promptContext(
 ): RenderPromptContext {
   const { model, anchor, user, chats, skills, webSearch, admittedToolIds } =
     fields;
+
   // An allowlisted path with no value renders empty rather than failing, so
   // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
   // still fail loudly: an unknown path is rejected in
@@ -1375,6 +1468,7 @@ function promptContext(
   const projectedChats = chatsContext(chats, emitted);
   const projectedSkills = skillsContext(skills);
   const projectedWebSearch = webSearchContext(webSearch);
+
   const renderContext: RenderPromptContext = {
     model: {
       id: promptValue(model.id),
@@ -1388,11 +1482,16 @@ function promptContext(
     },
     tools: projectToolPredicates(admittedToolIds),
   };
+
   if (projectedUser !== undefined) renderContext.user = projectedUser;
+
   if (projectedChats !== undefined) renderContext.chats = projectedChats;
+
   if (projectedSkills !== undefined) renderContext.skills = projectedSkills;
+
   if (projectedWebSearch !== undefined)
     renderContext.webSearch = projectedWebSearch;
+
   return renderContext;
 }
 
@@ -1403,17 +1502,21 @@ function renderPrompt(
   const emitted = { pinned: new Set<number>(), recent: new Set<number>() };
   const renderContext = promptContext(fields, emitted);
   const text = compilePromptTemplate(source)(renderContext);
+
   return { text, chatsDisclosure: emitted };
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {
   const code =
     error instanceof Error && 'code' in error ? error.code : undefined;
+
   if (code === 'ENOENT') {
     return new InstanceConfigError(`${field}: prompt file is missing`);
   }
+
   if (code === 'EACCES' || code === 'EPERM') {
     return new InstanceConfigError(`${field}: prompt file is unreadable`);
   }
+
   return new InstanceConfigError(`${field}: failed to read prompt file`);
 }

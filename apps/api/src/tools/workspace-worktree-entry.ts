@@ -120,6 +120,7 @@ export function executorFailure(
   leftDirectory?: string,
 ): Failed {
   if (!(error instanceof ExecutorGitError)) throw error;
+
   switch (error.code) {
     case 'machine_unavailable':
       return {
@@ -176,6 +177,7 @@ export async function enterWorktree(
   const executors = context.executorGit;
   const runId = context.runId;
   const toolCallId = context.toolCallId;
+
   if (
     executors === undefined ||
     runId === undefined ||
@@ -205,12 +207,15 @@ async function createWorktree(creation: Creation): Promise<WorktreeOutcome> {
     creation.target,
     creation.worktree.canonical,
   );
+
   if (inspection.status === 'error') return gitFailureOutcome(inspection);
 
   const plan = await planWorktree(creation, inspection);
+
   if ('status' in plan) return plan;
 
   const added = await addedWorktree(creation, plan);
+
   if ('status' in added) return added;
 
   // The base ref the lease records is the one the add used: the supplied one,
@@ -244,32 +249,40 @@ async function planWorktree(
   inspection: GitInspectSuccess,
 ): Promise<Plan | Failed> {
   const { context, executors, target, worktree } = creation;
+
   // The main tree git reports: the toplevel, or the main worktree of a linked
   // one by its real path. A subdirectory source decides on its clone.
   const mainClone = inspection.linked
     ? (inspection.mainWorktree ?? inspection.toplevel)
     : inspection.toplevel;
+
   if (mainClone !== worktree.canonical) {
     const rejection = requireDerivedPermission(
       context,
       'main_clone',
       mainClone,
     );
+
     if (rejection !== undefined) return { status: 'failed', result: rejection };
   }
 
   const mainPath = executors.executorPath(target, mainClone);
+
   const directoryAt = await placement(
     creation,
     inspection,
     mainClone,
     mainPath,
   );
+
   const name = await chosenName(executors, target, directoryAt, worktree.name);
+
   if ('status' in name) return name;
 
   const decided = await decidedDirectory(creation, name, directoryAt);
+
   if ('status' in decided) return decided;
+
   return {
     mainClone,
     mainPath,
@@ -292,15 +305,18 @@ async function decidedDirectory(
   directoryAt: (slug: string) => string,
 ): Promise<{ readonly directory: string } | Failed> {
   const { context, executors, target } = creation;
+
   const directory = await executors.canonicalTarget(
     target,
     directoryAt(name.slug),
   );
+
   const rejection = requireDerivedPermission(
     context,
     'worktree_directory',
     directory,
   );
+
   return rejection === undefined
     ? { directory }
     : { status: 'failed', result: rejection };
@@ -315,9 +331,11 @@ async function addedWorktree(
   plan: Plan,
 ): Promise<{ readonly head: string } | Failed> {
   const guarded = await recordAttempt(creation, plan);
+
   if (guarded !== undefined) return guarded;
 
   let added: GitWorktreeAddResult;
+
   try {
     added = await creation.executors.worktreeAdd(creation.target, {
       source: plan.mainClone,
@@ -330,9 +348,11 @@ async function addedWorktree(
     // lost link can leave the decided directory behind.
     return settledFailure(creation, executorFailure(error, plan.directory));
   }
+
   if (added.status === 'error')
     return settledFailure(creation, gitFailureOutcome(added));
   const refused = await refuseElsewhere(creation, plan);
+
   return refused === undefined
     ? { head: added.head }
     : settledFailure(creation, refused);
@@ -362,6 +382,7 @@ async function settledFailure(
       }),
     );
   }
+
   return failed;
 }
 
@@ -371,6 +392,7 @@ async function recordAttempt(
   plan: Plan,
 ): Promise<Failed | undefined> {
   const { context, worktree } = creation;
+
   const guarded = await context.tenantDb.runAs(context.userId, (db) =>
     new NativeFilesRepository(db).begin({
       runId: creation.runId,
@@ -386,13 +408,16 @@ async function recordAttempt(
       path: plan.directory,
     }),
   );
+
   if (guarded?.status === 'error') return { status: 'failed', result: guarded };
+
   // A durable result settles the call before this tool runs, so a success here
   // means a replay raced that settlement: report it without a second add.
   if (guarded !== undefined)
     return worktreeFailed(
       'This worktree call already recorded a result; inspect the Workspace before retrying.',
     );
+
   return undefined;
 }
 
@@ -406,20 +431,24 @@ async function refuseElsewhere(
 ): Promise<Failed | undefined> {
   const { executors, target } = creation;
   let actual: string;
+
   try {
     actual = await executors.canonical(target, plan.directory);
   } catch (error) {
     // A real-path read writes nothing, so it never claims a leftover.
     return executorFailure(error);
   }
+
   if (actual === plan.directory) return undefined;
 
   let removed: GitWorktreeRemoveResult;
+
   try {
     removed = await executors.removeWorktree(target, plan.directory);
   } catch (error) {
     return executorFailure(error, plan.directory);
   }
+
   if (removed.status === 'error')
     return {
       status: 'failed',
@@ -428,6 +457,7 @@ async function refuseElsewhere(
         leftDirectory: plan.directory,
       },
     };
+
   return worktreeFailed(
     'The new worktree resolved to a different path than the decided one.',
   );
@@ -445,23 +475,29 @@ async function placement(
   mainPath: string,
 ): Promise<(slug: string) => string> {
   const { context, executors, target, worktree } = creation;
+
   const source = await context.tenantDb.runAs(context.userId, async (db) => {
     const catalog = new RepositoriesRepository(db);
+
     const row = await catalog.findCheckoutByPath(
       context.userId,
       worktree.authority.executorId,
       mainClone,
     );
+
     const repository =
       row === undefined
         ? undefined
         : await catalog.findRepository(context.userId, row.repositoryId);
+
     const parent =
       row?.kind === 'worktree' && row.parentCheckoutId !== null
         ? await catalog.findCheckout(context.userId, row.parentCheckoutId)
         : undefined;
+
     const recordedBase =
       row?.kind === 'main' ? row.worktreeBase : (parent?.worktreeBase ?? null);
+
     return {
       // A recorded base is an address on this executor: an absolute host path
       // locally, and a locator on a Machine, which placement math decodes.
@@ -474,6 +510,7 @@ async function placement(
         derivedDisplayName(canonicalOrigin(inspection.remotes), mainPath),
     };
   });
+
   return (slug: string) =>
     executors.address(
       target,
@@ -498,12 +535,15 @@ export async function chosenName(
       ? worktreeFailed('A worktree directory with that name already exists.')
       : supplied;
   }
+
   for (let attempt = 0; attempt < WORKTREE_NAME_ATTEMPTS; attempt += 1) {
     const candidate = generatedWorktreeName();
+
     if (!(await executors.exists(target, directoryAt(candidate.slug)))) {
       return candidate;
     }
   }
+
   return worktreeFailed('No free worktree name was found.');
 }
 
@@ -524,6 +564,7 @@ async function commitWorktree(
   commit: Commit,
 ): Promise<WorktreeOutcome> {
   const catalog = new RepositoriesRepository(db);
+
   const source = await adoptSource(catalog, {
     ownerUserId: commit.context.userId,
     executorId: commit.worktree.authority.executorId,
@@ -531,6 +572,7 @@ async function commitWorktree(
     mainPath: commit.plan.mainPath,
     inspection: commit.inspection,
   });
+
   if (source === undefined) {
     throw new Rollback(
       worktreeFailed(
@@ -538,6 +580,7 @@ async function commitWorktree(
       ),
     );
   }
+
   const created = await recordCreated(catalog, commit, source);
   await catalog.createLease({
     ownerUserId: commit.context.userId,
@@ -546,6 +589,7 @@ async function commitWorktree(
     baseRef: commit.leaseBaseRef,
     baseCommit: commit.baseCommit,
   });
+
   return bindWorktree(db, commit);
 }
 
@@ -568,17 +612,20 @@ async function recordCreated(
     branch: commit.plan.branch,
     origin: 'created',
   });
+
   if (created === undefined) {
     throw new Rollback(
       worktreeFailed('This worktree path is already recorded.'),
     );
   }
+
   return created;
 }
 
 /** The binding write of the same transaction, and the result it reports. */
 async function bindWorktree(db: Db, commit: Commit): Promise<WorktreeOutcome> {
   const { context, worktree, runId } = commit;
+
   const binding = await new WorkspaceBindingRepository(db).enter({
     chatId: context.chatId,
     ownerUserId: context.userId,
@@ -591,6 +638,7 @@ async function bindWorktree(db: Db, commit: Commit): Promise<WorktreeOutcome> {
       bindExecutorId: worktree.authority.bindExecutorId,
     }),
   });
+
   if (binding.status === 'fence_lost') {
     throw new Rollback({
       status: 'failed',
@@ -623,10 +671,12 @@ async function settleWorktree(
     branch: commit.plan.branch,
     baseCommit: commit.baseCommit,
   };
+
   await new RunEventsRepository(db).append(commit.runId, 'native.result', {
     toolCallId: commit.toolCallId,
     result: { status: 'success', root: commit.plan.directory, worktree },
   });
+
   return {
     status,
     root: commit.plan.directory,

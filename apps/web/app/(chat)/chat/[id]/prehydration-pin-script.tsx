@@ -19,6 +19,7 @@ export function PrehydrationPinScript() {
     () => false,
     () => true,
   );
+
   if (!serverRendered) return null;
 
   return (

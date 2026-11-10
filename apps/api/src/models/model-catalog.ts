@@ -15,6 +15,7 @@ import type { ProviderOptionRecord } from './provider-options';
 import type { BillingMode } from './model-client';
 
 export type ModelSource = 'system';
+
 export type SystemPromptSource = 'project_default' | 'model_override';
 
 export type ModelPricingUsdPer1M = {
@@ -258,6 +259,7 @@ export function toPublicModel(
     toolPromptFiles: _toolPromptFiles,
     ...pub
   } = model;
+
   return pub;
 }
 
@@ -268,16 +270,20 @@ export function toTokenPrice(
   if (pricing?.input === undefined || pricing.output === undefined) {
     return undefined;
   }
+
   const price: TokenPrice = {
     inputUsdPer1M: pricing.input,
     outputUsdPer1M: pricing.output,
   };
+
   if (pricing.cachedInput !== undefined) {
     price.cachedInputUsdPer1M = pricing.cachedInput;
   }
+
   if (pricing.cacheWrite !== undefined) {
     price.cacheWriteUsdPer1M = pricing.cacheWrite;
   }
+
   return price;
 }
 

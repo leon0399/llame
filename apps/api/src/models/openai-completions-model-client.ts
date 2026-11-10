@@ -256,10 +256,12 @@ function perCallHeaders(
   chat: ChatIdentity,
 ) {
   const baseHeaders = productUserAgentHeaders(config);
+
   if (config.sessionHeader !== undefined) {
     const { name, value } = config.sessionHeader(chat);
     baseHeaders[name] = value;
   }
+
   return withRequestHeaders(baseHeaders, config.requestHeaders, chat);
 }
 
@@ -274,8 +276,10 @@ const UNREADABLE_EVENT_MESSAGE =
 /** The redirect's status, when `error` reports one directly or as a retry's last attempt. */
 function redirectStatus(error: unknown): number | undefined {
   const response = RetryError.isInstance(error) ? error.lastError : error;
+
   if (!APICallError.isInstance(response)) return undefined;
   const status = response.statusCode;
+
   return status !== undefined && REDIRECT_STATUSES.has(status)
     ? status
     : undefined;
@@ -293,24 +297,29 @@ function redirectStatus(error: unknown): number | undefined {
  */
 function boundCompletionsFailure(error: unknown): Error {
   const status = redirectStatus(error);
+
   if (status !== undefined) {
     return new Error(
       `Model request failed: the provider answered with a redirect (HTTP ${status}), which is not followed.`,
     );
   }
+
   if (
     JSONParseError.isInstance(error) ||
     TypeValidationError.isInstance(error)
   ) {
     return new Error(UNREADABLE_EVENT_MESSAGE);
   }
+
   if (error instanceof Error) return error;
+
   // A non-`Error` is the `error` value of an in-stream event. The adapter
   // validates it as an envelope only when the event carries no `choices`, so
   // a string or a message-less object also arrives here (design D3 step 5).
   if (isRecord(error) && isString(error['message'])) {
     return new Error(error['message']);
   }
+
   return new Error(UNREADABLE_EVENT_MESSAGE);
 }
 
@@ -325,10 +334,13 @@ function reportBoundedFailure(
 ): StreamTextOnErrorCallback {
   return ({ error }) => {
     const bounded = boundCompletionsFailure(error);
+
     if (onError === undefined) {
       console.error(bounded);
+
       return;
     }
+
     return onError({ error: bounded });
   };
 }
@@ -360,8 +372,10 @@ function applyChunkDelivery(
   if (!hasStreamChannel(input)) return;
   streamOptions.onChunk = ({ chunk }) => {
     forwardChunk(chunk, input);
+
     if (chunk.type === 'tool-call') gate.reach(chunk.toolCallId);
   };
+
   // The gate reports refusals synchronously when it is reached, so it must be
   // attached whenever `onChunk` is the channel that reports a call.
   if (!input.onReasoningDelta && !input.onToolCallMetadata) return;
@@ -369,14 +383,19 @@ function applyChunkDelivery(
   const { onFinish, onError, onAbort } = streamOptions;
   streamOptions.onFinish = (event) => {
     gate.close();
+
     return onFinish?.(event);
   };
+
   streamOptions.onError = (event) => {
     gate.close();
+
     return onError?.(event);
   };
+
   streamOptions.onAbort = (event) => {
     gate.close();
+
     return onAbort?.(event);
   };
 }
@@ -403,7 +422,9 @@ function markReasoninglessToolCalls(
   ) {
     return message;
   }
+
   const options = message.providerOptions;
+
   return {
     ...message,
     providerOptions: {
@@ -440,6 +461,7 @@ function runOpenAICompatibleStream(
 ) {
   const settlement = trackAbortSettlement(input);
   const providerOptions = composeCompletionsOptions(config, input);
+
   const streamOptions: StreamOptions = {
     // The entry's declared wire, at its required base URL (design D1).
     model: provider(config.providerModelId),
@@ -471,6 +493,7 @@ function runOpenAICompatibleStream(
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   applyChunkDelivery(streamOptions, input, gate);
+
   return awaitSettlementAfter(
     dependencies.streamText(streamOptions),
     settlement,
@@ -496,6 +519,7 @@ export function createOpenAICompletionsModelClient(
   },
 ): ModelClient {
   const providerName = configuredProviderName(config);
+
   const provider = dependencies.createOpenAICompatible({
     name: providerName,
     baseURL: config.baseUrl,

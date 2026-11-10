@@ -41,6 +41,7 @@ export function chunkByCharBudget<T>(
       const next = items[cursor];
       const nextSize = sizeOf(next);
       const hasNewItem = group.length > prevTail.length;
+
       if (hasNewItem && size + nextSize > maxChars) break;
       group.push(next);
       size += nextSize;
@@ -86,13 +87,17 @@ export function cutTextAtBoundary(
   const window = text.slice(from, from + maxLen);
 
   const blankLine = window.lastIndexOf('\n\n');
+
   if (blankLine > 0) return from + blankLine + 2;
 
   let sentenceEnd = -1;
+
   for (const token of ['\n', '. ', '! ', '? ']) {
     const idx = window.lastIndexOf(token);
+
     if (idx > 0) sentenceEnd = Math.max(sentenceEnd, idx + token.length);
   }
+
   if (sentenceEnd > 0) return from + sentenceEnd;
 
   for (let i = window.length - 1; i > 0; i -= 1) {

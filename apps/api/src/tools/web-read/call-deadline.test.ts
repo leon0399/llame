@@ -10,6 +10,7 @@ describe('web preparation deadline', () => {
   it('refuses preparation after the call budget is already spent', async () => {
     vi.useFakeTimers();
     const deadline = startCallDeadline({ userAgent: 'llame/test' });
+
     try {
       await vi.advanceTimersByTimeAsync(30_000);
       expect(
@@ -28,13 +29,16 @@ describe('web preparation deadline', () => {
       const deadline = startCallDeadline({ userAgent: 'llame/test' });
       let signal!: AbortSignal;
       const failure = new Error('PDF preparation failed');
+
       try {
         const pending = deadline.untilDeadline((operationSignal) => {
           signal = operationSignal;
+
           return outcome === 'success'
             ? Promise.resolve(15)
             : Promise.reject(failure);
         });
+
         if (outcome === 'success') await pending;
         else await expect(pending).rejects.toBe(failure);
         expect(getEventListeners(signal, 'abort')).toEqual([]);

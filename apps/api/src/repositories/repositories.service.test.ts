@@ -18,9 +18,11 @@ const repository: Repository = {
 
 function makeService() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
@@ -31,24 +33,29 @@ function makeService() {
     RepositoriesRepository.prototype,
     'findRepository',
   ).mockResolvedValue(undefined);
+
   // The claim namespace spans both tables, so every case starts with: no alias
   // declares the remote, no canonical remote claims it, and the lock never
   // blocks.
   const findRepositoryByAlias = vi
     .spyOn(RepositoriesRepository.prototype, 'findRepositoryByAlias')
     .mockResolvedValue(undefined);
+
   const findRepositoryByRemote = vi
     .spyOn(RepositoriesRepository.prototype, 'findRepositoryByRemote')
     .mockResolvedValue(undefined);
+
   const lockRemoteClaim = vi
     .spyOn(RepositoriesRepository.prototype, 'lockRemoteClaim')
     .mockResolvedValue(undefined);
+
   // A delete starts from a repository with no worktrees; a case that states
   // the count is the one that reaches the guard.
   vi.spyOn(
     RepositoriesRepository.prototype,
     'countWorktrees',
   ).mockResolvedValue(0);
+
   return {
     service: new RepositoriesService(tenantDb),
     findRepositoryByAlias,
@@ -65,6 +72,7 @@ async function failureOf(promise: Promise<unknown>) {
     if (error instanceof HttpException) return error.getResponse();
     throw error;
   }
+
   throw new Error('expected the call to fail');
 }
 
@@ -136,6 +144,7 @@ const alias: RepositoryAlias = {
 describe('createRepository', () => {
   it('stores the canonical remote of the submitted form', async () => {
     const { service } = makeService();
+
     const create = vi
       .spyOn(RepositoriesRepository.prototype, 'createRepository')
       .mockResolvedValue(repository);
@@ -180,9 +189,11 @@ describe('createRepository', () => {
 
   it('answers 409 alias_taken when an alias already names the remote', async () => {
     const { service, findRepositoryByAlias } = makeService();
+
     const create = vi
       .spyOn(RepositoriesRepository.prototype, 'createRepository')
       .mockResolvedValue(repository);
+
     findRepositoryByAlias.mockResolvedValue(repository);
 
     await expect(
@@ -203,6 +214,7 @@ describe('createRepository', () => {
 
   it('stores no remote for an absent or a blank remote', async () => {
     const { service, findRepositoryByAlias, lockRemoteClaim } = makeService();
+
     const create = vi
       .spyOn(RepositoriesRepository.prototype, 'createRepository')
       .mockResolvedValue(repository);
@@ -234,6 +246,7 @@ describe('createRepository', () => {
     ['x'.repeat(201), 'must be at most 200 characters'],
   ])('refuses the display name %j with 422', async (displayName, problem) => {
     const { service } = makeService();
+
     const create = vi
       .spyOn(RepositoriesRepository.prototype, 'createRepository')
       .mockResolvedValue(repository);
@@ -293,6 +306,7 @@ describe('createRepository', () => {
 describe('updateRepository', () => {
   it('sends only the display name when the patch carries only one', async () => {
     const { service } = makeService();
+
     const update = vi
       .spyOn(RepositoriesRepository.prototype, 'updateRepository')
       .mockResolvedValue(repository);
@@ -309,6 +323,7 @@ describe('updateRepository', () => {
 
   it('sends only the canonical remote when the patch carries only one', async () => {
     const { service } = makeService();
+
     const update = vi
       .spyOn(RepositoriesRepository.prototype, 'updateRepository')
       .mockResolvedValue(repository);
@@ -325,6 +340,7 @@ describe('updateRepository', () => {
 
   it('sends both keys of a full patch, clearing a null remote', async () => {
     const { service } = makeService();
+
     const update = vi
       .spyOn(RepositoriesRepository.prototype, 'updateRepository')
       .mockResolvedValue(repository);
@@ -343,6 +359,7 @@ describe('updateRepository', () => {
 
   it('sends an empty patch when the patch carries nothing', async () => {
     const { service } = makeService();
+
     const update = vi
       .spyOn(RepositoriesRepository.prototype, 'updateRepository')
       .mockResolvedValue(repository);
@@ -355,9 +372,11 @@ describe('updateRepository', () => {
 
   it('answers 409 alias_taken when the new remote is an alias already', async () => {
     const { service, findRepositoryByAlias } = makeService();
+
     const update = vi
       .spyOn(RepositoriesRepository.prototype, 'updateRepository')
       .mockResolvedValue(repository);
+
     findRepositoryByAlias.mockResolvedValue(repository);
 
     await expect(
@@ -377,6 +396,7 @@ describe('updateRepository', () => {
 
   it('clears a remote without reading the alias table', async () => {
     const { service, findRepositoryByAlias, lockRemoteClaim } = makeService();
+
     const update = vi
       .spyOn(RepositoriesRepository.prototype, 'updateRepository')
       .mockResolvedValue(repository);
@@ -391,6 +411,7 @@ describe('updateRepository', () => {
 
   it('validates a patched display name before any write', async () => {
     const { service } = makeService();
+
     const update = vi
       .spyOn(RepositoriesRepository.prototype, 'updateRepository')
       .mockResolvedValue(repository);
@@ -493,6 +514,7 @@ describe('deleteRepository', () => {
   it('removes the repository the owner holds', async () => {
     const { service } = makeService();
     const count = vi.spyOn(RepositoriesRepository.prototype, 'countWorktrees');
+
     const remove = vi
       .spyOn(RepositoriesRepository.prototype, 'deleteRepository')
       .mockResolvedValue(true);
@@ -512,6 +534,7 @@ describe('deleteRepository', () => {
       RepositoriesRepository.prototype,
       'countWorktrees',
     ).mockResolvedValue(2);
+
     const remove = vi.spyOn(
       RepositoriesRepository.prototype,
       'deleteRepository',
@@ -534,6 +557,7 @@ describe('declareAlias', () => {
       RepositoriesRepository.prototype,
       'findRepository',
     ).mockResolvedValue(repository);
+
     const declare = vi
       .spyOn(RepositoriesRepository.prototype, 'declareAlias')
       .mockResolvedValue(alias);
@@ -559,9 +583,11 @@ describe('declareAlias', () => {
       RepositoriesRepository.prototype,
       'findRepository',
     ).mockResolvedValue(repository);
+
     const declare = vi
       .spyOn(RepositoriesRepository.prototype, 'declareAlias')
       .mockResolvedValue(alias);
+
     findRepositoryByRemote.mockResolvedValue(repository);
 
     // The canonical remote already selects its repository, so an alias of it
@@ -588,6 +614,7 @@ describe('declareAlias', () => {
     'refuses the blank alias %j with 422',
     async (remote) => {
       const { service } = makeService();
+
       const declare = vi
         .spyOn(RepositoriesRepository.prototype, 'declareAlias')
         .mockResolvedValue(alias);

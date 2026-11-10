@@ -58,8 +58,11 @@ export const ENGINE_LIMITS = {
  */
 export function acceptsQuery(limits: EngineLimits, query: string): boolean {
   const limit = limits.query;
+
   if (limit === undefined) return true;
+
   if (Array.from(query).length > limit.codePoints) return false;
+
   return (
     limit.words === undefined ||
     (query.match(/\S+/gu)?.length ?? 0) <= limit.words

@@ -42,6 +42,7 @@ export type MachineSkillSource = {
  */
 export function workspaceSkillSources(root: string): ReadonlyArray<string> {
   const sources = machineWorkspaceSkillSources(root);
+
   return sources === undefined
     ? SKILL_SOURCE_SEGMENTS.map((segments) => path.join(root, ...segments))
     : sources.map((source) => source.locator);
@@ -57,9 +58,12 @@ export function machineWorkspaceSkillSources(
   root: string,
 ): ReadonlyArray<MachineSkillSource> | undefined {
   const parsed = parseMachineLocator(root);
+
   if (parsed.kind !== 'path') return undefined;
+
   return SKILL_SOURCE_SEGMENTS.map((segments) => {
     const sourcePath = path.posix.join(parsed.path, ...segments);
+
     return {
       name: parsed.name,
       path: sourcePath,

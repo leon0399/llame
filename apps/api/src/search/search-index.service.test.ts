@@ -93,6 +93,7 @@ function baselineChunk(): ConversationChunk {
 
 function existingChunk(overrides: Partial<ExistingChunk> = {}): ExistingChunk {
   const chunk = baselineChunk();
+
   return {
     ordinal: chunk.chunkOrdinal,
     version: CHUNKER_VERSION,
@@ -114,30 +115,39 @@ function transactionHarness(
   } = {},
 ) {
   const chatRows = options.chat ? [options.chat] : [];
+
   const messageRows = (options.messages ?? []).map((row) => ({
     messages: row,
   }));
+
   const existingRows = options.existing ?? [];
   const insertValues = vi.fn((_rows: ReadonlyArray<FakeInsertRow>) => {});
   const execute = vi.fn((_statement: SQL) => Promise.resolve({ count: 0 }));
+
   const onConflictDoUpdate = vi.fn((_config: FakeConflictConfig) =>
     Promise.resolve(),
   );
+
   const values = vi.fn((rows: ReadonlyArray<FakeInsertRow>) => {
     insertValues(rows);
+
     return { onConflictDoUpdate };
   });
+
   const whereDelete = vi.fn().mockResolvedValue(undefined);
   const deleteQuery = { where: whereDelete };
   const insertQuery = { values };
   let selectedTable: FakeTable | undefined;
+
   const whereResult = {
     orderBy: vi.fn(() => Promise.resolve(messageRows)),
     limit: vi.fn(() => Promise.resolve(chatRows)),
   };
+
   const selectQuery: FakeSelectQuery = {
     from: vi.fn((table: FakeTable) => {
       selectedTable = table;
+
       return selectQuery;
     }),
     innerJoin: vi.fn(() => selectQuery),
@@ -149,19 +159,23 @@ function transactionHarness(
     orderBy: whereResult.orderBy,
     limit: whereResult.limit,
   };
+
   const tx: FakeTransaction = {
     select: vi.fn(() => selectQuery),
     insert: vi.fn(() => insertQuery),
     delete: vi.fn(() => deleteQuery),
     execute,
   };
+
   const runAs = vi.fn(
     (
       _ownerUserId: string,
       callback: (transaction: FakeTransaction) => Promise<void>,
     ) => callback(tx),
   );
+
   const tenantDb = { runAs };
+
   return {
     execute,
     insertValues,
@@ -180,6 +194,7 @@ async function buildService(harness: ReturnType<typeof transactionHarness>) {
       { provide: TenantDbService, useValue: harness.tenantDb },
     ],
   }).compile();
+
   return { moduleRef, service: moduleRef.get(SearchIndexService) };
 }
 
@@ -211,6 +226,7 @@ describe('SearchIndexService.reindexChat', () => {
       chat: { id: CHAT_ID },
       messages: [message('m-1', 'hello world')],
     });
+
     const built = await buildService(harness);
     moduleRef = built.moduleRef;
 
@@ -241,6 +257,7 @@ describe('SearchIndexService.reindexChat', () => {
 
     // The watermark statement itself, with the values it binds.
     const watermark = harness.execute.mock.calls[0]?.[0];
+
     if (watermark === undefined)
       throw new Error('watermark statement was not executed');
     const compiled = new PgDialect().sqlToQuery(watermark);
@@ -265,6 +282,7 @@ describe('SearchIndexService.reindexChat', () => {
       messages: [message('m-1', 'hello world')],
       existing: [existingChunk(change)],
     });
+
     const built = await buildService(harness);
     moduleRef = built.moduleRef;
 
@@ -279,6 +297,7 @@ describe('SearchIndexService.reindexChat', () => {
       messages: [message('m-1', 'hello world')],
       existing: [existingChunk()],
     });
+
     const built = await buildService(harness);
     moduleRef = built.moduleRef;
 
@@ -295,6 +314,7 @@ describe('SearchIndexService.reindexChat', () => {
       messages: [message('m-1', 'hello world')],
       existing: [existingChunk({ version: CHUNKER_VERSION - 1 })],
     });
+
     const built = await buildService(harness);
     moduleRef = built.moduleRef;
 
@@ -308,6 +328,7 @@ describe('SearchIndexService.reindexChat', () => {
       chat: { id: CHAT_ID },
       messages: [message('m-1', 'hello world')],
     });
+
     harness.runAs
       .mockRejectedValueOnce({ code: '40001' })
       .mockImplementation(

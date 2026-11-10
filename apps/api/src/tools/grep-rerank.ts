@@ -49,9 +49,11 @@ export function grepFileRuns(artifact: GrepArtifact): Array<GrepFileRun> {
   const lengths = artifactRunLengths(artifact);
   const width = String(Math.max(lengths.length - 1, 0)).length;
   let start = 0;
+
   return lengths.map((length, position) => {
     const indices = Array.from({ length }, (_, offset) => start + offset);
     start += length;
+
     return {
       key: `p${String(position).padStart(width, '0')}`,
       path: grepFileLocator(artifact.results[indices[0]]?.locator ?? ''),
@@ -64,17 +66,20 @@ export function grepFileRuns(artifact: GrepArtifact): Array<GrepFileRun> {
 export function grepRunCard(artifact: GrepArtifact, run: GrepFileRun): string {
   const card = [cutUnits(oneLine(run.path), GREP_RERANK_CARD_UNITS)];
   let used = card[0].length;
+
   for (const line of matchingLines(artifact, run).slice(
     0,
     GREP_RERANK_MAX_LINES,
   )) {
     // The newline that joins the line takes one unit of the card.
     const room = GREP_RERANK_CARD_UNITS - used - 1;
+
     if (room <= 0) break;
     const excerpt = cutUnits(oneLine(line), room);
     card.push(excerpt);
     used += excerpt.length + 1;
   }
+
   return card.join('\n');
 }
 
@@ -88,11 +93,13 @@ export function protectArtifact(
   protect: (text: string) => string,
 ): void {
   const opens = artifact.blocks.map((block) => block.newRun);
+
   const results = artifact.results.map((passage): GrepPassage => ({
     ...passage,
     locator: protect(passage.locator),
     content: protect(passage.content),
   }));
+
   replaceArtifactPassages(artifact, results, opens);
 }
 
@@ -110,9 +117,11 @@ export async function rankGrepRuns(
 ): Promise<void> {
   const model = context.grepBounds?.rerank?.model;
   const judge = context.decisions;
+
   if (model === undefined || judge === undefined) return;
   const { artifact } = state;
   const runs = grepFileRuns(artifact);
+
   if (runs.length === 0) return;
 
   const ranked = await rankSafely(context, judge, {
@@ -123,8 +132,10 @@ export async function rankGrepRuns(
       text: grepRunCard(artifact, run),
     })),
   });
+
   if (ranked === undefined || ranked.status === 'unavailable') {
     state.ranking = 'unavailable';
+
     return;
   }
 
@@ -198,6 +209,7 @@ async function rankSafely(
     // An enclosing timeout or cancellation belongs to the runner; any other
     // throw from a judge is a failed call, never a negative judgment.
     if (context.abortSignal?.aborted === true) throw error;
+
     return undefined;
   }
 }
@@ -209,18 +221,23 @@ function matchingLines(
 ): Array<string> {
   const seen = new Set<number>();
   const lines: Array<string> = [];
+
   for (const index of run.indices) {
     const passage = artifact.results[index];
     const matched = new Set(passage.matches);
+
     for (const content of passage.content.split('\n')) {
       const numbered = /^(\d+): /u.exec(content);
+
       if (numbered === null) continue;
       const line = Number(numbered[1]);
+
       if (!matched.has(line) || seen.has(line)) continue;
       seen.add(line);
       lines.push(content);
     }
   }
+
   return lines;
 }
 

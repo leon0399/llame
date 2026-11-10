@@ -150,6 +150,7 @@ export const CREATION_WORKSPACE_STATUSES = [
   'machine_update_required',
   'outcome_unknown',
 ] as const;
+
 export type CreationWorkspaceStatus =
   (typeof CREATION_WORKSPACE_STATUSES)[number];
 
@@ -160,9 +161,11 @@ export const BIND_FAILURE_CODES = [
   'executor_unavailable',
   'not_found',
 ] as const;
+
 export type BindFailureCode = (typeof BIND_FAILURE_CODES)[number];
 
 export const WORKTREE_FAILURE_CODES = ['path_not_registered'] as const;
+
 export type WorktreeFailureCode = (typeof WORKTREE_FAILURE_CODES)[number];
 
 export class CreationWorktreeResponse {

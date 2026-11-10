@@ -21,11 +21,13 @@ export async function forkChat(
     undefined,
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );
+
   return response;
 }
 
 export function useForkChat() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: ({
       chatId,

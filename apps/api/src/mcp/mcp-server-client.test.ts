@@ -21,8 +21,10 @@ import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 
 const emptyToolSchema = { type: 'object' as const, properties: {} };
 const ONE_MIB = 1024 * 1024;
+
 const resolvedResponse = (response: Response): Promise<Response> =>
   Promise.resolve(response);
+
 const textEncoder = new TextEncoder();
 
 function openSseResponse(
@@ -32,6 +34,7 @@ function openSseResponse(
   closeAfterMs = 250,
 ): Response {
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
@@ -76,6 +79,7 @@ function assertRpcRequestBody(
   body: UnknownRecord,
 ): asserts body is { method: string; id?: number } {
   const { method, id } = body;
+
   if (
     typeof method !== 'string' ||
     (id !== undefined && typeof id !== 'number')
@@ -90,15 +94,19 @@ function requestBody(init: RequestInit | undefined): {
 } {
   assertStringInitBody(init);
   let body: unknown;
+
   try {
     body = JSON.parse(init.body);
   } catch {
     throw new TypeError('expected a valid MCP request body');
   }
+
   if (!isRecord(body)) {
     throw new TypeError('expected a valid MCP request body');
   }
+
   assertRpcRequestBody(body);
+
   return body.id === undefined
     ? { method: body.method }
     : { id: body.id, method: body.method };
@@ -145,11 +153,13 @@ async function connectFixture(input: {
   deleteResponses?: ReadonlyArray<McpFixtureResponse>;
 }) {
   const fixture = await createMcpTestFixture(initializedFixtureScripts(input));
+
   const client = await McpServerClient.connect({
     serverId: 'web',
     url: fixture.url,
     headers: { authorization: 'Bearer header-sentinel' },
   });
+
   return { fixture, client };
 }
 
@@ -166,7 +176,9 @@ function byId(
   id: string,
 ): McpDiscoveredTool {
   const discovered = tools.find(({ definition }) => definition.id === id);
+
   if (discovered === undefined) throw new Error(`missing ${id}`);
+
   return discovered;
 }
 
@@ -201,11 +213,14 @@ describe('McpServerClient', () => {
       'notifications/initialized': [{ kind: 'raw', status: 202, body: '' }],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     let connected = false;
     const connectedAtNotify: Array<boolean> = [];
+
     const onDisconnect = vi.fn(() => {
       connectedAtNotify.push(connected);
     });
+
     let client: McpServerClient | undefined;
 
     try {
@@ -231,11 +246,14 @@ describe('McpServerClient', () => {
       'notifications/initialized': [{ kind: 'raw', status: 202, body: '' }],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     let connected = false;
     const connectedAtNotify: Array<boolean> = [];
+
     const onDisconnect = vi.fn(() => {
       connectedAtNotify.push(connected);
     });
+
     let client: McpServerClient | undefined;
 
     try {
@@ -275,12 +293,14 @@ describe('McpServerClient', () => {
     'reports inbound GET $name instead of silently retaining the client',
     async ({ response }) => {
       const onDisconnect = vi.fn();
+
       const fixture = await createMcpTestFixture({
         $get: [response],
         initialize: [mcpStreamableHttpInitialize()],
         'notifications/initialized': [{ kind: 'raw', status: 202, body: '' }],
         $delete: [{ kind: 'raw', status: 204, body: '' }],
       });
+
       const client = await McpServerClient.connect({
         serverId: 'web',
         url: fixture.url,
@@ -299,6 +319,7 @@ describe('McpServerClient', () => {
 
   it('reports a successful inbound GET response with no body', async () => {
     const onDisconnect = vi.fn();
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         if (init?.method === 'GET') {
@@ -308,10 +329,13 @@ describe('McpServerClient', () => {
             }),
           );
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(
@@ -328,9 +352,11 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         return resolvedResponse(new Response(null, { status: 202 }));
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
@@ -349,6 +375,7 @@ describe('McpServerClient', () => {
 
   it('reports inbound EOF while a request-scoped POST remains in flight', async () => {
     const onDisconnect = vi.fn();
+
     const fixture = await createMcpTestFixture({
       $get: [{ kind: 'sse', events: [], delayMs: 150 }],
       initialize: [mcpStreamableHttpInitialize()],
@@ -362,6 +389,7 @@ describe('McpServerClient', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
@@ -370,10 +398,12 @@ describe('McpServerClient', () => {
 
     try {
       const catalog = await client.discover();
+
       const call = byId(catalog.tools, 'mcp__web__lookup').execute(
         {},
         { toolCallId: 'call', messages: [], abortSignal: undefined },
       );
+
       await vi.waitFor(() => {
         expect(
           fixture
@@ -392,10 +422,12 @@ describe('McpServerClient', () => {
     let inboundCancelled = false;
     let inboundStarted = false;
     const onDisconnect = vi.fn();
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         if (init?.method === 'GET') {
           inboundStarted = true;
+
           return resolvedResponse(
             new Response(
               new ReadableStream<Uint8Array>({
@@ -407,10 +439,13 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(
@@ -427,9 +462,11 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         return resolvedResponse(new Response(null, { status: 202 }));
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
@@ -449,20 +486,25 @@ describe('McpServerClient', () => {
     const onDisconnect = vi.fn();
     let inboundCancelled = false;
     let resolveInbound: ((response: Response) => void) | undefined;
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         if (init?.method === 'GET') {
           if (resolveInbound !== undefined) {
             return new Promise<Response>(() => undefined);
           }
+
           return new Promise<Response>((resolve) => {
             resolveInbound = resolve;
           });
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(
@@ -484,6 +526,7 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         if (request.method === 'notifications/initialized') {
           resolveInbound?.(
             new Response(
@@ -500,11 +543,14 @@ describe('McpServerClient', () => {
               },
             ),
           );
+
           return resolvedResponse(new Response(null, { status: 202 }));
         }
+
         return Promise.reject(new Error('unexpected request'));
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
@@ -524,11 +570,13 @@ describe('McpServerClient', () => {
     } finally {
       await client.close();
     }
+
     expect(onDisconnect).toHaveBeenCalledTimes(1);
   });
 
   it('does not fan a request-scoped POST rejection out through the disconnect callback', async () => {
     const onDisconnect = vi.fn();
+
     const fixture = await createMcpTestFixture({
       $get: [{ kind: 'raw', status: 405, body: '' }],
       initialize: [mcpStreamableHttpInitialize()],
@@ -544,6 +592,7 @@ describe('McpServerClient', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
@@ -607,6 +656,7 @@ describe('McpServerClient', () => {
             abortSignal: undefined,
           },
         );
+
         expect(result).toEqual({
           disposition: 'none',
           result: {
@@ -642,6 +692,7 @@ describe('McpServerClient', () => {
         ],
         'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
       });
+
       let client: McpServerClient | undefined;
 
       try {
@@ -696,6 +747,7 @@ describe('McpServerClient', () => {
       ],
       'notifications/initialized': [{ kind: 'raw', status: 204, body: '' }],
     });
+
     let client: McpServerClient | undefined;
 
     try {
@@ -766,6 +818,7 @@ describe('McpServerClient', () => {
       'tools/list': [jsonRpcResult(1, { tools: [] })],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     let client: McpServerClient | undefined;
 
     try {
@@ -781,6 +834,7 @@ describe('McpServerClient', () => {
 
   it('refuses an unsupported initialize response with mixed LF/CRLF SSE boundaries', async () => {
     let initializedNotificationSent = false;
+
     const initializeEvent = `data: ${JSON.stringify({
       jsonrpc: '2.0',
       id: 0,
@@ -790,15 +844,19 @@ describe('McpServerClient', () => {
         serverInfo: { name: 'fixture', version: '1.0.0' },
       },
     })}\n\r\n`;
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return resolvedResponse(new Response('', { status: 405 }));
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(initializeEvent, {
@@ -806,10 +864,13 @@ describe('McpServerClient', () => {
             }),
           );
         }
+
         if (request.method === 'notifications/initialized') {
           initializedNotificationSent = true;
+
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         throw new Error('unexpected request');
       },
     );
@@ -826,6 +887,7 @@ describe('McpServerClient', () => {
 
   it('accepts a supported initialize response with CR-only SSE boundaries', async () => {
     let initializedNotificationSent = false;
+
     const initializeEvent = `data: ${JSON.stringify({
       jsonrpc: '2.0',
       id: 0,
@@ -835,15 +897,19 @@ describe('McpServerClient', () => {
         serverInfo: { name: 'fixture', version: '1.0.0' },
       },
     })}\r\r`;
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return resolvedResponse(new Response('', { status: 405 }));
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(initializeEvent, {
@@ -851,13 +917,17 @@ describe('McpServerClient', () => {
             }),
           );
         }
+
         if (request.method === 'notifications/initialized') {
           initializedNotificationSent = true;
+
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         throw new Error('unexpected request');
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
@@ -896,15 +966,19 @@ describe('McpServerClient', () => {
       '',
       '',
     ].join('\n');
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return resolvedResponse(new Response('', { status: 405 }));
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(initializeEvent, {
@@ -912,9 +986,11 @@ describe('McpServerClient', () => {
             }),
           );
         }
+
         return resolvedResponse(new Response(null, { status: 204 }));
       },
     );
+
     let client: McpServerClient | undefined;
 
     try {
@@ -933,15 +1009,19 @@ describe('McpServerClient', () => {
   it('cancels each POST-SSE reader immediately after its matching response', async () => {
     let listReaderCancelled = false;
     let callReaderCancelled = false;
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         if (init?.method === 'GET') {
           return resolvedResponse(new Response('', { status: 405 }));
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(
@@ -958,9 +1038,11 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         if (request.method === 'notifications/initialized') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         if (request.method === 'tools/list') {
           return resolvedResponse(
             openSseResponse(
@@ -975,6 +1057,7 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         if (request.method === 'tools/call') {
           return resolvedResponse(
             openSseResponse(
@@ -989,9 +1072,11 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         return Promise.reject(new Error('unexpected request'));
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
@@ -1017,15 +1102,19 @@ describe('McpServerClient', () => {
     'rejects an oversized %s initialize response behind the safe body-limit failure',
     async (kind) => {
       const secret = `AUTH-SENTINEL${'x'.repeat(ONE_MIB)}`;
+
       const fetchStub = vi.fn(
         (_request: RequestInfo | URL, init?: RequestInit) => {
           if (init?.method === 'GET') {
             return resolvedResponse(new Response('', { status: 405 }));
           }
+
           const request = requestBody(init);
+
           if (request.method !== 'initialize') {
             return Promise.reject(new Error('unexpected request'));
           }
+
           return resolvedResponse(
             new Response(
               kind === 'json'
@@ -1041,6 +1130,7 @@ describe('McpServerClient', () => {
           );
         },
       );
+
       const connection = McpServerClient.connect({
         serverId: 'web',
         url: 'https://fixture.invalid/mcp',
@@ -1090,6 +1180,7 @@ describe('McpServerClient', () => {
           serverId: 'web',
           url: fixture.url,
         });
+
         await expect(connection).rejects.toMatchObject({
           name: 'McpServerOperationError',
           stage: 'initialize',
@@ -1209,6 +1300,7 @@ describe('McpServerClient', () => {
         },
       ],
     });
+
     const controller = new AbortController();
 
     try {
@@ -1259,6 +1351,7 @@ describe('McpServerClient', () => {
       Array.from({ length: count }, (_, offset) =>
         tool(`tool_${start + offset}`),
       );
+
     const { fixture, client } = await connectFixture({
       listResponses: [
         jsonRpcResult(1, { tools: page(0, 250), nextCursor: '2' }),
@@ -1282,13 +1375,16 @@ describe('McpServerClient', () => {
     type DeepSchemaFixture =
       | { type: 'string' }
       | { type: 'object'; properties: { nested: DeepSchemaFixture } };
+
     let deepSchema: DeepSchemaFixture = { type: 'string' };
+
     for (let depth = 0; depth < 70; depth += 1) {
       deepSchema = {
         type: 'object',
         properties: { nested: deepSchema },
       };
     }
+
     const { fixture, client } = await connectFixture({
       listResponses: [
         jsonRpcResult(1, {
@@ -1331,10 +1427,13 @@ describe('McpServerClient', () => {
           readonly type: 'object';
           readonly properties: { readonly nested: DeepSchema };
         };
+
     let schema: DeepSchema = { type: 'array', items: {} };
+
     for (let depth = 0; depth < 31; depth += 1) {
       schema = { type: 'object', properties: { nested: schema } };
     }
+
     const { fixture, client } = await connectFixture({
       listResponses: [
         jsonRpcResult(1, {
@@ -1394,10 +1493,12 @@ describe('McpServerClient', () => {
 
     try {
       const catalog = await client.discover();
+
       const outcome = await byId(catalog.tools, 'mcp__web__lookup').execute(
         {},
         { toolCallId: 'call', messages: [], abortSignal: undefined },
       );
+
       expect(outcome).toEqual({
         disposition: 'reconnect',
         result: {
@@ -1415,13 +1516,16 @@ describe('McpServerClient', () => {
     const largeTools = Array.from({ length: 17 }, (_, index) =>
       tool(`large_${index}`, { description: 'd'.repeat(250 * 1024) }),
     );
+
     const listResponses = Array.from({ length: 6 }, (_, pageIndex) => {
       const pageTools = largeTools.slice(pageIndex * 3, pageIndex * 3 + 3);
+
       return jsonRpcResult(pageIndex + 1, {
         tools: pageTools,
         ...(pageIndex !== 5 && { nextCursor: `page-${pageIndex + 2}` }),
       });
     });
+
     const { fixture, client } = await connectFixture({ listResponses });
 
     try {
@@ -1442,6 +1546,7 @@ describe('McpServerClient', () => {
         ...(pageIndex !== 8 && { nextCursor: `page-${pageIndex + 2}` }),
       }),
     );
+
     const { fixture, client } = await connectFixture({ listResponses });
 
     try {
@@ -1466,6 +1571,7 @@ describe('McpServerClient', () => {
         nextCursor: `page-${pageIndex + 2}`,
       }),
     );
+
     const { fixture, client } = await connectFixture({ listResponses });
 
     try {
@@ -1485,15 +1591,19 @@ describe('McpServerClient', () => {
 
   it('aborts the active request at the aggregate 30-second discovery deadline', async () => {
     let listAborted = false;
+
     const fetchStub = vi.fn(
       async (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return new Response('', { status: 405 });
         }
+
         if (init?.method === 'DELETE') {
           return new Response(null, { status: 204 });
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return new Response(
             JSON.stringify({
@@ -1508,9 +1618,11 @@ describe('McpServerClient', () => {
             { headers: { 'content-type': 'application/json' } },
           );
         }
+
         if (request.method === 'notifications/initialized') {
           return new Response(null, { status: 204 });
         }
+
         return new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener(
             'abort',
@@ -1523,13 +1635,16 @@ describe('McpServerClient', () => {
         });
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
       fetch: fetchStub,
     });
+
     vi.useFakeTimers();
     const discovery = client.discover();
+
     const observed = Promise.race([
       discovery,
       new Promise<'missed-deadline'>((resolve) =>
@@ -1560,7 +1675,9 @@ describe('McpServerClient', () => {
         }),
       ],
     });
+
     let clockReads = 0;
+
     const monotonicClock = vi
       .spyOn(performance, 'now')
       .mockImplementation(() => (++clockReads >= 33 ? 30_000 : 0));
@@ -1580,15 +1697,19 @@ describe('McpServerClient', () => {
     'enforces the 1 MiB pre-parse cap on %s discovery input',
     async (kind) => {
       const oversized = 'x'.repeat(ONE_MIB + 1);
+
       const fetchStub = vi.fn(
         (_request: RequestInfo | URL, init?: RequestInit) => {
           if (init?.method === 'GET') {
             return resolvedResponse(new Response('', { status: 405 }));
           }
+
           if (init?.method === 'DELETE') {
             return resolvedResponse(new Response(null, { status: 204 }));
           }
+
           const request = requestBody(init);
+
           if (request.method === 'initialize') {
             return resolvedResponse(
               new Response(
@@ -1605,9 +1726,11 @@ describe('McpServerClient', () => {
               ),
             );
           }
+
           if (request.method === 'notifications/initialized') {
             return resolvedResponse(new Response(null, { status: 204 }));
           }
+
           if (request.method === 'tools/list') {
             return resolvedResponse(
               new Response(
@@ -1623,9 +1746,11 @@ describe('McpServerClient', () => {
               ),
             );
           }
+
           return Promise.reject(new Error('unexpected request'));
         },
       );
+
       const client = await McpServerClient.connect({
         serverId: 'web',
         url: 'https://fixture.invalid/mcp',
@@ -1706,6 +1831,7 @@ describe('McpServerClient', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
@@ -1739,6 +1865,7 @@ describe('McpServerClient', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
@@ -1830,6 +1957,7 @@ describe('McpServerClient', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
@@ -1842,6 +1970,7 @@ describe('McpServerClient', () => {
     try {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
+
       const options = {
         toolCallId: 'call',
         messages: [],
@@ -1852,6 +1981,7 @@ describe('McpServerClient', () => {
         { query: 'AUTH-SENTINEL' },
         options,
       );
+
       expect(rejectedArgument).toEqual({
         disposition: 'call_local',
         result: {
@@ -1963,6 +2093,7 @@ describe('McpServerClient', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
@@ -1979,10 +2110,12 @@ describe('McpServerClient', () => {
         ),
       ).toBe(true);
       const catalog = await client.discover();
+
       const outcome = await byId(catalog.tools, 'mcp__web__lookup').execute(
         { draft: true },
         { toolCallId: 'call', messages: [], abortSignal: undefined },
       );
+
       expect(outcome).toMatchObject({
         disposition: 'none',
         result: {
@@ -2000,6 +2133,7 @@ describe('McpServerClient', () => {
   it('redacts Workspace URL and header substitutions echoed as bare values', async () => {
     const bearer = 'workspace-bearer-secret';
     const urlKey = 'workspace-url-key';
+
     const fixture = await createMcpTestFixture({
       $get: [{ kind: 'raw', status: 405, body: '' }],
       initialize: [mcpStreamableHttpInitialize()],
@@ -2012,6 +2146,7 @@ describe('McpServerClient', () => {
       ],
       $delete: [{ kind: 'raw', status: 204, body: '' }],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'workspace',
       url: `${fixture.url}?key=${urlKey}`,
@@ -2021,6 +2156,7 @@ describe('McpServerClient', () => {
 
     try {
       const catalog = await client.discover();
+
       const outcome = await byId(
         catalog.tools,
         'mcp__workspace__lookup',
@@ -2028,6 +2164,7 @@ describe('McpServerClient', () => {
         {},
         { toolCallId: 'call', messages: [], abortSignal: undefined },
       );
+
       expect(outcome).toMatchObject({
         result: {
           status: 'success',
@@ -2063,6 +2200,7 @@ describe('McpServerClient', () => {
 
   it('classifies call HTTP status from trusted structure and never retries', async () => {
     const statuses = [401, 403, 404, 410, 429, 500] as const;
+
     const { fixture, client } = await connectFixture({
       listResponses: [jsonRpcResult(1, { tools: [tool('lookup')] })],
       callResponses: statuses.map((status) => ({
@@ -2077,6 +2215,7 @@ describe('McpServerClient', () => {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
       const outcomes: Array<McpCallOutcome> = [];
+
       for (const status of statuses) {
         outcomes.push(
           await execute(
@@ -2147,6 +2286,7 @@ describe('McpServerClient', () => {
               .filter(({ rpcMethod }) => rpcMethod === 'tools/list'),
           ).toHaveLength(2);
         });
+
         const call = await byId(
           initialCatalog.tools,
           'mcp__web__lookup',
@@ -2186,10 +2326,12 @@ describe('McpServerClient', () => {
     try {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
+
       const slowCall = execute(
         { call: 'slow' },
         { toolCallId: 'slow', messages: [], abortSignal: undefined },
       );
+
       await vi.waitFor(() => {
         expect(
           fixture
@@ -2197,6 +2339,7 @@ describe('McpServerClient', () => {
             .filter(({ rpcMethod }) => rpcMethod === 'tools/call'),
         ).toHaveLength(1);
       });
+
       const failedCall = await execute(
         { call: 'failure' },
         { toolCallId: 'failure', messages: [], abortSignal: undefined },
@@ -2216,6 +2359,7 @@ describe('McpServerClient', () => {
     const zodError = Object.assign(new Error('schema details'), {
       name: 'ZodError',
     });
+
     const failures = [
       Object.assign(new Error('outer'), {
         code: -32_000,
@@ -2238,16 +2382,21 @@ describe('McpServerClient', () => {
       }),
       Object.assign(new Error('remote tool error'), { code: -32_000 }),
     ];
+
     let callIndex = 0;
+
     const fetchStub = vi.fn(
       (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return resolvedResponse(new Response('', { status: 405 }));
         }
+
         if (init?.method === 'DELETE') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return resolvedResponse(
             new Response(
@@ -2264,9 +2413,11 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         if (request.method === 'notifications/initialized') {
           return resolvedResponse(new Response(null, { status: 204 }));
         }
+
         if (request.method === 'tools/list') {
           return resolvedResponse(
             new Response(
@@ -2279,14 +2430,18 @@ describe('McpServerClient', () => {
             ),
           );
         }
+
         if (request.method === 'tools/call') {
           const failure = failures[callIndex];
           callIndex += 1;
+
           return Promise.reject(failure);
         }
+
         throw new Error('unexpected request');
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
@@ -2297,6 +2452,7 @@ describe('McpServerClient', () => {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
       const outcomes: Array<McpCallOutcome> = [];
+
       for (let index = 0; index < failures.length; index += 1) {
         outcomes.push(
           await execute(
@@ -2345,6 +2501,7 @@ describe('McpServerClient', () => {
         },
       ],
     });
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: fixture.url,
@@ -2352,10 +2509,12 @@ describe('McpServerClient', () => {
 
     try {
       const catalog = await client.discover();
+
       const outcome = await byId(catalog.tools, 'mcp__web__lookup').execute(
         {},
         { toolCallId: 'call', messages: [], abortSignal: undefined },
       );
+
       expect(outcome.disposition).toBe('call_local');
     } finally {
       await cleanup({ client, fixture });
@@ -2370,6 +2529,7 @@ describe('McpServerClient', () => {
         content: [{ type: 'text', text: 'x'.repeat(ONE_MIB + 1) }],
       },
     });
+
     const { fixture, client } = await connectFixture({
       listResponses: [jsonRpcResult(1, { tools: [tool('lookup')] })],
       callResponses: [
@@ -2397,6 +2557,7 @@ describe('McpServerClient', () => {
     try {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
+
       const options = {
         toolCallId: 'call',
         messages: [],
@@ -2415,6 +2576,7 @@ describe('McpServerClient', () => {
         { query: 'q'.repeat(ONE_MIB) },
         options,
       );
+
       expect(oversizedInput.disposition).toBe('reconnect');
       expect(
         fixture
@@ -2456,10 +2618,12 @@ describe('McpServerClient', () => {
       const catalog = await client.discover();
       const execute = byId(catalog.tools, 'mcp__web__lookup').execute;
       const controller = new AbortController();
+
       const cancelledPromise = execute(
         {},
         { toolCallId: 'cancel', messages: [], abortSignal: controller.signal },
       );
+
       await vi.waitFor(() => {
         expect(
           fixture
@@ -2478,10 +2642,12 @@ describe('McpServerClient', () => {
       });
 
       const timeoutSignal = AbortSignal.timeout(10);
+
       const timedOut = await execute(
         {},
         { toolCallId: 'timeout', messages: [], abortSignal: timeoutSignal },
       );
+
       expect(timedOut).toEqual({
         disposition: 'call_local',
         result: {
@@ -2498,13 +2664,16 @@ describe('McpServerClient', () => {
   it('closes once and settles within the fixed shutdown bound', async () => {
     let deleteRequests = 0;
     let deleteAborted = false;
+
     const fetchStub = vi.fn(
       async (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return new Response('', { status: 405 });
         }
+
         if (init?.method === 'DELETE') {
           deleteRequests += 1;
+
           return new Promise<Response>((_resolve, reject) => {
             init?.signal?.addEventListener(
               'abort',
@@ -2516,7 +2685,9 @@ describe('McpServerClient', () => {
             );
           });
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return new Response(
             JSON.stringify({
@@ -2536,26 +2707,31 @@ describe('McpServerClient', () => {
             },
           );
         }
+
         return new Response(null, { status: 204 });
       },
     );
+
     const client = await McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
       fetch: fetchStub,
     });
+
     vi.useFakeTimers();
 
     try {
       const first = client.close();
       const second = client.close();
       expect(second).toBe(first);
+
       const observed = Promise.race([
         first.then(() => 'closed' as const),
         new Promise<'missed-bound'>((resolve) =>
           setTimeout(() => resolve('missed-bound'), 5100),
         ),
       ]);
+
       await vi.advanceTimersByTimeAsync(5100);
       await expect(observed).resolves.toBe('closed');
       expect(deleteRequests).toBe(1);
@@ -2567,12 +2743,15 @@ describe('McpServerClient', () => {
 
   it('aborts initialization at 30 seconds and exposes only a closed safe failure', async () => {
     let initializeAborted = false;
+
     const fetchStub = vi.fn(
       async (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return new Response('', { status: 405 });
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return new Promise<Response>((_resolve, reject) => {
             init?.signal?.addEventListener(
@@ -2585,16 +2764,20 @@ describe('McpServerClient', () => {
             );
           });
         }
+
         return new Response(null, { status: 204 });
       },
     );
+
     vi.useFakeTimers();
+
     const connect = McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
       headers: { authorization: 'AUTH-SENTINEL' },
       fetch: fetchStub,
     });
+
     const observed = Promise.race([
       connect,
       new Promise<'missed-deadline'>((resolve) =>
@@ -2622,6 +2805,7 @@ describe('McpServerClient', () => {
     const controller = new AbortController();
     controller.abort(new Error('AUTH-SENTINEL pre-abort reason'));
     const fetchStub = vi.fn<typeof fetch>();
+
     const connection = McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
@@ -2641,12 +2825,15 @@ describe('McpServerClient', () => {
 
   it('aborts in-flight initialization from the external signal without leaking its reason', async () => {
     let initializeAborted = false;
+
     const fetchStub = vi.fn(
       async (_request: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'GET') {
           return new Response('', { status: 405 });
         }
+
         const request = requestBody(init);
+
         if (request.method === 'initialize') {
           return new Promise<Response>((_resolve, reject) => {
             init?.signal?.addEventListener(
@@ -2659,16 +2846,20 @@ describe('McpServerClient', () => {
             );
           });
         }
+
         return new Response(null, { status: 204 });
       },
     );
+
     const controller = new AbortController();
+
     const connection = McpServerClient.connect({
       serverId: 'web',
       url: 'https://fixture.invalid/mcp',
       fetch: fetchStub,
       signal: controller.signal,
     });
+
     await vi.waitFor(() => {
       expect(
         fetchStub.mock.calls.some(
@@ -2736,6 +2927,7 @@ describe('McpServerClient', () => {
       Array.from({ length: count }, (_, offset) =>
         tool(`tool_${(start + offset).toString().padStart(4, '0')}`),
       );
+
     const { fixture, client } = await connectFixture({
       listResponses: [
         jsonRpcResult(1, { tools: page(0, 256), nextCursor: '2' }),
@@ -2756,8 +2948,10 @@ describe('McpServerClient', () => {
 
   it('accepts a declaration whose serialized size lands exactly on the 256 KiB cap', async () => {
     const encoder = new TextEncoder();
+
     const declaration = (padding: number) =>
       tool('exact_size', { description: 'x'.repeat(padding) });
+
     const overhead = encoder.encode(JSON.stringify(declaration(0))).byteLength;
     const exact = declaration(256 * 1024 - overhead);
     expect(encoder.encode(JSON.stringify(exact)).byteLength).toBe(256 * 1024);

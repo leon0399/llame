@@ -3,6 +3,7 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
 const password = "Password123!";
 
 export type TestAccount = {
@@ -24,6 +25,7 @@ export async function registerAccount(
 ): Promise<TestAccount> {
   const email = uniqueEmail(label, parallelIndex);
   const name = `E2E ${label}`;
+
   const response = await request.post(`${apiUrl}/auth/v1/register`, {
     data: { email, name, password },
   });
@@ -40,9 +42,11 @@ export async function registerAccount(
     token?: string;
     user?: { id?: string };
   };
+
   if (!body.token) {
     throw new Error(`Register response for ${email} did not include a token`);
   }
+
   if (!body.user?.id) {
     throw new Error(`Register response for ${email} did not include a user id`);
   }
@@ -56,11 +60,13 @@ export async function loginViaUi(
 ): Promise<void> {
   await page.getByLabel(/email/i).fill(account.email);
   await page.getByLabel(/password/i).fill(account.password);
+
   const loginResponse = page.waitForResponse(
     (response) =>
       response.url().endsWith("/auth/v1/login") &&
       response.request().method() === "POST",
   );
+
   await page.getByRole("button", { name: /^sign in$/i }).click();
 
   const response = await loginResponse;

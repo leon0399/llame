@@ -30,15 +30,20 @@ export function gitEnvironment(
 ): Record<string, string> {
   const inherited = INHERITED_ENVIRONMENT_NAMES.flatMap((name) => {
     const value = process.env[name];
+
     return value === undefined ? [] : [[name, value] as const];
   });
+
   const environment: Record<string, string> = Object.fromEntries([
     ...Object.entries(FIXED_ENVIRONMENT),
     ...inherited,
   ]);
+
   if (extra.ceiling !== undefined) {
     environment["GIT_CEILING_DIRECTORIES"] = extra.ceiling;
   }
+
   if (extra.noLazyFetch) environment["GIT_NO_LAZY_FETCH"] = "1";
+
   return environment;
 }

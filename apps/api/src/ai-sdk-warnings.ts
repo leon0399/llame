@@ -8,6 +8,7 @@ import type { LogWarningsFunction, Warning } from 'ai';
  */
 function withoutPartPayload(message: string): string {
   const payload = message.indexOf('{');
+
   return payload === -1
     ? message
     : `${message.slice(0, payload).trimEnd()} <part omitted>`;

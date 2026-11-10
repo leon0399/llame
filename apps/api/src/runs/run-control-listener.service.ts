@@ -65,12 +65,17 @@ export class RunControlListenerService
 
   private async onNotify(raw: string): Promise<void> {
     const message = parseRunControl(raw);
+
     if (!message) {
       this.logger.warn('Dropped malformed run-control notification');
+
       return;
     }
+
     const userId = this.aborts.ownerOf(message.runId);
+
     if (userId === undefined) return;
+
     if (message.kind === 'cancel') {
       await this.abortIfCancelled(message.runId, userId);
     } else {
@@ -96,10 +101,13 @@ export class RunControlListenerService
     userId: string,
   ): Promise<void> {
     const attemptId = this.aborts.segmentAttemptOf(runId);
+
     if (attemptId === undefined) return;
+
     try {
       const pending = await this.tenantDb.runAs(userId, async (tx) => {
         const run = await new RunsRepository(tx).findById(runId, userId);
+
         return (
           run?.activeAttemptId === attemptId &&
           (await new ChatDeliveriesRepository(tx).hasPendingInterrupt(
@@ -108,6 +116,7 @@ export class RunControlListenerService
           ))
         );
       });
+
       if (pending) this.aborts.interrupt(runId, attemptId);
     } catch (error) {
       this.logger.warn(
@@ -122,6 +131,7 @@ export class RunControlListenerService
       const run = await this.tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findById(runId, userId),
       );
+
       // A superseded Run is settled `cancelled` without a cancel request, and
       // a deleted Chat cascades its Run away: a Run that this process executes
       // and the owner can no longer read has been cancelled by that deletion.

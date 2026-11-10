@@ -35,10 +35,12 @@ import {
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
 const knowledgeRoot = process.env.E2E_KNOWLEDGE_ROOT;
 const modelId = "system:openai:gpt-5.4-mini";
 const longNotePath = "notes/long-note.md";
 const pagedQuery = "KNOWLEDGE_E2E_PAGED";
+
 // The `read` tool's rendered title is the bare id ("read"). `ToolHeader`
 // renders that title span immediately followed by the status badge span with
 // no separating text node, so a card's text reads "readCompleted" and a
@@ -57,6 +59,7 @@ function requireKnowledgeRoot(): string {
   if (!knowledgeRoot) {
     throw new Error("E2E_KNOWLEDGE_ROOT is required for Knowledge acceptance");
   }
+
   return knowledgeRoot;
 }
 
@@ -66,19 +69,24 @@ async function provisionKnowledgeSpace(
   name = "Personal",
 ): Promise<KnowledgeSpaceFixture> {
   mkdirSync(requireKnowledgeRoot(), { recursive: true });
+
   const response = await request.post(`${apiUrl}/api/v1/knowledge-spaces`, {
     headers: { Authorization: `Bearer ${account.token}` },
     data: { name },
   });
+
   if (!response.ok()) {
     throw new Error(
       `Knowledge provisioning failed: ${response.status()} ${await response.text()}`,
     );
   }
+
   const body: unknown = await response.json();
+
   if (!hasStableId(body)) {
     throw new Error("Knowledge provisioning returned no stable ID");
   }
+
   return {
     id: body.id,
     directory: path.join(requireKnowledgeRoot(), body.id),
@@ -119,6 +127,7 @@ async function expectCompletedTool(
     .getByRole("button")
     .filter({ hasText: toolName })
     .nth(occurrence);
+
   await expect(card).toContainText("Completed", { timeout: 30_000 });
   await card.click();
   await expect(card.locator("..")).toContainText(expectedPath);
@@ -132,6 +141,7 @@ async function expectSourceLines(
 ): Promise<void> {
   const lines = details.locator("[data-line] > span:last-child");
   await expect(lines).toHaveCount(expected.length);
+
   for (const [index, text] of expected.entries()) {
     await expect(lines.nth(index)).toHaveJSProperty("textContent", text);
   }
@@ -146,6 +156,7 @@ async function expectErroredTool(
     .getByRole("button")
     .filter({ hasText: readToolFilter })
     .nth(occurrence);
+
   await expect(card).toContainText("Error", { timeout: 30_000 });
   await card.click();
   await expect(card.locator("..")).toContainText(expectedMessage);
@@ -169,7 +180,9 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       `${apiUrl}/api/v1/knowledge-spaces?limit=100`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
+
     expect(listResponse.ok()).toBe(true);
+
     // SAFETY: this is the api's own knowledge-spaces list endpoint (under
     // test here), whose paginated-collection response shape is fixed by its
     // own OpenAPI contract.
@@ -177,6 +190,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       items: Array<KnowledgeSpaceResponse>;
       nextCursor: string | null;
     };
+
     expect(collection.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: first.id, name: "Duplicate" }),
@@ -188,6 +202,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       `${apiUrl}/api/v1/knowledge-spaces/${second.id}`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
+
     expect(getResponse.ok()).toBe(true);
     await expect(getResponse.json()).resolves.toMatchObject({
       id: second.id,
@@ -201,6 +216,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
         data: { name: "Renamed" },
       },
     );
+
     expect(renameResponse.ok()).toBe(true);
     await expect(renameResponse.json()).resolves.toMatchObject({
       id: second.id,
@@ -215,6 +231,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
           data: method === "patch" ? { name: "Stolen" } : undefined,
         },
       );
+
       expect(response.status()).toBe(404);
       const body = await response.text();
       expect(body).not.toContain(account.id);
@@ -225,6 +242,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       `${apiUrl}/api/v1/knowledge-spaces?limit=100`,
       { headers: { Authorization: `Bearer ${freshAccount.token}` } },
     );
+
     expect(foreignList.ok()).toBe(true);
     expect(await foreignList.text()).not.toContain(first.id);
     expect(await foreignList.text()).not.toContain(second.id);
@@ -254,10 +272,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       "Please search the knowledge fixture across all spaces.",
     );
     const log = page.getByRole("log");
+
     const allSpacesCard = log
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .first();
+
     await expect(allSpacesCard).toContainText("Completed", { timeout: 30_000 });
     await allSpacesCard.click();
     await expect(allSpacesCard.locator("..")).toContainText(
@@ -275,10 +295,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       "notes/worker-note.md",
       1,
     );
+
     const explicitSearchCard = log
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .nth(1);
+
     await expect(explicitSearchCard.locator("..")).toContainText(second.id);
     await expect(explicitSearchCard.locator("..")).not.toContainText(
       workerKnowledgeSpace.id,
@@ -289,10 +311,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       `Please read the knowledge fixture. Knowledge Space ID: ${second.id}`,
     );
     await expectCompletedTool(log, readToolFilter, "notes/worker-note.md");
+
     const readCard = log
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .first();
+
     await expect(readCard.locator("..")).toContainText(second.id);
     // The kb:// envelope stays visible, so duplicate space names stay
     // distinguishable (knowledge-tools: response-time attribution).
@@ -312,10 +336,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       "Please search the knowledge changed fixture across all current spaces.",
     );
     await expectCompletedTool(log, "knowledge_search", "notes/new-note.md", 2);
+
     const addedSearchCard = log
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .nth(2);
+
     await expect(addedSearchCard.locator("..")).toContainText(added.id);
 
     await sendPrompt(
@@ -331,10 +357,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expectErroredTool(log, "Knowledge Space was not found.", 2);
 
     await page.reload({ waitUntil: "domcontentloaded" });
+
     const reloadedSearch = log
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .nth(2);
+
     await reloadedSearch.click();
     await expect(reloadedSearch.locator("..")).toContainText(added.id);
     await expect(reloadedSearch.locator("..")).toContainText(
@@ -361,11 +389,13 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       "Please search the knowledge fixture across all spaces.",
     );
+
     const card = page
       .getByRole("log")
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .first();
+
     await expect(card).toContainText("Completed", { timeout: 30_000 });
     await card.click();
     const details = card.locator("..");
@@ -416,10 +446,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     ).toBeVisible({ timeout: 30_000 });
 
     await page.reload({ waitUntil: "domcontentloaded" });
+
     const reloadedCard = log
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .last();
+
     await reloadedCard.click();
     await expect(reloadedCard.locator("..")).toContainText(
       "notes/new-note.md",
@@ -439,12 +471,17 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       account,
       "Ranged acceptance",
     );
+
     const longNote = Array.from({ length: 2005 }, (_, index) => {
       if (index === 2) return `${pagedQuery} first passage`;
+
       if (index === 1102) return `${pagedQuery} second passage`;
+
       if (index === 2002) return `${pagedQuery} final passage`;
+
       return "x";
     }).join("\n");
+
     writeNote(rangedSpace, longNotePath, `${longNote}\n`);
 
     await prepareChat(page);
@@ -454,10 +491,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please read the long knowledge fixture. Knowledge Space ID: ${rangedSpace.id}`,
     );
+
     const firstRead = log
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .first();
+
     await expect(firstRead).toContainText("Completed", { timeout: 30_000 });
     await firstRead.click();
     const firstReadDetails = firstRead.locator("..");
@@ -475,6 +514,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .nth(1);
+
     await expect(continuedRead).toContainText("Completed", {
       timeout: 30_000,
     });
@@ -495,10 +535,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please read an explicit range from the long knowledge fixture. Knowledge Space ID: ${rangedSpace.id}`,
     );
+
     const explicitRead = log
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .nth(2);
+
     await expect(explicitRead).toContainText("Completed", { timeout: 30_000 });
     await explicitRead.click();
     const explicitReadDetails = explicitRead.locator("..");
@@ -513,10 +555,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please search the knowledge fixture for the paged literal passages. Knowledge Space ID: ${rangedSpace.id}`,
     );
+
     const firstSearch = log
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .first();
+
     await expect(firstSearch).toContainText("Completed", { timeout: 30_000 });
     await firstSearch.click();
     const firstSearchDetails = firstSearch.locator("..");
@@ -537,6 +581,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .nth(1);
+
     await expect(secondSearch).toContainText("Completed", { timeout: 30_000 });
     await secondSearch.click();
     const secondSearchDetails = secondSearch.locator("..");
@@ -614,7 +659,9 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
         `http://localhost:${process.env.E2E_WEB_PORT ?? "4300"}`,
       locale: testInfo.project.use.locale,
     });
+
     const freshPage = await context.newPage();
+
     try {
       await freshPage.goto("/login");
       await loginViaUi(freshPage, freshAccount);
@@ -692,10 +739,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
         `Please read the knowledge oversized fixture. Knowledge Space ID: ${workerKnowledgeSpace.id}`,
       );
       await expectCompletedTool(log, readToolFilter, "notes/oversized.md", 2);
+
       const oversizedCard = log
         .getByRole("button")
         .filter({ hasText: readToolFilter })
         .nth(2);
+
       await expect(oversizedCard.locator("..")).toContainText(
         "Truncated: continues at line",
       );
@@ -743,10 +792,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     const log = page.getByRole("log");
 
     await sendPrompt(page, "Please run the knowledge locator passthrough e2e.");
+
     const searchCard = log
       .getByRole("button")
       .filter({ hasText: "knowledge_search" })
       .first();
+
     await expect(searchCard).toContainText("Completed", { timeout: 30_000 });
     await searchCard.click();
     // `innerText` is a one-shot read with no retry, so the expanded panel has
@@ -755,9 +806,11 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(searchDetails).toContainText("kb://");
     const searchText = await searchDetails.innerText();
     const locatorMatch = /kb:\/\/[^\s"]+/u.exec(searchText);
+
     if (locatorMatch === null) {
       throw new Error("search card did not render a kb:// locator");
     }
+
     const [locator] = locatorMatch;
 
     // The read call's `path` argument is the search result's own `locator`
@@ -766,6 +819,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .first();
+
     await expect(readCard).toContainText("Completed", { timeout: 30_000 });
     await readCard.click();
     await expect(readCard.locator("..")).toContainText(locator);
@@ -790,11 +844,13 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       account,
       "Line endings",
     );
+
     // LF terminates a logical line; CRLF keeps its `\r` as content; a lone
     // `\r` never starts a new line; the final line carries no trailing
     // delimiter at all.
     const mixedBody =
       "alpha LF\nbravo CRLF\r\ncharlie CR\rstill charlie\ndelta end";
+
     writeNote(lineEndingSpace, "notes/line-endings.md", mixedBody);
     writeNote(lineEndingSpace, "notes/line-endings-term.md", `${mixedBody}\n`);
 
@@ -805,10 +861,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please read the knowledge fixture with a mixed newline sample. Knowledge Space ID: ${lineEndingSpace.id}`,
     );
+
     const unterminated = log
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .first();
+
     await expect(unterminated).toContainText("Completed", { timeout: 30_000 });
     await unterminated.click();
     const unterminatedDetails = unterminated.locator("..");
@@ -827,10 +885,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please read the knowledge fixture with a newline-terminated sample. Knowledge Space ID: ${lineEndingSpace.id}`,
     );
+
     const terminated = log
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .nth(1);
+
     await expect(terminated).toContainText("Completed", { timeout: 30_000 });
     await terminated.click();
     const terminatedDetails = terminated.locator("..");
@@ -847,10 +907,12 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
       page,
       `Please read the knowledge fixture directory listing. Knowledge Space ID: ${lineEndingSpace.id}`,
     );
+
     const listing = log
       .getByRole("button")
       .filter({ hasText: readToolFilter })
       .nth(2);
+
     await expect(listing).toContainText("Completed", { timeout: 30_000 });
     await listing.click();
     const listingDetails = listing.locator("..");

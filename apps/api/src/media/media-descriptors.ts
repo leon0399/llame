@@ -36,6 +36,7 @@ export function imageColumns(
   row: Pick<MediaObject, keyof ImageColumns>,
 ): ImageColumns | undefined {
   const parsed = imageColumnsSchema.safeParse(row);
+
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -99,7 +100,9 @@ export async function loadMediaDescriptors(
   ids: ReadonlyArray<string>,
 ): Promise<ReadonlyMap<string, MediaDescriptor>> {
   const wanted = [...new Set(ids)].filter(isCanonicalMediaId);
+
   if (wanted.length === 0) return new Map();
+
   const rows = await tx
     .select({
       id: mediaObjects.id,
@@ -121,9 +124,11 @@ export async function loadMediaDescriptors(
         eq(mediaObjects.ownerUserId, ownerUserId),
       ),
     );
+
   return new Map(
     rows.flatMap((row) => {
       const found = descriptorOf(row);
+
       return found === undefined ? [] : [[row.id, found] as const];
     }),
   );
@@ -141,6 +146,7 @@ type DescriptorRow = Pick<
  */
 function descriptorOf(row: DescriptorRow): MediaDescriptor | undefined {
   const { id, name, mediaType } = row;
+
   if (row.pageCount !== null) {
     return mediaType === PDF_MEDIA_TYPE
       ? {
@@ -153,7 +159,9 @@ function descriptorOf(row: DescriptorRow): MediaDescriptor | undefined {
         }
       : undefined;
   }
+
   const image = imageColumns(row);
+
   return image && { kind: 'image', id, name, mediaType, ...image };
 }
 
@@ -196,28 +204,35 @@ export function createRunMediaResolver(
   const known = new Map<string, MediaDescriptor | undefined>();
   const bytes = new Map<string, Uint8Array>();
   const retained = new Map<string, RetainedMedia>();
+
   return {
     retainedMedia: retained,
     async describe(ids) {
       const missing = ids.filter((id) => !known.has(id));
+
       if (missing.length > 0) {
         const loaded = await tenantDb.runAs(ownerUserId, (tx) =>
           loadMediaDescriptors(tx, ownerUserId, missing),
         );
+
         for (const id of missing) known.set(id, loaded.get(id));
       }
+
       return pickKnown(known, ids);
     },
     async loadModelBytes(ids) {
       const missing = [...new Set(ids)].filter(
         (id) => isCanonicalMediaId(id) && !bytes.has(id),
       );
+
       if (missing.length > 0) {
         const rows = await tenantDb.runAs(ownerUserId, (tx) =>
           loadAttachedBlobs(tx, ownerUserId, missing),
         );
+
         for (const row of rows) bytes.set(row.id, row.data);
       }
+
       return pickKnown(bytes, ids);
     },
   };
@@ -229,10 +244,13 @@ function pickKnown<T>(
   ids: ReadonlyArray<string>,
 ): ReadonlyMap<string, T> {
   const result = new Map<string, T>();
+
   for (const id of ids) {
     const found = cache.get(id);
+
     if (found !== undefined) result.set(id, found);
   }
+
   return result;
 }
 
@@ -268,9 +286,11 @@ function storedFileRefs(
 ): Array<{ id: string; filename: string | undefined; mediaType: string }> {
   return parts.flatMap((part) => {
     const parsed = storedFilePartSchema.safeParse(part);
+
     if (!parsed.success) return [];
     const id = parseMediaLocator(parsed.data.url);
     const { filename, mediaType } = parsed.data;
+
     return id === undefined ? [] : [{ id, filename, mediaType }];
   });
 }
@@ -302,6 +322,7 @@ export function fileAttachmentLines(
 ): Array<string> {
   return storedFileRefs(parts).map(({ id, filename, mediaType }) => {
     const name = filename === undefined ? '' : ` ${mediaSourceLabel(filename)}`;
+
     return `[${fileKind(mediaType)} ${mediaLocator(id)}${name}]`;
   });
 }
@@ -324,6 +345,7 @@ export type MediaSubject = ImageSubject | PdfSubject;
 
 export function storedSubject(d: MediaDescriptor): MediaSubject {
   const subject = `${mediaLocator(d.id)} ${d.name}`;
+
   return d.kind === 'pdf'
     ? { kind: 'pdf', subject, pages: d.pages }
     : { kind: 'image', subject, width: d.width, height: d.height };

@@ -120,24 +120,29 @@ function classifyHttpStatusFailure(
   failure: WebFetchFailure,
 ): WebAdapterFailure {
   const rateLimit = failure.rateLimit;
+
   if (failure.httpStatus === 429) return 'rate_limit';
+
   if (
     failure.httpStatus === 403 &&
     (rateLimit?.remaining === '0' || rateLimit?.retryAfter !== undefined)
   ) {
     return 'rate_limit';
   }
+
   if (
     failure.httpStatus === undefined &&
     /\bHTTP\s+429(?:\D|$)/u.test(failure.message)
   ) {
     return 'rate_limit';
   }
+
   return 'status';
 }
 
 export function rateLimitReset(failure: WebFetchFailure): string | undefined {
   if (classifyFetchFailure(failure) !== 'rate_limit') return undefined;
+
   return resetTimestamp(failure.rateLimit?.reset);
 }
 
@@ -147,6 +152,7 @@ export function omissionNote(
 ): string {
   const category = classifyFetchFailure(failure);
   const reset = rateLimitReset(failure);
+
   return `${section} omitted: ${category}${
     reset === undefined ? '' : `, resets ${reset}`
   }`;
@@ -155,6 +161,7 @@ export function omissionNote(
 function resetTimestamp(value: string | undefined): string | undefined {
   if (value === undefined || value.trim() === '') return undefined;
   const date = new Date(Number(value) * 1000);
+
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
@@ -162,11 +169,13 @@ function resetTimestamp(value: string | undefined): string | undefined {
  *  call-bound or caller-abort failure is marked fatal. */
 export function primaryFailure(failure: WebFetchFailure): WebAdapterOutcome {
   const reset = rateLimitReset(failure);
+
   const outcome: WebAdapterOutcome = {
     kind: 'failed',
     failure: classifyFetchFailure(failure),
     ...(reset !== undefined && { reset }),
   };
+
   return isFatalAdapterFailure(failure)
     ? { ...outcome, fatal: failure }
     : outcome;
@@ -187,13 +196,18 @@ export async function loadSection(
   | { readonly fatal: WebFetchFailure }
 > {
   const fetched = await request;
+
   if (!('type' in fetched)) return { body: fetched.body };
+
   if (fetched.type === 'call_timeout') {
     notes.push(omissionNote(section, fetched));
+
     return { spent: fetched };
   }
+
   if (isFatalAdapterFailure(fetched)) return { fatal: fetched };
   notes.push(omissionNote(section, fetched));
+
   return {};
 }
 
@@ -248,16 +262,20 @@ export async function dispatchWebAdapters(
   io: WebAdapterIo,
 ): Promise<WebAdapterDispatch> {
   const fallthroughNotes: Array<string> = [];
+
   for (const adapter of adapters) {
     if (!adapter.match(source)) continue;
 
     const outcome = await adapter.read(source, io);
+
     if (outcome.kind === 'failed') {
       if (outcome.fatal !== undefined) {
         return { kind: 'fatal', failure: outcome.fatal };
       }
+
       const reset =
         outcome.reset === undefined ? '' : `, resets ${outcome.reset}`;
+
       fallthroughNotes.push(
         `web adapter "${adapter.id}" fell through: ${outcome.failure}${reset}`,
       );
@@ -281,7 +299,9 @@ function renderAdapter(
 ): WebRender {
   const bounded = truncateAdapterDocument(outcome.content);
   const notes = [...fallthroughNotes, ...outcome.notes];
+
   if (bounded.truncated) notes.push('document truncated: too_large');
+
   return {
     method: 'adapter',
     content: bounded.content,
@@ -302,13 +322,17 @@ function renderAdapter(
     }),
   };
 }
+
 function truncateAdapterDocument(content: string) {
   const buffer = new Uint8Array(MAX_ADAPTER_DOCUMENT_BYTES);
   const { read } = new TextEncoder().encodeInto(content, buffer);
+
   if (read === content.length) {
     return { content, truncated: false };
   }
+
   const newline = content.lastIndexOf('\n', read - 1);
+
   return {
     content:
       newline === -1 ? content.slice(0, read) : content.slice(0, newline + 1),

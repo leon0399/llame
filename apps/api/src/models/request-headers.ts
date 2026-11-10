@@ -47,14 +47,17 @@ export function withRequestHeaders(
   chat: ChatIdentity,
 ): RequestHeaders {
   const sessionId = renderSessionId(chat);
+
   const rendered = Object.fromEntries(
     Object.entries(templates)
       .map(([name, parts]) => [name, parts.join(sessionId)] as const)
       .filter(([, value]) => value.length > 0),
   );
+
   const overridden = new Set(
     Object.keys(rendered).map((name) => name.toLowerCase()),
   );
+
   return Object.fromEntries([
     ...Object.entries(base).filter(
       ([name]) => !overridden.has(name.toLowerCase()),

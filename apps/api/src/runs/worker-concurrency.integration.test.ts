@@ -51,6 +51,7 @@ function requireTestDbUrl(): string {
   if (!TEST_DB_URL) {
     throw new Error('TEST_DATABASE_URL is required for this suite');
   }
+
   return TEST_DB_URL;
 }
 
@@ -73,6 +74,7 @@ const asUser = <T>(
 ) =>
   sql.begin(async (tx) => {
     await tx`select set_config('app.current_user_id', ${userId}, true)`;
+
     return fn(tx);
   });
 
@@ -122,11 +124,13 @@ describeIfDb(
             text: `answer-${i}`,
             delayMs,
           });
+
           const seed = await seedRun({
             tenantDb: harness.tenantDb,
             userId,
             modelId,
           });
+
           return { modelId, ...seed };
         }),
       );
@@ -150,6 +154,7 @@ describeIfDb(
           const statuses = await Promise.all(
             jobs.map((job) => runStatus(job.runId)),
           );
+
           return statuses.every((r) => r?.status === 'completed')
             ? true
             : undefined;
@@ -205,6 +210,7 @@ describeIfDb(
             runStatus(seedA.runId),
             runStatus(seedB.runId),
           ]);
+
           return a?.status === 'completed' && b?.status === 'completed'
             ? true
             : undefined;
@@ -219,17 +225,20 @@ describeIfDb(
       const failed = await waitFor(
         async () => {
           const run = await runStatus(seedFail.runId);
+
           return run?.status === 'expired' ? run : undefined;
         },
         20_000,
         'the failing run to reach terminal expired via the dead-letter path',
       );
+
       expect(failed.status).toBe('expired');
 
       const [eventsA, eventsB] = await Promise.all([
         runEvents(seedA.runId),
         runEvents(seedB.runId),
       ]);
+
       // Clean, uncorrupted stream-ordered event logs for both siblings — no
       // event from the failing run's retries/dead-letter ever bled in.
       expect(eventsA.map((e) => e.eventType)).toEqual([
@@ -256,10 +265,12 @@ describeIfDb(
         kind: 'complete',
         text: 'source answer',
       });
+
       const source = await seedAndDispatchRun(harness, {
         userId,
         modelId: sourceModel,
       });
+
       await waitFor(
         async () =>
           (await runStatus(source.runId))?.status === 'completed'
@@ -274,6 +285,7 @@ describeIfDb(
         kind: 'provider-error',
         message: 'selected target provider failed',
       });
+
       const target = await seedAndDispatchRun(harness, {
         userId,
         chatId: source.chatId,
@@ -309,6 +321,7 @@ describeIfDb(
       await waitFor(
         async () => {
           const run = await runStatus(seed.runId);
+
           return run?.status === 'running_model' ? run : undefined;
         },
         10_000,
@@ -326,6 +339,7 @@ describeIfDb(
         // "Failed query" wrapper; the constraint name is on the postgres.js
         // cause, same as chat-loop.service.ts's own isInflightUniqueViolation.
         let violation: unknown;
+
         try {
           await harness.tenantDb.runAs(userId, (tx) =>
             new RunsRepository(tx).create({
@@ -341,6 +355,7 @@ describeIfDb(
         } catch (error) {
           violation = error;
         }
+
         expect(violation).toBeDefined();
         expect(isInflightUniqueViolation(violation)).toBe(true);
 
@@ -351,9 +366,11 @@ describeIfDb(
         const bridge: RunStreamResponder = {
           createUiMessageStreamResponse: vi.fn(),
         };
+
         const instanceConfig = harness.moduleRef.get(InstanceConfigService, {
           strict: false,
         });
+
         const chatLoop = new ChatLoopService(
           harness.tenantDb,
           harness.models,
@@ -380,6 +397,7 @@ describeIfDb(
         const aborts = harness.moduleRef.get(RunAbortRegistry, {
           strict: false,
         });
+
         aborts.abort(seed.runId);
       }
 
@@ -388,6 +406,7 @@ describeIfDb(
       const finished = await waitFor(
         async () => {
           const run = await runStatus(seed.runId);
+
           return run &&
             ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
             ? run
@@ -396,6 +415,7 @@ describeIfDb(
         10_000,
         'the hung run to settle after the abort',
       );
+
       expect(finished.status).toBe('cancelled');
 
       const events = await runEvents(seed.runId);
@@ -410,6 +430,7 @@ describeIfDb(
         kind: 'complete',
         text: 'atomic answer',
       });
+
       const seed = await seedRun({
         tenantDb: harness.tenantDb,
         userId,
@@ -436,11 +457,14 @@ describeIfDb(
       // runs, and the second connection answers the pg_blocking_pids poll while
       // it is held.
       const lockSql = testClient(2);
+
       try {
         await asUser(lockSql, userId, async (lock) => {
           const held =
             await lock`select id from chats where id = ${seed.chatId} for update`;
+
           expect(held).toHaveLength(1);
+
           const [{ pid }] = await lock<
             Array<{ pid: number }>
           >`select pg_backend_pid() as pid`;
@@ -461,6 +485,7 @@ describeIfDb(
             async () => {
               const blocked =
                 await lockSql`select 1 from pg_stat_activity where ${pid} = any(pg_blocking_pids(pid)) limit 1`;
+
               return blocked.length > 0 ? true : undefined;
             },
             20_000,
@@ -513,6 +538,7 @@ describeIfDb(
       });
 
       const sql = testClient(2);
+
       try {
         await asUser(sql, userId, async (toucher) => {
           // Exactly what chat-loop.service.ts does before inserting the run.
@@ -521,15 +547,18 @@ describeIfDb(
           // while proving nothing.
           const touched =
             await toucher`update chats set updated_at = now() where id = ${seed.chatId} returning id`;
+
           expect(touched).toHaveLength(1);
 
           await asUser(sql, userId, async (inserter) => {
             await inserter`set local lock_timeout = '5s'`;
+
             const inserted = await inserter`
               insert into messages (chat_id, seq, role, parts, in_reply_to)
               values (${seed.chatId}, 2, 'assistant', ${sql.json([{ type: 'text', text: 'lock order answer' }])}, ${seed.userMessage.id})
               returning id
             `;
+
             expect(inserted).toHaveLength(1);
           });
         });
@@ -554,6 +583,7 @@ describeIfDb(
 
       const sql = testClient(2);
       const observer = testClient(1);
+
       try {
         let sendSettled = false;
         let send: Promise<unknown> | undefined;
@@ -561,19 +591,24 @@ describeIfDb(
           const settled = await promotion`
             update runs set status = 'completed' where id = ${seed.runId} returning id
           `;
+
           expect(settled).toHaveLength(1);
+
           const locked = await promotion`
             select id from chats where id = ${seed.chatId} for update
           `;
+
           expect(locked).toHaveLength(1);
 
           // The send's admission read of the active run answers at once from
           // the committed snapshot (the run is still active there: a 409).
           await asUser(sql, userId, async (reader) => {
             await reader`set local lock_timeout = '2s'`;
+
             const active = await reader`
               select status from runs where id = ${seed.runId}
             `;
+
             expect(active).toHaveLength(1);
             expect(active[0]?.status).toBe('queued');
           });
@@ -581,9 +616,11 @@ describeIfDb(
           // Its chat-row lock waits for the promotion, and only for that.
           send = asUser(sql, userId, async (sender) => {
             await sender`set local lock_timeout = '20s'`;
+
             const touched = await sender`
               update chats set updated_at = now() where id = ${seed.chatId} returning id
             `;
+
             expect(touched).toHaveLength(1);
           }).finally(() => {
             sendSettled = true;
@@ -594,6 +631,7 @@ describeIfDb(
                 select 1 from pg_stat_activity
                 where wait_event_type = 'Lock' and query like '%update chats set updated_at%'
               `;
+
               return waiting.length > 0 ? true : undefined;
             },
             10_000,
@@ -646,6 +684,7 @@ describeIfDb(
             runStatus(seedA.runId),
             runStatus(seedB.runId),
           ]);
+
           return a?.status === 'completed' && b?.status === 'completed'
             ? true
             : undefined;

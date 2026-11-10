@@ -113,12 +113,14 @@ describeIfDb('a Regenerate Run', () => {
   ): Promise<void> {
     const messagesRepo = new MessagesRepository(tx);
     const runsRepo = new RunsRepository(tx);
+
     const earlier = await messagesRepo.create({
       chatId,
       role: 'user',
       senderUserId: userId,
       parts: [{ type: 'text', text: 'An earlier turn' }],
     });
+
     await messagesRepo.createAssistantReplyIfAbsent({
       chatId,
       inReplyTo: earlier.id,
@@ -130,12 +132,14 @@ describeIfDb('a Regenerate Run', () => {
         modelId,
       },
     });
+
     const previousRun = await runsRepo.create({
       chatId,
       messageId: earlier.id,
       userId,
       modelId,
     });
+
     await runsRepo.markFinished(previousRun.id, userId, 'completed');
     await tx
       .update(schema.runs)
@@ -170,6 +174,7 @@ describeIfDb('a Regenerate Run', () => {
   ): Promise<Message> {
     const { options } = input;
     const salvaged = options?.replyOfThisRun === true;
+
     const reply = await new MessagesRepository(tx).createAssistantReplyIfAbsent(
       {
         chatId: input.chatId,
@@ -192,9 +197,11 @@ describeIfDb('a Regenerate Run', () => {
             },
       },
     );
+
     if (reply === undefined) {
       throw new Error('the seeded turn left no reply');
     }
+
     return reply;
   }
 
@@ -227,6 +234,7 @@ describeIfDb('a Regenerate Run', () => {
   ): Promise<RegeneratedTurn> {
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
+
     return tenantDb.runAs(userId, async (tx) => {
       const chatsRepo = new ChatsRepository(tx);
       const messagesRepo = new MessagesRepository(tx);
@@ -236,10 +244,13 @@ describeIfDb('a Regenerate Run', () => {
         ownerUserId: userId,
         title: 'Regenerate Run',
       });
+
       if (options?.previousReplyModelId !== undefined) {
         await seedEarlierTurn(tx, chatId, options.previousReplyModelId);
       }
+
       const sourceRunId = crypto.randomUUID();
+
       const trigger = await messagesRepo.create({
         id: messageId,
         chatId,
@@ -250,6 +261,7 @@ describeIfDb('a Regenerate Run', () => {
           ...(options?.storedItems?.(sourceRunId) ?? []),
         ],
       });
+
       const sourceRun = await runsRepo.create({
         id: sourceRunId,
         chatId,
@@ -257,11 +269,13 @@ describeIfDb('a Regenerate Run', () => {
         userId,
         modelId: options?.previousReplyModelId ?? MODEL_A,
       });
+
       await tx
         .update(schema.runs)
         .set({ turnToolAvailability: [] })
         .where(eq(schema.runs.id, sourceRun.id));
       await runsRepo.markFinished(sourceRun.id, userId, 'completed');
+
       const { run } = await createRunForMessage(
         tx,
         {
@@ -280,6 +294,7 @@ describeIfDb('a Regenerate Run', () => {
         },
         trigger,
       );
+
       if (options?.dispatched === true) {
         // A retry: this Run's first dispatch already recorded its availability
         // and stored its items.
@@ -291,6 +306,7 @@ describeIfDb('a Regenerate Run', () => {
           attemptId: crypto.randomUUID(),
         });
       }
+
       const reply = await seedReplacedReply(tx, {
         chatId,
         messageId,
@@ -298,6 +314,7 @@ describeIfDb('a Regenerate Run', () => {
         sourceRunId: sourceRun.id,
         options,
       });
+
       return {
         chatId,
         messageId,
@@ -326,6 +343,7 @@ describeIfDb('a Regenerate Run', () => {
       client,
       followUpAction: 'regenerate',
     });
+
     await (result.consumeStream?.() ?? result.text);
   }
 
@@ -351,6 +369,7 @@ describeIfDb('a Regenerate Run', () => {
         userId,
         turn.messageId,
       );
+
       return turnState.userMessage?.parts ?? [];
     });
 
@@ -373,6 +392,7 @@ describeIfDb('a Regenerate Run', () => {
         },
       ],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -483,6 +503,7 @@ describeIfDb('a Regenerate Run', () => {
         }),
       ],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -504,10 +525,12 @@ describeIfDb('a Regenerate Run', () => {
     expect(notice?.data.text).toContain(
       'An earlier attempt at this turn was discarded',
     );
+
     // The model reads it inside the triggering user message.
     const trigger = (requests[0]?.messages ?? []).filter(
       ({ role }) => role === 'user',
     );
+
     expect(JSON.stringify(trigger)).toContain(
       'An earlier attempt at this turn was discarded',
     );
@@ -529,6 +552,7 @@ describeIfDb('a Regenerate Run', () => {
     const switches = (await contextItemsOf(turn)).filter(
       ({ data }) => data.producer === 'effective-context-change',
     );
+
     expect(switches).toHaveLength(1);
     expect(switches[0]?.data.payload).toMatchObject({
       cause: 'model',
@@ -544,6 +568,7 @@ describeIfDb('a Regenerate Run', () => {
       modelId: MODEL_A,
       storedItems: (sourceRunId) => [storedSwitchItem(sourceRunId)],
     });
+
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(
@@ -580,6 +605,7 @@ describeIfDb('a Regenerate Run', () => {
     const switches = (await contextItemsOf(turn)).filter(
       ({ data }) => data.producer === 'effective-context-change',
     );
+
     // The stored A-to-B item stays: only a first dispatch compares again.
     expect(switches).toHaveLength(1);
     expect(switches[0]?.data.payload).toMatchObject({

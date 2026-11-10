@@ -71,6 +71,7 @@ export function localAuthority(
       message: 'Native host authority is unavailable.',
     };
   }
+
   return {
     runId: context.runId,
     toolCallId: context.toolCallId,
@@ -94,6 +95,7 @@ export function machineAuthority(
       message: 'This Run cannot bind a Workspace.',
     };
   }
+
   return {
     runId: context.runId,
     toolCallId: context.toolCallId,
@@ -120,7 +122,9 @@ export function requireSubmittedPermission(
       args: { path: submittedPath },
     }),
   );
+
   if (decision === undefined) return permissionDeniedResult('no_allow');
+
   return decision.decision === 'reject'
     ? permissionDeniedResult(decision.reason)
     : undefined;
@@ -142,8 +146,10 @@ export function requireDerivedPermission(
       args: { path: projectNativeFilePath(address) },
     }),
   );
+
   if (decision === undefined) return permissionDeniedResult('no_allow');
   context.onDerivedDecision?.({ kind, url: address, decision });
+
   return decision.decision === 'reject'
     ? permissionDeniedResult(decision.reason)
     : undefined;
@@ -181,6 +187,7 @@ function workspaceSkillResult(
 
   const sources = workspaceSkillSources(root);
   const snapshot = catalog.getSnapshot(sources);
+
   if (!snapshot.available) return { skills: [], skillsOmitted: 0 };
 
   const workspaceEntries = snapshot.entries.filter(
@@ -191,7 +198,9 @@ function workspaceSkillResult(
       entry.sourceDirectory !== null &&
       sources.includes(entry.sourceDirectory),
   );
+
   const bounded = boundSkillCatalog(workspaceEntries);
+
   return {
     skills: bounded.entries,
     skillsOmitted: bounded.omitted,
@@ -231,7 +240,9 @@ async function readOnlyWorkspaceMcpServers(
   key: WorkspaceMcpKey,
 ): Promise<WorkspaceMcpEntryState['servers']> {
   const cell = context.workspaceMcpListing;
+
   if (cell === undefined) return clients.listUnstarted(key);
+
   return clients.listUnstartedOnce(cell, key);
 }
 
@@ -242,22 +253,29 @@ async function workspaceMcpServers(
   start: boolean,
 ): Promise<WorkspaceMcpEntryState['servers']> {
   const clients = context.workspaceMcp;
+
   if (clients === undefined) return [];
+
   const key: WorkspaceMcpKey = {
     chatId: context.chatId,
     root,
     generation,
   };
+
   // A `read-only` attempt starts no client, holds none, and adds no Workspace
   // declaration: it reports the attempt's own listing instead.
   if (context.permissionMode === 'read-only') {
     return readOnlyWorkspaceMcpServers(context, clients, key);
   }
+
   const state = start
     ? await clients.startForChat(key)
     : clients.stateForKey(key);
+
   if (start) clients.transferAttempt(context.chatId, key);
+
   if (state === undefined) return [];
+
   if (!start) {
     return state.servers.map((server) =>
       context.toolAdditions?.hasWorkspaceDeclaration(server.id) &&
@@ -266,8 +284,10 @@ async function workspaceMcpServers(
         : server,
     );
   }
+
   if (context.toolAdditions === undefined) return state.servers;
   const added = await clients.addToAttempt(key, context.toolAdditions);
+
   return added.servers;
 }
 
@@ -290,8 +310,10 @@ export async function bindCanonicalRoot(
       }),
     }),
   );
+
   if (result.status === 'fence_lost') return executorUnavailable();
   await applyBindingTransition(context, canonical, result.status);
+
   return boundResult(context, authority, {
     root: canonical,
     state: result.status,
@@ -320,6 +342,7 @@ export async function boundResult(
     binding.generation,
     binding.state !== 'unchanged',
   );
+
   return {
     status: 'success',
     root: binding.root,
@@ -345,6 +368,7 @@ export async function applyBindingTransition(
     context.toolAdditions?.disableAll();
     await context.workspaceMcp?.stopForChat(context.chatId);
   }
+
   if (state !== 'unchanged') {
     context.workspaceRoot?.commit(canonical);
   }

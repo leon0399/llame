@@ -198,6 +198,7 @@ describe('composeProviderOptions', () => {
     const composed = composeProviderOptions({
       operator: { ['__proto__']: { polluted: true } },
     });
+
     if (composed === undefined) {
       throw new Error('expected the __proto__ option to compose');
     }
@@ -209,10 +210,12 @@ describe('composeProviderOptions', () => {
 
   it('never mutates an input record', () => {
     const defaults = { openai: { reasoningSummary: 'auto' } };
+
     const operator = {
       openai: { reasoningEffort: 'high' },
       model: 'other-model',
     };
+
     const effort = { openai: { reasoningEffort: 'xhigh' } };
     const invariants = { openai: { reasoningSummary: 'auto' } };
     const before = structuredClone({ defaults, operator, effort, invariants });

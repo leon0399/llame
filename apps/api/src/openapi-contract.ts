@@ -17,13 +17,17 @@ function operations(document: OpenAPIObject): Array<OperationObject> {
 function collectRefs(value: unknown, names: Set<string>): void {
   if (Array.isArray(value)) {
     for (const entry of value) collectRefs(entry, names);
+
     return;
   }
+
   if (!isRecord(value)) return;
   const ref = value.$ref;
+
   if (isString(ref) && ref.startsWith(SCHEMA_PREFIX)) {
     names.add(ref.slice(SCHEMA_PREFIX.length));
   }
+
   for (const entry of Object.values(value)) collectRefs(entry, names);
 }
 
@@ -31,6 +35,7 @@ function collectRefs(value: unknown, names: Set<string>): void {
  *  iteration also visits the names added while it runs. */
 function reachableSchemas(document: OpenAPIObject, names: Set<string>): void {
   const schemas = document.components?.schemas ?? {};
+
   for (const name of names) collectRefs(schemas[name], names);
 }
 
@@ -38,6 +43,7 @@ function reachableSchemas(document: OpenAPIObject, names: Set<string>): void {
  *  others. */
 function closeObject(schema: unknown): void {
   if (!isRecord(schema)) return;
+
   if (isRecord(schema.properties) && !('additionalProperties' in schema)) {
     Object.assign(schema, { additionalProperties: false });
   }
@@ -52,16 +58,21 @@ function closeObject(schema: unknown): void {
  */
 function closeRequestBodies(document: OpenAPIObject): void {
   const names = new Set<string>();
+
   for (const operation of operations(document)) {
     const body = operation.requestBody;
+
     if (body === undefined || '$ref' in body) continue;
+
     for (const media of Object.values(body.content)) {
       collectRefs(media.schema, names);
       closeObject(media.schema);
     }
   }
+
   reachableSchemas(document, names);
   const schemas = document.components?.schemas ?? {};
+
   for (const name of names) closeObject(schemas[name]);
 }
 
@@ -70,11 +81,14 @@ function closeRequestBodies(document: OpenAPIObject): void {
 function acceptsEmpty(document: OpenAPIObject, schema: unknown): boolean {
   if (!isRecord(schema)) return false;
   const ref = schema.$ref;
+
   const resolved =
     isString(ref) && ref.startsWith(SCHEMA_PREFIX)
       ? document.components?.schemas?.[ref.slice(SCHEMA_PREFIX.length)]
       : schema;
+
   if (!isRecord(resolved) || !isRecord(resolved.properties)) return false;
+
   return !Array.isArray(resolved.required) || resolved.required.length === 0;
 }
 
@@ -85,8 +99,10 @@ function acceptsEmpty(document: OpenAPIObject, schema: unknown): boolean {
 function markOptionalBodies(document: OpenAPIObject): void {
   for (const operation of operations(document)) {
     const body = operation.requestBody;
+
     if (body === undefined || '$ref' in body) continue;
     const json = body.content['application/json'];
+
     if (json !== undefined && acceptsEmpty(document, json.schema)) {
       body.required = false;
     }
@@ -104,6 +120,7 @@ function documentFrameworkRefusals(document: OpenAPIObject): void {
     operation.responses['400'] ??= {
       description: 'The request failed validation.',
     };
+
     if (operation.requestBody !== undefined) {
       operation.responses['413'] ??= {
         description: 'The request body is larger than the server accepts.',
@@ -118,5 +135,6 @@ export function completeContract(document: OpenAPIObject): OpenAPIObject {
   closeRequestBodies(document);
   markOptionalBodies(document);
   documentFrameworkRefusals(document);
+
   return document;
 }

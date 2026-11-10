@@ -86,6 +86,7 @@ function InputGroupAddon({
         if ((e.target as HTMLElement).closest("button")) {
           return;
         }
+
         // FORK (upstream focuses `input` only): a block addon on a group whose
         // control is an InputGroupTextarea would otherwise swallow the click
         // and focus nothing. Both controls carry this slot.

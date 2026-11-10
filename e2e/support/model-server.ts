@@ -48,6 +48,7 @@ const ANSWER_TOKENS = [
   " server",
   ".",
 ];
+
 const SLOW_TOKEN_DELAY_MS = 500;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -89,6 +90,7 @@ function chunk(
       },
     ],
   };
+
   if (finish && reportsUsage) {
     body.usage = {
       prompt_tokens: 10,
@@ -96,6 +98,7 @@ function chunk(
       total_tokens: 10 + ANSWER_TOKENS.length,
     };
   }
+
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
@@ -116,11 +119,13 @@ const TOOL_ANSWER_TOKENS = [
 // (the Chat Completions wire's `image_url` content) gets an answer naming how
 // many images arrived, so a test proves the attachment reached the model.
 const IMAGE_CONTENT_PART_RE = /"type":"image_url"/gu;
+
 // Only a native PDF file part carries this field, not a textual metadata notice.
 const PDF_CONTENT_PART_RE = /"file_data":"data:application\/pdf;base64,/gu;
 
 const CONVERSATION_PROMPT_MARKER = "episodic provenance e2e";
 const CONVERSATION_SEARCH_QUERY = "E2E_EPISODIC_SOURCE_MARKER";
+
 const CONVERSATION_ANSWER_TOKENS = [
   "I",
   " read",
@@ -135,15 +140,18 @@ const MCP_TOOL_ID = "mcp__fixture_search__search";
 const STDIO_TOOL_ID = "mcp__fixture_local__lookup";
 const BASH_TOOL_ID = "bash";
 const KNOWLEDGE_SEARCH_TOOL_ID = "knowledge_search";
+
 // The code-owned native file tool; Knowledge reads select it via a `kb://`
 // locator in its `path` argument -- there is no separate Knowledge-only tool.
 const NATIVE_READ_TOOL_ID = "read";
 const BASH_PROMPT_MARKER = "host bash output fidelity e2e";
 const BASH_OUTPUT_PATH = "/tmp/llame-e2e-bash-output";
+
 // Permission-gate acceptance: a rejected Bash call, then an allowed read.
 const PERMISSION_PROMPT_MARKER = "permission rejection e2e";
 const PERMISSION_DENIED_COMMAND = "e2e-permission-denied";
 const PERMISSION_READ_PATH = "/etc/hostname";
+
 const PERMISSION_ANSWER_TOKENS = [
   "Blocked",
   " bash",
@@ -153,8 +161,10 @@ const PERMISSION_ANSWER_TOKENS = [
   " read",
   " continued.",
 ];
+
 const STDIO_PROMPT_MARKER = "local stdio fixture evidence";
 const STDIO_RESULT_SENTINEL = "FIXTURE_STDIO_SENTINEL";
+
 const STDIO_ANSWER_TOKENS = [
   "Local",
   " stdio",
@@ -165,8 +175,10 @@ const STDIO_ANSWER_TOKENS = [
   " lookup",
   " succeeded.",
 ];
+
 const MCP_PROMPT_MARKER = "current deterministic operator MCP fixture evidence";
 const MCP_RESULT_SENTINEL = "FIXTURE_EVIDENCE_SENTINEL";
+
 const MCP_ANSWER_TOKENS = [
   "Current",
   " fixture",
@@ -179,11 +191,13 @@ const MCP_ANSWER_TOKENS = [
   " [Fixture source]",
   "(https://fixture.invalid/operator-mcp/current)",
 ];
+
 const KNOWLEDGE_PROMPT_MARKER = "knowledge fixture";
 const KNOWLEDGE_CHANGED_MARKER = "knowledge changed fixture";
 const KNOWLEDGE_LONG_PATH = "notes/long-note.md";
 const KNOWLEDGE_PAGED_QUERY = "KNOWLEDGE_E2E_PAGED";
 const KNOWLEDGE_PAGED_MARKER = "paged literal passages";
+
 const KNOWLEDGE_ERROR_ANSWER_TOKENS = [
   "I",
   " could",
@@ -202,6 +216,7 @@ const KNOWLEDGE_ERROR_ANSWER_TOKENS = [
 // text) so it cannot gain or lose a tool call to either.
 const KNOWLEDGE_LOCATOR_PROMPT_MARKER = "knowledge locator passthrough e2e";
 const KNOWLEDGE_LOCATOR_QUERY = "KNOWLEDGE_LOCATOR_E2E_MARKER";
+
 const KNOWLEDGE_LOCATOR_ANSWER_TOKENS = [
   "I",
   " read",
@@ -256,6 +271,7 @@ function isJsonObject(value: JsonValue): value is JsonObject {
 
 function parseJsonValue(value: JsonValue): JsonValue {
   if (!isJsonString(value)) return value;
+
   try {
     // SAFETY: valid JSON text can only ever parse to the string / number /
     // boolean / null / array / object shapes JsonValue enumerates, or throw
@@ -274,6 +290,7 @@ function toolIsOffered(
     tools?.some((candidate) => {
       if (!isJsonObject(candidate)) return false;
       const fn = candidate.function;
+
       return isJsonObject(fn) && fn.name === id;
     }) ?? false
   );
@@ -311,6 +328,7 @@ function toolCallChunk(input: {
       },
     ],
   };
+
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
@@ -322,6 +340,7 @@ function toolFinishChunk(): string {
     model: "e2e-mock",
     choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
   };
+
   return `data: ${JSON.stringify(body)}\n\n`;
 }
 
@@ -338,20 +357,27 @@ function findStringProperty(value: JsonValue, key: string): string | undefined {
   if (isJsonString(value)) {
     return findStringProperty(parseJsonValue(value), key);
   }
+
   if (Array.isArray(value)) {
     for (const item of value.toReversed()) {
       const found = findStringProperty(item, key);
+
       if (found !== undefined) return found;
     }
+
     return undefined;
   }
+
   if (!isJsonObject(value)) return undefined;
 
   if (isJsonString(value[key])) return value[key];
+
   for (const item of Object.values(value).toReversed()) {
     const found = findStringProperty(item, key);
+
     if (found !== undefined) return found;
   }
+
   return undefined;
 }
 
@@ -359,41 +385,55 @@ function findNumberProperty(value: JsonValue, key: string): number | undefined {
   if (isJsonString(value)) {
     return findNumberProperty(parseJsonValue(value), key);
   }
+
   if (Array.isArray(value)) {
     for (const item of value.toReversed()) {
       const found = findNumberProperty(item, key);
+
       if (found !== undefined) return found;
     }
+
     return undefined;
   }
+
   if (!isJsonObject(value)) return undefined;
 
   if (isJsonNumber(value[key])) return value[key];
+
   for (const item of Object.values(value).toReversed()) {
     const found = findNumberProperty(item, key);
+
     if (found !== undefined) return found;
   }
+
   return undefined;
 }
 
 function findSearchResult(value: JsonValue): JsonObject | undefined {
   const parsed = parseJsonValue(value);
+
   if (Array.isArray(parsed)) {
     for (const item of parsed.toReversed()) {
       const found = findSearchResult(item);
+
       if (found !== undefined) return found;
     }
+
     return undefined;
   }
+
   if (!isJsonObject(parsed)) return undefined;
 
   if (parsed.status === "success" && Array.isArray(parsed.results)) {
     return parsed;
   }
+
   for (const item of Object.values(parsed).toReversed()) {
     const found = findSearchResult(item);
+
     if (found !== undefined) return found;
   }
+
   return undefined;
 }
 
@@ -401,13 +441,17 @@ function findCanonicalCoordinates(
   value: JsonValue,
 ): ConversationCoordinates | undefined {
   const parsed = parseJsonValue(value);
+
   if (Array.isArray(parsed)) {
     for (const item of parsed.toReversed()) {
       const found = findCanonicalCoordinates(item);
+
       if (found !== undefined) return found;
     }
+
     return undefined;
   }
+
   if (!isJsonObject(parsed)) return undefined;
 
   if (
@@ -424,10 +468,13 @@ function findCanonicalCoordinates(
       limit: parsed.limit,
     };
   }
+
   for (const item of Object.values(parsed).toReversed()) {
     const found = findCanonicalCoordinates(item);
+
     if (found !== undefined) return found;
   }
+
   return undefined;
 }
 
@@ -435,6 +482,7 @@ function findCanonicalCoordinates(
  *  `locator:range` (or an empty or skipped-line form). */
 const READ_HEADER_RE =
   /^(\S+?):(?:raw:|outline:)?(?:\d| empty| line \d+ exceeds)/u;
+
 /** A cut read ends with one bracketed continuation line naming the locator
  *  and the one-based line the next read resumes at. */
 const READ_CONTINUATION_RE =
@@ -449,50 +497,66 @@ function readCallResults(
   messages: ReadonlyArray<ChatMessage>,
 ): Array<JsonValue> {
   const readCallIds = new Set<string>();
+
   for (const message of messages) {
     // SAFETY: a chat message is a JSON record; a turn without calls has no
     // `tool_calls` member, which the array check rejects.
     const calls = (message as { tool_calls?: unknown }).tool_calls;
+
     if (!Array.isArray(calls)) continue;
+
     for (const call of calls) {
       if (!isJsonObject(call)) continue;
       const id = call["id"];
       const fn = call["function"];
+
       if (isJsonString(id) && isJsonObject(fn) && fn["name"] === "read") {
         readCallIds.add(id);
       }
     }
   }
+
   const contents: Array<JsonValue> = [];
+
   for (const message of messages) {
     if (message.role !== "tool") continue;
     // SAFETY: a tool message is a JSON record; a result without a call id has
     // no `tool_call_id` member, which the string check rejects.
     const callId = (message as { tool_call_id?: unknown }).tool_call_id;
+
     if (isJsonString(callId) && readCallIds.has(callId)) {
       contents.push(message.content);
     }
   }
+
   return contents;
 }
 
 function findReadTextLocator(value: JsonValue): string | undefined {
   if (isJsonString(value)) {
     const [header] = value.split("\n");
+
     return header === undefined ? undefined : READ_HEADER_RE.exec(header)?.[1];
   }
+
   if (Array.isArray(value)) {
     for (const item of value.toReversed()) {
       const found = findReadTextLocator(item);
+
       if (found !== undefined) return found;
     }
+
     return undefined;
   }
+
   if (!isJsonObject(value)) return undefined;
+
   for (const item of Object.values(value).toReversed()) {
     const found = findReadTextLocator(item);
+
     if (found !== undefined) return found;
   }
+
   return undefined;
 }
 
@@ -505,35 +569,46 @@ function findReadContinuation(
     const match = READ_CONTINUATION_RE.exec(value);
     const locator = match?.[1];
     const start = match?.[2];
+
     return locator === undefined || start === undefined
       ? undefined
       : { locator, start: Number(start) };
   }
+
   if (Array.isArray(value)) {
     for (const item of value.toReversed()) {
       const found = findReadContinuation(item);
+
       if (found !== undefined) return found;
     }
+
     return undefined;
   }
+
   if (!isJsonObject(value)) return undefined;
+
   for (const item of Object.values(value).toReversed()) {
     const found = findReadContinuation(item);
+
     if (found !== undefined) return found;
   }
+
   return undefined;
 }
 
 function findConversationReadResult(value: JsonValue): boolean {
   const parsed = parseJsonValue(value);
+
   if (Array.isArray(parsed)) {
     return parsed.some(findConversationReadResult);
   }
+
   if (!isJsonObject(parsed)) return false;
 
   if (parsed.status === "success" && isJsonString(parsed.content)) {
     return true;
   }
+
   return Object.values(parsed).some(findConversationReadResult);
 }
 
@@ -553,6 +628,7 @@ function classifyKnowledgeRequest(content: string) {
     "missing",
     "unavailable",
   ];
+
   // Ordered: the first matching scenario names the fixture file to read.
   // The three line-ending/listing markers are mutually disjoint substrings
   // (none contains another), so order among them doesn't matter.
@@ -605,40 +681,50 @@ function classify(raw: string) {
       stream?: boolean;
       stream_options?: { include_usage?: boolean };
     };
+
     const messages = body.messages ?? [];
     const hasTools = Array.isArray(body.tools) && body.tools.length > 0;
     const hasToolResult = messages.some((m) => m.role === "tool");
     const lastUserIndex = messages.findLastIndex((m) => m.role === "user");
     const lastUser = lastUserIndex >= 0 ? messages[lastUserIndex] : undefined;
+
     const content = isJsonString(lastUser?.content)
       ? lastUser.content
       : JSON.stringify(lastUser?.content ?? "");
+
     const currentTurnToolResultCount =
       lastUserIndex < 0
         ? 0
         : messages
             .slice(lastUserIndex + 1)
             .filter((message) => message.role === "tool").length;
+
     const currentTurnMessages =
       lastUserIndex < 0 ? [] : messages.slice(lastUserIndex + 1);
+
     const hasCurrentTurnToolResult = currentTurnToolResultCount > 0;
+
     const latestToolContent = messages.findLast(
       (m) => m.role === "tool",
     )?.content;
+
     // Only a `read` call's result is a read text: a knowledge_search result
     // carries `kb://` locator strings whose one-line reading would otherwise
     // look like a read header.
     const readResults = readCallResults(currentTurnMessages);
     const readTextLocator = findReadTextLocator(readResults);
     const readContinuation = findReadContinuation(readResults);
+
     const knowledgeResultPath =
       findStringProperty(
         messages.slice(lastUserIndex + 1).findLast((m) => m.role === "tool")
           ?.content,
         "path",
       ) ?? readTextLocator;
+
     const knowledge = classifyKnowledgeRequest(content);
     const knowledgeLocatorSearchResult = findSearchResult(currentTurnMessages);
+
     return {
       hasTools,
       hasToolResult,
@@ -767,6 +853,7 @@ function writeAnswer(ctx: ChunkContext, tokens: ReadonlyArray<string>): void {
   for (const token of tokens) {
     ctx.res.write(chunk(token, false));
   }
+
   ctx.res.write(chunk(undefined, true, ctx.reportsUsage));
   ctx.res.write("data: [DONE]\n\n");
   ctx.res.end();
@@ -785,11 +872,13 @@ function tryConversationSearchTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_conversation_search_e2e",
     name: "search_conversations",
     arguments: { mode: "content", query: CONVERSATION_SEARCH_QUERY, limit: 5 },
   });
+
   return true;
 }
 
@@ -802,18 +891,22 @@ function tryConversationReadTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   const coordinates = findCanonicalCoordinates(ctx.raw);
+
   if (coordinates === undefined) return false;
   writeToolCall(ctx.res, {
     id: "call_conversation_read_e2e",
     name: "conversation_read",
     arguments: coordinates,
   });
+
   return true;
 }
 
 function tryConversationReadContinuationOrAnswer(ctx: ChunkContext): boolean {
   if (!ctx.asksConversationRecall || !ctx.hasConversationTools) return false;
+
   if (!ctx.hasConversationReadResult) return false;
 
   if (
@@ -821,16 +914,20 @@ function tryConversationReadContinuationOrAnswer(ctx: ChunkContext): boolean {
     ctx.currentTurnToolResultCount === 2
   ) {
     const coordinates = findCanonicalCoordinates(ctx.raw);
+
     if (coordinates !== undefined) {
       writeToolCall(ctx.res, {
         id: "call_conversation_read_continue_e2e",
         name: "conversation_read",
         arguments: { ...coordinates, offset: ctx.conversationNextOffset },
       });
+
       return true;
     }
   }
+
   writeAnswer(ctx, CONVERSATION_ANSWER_TOKENS);
+
   return true;
 }
 
@@ -847,11 +944,13 @@ function tryKnowledgeLocatorSearchTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_knowledge_locator_search_e2e",
     name: KNOWLEDGE_SEARCH_TOOL_ID,
     arguments: { query: KNOWLEDGE_LOCATOR_QUERY, limit: 1 },
   });
+
   return true;
 }
 
@@ -863,11 +962,13 @@ function tryKnowledgeLocatorReadTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_knowledge_locator_read_e2e",
     name: NATIVE_READ_TOOL_ID,
     arguments: { path: ctx.knowledgeLocatorFromSearch },
   });
+
   return true;
 }
 
@@ -878,7 +979,9 @@ function tryKnowledgeLocatorAnswerTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeAnswer(ctx, KNOWLEDGE_LOCATOR_ANSWER_TOKENS);
+
   return true;
 }
 
@@ -886,6 +989,7 @@ function tryKnowledgeLocatorAnswerTurn(ctx: ChunkContext): boolean {
 // carries any selector inside that one string.
 function knowledgeReadArguments(ctx: ChunkContext) {
   const explicitRange = ctx.lastUserContent.includes("explicit range");
+
   return {
     path: knowledgeLocator(
       ctx.knowledgeSpaceId,
@@ -900,9 +1004,11 @@ function knowledgeSearchArguments(ctx: ChunkContext) {
     (ctx.lastUserContent.includes("explicit") ||
       ctx.lastUserContent.includes(KNOWLEDGE_PAGED_MARKER)) &&
     ctx.knowledgeSpaceId !== undefined;
+
   const includeCursor =
     ctx.lastUserContent.includes("next page") &&
     ctx.knowledgeCursor !== undefined;
+
   return {
     query: ctx.lastUserContent.includes(KNOWLEDGE_PAGED_MARKER)
       ? KNOWLEDGE_PAGED_QUERY
@@ -923,6 +1029,7 @@ function tryKnowledgeFirstTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: ctx.readKnowledge
       ? `call_knowledge_note_read_${ctx.knowledgeReadPath.replaceAll(/[^a-z]/g, "_")}_e2e`
@@ -934,6 +1041,7 @@ function tryKnowledgeFirstTurn(ctx: ChunkContext): boolean {
       ? knowledgeReadArguments(ctx)
       : knowledgeSearchArguments(ctx),
   });
+
   return true;
 }
 
@@ -949,6 +1057,7 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
       (!ctx.readKnowledge &&
         ctx.lastUserContent.includes(KNOWLEDGE_PAGED_MARKER) &&
         ctx.knowledgeCursor !== undefined));
+
   if (!matches) return false;
 
   // A continuation carries no separate offset/limit arguments; it re-derives
@@ -975,6 +1084,7 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
           cursor: ctx.knowledgeCursor,
         },
   });
+
   return true;
 }
 
@@ -986,6 +1096,7 @@ function tryKnowledgeCompletionAnswer(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   const tokens =
     ctx.knowledgeOperation === "error"
       ? KNOWLEDGE_ERROR_ANSWER_TOKENS
@@ -1000,7 +1111,9 @@ function tryKnowledgeCompletionAnswer(ctx: ChunkContext): boolean {
           ` ${ctx.knowledgeResultPath ?? "[missing Knowledge result path]"}`,
           ".",
         ];
+
   writeAnswer(ctx, tokens);
+
   return true;
 }
 
@@ -1015,11 +1128,13 @@ function tryMcpFixtureFirstTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_mcp_search_e2e",
     name: MCP_TOOL_ID,
     arguments: { query: "current operator MCP fixture evidence" },
   });
+
   return true;
 }
 
@@ -1032,6 +1147,7 @@ function tryStdioFixtureFirstTurn(ctx: ChunkContext): boolean {
     name: STDIO_TOOL_ID,
     arguments: { query: "local stdio fixture evidence" },
   });
+
   return true;
 }
 
@@ -1041,6 +1157,7 @@ function tryBashFirstTurn(ctx: ChunkContext): boolean {
   if (!ctx.asksBash || !ctx.hasBashTool || ctx.hasCurrentTurnToolResult) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_bash_output_fidelity_e2e",
     name: BASH_TOOL_ID,
@@ -1048,18 +1165,21 @@ function tryBashFirstTurn(ctx: ChunkContext): boolean {
       command: `printf '%s\\n' '${BASH_OUTPUT_PATH}'; exit 7`,
     },
   });
+
   return true;
 }
 
 function tryStdioFixtureResultAnswer(ctx: ChunkContext): boolean {
   if (!ctx.hasStdioFixtureResult) return false;
   writeAnswer(ctx, STDIO_ANSWER_TOKENS);
+
   return true;
 }
 
 function tryMcpFixtureResultAnswer(ctx: ChunkContext): boolean {
   if (!ctx.hasMcpFixtureResult) return false;
   writeAnswer(ctx, MCP_ANSWER_TOKENS);
+
   return true;
 }
 
@@ -1076,11 +1196,13 @@ function tryPermissionBashTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_permission_denied_bash_e2e",
     name: BASH_TOOL_ID,
     arguments: { command: PERMISSION_DENIED_COMMAND },
   });
+
   return true;
 }
 
@@ -1093,17 +1215,20 @@ function tryPermissionReadTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_permission_allowed_read_e2e",
     name: NATIVE_READ_TOOL_ID,
     arguments: { path: PERMISSION_READ_PATH },
   });
+
   return true;
 }
 
 function tryPermissionAnswerTurn(ctx: ChunkContext): boolean {
   if (!ctx.asksPermissionFlow || !ctx.hasPermissionReadResult) return false;
   writeAnswer(ctx, PERMISSION_ANSWER_TOKENS);
+
   return true;
 }
 
@@ -1119,11 +1244,13 @@ function tryNativeToolLoopFirstTurn(ctx: ChunkContext): boolean {
   ) {
     return false;
   }
+
   writeToolCall(ctx.res, {
     id: "call_search_e2e",
     name: "search_conversations",
     arguments: { mode: "content", query: "budget" },
   });
+
   return true;
 }
 
@@ -1132,12 +1259,14 @@ function tryVisionTurn(ctx: ChunkContext): boolean {
   if (ctx.lastUserImageCount === 0 || ctx.hasCurrentTurnToolResult) {
     return false;
   }
+
   const count = ctx.lastUserImageCount;
   writeAnswer(ctx, [
     "Vision fixture saw ",
     `${count} attached `,
     count === 1 ? "image." : "images.",
   ]);
+
   return true;
 }
 
@@ -1150,6 +1279,7 @@ function tryPdfTurn(ctx: ChunkContext): boolean {
     `${count} attached `,
     count === 1 ? "PDF." : "PDFs.",
   ]);
+
   return true;
 }
 
@@ -1159,15 +1289,19 @@ async function writeDefaultAnswer(ctx: ChunkContext): Promise<void> {
   // A disconnected peer mid-drip must not crash the mock (an unhandled
   // stream error would take down every later test's model backend).
   ctx.res.on("error", () => {});
+
   for (const token of tokens) {
     if (ctx.res.destroyed) {
       return;
     }
+
     ctx.res.write(chunk(token, false));
+
     if (slow) {
       await sleep(SLOW_TOKEN_DELAY_MS);
     }
   }
+
   ctx.res.write(chunk(undefined, true, ctx.reportsUsage));
   ctx.res.write("data: [DONE]\n\n");
   ctx.res.end();
@@ -1189,6 +1323,7 @@ const HOLD_TOKEN_RE = /HOLD:([A-Za-z0-9_-]+)/;
 
 function getOrCreateHold(token: string): HoldState {
   let state = holds.get(token);
+
   if (!state) {
     state = {
       arrived: false,
@@ -1198,12 +1333,14 @@ function getOrCreateHold(token: string): HoldState {
     };
     holds.set(token, state);
   }
+
   return state;
 }
 
 function releaseHold(token: string): void {
   const state = getOrCreateHold(token);
   state.released = true;
+
   for (const wake of state.waiters.values()) wake();
   state.waiters.clear();
 }
@@ -1216,6 +1353,7 @@ function buildChunkContext(
   const readKnowledge =
     classification.knowledgeOperation === "read" ||
     classification.knowledgeOperation === "error";
+
   return {
     ...classification,
     res,
@@ -1291,10 +1429,14 @@ const failedAfterToolPrompts = new Set<string>();
  */
 function shouldFailAfterTool(classification: ReturnType<typeof classify>) {
   const prompt = classification.lastUserContent;
+
   if (!prompt.includes(FAIL_AFTER_TOOL_MARKER)) return false;
+
   if (!classification.hasToolResult) return false;
+
   if (failedAfterToolPrompts.has(prompt)) return false;
   failedAfterToolPrompts.add(prompt);
+
   return true;
 }
 
@@ -1313,14 +1455,18 @@ async function respondToChatCompletion(
   raw: string,
 ): Promise<void> {
   const classification = classify(raw);
+
   if (shouldFailAfterTool(classification)) {
     writeModelFailure(res);
+
     return;
   }
 
   const holdToken = HOLD_TOKEN_RE.exec(classification.lastUserContent)?.[1];
+
   if (holdToken !== undefined) {
     await respondHeld(res, raw, classification, holdToken);
+
     return;
   }
 
@@ -1329,29 +1475,43 @@ async function respondToChatCompletion(
   writeSseHead(res);
 
   if (tryConversationSearchTurn(ctx)) return;
+
   if (tryConversationReadTurn(ctx)) return;
+
   if (tryConversationReadContinuationOrAnswer(ctx)) return;
 
   if (tryKnowledgeLocatorSearchTurn(ctx)) return;
+
   if (tryKnowledgeLocatorReadTurn(ctx)) return;
+
   if (tryKnowledgeLocatorAnswerTurn(ctx)) return;
 
   if (tryKnowledgeFirstTurn(ctx)) return;
+
   if (tryKnowledgeContinuationTurn(ctx)) return;
+
   if (tryKnowledgeCompletionAnswer(ctx)) return;
 
   if (tryMcpFixtureFirstTurn(ctx)) return;
+
   if (tryBashFirstTurn(ctx)) return;
+
   if (tryStdioFixtureFirstTurn(ctx)) return;
+
   if (tryStdioFixtureResultAnswer(ctx)) return;
+
   if (tryMcpFixtureResultAnswer(ctx)) return;
 
   if (tryPermissionBashTurn(ctx)) return;
+
   if (tryPermissionReadTurn(ctx)) return;
+
   if (tryPermissionAnswerTurn(ctx)) return;
 
   if (tryNativeToolLoopFirstTurn(ctx)) return;
+
   if (tryVisionTurn(ctx)) return;
+
   if (tryPdfTurn(ctx)) return;
 
   await writeDefaultAnswer(ctx);
@@ -1370,18 +1530,22 @@ const E2E_GENERATED_TITLE = "E2E Generated Title";
  */
 function respondToStructuredTitle(res: ServerResponse, raw: string): boolean {
   let body: JsonValue;
+
   try {
     body = JSON.parse(raw);
   } catch {
     return false;
   }
+
   if (!isJsonObject(body)) return false;
   const toolChoice = body["tool_choice"];
   const forced = isJsonObject(toolChoice) ? toolChoice["function"] : undefined;
   const forcedName = isJsonObject(forced) ? forced["name"] : undefined;
+
   if (body["stream"] === true || forcedName !== "generate_title") {
     return false;
   }
+
   res.writeHead(200, { "content-type": "application/json" });
   res.end(
     JSON.stringify({
@@ -1412,23 +1576,30 @@ function respondToStructuredTitle(res: ServerResponse, raw: string): boolean {
       usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
     }),
   );
+
   return true;
 }
 
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/ready") {
     res.writeHead(200).end("ok");
+
     return;
   }
 
   const holdPath = req.url === undefined ? null : HOLD_CONTROL_RE.exec(req.url);
+
   if (holdPath !== null) {
     const token = holdPath[1];
+
     if (token === undefined) {
       res.writeHead(404).end();
+
       return;
     }
+
     const isRelease = holdPath[2] === "/release";
+
     if (req.method === "GET" && !isRelease) {
       const state = holds.get(token);
       res.writeHead(200, { "content-type": "application/json" });
@@ -1439,11 +1610,14 @@ const server = http.createServer((req, res) => {
           waiting: state?.waiters.size ?? 0,
         }),
       );
+
       return;
     }
+
     if (req.method === "POST" && isRelease) {
       releaseHold(token);
       res.writeHead(200).end("ok");
+
       return;
     }
   }
@@ -1457,6 +1631,7 @@ const server = http.createServer((req, res) => {
       if (respondToStructuredTitle(res, raw)) return;
       void respondToChatCompletion(res, raw);
     });
+
     return;
   }
 

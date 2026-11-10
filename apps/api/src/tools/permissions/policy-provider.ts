@@ -41,6 +41,7 @@ export async function buildToolPermissionPolicy(
   logger.log(
     `Tool permission policy ${policy.id} compiled (evaluator ${PERMISSION_EVALUATOR_VERSION}).`,
   );
+
   return policy;
 }
 
@@ -52,8 +53,10 @@ async function validateCodeOwnedFields(
   for (const [toolId, group] of Object.entries(permissions)) {
     if (toolId.startsWith('mcp__')) continue;
     const tool = TOOL_REGISTRY.get(toolId);
+
     if (tool === undefined) continue;
     const document = await resolveJsonSchema(tool.inputSchema);
+
     // `grep` evaluates once per scope with `scopes` replaced by one projected
     // prefix string, so the array-valued input is the one declared exception
     // (tool-call-permissions, "Grep scopes are admitted per scope").
@@ -61,6 +64,7 @@ async function validateCodeOwnedFields(
       toolId === 'grep'
         ? new Set([...declaredStringProperties(document), GREP_SCOPES_FIELD])
         : declaredStringProperties(document);
+
     assertMatcherFields(toolId, 'allow', group.allow, allowedFields);
     assertMatcherFields(toolId, 'reject', group.reject, allowedFields);
   }
@@ -75,6 +79,7 @@ function assertMatcherFields(
   if (matcher === undefined || matcher === true) return;
   matcher.forEach((clause, index) => {
     if (!('field' in clause)) return;
+
     if (!allowedFields.has(clause.field)) {
       throw new PermissionCompileError(
         `tools.permissions.${toolId}.${list}[${index}]`,

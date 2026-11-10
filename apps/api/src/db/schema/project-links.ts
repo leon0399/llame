@@ -192,6 +192,7 @@ export const projectRepositoryDefaults = pgTable(
 ).enableRLS();
 
 export type ProjectRepository = InferSelectModel<typeof projectRepositories>;
+
 export type ProjectRepositoryDefault = InferSelectModel<
   typeof projectRepositoryDefaults
 >;

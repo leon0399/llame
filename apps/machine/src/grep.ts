@@ -71,6 +71,7 @@ type GrepRequest = {
 function requestOf(params: SerializableValue): GrepRequest {
   const source = paramRecord(params, FS_GREP_METHOD);
   const bounds = requireRecord(source, "bounds", FS_GREP_METHOD);
+
   return {
     path: requireString(source, "path", FS_GREP_METHOD),
     globSuffix: optionalString(source, "globSuffix", FS_GREP_METHOD),
@@ -110,13 +111,16 @@ async function scopeOf(
   context: OperationContext,
 ): Promise<GrepScope> {
   const guarded = await context.guard.resolvePath(request.path);
+
   // The walk never starts at a link: a host grep treats one as an absent path,
   // and this Machine reports the same.
   if (guarded.isLink || guarded.kind === "missing")
     throw new GrepWalkFailure(failure("not_found", NOT_FOUND_MESSAGE));
+
   if (guarded.kind === "other")
     throw new GrepWalkFailure(failure("not_regular_file", NOT_REGULAR_FILE));
   const prefix = guarded.path;
+
   return {
     index: SCOPE_INDEX,
     locatorPrefix: prefix === "/" ? "/" : `${prefix}/`,
@@ -141,11 +145,14 @@ function passageOf(
   capped: ReadonlySet<string>,
 ): FsGrepPassage {
   const separator = passage.locator.lastIndexOf(":");
+
   const [startLine, endLine] = passage.locator
     .slice(separator + 1)
     .split("-")
     .map(Number);
+
   const path = passage.locator.slice(0, separator);
+
   return {
     path,
     startLine,
@@ -168,6 +175,7 @@ function resultOf(scan: GrepScanResult): FsGrepResult {
       (entry) => `${entry.rel}\u0000${String(entry.startLine)}`,
     ),
   );
+
   const result = {
     ok: true as const,
     results: scan.results.map((passage) => passageOf(passage, capped)),
@@ -183,6 +191,7 @@ function resultOf(scan: GrepScanResult): FsGrepResult {
       },
     }),
   };
+
   return scan.cursor === undefined
     ? result
     : { ...result, cursor: scan.cursor };
@@ -194,21 +203,25 @@ function compilePatterns(request: GrepRequest) {
     (pattern) =>
       Buffer.byteLength(pattern, "utf8") > GREP_LIMITS.maxPatternBytes,
   );
+
   if (oversized !== -1)
     throw invalidParams(
       FS_GREP_METHOD,
       `pattern ${String(oversized)} exceeds ${String(GREP_LIMITS.maxPatternBytes)} UTF-8 bytes`,
     );
+
   const compiled = compileGrepPatterns({
     patterns: request.patterns,
     literal: request.literal,
     ignoreCase: request.ignoreCase,
   });
+
   if (!compiled.ok)
     throw invalidParams(
       FS_GREP_METHOD,
       `pattern ${String(compiled.index)}: ${compiled.message}`,
     );
+
   return compiled.compiled;
 }
 
@@ -219,16 +232,19 @@ export async function grepOperation(
   const request = requestOf(params);
   const patterns = compilePatterns(request);
   const inputHash = fsGrepCursorKey(request);
+
   const cursor =
     request.cursor === undefined
       ? undefined
       : decodeGrepCursor(request.cursor, inputHash);
+
   if (cursor !== undefined && "error" in cursor)
     throw invalidParams(
       FS_GREP_METHOD,
       "the cursor does not belong to this request",
     );
   const scope = await scopeOf(request, context);
+
   try {
     return resultOf(
       await runGrepScan({

@@ -38,6 +38,7 @@ function unit(
 // Globex
 const acme = unit({ id: "org1", name: "Acme", type: "organization" });
 const globex = unit({ id: "org2", name: "Globex", type: "organization" });
+
 const teamA = unit({
   id: "teamA",
   name: "Team A",
@@ -62,6 +63,7 @@ function routeFetch() {
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
+
       if (key === "POST /api/v1/org-units") {
         return new Promise<Response>((resolve) => {
           releaseCreate = (
@@ -69,6 +71,7 @@ function routeFetch() {
           ) => resolve(response);
         });
       }
+
       if (key === "POST /api/v1/org-units/org1/children") {
         return Promise.resolve(
           jsonResponse(
@@ -81,13 +84,16 @@ function routeFetch() {
           ),
         );
       }
+
       if (key === "PATCH /api/v1/org-units/teamA") {
         return new Promise<Response>((resolve) => {
           releaseUpdate = () => resolve(jsonResponse(teamA));
         });
       }
+
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -99,6 +105,7 @@ async function openedDialog(name: string) {
   // The dialog portals into document.body, outside the story canvas.
   const dialog = await screen.findByRole("dialog", { name });
   await waitFor(() => expect(dialog).toBeVisible());
+
   return within(dialog);
 }
 
@@ -111,6 +118,7 @@ async function sentRequest(index = 0) {
 function sentRoutes() {
   return fetchMock.mock.calls.map(([input]) => {
     const request = input instanceof Request ? input : new Request(input);
+
     return `${request.method} ${new URL(request.url).pathname}`;
   });
 }
@@ -127,8 +135,11 @@ const meta = {
 } satisfies Meta<typeof CreateOrgUnitDialog>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
+
 type RenameStory = StoryObj<typeof RenameOrgUnitDialog>;
+
 type MoveStory = StoryObj<typeof MoveOrgUnitDialog>;
 
 /**
@@ -219,6 +230,7 @@ export const CreateCancel: Story = {
  */
 function NewOrganizationFromTree() {
   const [open, setOpen] = useState(false);
+
   return (
     <>
       <Button onClick={() => setOpen(true)}>New organization</Button>
@@ -232,6 +244,7 @@ async function openFromTree(canvasElement: HTMLElement) {
   await userEvent.click(
     within(canvasElement).getByRole("button", { name: "New organization" }),
   );
+
   return openedDialog("New organization");
 }
 
@@ -444,9 +457,11 @@ export const Move: MoveStory = {
   render: (args) => <MoveOrgUnitDialog {...args} />,
   play: async ({ args }) => {
     const dialog = await openedDialog("Move “Team A”");
+
     const makeRoot = dialog.getByRole("option", {
       name: "— Make root organization —",
     });
+
     const move = dialog.getByRole("button", { name: "Move" });
     await expect(dialog.getByRole("option", { name: "Acme" })).toHaveAttribute(
       "aria-selected",

@@ -36,6 +36,7 @@ import {
 export const answer = (text: string): ScriptedStep => [
   { type: 'text', id: 't', text },
 ];
+
 export const call = (
   toolCallId: string,
   toolName: string,
@@ -81,8 +82,10 @@ export function useSegmentsFixture(
   let booted:
     | { harness: WorkerHarness; userId: string; directory: string }
     | undefined;
+
   const state = () => {
     if (!booted) throw new Error(`The ${label} fixture is not booted.`);
+
     return booted;
   };
 
@@ -115,6 +118,7 @@ export function useSegmentsFixture(
     notifyRunId?: string,
   ): Promise<Array<string>> {
     const ids: Array<string> = [];
+
     for (const text of texts) {
       const id = randomUUID();
       await db(async (tx) => {
@@ -126,12 +130,14 @@ export function useSegmentsFixture(
           parts: [{ type: 'text', text }],
           settings: { modelId: 'ignored-by-steer', permissionMode: 'default' },
         });
+
         if (notifyRunId !== undefined) {
           await notifyRunControl(tx, { runId: notifyRunId, kind: 'interrupt' });
         }
       });
       ids.push(id);
     }
+
     return ids;
   }
 
@@ -156,6 +162,7 @@ export function useSegmentsFixture(
     waitFor(
       async () => {
         const found = await run(runId);
+
         return found && isTerminalRunStatus(found.status) ? found : undefined;
       },
       40_000,
@@ -193,12 +200,14 @@ export function useSegmentsFixture(
   /** A Chat, its first message, and its Run, on a model named for the scenario. */
   async function seed(text = 'first message'): Promise<SeededRun> {
     const modelId = `${label}-${randomUUID()}`;
+
     const seeded = await seedRun({
       tenantDb: state().harness.tenantDb,
       userId: state().userId,
       modelId,
       text,
     });
+
     return { ...seeded, modelId };
   }
 
@@ -221,6 +230,7 @@ export function useSegmentsFixture(
     });
     const promptsBefore = harness.models.prompts.length;
     await dispatchRun({ queue: harness.queue, ...seeded, userId });
+
     return {
       ...seeded,
       prompts: () =>

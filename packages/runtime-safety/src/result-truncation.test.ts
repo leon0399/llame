@@ -26,10 +26,13 @@ function isWellFormed(value: string): boolean {
 
 function stringLeaves(value: unknown): Array<string> {
   if (isString(value)) return [value];
+
   if (Array.isArray(value)) return value.flatMap(stringLeaves);
+
   if (isRecord(value)) {
     return Object.values(value).flatMap(stringLeaves);
   }
+
   return [];
 }
 
@@ -45,6 +48,7 @@ describe("truncateOversizedResult", () => {
       type: "execution_failed",
       message: "x".repeat(RESULT_TRUNCATE_CHARS * 2),
     };
+
     expect(truncateOversizedResult(result)).toBe(result);
   });
 
@@ -90,6 +94,7 @@ describe("truncateOversizedResult", () => {
       total: 3,
       truncated: true,
     });
+
     // The declared shape survives: `output.content[0]` is still an object with
     // its own `type`/`text`, not a fragment of the result's serialization.
     const output = z
@@ -99,6 +104,7 @@ describe("truncateOversizedResult", () => {
         }),
       })
       .parse(result).output;
+
     expect(output.content[0].type).toBe("text");
     expect(output.content[0].text.length).toBeLessThan(60_000);
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
@@ -112,9 +118,11 @@ describe("truncateOversizedResult", () => {
         status: "success",
         text: `${prefix}${"\u{1F600}".repeat(40_000)}`,
       });
+
       for (const leaf of stringLeaves(result)) {
         expect(isWellFormed(leaf)).toBe(true);
       }
+
       expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     }
   });
@@ -128,6 +136,7 @@ describe("truncateOversizedResult", () => {
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     const omitted = Number(/(\d+) characters omitted/u.exec(notice)?.[1]);
     expect(omitted).toBeGreaterThan(30_000);
     expect(notice).toMatch(/narrower arguments/u);
@@ -140,6 +149,7 @@ describe("truncateOversizedResult", () => {
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     const omitted = Number(/(\d+) characters omitted/u.exec(notice)?.[1]);
     const kept = z.object({ text: z.string() }).parse(result).text.length;
     expect(omitted).toBe(50_000 - kept);
@@ -159,6 +169,7 @@ describe("truncateOversizedResult", () => {
         results: z.array(z.object({ chatId: z.string(), title: z.string() })),
       })
       .parse(result).results;
+
     expect(Array.isArray(rows)).toBe(true);
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.length).toBeLessThan(5000);
@@ -178,9 +189,11 @@ describe("truncateOversizedResult", () => {
     const rows = z
       .object({ results: z.array(z.unknown()) })
       .parse(result).results;
+
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     expect(notice).toContain(`results kept ${rows.length} of 5000`);
   });
 
@@ -197,12 +210,14 @@ describe("truncateOversizedResult", () => {
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     expect(notice).toMatch(/output\.pages\[0\]\.lines kept \d+ of 4000/u);
   });
 
   it("names the biggest lists and summarizes the rest", () => {
     const list = (length: number): Array<string> =>
       Array.from({ length }, (_entry, index) => `value ${index}`);
+
     const result = truncateOversizedResult({
       status: "success",
       a: list(9000),
@@ -215,6 +230,7 @@ describe("truncateOversizedResult", () => {
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     // Ranked by how much each list lost, then the tail is counted, not named.
     expect(notice).toMatch(/Lists shortened: a kept \d+ of 9000; b kept/u);
     expect(notice).toContain("(and 2 more)");
@@ -231,6 +247,7 @@ describe("truncateOversizedResult", () => {
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     expect(notice).not.toContain("Lists shortened");
   });
 
@@ -253,6 +270,7 @@ describe("truncateOversizedResult", () => {
         }),
       })
       .parse(result).output;
+
     expect(output.fetchedAt).toBe("2026-08-11T00:00:00.000Z");
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
@@ -268,9 +286,11 @@ describe("truncateOversizedResult", () => {
     expect(Object.keys(result)).toEqual(
       expect.arrayContaining(["status", "query", "blob", "nextCursor"]),
     );
+
     const nextCursor = z
       .object({ nextCursor: z.string() })
       .parse(result).nextCursor;
+
     expect(nextCursor).toBe("cursor-1");
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
@@ -279,6 +299,7 @@ describe("truncateOversizedResult", () => {
     const rows = Object.fromEntries(
       Array.from({ length: 4000 }, (_entry, index) => [`key-${index}`, index]),
     );
+
     const result = truncateOversizedResult({ status: "success", rows });
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
   });
@@ -293,13 +314,16 @@ describe("truncateOversizedResult", () => {
         `value ${index}`,
       ]),
     );
+
     const result = truncateOversizedResult({ status: "success", ...payload });
 
     expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
     expect(result).toMatchObject({ status: "success", truncated: true });
+
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     expect(notice).toMatch(/\d+ of 4000 result fields omitted entirely/u);
   });
 
@@ -312,6 +336,7 @@ describe("truncateOversizedResult", () => {
     const notice = z
       .object({ truncationNotice: z.string() })
       .parse(result).truncationNotice;
+
     expect(notice).not.toContain("result fields omitted");
   });
 
@@ -330,12 +355,14 @@ describe("truncateOversizedResult", () => {
     const marker = z
       .object({ truncated: z.boolean(), truncationNotice: z.string() })
       .parse(result);
+
     expect(marker.truncated).toBe(true);
     expect(marker.truncationNotice).toContain("characters omitted");
   });
 
   it("truncates a result exactly one character over the cap", () => {
     const overhead = JSON.stringify({ status: "success", value: "" }).length;
+
     const result = truncateOversizedResult({
       status: "success",
       value: "x".repeat(RESULT_TRUNCATE_CHARS + 1 - overhead),
@@ -398,6 +425,7 @@ describe("truncateOversizedResult marker wording", () => {
   it("names the three worst-hit lists, ranked by how much each lost", () => {
     const list = (length: number): Array<string> =>
       Array.from({ length }, (_entry, index) => `value ${index}`);
+
     // Totals close enough that a comparator built on total + kept, rather than
     // total - kept, flips the ranking.
     const notice = noticeOf(
@@ -420,6 +448,7 @@ describe("truncateOversizedResult marker wording", () => {
   it("ranks by loss rather than by discovery order", () => {
     const list = (length: number): Array<string> =>
       Array.from({ length }, (_entry, index) => `value ${index}`);
+
     const notice = noticeOf(
       truncateOversizedResult({
         status: "success",
@@ -439,6 +468,7 @@ describe("truncateOversizedResult marker wording", () => {
   it("counts no overflow when exactly the named limit of lists was shortened", () => {
     const list = (length: number): Array<string> =>
       Array.from({ length }, (_entry, index) => `value ${index}`);
+
     const notice = noticeOf(
       truncateOversizedResult({
         status: "success",
@@ -473,9 +503,11 @@ describe("truncateOversizedResult field preservation", () => {
    *  field count, so dropping entries and shrinking them differ. */
   function manyFields(): ToolResult {
     const payload: { [key: string]: string } = {};
+
     for (let index = 0; index < 500; index += 1) {
       payload[`field${String(index).padStart(3, "0")}`] = "x".repeat(2000);
     }
+
     return { status: "success", ...payload };
   }
 
@@ -498,6 +530,7 @@ describe("truncateOversizedResult field preservation", () => {
 
 describe("truncateOversizedResult media results", () => {
   const MEDIA = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+
   /** The rendering of a result whose only model-facing text is `text`. */
   const measureText = (candidate: ToolResult): number =>
     candidate.status === "success" && isString(candidate.text)
@@ -538,6 +571,7 @@ describe("truncateOversizedResult media results", () => {
           `value ${index}`,
         ]),
       );
+
       const result = truncateOversizedResult({
         status: "success",
         kind,
@@ -547,9 +581,11 @@ describe("truncateOversizedResult media results", () => {
 
       expect(size(result)).toBeLessThanOrEqual(RESULT_TRUNCATE_CHARS);
       expect(result).toMatchObject({ media: MEDIA, truncated: true });
+
       const notice = z
         .object({ truncationNotice: z.string() })
         .parse(result).truncationNotice;
+
       expect(notice).toMatch(/\d+ of 4002 result fields omitted entirely/u);
     },
   );
@@ -569,6 +605,7 @@ describe("truncateOversizedResult media results", () => {
     const display = {
       thumbnail: `data:image/webp;base64,${"A".repeat(60_000)}`,
     };
+
     const fits = {
       status: "success" as const,
       kind: "image",
@@ -578,12 +615,14 @@ describe("truncateOversizedResult media results", () => {
       path: "/work/shot.png",
       display,
     };
+
     expect(truncateOversizedResult(fits)).toEqual(fits);
 
     const oversized = truncateOversizedResult({
       ...fits,
       path: `/work/${"a".repeat(50_000)}.png`,
     });
+
     expect(oversized).toMatchObject({ truncated: true, display });
     // JSON.stringify omits undefined, so this measures everything but display.
     const shown = JSON.stringify({ ...oversized, display: undefined });
@@ -649,6 +688,7 @@ describe("truncateOversizedResult artifact results", () => {
         `value ${index}`,
       ]),
     );
+
     const result = truncateOversizedResult({
       status: "success",
       ...payload,
@@ -666,6 +706,7 @@ describe("truncateOversizedResult artifact results", () => {
         "y".repeat(40),
       ]),
     );
+
     const result = truncateOversizedResult({
       status: "success",
       artifact: ARTIFACT,
@@ -703,12 +744,14 @@ describe("truncateOversizedResult artifact results", () => {
 
   it("keeps artifact and media locators exact together under a tight limit", () => {
     const MEDIA = "media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f";
+
     const fields = Object.fromEntries(
       Array.from({ length: 1500 }, (_entry, index) => [
         `field-${index}`,
         "y".repeat(40),
       ]),
     );
+
     const result = truncateOversizedResult({
       status: "success",
       kind: "image",
@@ -745,9 +788,12 @@ describe("truncateOversizedResult display-aware measures", () => {
       candidate.status === "success" && isRecord(candidate.display)
         ? candidate.display
         : undefined;
+
     const startLine = isRecord(display) ? display.startLine : undefined;
+
     const header =
       startLine === 1 ? "edited a.tsx: line 1, 1 -> 1 lines" : "edited a.tsx";
+
     return (
       header.length +
       (candidate.status === "success" && isString(candidate.content)
@@ -779,6 +825,7 @@ describe("truncateOversizedResult display-aware measures", () => {
   function withoutDisplay(result: ToolResult): ToolResult {
     if (result.status !== "success") return result;
     const { display: _display, ...rest } = result;
+
     return rest;
   }
 
@@ -806,9 +853,11 @@ describe("truncateOversizedResult display-aware measures", () => {
   it("measures the candidate with its display, not the display-free form", () => {
     const result = editResult("body");
     const widths: Array<number> = [];
+
     const measure = (candidate: ToolResult): number => {
       const width = editWidth(candidate);
       widths.push(width);
+
       return width;
     };
 
@@ -833,6 +882,7 @@ describe("truncateOversizedResult display-aware measures", () => {
   it("does not count a non-record display in the predicate", () => {
     const measure = (candidate: ToolResult): number =>
       JSON.stringify(candidate).length;
+
     const result: ToolResult = {
       status: "success",
       content: "x".repeat(RESULT_TRUNCATE_CHARS - 40),
@@ -850,6 +900,7 @@ describe("isOversizedResult", () => {
       status: "success",
       blob: "x".repeat(RESULT_TRUNCATE_CHARS - 30),
     };
+
     expect(JSON.stringify(atCap).length).toBe(RESULT_TRUNCATE_CHARS);
     expect(isOversizedResult(atCap)).toBe(false);
     expect(
@@ -885,6 +936,7 @@ describe("truncateOversizedResult head spill", () => {
         `Expected a capped result, got ${JSON.stringify(result)}`,
       );
     }
+
     return result.truncationNotice;
   }
 

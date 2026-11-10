@@ -45,6 +45,7 @@ export function decidePermission(
         reference: null,
       };
     }
+
     case 'default':
     case 'read-only':
     case OWNER_ROUTE: {
@@ -81,6 +82,7 @@ export function readOnlyCeiling(
   if ((context.permissionMode ?? DEFAULT_PERMISSION_MODE) !== 'read-only') {
     return undefined;
   }
+
   if (
     tool.classification === 'read_only' ||
     tool.id === 'exit_workspace' ||
@@ -88,10 +90,13 @@ export function readOnlyCeiling(
   ) {
     return undefined;
   }
+
   // Without a compiled policy there is no policy-instance id to attribute the
   // decision to; the normal path then fails closed with `no_allow`.
   const policy = context.permissionPolicy;
+
   if (policy === undefined) return undefined;
+
   return {
     policyId: policy.id,
     decision: 'reject',
@@ -109,7 +114,9 @@ export function admitPermission(
   decide: (evaluate: EvaluateCall) => PermissionDecision,
 ): PermissionDecision | undefined {
   const policy = context.permissionPolicy;
+
   if (policy === undefined) return undefined;
+
   return decidePermission(
     policy,
     context.permissionMode ?? DEFAULT_PERMISSION_MODE,
@@ -129,8 +136,10 @@ export function evaluateSubmittedThenProjected(
   projected: EvaluatePermissionOptions,
 ): PermissionDecision {
   const decision = evaluate(submitted);
+
   if (decision.decision === 'reject' && decision.reason !== 'no_allow') {
     return decision;
   }
+
   return evaluate(projected);
 }

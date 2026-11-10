@@ -11,6 +11,7 @@ import { type GitAbsenceReason, type GitObservation } from './git-state-view';
 
 /** One wall-clock deadline over the whole observation. */
 export const GIT_OBSERVATION_DEADLINE_MS = 5000;
+
 /** The executor's own limit for the `git.state` call. */
 const STATE_TIMEOUT_MS = 3000;
 const PATH_LIMIT = 20;
@@ -52,9 +53,11 @@ function thrownObservation(error: unknown): GitObservation {
   if (error instanceof ExecutorGitError) {
     if (error.code === 'machine_unavailable')
       return unavailable('machine_unavailable');
+
     if (error.code === 'machine_update_required')
       return unavailable('machine_update_required');
   }
+
   return unavailable('git_failed');
 }
 
@@ -72,16 +75,20 @@ export class GitSnapshotService {
 
   async observe(input: GitObserveInput): Promise<GitObservation> {
     const deadline = new AbortController();
+
     const signal =
       input.signal === undefined
         ? deadline.signal
         : AbortSignal.any([deadline.signal, input.signal]);
+
     const { promise: expiry, resolve } =
       Promise.withResolvers<GitObservation>();
+
     const timer = setTimeout(() => {
       deadline.abort();
       resolve(unavailable('timeout'));
     }, GIT_OBSERVATION_DEADLINE_MS);
+
     try {
       return await Promise.race([this.read(input, signal), expiry]);
     } finally {
@@ -100,16 +107,20 @@ export class GitSnapshotService {
         !(await input.reachable())
       )
         return unavailable('machine_unavailable');
+
       const located = await this.executors.locateEntry(
         input.target,
         input.root,
         { signal },
       );
+
       if (located.status === 'error')
         return located.type === 'not_a_repository'
           ? { kind: 'not_a_repository' }
           : failureObservation(located);
+
       if (!input.admit(located.gitEntry)) return unavailable('not_permitted');
+
       const state = await this.executors.state(
         input.target,
         input.root,
@@ -121,6 +132,7 @@ export class GitSnapshotService {
         },
         { signal },
       );
+
       return state.status === 'error'
         ? failureObservation(state)
         : { kind: 'state', view: normalizeGitState(state) };

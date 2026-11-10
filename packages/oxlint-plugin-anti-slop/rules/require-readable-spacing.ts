@@ -8,6 +8,7 @@ import type { NodeTestObject } from "../vendor/eslint-stylistic/padding-line-bet
 function isSinglelineBinding(node: ESTree.Node): boolean {
   const declaration =
     node.type === "ExportNamedDeclaration" ? node.declaration : node;
+
   return (
     declaration?.type === "VariableDeclaration" &&
     node.loc.start.line === node.loc.end.line
@@ -17,6 +18,7 @@ function isSinglelineBinding(node: ESTree.Node): boolean {
 /** Comments above a statement belong to it; a comment trailing the previous line does not. */
 function hasLeadingComment(node: ESTree.Node, sourceCode: SourceCode): boolean {
   const previousLine = sourceCode.getTokenBefore(node)?.loc.end.line;
+
   return sourceCode
     .getCommentsBefore(node)
     .some((comment) => comment.loc.start.line !== previousLine);

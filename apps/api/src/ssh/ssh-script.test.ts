@@ -295,6 +295,7 @@ describe('parseSshReadFrames', () => {
 
   it('keeps the content byte-exact, including NUL and invalid UTF-8', () => {
     const bytes = Buffer.from([0x61, 0x00, 0xc3, 0x28, 0x0a]);
+
     const stdout = Buffer.concat([
       Buffer.from(`${sshStartMarker(NONCE)}:file\n`),
       bytes,

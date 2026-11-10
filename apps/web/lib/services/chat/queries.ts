@@ -105,6 +105,7 @@ export function chatListFiltersFromKey(
   queryKey: QueryKey,
 ): ChatListFilters | undefined {
   if (queryKey[2] !== "infinite") return undefined;
+
   return chatListFiltersSchema.safeParse(queryKey[3]).data ?? {};
 }
 
@@ -134,15 +135,19 @@ export const fetchChats = (
 ) => {
   const filters = context?.queryKey[3];
   const params: ListChatsParams = {};
+
   if (filters?.projectId !== undefined) {
     params.projectId = filters.projectId;
   }
+
   if (filters?.pinned !== undefined) {
     params.pinned = filters.pinned;
   }
+
   if (filters?.archived !== undefined) {
     params.archived = filters.archived;
   }
+
   return listChats(
     Object.keys(params).length > 0 ? params : undefined,
     context?.signal === undefined ? undefined : { signal: context.signal },
@@ -154,6 +159,7 @@ export const fetchChats = (
 // `beforeSeq`), a number = strictly-older-than-that-seq. `null` rather than
 // `undefined` so the SSR-seeded page param survives dehydration verbatim.
 type ChatMessagesPageParam = number | null;
+
 const INITIAL_MESSAGES_PAGE_PARAM: ChatMessagesPageParam = null;
 
 // One page of history, newest window first. Checkpoint rows arrive in the
@@ -168,11 +174,13 @@ const fetchChatMessagesPage = async ({
   ChatMessagesPageParam
 >): Promise<ChatMessagesResponse> => {
   const params: GetChatMessagesParams = { limit: CHAT_HISTORY_PAGE_SIZE };
+
   if (pageParam !== null) {
     params.beforeSeq = pageParam;
   } else if (mode === "target" && targetSeq !== undefined) {
     params.targetSeq = targetSeq;
   }
+
   return normalizeChatMessagesResponse(
     await getChatMessages(
       encodeURIComponent(chatId),
@@ -198,8 +206,11 @@ export function olderPageParam(
 ): number | undefined {
   if (lastPage.messages.length < CHAT_HISTORY_PAGE_SIZE) return undefined;
   const cursor = lastPage.messages[0]?.seq;
+
   if (cursor === undefined || cursor <= 1) return undefined;
+
   if (lastPageParam !== null && cursor >= lastPageParam) return undefined;
+
   return cursor;
 }
 
@@ -220,9 +231,11 @@ export function toChatHistory(
   data: InfiniteData<ChatMessagesResponse, ChatMessagesPageParam>,
 ): ChatHistory {
   const pages: Array<ChatMessagesResponse["messages"]> = [];
+
   for (const page of data.pages) {
     const previousOldest = pages.at(-1)?.[0]?.seq;
     const pageNewest = page.messages.at(-1)?.seq;
+
     if (
       previousOldest !== undefined &&
       pageNewest !== undefined &&
@@ -230,10 +243,13 @@ export function toChatHistory(
     ) {
       break;
     }
+
     pages.push(page.messages);
   }
+
   const messages = pages.reverse().flat();
   const checkpoint = data.pages.find((page) => page.compaction)?.compaction;
+
   return {
     messages: toChatUiMessages({ messages }),
     compaction: checkpoint ?? null,
@@ -296,6 +312,7 @@ export function chatMessagesQueryOptions(
         isChatHistoryMissing(error),
     });
   }
+
   return infiniteQueryOptions({
     queryKey,
     queryFn: fetchChatMessagesPage,
@@ -392,18 +409,23 @@ export function useOpenChat(
     { pinned: "only", archived: "with" },
     fetch,
   );
+
   const { data: activeData } = useChatsQuery({ pinned: "exclude" }, fetch);
+
   const fromList = useMemo(() => {
     if (!chatId) return undefined;
+
     return [
       ...(pinnedData?.pages.flat() ?? []),
       ...(activeData?.pages.flat() ?? []),
     ].find((candidate) => candidate.id === chatId);
   }, [activeData, chatId, pinnedData]);
+
   const { data: fromFetch } = useChatQuery(
     chatId ?? "",
     fetch && chatId !== undefined && fromList === undefined,
   );
+
   return chatId ? (fromList ?? fromFetch) : undefined;
 }
 

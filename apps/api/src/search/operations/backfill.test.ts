@@ -39,6 +39,7 @@ describe('runBackfill', () => {
       { chat_id: 'fresh', owner_user_id: 'u1' },
       { chat_id: 'already', owner_user_id: 'u2' },
     ];
+
     const enqueueChatEmbedStrict = vi.fn((chatId: string) =>
       Promise.resolve(chatId === 'already' ? null : `job-${chatId}`),
     );
@@ -60,7 +61,9 @@ describe('runBackfill', () => {
       { chat_id: 'c1', owner_user_id: 'u1' },
       { chat_id: 'c2', owner_user_id: 'u2' },
     ];
+
     const enqueueChatEmbedStrict = vi.fn().mockResolvedValue(undefined);
+
     const { enqueued, failures } = await runBackfill(
       fakeTenantDb(rows),
       { enqueueChatEmbedStrict },
@@ -77,6 +80,7 @@ describe('runBackfill', () => {
 
   it('enqueues nothing and reports zero when the coverage query returns no rows', async () => {
     const enqueueChatEmbedStrict = vi.fn().mockResolvedValue(undefined);
+
     const { enqueued, failures } = await runBackfill(
       fakeTenantDb([]),
       { enqueueChatEmbedStrict },
@@ -94,7 +98,9 @@ describe('runBackfill', () => {
       chat_id: `c${i}`,
       owner_user_id: `u${i}`,
     }));
+
     const enqueueChatEmbedStrict = vi.fn().mockResolvedValue(undefined);
+
     const { enqueued, failures } = await runBackfill(
       fakeTenantDb(rows),
       { enqueueChatEmbedStrict },
@@ -105,6 +111,7 @@ describe('runBackfill', () => {
     expect(enqueued).toBe(45);
     expect(failures).toEqual([]);
     expect(enqueueChatEmbedStrict).toHaveBeenCalledTimes(45);
+
     for (const row of rows) {
       expect(enqueueChatEmbedStrict).toHaveBeenCalledWith(
         row.chat_id,
@@ -118,6 +125,7 @@ describe('runBackfill', () => {
       { chat_id: 'c1', owner_user_id: 'u1' },
       { chat_id: 'c2', owner_user_id: 'u2' },
     ];
+
     const enqueueChatEmbedStrict = vi
       .fn()
       .mockResolvedValueOnce(undefined)
@@ -145,6 +153,7 @@ describe('runBackfill', () => {
       { chat_id: 'c2', owner_user_id: 'u2' },
       { chat_id: 'c3', owner_user_id: 'u3' },
     ];
+
     const enqueueChatEmbedStrict = vi.fn((chatId: string) =>
       chatId === 'c2'
         ? Promise.reject(new Error('boom'))

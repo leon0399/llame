@@ -61,6 +61,7 @@ export class OrgUnitsRepository {
     settings?: UnknownRecord;
   }): Promise<OrgUnit> {
     const id = crypto.randomUUID();
+
     const [created] = await this.db
       .insert(orgUnits)
       .values({
@@ -75,6 +76,7 @@ export class OrgUnitsRepository {
         ...(input.settings && { settings: input.settings }),
       })
       .returning();
+
     return created;
   }
 
@@ -91,6 +93,7 @@ export class OrgUnitsRepository {
     settings?: UnknownRecord;
   }): Promise<OrgUnit> {
     const id = crypto.randomUUID();
+
     const [created] = await this.db
       .insert(orgUnits)
       .values({
@@ -103,6 +106,7 @@ export class OrgUnitsRepository {
         ...(input.settings && { settings: input.settings }),
       })
       .returning();
+
     return created;
   }
 
@@ -112,6 +116,7 @@ export class OrgUnitsRepository {
       .from(orgUnits)
       .where(eq(orgUnits.id, id))
       .limit(1);
+
     return rows[0];
   }
 
@@ -123,6 +128,7 @@ export class OrgUnitsRepository {
       .where(eq(orgUnits.id, id))
       .for('update')
       .limit(1);
+
     return rows[0];
   }
 
@@ -171,23 +177,30 @@ export class OrgUnitsRepository {
     ids: Array<string>,
   ): Promise<Map<string, OrgUnit | undefined>> {
     const lockedRoots = new Set<string>();
+
     for (;;) {
       const rows = new Map<string, OrgUnit | undefined>();
+
       for (const id of ids) {
         rows.set(id, await this.findById(id));
       }
+
       const neededRoots = new Set<string>();
+
       for (const row of rows.values()) {
         if (row) {
           neededRoots.add(pathIds(row.path)[0]);
         }
       }
+
       const toLock = [...neededRoots]
         .filter((rootId) => !lockedRoots.has(rootId))
         .sort();
+
       if (toLock.length === 0) {
         return rows;
       }
+
       for (const rootId of toLock) {
         await this.findByIdForUpdate(rootId);
         lockedRoots.add(rootId);
@@ -201,6 +214,7 @@ export class OrgUnitsRepository {
    */
   async findByIdInLockedTree(id: string): Promise<OrgUnit | undefined> {
     const rows = await this.lockTreeRoots([id]);
+
     return rows.get(id);
   }
 
@@ -264,10 +278,13 @@ export class OrgUnitsRepository {
   ): Promise<OrgUnit | undefined> {
     const rows = await this.lockTreeRoots([unit.id, newParent.id]);
     const locked = rows.get(unit.id);
+
     if (!locked) {
       throw new ConcurrentTreeChangeError(`Org unit ${unit.id} not found`);
     }
+
     const lockedNewParent = rows.get(newParent.id);
+
     if (!lockedNewParent) {
       throw new ConcurrentTreeChangeError(`Org unit ${newParent.id} not found`);
     }
@@ -302,6 +319,7 @@ export class OrgUnitsRepository {
   async moveToRoot(unit: Pick<OrgUnit, 'id'>): Promise<OrgUnit | undefined> {
     const rows = await this.lockTreeRoots([unit.id]);
     const locked = rows.get(unit.id);
+
     if (!locked) {
       throw new ConcurrentTreeChangeError(`Org unit ${unit.id} not found`);
     }
@@ -347,6 +365,7 @@ export class OrgUnitsRepository {
       .set({ parentId: newParentId, updatedAt: new Date() })
       .where(eq(orgUnits.id, locked.id))
       .returning();
+
     return updated;
   }
 
@@ -356,6 +375,7 @@ export class OrgUnitsRepository {
       .set({ name, updatedAt: new Date() })
       .where(eq(orgUnits.id, id))
       .returning();
+
     return updated;
   }
 
@@ -368,6 +388,7 @@ export class OrgUnitsRepository {
       .set({ settings, updatedAt: new Date() })
       .where(eq(orgUnits.id, id))
       .returning();
+
     return updated;
   }
 
@@ -384,6 +405,7 @@ export class OrgUnitsRepository {
       .delete(orgUnits)
       .where(eq(orgUnits.id, id))
       .returning({ id: orgUnits.id });
+
     return deleted.length > 0;
   }
 }
@@ -413,6 +435,7 @@ export class MembershipsRepository {
     if (orgUnitIds.length === 0) {
       return [];
     }
+
     return this.db
       .select()
       .from(memberships)
@@ -461,6 +484,7 @@ export class MembershipsRepository {
         ),
       )
       .limit(1);
+
     return rows[0];
   }
 
@@ -486,6 +510,7 @@ export class MembershipsRepository {
         ),
       )
       .returning();
+
     return updated;
   }
 
@@ -507,6 +532,7 @@ export class MembershipsRepository {
     orgUnitIds: Array<string>,
   ): Promise<Map<string, MembershipSummary>> {
     const result = new Map<string, MembershipSummary>();
+
     if (orgUnitIds.length === 0) {
       return result;
     }
@@ -530,12 +556,14 @@ export class MembershipsRepository {
           ),
         ),
     ]);
+
     for (const row of counts) {
       result.set(row.orgUnitId, {
         memberCount: row.memberCount,
         directRole: null,
       });
     }
+
     for (const row of own) {
       result.set(row.orgUnitId, {
         memberCount: result.get(row.orgUnitId)?.memberCount ?? 0,
@@ -562,6 +590,7 @@ export class MembershipsRepository {
         ),
       )
       .returning({ id: memberships.id });
+
     return deleted.length > 0;
   }
 }
@@ -583,6 +612,7 @@ export class ExternalIdentitiesRepository {
       .insert(externalIdentities)
       .values(input)
       .returning();
+
     return created;
   }
 

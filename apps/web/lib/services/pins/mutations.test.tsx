@@ -102,9 +102,11 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
     // Never resolves within the assertion window — proves the insert is
     // optimistic (onMutate), not dependent on the mutation settling.
     fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
+
     queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), []);
 
     const { result } = renderHook(() => usePinItem(), {
@@ -121,6 +123,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
       const cached = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
+
       expect(cached?.[0]).toMatchObject({
         itemType: "chat",
         itemId: "c1",
@@ -132,6 +135,7 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
   it("pins a project with its row's card before the pins list was ever fetched", async () => {
     // Held, so the cache read below can only be the optimistic write.
     fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -166,9 +170,11 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
   it("rolls back the optimistic insert and toasts on failure", async () => {
     fetchMock.mockRejectedValue(new Error("down"));
     const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
+
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
+
     queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), []);
 
     const { result } = renderHook(() => usePinItem(), {
@@ -192,15 +198,18 @@ describe("usePinItem — optimistic card synthesis (design D5a)", () => {
 describe("useUnpinItem", () => {
   it("optimistically removes the pin from the cache", async () => {
     fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
+
     const existing: PinnedItem = {
       itemType: "chat",
       itemId: "c1",
       pinnedAt: "2026-01-01T00:00:00.000Z",
       item: { id: "c1", title: "My chat", archivedAt: null },
     };
+
     queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), [
       existing,
     ]);
@@ -221,6 +230,7 @@ describe("useUnpinItem", () => {
   it("toasts an unpin-specific message on failure", async () => {
     fetchMock.mockRejectedValue(new Error("down"));
     const toastErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => "");
+
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
@@ -243,6 +253,7 @@ describe("useReorderPins", () => {
     pinnedAt: "2026-01-01T00:00:00.000Z",
     item: { id: "c1", title: "A", archivedAt: null },
   };
+
   const pinB: PinnedItem = {
     itemType: "project",
     itemId: "p1",
@@ -252,9 +263,11 @@ describe("useReorderPins", () => {
 
   it("optimistically rewrites the pins cache to the submitted order", async () => {
     fetchMock.mockReturnValue(new Promise<Response>(() => {}));
+
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
+
     queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), [
       pinA,
       pinB,
@@ -275,9 +288,11 @@ describe("useReorderPins", () => {
 
   it("serializes overlapping reorders so the later submission wins", async () => {
     let resolveFirst: (response: Response) => void = () => {};
+
     const firstCall = new Promise<Response>((resolve) => {
       resolveFirst = resolve;
     });
+
     fetchMock
       .mockImplementationOnce(() => firstCall)
       .mockResolvedValueOnce(jsonResponse([pinB, pinA]));
@@ -285,6 +300,7 @@ describe("useReorderPins", () => {
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
     });
+
     queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), [
       pinA,
       pinB,

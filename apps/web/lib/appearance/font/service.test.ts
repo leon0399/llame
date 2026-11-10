@@ -8,6 +8,7 @@ const { cookiesMock } = vi.hoisted(() => ({
     get: (_name: string): { value: string } | undefined => undefined,
   })),
 }));
+
 vi.mock("next/headers", () => ({ cookies: cookiesMock }));
 
 import {

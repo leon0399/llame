@@ -74,10 +74,12 @@ export async function finishGrepCall(
   const artifact = state.artifact;
   dropDanglingCut(artifact);
   protectPresentation(state, context);
+
   // UTF-16 units are at least a third of the UTF-8 bytes, so a larger
   // artifact cannot fit and needs no render.
   const withinReach =
     grepArtifactBytes(artifact) <= 3 * GREP_LIMITS.pageCodeUnits;
+
   if (
     filesOf(artifact) <= limit &&
     withinReach &&
@@ -88,7 +90,9 @@ export async function finishGrepCall(
   const trailing = trailingUnits(state);
   const findings = grepArtifactFindings(artifact);
   const written = await storeGrepArtifact(state, context, findings);
+
   if (written === undefined) return leftOutResult(state, limit, trailing);
+
   return artifactResult({
     state,
     written,
@@ -107,9 +111,11 @@ export async function finishGrepCall(
 function protectPresentation(state: PageState, context: ToolContext): void {
   const model = context.grepBounds?.rerank?.model;
   const decisions = context.decisions;
+
   if (model === undefined || decisions === undefined) return;
   const protect = (text: string): string => decisions.protectText(model, text);
   protectArtifact(state.artifact, protect);
+
   if (state.unfinished !== undefined)
     state.unfinished = protect(state.unfinished);
   state.ignored.paths.splice(
@@ -134,6 +140,7 @@ const LEFT_OUT_RESERVE = grepLeftOutUnits(999_999_999, 'results');
 function dropDanglingCut(artifact: GrepArtifact): void {
   const index = artifact.results.length - 1;
   const last = artifact.results[index];
+
   if (last?.cut !== true) return;
   artifact.results[index] = {
     locator: last.locator,
@@ -155,6 +162,7 @@ function leftOutResult(
   const head = inlineHead(state.artifact, limit, reserve, false);
   const leftFiles = total - head.files;
   const leftPassages = passages - head.results.length;
+
   // One of the three is always what the head lacks: a whole file, the rest of
   // a cut passage, or later passages of the file the head ends in.
   const leftOut =
@@ -163,6 +171,7 @@ function leftOutResult(
       : head.cut !== undefined
         ? { count: head.cut, of: 'lines' as const }
         : { count: leftPassages, of: 'results' as const };
+
   return { ...pageResult(state, head.results), leftOut };
 }
 
@@ -183,6 +192,7 @@ function artifactResult(input: {
   const reserve = trailing + grepRemainderUnits() + widest.length + 3;
   const head = inlineHead(state.artifact, limit, reserve, true);
   const remainder = remainderAfter(state.artifact, findings, head);
+
   return {
     ...pageResult(state, head.results),
     artifact: written.locator,
@@ -238,19 +248,24 @@ function inlineHead(
   let used = notice ? `notice: ${KNOWLEDGE_CONTENT_NOTICE}`.length + 1 : 0;
   let files = 0;
   let artifactLines = notice ? 1 : 0;
+
   for (const [index, passage] of artifact.results.entries()) {
     const block = artifact.blocks[index];
+
     // The inline part holds at most `limit` files; a later file waits in the
     // artifact.
     if (block.newRun && files >= limit) break;
     const units = grepPassageUnits(results.at(-1), passage, block.newRun);
+
     if (used + units <= budget) {
       results.push(passage);
       used += units;
       artifactLines += block.pieces;
+
       if (block.newRun) files += 1;
       continue;
     }
+
     if (results.length === 0) {
       const cut = cutToInline(passage, budget - used, markCut);
       results.push(cut);
@@ -258,6 +273,7 @@ function inlineHead(
       // A cut only ever happens as the first passage, which opens its file
       // run: the file is shown, so only its remaining lines are left out.
       files += 1;
+
       return {
         results,
         artifactLines,
@@ -265,8 +281,10 @@ function inlineHead(
         cut: passageEndLine(passage.locator) - passageEndLine(cut.locator),
       };
     }
+
     break;
   }
+
   return { results, artifactLines, files };
 }
 
@@ -293,7 +311,9 @@ function cutToInline(
   const start = passageStartLine(passage.locator);
   const end = passageEndLine(passage.locator);
   const lines = passage.content.split('\n');
+
   if (lines.at(-1) === '') lines.pop();
+
   const cutAt = (last: number): GrepPassage => ({
     locator: `${fileOf(passage)}:${String(start)}-${String(last)}`,
     content: lines.slice(0, last - start + 1).join('\n'),
@@ -302,14 +322,17 @@ function cutToInline(
     // only the cut mark can apply.
     ...(markCut && { cut: true as const }),
   });
+
   // The width only grows with more lines, so the largest fitting end is a
   // binary search, not one full render per line.
   let low = start;
   let high = end;
   let best: GrepPassage | undefined;
+
   while (low <= high) {
     const middle = Math.floor((low + high) / 2);
     const candidate = cutAt(middle);
+
     if (grepPassageUnits(undefined, candidate) <= available) {
       best = candidate;
       low = middle + 1;
@@ -317,6 +340,7 @@ function cutToInline(
       high = middle - 1;
     }
   }
+
   // One line is the floor: a match never yields an empty inline part.
   return best ?? cutAt(start);
 }
@@ -334,6 +358,7 @@ function fileOf(passage: GrepPassage): string {
 /** The rendered width of the framing lines after the passages. */
 function trailingUnits(state: PageState): number {
   const ignored = ignoredReportOf(state);
+
   return (
     grepWarningsUnits(state.warnings) +
     (state.ranking === undefined ? 0 : GREP_RANKING_UNITS) +
@@ -350,6 +375,7 @@ function remainderAfter(
 ): GrepRemainder | undefined {
   const next = findings.flatMap((finding) => {
     if (finding.end <= head.artifactLines) return [];
+
     return [
       {
         locator: finding.locators[0],
@@ -358,7 +384,9 @@ function remainderAfter(
       },
     ];
   });
+
   if (next.length === 0) return undefined;
+
   return {
     files: next.length,
     // A cut first passage still leaves lines in the artifact, so its rest

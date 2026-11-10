@@ -42,10 +42,13 @@ export function resolveTerminalRun(
   if (status === "cancelled") {
     return null;
   }
+
   const alreadySeen = opts.viewingThisChat && !opts.tabHidden;
+
   if (alreadySeen) {
     return null;
   }
+
   return status === "completed" ? "completed" : "failed";
 }
 
@@ -63,6 +66,7 @@ export function streamingRunId(
   messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>,
 ): string | null {
   const last = messages.at(-1);
+
   return last?.role === "assistant" ? last.id : null;
 }
 
@@ -75,14 +79,17 @@ export function notificationLabel(
   messages: ReadonlyArray<Pick<UIMessage, "role" | "parts">>,
 ): string {
   const firstUser = messages.find((m) => m.role === "user");
+
   if (firstUser) {
     for (const part of firstUser.parts) {
       if (part.type === "text" && part.text.trim()) {
         const trimmed = part.text.trim();
+
         return trimmed.length > 48 ? trimmed.slice(0, 48) + "..." : trimmed;
       }
     }
   }
+
   return "your conversation";
 }
 
@@ -109,8 +116,10 @@ export function deliveredMessageId(
   for (const part of message?.parts ?? []) {
     if (part.type !== "data-run-delivered") continue;
     const delivered = deliveredDataSchema.safeParse(part.data);
+
     if (delivered.success) return delivered.data.messageId;
   }
+
   return null;
 }
 
@@ -133,8 +142,10 @@ export function isInterruptedStream(
   >,
 ): boolean {
   if (status.isAbort) return false;
+
   // A dropped fetch surfaces as both `isDisconnect` and `isError`; the
   // connection broke, the Run did not.
   if (status.isDisconnect) return true;
+
   return !status.isError && status.finishReason === undefined;
 }

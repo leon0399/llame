@@ -14,6 +14,7 @@ export class KnowledgeSpaceNameError extends Error {
 export function normalizeKnowledgeSpaceName(value: string): string {
   const name = value.trim();
   const codePointLength = Array.from(name).length;
+
   if (
     codePointLength < 1 ||
     codePointLength > 100 ||
@@ -29,8 +30,10 @@ export function isValidKnowledgeSpaceName(
   value: string | null | undefined,
 ): boolean {
   if (!isString(value)) return false;
+
   try {
     normalizeKnowledgeSpaceName(value);
+
     return true;
   } catch {
     return false;

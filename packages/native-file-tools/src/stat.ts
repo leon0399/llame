@@ -15,11 +15,13 @@ export type HostPathStat =
 export async function statHostPath(path: string): Promise<HostPathStat> {
   try {
     const stats = await stat(path);
+
     const kind = stats.isFile()
       ? "file"
       : stats.isDirectory()
         ? "directory"
         : "other";
+
     return { kind, size: stats.size, canonicalPath: await realpath(path) };
   } catch {
     return { kind: "missing" };

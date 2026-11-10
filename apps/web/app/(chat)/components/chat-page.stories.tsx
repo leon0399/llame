@@ -62,10 +62,12 @@ import {
 const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
+
 const usePermissionModesQuery = vi.mocked(
   permissionModeQueries.usePermissionModesQuery,
   { partial: true },
 );
+
 const runIdToCancel = vi.mocked(runs.runIdToCancel);
 const cancelRun = vi.mocked(runs.cancelRun);
 
@@ -74,6 +76,7 @@ const HISTORY_ROUTE = `GET /api/v1/chats/${CHAT_ID}/messages`;
 const RESUME_ROUTE = `GET /api/v1/chats/${CHAT_ID}/stream`;
 const SEND_ROUTE = `POST /api/v1/chats/${CHAT_ID}/messages`;
 const DELIVERIES_ROUTE = `GET /api/v1/chats/${CHAT_ID}/deliveries`;
+
 // The server page seeds an opened chat's history into the query cache, so the
 // browser only probes for a run to resume (204: none) and re-reads history
 // once the probe settles.
@@ -96,6 +99,7 @@ const GPT_5_4_MINI: AvailableModel = {
   contextWindowTokens: 400_000,
   input: ["text"],
 };
+
 const GPT_5_4: AvailableModel = {
   id: "system:openai:gpt-5.4",
   source: "system",
@@ -151,6 +155,7 @@ function holdMarkdownChunks() {
         chunkLoads.push({ resolve, reject });
       }),
   );
+
   return () => setChatMarkdownLoadForTests(null);
 }
 
@@ -158,7 +163,9 @@ function holdMarkdownChunks() {
 async function chunkLoad(attempt: number) {
   await waitFor(() => expect(chunkLoads).toHaveLength(attempt));
   const load = chunkLoads[attempt - 1];
+
   if (load === undefined) throw new Error(`no chunk import ${attempt}`);
+
   return load;
 }
 
@@ -179,6 +186,7 @@ function requestOf(input: RequestInfo | URL) {
 /** The "METHOD /path" a fetch call targets. */
 function routeOf(input: RequestInfo | URL) {
   const request = requestOf(input);
+
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
@@ -200,20 +208,27 @@ function routeOpenChat(
   unrouted = [];
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
+
     if (key === HISTORY_ROUTE) {
       return Promise.resolve(jsonResponse({ messages: history, latestRun }));
     }
+
     if (key === RESUME_ROUTE) return Promise.resolve(emptyResponse());
+
     if (key === DELIVERIES_ROUTE) {
       return Promise.resolve(jsonResponse({ items: pending }));
     }
+
     if (key === SEND_ROUTE) return new Promise<Response>(() => {});
+
     if (DRAFT_CATALOG_ROUTES.includes(key)) {
       return Promise.resolve(jsonResponse([]));
     }
+
     unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
+
   return () => {
     vi.unstubAllGlobals();
   };
@@ -224,9 +239,11 @@ function routeAlso(
   routes: Record<string, (input: RequestInfo | URL) => Promise<Response>>,
 ) {
   const openChat = fetchMock.getMockImplementation();
+
   if (openChat === undefined) throw new Error("routeOpenChat must run first");
   fetchMock.mockImplementation((input, init) => {
     const answer = routes[routeOf(input)];
+
     return answer === undefined ? openChat(input, init) : answer(input);
   });
 }
@@ -250,9 +267,11 @@ function sentRoutes() {
 async function sentBody(route: string) {
   const index = everyRoute().indexOf(route);
   const input = fetchMock.mock.calls[index]?.[0];
+
   if (!(input instanceof Request)) {
     throw new Error(`expected a Request for ${route}`);
   }
+
   return input.clone().json();
 }
 
@@ -269,6 +288,7 @@ function seedHistory(
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 60 * 1000 } },
   });
+
   if (chatExists) {
     // No seeded compaction: the opened chat's history re-read derives it from
     // a `checkpointRow` in `history`, the boundary's single source here.
@@ -296,6 +316,7 @@ const meta = {
       latestRun = null,
       pending = [],
     }: ChatPageParameters = parameters;
+
     // The page reads and rewrites its URL (draft marker, #msg-N target), so
     // each story opens on its own chat route and leaves the URL as it was.
     const href = window.location.href;
@@ -319,6 +340,7 @@ const meta = {
     });
     const restoreFetch = routeOpenChat(history, latestRun, pending);
     const restoreChunks = holdMarkdownChunks();
+
     return () => {
       restoreChunks();
       restoreFetch();
@@ -343,6 +365,7 @@ const meta = {
 } satisfies Meta<typeof ChatPage>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -457,6 +480,7 @@ export const DraftMarkdownLoading: Story = {
 async function readyComposer(canvasElement: HTMLElement) {
   (await chunkLoad(1)).resolve(RENDERERS);
   await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+
   return composer(canvasElement);
 }
 
@@ -564,13 +588,17 @@ export const SendsImageOnlyMessage: Story = {
       isPending: false,
       isSuccess: true,
     });
+
     const ids = [
       "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01",
       "0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a02",
     ];
+
     uploadAttachment.mockImplementation((file: File) => {
       const id = ids.shift();
+
       if (id === undefined) throw new Error("unexpected extra upload");
+
       return Promise.resolve(uploaded(id, file.name));
     });
   },
@@ -581,16 +609,21 @@ export const SendsImageOnlyMessage: Story = {
     await waitFor(() => expect(send).toBeEnabled());
 
     const files = new DataTransfer();
+
     for (const name of ["a.png", "b.png"]) {
       files.items.add(new File(["png"], name, { type: "image/png" }));
     }
+
     await userEvent.click(input);
     await userEvent.paste(files);
     const form = input.closest("form");
+
     if (form === null) throw new Error("expected the composer form");
+
     const list = await within(form).findByRole("list", {
       name: "Attachments",
     });
+
     await waitFor(() =>
       expect(within(list).queryAllByRole("status")).toEqual([]),
     );
@@ -654,6 +687,7 @@ async function settledChat(
 /** Waits for the settled chat, then returns the model selector. */
 async function settledModelSelector(canvasElement: HTMLElement) {
   await settledChat(canvasElement);
+
   return within(canvasElement).getByRole("combobox", {
     name: /^Select model/,
   });
@@ -759,15 +793,19 @@ export const RestoresLastEffort: Story = {
 };
 
 const MODES_ROUTE = "GET /api/v1/permission-modes";
+
 const BOTH_MODES: PermissionModesResponse = {
   modes: [{ value: "default" }, { value: "bypass" }],
 };
+
 const DEFAULT_ONLY: PermissionModesResponse = { modes: [{ value: "default" }] };
+
 const BYPASS_HISTORY = historyWithUsage({
   modelId: GPT_5_4_MINI.id,
   status: "completed",
   permissionMode: "bypass",
 });
+
 // #232 — the bypass trigger's destructive treatment falls below WCAG AA
 // color-contrast until the token fix; every other a11y rule still runs.
 const BYPASS_CHAT = {
@@ -915,6 +953,7 @@ const OTHER_HISTORY_ROUTE = `GET /api/v1/chats/${OTHER_CHAT_ID}/messages`;
  *  re-renders the page under the same chat context with that chat's id. */
 function ChatSwitcher(props: ComponentProps<typeof ChatPage>) {
   const [chatId, setChatId] = useState(props.chatId);
+
   return (
     <>
       <button type="button" onClick={() => setChatId(OTHER_CHAT_ID)}>
@@ -1093,6 +1132,7 @@ export const UnavailableBypassResets: Story = {
 };
 
 const TARGET_HASH = "#msg-900";
+
 // Query strings of the history read for a #msg-900 target and of the ordinary
 // newest-page read.
 const TARGET_QUERY = "?limit=100&targetSeq=900";
@@ -1116,14 +1156,17 @@ function replies(
 // The server seeds the chat's newest page; the window around a #msg-N target
 // is a read only the browser sends, since the server never sees the fragment.
 const NEWEST = replies(["newest", 990, "newest"]);
+
 const TARGET_WINDOW = replies(
   ["older", 701, "older target context"],
   ["target", 900, "target answer"],
 );
+
 const TARGET_CHAT = {
   hash: TARGET_HASH,
   history: NEWEST,
 } satisfies ChatPageParameters;
+
 // #232 — the destructive "Message unavailable" alert falls below WCAG AA
 // color-contrast until the token fix; every other a11y rule still runs.
 const UNAVAILABLE_TARGET_CHAT = {
@@ -1162,6 +1205,7 @@ function sentHistoryQueries() {
 /** The page's URL past the origin: path, query and fragment. */
 function pageUrl() {
   const { pathname, search, hash } = window.location;
+
   return `${pathname}${search}${hash}`;
 }
 
@@ -1183,9 +1227,11 @@ async function openedTarget(canvasElement: HTMLElement) {
 /** Types a follow-up into the composer and sends it. */
 async function sendFollowUp(canvasElement: HTMLElement) {
   await userEvent.type(composer(canvasElement), "follow-up");
+
   const send = within(canvasElement).getByRole("button", {
     name: "Send message",
   });
+
   await waitFor(() => expect(send).toBeEnabled());
   await userEvent.click(send);
 }
@@ -1506,9 +1552,11 @@ export const TargetSendKeepsSentSelections: Story = {
   beforeEach: () => {
     serveTwoModelCatalog();
     offerBothModes();
+
     const latest = new Promise<void>((resolve) => {
       releaseLatest = resolve;
     });
+
     routeHistory(historyPage(TARGET_WINDOW), () =>
       latest.then(() =>
         jsonResponse({
@@ -1835,6 +1883,7 @@ const CHAT_START = turns(["user", 1, "hi"], ["assistant", 2, "hello"]);
  *  persists under its client id, the reply carries its run's id. */
 async function compactedAfterSend() {
   const { message }: { message: { id: string } } = await sentBody(SEND_ROUTE);
+
   return [
     ...CHAT_START,
     checkpointRow(3, THROUGH_HELLO),
@@ -1959,9 +2008,11 @@ export const ModelSwitchBoundary: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Triggering request");
+
     const boundary = canvas.getByRole("button", {
       name: "Model changed from model-a to model-b",
     });
+
     await expect(
       precedes(transcriptText(canvasElement, "Earlier answer"), boundary),
     ).toBe(true);
@@ -2068,6 +2119,7 @@ export const RunReceiptWithoutSwitch: Story = {
 const LIST_ROUTE = "GET /api/v1/chats";
 const DETAIL_ROUTE = `GET /api/v1/chats/${CHAT_ID}`;
 const GIT_STATE_ROUTE = `GET /api/v1/chats/${CHAT_ID}/git-state`;
+
 // Session details read the checkout catalog and the live git state for a
 // bound chat, to show its repository and branch; these stories are about the
 // chat card, not that.
@@ -2078,6 +2130,7 @@ const DETAILS_ROUTES = [...CATALOG_ROUTES, GIT_STATE_ROUTE];
 function chatRoutes() {
   return sentRoutes().filter((route) => !DETAILS_ROUTES.includes(route));
 }
+
 const LLAME_ROOT = "/home/operator/projects/llame";
 const NEXT_ROOT = "/home/operator/projects/next";
 const DOCS_ROOT = "/home/operator/projects/docs";
@@ -2106,8 +2159,10 @@ function chatCard(workspaceRoot: string): ChatListItemResponse {
  *  list and an unlisted (archived) one only through GET /chats/:id. */
 function serveChatCard(listed: boolean) {
   boundRoot = LLAME_ROOT;
+
   const rail = (pinned: string | null) =>
     listed && pinned === "exclude" ? [chatCard(boundRoot)] : [];
+
   for (const pinned of ["only", "exclude"] as const) {
     queryClient.setQueryData(
       chatQueryKeys.infinite(
@@ -2116,12 +2171,14 @@ function serveChatCard(listed: boolean) {
       { pages: [rail(pinned)], pageParams: [undefined] },
     );
   }
+
   if (!listed) {
     queryClient.setQueryData(
       chatQueryKeys.detail(CHAT_ID),
       chatCard(boundRoot),
     );
   }
+
   routeAlso({
     ...Object.fromEntries(
       CATALOG_ROUTES.map((route) => [
@@ -2215,9 +2272,11 @@ export const GitStateShowsLiveBranch: Story = {
     ),
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement);
+
     const panel = within(
       within(canvasElement).getByLabelText("Session details"),
     );
+
     await waitFor(() =>
       expect(panel.getByText("feature/live-state")).toBeVisible(),
     );
@@ -2249,9 +2308,11 @@ export const GitStateReadFails: Story = {
     ),
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement);
+
     const panel = within(
       within(canvasElement).getByLabelText("Session details"),
     );
+
     await waitFor(() =>
       expect(panel.getByText("Git state could not be read")).toBeVisible(),
     );
@@ -2275,13 +2336,16 @@ export const WorkspaceRefreshesEachRun: Story = {
   render: (args) => <ChatUnderHeader {...args} />,
   beforeEach: () => {
     serveChatCard(false);
+
     const firstEnded = new Promise<void>((resolve) => {
       endFirstReply = resolve;
     });
+
     let sends = 0;
     routeAlso({
       [SEND_ROUTE]: () => {
         sends += 1;
+
         return Promise.resolve(
           sends === 1
             ? streamedReply(firstEnded)
@@ -2293,6 +2357,7 @@ export const WorkspaceRefreshesEachRun: Story = {
   play: async ({ canvasElement }) => {
     const stop = () =>
       within(canvasElement).getByRole("button", { name: "Stop generation" });
+
     const refresh = [LIST_ROUTE, LIST_ROUTE, DETAIL_ROUTE];
     await settledChat(canvasElement);
     await panelShows(canvasElement, LLAME_ROOT);
@@ -2309,6 +2374,7 @@ export const WorkspaceRefreshesEachRun: Story = {
 
     // The finished reply refreshes the card again and re-reads the history.
     endFirstReply();
+
     const firstRun = [
       ...OPEN_CHAT_ROUTES,
       SEND_ROUTE,
@@ -2316,6 +2382,7 @@ export const WorkspaceRefreshesEachRun: Story = {
       ...refresh,
       HISTORY_ROUTE,
     ];
+
     await waitFor(() => expect(chatRoutes()).toEqual(firstRun));
 
     boundRoot = DOCS_ROOT;
@@ -2374,9 +2441,11 @@ export const WorkspaceRefreshesOnEntry: Story = {
   render: (args) => <ChatUnderHeader {...args} />,
   beforeEach: () => {
     serveChatCard(true);
+
     const entered = new Promise<void>((resolve) => {
       enterWorkspace = resolve;
     });
+
     routeAlso({
       [SEND_ROUTE]: () =>
         Promise.resolve(workspaceEntryReply(NEXT_ROOT, entered)),
@@ -2499,6 +2568,7 @@ async function settledTurnChat(
   (await chunkLoad(1)).resolve(RENDERERS);
   await settledChat(canvasElement, OPEN_CHAT_ROUTES, text);
   await waitFor(() => expect(sentRoutes()).toHaveLength(expectedRouteCount));
+
   return canvas;
 }
 
@@ -2521,6 +2591,7 @@ export const FailedTurnWithoutReply: Story = {
       OPEN_CHAT_ROUTES.length,
       "Search my conversations for budget notes.",
     );
+
     expect(canvas.getByText("This turn ended without an answer")).toBeVisible();
     await expect(
       canvas.getByRole("button", { name: "Regenerate" }),
@@ -2547,6 +2618,7 @@ export const StoppedTurnWithoutReply: Story = {
       OPEN_CHAT_ROUTES.length,
       "Search my conversations for budget notes.",
     );
+
     expect(canvas.getByText("This turn was stopped")).toBeVisible();
     await expect(
       canvas.getByRole("button", { name: "Regenerate" }),
@@ -2589,6 +2661,7 @@ export const FailedTurnWithEmptyReply: Story = {
       OPEN_CHAT_ROUTES.length,
       "Search my conversations for budget notes.",
     );
+
     expect(canvas.getByText("This turn failed")).toBeVisible();
     expect(
       canvas.getByText("This model is unavailable for free."),
@@ -2671,8 +2744,10 @@ export const QueuedFollowUpHidesTheReplacedReply: Story = {
 // Run steering (run-steering D9, D11): a Run that is live when the story opens.
 
 const LIVE_RUN_ID = "33333333-3333-4333-8333-333333333333";
+
 const DELIVERY_ROUTE = (deliveryId: string) =>
   `/api/v1/chats/${CHAT_ID}/deliveries/${deliveryId}`;
+
 const PENDING_REGION = { name: "Pending messages" };
 
 /** The Run the Chat's newest history read reports while it executes. */
@@ -2759,6 +2834,7 @@ async function deliverySent() {
     delivery: string;
     message: { id: string; parts: Array<{ type: string; text?: string }> };
   } = await sentBody(SEND_ROUTE);
+
   return body;
 }
 
@@ -2766,15 +2842,19 @@ async function deliverySent() {
  *  item, and the pending list then holds it. */
 function acceptingDeliveries() {
   const accepted: Array<ChatDeliveryResponse> = [];
+
   return {
     [SEND_ROUTE]: async (input: RequestInfo | URL) => {
       const body = await requestOf(input).clone().json();
+
       const item = pendingItem(
         body.message.id,
         body.delivery,
         body.message.parts[0]?.text ?? "",
       );
+
       accepted.push(item);
+
       return jsonResponse(item, 202);
     },
     [DELIVERIES_ROUTE]: () =>
@@ -2788,6 +2868,7 @@ async function openedLiveRun(canvasElement: HTMLElement) {
   await expect(
     await within(canvasElement).findByRole("button", { name: "Steer" }),
   ).toBeVisible();
+
   return input;
 }
 
@@ -2805,10 +2886,13 @@ function segmentStream(
         writer.write({ type: "text-start", id: "text-1" });
         writer.write({ type: "text-delta", id: "text-1", delta: text });
         writer.write({ type: "text-end", id: "text-1" });
+
         if (delivered === undefined) {
           await new Promise<void>(() => {});
+
           return;
         }
+
         await delivered.before?.();
         writer.write({
           type: "data-run-delivered",
@@ -2921,6 +3005,7 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
     routeAlso({
       [SEND_ROUTE]: async (input) => {
         sentId = (await requestOf(input).clone().json()).message.id;
+
         return new Response(null, {
           status: 200,
           headers: { "content-type": "text/event-stream" },
@@ -2944,6 +3029,7 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
         ),
       [RESUME_ROUTE]: () => {
         resumes += 1;
+
         return Promise.resolve(
           resumes === 1 ? emptyResponse() : segmentStream("new run reply"),
         );
@@ -3023,6 +3109,7 @@ export const EditKeepsTextTypedMeanwhile: Story = {
     routeAlso({
       [`DELETE ${DELIVERY_ROUTE("q1")}`]: async () => {
         await typingDone;
+
         return jsonResponse({
           ...pendingItem("q1", "queue", "check the docs later"),
           state: "withdrawn",
@@ -3063,6 +3150,7 @@ export const DeliveredItemLeavesTheStack: Story = {
     routeAlso({
       [`PATCH ${DELIVERY_ROUTE("s1")}`]: () => {
         delivered = true;
+
         return Promise.resolve(
           jsonResponse({ statusCode: 409, message: "Already delivered" }, 409),
         );
@@ -3145,6 +3233,7 @@ export const FailedSendKeepsTextTypedMeanwhile: Story = {
     routeAlso({
       [SEND_ROUTE]: async () => {
         await typingDone;
+
         return jsonResponse({ statusCode: 500, message: "Server error" }, 500);
       },
     });
@@ -3182,14 +3271,17 @@ export const EscTwiceStopsEverything: Story = {
   } satisfies ChatPageParameters,
   beforeEach: () => {
     let interruptApplied = () => {};
+
     const applied = new Promise<void>((resolve) => {
       interruptApplied = resolve;
     });
+
     let delivered = false;
     let resumes = 0;
     routeAlso({
       [`PATCH ${DELIVERY_ROUTE("s1")}`]: () => {
         interruptApplied();
+
         return Promise.resolve(
           jsonResponse(
             pendingItem("s1", "interrupt", "switch to the other branch"),
@@ -3200,6 +3292,7 @@ export const EscTwiceStopsEverything: Story = {
       // message; the next segment has no stream yet.
       [RESUME_ROUTE]: () => {
         resumes += 1;
+
         return Promise.resolve(
           resumes === 1
             ? segmentStream("working on it", {
@@ -3321,10 +3414,12 @@ export const ReloadShowsTheSegments: Story = {
   play: async ({ canvasElement }) => {
     await settledChat(canvasElement, OPEN_CHAT_ROUTES, "Second reply");
     const first = transcriptText(canvasElement, "First reply, cut short");
+
     const notice = transcriptText(
       canvasElement,
       /You interrupted the previous step/,
     );
+
     const delivered = transcriptText(canvasElement, "Change of plan");
     const second = transcriptText(canvasElement, "Second reply");
     await expect(precedes(first, notice)).toBe(true);
@@ -3359,6 +3454,7 @@ export const FailedRunShowsAPausedQueue: Story = {
       OPEN_CHAT_ROUTES.length,
       "I found the budget notes.",
     );
+
     const stack = await canvas.findByRole("region", PENDING_REGION);
     await expect(
       within(stack).getByText(/Paused — nothing runs until you send or steer/),
@@ -3387,6 +3483,7 @@ export const NextSegmentAttachesAfterDelivery: Story = {
     routeAlso({
       [RESUME_ROUTE]: () => {
         resumes += 1;
+
         return Promise.resolve(
           resumes === 1
             ? segmentStream("first segment reply", {
@@ -3439,6 +3536,7 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
     routeAlso({
       [RESUME_ROUTE]: () => {
         resumes += 1;
+
         return Promise.resolve(
           resumes === 1
             ? segmentStream("first segment reply", {
@@ -3452,6 +3550,7 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
       },
       [HISTORY_ROUTE]: async () => {
         if (!delivered) return liveHistory(HISTORY);
+
         if (!listShrunk) {
           listShrunk = true;
           applyLiveMessage(queryClient, {
@@ -3460,8 +3559,10 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
             items: [],
           });
         }
+
         // The page reacts to the live update before this read is adopted.
         await new Promise((resolve) => setTimeout(resolve, 100));
+
         return liveHistory(historyAfterDelivery("steer message"), "m2");
       },
     });

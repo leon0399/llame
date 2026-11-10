@@ -155,24 +155,31 @@ describe('deliverPendingSteering', () => {
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([]);
+
     const lockForDelivery = vi
       .spyOn(RunsRepository.prototype, 'lockForDelivery')
       .mockResolvedValue(has('locked') ? overrides.locked : run);
+
     const lockChat = vi
       .spyOn(ChatsRepository.prototype, 'lock')
       .mockResolvedValue(has('chat') ? overrides.chat : chat);
+
     const lockPending = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
       .mockResolvedValue(overrides.items ?? [first, second]);
+
     const markDelivered = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
       .mockResolvedValue(has('marked') ? overrides.marked : first);
+
     const createUser = vi
       .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
       .mockResolvedValue(has('stored') ? overrides.stored : deliveredMessage);
+
     const updateForAttempt = vi
       .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue(has('moved') ? overrides.moved : run);
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockImplementation((appendedRunId, eventType, payload) =>
@@ -184,6 +191,7 @@ describe('deliverPendingSteering', () => {
           createdAt: now,
         }),
       );
+
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
@@ -204,6 +212,7 @@ describe('deliverPendingSteering', () => {
         }),
       }),
     });
+
     const updateReply = vi
       .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
       .mockImplementation((write) =>
@@ -218,6 +227,7 @@ describe('deliverPendingSteering', () => {
           }),
         ),
       );
+
     return {
       lockForDelivery,
       lockChat,
@@ -306,6 +316,7 @@ describe('deliverPendingSteering', () => {
     });
 
     expect(outcome.kind).toBe('delivered');
+
     if (outcome.kind !== 'delivered') return;
     expect(outcome.message).toBe(deliveredMessage);
     expect(outcome.closedReply?.parts).toEqual(live.parts);
@@ -324,6 +335,7 @@ describe('deliverPendingSteering', () => {
     expect(stored?.id).toMatch(/^[0-9a-f-]{36}$/);
 
     expect(spies.markDelivered).toHaveBeenCalledTimes(2);
+
     for (const item of [first, second]) {
       expect(spies.markDelivered).toHaveBeenCalledWith(item.id, userId, {
         messageId: deliveredMessage.id,
@@ -358,6 +370,7 @@ describe('deliverPendingSteering', () => {
   });
 
   const interruptItem: ChatDelivery = { ...first, mode: 'interrupt' };
+
   const interrupted = {
     ...closingTelemetry,
     status: 'aborted',
@@ -377,6 +390,7 @@ describe('deliverPendingSteering', () => {
     });
 
     expect(outcome.kind).toBe('delivered');
+
     if (outcome.kind !== 'delivered') return;
     expect(outcome.cause).toBe('interrupt');
     expect(outcome.closedReply?.usage).toEqual(interrupted);
@@ -520,6 +534,7 @@ describe('deliverPendingSteering', () => {
 
 describe('deliverPendingSteering closing usage and baselines', () => {
   const tx: Db = drizzle.mock({ schema });
+
   const baseline = {
     pinned: [],
     recent: [],
@@ -574,6 +589,7 @@ describe('deliverPendingSteering closing usage and baselines', () => {
       RunEventsRepository.prototype,
       'findFirstByType',
     ).mockResolvedValue(undefined);
+
     return {
       findByOwnedRun: vi
         .spyOn(SystemPromptReceiptsRepository.prototype, 'findByOwnedRun')
@@ -607,6 +623,7 @@ describe('deliverPendingSteering closing usage and baselines', () => {
       },
       baselines: { recencyDigestInitialization: { baseline, told: [] } },
     });
+
     return telemetry;
   }
 
@@ -695,6 +712,7 @@ describe('the usage an interrupt closes a reply with', () => {
       attemptId: 'attempt-2',
       cause,
     });
+
     const steer = delivered('steer');
     const interrupt = delivered('interrupt');
 

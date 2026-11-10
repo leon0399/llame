@@ -1084,9 +1084,11 @@ export const MenuAction: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     const trigger = canvas.getAllByRole("button", { name: "More" })[0];
+
     if (!trigger) {
       throw new Error("expected at least one 'More' action button");
     }
+
     await userEvent.click(trigger);
 
     const menu = await screen.findByRole("menu");

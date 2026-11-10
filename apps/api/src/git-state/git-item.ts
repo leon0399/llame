@@ -46,18 +46,23 @@ export const NOTHING_TOLD: GitToldState = { text: undefined, root: undefined };
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- the argument is one stored jsonb part; `isRecord` parses it before anything inside it is read.
 function toolBinding(part: unknown): GitToldState | undefined {
   if (!isRecord(part) || part['state'] !== 'output-available') return undefined;
+
   if (part['type'] === `tool-${exitWorkspaceTool.id}`) {
     return { text: undefined, root: null };
   }
+
   if (part['type'] !== `tool-${enterWorkspaceTool.id}`) return undefined;
   const output = part['output'];
+
   if (
     !isRecord(output) ||
     (output['state'] !== 'bound' && output['state'] !== 'switched')
   ) {
     return undefined;
   }
+
   const root = output['root'];
+
   return { text: undefined, root: isString(root) ? root : undefined };
 }
 
@@ -74,10 +79,15 @@ export function advanceGitTold(
 ): GitToldState {
   if (!isContextItemPart(part)) return toolBinding(part) ?? state;
   const { producer, payload } = part.data;
+
   if (producer === 'git') return { ...state, text: part.data.text };
+
   if (producer !== 'workspace') return state;
+
   if (isWorkspaceDetachPayload(payload)) return { text: undefined, root: null };
+
   if (!isWorkspaceSnapshotPayload(payload)) return state;
+
   return payload.root === state.root
     ? state
     : { text: undefined, root: payload.root };
@@ -90,6 +100,8 @@ export function advanceGitTold(
  */
 export function gitToldState(parts: Iterable<unknown>): GitToldState {
   let state = NOTHING_TOLD;
+
   for (const part of parts) state = advanceGitTold(state, part);
+
   return state;
 }

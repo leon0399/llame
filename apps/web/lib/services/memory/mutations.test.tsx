@@ -79,6 +79,7 @@ describe("useUpdateMemoryMutation cache behavior", () => {
     const { result } = renderHook(() => useUpdateMemoryMutation(), {
       wrapper: wrapper(queryClient),
     });
+
     result.current.mutate({ shareRecentChats: true });
 
     await waitFor(() => {
@@ -109,6 +110,7 @@ describe("useUpdateMemoryMutation cache behavior", () => {
     const { result } = renderHook(() => useUpdateMemoryMutation(), {
       wrapper: wrapper(queryClient),
     });
+
     result.current.mutate({ shareRecentChats: true });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
@@ -127,6 +129,7 @@ describe("useUpdateMemoryMutation cache behavior", () => {
     const { result } = renderHook(() => useUpdateMemoryMutation(), {
       wrapper: wrapper(queryClient),
     });
+
     result.current.mutate({ shareRecentChats: true });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

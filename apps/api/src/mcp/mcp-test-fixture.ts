@@ -54,6 +54,7 @@ export function mcpStreamableHttpInitialize(
   input: McpStreamableHttpInitializeOptions = {},
 ): McpFixtureResponse {
   const protocolVersion: string = input.protocolVersion ?? '2025-11-25';
+
   if (
     !MCP_STREAMABLE_HTTP_PROTOCOL_VERSIONS.some(
       (supportedVersion) => supportedVersion === protocolVersion,
@@ -111,13 +112,17 @@ const wait = (milliseconds: number): Promise<void> =>
 
 async function readRequestBody(request: IncomingMessage) {
   const chunks: Array<Uint8Array> = [];
+
   for await (const chunk of request) {
     if (!(chunk instanceof Uint8Array)) {
       throw new TypeError('MCP fixture request body is not binary.');
     }
+
     chunks.push(chunk);
   }
+
   if (chunks.length === 0) return null;
+
   // SAFETY: JSON.parse returns any; asserting unknown forces callers to
   // narrow before use rather than silently inheriting any.
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
@@ -126,14 +131,17 @@ async function readRequestBody(request: IncomingMessage) {
 function readRpcMethod(body: unknown): string | null {
   if (!isRecord(body)) return null;
   const method = body['method'];
+
   return isString(method) ? method : null;
 }
 
 function readCursor(body: unknown): string | null {
   if (!isRecord(body)) return null;
   const params = body['params'];
+
   if (!isRecord(params)) return null;
   const cursor = params['cursor'];
+
   return isString(cursor) ? cursor : null;
 }
 
@@ -146,6 +154,7 @@ function writeHeaders(
   action: Exclude<McpFixtureResponse, { kind: 'disconnect' }>,
 ): void {
   response.statusCode = action.status ?? 200;
+
   for (const [name, value] of Object.entries(action.headers ?? {})) {
     response.setHeader(name, value);
   }
@@ -159,7 +168,9 @@ function sseBody(
       const data = event.rawData
         ? String(event.data)
         : JSON.stringify(event.data);
+
       const lines = data.split('\n').map((line) => `data: ${line}`);
+
       return [...(event.id === undefined ? [] : [`id: ${event.id}`]), ...lines]
         .join('\n')
         .concat('\n\n');
@@ -175,25 +186,32 @@ async function sendFixtureResponse(
   if ((action.delayMs ?? 0) > 0) {
     await wait(action.delayMs ?? 0);
   }
+
   if (action.kind === 'disconnect') {
     request.socket.destroy();
+
     return;
   }
 
   writeHeaders(response, action);
+
   if (action.kind === 'json') {
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify(action.body));
+
     return;
   }
+
   if (action.kind === 'raw') {
     response.setHeader(
       'content-type',
       action.contentType ?? 'application/octet-stream',
     );
     response.end(action.body);
+
     return;
   }
+
   response.setHeader('content-type', 'text/event-stream');
   response.end(sseBody(action.events));
 }
@@ -206,13 +224,16 @@ function fixtureRequestListener(
   return (request, response) => {
     void (async () => {
       let body: unknown;
+
       try {
         body = await readRequestBody(request);
       } catch {
         response.statusCode = 400;
         response.end('invalid request');
+
         return;
       }
+
       const httpMethod = request.method ?? 'GET';
       const rpcMethod = readRpcMethod(body);
       requests.push({
@@ -227,11 +248,14 @@ function fixtureRequestListener(
       });
       const queue = queues.get(responseKey(httpMethod, rpcMethod));
       const action = queue?.shift();
+
       if (action === undefined) {
         response.statusCode = 500;
         response.end('unscripted request');
+
         return;
       }
+
       await sendFixtureResponse(request, response, action);
     })();
   };
@@ -247,9 +271,11 @@ async function listenOnLoopbackPort(server: Server): Promise<number> {
     });
   });
   const address = server.address();
+
   if (address === null) {
     throw new TypeError('MCP fixture server did not start listening.');
   }
+
   if (isString(address)) {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -259,6 +285,7 @@ async function listenOnLoopbackPort(server: Server): Promise<number> {
     });
     throw new TypeError('MCP fixture server did not start listening.');
   }
+
   return address.port;
 }
 
@@ -268,6 +295,7 @@ function hasHeader(
   expectedValue: string,
 ): boolean {
   const value = record?.headers[name.toLowerCase()];
+
   return Array.isArray(value)
     ? value.includes(expectedValue)
     : value === expectedValue;
@@ -279,6 +307,7 @@ export async function createMcpTestFixture(
   const queues = new Map(
     Object.entries(scripts).map(([key, actions]) => [key, [...actions]]),
   );
+
   const requests: Array<RecordedRequest> = [];
   const server = createServer(fixtureRequestListener(queues, requests));
   const port = await listenOnLoopbackPort(server);
@@ -304,6 +333,7 @@ export async function createMcpTestFixture(
           else resolve();
         });
       });
+
       return closePromise;
     },
   };
@@ -316,6 +346,7 @@ export function routedMcpFetch(
 ): VendorFetch {
   return async (input, init) => {
     seen.push({ url: requestUrl(input), init });
+
     return globalThis.fetch(fixture.url, init);
   };
 }
@@ -325,6 +356,8 @@ export function callToolRequestIndex(fixture: McpTestFixture): number {
   const index = fixture
     .requestSummaries()
     .findIndex(({ rpcMethod }) => rpcMethod === 'tools/call');
+
   if (index < 0) throw new Error('missing tools/call request');
+
   return index;
 }

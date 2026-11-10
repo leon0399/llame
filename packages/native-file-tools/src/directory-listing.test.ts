@@ -25,6 +25,7 @@ import {
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof Filesystem>();
+
   return { ...original, opendir: vi.fn(original.opendir) };
 });
 
@@ -50,6 +51,7 @@ describe("directory listing", () => {
       kind: "directory",
       path: root,
     });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     const lines = result.content.split("\n").filter(Boolean);
@@ -67,6 +69,7 @@ describe("directory listing", () => {
     await writeFile(join(root, "parent", "child", "leaf.txt"), "");
 
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     expect(result.content).toContain("  - parent/");
@@ -81,6 +84,7 @@ describe("directory listing", () => {
 
     const opened = vi.spyOn(filesystem, "open");
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     const lines = result.content.split("\n").filter(Boolean);
@@ -98,6 +102,7 @@ describe("directory listing", () => {
     await symlink(join(root, "real"), join(root, "symdir"));
 
     const result = await readFile({ path: join(root, "symdir") });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     expect(result.path).toBe(join(root, "symdir"));
@@ -106,6 +111,7 @@ describe("directory listing", () => {
 
   it("names a directory-target link's canonical target and never descends it", async () => {
     const target = await mkdtemp(join(tmpdir(), "native-dir-target-"));
+
     try {
       await writeFile(join(target, "inside.txt"), "");
       await symlink(target, join(root, "link"));
@@ -115,6 +121,7 @@ describe("directory listing", () => {
       const opened = vi.spyOn(filesystem, "open").mockClear();
       const looked = vi.spyOn(filesystem, "opendir").mockClear();
       const result = await readFile({ path: root });
+
       if (result.status !== "success" || result.kind !== "directory")
         throw new Error();
       expect(result.content).toBe(
@@ -132,6 +139,7 @@ describe("directory listing", () => {
     await symlink("notes.md", join(root, "alias.md"));
 
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     expect(result.content).toContain(
@@ -145,6 +153,7 @@ describe("directory listing", () => {
     await symlink(join(root, "hop-one"), join(root, "hop-two"));
 
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     const canonical = await realpath(join(root, "final.md"));
@@ -156,6 +165,7 @@ describe("directory listing", () => {
     await symlink("missing.md", join(root, "broken.md"));
 
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     expect(result.content).toBe(`${root}\n  - broken.md@? -> missing.md\n`);
@@ -169,6 +179,7 @@ describe("directory listing", () => {
     const before = await readFile({ path: root });
     await writeFile(join(root, "added.md"), "");
     const after = await readFile({ path: root });
+
     if (
       before.status !== "success" ||
       before.kind !== "directory" ||
@@ -196,6 +207,7 @@ describe("directory listing", () => {
 
       const opened = vi.spyOn(filesystem, "open").mockClear();
       const result = await readFile({ path: root });
+
       if (result.status !== "success" || result.kind !== "directory")
         throw new Error();
       expect(result.content).toContain("  - linked-pipe@? -> specials/pipe");
@@ -211,10 +223,12 @@ describe("directory listing", () => {
     const realpathCalls = vi.spyOn(filesystem, "realpath").mockClear();
     const readlinkCalls = vi.spyOn(filesystem, "readlink").mockClear();
     const statCalls = vi.spyOn(filesystem, "stat").mockClear();
+
     const result = await readResolvedFile(root, {
       displayPath: "kb://space/",
       linkTargets: false,
     });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     expect(result.content).toBe("kb://space/\n  - target/\n  - link@\n");
@@ -227,6 +241,7 @@ describe("directory listing", () => {
 
   it("returns (empty directory) for an empty root", async () => {
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     expect(result.content).toBe(`${root}\n(empty directory)\n`);
@@ -244,24 +259,30 @@ describe("directory listing", () => {
 
   it("caps child directories at 20 entries with … N more", async () => {
     await mkdir(join(root, "big"));
+
     for (let i = 0; i < 25; i += 1) {
       await writeFile(
         join(root, "big", `file${String(i).padStart(3, "0")}.txt`),
         "",
       );
     }
+
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     expect(result.content).toContain("… 5 more");
+
     const childLines = result.content
       .split("\n")
       .filter((l) => l.startsWith("    - "));
+
     expect(childLines).toHaveLength(20);
   });
 
   it("resolves link metadata only for the requested flat slice", async () => {
     const resolved: Array<string> = [];
+
     const mockPort: DirectoryPort = {
       opendir: () => {
         const entries = ["a", "b", "c", "d"].map((name) => ({
@@ -270,7 +291,9 @@ describe("directory listing", () => {
           isDirectory: () => false,
           isSymbolicLink: () => true,
         }));
+
         let idx = 0;
+
         return Promise.resolve({
           read: () =>
             Promise.resolve(idx < entries.length ? entries[idx++] : null),
@@ -281,6 +304,7 @@ describe("directory listing", () => {
         Promise.resolve({ isFile: () => true, isDirectory: () => false }),
       realpath: (path) => {
         resolved.push(path);
+
         return Promise.resolve(`/real${path}`);
       },
       readlink: () => Promise.reject(new Error("unexpected readlink")),
@@ -290,6 +314,7 @@ describe("directory listing", () => {
       offset: 1,
       limit: 2,
     });
+
     if (result.status !== "success") throw new Error();
     expect(resolved).toEqual(["/root/b", "/root/c"]);
     expect(result.content).toBe(
@@ -299,13 +324,16 @@ describe("directory listing", () => {
 
   it("bounds a flat listing by the rendered length of its link lines", async () => {
     const names = Array.from({ length: 700 }, (_, i) => `link-${i}`);
+
     const entries = names.map((name) => ({
       name,
       isFile: () => false,
       isDirectory: () => false,
       isSymbolicLink: () => true,
     }));
+
     let idx = 0;
+
     const mockPort: DirectoryPort = {
       opendir: () =>
         Promise.resolve({
@@ -324,6 +352,7 @@ describe("directory listing", () => {
       offset: 0,
       limit: names.length,
     });
+
     if (result.status !== "success") throw new Error();
     const rendered = result.content.split("\n").filter(Boolean).length - 1;
     expect(measureReadRendering(result)).toBeLessThanOrEqual(
@@ -345,6 +374,7 @@ describe("directory listing", () => {
       displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS - 20)}`,
       selector: "1-2",
     });
+
     // The header leaves room for the first entry but not for the continuation
     // that would name it, so no page can advance: a stored `nextOffset` would
     // send the next read back to the same entry.
@@ -363,6 +393,7 @@ describe("directory listing", () => {
       displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS)}`,
       selector: "2-",
     });
+
     expect(result).toEqual({
       status: "error",
       type: "representation_too_large",
@@ -378,6 +409,7 @@ describe("directory listing", () => {
     const result = await readResolvedFile(root, {
       displayPath: `kb://space/${"p".repeat(MAX_RESULT_CODE_UNITS - 20)}`,
     });
+
     expect(result).toEqual({
       status: "error",
       type: "representation_too_large",
@@ -397,6 +429,7 @@ describe("directory listing", () => {
         kind: "file" as const,
       })),
     ];
+
     const children = [
       {
         name: "alpha",
@@ -405,6 +438,7 @@ describe("directory listing", () => {
         overBudget: false,
       },
     ];
+
     const options = {
       displayPath: "kb://space/x",
       reserveCodeUnits: MAX_RESULT_CODE_UNITS - 75,
@@ -416,6 +450,7 @@ describe("directory listing", () => {
       children,
       options,
     );
+
     expect(result).toEqual({
       status: "success",
       kind: "directory",
@@ -434,6 +469,7 @@ describe("directory listing", () => {
       children,
       { ...options, offset: 0 },
     );
+
     expect(continuation).toMatchObject({
       status: "success",
       content: "kb://space/x\n  - alpha/\n",
@@ -450,6 +486,7 @@ describe("directory listing", () => {
         kind: "file" as const,
       })),
     ];
+
     const children = [
       {
         name: "alpha",
@@ -471,6 +508,7 @@ describe("directory listing", () => {
         reserveCodeUnits: MAX_RESULT_CODE_UNITS - 70,
       },
     );
+
     expect(result).toEqual({
       status: "error",
       type: "representation_too_large",
@@ -484,14 +522,18 @@ describe("directory listing", () => {
       { length: DIRECTORY_CHILD_CAP + 5 },
       (_, i) => `s${String(i).padStart(2, "0")}`,
     );
+
     const resolved: Array<string> = [];
+
     const childEntries = names.map((name) => ({
       name,
       isFile: () => false,
       isDirectory: () => false,
       isSymbolicLink: () => true,
     }));
+
     let rootRead = false;
+
     const mockPort: DirectoryPort = {
       opendir: () => {
         const entries = rootRead
@@ -504,8 +546,10 @@ describe("directory listing", () => {
                 isSymbolicLink: () => false,
               },
             ];
+
         rootRead = true;
         let idx = 0;
+
         return Promise.resolve({
           read: () =>
             Promise.resolve(idx < entries.length ? entries[idx++] : null),
@@ -516,12 +560,14 @@ describe("directory listing", () => {
         Promise.resolve({ isFile: () => true, isDirectory: () => false }),
       realpath: (path) => {
         resolved.push(path);
+
         return Promise.resolve(`/real${path}`);
       },
       readlink: () => Promise.reject(new Error("unexpected readlink")),
     };
 
     const result = await listDirectory("/root", mockPort);
+
     if (result.status !== "success") throw new Error();
     const capped = names.slice(0, DIRECTORY_CHILD_CAP);
     expect(resolved).toEqual(capped.map((name) => `/root/bigchild/${name}`));
@@ -535,15 +581,18 @@ describe("directory listing", () => {
     const resolved: Array<string> = [];
     let rootRead = false;
     let childIdx = 0;
+
     const mockPort: DirectoryPort = {
       opendir: () => {
         if (!rootRead) {
           rootRead = true;
           let done = false;
+
           return Promise.resolve({
             read: () => {
               if (done) return Promise.resolve(null);
               done = true;
+
               return Promise.resolve({
                 name: "bigchild",
                 isFile: () => false,
@@ -554,10 +603,12 @@ describe("directory listing", () => {
             close: () => Promise.resolve(),
           });
         }
+
         return Promise.resolve({
           read: () => {
             if (childIdx >= count) return Promise.resolve(null);
             childIdx += 1;
+
             return Promise.resolve({
               name: `s${childIdx}`,
               isFile: () => false,
@@ -572,12 +623,14 @@ describe("directory listing", () => {
         Promise.resolve({ isFile: () => true, isDirectory: () => false }),
       realpath: (path) => {
         resolved.push(path);
+
         return Promise.resolve(`/real${path}`);
       },
       readlink: () => Promise.reject(new Error("unexpected readlink")),
     };
 
     const result = await listDirectory("/root", mockPort);
+
     if (result.status !== "success") throw new Error();
     // The block renders only the count, so not even its capped head is read.
     expect(resolved).toEqual([]);
@@ -591,6 +644,7 @@ describe("directory listing", () => {
       isDirectory: () => boolean;
       isSymbolicLink: () => boolean;
     }> = [];
+
     for (let i = 0; i < DIRECTORY_TRAVERSAL_BUDGET + 100; i += 1) {
       mockEntries.push({
         name: `f${i}`,
@@ -599,7 +653,9 @@ describe("directory listing", () => {
         isSymbolicLink: () => false,
       });
     }
+
     let idx = 0;
+
     const mockPort: DirectoryPort = {
       opendir: () =>
         Promise.resolve({
@@ -613,11 +669,13 @@ describe("directory listing", () => {
       realpath: () => Promise.reject(new Error("unexpected realpath")),
       readlink: () => Promise.reject(new Error("unexpected readlink")),
     };
+
     const result = await listDirectory("/fake/path", mockPort);
     expect(result).toMatchObject({
       status: "error",
       type: "directory_too_large",
     });
+
     if (result.status !== "error" || result.type !== "directory_too_large")
       throw new Error();
     expect(result.count).toBe(DIRECTORY_TRAVERSAL_BUDGET + 100);
@@ -627,30 +685,37 @@ describe("directory listing", () => {
     const bigChildCount = DIRECTORY_TRAVERSAL_BUDGET + 50;
     let rootRead = false;
     let childIdx = 0;
+
     const mockPort: DirectoryPort = {
       opendir: (_path: string) => {
         if (!rootRead) {
           rootRead = true;
+
           const entry = {
             name: "bigchild",
             isFile: () => false,
             isDirectory: () => true,
             isSymbolicLink: () => false,
           };
+
           let done = false;
+
           return Promise.resolve({
             read: () => {
               if (done) return Promise.resolve(null);
               done = true;
+
               return Promise.resolve(entry);
             },
             close: () => Promise.resolve(),
           });
         }
+
         return Promise.resolve({
           read: () => {
             if (childIdx >= bigChildCount) return Promise.resolve(null);
             childIdx += 1;
+
             return Promise.resolve({
               name: `f${childIdx}`,
               isFile: () => true,
@@ -665,8 +730,10 @@ describe("directory listing", () => {
       realpath: () => Promise.reject(new Error("unexpected realpath")),
       readlink: () => Promise.reject(new Error("unexpected readlink")),
     };
+
     const result = await listDirectory("/fake", mockPort);
     expect(result).toMatchObject({ status: "success", kind: "directory" });
+
     if (result.status !== "success") throw new Error();
     expect(result.content).toContain(`… ${bigChildCount} entries`);
     expect(result.content).not.toContain("- f1");
@@ -675,6 +742,7 @@ describe("directory listing", () => {
   it("renders an empty child as a bare - name/ line", async () => {
     await mkdir(join(root, "empty-child"));
     const result = await readFile({ path: root });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     const lines = result.content.split("\n").filter(Boolean);
@@ -715,6 +783,7 @@ describe("directory listing", () => {
     await writeFile(join(root, "c.txt"), "");
 
     const result = await readFile({ path: `${root}:1-2` });
+
     if (result.status !== "success" || result.kind !== "directory")
       throw new Error();
     const lines = result.content.split("\n").filter(Boolean);
@@ -765,6 +834,7 @@ describe("directory listing", () => {
       await writeFile(join(root, "c.txt"), "");
 
       const result = await readFile({ path: `${root}${selector}` });
+
       if (result.status !== "success" || result.kind !== "directory")
         throw new Error();
       expect(result.content.split("\n").filter(Boolean).slice(1)).toEqual(
@@ -780,7 +850,9 @@ describe("directory listing", () => {
       isDirectory: () => false,
       isSymbolicLink: () => false,
     }));
+
     let index = 0;
+
     const mockPort: DirectoryPort = {
       opendir: () =>
         Promise.resolve({
@@ -792,6 +864,7 @@ describe("directory listing", () => {
       realpath: () => Promise.reject(new Error("unexpected realpath")),
       readlink: () => Promise.reject(new Error("unexpected readlink")),
     };
+
     // A listing names one run of entries, and the placed form of a comma
     // request is a set of intervals: taking its first one as the window would
     // answer with a page the request never named.
@@ -802,9 +875,11 @@ describe("directory listing", () => {
 
   it("marks special entries with ? and never opens them", async () => {
     const openedPaths: Array<string> = [];
+
     const mockPort: DirectoryPort = {
       opendir: (path: string) => {
         openedPaths.push(path);
+
         const entries = [
           {
             name: "pipe",
@@ -813,7 +888,9 @@ describe("directory listing", () => {
             isSymbolicLink: () => false,
           },
         ];
+
         let idx = 0;
+
         return Promise.resolve({
           read: () =>
             Promise.resolve(idx < entries.length ? entries[idx++] : null),
@@ -824,8 +901,10 @@ describe("directory listing", () => {
       realpath: () => Promise.reject(new Error("unexpected realpath")),
       readlink: () => Promise.reject(new Error("unexpected readlink")),
     };
+
     const result = await listDirectory("/test", mockPort);
     expect(result).toMatchObject({ status: "success" });
+
     if (result.status !== "success") throw new Error();
     expect(result.content).toContain("  - pipe?");
     expect(openedPaths).toEqual(["/test"]);

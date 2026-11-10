@@ -79,6 +79,7 @@ export function repositoryFailure(
   message: string,
 ): HttpException {
   const statusCode = STATUS[code];
+
   return new HttpException(
     {
       statusCode,

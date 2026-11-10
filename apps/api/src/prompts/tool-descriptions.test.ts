@@ -22,6 +22,7 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof NodeFs>();
   fsMocks.statSync.mockImplementation(actual.statSync);
   fsMocks.readFileSync.mockImplementation(actual.readFileSync);
+
   return {
     ...actual,
     statSync: fsMocks.statSync,
@@ -70,6 +71,7 @@ describe('loadPackagedToolDescription', () => {
     for (const id of ['read', 'edit', 'write', 'bash'] as const) {
       expect(loadPackagedToolDescription(id)).toContain('machine://');
     }
+
     // The disclosure is on every host tool: no sandbox, roots address only,
     // and no isolation between users who share a Machine.
     for (const id of ['read', 'edit', 'write', 'bash'] as const) {
@@ -163,6 +165,7 @@ describe.skipIf(process.env.STRYKER_MUTATOR_WORKER !== undefined)(
           'docs/product/reference/tools',
           `${id.replaceAll('_', '-')}.md`,
         );
+
         expect(existsSync(page), `missing reference page for ${id}`).toBe(true);
 
         // The page's rendered title, so a page that drifted to another tool

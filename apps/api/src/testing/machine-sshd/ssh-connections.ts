@@ -75,6 +75,7 @@ function includeConfigText(
 ): string {
   const identity = variant.identityFile ?? files.plainKeyFile;
   const weakening = variant.weaken === true ? weakeningBlock(files) : [];
+
   return [
     '# Included by the generated ssh:// SSH configuration.',
     ...hostBlock(files.hosts.box, [
@@ -114,10 +115,12 @@ function createSshConnection(
     files.hostKeys.shBox,
     ...(variant.pinBox === false ? [] : [files.hostKeys.box]),
   ];
+
   const knownHostsFile = join(files.directory, `ssh_known_hosts-${index}`);
   writeFileSync(knownHostsFile, `${pinned.join('\n')}\n`, 'utf8');
   const includeFile = join(files.directory, `ssh_config_ssh-${index}`);
   writeFileSync(includeFile, includeConfigText(files, variant), 'utf8');
+
   return {
     knownHostsFile,
     includeFile,
@@ -136,8 +139,10 @@ export function sshConnection(
 ): SshdSshConnection {
   const key = JSON.stringify(options);
   const existing = cache.get(key);
+
   if (existing !== undefined) return existing;
   const created = createSshConnection(files, cache.size, options);
   cache.set(key, created);
+
   return created;
 }

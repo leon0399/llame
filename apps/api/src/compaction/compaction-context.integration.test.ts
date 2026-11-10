@@ -83,21 +83,28 @@ import { contentText } from '../testing/support';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
+
 type ExecuteRunInput = Parameters<RunExecutionService['executeRun']>[0];
 
 const SOURCE_MODEL = 'source-model';
 const TARGET_MODEL = 'target-model';
+
 const SUMMARY =
   '## Objective\nPreserve continuity.\n\n## Current State\nReady.';
+
 /** The opaque reasoning and call metadata the first turn's scripted steps send. */
 const FIRST_REASONING_METADATA = {
   test: { signature: 'reasoning-first-step' },
 };
+
 const SECOND_REASONING_METADATA = {
   test: { signature: 'reasoning-second-step' },
 };
+
 const FIRST_CALL_METADATA = { test: { itemId: 'call-first-search' } };
+
 /** Sized so a request carrying the two seeded rows cannot fit, a checkpoint can. */
 const SMALL_WINDOW = 1000;
 const OLD_REQUEST = `OLD REQUEST ${'x'.repeat(1200)}`;
@@ -199,6 +206,7 @@ const epochModels: ModelSelectionValidator = {
 };
 
 const EPOCH_EXECUTOR_ID = 'compaction-epoch-host';
+
 /** The chat's creation time, far from "now" so the anchors it and a checkpoint derive can never coincide. */
 const CHAT_CREATED_AT = new Date('2026-01-15T10:30:00.000Z');
 
@@ -218,12 +226,14 @@ const STALE_DIGEST: RecencyDigestBaseline = {
   recentTotal: 1,
   compiledOn: '2026-08-01',
 };
+
 /**
  * The told-set names a chat by id, and the digest's pin correction queries
  * those ids: a placeholder that is not a UUID would fail that read rather
  * than exercising it, so this names a chat the owner has since deleted.
  */
 const STALE_SOURCE_CHAT_ID = '00000000-0000-4000-8000-0000000000a1';
+
 const STALE_DIGEST_TOLD = [
   {
     chatId: STALE_SOURCE_CHAT_ID,
@@ -231,14 +241,17 @@ const STALE_DIGEST_TOLD = [
     title: 'Stale source',
   },
 ];
+
 const STALE_SKILLS: SkillCatalogBaseline = {
   entries: [{ name: 'stale-skill', description: 'Retired skill.' }],
   omitted: 0,
 };
+
 const LIVE_SKILLS: SkillCatalogBaseline = {
   entries: [{ name: 'live-skill', description: 'Current skill.' }],
   omitted: 0,
 };
+
 const LIVE_CATALOG: SkillCatalogPort = {
   getSnapshot: () => ({
     available: true,
@@ -276,6 +289,7 @@ function renderEpochPrompt(input: {
 /** A summary request, told apart from the Run's own request by its trailing instruction. */
 function isSummaryRequest(request: ModelStreamInput): boolean {
   const last = request.messages.at(-1)?.content;
+
   return last === COMPACTION_INSTRUCTION;
 }
 
@@ -283,6 +297,7 @@ function sole<T>(rows: ReadonlyArray<T>): T {
   if (rows.length !== 1) {
     throw new Error(`Expected exactly one row, found ${rows.length}`);
   }
+
   return rows[0];
 }
 
@@ -319,38 +334,51 @@ function compactionClient(input: {
     compactionThresholdTokens: 1,
     streamText(request) {
       input.calls.push(request);
+
       if (input.error) {
         throw input.error;
       }
+
       const response = Promise.resolve(
         input.response ?? '## Objective\nContinue.',
       );
+
       const toolCalls = input.toolCalls ?? [];
+
       const model = new MockLanguageModelV3({
         provider: 'fake',
         modelId: input.model,
         doStream: ({ abortSignal }) => {
           input.onStart?.();
+
           return Promise.resolve({
             stream: new ReadableStream<LanguageModelV3StreamPart>({
               async start(controller) {
                 let aborted = false;
+
                 const onAbort = () => {
                   aborted = true;
                   controller.error(abortSignal?.reason);
                 };
+
                 if (abortSignal?.aborted) {
                   onAbort();
+
                   return;
                 }
+
                 abortSignal?.addEventListener('abort', onAbort, { once: true });
+
                 try {
                   const text = await response;
+
                   if (aborted) {
                     return;
                   }
+
                   controller.enqueue({ type: 'stream-start', warnings: [] });
                   controller.enqueue({ type: 'text-start', id: 'summary' });
+
                   if (text.length > 0) {
                     controller.enqueue({
                       type: 'text-delta',
@@ -358,7 +386,9 @@ function compactionClient(input: {
                       delta: text,
                     });
                   }
+
                   controller.enqueue({ type: 'text-end', id: 'summary' });
+
                   for (const [index, toolCall] of toolCalls.entries()) {
                     controller.enqueue({
                       type: 'tool-call',
@@ -367,6 +397,7 @@ function compactionClient(input: {
                       input: JSON.stringify(toolCall.input),
                     });
                   }
+
                   controller.enqueue({
                     type: 'finish',
                     finishReason: {
@@ -394,13 +425,17 @@ function compactionClient(input: {
           });
         },
       });
+
       const toolOptions: Pick<ModelStreamInput, 'tools' | 'toolChoice'> = {};
+
       if (request.tools) {
         toolOptions.tools = request.tools;
+
         if (request.toolChoice !== undefined) {
           toolOptions.toolChoice = request.toolChoice;
         }
       }
+
       return streamText({
         model,
         messages: request.messages,
@@ -433,6 +468,7 @@ function attemptClient(input: {
     calls: [],
     ...input.summary,
   });
+
   const answerClient =
     input.answer === null
       ? compactionClient({
@@ -441,6 +477,7 @@ function attemptClient(input: {
           response: new Promise<string>(() => undefined),
         })
       : createFakeModelClient([input.answer ?? 'target response']);
+
   return {
     model: TARGET_MODEL,
     provider: 'fake',
@@ -450,6 +487,7 @@ function attemptClient(input: {
     }),
     streamText(request) {
       input.calls.push(request);
+
       return isSummaryRequest(request)
         ? summaryClient.streamText(request)
         : answerClient.streamText(request);
@@ -471,6 +509,7 @@ function scriptedClient(
 ): ModelClient {
   models.register(modelId, behavior);
   const delegate = models.createClient(modelId);
+
   return {
     ...delegate,
     ...(compactionThresholdTokens !== undefined && {
@@ -483,11 +522,13 @@ function scriptedClient(
 /** The Run's own model with a window too small for the un-compacted history. */
 function windowTarget(calls: Array<ModelStreamInput>): ModelClient {
   const delegate = createFakeModelClient(['target response'], SMALL_WINDOW);
+
   return {
     ...delegate,
     model: TARGET_MODEL,
     streamText(input) {
       calls.push(input);
+
       return delegate.streamText(input);
     },
   };
@@ -533,6 +574,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         ),
       );
     }
+
     for (const directory of doomedDirectories.splice(0)) {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -564,21 +606,26 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     sourceAvailability?: NonNullable<Run['turnToolAvailability']>;
   }): Promise<SeededSwitch> {
     const sourceModel = options?.sourceModel ?? SOURCE_MODEL;
+
     return tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: userId,
       });
+
       doomedChats.push(chat.id);
       const messages = new MessagesRepository(tx);
       const runs = new RunsRepository(tx);
+
       const oldUser = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: userId,
         parts: [{ type: 'text', text: OLD_REQUEST }],
       });
+
       const sourcePrompt = `<user_personalization>Preferred name: Ana</user_personalization> <user_chat_history>Other chat: private excerpt</user_chat_history> transition-source-${chat.id}`;
       let sourceReceipt: SystemPromptReceipt | undefined;
+
       if (options?.sourceRun !== false) {
         const sourceRun = await runs.create({
           chatId: chat.id,
@@ -589,11 +636,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
             effort: options.sourceEffort,
           }),
         });
+
         const started = await runs.markStarted(sourceRun.id, userId);
         const attemptId = started?.activeAttemptId;
+
         if (!attemptId) {
           throw new Error('Failed to assign a source run attempt');
         }
+
         sourceReceipt = await new SystemPromptReceiptsRepository(tx).create({
           ownerUserId: userId,
           runId: sourceRun.id,
@@ -613,6 +663,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           attemptId,
         });
       }
+
       await messages.create({
         chatId: chat.id,
         role: 'assistant',
@@ -639,6 +690,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         },
       });
       const targetRunId = crypto.randomUUID();
+
       // A model-change item asserts two DISTINCT models — the producer refuses
       // equal ids — so it is authored only for a turn that really switches.
       const switchPart =
@@ -649,16 +701,19 @@ describeIfDb('snapshot-bound compaction continuity', () => {
               newModel: { id: TARGET_MODEL },
               runId: targetRunId,
             });
+
       const targetUserParts: Array<MessagePart> = [
         ...(switchPart === undefined ? [] : [switchPart]),
         { type: 'text', text: 'CURRENT TRIGGER' },
       ];
+
       const targetUser = await messages.create({
         chatId: chat.id,
         role: 'user',
         senderUserId: userId,
         parts: targetUserParts,
       });
+
       const targetRun = await runs.create({
         id: targetRunId,
         chatId: chat.id,
@@ -669,6 +724,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           effort: options.targetEffort,
         }),
       });
+
       return {
         chat,
         sourceReceipt,
@@ -703,9 +759,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       sourceEffort: 'high',
       targetEffort: 'low',
     });
+
     const workspaceRoot = realpathSync(
       mkdtempSync(path.join(tmpdir(), 'compaction-epoch-')),
     );
+
     doomedDirectories.push(workspaceRoot);
     await tenantDb.runAs(userId, (tx) =>
       tx.execute(dsql`
@@ -717,6 +775,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         WHERE id = ${seeded.chat.id} AND owner_user_id = ${userId}
       `),
     );
+
     const freshSource = await tenantDb.runAs(userId, async (tx) => {
       const chats = new ChatsRepository(tx);
       await chats.setRecencyDigestIfAbsent(
@@ -731,10 +790,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         baseline: STALE_SKILLS,
         rebakedFrom: null,
       });
+
       const source = await chats.create({
         ownerUserId: userId,
         title: 'Fresh source',
       });
+
       doomedChats.push(source.id);
       await new MessagesRepository(tx).create({
         chatId: source.id,
@@ -742,11 +803,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         senderUserId: userId,
         parts: [{ type: 'text', text: 'fresh opening' }],
       });
+
       return source;
     });
+
     await new MemoryService(tenantDb).updateForOwner(userId, {
       shareRecentChats: true,
     });
+
     return { ...seeded, freshSource, workspaceRoot };
   }
 
@@ -772,6 +836,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         skillCatalog = noopSkillCatalog(),
       } = {},
     } = options;
+
     return new RunExecutionService(
       tenantDb,
       compaction,
@@ -864,18 +929,21 @@ describeIfDb('snapshot-bound compaction continuity', () => {
   async function addTurn(chatId: string, text: string): Promise<Turn> {
     return tenantDb.runAs(userId, async (tx) => {
       const parts: Array<MessagePart> = [{ type: 'text', text }];
+
       const user = await new MessagesRepository(tx).create({
         chatId,
         role: 'user',
         senderUserId: userId,
         parts,
       });
+
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: user.id,
         userId,
         modelId: TARGET_MODEL,
       });
+
       return { chatId, runId: run.id, user, parts };
     });
   }
@@ -884,6 +952,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const rows = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     return rows
       .filter((row) => row.role === 'checkpoint')
       .sort((a, b) => b.seq - a.seq)[0];
@@ -896,6 +965,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         turn.chatId,
         userId,
       );
+
       return {
         run: await new RunsRepository(tx).findById(turn.runId, userId),
         chat: await new ChatsRepository(tx).findById(turn.chatId, userId),
@@ -924,6 +994,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const seeded = await seedEpoch();
       const turn = turnOf(seeded);
       const calls: Array<ModelStreamInput> = [];
+
       const createSourceClient = vi.fn<ModelClientFactory['createClient']>(
         () => {
           throw new Error('a threshold trigger must not resolve another model');
@@ -942,6 +1013,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           }),
         ),
       );
+
       await result.consumeStream?.();
 
       // The same request shape the full-current request would carry for this
@@ -950,14 +1022,17 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       // declarations of that pass, its effort, and the trailing instruction.
       expect(createSourceClient).not.toHaveBeenCalled();
       const summaryRequest = sole(calls.filter(isSummaryRequest));
+
       const targetRequest = sole(
         calls.filter((call) => !isSummaryRequest(call)),
       );
+
       const staleSystem = renderEpochPrompt({
         instant: CHAT_CREATED_AT,
         chats: STALE_DIGEST,
         skills: STALE_SKILLS,
       });
+
       expect(staleSystem).toContain('[Stale source]');
       expect(staleSystem).toContain('[stale-skill]');
       expect(summaryRequest.system).toBe(staleSystem);
@@ -983,6 +1058,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const declared = Object.keys(summaryRequest.tools ?? {}).sort();
       expect(declared).toContain('search_conversations');
       expect(declared).toEqual(Object.keys(targetRequest.tools ?? {}).sort());
+
       for (const tool of Object.values(summaryRequest.tools ?? {})) {
         expect(tool.execute).toBeUndefined();
       }
@@ -995,11 +1071,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         absorbedThroughSeq: seeded.targetUser.seq - 1,
         usage: { effort: 'low' },
       });
+
       const freshSystem = renderEpochPrompt({
         instant: checkpoint.createdAt,
         chats: state.chat?.recencyDigestBaseline ?? null,
         skills: LIVE_SKILLS,
       });
+
       expect(freshSystem).toContain('[Fresh source]');
       expect(freshSystem).toContain('[live-skill]');
       expect(freshSystem).not.toContain('[Stale source]');
@@ -1026,6 +1104,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const railText = contentText(
         targetRequest.messages.at(-1)?.content ?? '',
       );
+
       expect(railText).toContain(`\`${seeded.workspaceRoot}\``);
       expect(railText).toContain('The chat list was refreshed.');
       expect(railText).toContain('CURRENT TRIGGER');
@@ -1065,10 +1144,12 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const chat = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).create({ ownerUserId: userId }),
       );
+
       doomedChats.push(chat.id);
       const firstTurn = await addTurn(chat.id, 'FIRST REQUEST');
       const models = new ScriptedModelsService();
       const service = runService(createCompactionService(unexercisedModels));
+
       const first = await service.executeRun(
         requestFor(
           firstTurn,
@@ -1104,17 +1185,20 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           }),
         ),
       );
+
       await first.consumeStream?.();
       // Two provider requests: the step that called the tool, then the step its
       // result produced. The last one already carries the first step's
       // reasoning, its provider metadata, and the call's.
       const turnOnePrompts = [...models.prompts];
       const previousRequest = turnOnePrompts.at(-1);
+
       if (turnOnePrompts.length !== 2 || previousRequest === undefined) {
         throw new Error(
           `The first turn made ${turnOnePrompts.length} provider requests, expected 2.`,
         );
       }
+
       const serializedPrevious = JSON.stringify(previousRequest);
       expect(serializedPrevious).toContain('FIRST REASONING');
       expect(serializedPrevious).toContain('reasoning-first-step');
@@ -1124,6 +1208,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       // previous turn's model right before its first model step. The scripted
       // client answers the summary request and then the Run's own request.
       const secondTurn = await addTurn(chat.id, 'SECOND REQUEST');
+
       const second = await service.executeRun(
         requestFor(
           secondTurn,
@@ -1141,15 +1226,18 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           ),
         ),
       );
+
       await second.consumeStream?.();
 
       const secondPrompts = models.prompts.slice(turnOnePrompts.length);
       const summaryRequest = secondPrompts[0];
+
       if (secondPrompts.length !== 2 || summaryRequest === undefined) {
         throw new Error(
           `The second turn made ${secondPrompts.length} provider requests, expected a summary request and its own.`,
         );
       }
+
       // The projection replays the previous request byte for byte, member
       // order included, then the response to it, then the summarization
       // instruction.
@@ -1229,10 +1317,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           expect.objectContaining({ title: 'Fresh source' }),
         ]),
       );
+
       const firstRequest = sole(
         firstCalls.filter((call) => !isSummaryRequest(call)),
       );
+
       expect(sole(published.receipts).systemPrompt).toBe(firstRequest.system);
+
       // The dispatched request's accepted-turn items are already on the user
       // message, whatever the attempt's outcome.
       for (const producer of DISPATCHED_EPOCH_PRODUCERS) {
@@ -1247,6 +1338,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       // the stored items once, and it authors no second temporal anchor,
       // Workspace snapshot, or digest supersession marker.
       const secondCalls: Array<ModelStreamInput> = [];
+
       const retried = await service.executeRun(
         requestFor(
           turn,
@@ -1257,6 +1349,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           }),
         ),
       );
+
       await retried.consumeStream?.();
 
       expect(secondCalls.filter(isSummaryRequest)).toHaveLength(0);
@@ -1266,9 +1359,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(
         contentText(secondRequest.messages.at(-1)?.content ?? ''),
       ).toContain(`\`${seeded.workspaceRoot}\``);
+
       for (const producer of DISPATCHED_EPOCH_PRODUCERS) {
         expect(reminderCount(secondRequest, producer)).toBe(1);
       }
+
       const after = await readTurnState(turn);
       expect(after.contextParts).toEqual(published.contextParts);
       expect(after.run?.status).toBe('completed');
@@ -1324,6 +1419,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       // The retry's summary succeeds: its publication re-bakes the digest
       // after the Run already dispatched, so no stored marker reports it.
       const retryCalls: Array<ModelStreamInput> = [];
+
       const retried = await service.executeRun(
         requestFor(
           turn,
@@ -1334,6 +1430,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           }),
         ),
       );
+
       await retried.consumeStream?.();
 
       const after = await readTurnState(turn);
@@ -1346,9 +1443,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
             item.producer === 'recency-digest' && item.form === 'snapshot',
         ),
       ).toHaveLength(1);
+
       const retryRequest = sole(
         retryCalls.filter((call) => !isSummaryRequest(call)),
       );
+
       expect(
         contentText(retryRequest.messages.at(-1)?.content ?? '').split(
           'The chat list was refreshed.',
@@ -1372,6 +1471,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           }),
         ),
       );
+
       await first.consumeStream?.();
       const published = await readTurnState(publishing);
       expect(published.run?.status).toBe('completed');
@@ -1388,9 +1488,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       // Under the default threshold this turn needs no checkpoint of its own.
       const next = await addTurn(seeded.chat.id, 'NEXT TURN');
       const nextCalls: Array<ModelStreamInput> = [];
+
       const second = await service.executeRun(
         requestFor(next, attemptClient({ calls: nextCalls })),
       );
+
       await second.consumeStream?.();
 
       const settled = await readTurnState(next);
@@ -1404,9 +1506,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         expect.objectContaining({ producer: 'temporal' }),
       );
       const nextRequest = sole(nextCalls);
+
       const nextRequestText = nextRequest.messages
         .map(({ content }) => contentText(content))
         .join('\n\n');
+
       for (const producer of ['workspace', 'recency-digest']) {
         expect(
           settled.contextParts.filter((item) => item.producer === producer),
@@ -1418,9 +1522,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           nextRequestText.split(`<system-reminder producer="${producer}"`),
         ).toHaveLength(2);
       }
+
       const publishingRequest = sole(
         publishingCalls.filter((call) => !isSummaryRequest(call)),
       );
+
       expect(nextRequest.system).toBe(publishingRequest.system);
       expect(contentText(nextRequest.messages[0].content)).toContain(SUMMARY);
       expect(contentText(nextRequest.messages.at(-1)?.content ?? '')).toContain(
@@ -1431,6 +1537,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     it('does not repeat the supersession marker or the Unavailable list a failed Run dispatched', async () => {
       const seeded = await seedEpoch();
       const failing = turnOf(seeded);
+
       const service = epochService(
         createCompactionService(unexercisedModels),
         true,
@@ -1451,6 +1558,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       );
       const dispatched = await readTurnState(failing);
       const attemptId = dispatched.run?.activeAttemptId;
+
       if (!attemptId) throw new Error('Expected the dispatched attempt');
       await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).markFinished(failing.runId, userId, 'failed', {
@@ -1479,9 +1587,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
       const next = await addTurn(seeded.chat.id, 'NEXT TURN');
       const nextCalls: Array<ModelStreamInput> = [];
+
       const second = await service.executeRun(
         requestFor(next, attemptClient({ calls: nextCalls })),
       );
+
       await second.consumeStream?.();
 
       const settled = await readTurnState(next);
@@ -1491,6 +1601,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       // The failed Run dispatched both items, so it is the next turn's
       // baseline: each rides the next request once, from the failed turn.
       const nextRequest = sole(nextCalls);
+
       for (const producer of ['recency-digest', 'tool-availability']) {
         expect(
           failed.contextParts.filter((item) => item.producer === producer),
@@ -1510,6 +1621,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           { id: 'search_conversations', state: 'unavailable' },
         ],
       });
+
       const turn = turnOf(seeded);
       // An earlier attempt stored its prompt-imports item, then failed before
       // its dispatch transaction committed.
@@ -1532,11 +1644,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const result = await runService(
         createCompactionService(unexercisedModels),
       ).executeRun(requestFor(turn, attemptClient({ calls })));
+
       await result.consumeStream?.();
 
       const stored = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findById(turn.chatId, userId, turn.user.id),
       );
+
       // The availability reminder ranks before the import, the temporal
       // anchor after it, and the owner's text stays last.
       expect(
@@ -1552,12 +1666,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         { type: 'text', text: 'CURRENT TRIGGER' },
       ]);
       const trigger = contentText(sole(calls).messages.at(-1)?.content ?? '');
+
       const positions = [
         '<system-reminder producer="tool-availability"',
         '<system-reminder producer="prompt-imports"',
         '<system-reminder producer="temporal"',
         'CURRENT TRIGGER',
       ].map((marker) => trigger.indexOf(marker));
+
       expect(positions.every((position) => position >= 0)).toBe(true);
       expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     });
@@ -1571,6 +1687,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     // deleting that chat nor disabling the setting can reach.
     it('keeps the packaged prompt digest out of the persisted checkpoint', async () => {
       const seeded = await seedSwitch({ switchMarker: false });
+
       const digest: RecencyDigestBaseline = {
         pinned: [
           {
@@ -1594,6 +1711,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         recentTotal: 4,
         compiledOn: '2026-08-10',
       };
+
       await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).setRecencyDigestIfAbsent(
           seeded.chat.id,
@@ -1602,14 +1720,17 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           [],
         ),
       );
+
       const packagedTemplate = createModelPromptLoader({
         configPath: path.resolve(__dirname, '../../llame.config.jsonc'),
       }).resolve({ id: TARGET_MODEL, name: 'Test Model' }).systemPromptTemplate;
+
       const packagedEntry: SystemModelCatalogEntry = {
         ...executionModels.validateModelSelection(TARGET_MODEL),
         name: 'Test Model',
         systemPromptTemplate: packagedTemplate,
       };
+
       const packagedPrompt = new SystemPromptsService().render({
         model: packagedEntry,
         anchor: formatTemporalAnchor(
@@ -1619,6 +1740,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         chats: digest,
         admittedToolIds: [],
       }).text;
+
       // Guard the guard: if the block stopped rendering, every assertion below
       // would pass vacuously.
       expect(packagedPrompt).toContain('<user_chat_history>');
@@ -1639,6 +1761,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           attemptClient({ calls, compactionThresholdTokens: 1 }),
         ),
       );
+
       await result.consumeStream?.();
 
       const summaryRequest = sole(calls.filter(isSummaryRequest));
@@ -1689,6 +1812,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           attemptClient({ calls, compactionThresholdTokens: 1 }),
         ),
       );
+
       await result.consumeStream?.();
 
       expect(sole(calls.filter(isSummaryRequest)).effort).toBeUndefined();
@@ -1725,16 +1849,20 @@ describeIfDb('snapshot-bound compaction continuity', () => {
             attemptClient({ calls, summary, compactionThresholdTokens: 1 }),
           ),
         );
+
         await result.consumeStream?.();
 
         // The summary tool declarations were schema-only: no executor ran.
         const summaryRequest = sole(calls.filter(isSummaryRequest));
+
         for (const tool of Object.values(summaryRequest.tools ?? {})) {
           expect(tool.execute).toBeUndefined();
         }
+
         const targetRequest = sole(
           calls.filter((call) => !isSummaryRequest(call)),
         );
+
         expect(contentText(targetRequest.messages[0].content)).toBe(
           OLD_REQUEST,
         );
@@ -1767,6 +1895,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       'publishes the checkpoint but keeps the bound digest when $name',
       async ({ sharing, recencyDigest }) => {
         const seeded = await seedSwitch({ switchMarker: false });
+
         const told = [
           {
             chatId: '00000000-0000-4000-8000-0000000000a2',
@@ -1774,6 +1903,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
             title: 'Previously shared source',
           },
         ];
+
         await tenantDb.runAs(userId, (tx) =>
           new ChatsRepository(tx).setRecencyDigestIfAbsent(
             seeded.chat.id,
@@ -1824,6 +1954,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         }),
       );
       const turn = turnOf(seeded);
+
       const service = runService(createCompactionService(unexercisedModels), {
         config: {
           skills: { directories: ['/opt/skills'] },
@@ -1831,18 +1962,23 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         },
         models: epochModels,
       });
+
       const calls: Array<ModelStreamInput> = [];
+
       const recording = (): ModelClient => {
         const delegate = createFakeModelClient(['answer']);
+
         return {
           ...delegate,
           model: TARGET_MODEL,
           streamText(input) {
             calls.push(input);
+
             return delegate.streamText(input);
           },
         };
       };
+
       const before = await readTurnState(turn);
 
       // The told-state write runs after the trigger's items are stored, inside
@@ -1850,6 +1986,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const toldWrite = vi
         .spyOn(ChatsRepository.prototype, 'updateSkillCatalogTold')
         .mockRejectedValueOnce(new Error('told write failed'));
+
       try {
         await expect(
           service.executeRun(requestFor(turn, recording())),
@@ -1859,12 +1996,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       }
 
       const failed = await readTurnState(turn);
+
       const triggerOf = async () =>
         (
           await tenantDb.runAs(userId, (tx) =>
             new MessagesRepository(tx).findByChatId(turn.chatId, userId),
           )
         ).find((row) => row.id === turn.user.id);
+
       expect((await triggerOf())?.parts).toEqual(seeded.targetUserParts);
       expect(failed.contextParts).toEqual([]);
       expect(failed.chat?.skillCatalogTold).toEqual(
@@ -1884,11 +2023,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const retried = await service.executeRun(requestFor(turn, recording()));
       await retried.consumeStream?.();
       const dispatched = await readTurnState(turn);
+
       for (const producer of ['skill-catalog', 'temporal']) {
         expect(
           dispatched.contextParts.filter((part) => part.producer === producer),
         ).toHaveLength(1);
       }
+
       expect(dispatched.chat?.skillCatalogTold).toEqual(['live-skill']);
       expect(
         dispatched.events.filter(
@@ -1909,7 +2050,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         sourceEffort: 'high',
         targetEffort: 'low',
       });
+
       const sourceCalls: Array<ModelStreamInput> = [];
+
       const compaction = createCompactionService({
         createClient: vi.fn(() =>
           compactionClient({
@@ -1920,11 +2063,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           }),
         ),
       });
+
       const targetCalls: Array<ModelStreamInput> = [];
 
       const result = await runService(compaction).executeRun(
         requestFor(turnOf(seeded), windowTarget(targetCalls)),
       );
+
       await result.consumeStream?.();
 
       expect(sole(sourceCalls).effort).toBe('high');
@@ -1940,16 +2085,20 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const seeded = await seedSwitch({ toolObservation: true });
       const sourceCalls: Array<ModelStreamInput> = [];
       const targetCalls: Array<ModelStreamInput> = [];
+
       const sourceClient = compactionClient({
         model: SOURCE_MODEL,
         calls: sourceCalls,
         response: SUMMARY,
         contextWindowTokens: 10_000,
       });
+
       const createSourceClient = vi.fn(() => sourceClient);
+
       const compaction = createCompactionService({
         createClient: createSourceClient,
       });
+
       // Synthetic bound, sized to fit exactly one checkpoint plus the switch
       // item and the live worker-admitted search declaration. The budget is
       // deliberately below the un-compacted history, so this still exercises
@@ -1957,6 +2106,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const result = await runService(compaction).executeRun(
         requestFor(turnOf(seeded), windowTarget(targetCalls)),
       );
+
       await result.consumeStream?.();
 
       const sourceRequest = sole(sourceCalls);
@@ -2017,9 +2167,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(targetTrigger?.role).toBe('user');
       const targetTriggerText = contentText(targetTrigger?.content ?? '');
       const stagedSwitch = seeded.switchPart;
+
       if (stagedSwitch === undefined) {
         throw new Error('Expected this turn to stage a model-change item');
       }
+
       expect(targetTriggerText).toContain(stagedSwitch.data.text);
       expect(targetTriggerText).toContain('Message received:');
       // The run-derived item names the model the catalog resolves for the
@@ -2055,7 +2207,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         sourceModel: TARGET_MODEL,
         switchMarker: false,
       });
+
       const sourceCalls: Array<ModelStreamInput> = [];
+
       const createSourceClient = vi.fn(() =>
         compactionClient({
           model: TARGET_MODEL,
@@ -2064,11 +2218,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           contextWindowTokens: 10_000,
         }),
       );
+
       const targetCalls: Array<ModelStreamInput> = [];
 
       const result = await runService(
         createCompactionService({ createClient: createSourceClient }),
       ).executeRun(requestFor(turnOf(seeded), windowTarget(targetCalls)));
+
       await result.consumeStream?.();
 
       expect(createSourceClient).toHaveBeenCalledWith(TARGET_MODEL);
@@ -2091,6 +2247,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const seeded = await seedSwitch();
       const sourceCalls: Array<ModelStreamInput> = [];
       const targetCalls: Array<ModelStreamInput> = [];
+
       const compaction = createCompactionService({
         createClient: vi.fn(() =>
           compactionClient({ model: SOURCE_MODEL, calls: sourceCalls }),
@@ -2121,23 +2278,28 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const sourceCalls: Array<ModelStreamInput> = [];
       const targetCalls: Array<ModelStreamInput> = [];
       let sourceStarted!: () => void;
+
       const sourceStartedPromise = new Promise<void>((resolve) => {
         sourceStarted = resolve;
       });
+
       const sourceClient = compactionClient({
         model: SOURCE_MODEL,
         calls: sourceCalls,
         response: new Promise<string>(() => undefined),
         onStart: sourceStarted,
       });
+
       const compaction = createCompactionService({
         createClient: vi.fn(() => sourceClient),
       });
+
       const abort = new AbortController();
 
       const execution = runService(compaction).executeRun(
         requestFor(turnOf(seeded), windowTarget(targetCalls), abort.signal),
       );
+
       await sourceStartedPromise;
       abort.abort(RUN_TIMEOUT_ABORT_REASON);
 
@@ -2158,18 +2320,22 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const targetCalls: Array<ModelStreamInput> = [];
       let resolveSummary!: (summary: string) => void;
       let sourceStarted!: () => void;
+
       const sourceStartedPromise = new Promise<void>((resolve) => {
         sourceStarted = resolve;
       });
+
       const summaryPromise = new Promise<string>((resolve) => {
         resolveSummary = resolve;
       });
+
       const sourceClient = compactionClient({
         model: SOURCE_MODEL,
         calls: [],
         response: summaryPromise,
         onStart: sourceStarted,
       });
+
       const compaction = createCompactionService({
         createClient: vi.fn(() => sourceClient),
       });
@@ -2177,6 +2343,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const execution = runService(compaction).executeRun(
         requestFor(turnOf(seeded), windowTarget(targetCalls)),
       );
+
       await sourceStartedPromise;
       const concurrentSummary = '## Objective\nUse the newer checkpoint.';
       await tenantDb.runAs(userId, (tx) =>
@@ -2209,18 +2376,22 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const targetCalls: Array<ModelStreamInput> = [];
       let resolveSummary!: (summary: string) => void;
       let sourceStarted!: () => void;
+
       const sourceStartedPromise = new Promise<void>((resolve) => {
         sourceStarted = resolve;
       });
+
       const summaryPromise = new Promise<string>((resolve) => {
         resolveSummary = resolve;
       });
+
       const sourceClient = compactionClient({
         model: SOURCE_MODEL,
         calls: [],
         response: summaryPromise,
         onStart: sourceStarted,
       });
+
       const compaction = createCompactionService({
         createClient: vi.fn(() => sourceClient),
       });
@@ -2228,6 +2399,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const execution = runService(compaction).executeRun(
         requestFor(turnOf(seeded), windowTarget(targetCalls)),
       );
+
       await sourceStartedPromise;
       await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).createCheckpoint({

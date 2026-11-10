@@ -38,10 +38,14 @@ export function managedChildEnvironment(
     ["PATH", managedChildPath()],
     ["LANG", "C.UTF-8"],
   ];
+
   for (const name of OPTIONAL_ENVIRONMENT_NAMES) {
     const value = process.env[name];
+
     if (value !== undefined) base.push([name, value]);
   }
+
   base.push(["TERM", "dumb"]);
+
   return Object.fromEntries([...base, ...Object.entries(additions ?? {})]);
 }

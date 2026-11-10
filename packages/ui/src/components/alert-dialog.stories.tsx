@@ -90,9 +90,11 @@ export const Basic: Story = {
     const trigger = canvas.getByRole("button", { name: "Show Dialog" });
 
     await userEvent.click(trigger);
+
     const dialog = await screen.findByRole("alertdialog", {
       name: "Are you absolutely sure?",
     });
+
     await expect(dialog).toHaveAccessibleDescription(
       "This action cannot be undone. This will permanently delete your account and remove your data from our servers.",
     );
@@ -137,6 +139,7 @@ export const Small: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Show Dialog" }));
+
     const dialog = await screen.findByRole("alertdialog", {
       name: "Allow accessory to connect?",
     });
@@ -193,6 +196,7 @@ export const Media: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Share Project" }),
     );
+
     const dialog = await screen.findByRole("alertdialog", {
       name: "Share this project?",
     });
@@ -251,6 +255,7 @@ export const SmallWithMedia: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Show Dialog" }));
+
     const dialog = await screen.findByRole("alertdialog", {
       name: "Allow accessory to connect?",
     });
@@ -305,6 +310,7 @@ export const Destructive: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Delete Chat" }));
+
     const dialog = await screen.findByRole("alertdialog", {
       name: "Delete chat?",
     });
@@ -368,6 +374,7 @@ export const InDialog: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Open Dialog" }));
+
     const dialog = await screen.findByRole("dialog", {
       name: "Alert Dialog Example",
     });
@@ -375,9 +382,11 @@ export const InDialog: Story = {
     await userEvent.click(
       screen.getByRole("button", { name: "Open Alert Dialog" }),
     );
+
     const alertDialog = await screen.findByRole("alertdialog", {
       name: "Are you absolutely sure?",
     });
+
     await expect(alertDialog).toHaveAttribute("data-size", "sm");
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));

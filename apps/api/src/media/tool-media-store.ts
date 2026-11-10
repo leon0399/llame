@@ -76,9 +76,12 @@ function storedOf(stored: MediaObject): StoredImage | StoredPdf | undefined {
       byteSize: stored.byteSize,
     };
   }
+
   const image = imageColumns(stored);
+
   if (image === undefined) return undefined;
   const { width, height } = image;
+
   return {
     status: 'success',
     kind: 'image',
@@ -97,6 +100,7 @@ async function preparePdfRead(
   signal?: AbortSignal,
 ): Promise<PreparedRead> {
   const pages = await preparePdf(bytes, undefined, signal);
+
   return {
     result: {
       status: 'success',
@@ -116,6 +120,7 @@ async function prepareImageRead(
   const { original, model } = await prepareMedia(bytes);
   const thumbnail = await encodeThumbnail(model.bytes);
   const { mediaType, width, height } = original;
+
   return {
     result: {
       status: 'success',
@@ -156,15 +161,21 @@ function unstoredRead(
             : MEDIA_REFUSAL.imageTooLarge,
         );
       }
+
       const bytes = await readBytes();
+
       const prepared = await (kind === 'pdf'
         ? preparePdfRead(bytes, locator, signal)
         : prepareImageRead(bytes, locator));
+
       signal?.throwIfAborted();
+
       if (key !== undefined) retained.set(key, prepared.entry);
+
       return prepared.result;
     } catch (error) {
       if (!(error instanceof MediaIngestError)) throw error;
+
       return { status: 'error', type: error.code, message: error.message };
     }
   };
@@ -180,6 +191,7 @@ export function createToolMediaStore(
     readMedia: (locator, key) => unstoredRead(retained, locator, key),
     async findMedia(id) {
       const stored = await media.findOwned(ownerUserId, id);
+
       return stored && storedOf(stored);
     },
   };

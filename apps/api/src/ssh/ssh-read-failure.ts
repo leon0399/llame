@@ -21,16 +21,21 @@ import { type SshBashFrames, type SshReadFrames } from './ssh-script';
 
 const SSH_HOST_KEY_MISMATCH = /host key verification failed/iu;
 const SSH_AUTH_FAILED = /Permission denied \(/u;
+
 const SSH_CONNECT_FAILED =
   /connection refused|connection timed out|connect(?:ion)? to .* closed by|connection closed by (?:remote host|[^\n]* port [0-9]+)|operation timed out|could not resolve hostname|no route to host|network is unreachable|connection reset by peer/iu;
+
 // A banner-exchange failure is a connection failure; the same prefix on a
 // `debug` line (a raised LogLevel) is the ordinary handshake.
 const SSH_HANDSHAKE_FAILED =
   /^(?!debug\d*:)[^\n]*\b(?:kex_exchange_identification|banner exchange):/imu;
+
 const SSH_MISSING_SHELL = /\bsh\b[^\n]*\bnot found\b/iu;
+
 /** `bash` absent, which a host with `sh` reports as the missing command. */
 const SSH_MISSING_BASH =
   /(?:\bbash: (?:command )?not found\b|command not found: bash\b)/iu;
+
 const WINDOWS_SHELL =
   /is not recognized as an internal or external command|is not recognized as the name of a cmdlet|The system cannot find the (?:file|path) specified/iu;
 
@@ -60,12 +65,14 @@ export function classifySshPreludeFailure(
 ): SshPreludeFailure {
   if (outcome.outcome === 'failed') {
     if (outcome.reason === 'cancelled') return { kind: 'cancelled' };
+
     return {
       kind: 'unavailable',
       reason:
         outcome.reason === 'client_missing' ? 'client_missing' : 'unreachable',
     };
   }
+
   return classifyEndedPreludeFailure(outcome);
 }
 
@@ -74,24 +81,30 @@ function classifyEndedPreludeFailure(
   outcome: Extract<SshRunOutcome, { readonly outcome: 'ended' }>,
 ): SshEndedPreludeFailure {
   const { diagnostic, code } = outcome;
+
   if (SSH_HOST_KEY_MISMATCH.test(diagnostic))
     return { kind: 'unavailable', reason: 'host_key_mismatch' };
+
   if (SSH_AUTH_FAILED.test(diagnostic))
     return { kind: 'unavailable', reason: 'auth_failed' };
+
   if (
     SSH_CONNECT_FAILED.test(diagnostic) ||
     SSH_HANDSHAKE_FAILED.test(diagnostic)
   )
     return { kind: 'unavailable', reason: 'unreachable' };
+
   // Before the `sh` pattern: a host whose login shell is `sh` reports the
   // missing `bash` as `sh: 1: bash: not found`, which both patterns match.
   if (code === 127 && SSH_MISSING_BASH.test(diagnostic))
     return { kind: 'unsupported', cause: 'bash' };
+
   if (
     (code === 127 && SSH_MISSING_SHELL.test(diagnostic)) ||
     WINDOWS_SHELL.test(diagnostic)
   )
     return { kind: 'unsupported', cause: 'posix_shell' };
+
   return { kind: 'unsupported', cause: 'no_script' };
 }
 
@@ -100,6 +113,7 @@ export type SshReadVerdict =
   | { readonly kind: 'complete' }
   | SshPreludeFailure
   | { readonly kind: 'unavailable'; readonly reason: 'session_lost' };
+
 /** What a remote `bash` call's process and frames amount to. */
 export type SshBashVerdict =
   | { readonly kind: 'complete' }
@@ -119,13 +133,16 @@ export function classifySshBashOutcome(
   frames: SshBashFrames,
 ): SshBashVerdict {
   if (!frames.started) return preMarkerBashFailure(outcome);
+
   if (outcome.outcome === 'failed' || frames.status === undefined)
     return { kind: 'unknown' };
+
   // The stderr marker says the command started, but a stdout bound reached
   // with no output after the stdout marker means the bound took the marker:
   // the command's output is lost, so its result cannot be reported.
   if (outcome.stdoutOverflow && frames.stdout.length === 0)
     return { kind: 'unknown' };
+
   return { kind: 'complete' };
 }
 
@@ -143,7 +160,9 @@ function preMarkerBashFailure(outcome: SshRunOutcome): SshBashVerdict {
     return outcome.reason === 'client_missing'
       ? { kind: 'unavailable', reason: 'client_missing' }
       : { kind: 'unknown' };
+
   if (outcome.stdoutOverflow) return { kind: 'unknown' };
+
   return classifyEndedPreludeFailure(outcome);
 }
 
@@ -156,9 +175,12 @@ export function classifySshReadOutcome(
   frames: SshReadFrames,
 ): SshReadVerdict {
   if (!frames.started) return classifySshPreludeFailure(outcome);
+
   if (outcome.outcome === 'failed' && outcome.reason === 'cancelled')
     return { kind: 'cancelled' };
+
   if (frames.status === undefined)
     return { kind: 'unavailable', reason: 'session_lost' };
+
   return { kind: 'complete' };
 }

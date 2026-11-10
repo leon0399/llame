@@ -201,6 +201,7 @@ class AssistantPartCollectorImpl {
       // nothing, and must not break the transcript the Run writes.
       if (!isRecord(part)) continue;
       this.collected.push(part);
+
       if (isString(part['toolCallId'])) {
         this.settledToolCallIds.add(part['toolCallId']);
       }
@@ -260,9 +261,12 @@ class AssistantPartCollectorImpl {
         ...(step !== undefined && { step }),
       });
       this.reasoningPartIndexes.set(partId, this.collected.length - 1);
+
       return;
     }
+
     if (providerMetadata === undefined) return;
+
     // Opaque and stored verbatim: llame never reads inside it, and an absent
     // one never becomes an `undefined` field on the part. The id names the
     // part the metadata belongs to; a wire that supplied none binds it to the
@@ -271,8 +275,10 @@ class AssistantPartCollectorImpl {
       partId === undefined
         ? this.openReasoningPartIndex()
         : this.reasoningPartIndexes.get(partId);
+
     if (index === undefined) return;
     const part = this.collected[index];
+
     if (part?.type === 'reasoning' && isString(part.text)) {
       part.providerMetadata = providerMetadata;
     }
@@ -285,6 +291,7 @@ class AssistantPartCollectorImpl {
     step: number | undefined,
   ): void {
     const last = this.collected.at(-1);
+
     if (
       last?.type === 'reasoning' &&
       isString(last.text) &&
@@ -304,6 +311,7 @@ class AssistantPartCollectorImpl {
         ...(step !== undefined && { step }),
       });
     }
+
     // A defined id now names the part those characters went into (D15).
     if (partId !== undefined) {
       this.reasoningPartIndexes.set(partId, this.collected.length - 1);
@@ -331,6 +339,7 @@ class AssistantPartCollectorImpl {
   /** Index of the open reasoning part, when the last collected part is one. */
   private openReasoningPartIndex(): number | undefined {
     const last = this.collected.at(-1);
+
     return last?.type === 'reasoning' && isString(last.text)
       ? this.collected.length - 1
       : undefined;
@@ -362,12 +371,16 @@ class AssistantPartCollectorImpl {
     if (this.settledToolCallIds.has(part.toolCallId)) {
       return;
     }
+
     this.settledToolCallIds.add(part.toolCallId);
     const pendingIndex = this.pendingToolIndexes.get(part.toolCallId);
+
     if (pendingIndex === undefined) {
       this.collected.push(part);
+
       return;
     }
+
     this.collected[pendingIndex] = part;
     this.pendingToolIndexes.delete(part.toolCallId);
   }
@@ -394,10 +407,13 @@ class AssistantPartCollectorImpl {
     const last = this.collected.findLast(
       (part) => part.type !== 'pending-tool',
     );
+
     if (last?.type !== 'reasoning') return;
+
     const previous = isRecord(last.providerMetadata)
       ? last.providerMetadata
       : {};
+
     last.providerMetadata = { ...previous, llame: { interrupted: true } };
   }
 
@@ -460,15 +476,22 @@ export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
   const part = toolPartBody(call);
+
   if (call.step !== undefined) part.step = call.step;
+
   if (call.sdkRefusal !== undefined) part.sdkRefusal = call.sdkRefusal;
+
   if (call.retainedMedia !== undefined) part.retainedMedia = call.retainedMedia;
+
   if (call.providerMetadata !== undefined)
     part.providerMetadata = call.providerMetadata;
+
   if (call.permission !== undefined) part.permission = call.permission;
+
   if (call.derivedDecisions !== undefined && call.derivedDecisions.length > 0) {
     part.derivedDecisions = call.derivedDecisions;
   }
+
   // Only the native `read` tool's refused hop names a redirect target, and an
   // absent value must add no property at all.
   const refusedUrl =
@@ -476,8 +499,10 @@ export function toolActivityPart(
     isHopRejection(call.toolName, call.result.type)
       ? call.result.rejectedUrl
       : undefined;
+
   if (refusedUrl !== undefined) part.errorRejectedUrl = refusedUrl;
   const artifact = isRecord(call.result) ? call.result['artifact'] : undefined;
+
   if (isString(artifact) && isArtifactLocator(artifact))
     part.artifact = artifact;
 
@@ -494,6 +519,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
   // their own marker; an interrupted `cancelled` result carries both.
   const cancelled = result.status === 'error' && result.type === 'cancelled';
   const interrupted = call.interrupted === true;
+
   const marked =
     cancelled || interrupted
       ? {
@@ -505,6 +531,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
           },
         }
       : {};
+
   return result.status === 'success'
     ? {
         type: `tool-${toolName}`,
@@ -588,6 +615,7 @@ class DurableAssistantReconstructor {
     payload: unknown,
   ): number | undefined {
     const recorded = eventPayloadNumber(payload, 'stepNumber');
+
     return recorded === undefined ? undefined : this.stepOffset + recorded;
   }
 
@@ -606,6 +634,7 @@ class DurableAssistantReconstructor {
           eventProviderMetadata(event.payload),
           this.stepFrom(event.payload),
         );
+
         return;
       case 'reasoning.delta':
         this.collector.reasoning(
@@ -614,18 +643,23 @@ class DurableAssistantReconstructor {
           eventProviderMetadata(event.payload),
           this.stepFrom(event.payload),
         );
+
         return;
       case 'run.step_cap_reached':
         this.applyStepCapReached(event);
+
         return;
       case 'tool.requested':
         this.applyToolRequested(event);
+
         return;
       case 'tool.started':
         this.applyToolStarted(event);
+
         return;
       case 'tool.completed':
         this.applyToolCompleted(event);
+
         return;
       default:
         return;
@@ -635,6 +669,7 @@ class DurableAssistantReconstructor {
   private applyStepCapReached(event: RunEvent): void {
     const stepsUsed = eventPayloadNumber(event.payload, 'stepsUsed');
     const maxSteps = eventPayloadNumber(event.payload, 'maxSteps');
+
     if (stepsUsed !== undefined && maxSteps !== undefined) {
       this.collector.capNotice({
         type: 'data-cap-notice',
@@ -651,6 +686,7 @@ class DurableAssistantReconstructor {
     if (isSystemOriginPayload(event.payload)) return;
     const toolCallId = eventPayloadString(event.payload, 'toolCallId');
     const toolName = eventPayloadString(event.payload, 'toolName');
+
     if (
       !toolCallId ||
       !toolName ||
@@ -659,6 +695,7 @@ class DurableAssistantReconstructor {
     ) {
       return;
     }
+
     this.seenToolCallIds.add(toolCallId);
     const toolInput = eventPayloadField(event.payload, 'input');
     const permission = permissionFromPayload(event.payload);
@@ -674,9 +711,11 @@ class DurableAssistantReconstructor {
 
   private applyToolStarted(event: RunEvent): void {
     const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+
     if (!toolCallId) return;
     this.startedToolCallIds.add(toolCallId);
     const classification = eventPayloadField(event.payload, 'classification');
+
     if (isToolClassification(classification)) {
       this.startedClassifications.set(toolCallId, classification);
     }
@@ -696,25 +735,33 @@ class DurableAssistantReconstructor {
 
   private applyToolCompleted(event: RunEvent): void {
     const toolCallId = eventPayloadString(event.payload, 'toolCallId');
+
     if (!toolCallId || this.completedToolCallIds.has(toolCallId)) {
       return;
     }
+
     const request = this.openToolCalls.get(toolCallId);
+
     if (!request) {
       return;
     }
+
     const result = toolResultFromPayload(
       eventPayloadField(event.payload, 'output'),
       request.toolName,
     );
+
     if (result === undefined) {
       return;
     }
+
     this.completedToolCallIds.add(toolCallId);
     this.openToolCalls.delete(toolCallId);
+
     const retainedMedia = parseRetainedMedia(
       eventPayloadField(event.payload, RETAINED_MEDIA_KEY),
     );
+
     this.collector.tool(
       toolActivityPart({
         toolCallId,
@@ -751,6 +798,7 @@ export function reconstructDurableAssistant(
 ) {
   const reconstructor = new DurableAssistantReconstructor(stepOffset);
   reconstructor.apply(events);
+
   return {
     collector: reconstructor.collector,
     openToolCalls: reconstructor.openToolCalls,

@@ -28,6 +28,7 @@ export const CONVERSATION_READ_MAX_LINES = 2000;
 export const CONVERSATION_READ_RESULT_MAX_CODE_UNITS = 15_000;
 
 export { CONVERSATION_HISTORY_NOTICE };
+
 export { scanConversationLogicalLines };
 
 export const conversationReadInputSchema = z.strictObject({
@@ -74,6 +75,7 @@ export type ConversationReadResult =
 const INVALID_INPUT_MESSAGE = 'The conversation read arguments are invalid.';
 const SOURCE_NOT_FOUND_MESSAGE = 'The conversation source was not found.';
 const RANGE_INVALID_MESSAGE = 'The conversation line range is invalid.';
+
 const LIMIT_EXCEEDED_MESSAGE =
   'The conversation read exceeded its output limit.';
 
@@ -120,7 +122,9 @@ export async function executeConversationRead(
   input: unknown,
 ): Promise<ConversationReadResult> {
   const parsed = conversationReadInputSchema.safeParse(input);
+
   if (!parsed.success) return invalidInputResult();
+
   if (!ownerUserId.trim()) return sourceNotFoundResult();
 
   const source = await new MessagesRepository(db).findConversationMessage(
@@ -128,6 +132,7 @@ export async function executeConversationRead(
     ownerUserId,
     parsed.data.messageSeq,
   );
+
   if (source === undefined) return sourceNotFoundResult();
 
   return renderConversationRead(source, parsed.data);
@@ -140,18 +145,22 @@ export function renderConversationRead(
 ): ConversationReadResult {
   const visibleText = visibleMessageText(source.parts);
   const lines = scanConversationLogicalLines(visibleText);
+
   // One LF-terminated placeholder line per `file` part, in stored order. These
   // lines sit outside the visible text: they are never line-numbered and count
   // toward no line coordinate or line bound, only the structured-result bound.
   const placeholders = fileAttachmentLines(source.parts)
     .map((line) => `${line}\n`)
     .join('');
+
   const { offset } = input;
 
   if (offset > 0 && lines.length === 0) return rangeInvalidResult();
+
   if (lines.length > 0 && offset >= lines.length) return rangeInvalidResult();
 
   const availableLines = lines.length - offset;
+
   if (availableLines === 0) {
     return buildResult({ source, offset }, lines, 0, { placeholders });
   }
@@ -194,34 +203,40 @@ function findFittingConversationRead(
 ): ConversationReadResult {
   const { source, offset, availableLines, requestedLineCount, placeholders } =
     window;
+
   const selected = window.lines.slice(offset, offset + requestedLineCount);
 
   const buildCandidate = (lineCount: number) => {
     const hasRemaining = availableLines > lineCount;
     const cutReason = resolveCutReason(window, lineCount, hasRemaining);
     const outcome = { hasRemaining, cutReason, placeholders };
+
     const result = buildResult(
       { source, offset },
       selected,
       lineCount,
       outcome,
     );
+
     const measured = hasRemaining
       ? {
           ...result,
           content: renderContent(selected.slice(0, lineCount), placeholders),
         }
       : result;
+
     return { result, fits: fitsSerializedBounds(measured) };
   };
 
   const fullCandidate = buildCandidate(requestedLineCount);
+
   if (fullCandidate.fits) return fullCandidate.result;
 
   const selectedCandidate = selectLargestConversationReadPrefix(
     requestedLineCount,
     buildCandidate,
   );
+
   if (selectedCandidate !== undefined) {
     return selectedCandidate;
   }
@@ -248,6 +263,7 @@ export function selectLargestConversationReadPrefix(
   while (lower <= upper) {
     const lineCount = Math.floor((lower + upper) / 2);
     const candidate = buildCandidate(lineCount);
+
     if (candidate.fits) {
       selected = candidate.result;
       lower = lineCount + 1;
@@ -275,8 +291,10 @@ function resolveCutReason(
     ) {
       return 'line_limit';
     }
+
     return undefined;
   }
+
   return 'output_limit';
 }
 
@@ -291,8 +309,10 @@ function renderContent(
   const numbered = returned
     .map((line) => `${line.line + 1}: ${line.text}${line.delimiter}`)
     .join('');
+
   if (placeholders.length === 0) return numbered;
   const separator = returned.at(-1)?.delimiter === '' ? '\n' : '';
+
   return `${numbered}${separator}${placeholders}`;
 }
 
@@ -310,6 +330,7 @@ function buildResult(
   const { source, offset } = position;
   const { hasRemaining = false, cutReason, placeholders } = outcome;
   const carried = hasRemaining ? '' : placeholders;
+
   const result: ConversationReadSuccess = {
     status: 'success',
     chatId: source.chatId,
@@ -321,14 +342,19 @@ function buildResult(
     content: renderContent(lines.slice(0, lineCount), carried),
     notice: CONVERSATION_HISTORY_NOTICE,
   };
+
   if (source.previousMessageSeq !== undefined) {
     result.previousMessageSeq = source.previousMessageSeq;
   }
+
   if (source.nextMessageSeq !== undefined) {
     result.nextMessageSeq = source.nextMessageSeq;
   }
+
   if (hasRemaining) result.nextOffset = offset + lineCount;
+
   if (cutReason !== undefined) result.cutReason = cutReason;
+
   return result;
 }
 
@@ -354,6 +380,7 @@ export const conversationReadTool: Tool<ConversationReadArguments> = {
     input: ConversationReadArguments,
   ): Promise<ToolResult> {
     if (!context.userId.trim()) return sourceNotFoundResult();
+
     return context.tenantDb.runAs(context.userId, (tx) =>
       executeConversationRead(tx, context.userId, input),
     );

@@ -28,9 +28,11 @@ export const noUnknownTypeAliasesRule = defineRule({
       environment !== null &&
       resolvedTypeMatches(type, environment, (resolved, matches) => {
         if (resolved.type === "TSUnknownKeyword") return true;
+
         if (resolved.type === "TSParenthesizedType") {
           return matches(resolved.typeAnnotation);
         }
+
         return resolved.type === "TSUnionType" && resolved.types.some(matches);
       });
 

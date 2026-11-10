@@ -29,12 +29,14 @@ export type MarkdownProps = {
 
 function parseMarkdownIntoBlocks(markdown: string): Array<string> {
   const tokens = marked.lexer(markdown);
+
   return tokens.map((token) => token.raw);
 }
 
 function extractLanguage(className?: string): string {
   if (!className) return "plaintext";
   const match = className.match(/language-(\w+)/);
+
   return match ? match[1] : "plaintext";
 }
 
@@ -134,6 +136,7 @@ function MarkdownComponent({
 }
 
 const Markdown = memo(MarkdownComponent);
+
 Markdown.displayName = "Markdown";
 
 export { Markdown };

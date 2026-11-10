@@ -46,6 +46,7 @@ describe("markdown outline reader", () => {
       "\n",
       "Flag text.\n",
     ].join("");
+
     await expect(read(source)).resolves.toMatchObject({
       representation: "outline",
       content:
@@ -108,6 +109,7 @@ describe("markdown outline reader", () => {
       { length: 60 },
       (_, index) => `key${index}: value\n`,
     ).join("");
+
     const source = `---\n${keys}  indented\n# hidden\n- item\n---\n# Body\ntext\n`;
     const result = await read(source);
     expect(result).toMatchObject({
@@ -206,16 +208,21 @@ describe("markdown outline reader", () => {
       { length: 12 },
       (_, index) => `# heading number ${index}\n`,
     ).join("");
+
     const whole = await read(headings);
     const budget = Math.floor(measureReadRendering(whole) / 2);
+
     const budgeted = await read(headings, "outline", {
       reserveCodeUnits: 16_000 - budget,
     });
+
     expect(budgeted.truncated).toBe(true);
     expect(measureReadRendering(budgeted)).toBeLessThanOrEqual(budget);
+
     const rangeBudgeted = await read(headings, "outline:3-6", {
       reserveCodeUnits: 16_000 - budget,
     });
+
     expect(measureReadRendering(rangeBudgeted)).toBeLessThanOrEqual(budget);
   });
 
@@ -223,12 +230,14 @@ describe("markdown outline reader", () => {
     const source =
       Array.from({ length: 200 }, () => `${"x".repeat(100)}\n`).join("") +
       "---\n\nbody\n\n## Next\n\nnext body\n";
+
     const first = await read(source);
     expect(first.truncated).toBe(true);
     let nextOffset = first.nextOffset;
     expect(nextOffset).toBeDefined();
     let nextHeadingSeen = false;
     const sourceLineCount = splitSourceLines(source).length;
+
     for (
       let attempt = 0;
       attempt < 10 && nextOffset !== undefined;
@@ -238,11 +247,14 @@ describe("markdown outline reader", () => {
         source,
         `outline:${nextOffset + 1}-${sourceLineCount}`,
       );
+
       nextHeadingSeen ||= continuation.content.includes("205: ## Next\n");
+
       if (!continuation.truncated) break;
       expect(continuation.nextOffset).toBeGreaterThan(nextOffset);
       nextOffset = continuation.nextOffset;
     }
+
     expect(nextHeadingSeen).toBe(true);
   });
 
@@ -254,6 +266,7 @@ describe("markdown outline reader", () => {
       yield "\n";
       throw new Error("pulled past scope");
     }
+
     await expect(
       outlineMarkdown(guarded(), target("outline:1-3")),
     ).resolves.toMatchObject({
@@ -265,6 +278,7 @@ describe("markdown outline reader", () => {
   });
   it("waits for a setext underline before stopping at the scope end", async () => {
     let pulled = 0;
+
     function* straddling(): Generator<string> {
       for (const line of [
         "intro\n",
@@ -278,6 +292,7 @@ describe("markdown outline reader", () => {
         yield line;
       }
     }
+
     await expect(
       outlineMarkdown(straddling(), target("outline:4-4")),
     ).resolves.toMatchObject({
@@ -297,6 +312,7 @@ describe("markdown outline reader", () => {
   it("omits an ancestor chain that leaves no room for the scope", async () => {
     const lines = Array.from({ length: 3000 }, (_, index) => `text ${index}\n`);
     lines.push("===\n", "\n", "first body\n");
+
     while (lines.length < 3600) lines.push("\n");
     lines[3549] = "## In scope\n";
     lines[3551] = "scope body\n";
@@ -314,17 +330,20 @@ describe("markdown outline reader", () => {
     expect(empty).not.toHaveProperty("nextOffset");
     let result = await read(source);
     const seen = new Set<number>();
+
     while (result.truncated && result.nextOffset !== undefined) {
       expect(seen.has(result.nextOffset)).toBe(false);
       seen.add(result.nextOffset);
       result = await read(source, `outline:${result.nextOffset + 1}-3600`);
     }
+
     expect(result.content).toContain("3550: ## In scope\n");
   });
 
   it("emits a root table's excerpt where the table sits", async () => {
     const source =
       "# Guide\n\nIntro sentence.\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n| 3 | 4 |\n| 5 | 6 |\n| 7 | 8 |\n| 9 | 10 |\n\n## Next\n\nAfter.\n";
+
     await expect(read(source)).resolves.toMatchObject({
       content:
         "1: # Guide\n3: Intro sentence.\n5: | a | b |\n7: | 1 | 2 |\n11: | 9 | 10 |\n13: ## Next\n15: After.\n",
@@ -375,6 +394,7 @@ describe("markdown outline reader", () => {
   it("prepends a table's header row and first content row for a scope inside it", async () => {
     const source =
       "# R\n\nbody\n\n| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |\n";
+
     await expect(read(source, "outline:7-8")).resolves.toMatchObject({
       content: "1: # R\n3: body\n5: | a | b |\n7: | 1 | 2 |\n8: | 3 | 4 |\n",
       shownRange: { startLine: 1, endLine: 8 },
@@ -389,6 +409,7 @@ describe("markdown outline reader", () => {
 
   it("names a table's content range for a scope that ends inside it", async () => {
     const lines: Array<string> = [];
+
     for (let index = 1; index <= 160; index += 1) lines.push(`body ${index}\n`);
     lines[5] = "# Iterative Review Refinement\n";
     lines[6] = "\n";
@@ -398,6 +419,7 @@ describe("markdown outline reader", () => {
     lines[124] = "\n";
     lines[125] = "| Excuse | Reality |\n";
     lines[126] = "|--------|---------|\n";
+
     for (let index = 127; index <= 134; index += 1)
       lines[index] = `| row ${index + 1} | cell ${index + 1} |\n`;
     lines[135] = "## Red Flags\n";

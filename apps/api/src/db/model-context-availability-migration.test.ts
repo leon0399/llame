@@ -10,6 +10,7 @@ type Migration = { name: string; sql: string };
 
 function readMigrations(): Array<Migration> {
   const migrationsDirectory = join(__dirname, 'migrations');
+
   return readdirSync(migrationsDirectory)
     .filter((name) => name.endsWith('.sql'))
     .map((name) => ({
@@ -26,15 +27,19 @@ describe('model-context availability migration', () => {
 
     expect(candidates).toHaveLength(1);
     const migration = candidates[0];
+
     const expectedHash = hashToolAvailabilityManifest(
       TOOL_AVAILABILITY_UNOBSERVED,
     );
+
     const noForce = migration.sql.indexOf(
       'ALTER TABLE "model_context_snapshots" NO FORCE ROW LEVEL SECURITY',
     );
+
     const backfill = migration.sql.indexOf(
       `SET "tool_availability_manifest" = '{"version":0,"state":"unobserved"}'::jsonb, "availability_hash" = '${expectedHash}'`,
     );
+
     const force = migration.sql.indexOf(
       'ALTER TABLE "model_context_snapshots" FORCE ROW LEVEL SECURITY',
     );
@@ -90,6 +95,7 @@ describe('model-context availability migration', () => {
     );
 
     expect(migration).toBeDefined();
+
     const statements = migration!.sql
       .split('--> statement-breakpoint')
       .map((statement) => statement.trim())

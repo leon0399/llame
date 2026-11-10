@@ -163,6 +163,7 @@ describe("groupAssistantParts", () => {
       reasoning("after the tool"),
       text("answer"),
     ];
+
     const before = structuredClone(parts);
 
     groupAssistantParts(parts);

@@ -19,15 +19,18 @@ const project = {
 describe('ProjectsService', () => {
   function makeService() {
     const db: Db = drizzle.mock({ schema });
+
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
     });
+
     const runAsSpy = vi
       .spyOn(tenantDb, 'runAs')
       .mockImplementation(
         async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
           callback(db),
       );
+
     return { service: new ProjectsService(tenantDb), runAsSpy };
   }
 
@@ -37,6 +40,7 @@ describe('ProjectsService', () => {
 
   it('creates through an owner-scoped repository call', async () => {
     const { service, runAsSpy } = makeService();
+
     const create = vi
       .spyOn(ProjectsRepository.prototype, 'create')
       .mockResolvedValue(project);
@@ -57,9 +61,11 @@ describe('ProjectsService', () => {
 
   it('forwards list filters and the owner to the repository', async () => {
     const { service, runAsSpy } = makeService();
+
     const listForUser = vi
       .spyOn(ProjectsRepository.prototype, 'listForUser')
       .mockResolvedValue([project]);
+
     const filter = { archived: 'with' as const, pinned: 'only' as const };
 
     await expect(
@@ -75,12 +81,15 @@ describe('ProjectsService', () => {
 
   it('uses the owner scope for reads, updates, and deletes', async () => {
     const { service, runAsSpy } = makeService();
+
     const findById = vi
       .spyOn(ProjectsRepository.prototype, 'findById')
       .mockResolvedValue(project);
+
     const update = vi
       .spyOn(ProjectsRepository.prototype, 'update')
       .mockResolvedValue(project);
+
     const remove = vi
       .spyOn(ProjectsRepository.prototype, 'delete')
       .mockResolvedValue(true);
@@ -113,6 +122,7 @@ describe('ProjectsService', () => {
 
   it('defaults a missing list filter to an empty object', async () => {
     const { service } = makeService();
+
     const listForUser = vi
       .spyOn(ProjectsRepository.prototype, 'listForUser')
       .mockResolvedValue([]);

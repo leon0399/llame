@@ -204,6 +204,7 @@ describe('TurnTelemetry', () => {
         totalTokens: 110,
         reasoningTokens: 3,
       });
+
       const context = {
         finishReason: 'stop' as const,
         status: 'completed' as const,
@@ -273,6 +274,7 @@ describe('TurnTelemetry', () => {
       ]) {
         expect(telemetry).not.toHaveProperty(field);
       }
+
       expect(telemetry.complete).toBe(false);
     });
 
@@ -305,7 +307,9 @@ describe('TurnTelemetry', () => {
         modelId: 'unpriced-model',
         latencyMs: 1,
       });
+
       expect(telemetry).toMatchObject({ costUsd: null, complete: false });
+
       for (const field of [
         'inputTokens',
         'cachedInputTokens',
@@ -336,6 +340,7 @@ describe('TurnTelemetry', () => {
 
     it('stamps billing without changing the cost of a priced subscription model', () => {
       const receipt = usageReceipt({ inputTokens: 100, outputTokens: 10 });
+
       const context = {
         receipts: [receipt],
         status: 'completed' as const,
@@ -343,14 +348,17 @@ describe('TurnTelemetry', () => {
         latencyMs: 1,
         price,
       };
+
       const usageBilled = aggregateTurnTelemetry({
         ...context,
         billing: 'usage',
       });
+
       const subscription = aggregateTurnTelemetry({
         ...context,
         billing: 'subscription',
       });
+
       const perRequest = buildTurnTelemetry({
         usage: receipt,
         status: 'completed',
@@ -503,6 +511,7 @@ describe('TurnTelemetry', () => {
             chunkCount: 1,
             generationMs: 400,
           }).firstTokenMs;
+
         const generationMsAt = (generationMs: number) =>
           aggregateTurnTelemetry({
             ...streamed,
@@ -602,6 +611,7 @@ describe('TurnTelemetry', () => {
       modelId: 'priced-model',
       latencyMs: 1,
     };
+
     const cacheWritePrice = {
       inputUsdPer1M: 3,
       cachedInputUsdPer1M: 0.3,
@@ -774,6 +784,7 @@ describe('TurnTelemetry', () => {
 
     it('includes the cache-write count in the structured log payload', () => {
       const info = vi.fn<(payload: UnknownRecord) => void>();
+
       const telemetry = buildTurnTelemetry({
         ...base,
         usage: {
@@ -813,7 +824,9 @@ describe('TurnTelemetry', () => {
         throw new Error('pino sink failed');
       }),
     } satisfies TurnTelemetryLogger;
+
     const onError = vi.fn();
+
     const telemetry = buildTurnTelemetry({
       usage: {
         inputTokens: 1,
@@ -844,6 +857,7 @@ describe('TurnTelemetry', () => {
     (status) => {
       const info = vi.fn<(payload: UnknownRecord) => void>();
       const logger = { info } satisfies TurnTelemetryLogger;
+
       const telemetry = buildTurnTelemetry({
         usage: null,
         finishReason: status === 'error' ? 'error' : null,
@@ -970,6 +984,7 @@ describe('TurnTelemetry', () => {
   it('omits message content from the structured telemetry log payload', () => {
     const info = vi.fn<(payload: UnknownRecord) => void>();
     const logger = { info } satisfies TurnTelemetryLogger;
+
     const telemetry = buildTurnTelemetry({
       usage: {
         inputTokens: 1,
@@ -1010,6 +1025,7 @@ describe('TurnTelemetry', () => {
 
   it('includes complete and billing in the completed telemetry log', () => {
     const info = vi.fn<(payload: UnknownRecord) => void>();
+
     const telemetry = aggregateTurnTelemetry({
       receipts: [
         usageReceipt({
@@ -1044,6 +1060,7 @@ describe('TurnTelemetry', () => {
 
   it('omits absent optional telemetry fields from the completed log', () => {
     const info = vi.fn<(payload: UnknownRecord) => void>();
+
     const telemetry = {
       modelId: 'unreported-model',
       latencyMs: 12,
@@ -1059,6 +1076,7 @@ describe('TurnTelemetry', () => {
     });
 
     const [payload] = info.mock.calls.at(-1) ?? [];
+
     for (const field of [
       'inputTokens',
       'cachedInputTokens',

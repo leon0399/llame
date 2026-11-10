@@ -57,6 +57,7 @@ const ADJECTIVES = [
   'steady',
   'vivid',
 ] as const;
+
 const NOUNS = [
   'badger',
   'cedar',
@@ -100,10 +101,12 @@ export function namedWorktree(
   name: string,
 ): WorktreeName | WorktreeInputProblem {
   if (name === '') return { message: 'A worktree name must not be empty.' };
+
   if (name.startsWith('-'))
     return { message: 'A worktree name must not start with `-`.' };
   const worktree = worktreeNameOf(name);
   const branch = branchName(worktree.branch);
+
   return 'message' in branch ? branch : worktree;
 }
 
@@ -117,11 +120,14 @@ export function readWorktreeRequest(request: {
 }): WorktreeRequest | WorktreeInputProblem {
   const base =
     request.baseRef === undefined ? undefined : baseReference(request.baseRef);
+
   if (base !== undefined && 'message' in base) return base;
   const baseRef = base?.ref;
+
   if (request.name === undefined)
     return baseRef === undefined ? {} : { baseRef };
   const name = namedWorktree(request.name);
+
   return 'message' in name
     ? name
     : baseRef === undefined
@@ -154,6 +160,7 @@ export function generatedWorktreeName(
   const adjective = ADJECTIVES[random.int(ADJECTIVES.length)] ?? 'calm';
   const noun = NOUNS[random.int(NOUNS.length)] ?? 'otter';
   const suffix = random.bytes(2).toString('hex');
+
   return worktreeNameOf(`${adjective}-${noun}-${suffix}`);
 }
 

@@ -160,6 +160,7 @@ Welcome to the repository.`);
       path: `file-${index}`,
       type: 'blob' as const,
     }));
+
     expect(
       renderGithubCodeDocument({
         ...repositoryDocument,

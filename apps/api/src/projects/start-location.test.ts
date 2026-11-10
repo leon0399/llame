@@ -112,6 +112,7 @@ function makeSource(fixtures: Fixtures): StartLocationSource {
   const repositories = fixtures.repositories ?? [];
   const checkouts = fixtures.checkouts ?? [];
   const defaults = fixtures.defaults ?? [];
+
   return {
     listLinks: (owner, projectId) =>
       Promise.resolve(
@@ -187,6 +188,7 @@ describe('resolveStartLocation repository step', () => {
 
   it('prefers the primary link over the other links', async () => {
     const primary = linkRow({ isPrimary: true });
+
     const other = linkRow({
       id: '77777777-7777-4777-8777-777777777777',
       repositoryId: OTHER_REPOSITORY_ID,
@@ -321,11 +323,13 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('reuses the most recently written default across executors', async () => {
     const older = checkoutRow({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+
     const newer = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       executorId: 'machine:nas',
       path: 'machine://nas/srv/llame',
     });
+
     const location = await resolveStartLocation(
       makeSource({
         links: [linkRow()],
@@ -374,6 +378,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
     const remembered = checkoutRow({
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     });
+
     const other = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
     });
@@ -409,10 +414,12 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('takes the lowest executor id that holds a main checkout', async () => {
     const host = checkoutRow({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+
     const nas = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       executorId: 'machine:nas',
     });
+
     const location = await resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [nas, host] }),
       OWNER,
@@ -444,6 +451,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('lets a named checkout decide its repository and executor', async () => {
     const checkout = checkoutRow({ executorId: 'machine:nas' });
+
     const location = await resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [checkout] }),
       OWNER,
@@ -464,6 +472,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
       parentCheckoutId: checkoutRow().id,
       path: '/srv/llame/.llame-worktrees/llame/wt',
     });
+
     const resolution = resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [worktree] }),
       OWNER,
@@ -481,6 +490,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('answers 404 for a checkout the caller does not own', async () => {
     const missing = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+
     const resolution = resolveStartLocation(
       makeSource({ links: [linkRow()] }),
       OWNER,
@@ -494,6 +504,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('answers 422 when a named repository disagrees with the checkout', async () => {
     const checkout = checkoutRow();
+
     const resolution = resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [checkout] }),
       OWNER,
@@ -511,6 +522,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('answers 422 when a named executor disagrees with the checkout', async () => {
     const checkout = checkoutRow();
+
     const resolution = resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [checkout] }),
       OWNER,
@@ -528,6 +540,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('resolves a named checkout the project does not link', async () => {
     const checkout = checkoutRow();
+
     const location = await resolveStartLocation(
       makeSource({ checkouts: [checkout] }),
       OWNER,
@@ -544,6 +557,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       executorId: 'zulu',
     });
+
     const other = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       executorId: 'alpha',
@@ -564,6 +578,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('accepts a named repository and executor that agree with the checkout', async () => {
     const checkout = checkoutRow();
+
     const location = await resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [checkout] }),
       OWNER,
@@ -584,11 +599,13 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('takes the link of the named checkout, not the first link', async () => {
     const checkout = checkoutRow();
+
     const other = linkRow({
       id: '77777777-7777-4777-8777-777777777777',
       repositoryId: OTHER_REPOSITORY_ID,
       alias: 'notes',
     });
+
     const owned = linkRow({ isolation: 'always_worktree' });
 
     const location = await resolveStartLocation(
@@ -661,10 +678,12 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
   it('takes the lowest executor id even when the read is unordered', async () => {
     const host = checkoutRow({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+
     const nas = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       executorId: 'machine:nas',
     });
+
     const source: StartLocationSource = {
       ...makeSource({ links: [linkRow()], checkouts: [host, nas] }),
       listMainCheckouts: () => Promise.resolve([nas, host]),
@@ -821,6 +840,7 @@ describe('resolveStartLocation repository and checkout edge cases', () => {
       repositoryId: OTHER_REPOSITORY_ID,
       alias: 'notes',
     });
+
     const location = await resolveStartLocation(
       makeSource({
         links: [linkRow(), other],

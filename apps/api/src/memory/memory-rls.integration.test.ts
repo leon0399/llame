@@ -21,12 +21,14 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
   const asPublic = <T>(fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', '', true)`;
+
       return fn(tx);
     });
 
@@ -57,12 +59,14 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
   it('runs as a constrained owner with RLS enabled and forced', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
     const [table] = await sql`
       SELECT relrowsecurity, relforcerowsecurity
       FROM pg_class WHERE relname = 'memory_settings'`;
+
     expect(table.relrowsecurity).toBe(true);
     expect(table.relforcerowsecurity).toBe(true);
   });
@@ -72,6 +76,7 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
       userBId,
       (tx) => tx`SELECT user_id, share_recent_chats FROM memory_settings`,
     );
+
     expect(rows).toHaveLength(0);
 
     const targeted = await asUser(
@@ -79,6 +84,7 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
       (tx) =>
         tx`SELECT share_recent_chats FROM memory_settings WHERE user_id = ${userAId}`,
     );
+
     expect(targeted).toHaveLength(0);
   });
 
@@ -86,6 +92,7 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
     const rows = await asPublic(
       (tx) => tx`SELECT user_id, share_recent_chats FROM memory_settings`,
     );
+
     expect(rows).toHaveLength(0);
   });
 
@@ -96,6 +103,7 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
         tx`UPDATE memory_settings SET share_recent_chats = false
            WHERE user_id = ${userAId} RETURNING user_id`,
     );
+
     expect(updated).toHaveLength(0);
 
     const [row] = await asUser(
@@ -103,40 +111,49 @@ describeIfDb('RLS integration — memory settings tenancy', () => {
       (tx) =>
         tx`SELECT share_recent_chats FROM memory_settings WHERE user_id = ${userAId}`,
     );
+
     expect(row.share_recent_chats).toBe(true);
   });
 
   it('serializes a binding share lock ahead of a concurrent disable', async () => {
     let releaseLock!: () => void;
     let reportLocked!: () => void;
+
     const holdLock = new Promise<void>((resolve) => {
       releaseLock = resolve;
     });
+
     const locked = new Promise<void>((resolve) => {
       reportLocked = resolve;
     });
+
     const binding = asUser(userAId, async (tx) => {
       await tx`SELECT share_recent_chats FROM memory_settings
                WHERE user_id = ${userAId} FOR SHARE`;
       reportLocked();
       await holdLock;
     });
+
     await locked;
 
     const disableWhileLocked = asUser(userAId, async (tx) => {
       await tx`SET LOCAL lock_timeout = '100ms'`;
+
       return tx`UPDATE memory_settings SET share_recent_chats = false
                 WHERE user_id = ${userAId}`;
     });
+
     await expect(disableWhileLocked).rejects.toMatchObject({ code: '55P03' });
 
     releaseLock();
     await binding;
+
     const [row] = await asUser(
       userAId,
       (tx) =>
         tx`SELECT share_recent_chats FROM memory_settings WHERE user_id = ${userAId}`,
     );
+
     expect(row.share_recent_chats).toBe(true);
   });
 });

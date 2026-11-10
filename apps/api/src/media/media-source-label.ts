@@ -18,10 +18,12 @@ export function mediaSourceLabel(source: string): string {
       .replaceAll('[', '(')
       .replaceAll(']', ')'),
   );
+
   if (neutralized.length <= MAX_LABEL_UTF16_UNITS) return neutralized;
 
   const cut = neutralized.slice(0, MAX_LABEL_UTF16_UNITS);
   const last = cut.charCodeAt(cut.length - 1);
+
   // Never end on the high half of a surrogate pair.
   return last >= 0xd8_00 && last <= 0xdb_ff ? cut.slice(0, -1) : cut;
 }

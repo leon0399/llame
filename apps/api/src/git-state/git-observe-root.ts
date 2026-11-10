@@ -29,10 +29,12 @@ export async function observeWorkspaceRoot(
   if (!deps.readAllowlisted) {
     return { kind: 'unavailable', reason: 'not_permitted' };
   }
+
   try {
     if (deps.executors === undefined) {
       return { kind: 'unavailable', reason: 'executor_unavailable' };
     }
+
     return await deps.snapshots.observe({
       ...input,
       target: deps.executors.locate(input.root),

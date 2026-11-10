@@ -48,6 +48,7 @@ async function step(producer: InRunAttemptProducer) {
     stepNumber: 1,
     stage: (part) => staged.push(part),
   });
+
   return staged;
 }
 
@@ -78,6 +79,7 @@ describe('git producer, in-Run entry', () => {
       undefined,
       '/real/repo',
     );
+
     const producer = attempt(world);
 
     producer.observeToolCall?.({

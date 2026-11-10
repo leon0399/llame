@@ -11,12 +11,15 @@ export type BashProcesses = {
 
 export function createBashProcesses(): BashProcesses {
   const running = new Set<Promise<unknown>>();
+
   return {
     track<T>(call: Promise<T>): Promise<T> {
       const tracked = call.finally(() => {
         running.delete(tracked);
       });
+
       running.add(tracked);
+
       return tracked;
     },
     async settled(): Promise<void> {

@@ -71,6 +71,7 @@ describe('resolveSearchScopes', () => {
         resolveSearchScopes('owner-1', { after: AFTER, constraint: 'required' })
           .scope.document,
       );
+
       expect(afterOnly.sql).not.toContain('first_message_at');
       expect(afterOnly.sql).toContain('d.last_message_at >= $2::timestamptz');
 
@@ -80,6 +81,7 @@ describe('resolveSearchScopes', () => {
           constraint: 'required',
         }).scope.document,
       );
+
       expect(beforeOnly.sql).not.toContain('last_message_at');
       expect(beforeOnly.sql).toContain('d.first_message_at < $2::timestamptz');
     });
@@ -89,6 +91,7 @@ describe('resolveSearchScopes', () => {
         resolveSearchScopes('owner-1', { after: AFTER, constraint: 'required' })
           .scope.parent,
       );
+
       expect(afterOnly.sql).toContain('em.created_at >= $3::timestamptz');
       expect(afterOnly.sql).not.toContain('em.created_at <');
 
@@ -98,6 +101,7 @@ describe('resolveSearchScopes', () => {
           constraint: 'required',
         }).scope.parent,
       );
+
       expect(beforeOnly.sql).toContain('em.created_at < $3::timestamptz');
       expect(beforeOnly.sql).not.toContain('em.created_at >=');
     });
@@ -143,6 +147,7 @@ describe('resolveSearchScopes', () => {
         after: AFTER,
         constraint: 'preferred',
       });
+
       const { sql: text } = compile(rangePreference!.predicate);
       expect(text).toBe('(d.last_message_at >= $1::timestamptz)');
     });
@@ -151,6 +156,7 @@ describe('resolveSearchScopes', () => {
       const { rangePreference } = resolveSearchScopes('owner-1', {
         constraint: 'preferred',
       });
+
       const { sql: text, params } = compile(rangePreference!.predicate);
       expect(text).toBe('true');
       expect(params).toStrictEqual([]);

@@ -43,13 +43,16 @@ function diffChangedChunks(
   ownerUserId: string,
 ): Array<ConversationChunk> {
   const currentByOrdinal = new Map<number, ExistingChunkRow>();
+
   for (const row of existing) {
     if (row.version === CHUNKER_VERSION) {
       currentByOrdinal.set(row.ordinal, row);
     }
   }
+
   return chunks.filter((chunk) => {
     const current = currentByOrdinal.get(chunk.chunkOrdinal);
+
     return (
       current?.ownerUserId !== ownerUserId ||
       current?.hash !== chunk.contentHash ||
@@ -148,6 +151,7 @@ export class SearchIndexService {
           (tx) => this.rebuildInTx(tx, chatId, ownerUserId),
           { isolationLevel: 'repeatable read' },
         );
+
         return;
       } catch (error) {
         if (attempt < 4 && isSerializationFailure(error)) continue;
@@ -166,7 +170,9 @@ export class SearchIndexService {
     // nothing to index (its projection rows cascade-delete anyway). findByChatId
     // with no options returns every message oldest-first by seq.
     const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+
     if (!chat) return;
+
     const rows = await new MessagesRepository(tx).findByChatId(
       chatId,
       ownerUserId,
@@ -175,9 +181,11 @@ export class SearchIndexService {
     const chunks = chunkConversation(rows);
     const existing = await this.selectExistingChunks(tx, chatId);
     const changed = diffChangedChunks(existing, chunks, ownerUserId);
+
     if (changed.length > 0) {
       await this.upsertChunks(tx, chatId, ownerUserId, changed);
     }
+
     await this.pruneObsoleteChunks(tx, chatId, chunks.length);
     await this.updateWatermark(tx, chatId, ownerUserId, chunks.length);
   }

@@ -20,6 +20,7 @@ import type {
 import { InvalidCredentialsError } from "./errors";
 
 export type { AuthTokenResponse, PublicUserResponse };
+
 export { isInvalidCredentialsError } from "./errors";
 
 export const authQueryKeys = {
@@ -48,6 +49,7 @@ export async function login(input: {
     if (getApiErrorStatus(error) === 401) {
       throw new InvalidCredentialsError();
     }
+
     throw error;
   }
 }
@@ -100,6 +102,7 @@ export async function fetchMeOptional(): Promise<PublicUserResponse | null> {
     if (getApiErrorStatus(error) === 401) {
       return null;
     }
+
     throw error;
   }
 }

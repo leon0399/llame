@@ -52,6 +52,7 @@ import {
 
 const OPENER = /^<([A-Za-z][\w.:-]*)(?:[\s/][^<>]*)?>$/u;
 const CLOSER = /^<\/([A-Za-z][\w.:-]*)>$/u;
+
 /** Anything that starts like a closing tag, however malformed. */
 const CLOSER_INTENT = /^<\s*\//u;
 
@@ -66,27 +67,34 @@ function emitToken(token: string, stack: Array<string>): string {
   const complete = token.endsWith('>');
 
   const closer = complete ? CLOSER.exec(token) : null;
+
   if (closer !== null) {
     const name = closer[1].toLowerCase();
     const opened = stack.lastIndexOf(name);
+
     if (opened !== -1) {
       stack.length = opened;
+
       return token;
     }
+
     return escapeAngles(token);
   }
 
   const opener = complete ? OPENER.exec(token) : null;
+
   if (opener !== null) {
     if (!token.endsWith('/>')) {
       stack.push(opener[1].toLowerCase());
     }
+
     return token;
   }
 
   if (CLOSER_INTENT.test(token)) {
     return escapeAngles(token);
   }
+
   // Prose (`a < b`, `<3`) or an unterminated opener fragment, neither of
   // which can close anything.
   return token;
@@ -96,9 +104,11 @@ export function sanitizeAuthoredText(value: string): string {
   const stack: Array<string> = [];
   let out = '';
   let cursor = 0;
+
   for (const { start, end, token } of scanTagTokens(value)) {
     out += value.slice(cursor, start) + emitToken(token, stack);
     cursor = end;
   }
+
   return out + value.slice(cursor);
 }

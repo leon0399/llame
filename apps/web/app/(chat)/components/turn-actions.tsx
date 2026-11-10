@@ -75,6 +75,7 @@ type ContinueButtonProps = {
  *  composer's, because the Run's own mode is not resumable state (D13). */
 function ContinueButton({ chatId, onFollowUp }: ContinueButtonProps) {
   const { getPermissionMode } = useChatContext();
+
   return (
     <MessageActionButton
       label="Continue"
@@ -115,8 +116,10 @@ export function TurnActions({
   const requestFollowUp = (request: FollowUpRunRequest) => {
     if (discarded.length > 0) {
       setPending(request);
+
       return;
     }
+
     onFollowUp(request);
   };
 

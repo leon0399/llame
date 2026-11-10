@@ -65,6 +65,7 @@ export function ToolRow({
   children,
 }: ToolRowProps): ReactElement {
   let outcome: ReactNode = children;
+
   if (state === "cancelled") {
     outcome = null;
   } else if (errorText) {
@@ -76,6 +77,7 @@ export function ToolRow({
       />
     );
   }
+
   return (
     <Tool>
       <ToolHeader
@@ -164,7 +166,9 @@ export function ToolDetails({
   const shown = rows.filter(
     (row): row is readonly [string, string] => row[1] !== undefined,
   );
+
   if (shown.length === 0) return null;
+
   return (
     <ul className="space-y-0.5 border-border border-t px-4 py-3 text-muted-foreground text-xs">
       {shown.map(([label, value], index) => (
@@ -217,6 +221,7 @@ export function rankScoreAt(
 ): { itemKey: string; score: number; ordinal: number } | undefined {
   const itemKey = record?.order[position];
   const score = itemKey === undefined ? undefined : record?.scores[itemKey];
+
   return itemKey === undefined || score === undefined
     ? undefined
     : { itemKey, score, ordinal: position + 1 };
@@ -230,6 +235,7 @@ export function ToolRankBadge({
 }): ReactElement {
   const cost =
     record.costUsd === null ? "cost unknown" : `$${record.costUsd.toFixed(4)}`;
+
   return (
     <Badge variant="secondary" className="max-w-full font-mono">
       <span className="truncate">Ranked by {record.model}</span>

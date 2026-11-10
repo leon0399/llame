@@ -25,8 +25,11 @@ import {
   type DirectoryFailure,
 } from "./directory-listing";
 import type { ReadSuccess, FileFailure } from "./source-lines";
+
 export * from "./source-lines";
+
 export type { DirectorySuccess, DirectoryFailure } from "./directory-listing";
+
 export {
   DIRECTORY_TRAVERSAL_BUDGET,
   DIRECTORY_CHILD_CAP,
@@ -83,10 +86,13 @@ export async function loadText(
   followSymlinks = true,
 ): Promise<string> {
   const file = await open(path, openFlags(followSymlinks));
+
   try {
     const stats = await file.stat();
+
     if (!stats.isFile()) throw new NativeFileError("not_regular_file");
     const buffer = await file.readFile();
+
     try {
       return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
         buffer,
@@ -106,9 +112,11 @@ export async function readFile(
   media?: MediaReadHook,
 ): Promise<ReadOutcome | MediaReadSuccess> {
   let hostPath = input.path;
+
   try {
     const target = await resolveReadTarget(input.path);
     hostPath = target.path;
+
     return target.directory
       ? await runListing(target.path, target)
       : await streamFileWindow(target, {
@@ -131,8 +139,10 @@ export async function readResolvedFile(
   options: NativeReadOptions,
 ): Promise<ReadOutcome | MediaReadSuccess> {
   const followSymlinks = options.followSymlinks ?? false;
+
   try {
     const target = await resolveResolvedTarget(hostPath, options);
+
     return target.directory
       ? await runListing(hostPath, target)
       : await streamFileWindow(target, {
@@ -158,16 +168,22 @@ async function resolveResolvedTarget(
   options: NativeReadOptions,
 ): Promise<ReadTarget> {
   const target = applySelectorSuffix(options.displayPath, options.selector);
+
   if (options.reserveCodeUnits !== undefined)
     target.reserveCodeUnits = options.reserveCodeUnits;
+
   if (options.linkTargets !== undefined)
     target.linkTargets = options.linkTargets;
   const stats = await lstat(hostPath);
+
   if (!stats.isSymbolicLink())
     return stats.isDirectory() ? { ...target, directory: true } : target;
+
   if (!options.followSymlinks) throw new NativeFileError("not_found");
   const followed = await stat(hostPath);
+
   if (followed.isDirectory()) return { ...target, directory: true };
+
   if (followed.isFile()) return target;
   throw new NativeFileError("not_regular_file");
 }
@@ -182,12 +198,14 @@ function runListing(
       type: "invalid_selector",
       message: "The :outline member is not supported for directory reads.",
     };
+
   if (target.raw)
     return {
       status: "error",
       type: "invalid_selector",
       message: "The :raw selector is not supported for directory reads.",
     };
+
   if (target.ranges !== undefined || target.pending?.includes(","))
     return {
       status: "error",
@@ -196,15 +214,19 @@ function runListing(
         "Comma-separated selectors are not supported for directory reads.",
     };
   const options: DirectoryListingOptions = { displayPath: target.path };
+
   if (target.offset > 0 || target.limit !== undefined || target.pending) {
     options.offset = target.offset;
     options.limit = target.limit;
     options.pending = target.pending;
   }
+
   if (target.reserveCodeUnits !== undefined)
     options.reserveCodeUnits = target.reserveCodeUnits;
+
   if (target.linkTargets !== undefined)
     options.linkTargets = target.linkTargets;
+
   return listDirectory(hostPath, NODE_DIRECTORY_PORT, options);
 }
 
@@ -217,10 +239,12 @@ async function readFailure(
   if (error instanceof NativeFileError)
     return { status: "error", type: error.type, message: error.message };
   const code = isNodeError(error) ? error.code : undefined;
+
   const type =
     code === "ENOENT" || code === "ENOTDIR" || code === "ELOOP"
       ? "not_found"
       : "executor_unavailable";
+
   if (
     code === "ENOENT" &&
     !hostPath.endsWith("/") &&
@@ -232,6 +256,7 @@ async function readFailure(
       message: await missingFileMessage(hostPath, followSymlinks),
     };
   }
+
   return {
     status: "error",
     type,

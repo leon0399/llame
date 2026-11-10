@@ -33,16 +33,20 @@ export const noObjectParametersRule = defineRule({
       environment !== null &&
       resolvedTypeMatches(type, environment, (resolved, matches) => {
         if (resolved.type === "TSObjectKeyword") return true;
+
         if (resolved.type === "TSParenthesizedType") {
           return matches(resolved.typeAnnotation);
         }
+
         return resolved.type === "TSUnionType" && resolved.types.some(matches);
       });
 
     const checkParameters = (node: FunctionLikeNode) => {
       for (const parameter of node.params) {
         const annotation = functionParameterTypeAnnotation(parameter);
+
         if (annotation === null || annotation === undefined) continue;
+
         if (!resolvesToObject(annotation.typeAnnotation)) continue;
         context.report({
           node: annotation.typeAnnotation,

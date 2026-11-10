@@ -25,6 +25,7 @@ export function createWorkspaceRootCell(
   let currentRoot = initial;
   let pendingRoot = initial;
   let transitionClaimed = false;
+
   return {
     current: () => currentRoot,
     commit: (root) => {
@@ -37,6 +38,7 @@ export function createWorkspaceRootCell(
     claimTransition: () => {
       if (transitionClaimed) return false;
       transitionClaimed = true;
+
       return true;
     },
   };
@@ -58,6 +60,7 @@ export function machineWorkspaceRoot(
 ): MachineWorkspaceRoot | undefined {
   if (root === undefined || !isMachineLocator(root)) return undefined;
   const parsed = parseMachineLocator(root);
+
   return parsed.kind === 'path'
     ? { name: parsed.name, path: parsed.path }
     : undefined;
@@ -75,7 +78,9 @@ export function mapToWorkspaceHost(
   value: string,
 ): string {
   const machine = machineWorkspaceRoot(root);
+
   if (machine === undefined || !value.startsWith('/')) return value;
+
   return machineLocator(machine.name, value) ?? value;
 }
 
@@ -88,21 +93,28 @@ export function mapToWorkspaceHost(
  */
 export function resolveWorkspacePath(root: string, value: string): string {
   const machine = machineWorkspaceRoot(root);
+
   if (machine !== undefined) {
     if (!isWorkspaceRelative(value)) return mapToWorkspaceHost(root, value);
     const resolved = posix.resolve(machine.path, value);
+
     const trailing =
       value.endsWith('/') && resolved !== '/' ? `${resolved}/` : resolved;
+
     const locator = machineLocator(machine.name, trailing);
+
     if (locator === undefined)
       throw new Error('The Machine Workspace path cannot be a locator.');
+
     return locator;
   }
+
   if (!root.startsWith('/'))
     throw new Error(
       'A Workspace root must be an absolute host path or a machine:// locator.',
     );
   const resolved = posix.resolve(root, value);
+
   return value.endsWith('/') && resolved !== '/' ? `${resolved}/` : resolved;
 }
 
@@ -115,7 +127,9 @@ export function resolveWorkspacePath(root: string, value: string): string {
 export function canonicalMachineLocator(value: string): string {
   if (!isMachineLocator(value)) return value;
   const parsed = parseMachineLocator(value);
+
   if (parsed.kind !== 'path') return value;
+
   return (
     formatMachineLocator(parsed.name, parsed.path, parsed.selector) ?? value
   );
@@ -135,10 +149,12 @@ export function isWorkspaceRelative(value: string): boolean {
  */
 function machineLocator(name: string, value: string): string | undefined {
   const split = splitSelectorSuffix(value);
+
   const selector =
     split.selector !== undefined && isSelectorSuffix(split.selector)
       ? split.selector
       : undefined;
+
   return formatMachineLocator(
     name,
     selector === undefined ? value : split.path,

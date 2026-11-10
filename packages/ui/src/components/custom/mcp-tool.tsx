@@ -14,6 +14,7 @@ import {
 } from "@workspace/ui/components/custom/tool-row";
 
 const textBlockSchema = z.object({ type: z.literal("text"), text: z.string() });
+
 const imageBlockSchema = z.object({
   type: z.literal("image"),
   mimeType: z.string(),
@@ -39,6 +40,7 @@ export type McpToolProps = ToolPartProps & {
 export function mcpToolTitle(name: string): string {
   const rest = name.replace(/^mcp__/u, "");
   const separator = rest.indexOf("__");
+
   return separator === -1
     ? rest
     : `${rest.slice(0, separator)} · ${rest.slice(separator + 2)}`;
@@ -57,19 +59,23 @@ function McpJson({ label, value }: { label: string; value: unknown }) {
  *  remote server is untrusted; a remote image is named, never loaded. */
 function McpBlock({ block }: { block: unknown }) {
   const text = textBlockSchema.safeParse(block).data;
+
   if (text) return <ToolText label="Text content" text={text.text} />;
   const image = imageBlockSchema.safeParse(block).data;
+
   if (image) {
     return (
       <p className="text-muted-foreground text-sm">Image ({image.mimeType})</p>
     );
   }
+
   return <McpJson label="Content block" value={block} />;
 }
 
 function McpResult({ output }: { output: z.infer<typeof outputSchema> }) {
   const blocks = output.output.content ?? [];
   const structured = output.output.structuredContent;
+
   return (
     <>
       <ToolSection label="Result">
@@ -106,9 +112,11 @@ export function McpTool({
   state,
 }: McpToolProps): ReactElement {
   const result = outputSchema.safeParse(output).data;
+
   const firstString = Object.values(
     z.record(z.string(), z.unknown()).safeParse(input).data ?? {},
   ).find((value) => z.string().safeParse(value).success);
+
   return (
     <ToolRow
       name={name}

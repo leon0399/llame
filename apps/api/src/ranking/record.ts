@@ -22,17 +22,21 @@ export function selectModels(
   requested: ReadonlyArray<string>,
 ): Array<string> {
   const unknown = requested.filter((id) => !catalogue.includes(id));
+
   if (unknown.length > 0) {
     throw new Error(
       `Not in decisionModels[] or rerankModels[]: ${unknown.join(', ')}. Catalogue: ${catalogue.join(', ') || '(empty)'}.`,
     );
   }
+
   const models = requested.length > 0 ? [...requested] : [...catalogue];
+
   if (models.length === 0) {
     throw new Error(
       'No decisionModels[] or rerankModels[] in the operator config to record.',
     );
   }
+
   return models;
 }
 
@@ -57,7 +61,9 @@ export async function recordCase(
       objective: rankingCase.objective,
     }),
   });
+
   sink.log(`${rankingCase.name} ${model}: ${result.status}`);
+
   if (result.status === 'unavailable') return false;
   sink.write(rankingCase.name, model, {
     model,
@@ -66,6 +72,7 @@ export async function recordCase(
     latencyMs: result.latencyMs,
     costUsd: result.costUsd,
   });
+
   return true;
 }
 
@@ -77,12 +84,14 @@ export async function recordAll(
   models: ReadonlyArray<string>,
 ): Promise<void> {
   let unavailable = 0;
+
   for (const rankingCase of cases) {
     for (const model of models) {
       if (!(await recordCase(judge, sink, rankingCase, model)))
         unavailable += 1;
     }
   }
+
   if (unavailable > 0) {
     throw new Error(`${unavailable} judgement(s) unavailable and not written.`);
   }
@@ -91,6 +100,7 @@ export async function recordAll(
 /** A sink that writes `<case>.<model>.json` under `dir` and logs to stdout. */
 export function fileSink(dir: string): RecordSink {
   fs.mkdirSync(dir, { recursive: true });
+
   return {
     write(caseName, model, answer) {
       fs.writeFileSync(

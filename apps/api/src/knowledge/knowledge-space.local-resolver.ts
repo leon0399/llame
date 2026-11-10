@@ -53,9 +53,11 @@ export class KnowledgeSpaceLocalResolver {
     try {
       const canonicalRoot = this.fileSystem.realpathSync(this.configuredRoot);
       const stats = this.fileSystem.lstatSync(canonicalRoot);
+
       if (!stats.isDirectory()) {
         throw new KnowledgeSpaceUnavailableError();
       }
+
       return canonicalRoot;
     } catch (error) {
       if (error instanceof KnowledgeSpaceUnavailableError) throw error;
@@ -67,12 +69,14 @@ export class KnowledgeSpaceLocalResolver {
     const childPath = this.deriveChildPath(canonicalRoot, knowledgeSpaceId);
 
     let stats: KnowledgeFileStats;
+
     try {
       stats = this.fileSystem.lstatSync(childPath);
     } catch (error) {
       if (!isFileNotFound(error)) {
         throw new KnowledgeSpaceUnavailableError();
       }
+
       try {
         this.fileSystem.mkdirSync(childPath);
         stats = this.fileSystem.lstatSync(childPath);
@@ -80,6 +84,7 @@ export class KnowledgeSpaceLocalResolver {
         if (!isFileAlreadyExists(error)) {
           throw new KnowledgeSpaceUnavailableError();
         }
+
         try {
           stats = this.fileSystem.lstatSync(childPath);
         } catch {
@@ -89,12 +94,14 @@ export class KnowledgeSpaceLocalResolver {
     }
 
     this.validateExistingChild(childPath, stats);
+
     return childPath;
   }
 
   resolveChild(canonicalRoot: string, knowledgeSpaceId: string): string {
     const childPath = this.deriveChildPath(canonicalRoot, knowledgeSpaceId);
     let stats: KnowledgeFileStats;
+
     try {
       stats = this.fileSystem.lstatSync(childPath);
     } catch {
@@ -102,6 +109,7 @@ export class KnowledgeSpaceLocalResolver {
     }
 
     this.validateExistingChild(childPath, stats);
+
     return childPath;
   }
 
@@ -114,12 +122,14 @@ export class KnowledgeSpaceLocalResolver {
     }
 
     const childPath = path.join(canonicalRoot, knowledgeSpaceId);
+
     if (
       path.dirname(childPath) !== canonicalRoot ||
       path.basename(childPath) !== knowledgeSpaceId
     ) {
       throw new KnowledgeSpaceUnavailableError();
     }
+
     return childPath;
   }
 
@@ -133,6 +143,7 @@ export class KnowledgeSpaceLocalResolver {
 
     try {
       const canonicalChild = this.fileSystem.realpathSync(childPath);
+
       if (canonicalChild !== childPath) {
         throw new KnowledgeSpaceUnavailableError();
       }

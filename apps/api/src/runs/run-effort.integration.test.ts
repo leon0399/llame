@@ -50,19 +50,23 @@ describeIfDb('Reasoning effort — persisted, then executed verbatim', () => {
   /** Seed + dispatch a run at `effort`, wait for terminal, return what the model client saw. */
   async function execute(modelId: string, effort?: string) {
     harness.models.register(modelId, { kind: 'complete', text: 'ok' });
+
     const { runId } = await seedAndDispatchRun(harness, {
       userId,
       modelId,
       ...(effort !== undefined && { effort }),
     });
+
     await waitFor(
       async () => {
         const run = await runRow(runId);
+
         return run?.status === 'completed' ? run : undefined;
       },
       20_000,
       `run ${runId} to complete`,
     );
+
     return {
       runId,
       // The turn's Chat identity as the executor derived it: the run's own

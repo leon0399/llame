@@ -15,9 +15,11 @@ export const NODE_FILESYSTEM: KnowledgeFilesystemPort = {
       filePath,
       constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
     );
+
     return {
       stat: async () => {
         const stats = await handle.stat();
+
         return {
           size: stats.size,
           isDirectory: () => stats.isDirectory(),
@@ -27,6 +29,7 @@ export const NODE_FILESYSTEM: KnowledgeFilesystemPort = {
       },
       read: async (buffer, offset, length, position) => {
         const result = await handle.read(buffer, offset, length, position);
+
         return { bytesRead: result.bytesRead };
       },
       close: () => handle.close(),

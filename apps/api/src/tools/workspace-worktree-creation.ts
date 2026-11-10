@@ -113,6 +113,7 @@ export async function planCreationWorktree(
   input: CreationWorktreeInput,
 ): Promise<CreationPlan | Failed> {
   const creation: CreationRun = { input, executors };
+
   try {
     return await decidePlan(creation);
   } catch (error) {
@@ -125,13 +126,16 @@ async function decidePlan(
 ): Promise<CreationPlan | Failed> {
   const { executors, input } = creation;
   const inspection = await executors.inspect(input.target, input.canonical);
+
   if (inspection.status === 'error') return gitFailureOutcome(inspection);
 
   const mainClone = inspection.linked
     ? (inspection.mainWorktree ?? inspection.toplevel)
     : inspection.toplevel;
+
   if (mainClone !== input.canonical) {
     const rejection = input.decide('main_clone', mainClone);
+
     if (rejection !== undefined) {
       return { status: 'failed', result: rejection };
     }
@@ -143,14 +147,18 @@ async function decidePlan(
     (slug) => creationDirectoryAt(creation, mainClone, slug),
     input.name,
   );
+
   if ('status' in name) return name;
 
   const directory = await executors.canonicalTarget(
     input.target,
     creationDirectoryAt(creation, mainClone, name.slug),
   );
+
   const rejection = input.decide('worktree_directory', directory);
+
   if (rejection !== undefined) return { status: 'failed', result: rejection };
+
   return {
     mainClone,
     directory,
@@ -166,6 +174,7 @@ function creationDirectoryAt(
   slug: string,
 ): string {
   const { executors, input } = creation;
+
   const base =
     input.source.checkout.worktreeBase === null
       ? defaultWorktreeBase(executors.executorPath(input.target, mainClone))
@@ -173,6 +182,7 @@ function creationDirectoryAt(
           input.target,
           input.source.checkout.worktreeBase,
         );
+
   return executors.address(
     input.target,
     worktreeDirectory(base, input.source.repository.displayName, slug),
@@ -193,11 +203,15 @@ export async function addCreationWorktree(
 ): Promise<CreationWorktreeOutcome> {
   try {
     const added = await addWorktree(executors, input, plan);
+
     if ('status' in added) return added;
+
     return await commitCreation(context, input, plan, added.head);
   } catch (error) {
     if (error instanceof CreationConflict) return { status: 'conflict' };
+
     if (error instanceof RollbackError) return error.outcome;
+
     return executorFailure(error);
   }
 }
@@ -221,6 +235,7 @@ async function addWorktree(
   plan: CreationPlan,
 ): Promise<{ readonly head: string } | Failed> {
   let added: GitWorktreeAddResult;
+
   try {
     added = await executors.worktreeAdd(input.target, {
       source: plan.mainClone,
@@ -231,7 +246,9 @@ async function addWorktree(
   } catch (error) {
     return executorFailure(error, plan.directory);
   }
+
   if (added.status === 'error') return gitFailureOutcome(added);
+
   return { head: added.head };
 }
 
@@ -251,17 +268,21 @@ async function commitCreation(
       baseRef: input.baseRef ?? plan.sourceHead ?? baseCommit,
       baseCommit,
     });
+
     const binding = await new WorkspaceBindingRepository(db).bindAtCreation({
       chatId: context.chatId,
       ownerUserId: context.userId,
       executorId: input.target.executorId,
       root: plan.directory,
     });
+
     if (binding.status === 'conflict') throw new CreationConflict();
+
     if (binding.status === 'not_found') {
       throw new Error('The chat row of this creation vanished under its lock.');
     }
   });
+
   return {
     status: 'bound',
     root: plan.directory,
@@ -290,10 +311,12 @@ async function recordWorktree(
     branch: plan.branch,
     origin: 'created',
   });
+
   if (created === undefined) {
     throw new RollbackError(
       worktreeFailed('This worktree path is already recorded.'),
     );
   }
+
   return created;
 }

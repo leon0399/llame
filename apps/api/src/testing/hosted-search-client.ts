@@ -27,6 +27,7 @@ const USAGE = {
   },
   outputTokens: { total: 1, text: 1, reasoning: undefined },
 } satisfies LanguageModelV3Usage;
+
 const STOP = {
   unified: 'stop',
   raw: undefined,
@@ -36,7 +37,9 @@ export type SourcePart = Extract<
   LanguageModelV3StreamPart,
   { readonly type: 'source' }
 >;
+
 type UrlSourcePart = Extract<SourcePart, { readonly sourceType: 'url' }>;
+
 export type HostedStreamScript = LanguageModelV3['doStream'];
 
 /** A URL source part, as a provider adapter emits for a cited or retrieved page. */
@@ -73,6 +76,7 @@ export function answerStream(
       : [{ type: 'error' as const, error: failure }]),
     { type: 'finish', finishReason: STOP, usage },
   ];
+
   return { stream: simulateReadableStream({ chunks }) };
 }
 
@@ -92,6 +96,7 @@ export function scriptedModelClient(
     contextWindowTokens: 100_000,
     streamText(input) {
       inputs.push(input);
+
       const streamOptions = {
         model: new MockLanguageModelV3({ doStream: script }),
         system: input.system,
@@ -102,7 +107,9 @@ export function scriptedModelClient(
         onError: input.onError,
         maxRetries: 0,
       };
+
       applyRequestUsageCallback(streamOptions, input);
+
       return streamText(streamOptions);
     },
   };

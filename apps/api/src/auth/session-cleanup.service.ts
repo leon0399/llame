@@ -40,9 +40,11 @@ export class SessionCleanupService implements OnApplicationBootstrap {
     // Worker-profile gate (durable-run-workers D2/D3): a process whose active
     // profile doesn't include `sessions-cleanup` registers NOTHING for it.
     const concurrency = this.workerProfile.concurrencyFor('sessions-cleanup');
+
     if (concurrency === null) {
       return;
     }
+
     await this.queue.ensureQueue(SESSIONS_CLEANUP_QUEUE);
     // Hourly, off the :00 mark (self-hosted fleets thundering-herd less).
     await this.queue.schedule(SESSIONS_CLEANUP_QUEUE, '23 * * * *');
@@ -55,6 +57,7 @@ export class SessionCleanupService implements OnApplicationBootstrap {
     try {
       const deleted =
         await this.sessionsRepository.deleteExpired(SESSION_IDLE_TTL_MS);
+
       if (deleted > 0) {
         this.logger.log(`Purged ${deleted} expired/idle session(s)`);
       }

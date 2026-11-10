@@ -3,6 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { eligibleMessagePredicate } from './message-eligibility';
 
 const dialect = new PgDialect();
+
 const compile = (alias: string) =>
   dialect.sqlToQuery(eligibleMessagePredicate(alias));
 
@@ -45,6 +46,7 @@ describe('eligibleMessagePredicate', () => {
 
   it('ANDs the role check with the revised and usage-completeness checks', () => {
     const { sql: text } = compile('m');
+
     const assistantBranch = text.slice(
       text.indexOf('"m".role = \'assistant\''),
     );

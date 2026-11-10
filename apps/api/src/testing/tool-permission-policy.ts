@@ -28,8 +28,10 @@ export function compileTestPermissionPolicy(
   extraToolIds: ReadonlyArray<string> = [],
 ): CompiledPolicy {
   const groups: Record<string, PermissionGroup> = {};
+
   for (const id of [...PERMISSIVE_TOOL_IDS, ...extraToolIds]) {
     groups[id] = { allow: true };
   }
+
   return compileToolPermissionMap(groups, 'test-policy');
 }

@@ -10,6 +10,7 @@ type LoggedQuery = { sql: string; params: Array<unknown> };
 
 function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -18,11 +19,13 @@ function makeMockDb() {
       },
     },
   });
+
   return { db, queries };
 }
 
 function projectRow(overrides: Partial<Project> = {}): Project {
   const now = new Date('2026-09-02T00:00:00.000Z');
+
   return {
     id: 'project-1',
     ownerUserId: 'owner',
@@ -40,6 +43,7 @@ function terminalQuery<T>(value: T) {
   const terminal = Promise.resolve(value);
   const returning = vi.fn(() => terminal);
   const where = vi.fn(() => ({ returning }));
+
   return { where, returning };
 }
 
@@ -56,7 +60,9 @@ afterEach(() => {
 
 function lastQuery(queries: Array<LoggedQuery>): LoggedQuery {
   const query = queries.at(-1);
+
   if (!query) throw new Error('expected a logged database query');
+
   return query;
 }
 
@@ -184,9 +190,11 @@ describe('ProjectsRepository update', () => {
 
   it('allows pure unarchive and idempotent re-archive, but rejects archived content changes', async () => {
     const { db, queries } = makeMockDb();
+
     const current = projectRow({
       archivedAt: new Date('2026-09-01T00:00:00.000Z'),
     });
+
     vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
       current,
     );

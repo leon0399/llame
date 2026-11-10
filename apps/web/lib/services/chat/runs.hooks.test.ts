@@ -58,6 +58,7 @@ describe("useRunContextReceipt", () => {
       receipts: [],
       createdAt: "2026-09-16T00:00:00.000Z",
     };
+
     fetchMock.mockResolvedValue(jsonResponse(receipt));
     const queryClient = newTestQueryClient();
 

@@ -13,12 +13,14 @@ const adapter = createDoiAdapter(
   { id: 'doi', use: 'doi' },
   { apiOrigin: API_ORIGIN },
 );
+
 const SELECT =
   'select=display_name,type,publication_date,authorships,primary_location,cited_by_count,open_access,abstract_inverted_index,is_retracted';
 
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map(({ url }) => url) };
 }
 

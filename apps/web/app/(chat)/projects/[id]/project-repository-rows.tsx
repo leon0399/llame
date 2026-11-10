@@ -50,9 +50,11 @@ const ROW_ICON = "mt-0.5 size-4 shrink-0 text-muted-foreground";
  *  read. */
 function ChatReference({ chatId }: { chatId: string }) {
   const { data } = useChatQuery(chatId);
+
   if (data === undefined) {
     return <span className="text-muted-foreground">…</span>;
   }
+
   return (
     <Link
       href={`/chat/${chatId}`}
@@ -127,10 +129,13 @@ const STATE_DOT = {
 function ExecutorLabel({ checkout }: { checkout: CheckoutResponse }) {
   const onMachine = isOnMachine(checkout);
   const machines = useMachinesQuery(onMachine);
+
   if (!onMachine) return <>{executorLabel(checkout)}</>;
   const machine = findMachineByName(machines.data, executorLabel(checkout));
+
   const state =
     machine === undefined ? "Unknown" : MACHINE_STATE[machine.status];
+
   // Plain inline content: a flex box here would sit on its own baseline and
   // grow the line, so the dot is an inline block centered on the text.
   return (
@@ -151,6 +156,7 @@ function WorktreeChats({ checkout }: { checkout: CheckoutResponse }) {
   const others = checkout.chatIds.filter(
     (chatId) => chatId !== checkout.leaseChatId,
   ).length;
+
   return (
     <span className="truncate text-xs text-muted-foreground">
       {isOnMachine(checkout) ? (
@@ -179,6 +185,7 @@ function useRemoveWorktree(
   onRefused: (message: string) => void,
 ) {
   const remove = useRemoveCheckoutWorktree();
+
   return {
     pending: remove.isPending,
     confirm: () =>
@@ -207,6 +214,7 @@ function RemoveWorktreeDialog({
   onRefused: (message: string) => void;
 }) {
   const remove = useRemoveWorktree(checkout, onOpenChange, onRefused);
+
   return (
     <ConfirmDeleteDialog
       open={open}
@@ -292,6 +300,7 @@ export function WorktreeRow({ checkout }: { checkout: CheckoutResponse }) {
 function useNewCheckout(repositoryId: string, onDone: () => void) {
   const register = useRegisterCheckout();
   const [failure, setFailure] = React.useState<string | null>(null);
+
   const submit = (path: string) => {
     if (path === "" || register.isPending) return;
     setFailure(null);
@@ -306,6 +315,7 @@ function useNewCheckout(repositoryId: string, onDone: () => void) {
       },
     );
   };
+
   return { submit, failure, pending: register.isPending };
 }
 
@@ -323,6 +333,7 @@ export function DraftCheckoutRow({
   const checkout = useNewCheckout(repositoryId, onClose);
   const [path, setPath] = React.useState("");
   const trimmed = path.trim();
+
   return (
     <li className="relative">
       <DraftLines

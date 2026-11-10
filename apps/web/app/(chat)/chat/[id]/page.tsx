@@ -20,10 +20,12 @@ type PageProps = {
 export default async function Page({ params, searchParams }: PageProps) {
   const { id } = await params;
   const draftPhase = draftPhaseFromSearchParam((await searchParams).draft);
+
   const initialMessages =
     draftPhase === null
       ? await fetchInitialChatMessages(id)
       : await fetchDraftChatMessages(id, draftPhase);
+
   const queryClient = new QueryClient();
 
   if (initialMessages !== null) {

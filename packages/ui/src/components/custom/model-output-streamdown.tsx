@@ -123,6 +123,7 @@ export const ModelOutputStreamdown = ({
     () => window.location.origin,
     () => "",
   );
+
   const rehypePlugins = useMemo(
     () => [
       ...modelOutputRehypePlugins,

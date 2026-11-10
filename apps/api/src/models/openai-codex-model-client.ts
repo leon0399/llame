@@ -58,13 +58,17 @@ export function rejectRedirects(fetchImplementation: typeof globalThis.fetch) {
 function directHttpStatus(error: unknown): number | undefined {
   if (!isRecord(error)) return undefined;
   const statusCode = error['statusCode'];
+
   return isNumber(statusCode) ? statusCode : undefined;
 }
 
 function httpStatus(error: unknown): number | undefined {
   const statusCode = directHttpStatus(error);
+
   if (statusCode !== undefined) return statusCode;
+
   if (!RetryError.isInstance(error)) return undefined;
+
   return error.errors
     .map(directHttpStatus)
     .find((status): status is number => status !== undefined);
@@ -74,15 +78,18 @@ function codexStatusMessage(statusCode: number | undefined): string {
   if (statusCode === 401 || statusCode === 403) {
     return 'Codex subscription authentication failed. Re-login and restart llame.';
   }
+
   if (statusCode === 429) {
     return 'Codex subscription limit reached. Retry manually later.';
   }
+
   return 'Codex subscription request failed.';
 }
 
 function sanitizeCodexError(error: unknown): Error {
   const statusCode = httpStatus(error);
   const bounded = new Error(codexStatusMessage(statusCode));
+
   // The numeric status is not sensitive, and callers that classify a failure
   // (a hosted web search engine) read it from the bounded error.
   return statusCode === undefined

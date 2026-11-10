@@ -8,7 +8,9 @@ function compiled(
   ignoreCase = false,
 ): CompiledGrepPatterns {
   const result = compileGrepPatterns({ patterns, literal, ignoreCase });
+
   if (!result.ok) throw new Error(result.message);
+
   return result.compiled;
 }
 
@@ -32,7 +34,9 @@ describe("grep pattern compilation", () => {
       literal: false,
       ignoreCase: false,
     });
+
     expect(result.ok).toBe(false);
+
     if (result.ok) throw new Error("expected a refusal");
     expect(result.index).toBe(1);
     expect(result.message.length).toBeGreaterThan(0);
@@ -44,6 +48,7 @@ describe("grep pattern compilation", () => {
       literal: false,
       ignoreCase: false,
     });
+
     expect(result).toMatchObject({ ok: false, index: 8 });
   });
 
@@ -53,6 +58,7 @@ describe("grep pattern compilation", () => {
       literal: false,
       ignoreCase: false,
     });
+
     expect(result).toMatchObject({ ok: false, index: 0 });
   });
 
@@ -62,6 +68,7 @@ describe("grep pattern compilation", () => {
       literal: false,
       ignoreCase: false,
     });
+
     expect(result).toMatchObject({ ok: false, index: 1 });
   });
 
@@ -80,6 +87,7 @@ describe("grep pattern compilation", () => {
       literal: false,
       ignoreCase: false,
     });
+
     expect(result).toMatchObject({ ok: false, index: 0 });
   });
 

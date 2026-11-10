@@ -28,6 +28,7 @@ export const ORG_UNIT_TYPE_ORDER: Array<OrgUnitType> = [
   "team",
   "department",
 ];
+
 export const CHILD_ORG_UNIT_TYPES: Array<OrgUnitType> = [
   "group",
   "team",
@@ -98,6 +99,7 @@ function guideKinds(
   isLast: boolean,
 ): Array<GuideKind> {
   const depth = ancestorContinues.length;
+
   return ancestorContinues.map((continues, level) =>
     level < depth - 1
       ? continues
@@ -143,12 +145,15 @@ export function buildRows(
         isRoot: depth === 0,
         isFirst: false,
       });
+
       if (hasChildren && open) walk(kids, [...ancestorContinues, !isLast]);
     });
   };
 
   walk(childrenOf(units, visibleIds, null), []);
+
   if (rows.length > 0) rows[0]!.isFirst = true;
+
   return rows;
 }
 
@@ -157,6 +162,7 @@ export function collapsibleUnitIds(
   units: Array<OrgUnitResponse>,
 ): Array<string> {
   const visibleIds = new Set(units.map((u) => u.id));
+
   return units.flatMap((u) =>
     childrenOf(units, visibleIds, u.id).length > 0 ? [u.id] : [],
   );
@@ -176,11 +182,13 @@ export function visibleAncestorChain(
   const chain: Array<OrgUnitResponse> = [];
   const visited = new Set<string>();
   let current: OrgUnitResponse | undefined = unit;
+
   while (current && !visited.has(current.id)) {
     chain.unshift(current);
     visited.add(current.id);
     current = current.parentId ? unitsById.get(current.parentId) : undefined;
   }
+
   return chain;
 }
 
@@ -204,8 +212,10 @@ export function effectiveRoleFor(
   unitsById: Map<string, OrgUnitResponse>,
 ): EffectiveRole | null {
   const chain = visibleAncestorChain(unit, unitsById);
+
   for (let i = chain.length - 1; i >= 0; i--) {
     const candidate = chain[i]!;
+
     if (candidate.directRole) {
       return {
         role: candidate.directRole,
@@ -214,6 +224,7 @@ export function effectiveRoleFor(
       };
     }
   }
+
   return null;
 }
 
@@ -230,16 +241,20 @@ export function descendantIdsOf(
   units: Array<OrgUnitResponse>,
 ): Set<string> {
   const childrenByParent = new Map<string, Array<OrgUnitResponse>>();
+
   for (const u of units) {
     if (!u.parentId) continue;
     const list = childrenByParent.get(u.parentId) ?? [];
     list.push(u);
     childrenByParent.set(u.parentId, list);
   }
+
   const out = new Set<string>();
   const stack = [unitId];
+
   while (stack.length > 0) {
     const id = stack.pop()!;
+
     for (const child of childrenByParent.get(id) ?? []) {
       if (!out.has(child.id)) {
         out.add(child.id);
@@ -247,5 +262,6 @@ export function descendantIdsOf(
       }
     }
   }
+
   return out;
 }

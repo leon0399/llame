@@ -71,10 +71,12 @@ const PROMPT_ESCAPES = new Map([
 export function escapeForPrompt(value: string): string {
   return value.replaceAll(/[&<>]/gu, (character) => {
     const escaped = PROMPT_ESCAPES.get(character);
+
     if (escaped === undefined) {
       // Unreachable: the regex above only ever matches a PROMPT_ESCAPES key.
       throw new Error(`Unexpected character in prompt escape: "${character}"`);
     }
+
     return escaped;
   });
 }
@@ -117,9 +119,11 @@ export function promptValue(
   neutralize: (value: string) => string = escapeForPrompt,
 ): PromptSafeValue | undefined {
   const trimmed = raw?.trim();
+
   if (trimmed === undefined || trimmed.length === 0) {
     return undefined;
   }
+
   return promptSafeString(neutralize(trimmed));
 }
 
@@ -140,11 +144,14 @@ export function promptValueObserved(
   if (value === undefined) {
     return undefined;
   }
+
   const observed = promptSafeString(value.toHTML());
   observed.toHTML = () => {
     onEmit();
+
     return value.toHTML();
   };
+
   return observed;
 }
 
@@ -179,14 +186,18 @@ function compileSource(
 ): HandlebarsTemplateDelegate {
   const key = `${regime}\0${source}`;
   const cached = compiledTemplates.get(key);
+
   if (cached !== undefined) {
     return cached;
   }
+
   const compiled =
     regime === 'packaged'
       ? promptTemplates.compile(source, { noEscape: true })
       : promptTemplates.compile(source);
+
   compiledTemplates.set(key, compiled);
+
   return compiled;
 }
 
@@ -231,6 +242,7 @@ export function loadPackagedTemplate<TValues extends object>(
   const source = readPackagedSource(filePath, name);
   parsePromptTemplate(source);
   const template = compileSource(source, 'packaged');
+
   return (values) => template(values);
 }
 
@@ -240,9 +252,12 @@ function readPackagedSource(filePath: string, name: string): string {
       `Packaged prompt template missing: ${name} (expected ${filePath})`,
     );
   }
+
   const source = readPromptSource(filePath, DEFAULT_PROMPT_FILE_ACCESS);
+
   if (source.length === 0) {
     throw new Error(`Packaged prompt template empty: ${filePath}`);
   }
+
   return source;
 }

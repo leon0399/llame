@@ -63,6 +63,7 @@ export function prepareSource(
   source: SearchChainSuccess,
 ): SearchChainSuccess {
   const protect = keyProtector(context);
+
   if (source.kind === 'answer') {
     return {
       ...source,
@@ -70,6 +71,7 @@ export function prepareSource(
       citations: protectCitations(source.citations, protect),
     };
   }
+
   return {
     ...source,
     results: deduplicate(
@@ -89,7 +91,9 @@ export function prepareSource(
 function keyProtector(context: ToolContext): (text: string) => string {
   const model = context.webSearch?.rerank?.model;
   const decisions = context.decisions;
+
   if (model === undefined || decisions === undefined) return (text) => text;
+
   return (text) => decisions.protectText(model, text);
 }
 
@@ -123,14 +127,18 @@ function protectCitations(
 function deduplicate(results: ReadonlyArray<RawResult>): Array<RawResult> {
   const seen = new Set<string>();
   const unique: Array<RawResult> = [];
+
   for (const result of results) {
     const url = canonicalUrl(result.url);
+
     if (url === undefined) continue;
     const key = groupingKey(url);
+
     if (seen.has(key)) continue;
     seen.add(key);
     unique.push({ ...result, url });
   }
+
   return unique;
 }
 
@@ -147,6 +155,7 @@ export async function rankWebSearchResults(
 ): Promise<WebSearchRanking | undefined> {
   const model = context.webSearch?.rerank?.model;
   const judge = context.decisions;
+
   if (model === undefined || judge === undefined) return undefined;
 
   const ranked = await rankSafely(context, {
@@ -164,6 +173,7 @@ export async function rankWebSearchResults(
       abortSignal: context.abortSignal,
     }),
   });
+
   if (ranked === undefined || ranked.status === 'unavailable')
     return { status: 'unavailable' };
 
@@ -187,8 +197,10 @@ export async function rankWebSearchResults(
 /** One card per result, keyed `p<canonical position>` zero-padded to one width. */
 function cardsOf(results: ReadonlyArray<RawResult>) {
   const width = String(results.length - 1).length;
+
   return results.map((result, index) => {
     const key = `p${String(index).padStart(width, '0')}`;
+
     return { key, text: cardText(key, result) };
   });
 }
@@ -203,6 +215,7 @@ async function rankSafely(
     // An enclosing timeout or cancellation belongs to the runner; any other
     // throw from a judge is a failed call, never a negative judgment.
     if (context.abortSignal?.aborted === true) throw error;
+
     return undefined;
   }
 }
@@ -210,6 +223,7 @@ async function rankSafely(
 /** `[k] title — host — snippet`, each part on one line; the lane bounds it. */
 function cardText(key: string, result: RawResult): string {
   const title = oneLine(result.title).trim() || oneLine(result.url);
+
   return [
     `[${key}] ${title}`,
     URL.parse(result.url)?.host,

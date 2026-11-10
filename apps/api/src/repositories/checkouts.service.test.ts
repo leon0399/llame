@@ -43,16 +43,20 @@ const other: Checkout = {
 // and the RLS-scoped SQL itself stays in `checkouts.integration.test.ts`.
 function makeService() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
   );
+
   const register = vi
     .fn<CheckoutRegistrationService['register']>()
     .mockResolvedValue(checkout);
+
   const service = new CheckoutsService(tenantDb, registrationDouble(register));
   vi.spyOn(RepositoriesRepository.prototype, 'chatsBoundTo').mockResolvedValue(
     new Map(),
@@ -66,6 +70,7 @@ function makeService() {
     RepositoriesRepository.prototype,
     'countWorktrees',
   ).mockResolvedValue(0);
+
   return { service, register };
 }
 
@@ -91,6 +96,7 @@ async function failureOf(promise: Promise<unknown>) {
     if (error instanceof HttpException) return error.getResponse();
     throw error;
   }
+
   throw new Error('expected the call to fail');
 }
 
@@ -112,9 +118,11 @@ describe('CheckoutsService', () => {
   describe('register', () => {
     it('summarizes the new row with the chats already bound to its path', async () => {
       const { service, register } = makeService();
+
       const chatsBoundTo = vi
         .spyOn(RepositoriesRepository.prototype, 'chatsBoundTo')
         .mockResolvedValue(new Map([[checkout.path, ['chat-a', 'chat-b']]]));
+
       const leaseChats = vi.spyOn(
         RepositoriesRepository.prototype,
         'leaseChats',
@@ -138,12 +146,15 @@ describe('CheckoutsService', () => {
   describe('listCheckouts', () => {
     it('attaches bound chats and the lease chat of each worktree row', async () => {
       const { service } = makeService();
+
       const listCheckouts = vi
         .spyOn(RepositoriesRepository.prototype, 'listCheckouts')
         .mockResolvedValue([checkout, worktree, other]);
+
       const chatsBoundTo = vi
         .spyOn(RepositoriesRepository.prototype, 'chatsBoundTo')
         .mockResolvedValue(new Map([[checkout.path, ['chat-a', 'chat-b']]]));
+
       const leaseChats = vi
         .spyOn(RepositoriesRepository.prototype, 'leaseChats')
         .mockResolvedValue(new Map([[worktree.id, 'chat-c']]));
@@ -166,6 +177,7 @@ describe('CheckoutsService', () => {
 
     it('passes the repository filter to the query', async () => {
       const { service } = makeService();
+
       const listCheckouts = vi
         .spyOn(RepositoriesRepository.prototype, 'listCheckouts')
         .mockResolvedValue([]);
@@ -202,6 +214,7 @@ describe('CheckoutsService', () => {
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(worktree);
+
       const setWorktreeBase = vi.spyOn(
         RepositoriesRepository.prototype,
         'setWorktreeBase',
@@ -226,9 +239,11 @@ describe('CheckoutsService', () => {
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(checkout);
+
       const setWorktreeBase = vi
         .spyOn(RepositoriesRepository.prototype, 'setWorktreeBase')
         .mockResolvedValue({ ...checkout, worktreeBase: '/srv/worktrees' });
+
       vi.spyOn(
         RepositoriesRepository.prototype,
         'chatsBoundTo',
@@ -256,6 +271,7 @@ describe('CheckoutsService', () => {
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(checkout);
+
       const setWorktreeBase = vi.spyOn(
         RepositoriesRepository.prototype,
         'setWorktreeBase',
@@ -278,6 +294,7 @@ describe('CheckoutsService', () => {
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(checkout);
+
       const setWorktreeBase = vi.spyOn(
         RepositoriesRepository.prototype,
         'setWorktreeBase',
@@ -298,15 +315,18 @@ describe('CheckoutsService', () => {
 
     it('accepts and canonicalizes a locator of the checkout’s own Machine', async () => {
       const { service } = makeService();
+
       const machine: Checkout = {
         ...checkout,
         executorId: 'machine:devl',
         path: 'machine://devl/srv/repo',
       };
+
       vi.spyOn(
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(machine);
+
       const setWorktreeBase = vi
         .spyOn(RepositoriesRepository.prototype, 'setWorktreeBase')
         .mockResolvedValue({
@@ -338,15 +358,18 @@ describe('CheckoutsService', () => {
 
     it('refuses a locator that names another Machine', async () => {
       const { service } = makeService();
+
       const machine: Checkout = {
         ...checkout,
         executorId: 'machine:devl',
         path: 'machine://devl/srv/repo',
       };
+
       vi.spyOn(
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(machine);
+
       const setWorktreeBase = vi.spyOn(
         RepositoriesRepository.prototype,
         'setWorktreeBase',
@@ -367,15 +390,18 @@ describe('CheckoutsService', () => {
 
     it('refuses a locator that names no path', async () => {
       const { service } = makeService();
+
       const machine: Checkout = {
         ...checkout,
         executorId: 'machine:devl',
         path: 'machine://devl/srv/repo',
       };
+
       vi.spyOn(
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(machine);
+
       const setWorktreeBase = vi.spyOn(
         RepositoriesRepository.prototype,
         'setWorktreeBase',
@@ -401,6 +427,7 @@ describe('CheckoutsService', () => {
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(checkout);
+
       const setWorktreeBase = vi.spyOn(
         RepositoriesRepository.prototype,
         'setWorktreeBase',
@@ -421,15 +448,18 @@ describe('CheckoutsService', () => {
 
     it('refuses a host path on a Machine checkout', async () => {
       const { service } = makeService();
+
       const machine: Checkout = {
         ...checkout,
         executorId: 'machine:devl',
         path: 'machine://devl/srv/repo',
       };
+
       vi.spyOn(
         RepositoriesRepository.prototype,
         'findCheckout',
       ).mockResolvedValue(machine);
+
       const setWorktreeBase = vi.spyOn(
         RepositoriesRepository.prototype,
         'setWorktreeBase',
@@ -470,10 +500,12 @@ describe('CheckoutsService', () => {
   describe('deleteCheckout', () => {
     it('deletes an owned row and answers nothing', async () => {
       const { service } = makeService();
+
       const count = vi.spyOn(
         RepositoriesRepository.prototype,
         'countWorktrees',
       );
+
       const deleteCheckout = vi
         .spyOn(RepositoriesRepository.prototype, 'deleteCheckout')
         .mockResolvedValue(true);
@@ -494,6 +526,7 @@ describe('CheckoutsService', () => {
         RepositoriesRepository.prototype,
         'countWorktrees',
       ).mockResolvedValue(2);
+
       const deleteCheckout = vi.spyOn(
         RepositoriesRepository.prototype,
         'deleteCheckout',

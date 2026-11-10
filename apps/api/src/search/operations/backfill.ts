@@ -107,11 +107,14 @@ async function enqueueBounded(
   // already-queued corpus claim it queued everything a second time.
   let coalesced = 0;
   const failures: Array<EnqueueFailure> = [];
+
   for (let i = 0; i < rows.length; i += CONCURRENCY) {
     const batch = rows.slice(i, i + CONCURRENCY);
+
     const results = await Promise.allSettled(
       batch.map((row) => enqueueOne(row.chat_id, row.owner_user_id)),
     );
+
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
         if (result.value === null) {
@@ -132,6 +135,7 @@ async function enqueueBounded(
       }
     });
   }
+
   return { succeeded, coalesced, failures };
 }
 
@@ -163,11 +167,14 @@ export async function runBackfill(
       FROM llame_search_embedding_coverage(${modelId}, ${inputVersion}, ${BACKFILL_MAX_ROWS})
     `),
   );
+
   const list = [...rows];
+
   const { succeeded, coalesced, failures } = await enqueueBounded(
     list,
     (chatId, ownerUserId) =>
       dispatch.enqueueChatEmbedStrict(chatId, ownerUserId),
   );
+
   return { enqueued: succeeded, coalesced, failures };
 }

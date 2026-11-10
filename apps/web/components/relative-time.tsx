@@ -16,6 +16,7 @@ export function RelativeTime({ date }: { date: string }) {
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), TICK_MS);
+
     return () => clearInterval(timer);
   }, []);
 

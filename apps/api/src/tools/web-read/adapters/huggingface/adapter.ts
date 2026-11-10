@@ -15,19 +15,23 @@ import {
 export const HUGGINGFACE_ORIGIN = 'https://huggingface.co';
 
 const JSON_INIT: WebRequestInit = { accept: 'application/json' };
+
 const README_INIT: WebRequestInit = {
   accept: 'text/markdown, text/plain;q=0.9',
 };
 
 type RepoKind = 'models' | 'datasets' | 'spaces';
+
 type HuggingfaceTarget = { readonly kind: RepoKind; readonly id: string };
 
 const OWNER = '[A-Za-z0-9][A-Za-z0-9._-]{0,95}';
 const NAME = '[A-Za-z0-9._-]{1,96}';
+
 const REPO_PATH = new RegExp(
   `^/(?:(datasets|spaces)/)?(${OWNER})/(${NAME})$`,
   'u',
 );
+
 /** First path segments that are Hub pages rather than model owners, so a
  *  read of `/docs/transformers` or `/blog/x` costs no API request. */
 const RESERVED_OWNERS = {
@@ -74,6 +78,7 @@ const EXPAND: Readonly<Record<RepoKind, ReadonlyArray<string>>> = {
   datasets: ['downloads', 'gated'],
   spaces: ['sdk'],
 };
+
 const SHARED_EXPAND = [
   'cardData',
   'createdAt',
@@ -110,6 +115,7 @@ const REPOSITORY = z.object({
     .nullish()
     .transform(absent),
 });
+
 type Repository = z.infer<typeof REPOSITORY>;
 
 /** A model card's YAML front matter, which the metadata lines already cover. */
@@ -128,11 +134,15 @@ export function parseHuggingfaceUrl(
   if (source.protocol !== 'https:' || source.host !== 'huggingface.co') {
     return undefined;
   }
+
   const match = REPO_PATH.exec(source.pathname);
+
   if (match === null) return undefined;
   const [, prefix, owner = '', name = ''] = match;
+
   const kind: RepoKind =
     prefix === 'datasets' || prefix === 'spaces' ? prefix : 'models';
+
   if (
     kind === 'models' &&
     (Object.hasOwn(RESERVED_OWNERS, owner) ||
@@ -140,6 +150,7 @@ export function parseHuggingfaceUrl(
   ) {
     return undefined;
   }
+
   return { kind, id: `${owner}/${name}` };
 }
 
@@ -149,6 +160,7 @@ export function createHuggingfaceAdapter(
   options: { readonly origin?: string } = {},
 ): WebAdapter {
   const origin = options.origin ?? HUGGINGFACE_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
@@ -167,22 +179,28 @@ async function readRepository(
   const expand = [...SHARED_EXPAND, ...EXPAND[target.kind]]
     .map((field) => `expand[]=${field}`)
     .join('&');
+
   const fetched = await io.fetch(
     `${origin}/api/${target.kind}/${target.id}?${expand}`,
     JSON_INIT,
   );
+
   if ('type' in fetched) return primaryFailure(fetched);
   const repository = parseJsonBody(fetched.body, REPOSITORY);
+
   if (repository === undefined) return { kind: 'failed', failure: 'parse' };
 
   const notes: Array<string> = [];
   const readmeUrl = `${origin}${pagePath(target)}/raw/${repository.sha ?? 'main'}/README.md`;
+
   const readme = await loadSection(
     'readme',
     io.fetch(readmeUrl, README_INIT),
     notes,
   );
+
   if ('fatal' in readme) return primaryFailure(readme.fatal);
+
   return {
     kind: 'rendered',
     content: renderRepository(target, repository, readme.body),
@@ -197,6 +215,7 @@ function renderRepository(
   readme: string | undefined,
 ): string {
   const license = repository.cardData?.license;
+
   const fields: Array<[string, string | number | undefined]> = [
     [
       'Kind',
@@ -219,13 +238,18 @@ function renderRepository(
     ['Updated', repository.lastModified],
     ['Revision', repository.sha],
   ];
+
   const lines = [`# ${repository.id}`, ''];
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   lines.push(`URL: ${HUGGINGFACE_ORIGIN}${pagePath(target)}`);
   const card = readme?.replace(FRONT_MATTER, '').trim();
+
   if (card) lines.push('', '## README', '', card);
+
   return lines.join('\n');
 }
 

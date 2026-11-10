@@ -10,6 +10,7 @@ import type { ProjectRepositoryLink } from "@/lib/services/project/types";
 /** A refusal in the server's words, or nothing. */
 export function Refusal({ message }: { message: string | null }) {
   if (message === null) return null;
+
   return (
     <Alert variant="destructive">
       <AlertTitle>{message}</AlertTitle>
@@ -34,6 +35,7 @@ export function UnlinkRepositoryLinkDialog({
   onFailure: (message: string) => void;
 }) {
   const unlink = useUnlinkProjectRepository();
+
   const confirm = () =>
     unlink.mutate(
       { projectId, repositoryId: link.repositoryId },
@@ -45,6 +47,7 @@ export function UnlinkRepositoryLinkDialog({
           ),
       },
     );
+
   return (
     <ConfirmDeleteDialog
       open={open}

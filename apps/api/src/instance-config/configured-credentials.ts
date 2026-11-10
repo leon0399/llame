@@ -56,9 +56,11 @@ export class ConfiguredCredentialCollector {
   constructor(env: NodeJS.ProcessEnv) {
     const databasePassword = postgresPassword(env.POSTGRES_URL);
     this.add(databasePassword);
+
     if (databasePassword !== undefined) {
       this.add(percentDecoded(databasePassword));
     }
+
     this.add(env.PGPASSWORD);
   }
 
@@ -74,6 +76,7 @@ export class ConfiguredCredentialCollector {
    */
   addSecret(result: InterpolationResult): void {
     this.add(result.value);
+
     for (const substitution of result.substituted) {
       for (const leaf of substitution.documentLeaves) this.add(leaf);
     }
@@ -89,6 +92,7 @@ export class ConfiguredCredentialCollector {
     for (const substitution of result.substituted) {
       if (substitution.fallback) continue;
       this.add(substitution.value);
+
       for (const leaf of substitution.documentLeaves) this.add(leaf);
     }
   }
@@ -105,8 +109,10 @@ export class ConfiguredCredentialCollector {
    */
   private add(value: string | undefined): void {
     if (value === undefined) return;
+
     if (passesGate(value)) this.members.push(value);
     const trimmed = value.trim();
+
     if (trimmed !== value && passesGate(trimmed)) this.members.push(trimmed);
   }
 }
@@ -118,20 +124,26 @@ export class ConfiguredCredentialCollector {
  */
 function passesGate(value: string): boolean {
   const characters = Array.from(value);
+
   if (characters.length < MINIMUM_MEMBER_LENGTH) return false;
+
   return estimatedEntropyBits(characters) >= MINIMUM_MEMBER_BITS;
 }
 
 function estimatedEntropyBits(characters: ReadonlyArray<string>): number {
   const counts = new Map<string, number>();
+
   for (const character of characters) {
     counts.set(character, (counts.get(character) ?? 0) + 1);
   }
+
   let bitsPerCharacter = 0;
+
   for (const count of counts.values()) {
     const frequency = count / characters.length;
     bitsPerCharacter -= frequency * Math.log2(frequency);
   }
+
   return characters.length * bitsPerCharacter;
 }
 
@@ -145,13 +157,16 @@ function estimatedEntropyBits(characters: ReadonlyArray<string>): number {
 function postgresPassword(databaseUrl: string | undefined): string | undefined {
   if (databaseUrl === undefined) return undefined;
   const schemeEnd = databaseUrl.indexOf('://');
+
   if (schemeEnd === -1) return undefined;
   const authorityStart = schemeEnd + '://'.length;
   const authorityEnd = firstDelimiter(databaseUrl, authorityStart);
   const userinfoEnd = databaseUrl.lastIndexOf('@', authorityEnd - 1);
+
   if (userinfoEnd === -1) return undefined;
   const userinfo = databaseUrl.slice(authorityStart, userinfoEnd);
   const colon = userinfo.indexOf(':');
+
   return colon === -1 ? undefined : userinfo.slice(colon + 1);
 }
 
@@ -159,8 +174,11 @@ function postgresPassword(databaseUrl: string | undefined): string | undefined {
 function firstDelimiter(value: string, from: number): number {
   const slash = value.indexOf('/', from);
   const query = value.indexOf('?', from);
+
   if (slash === -1) return query === -1 ? value.length : query;
+
   if (query === -1) return slash;
+
   return Math.min(slash, query);
 }
 

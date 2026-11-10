@@ -41,6 +41,7 @@ describe("recovery and attempt ledger", () => {
       { command: "bash", args: ["-c", "printf ok"] },
       context(directory),
     );
+
     expect(result).toMatchObject({ status: "success", stdout: "ok" });
   });
 
@@ -59,9 +60,11 @@ describe("recovery and attempt ledger", () => {
     });
     vi.mocked(processTree.waitForProcessGroupQuiescence).mockRestore();
     vi.mocked(processTree.stopProcessGroup).mockRestore();
+
     const result = await executeManagedBash(input, context(directory), {
       toolCallId: "new-run-call",
     });
+
     expect(result).toMatchObject({ status: "success", stdout: "next" });
   });
 
@@ -80,17 +83,20 @@ describe("recovery and attempt ledger", () => {
       Object.assign(denied, { code: "EPERM" });
       throw denied;
     });
+
     expect(processTree.processGroupAlive(12_345)).toBe(true);
     expect(kill).toHaveBeenCalledWith(-12_345, 0);
   });
 
   it("cancels when the process group is proven stopped", async () => {
     const controller = new AbortController();
+
     const pending = executeManagedBash(
       { command: "bash", args: ["-c", "while true; do sleep 0.05; done"] },
       context(directory, { durationMs: 5000 }),
       { signal: controller.signal, toolCallId: "tc-cancel" },
     );
+
     await new Promise((resolve) => setTimeout(resolve, 40));
     controller.abort();
     expect(await pending).toMatchObject({ type: "cancelled" });
@@ -105,6 +111,7 @@ describe("recovery and attempt ledger", () => {
       context(directory),
       { toolCallId: "tc-orphan" },
     );
+
     expect(result).toMatchObject({ status: "success", exitCode: 0 });
   });
 });

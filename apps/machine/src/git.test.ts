@@ -57,6 +57,7 @@ function initRepository(directory: string): string {
   runGit(directory, ["config", "user.name", "llame tests"]);
   runGit(directory, ["config", "user.email", "llame@test.invalid"]);
   runGit(directory, ["config", "core.autocrlf", "false"]);
+
   return directory;
 }
 
@@ -75,6 +76,7 @@ function gitRecorder() {
   writeFileSync(join(directory, "git"), `#!/bin/sh\ntouch '${marker}'\n`, {
     mode: 0o755,
   });
+
   return { directory, marker };
 }
 
@@ -87,10 +89,12 @@ type Refusal = {
 /** The standard error of a git failure answer, narrowed from the wire. */
 function stderrOf(value: JsonValue): string {
   const stderr = isSerializableRecord(value) ? value["stderr"] : undefined;
+
   if (!isStringValue(stderr))
     throw new Error(
       `the answer carries no standard error: ${JSON.stringify(value)}`,
     );
+
   return stderr;
 }
 
@@ -112,6 +116,7 @@ function expectNoBareRoot(text: string): void {
     /[.*+?^${}()|[\]\\]/gu,
     String.raw`\$&`,
   );
+
   expect(text).not.toMatch(new RegExp(`(?<!${PREFIX})${escaped}`, "u"));
 }
 
@@ -186,6 +191,7 @@ describe("git.inspect", () => {
     const sub = join(clone, "packages");
     mkdirSync(sub);
     const nested = startDaemon({ roots: [sub] });
+
     try {
       expect((await nested.hello()).ok).toBe(true);
 
@@ -206,6 +212,7 @@ describe("git.inspect", () => {
     const recorder = gitRecorder();
     const previousPath = process.env["PATH"];
     process.env["PATH"] = `${recorder.directory}:${previousPath ?? ""}`;
+
     try {
       await expect(
         daemon.call("git.inspect", {
@@ -228,6 +235,7 @@ async function withGitRecorder(
   const recorder = gitRecorder();
   const previousPath = process.env["PATH"];
   process.env["PATH"] = `${recorder.directory}:${previousPath ?? ""}`;
+
   try {
     await body(() => existsSync(recorder.marker));
   } finally {
@@ -271,6 +279,7 @@ describe("git.locate", () => {
     const inner = join(clone, "sub");
     mkdirSync(inner);
     const nested = startDaemon({ roots: [inner] });
+
     try {
       expect((await nested.hello()).ok).toBe(true);
       await expect(
@@ -308,6 +317,7 @@ describe("git.locate with nested registered roots", () => {
     mkdirSync(join(app, "web"), { recursive: true });
     mkdirSync(join(server, ".git"));
     const nested = startDaemon({ roots: [server, app] });
+
     try {
       expect((await nested.hello()).ok).toBe(true);
       await expect(
@@ -527,6 +537,7 @@ describe("git.worktreeAdd", () => {
     const recorder = gitRecorder();
     const previousPath = process.env["PATH"];
     process.env["PATH"] = `${recorder.directory}:${previousPath ?? ""}`;
+
     try {
       await expect(
         daemon.call("git.worktreeAdd", {
@@ -601,6 +612,7 @@ describe("git.worktreeAdd", () => {
     const recorder = gitRecorder();
     const previousPath = process.env["PATH"];
     process.env["PATH"] = `${recorder.directory}:${previousPath ?? ""}`;
+
     try {
       await expect(
         daemon.call("git.worktreeAdd", {

@@ -60,21 +60,28 @@ async function withSpace<T>(
   ) => Promise<T>,
 ): Promise<T> {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'grep-kb-')));
+
   try {
     const bindings = new Map<string, KnowledgeFilesystemBinding>();
+
     for (const id of [SPACE_A, SPACE_B]) {
       const directory = path.join(root, id);
       await mkdir(directory, { recursive: true });
+
       for (const [relative, content] of Object.entries(files)) {
         const target = path.join(directory, ...relative.split('/'));
         await mkdir(path.dirname(target), { recursive: true });
         await writeFile(target, content);
       }
+
       bindings.set(id, { id, name: id, root, directory });
     }
+
     const first = bindings.get(SPACE_A);
+
     if (first === undefined)
       throw new Error('the fixture builds a first Space');
+
     return await callback(first, bindings);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -85,9 +92,11 @@ function scopesOf(outcome: ScopeOutcome) {
   if ('result' in outcome) {
     throw new Error(`expected scopes, received ${outcome.result.type}`);
   }
+
   if ('machine' in outcome) {
     throw new Error('expected scopes, received one Machine scope');
   }
+
   return outcome;
 }
 
@@ -117,14 +126,17 @@ describe('resolveKnowledgeScope', () => {
   it('expands a bare scope over every page of Spaces in byte order', async () => {
     await withSpace({ 'a.md': 'needle\n' }, async (_binding, both) => {
       const seen: Array<KnowledgeSpaceCursor | undefined> = [];
+
       const resolver = resolverFor(both, (after) => {
         seen.push(after);
+
         if (after === undefined) {
           return {
             spaces: [{ id: SPACE_B, name: 'B', createdAt: new Date(0) }],
             nextCursor: { id: SPACE_B, createdAt: new Date(0) },
           };
         }
+
         return {
           spaces: [{ id: SPACE_A, name: 'A', createdAt: new Date(1) }],
         };
@@ -148,6 +160,7 @@ describe('resolveKnowledgeScope', () => {
       0,
       admission,
     );
+
     expect(outcome).toEqual({
       result: {
         status: 'error',
@@ -159,6 +172,7 @@ describe('resolveKnowledgeScope', () => {
 
   it('refuses a malformed identifier before any owner lookup', async () => {
     const lookup = vi.fn(() => Promise.resolve(undefined));
+
     const resolver: KnowledgeToolResolver = {
       listForOwnerPage: () => Promise.resolve({ spaces: [] }),
       resolveBindingForOwnerById: lookup,
@@ -199,6 +213,7 @@ describe('resolveKnowledgeScope', () => {
       0,
       admission,
     );
+
     expect(outcome).toEqual({
       result: {
         status: 'error',
@@ -216,6 +231,7 @@ describe('resolveKnowledgeScope', () => {
       0,
       admission,
     );
+
     expect(outcome).toEqual({
       result: {
         status: 'error',

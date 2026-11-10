@@ -192,6 +192,7 @@ export function RegisterForm() {
       confirmPassword: "",
     },
   });
+
   const { isLoading, onSubmit } = useRegisterSubmit(form);
 
   return (

@@ -94,9 +94,11 @@ export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
   inputSchema: knowledgeSearchInputSchema,
   async execute(context, args) {
     const cursor = decodeSearchCursor(args);
+
     // oxlint-disable-next-line anti-slop/no-known-value-widening -- `isToolResult` narrows a union that already contains `ToolResult`; it is that union's only atomic discriminant, not a redundant re-parse of a known value.
     if (cursor !== undefined && isToolResult(cursor)) return cursor;
     const resolver = context.knowledgeResolver;
+
     if (resolver === undefined) return unavailableResult();
 
     if (args.knowledgeSpaceId !== undefined) {
@@ -104,7 +106,9 @@ export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
         context,
         args.knowledgeSpaceId,
       );
+
       if (isToolResult(access)) return access;
+
       try {
         const matches = await access.adapter.search(args.query, args.limit, {
           signal: context.abortSignal,
@@ -112,12 +116,14 @@ export const knowledgeSearchTool: Tool<KnowledgeSearchArguments> = {
           after: cursor === undefined ? undefined : cursorAfter(cursor),
           maxResults: args.limit + 1,
         });
+
         const attributed = matches
           .map((match) =>
             attributeMatch(match, access.binding, access.spaceCreatedAt),
           )
           .filter((match) => isAfterCursor(match, cursor))
           .sort(compareAttributedMatches);
+
         return buildSearchPage(
           {
             matches: attributed,
@@ -168,8 +174,10 @@ function accumulateSpaceMatches(
     if (acc.matches.length >= limit) break;
     acc.matches.push(match);
   }
+
   if (acc.matches.length >= limit && attributed.length > 0) {
     const last = acc.matches.at(-1);
+
     if (
       last !== undefined &&
       attributed.some((match) => compareAttributedMatches(match, last) > 0)
@@ -188,6 +196,7 @@ async function searchAccessibleSpace(
   acc: SpaceSearchAccumulator,
 ): Promise<ToolResult | undefined> {
   const { context, args, cursor, budget } = request;
+
   try {
     const spaceMatches = await access.adapter.search(args.query, args.limit, {
       signal: context.abortSignal,
@@ -198,26 +207,34 @@ async function searchAccessibleSpace(
           : undefined,
       maxResults: args.limit + 1,
     });
+
     acc.inspectedSpaces += 1;
+
     const attributed = spaceMatches
       .map((match) =>
         attributeMatch(match, access.binding, access.spaceCreatedAt),
       )
       .filter((match) => isAfterCursor(match, cursor))
       .sort(compareAttributedMatches);
+
     accumulateSpaceMatches(acc, attributed, args.limit);
+
     return undefined;
   } catch (error) {
     if (error instanceof KnowledgeFilesystemError) {
       if (error.code === 'knowledge_cancelled') throw error;
+
       if (error.code === 'knowledge_limit_exceeded') {
         return mapKnowledgeFailure(error);
       }
     }
+
     const warning = warningFromFailure(error, space);
+
     if (warning === undefined) return mapKnowledgeFailure(error);
     acc.warningCount += 1;
     appendBoundedWarning(acc.warnings, warning);
+
     return undefined;
   }
 }
@@ -238,20 +255,27 @@ async function searchOneSpace(
   acc: SpaceSearchAccumulator,
 ): Promise<ToolResult | undefined> {
   const { context, cursor } = request;
+
   if (cursor !== undefined && compareSpaceReference(space, cursor) < 0) {
     return undefined;
   }
+
   const access = await resolveExplicitAccess(context, space.id, space);
+
   if (isToolResult(access)) {
     if (access.type === 'knowledge_space_not_found') return undefined;
     acc.currentSpaces += 1;
     const warning = warningFromResult(access, space);
+
     if (warning === undefined) return access;
     acc.warningCount += 1;
     appendBoundedWarning(acc.warnings, warning);
+
     return undefined;
   }
+
   acc.currentSpaces += 1;
+
   return searchAccessibleSpace(access, request, space, acc);
 }
 
@@ -262,8 +286,10 @@ async function searchSpacePage(
 ): Promise<ToolResult | undefined> {
   for (const space of page) {
     const earlyResult = await searchOneSpace(request, space, acc);
+
     if (earlyResult !== undefined) return earlyResult;
   }
+
   return undefined;
 }
 
@@ -274,8 +300,10 @@ async function collectSpaceMatches(
   try {
     for await (const page of currentSpacePages(request.context)) {
       const earlyResult = await searchSpacePage(page, request, acc);
+
       if (earlyResult !== undefined) return earlyResult;
     }
+
     return undefined;
   } catch (error) {
     return mapResolverFailure(error);
@@ -289,8 +317,10 @@ function emptySpaceSearchResult(
   acc: SpaceSearchAccumulator,
 ): ToolResult | undefined {
   if (acc.currentSpaces === 0) return notConfiguredResult();
+
   if (acc.inspectedSpaces === 0) {
     const firstWarning = acc.warnings[0];
+
     return firstWarning === undefined
       ? unavailableResult()
       : {
@@ -299,6 +329,7 @@ function emptySpaceSearchResult(
           message: firstWarning.message,
         };
   }
+
   return undefined;
 }
 
@@ -308,6 +339,7 @@ async function searchAllCurrentSpaces(
   cursor: KnowledgeSearchCursor | undefined,
 ): Promise<ToolResult> {
   const resolver = context.knowledgeResolver;
+
   if (resolver === undefined) return unavailableResult();
 
   const request: SpaceSearchRequest = {
@@ -316,6 +348,7 @@ async function searchAllCurrentSpaces(
     cursor,
     budget: createKnowledgeFilesystemSearchBudget(),
   };
+
   const acc: SpaceSearchAccumulator = {
     matches: [],
     warnings: [],
@@ -326,9 +359,11 @@ async function searchAllCurrentSpaces(
   };
 
   const earlyResult = await collectSpaceMatches(request, acc);
+
   if (earlyResult !== undefined) return earlyResult;
 
   const emptyResult = emptySpaceSearchResult(acc);
+
   if (emptyResult !== undefined) return emptyResult;
 
   return buildSearchPage(
@@ -346,13 +381,16 @@ async function* currentSpacePages(
   context: ToolContext,
 ): AsyncGenerator<ReadonlyArray<KnowledgeToolSpaceReference>> {
   const resolver = context.knowledgeResolver;
+
   if (resolver === undefined) throw new Error('Knowledge resolver unavailable');
 
   let after: KnowledgeSpaceCursor | undefined;
+
   while (true) {
     throwIfAborted(context.abortSignal);
     const page = await resolver.listForOwnerPage(context.userId, after);
     yield page.spaces;
+
     if (page.nextCursor === undefined) return;
     after = page.nextCursor;
   }
@@ -364,6 +402,7 @@ async function resolveExplicitAccess(
   space?: KnowledgeToolSpaceReference,
 ): Promise<KnowledgeAccess | ToolResult> {
   const resolver = context.knowledgeResolver;
+
   if (resolver === undefined) return unavailableResult();
 
   try {
@@ -371,7 +410,9 @@ async function resolveExplicitAccess(
       context.userId,
       knowledgeSpaceId,
     );
+
     if (binding === undefined) return notFoundResult();
+
     return {
       binding,
       adapter: resolver.createAdapter(binding),
@@ -402,9 +443,11 @@ function buildSearchPageCursor(
   explicitSpaceCreatedAt: Date | undefined,
 ): string | undefined {
   const lastAttributed = page.matches[results.length - 1];
+
   if (!page.laterPassageExists || lastAttributed === undefined) {
     return undefined;
   }
+
   return encodeKnowledgeSearchCursor({
     version: 1,
     query: normalizeKnowledgeSearchQuery(args.query),
@@ -444,17 +487,22 @@ function buildSearchPage(
   const { warnings, warningCount } = pageWarnings;
   const results = page.matches.slice(0, args.limit);
   const base = buildSearchPageBase(results, warningCount);
+
   const nextCursor = buildSearchPageCursor(
     results,
     page,
     args,
     explicitSpaceCreatedAt,
   );
+
   const baseWithCursor =
     nextCursor === undefined ? base : { ...base, nextCursor };
+
   const visibleWarnings: Array<KnowledgeSearchWarning> = [];
+
   for (const warning of warnings) {
     visibleWarnings.push(warning);
+
     if (
       serializedLength({ ...baseWithCursor, warnings: visibleWarnings }) >
       KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS
@@ -463,6 +511,7 @@ function buildSearchPage(
       break;
     }
   }
+
   return preflightSuccess({ ...baseWithCursor, warnings: visibleWarnings });
 }
 
@@ -474,6 +523,7 @@ function passageLocator(match: AttributedMatch): string {
   const path = match.path.replaceAll(/[:?#%]/gu, (character) =>
     encodeURIComponent(character),
   );
+
   return `${KNOWLEDGE_LOCATOR_SCHEME}://${match.knowledgeSpaceId}/${path}:${match.offset + 1}-${match.offset + match.limit}`;
 }
 
@@ -498,6 +548,7 @@ function decodeSearchCursor(
   args: KnowledgeSearchArguments,
 ): KnowledgeSearchCursor | ToolResult | undefined {
   if (args.cursor === undefined) return undefined;
+
   try {
     const cursor = decodeKnowledgeSearchCursor(args.cursor);
     assertKnowledgeSearchCursorBinding(
@@ -505,6 +556,7 @@ function decodeSearchCursor(
       args.query,
       args.knowledgeSpaceId,
     );
+
     return cursor;
   } catch (error) {
     if (error instanceof KnowledgeSearchCursorError) {
@@ -514,6 +566,7 @@ function decodeSearchCursor(
         message: error.message,
       };
     }
+
     return {
       status: 'error',
       type: 'knowledge_cursor_invalid',
@@ -533,6 +586,7 @@ function compareSpaceReference(
   cursor: KnowledgeSearchCursor,
 ): number {
   const dateOrder = space.createdAt.getTime() - cursor.spaceCreatedAt.getTime();
+
   return dateOrder !== 0 ? dateOrder : compareNames(space.id, cursor.spaceId);
 }
 
@@ -541,17 +595,22 @@ function isAfterCursor(
   cursor: KnowledgeSearchCursor | undefined,
 ): boolean {
   if (cursor === undefined) return true;
+
   if (cursor.knowledgeSpaceId !== undefined) {
     return (
       compareNames(match.path, cursor.path) > 0 ||
       (match.path === cursor.path && match.offset > cursor.offset)
     );
   }
+
   const spaceOrder =
     match.spaceCreatedAt.getTime() - cursor.spaceCreatedAt.getTime();
+
   if (spaceOrder !== 0) return spaceOrder > 0;
   const idOrder = compareNames(match.knowledgeSpaceId, cursor.spaceId);
+
   if (idOrder !== 0) return idOrder > 0;
+
   return (
     compareNames(match.path, cursor.path) > 0 ||
     (match.path === cursor.path && match.offset > cursor.offset)
@@ -564,13 +623,17 @@ function compareAttributedMatches(
 ): number {
   const dateOrder =
     left.spaceCreatedAt.getTime() - right.spaceCreatedAt.getTime();
+
   if (dateOrder !== 0) return dateOrder;
+
   const spaceOrder = compareNames(
     left.knowledgeSpaceId,
     right.knowledgeSpaceId,
   );
+
   if (spaceOrder !== 0) return spaceOrder;
   const pathOrder = compareNames(left.path, right.path);
+
   return pathOrder !== 0 ? pathOrder : left.offset - right.offset;
 }
 
@@ -590,9 +653,11 @@ function warningFromFailure(
       message: 'The Knowledge Space is unavailable.',
     };
   }
+
   if (!isScopedWarningType(error.code)) {
     return undefined;
   }
+
   return {
     type: error.code,
     knowledgeSpaceId: space.id,
@@ -606,9 +671,11 @@ function warningFromResult(
   space: KnowledgeToolSpaceReference,
 ): KnowledgeSearchWarning | undefined {
   if (result.status !== 'error') return undefined;
+
   if (!isScopedWarningType(result.type)) {
     return undefined;
   }
+
   return {
     type: result.type,
     knowledgeSpaceId: space.id,
@@ -623,6 +690,7 @@ function preflightSuccess<
   if (serializedLength(result) > KNOWLEDGE_TOOL_RESULT_MAX_CODE_UNITS) {
     return limitResult();
   }
+
   return result;
 }
 
@@ -650,6 +718,7 @@ function isScopedWarningType(
 
 function serializedLength(value: KnowledgeSerializedValue): number {
   const serialized = JSON.stringify(value);
+
   return serialized === undefined
     ? Number.POSITIVE_INFINITY
     : serialized.length;

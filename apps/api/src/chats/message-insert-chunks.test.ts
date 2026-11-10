@@ -12,6 +12,7 @@ const rowOf = (id: string, textLength: number) => ({
 describe('messageInsertChunks', () => {
   it('ends a chunk at the part-length bound and keeps an oversized row alone', () => {
     const bound = JSON.stringify(rowOf('', 400).parts).length * 2 + 100;
+
     const rows = [
       rowOf('a', 400),
       rowOf('b', 400),

@@ -20,9 +20,12 @@ export function compactionBoundaryIndex(
   ) {
     return -1;
   }
+
   const idx = messages.findIndex((m) => {
     const seq = m.metadata?.seq;
+
     return seq === undefined || seq > absorbedThroughSeq;
   });
+
   return idx === -1 ? messages.length : idx;
 }

@@ -97,7 +97,9 @@ export async function expandSkillImports(
     readOrdinal: 0,
     exhausted: false,
   };
+
   await expandBody(state, ROOT_DOCUMENT, input.body, 0);
+
   return { imports: state.imports, omitted: state.omitted };
 }
 
@@ -126,7 +128,9 @@ export async function readSkillActivationFile(input: {
     (decision) =>
       input.activity.admitted(input.toolCallId, input.readInput, decision),
   );
+
   await input.activity.completed(input.toolCallId, result);
+
   return result;
 }
 
@@ -137,32 +141,40 @@ async function expandBody(
   hop: number,
 ): Promise<void> {
   if (hop >= MAX_IMPORT_HOPS) return;
+
   for (const target of importTargets(body)) {
     // A cancelled Run stops expanding: no further read is dispatched, so no
     // admission or completion event is recorded after the abort. The Run's
     // own cancellation handles the rest; nothing here is reported as omitted.
     if (state.toolContext.abortSignal?.aborted === true) return;
     const resolved = resolveImport(state.skill, importer, target);
+
     if (resolved === undefined || state.seen.has(resolved.relativePath))
       continue;
     state.seen.add(resolved.relativePath);
+
     if (state.exhausted) {
       omitImport(state, resolved.locator);
       continue;
     }
+
     if (
       !state.canAccept([...state.imports, { path: resolved.locator, body: '' }])
     ) {
       omitImport(state, resolved.locator);
       continue;
     }
+
     const loaded = await readImport(state, resolved);
+
     if (loaded === undefined) continue;
     const candidate = [...state.imports, loaded.file];
+
     if (!state.canAccept(candidate)) {
       omitImport(state, resolved.locator);
       continue;
     }
+
     state.imports.push(loaded.file);
     await expandBody(state, loaded.relativePath, loaded.file.body, hop + 1);
   }
@@ -191,11 +203,15 @@ function resolveImport(
   if (!isLocalImportTarget(target) || posix.isAbsolute(target))
     return undefined;
   const decodedTarget = decodeRelativePath(target);
+
   if (decodedTarget === undefined) return undefined;
+
   const relativePath = posix.normalize(
     posix.join(posix.dirname(importer), decodedTarget),
   );
+
   const components = relativePath.split('/');
+
   if (
     relativePath === '.' ||
     relativePath === '..' ||
@@ -205,6 +221,7 @@ function resolveImport(
   ) {
     return undefined;
   }
+
   return {
     relativePath,
     locator: formatSkillLocator({ name: skill, relativePath }),
@@ -216,16 +233,20 @@ async function readImport(
   resolved: ResolvedImport,
 ): Promise<ImportRead | undefined> {
   const remainingMs = state.deadline - Date.now();
+
   if (remainingMs <= 0) {
     omitImport(state, resolved.locator);
+
     return undefined;
   }
+
   // Positional within ONE attempt, not stable across attempts: the event log
   // is append-only and system-origin rows are not reconciled by call id, so a
   // retried attempt that expands a different set of imports simply appends its
   // own ids rather than matching or replacing an earlier attempt's.
   const toolCallId = `skill-activation-${state.runId}-${state.mentionOrdinal}-${state.readOrdinal++}`;
   const readInput = { path: `${resolved.locator}:raw` };
+
   const result = await readSkillActivationFile({
     readTool: state.readTool,
     toolContext: state.toolContext,
@@ -236,12 +257,17 @@ async function readImport(
     readInput,
     activity: state.activity,
   });
+
   if (isBudgetAbort(result, state.deadline)) {
     omitImport(state, resolved.locator);
+
     return undefined;
   }
+
   const output = readImportOutput(result);
+
   if (output === undefined) return undefined;
+
   return {
     relativePath: resolved.relativePath,
     file: {
@@ -258,6 +284,7 @@ function readContext(
   remainingMs: number,
 ): ToolContext {
   const budgetSignal = AbortSignal.timeout(remainingMs);
+
   return {
     ...toolContext,
     skillSelection: selection,
@@ -275,9 +302,12 @@ function readImportOutput(
   if (result.status !== 'success' || result['kind'] !== 'file') {
     return undefined;
   }
+
   const content: unknown = result['content'];
   const truncationNotice: unknown = result['truncationNotice'];
+
   if (!isString(content)) return undefined;
+
   return {
     content,
     ...(isString(truncationNotice) && { truncationNotice }),

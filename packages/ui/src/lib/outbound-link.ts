@@ -36,6 +36,7 @@ const UNKNOWN_ORIGIN_BASE = "https://llame.invalid";
 
 const readHref = (node: HastNode): string | undefined => {
   const href = node.properties?.href;
+
   return isHrefString(href) ? href : undefined;
 };
 
@@ -52,9 +53,11 @@ const readHref = (node: HastNode): string | undefined => {
  */
 export const isOutboundHref = (href: string, ownOrigin: string): boolean => {
   const trimmed = href.trim();
+
   if (trimmed.startsWith("#")) return false;
 
   let url: URL;
+
   try {
     url = new URL(trimmed, ownOrigin || UNKNOWN_ORIGIN_BASE);
   } catch {
@@ -62,10 +65,13 @@ export const isOutboundHref = (href: string, ownOrigin: string): boolean => {
   }
 
   if (url.protocol === "mailto:" || url.protocol === "tel:") return true;
+
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+
   if (!ABSOLUTE_HTTP_URL.test(trimmed) && !trimmed.startsWith("//")) {
     return false;
   }
+
   return url.origin !== ownOrigin;
 };
 
@@ -79,13 +85,16 @@ const outboundLinkElement = (): HastNode => ({
 const decorateOutboundLinks = (node: HastNode, ownOrigin: string): void => {
   if (node.tagName === "a" && node.children) {
     const href = readHref(node);
+
     if (href !== undefined && isOutboundHref(href, ownOrigin)) {
       node.children.push(outboundLinkElement());
     }
+
     return;
   }
 
   if (!node.children) return;
+
   for (const child of node.children) decorateOutboundLinks(child, ownOrigin);
 };
 

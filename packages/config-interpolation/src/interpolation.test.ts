@@ -27,6 +27,7 @@ function interpolationErrorSource(err: unknown): InterpolationError["source"] {
       `expected an InterpolationError instance, got ${String(err)}`,
     );
   }
+
   return err.source;
 }
 
@@ -35,6 +36,7 @@ function errorMessage(err: unknown): string {
   if (!(err instanceof Error)) {
     throw new Error(`expected an Error instance, got ${String(err)}`);
   }
+
   return err.message;
 }
 
@@ -48,6 +50,7 @@ let originalEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
   originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+
   for (const k of ENV_KEYS) delete process.env[k];
 });
 
@@ -68,6 +71,7 @@ describe("interpolateString — {env:...}", () => {
     expect(() => interpolateString("{env:IC_TEST_VAR}")).toThrow(
       InterpolationError,
     );
+
     try {
       interpolateString("{env:IC_TEST_VAR}");
       expect.unreachable("expected throw");
@@ -199,6 +203,7 @@ describe("interpolateString — {path:...}", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "llame-instance-config-"));
     const file = path.join(dir, name);
     writeFileSync(file, content);
+
     return file;
   }
 
@@ -209,6 +214,7 @@ describe("interpolateString — {path:...}", () => {
 
   it("throws InterpolationError naming the location when the file is missing", () => {
     const missing = path.join(tmpdir(), "llame-instance-config-missing-file");
+
     try {
       interpolateString(`{path:${missing}}`);
       expect.unreachable("expected throw");
@@ -232,6 +238,7 @@ describe("interpolateString — {path:...}", () => {
       }),
       "auth.json",
     );
+
     expect(interpolateString(`{path:${file}|json:/opencode/key}`)).toBe(
       "json-secret",
     );
@@ -243,6 +250,7 @@ describe("interpolateString — {path:...}", () => {
   it("reports file substitutions and omits an empty trimmed file", () => {
     const valueFile = tempSecretFile("file-secret", "value.txt");
     const emptyFile = tempSecretFile("  \n", "empty.txt");
+
     const result = interpolateStringWithSubstitutions(
       `{path:${valueFile}}|{path:${emptyFile}}`,
     );
@@ -333,6 +341,7 @@ describe("interpolateString — {path:...}", () => {
       '{"__proto__":"proto-secret","other":"x"}',
       "auth.json",
     );
+
     expect(interpolateString(`{path:${file}|json:/__proto__}`)).toBe(
       "proto-secret",
     );
@@ -373,6 +382,7 @@ describe("interpolateString — {path:...}", () => {
       }),
       "auth.json",
     );
+
     const invalidPointers = [
       "items/0",
       "xkey",
@@ -415,6 +425,7 @@ describe("interpolateString — {path:...}", () => {
       JSON.stringify({ key: "  spaced  " }),
       "auth.json",
     );
+
     expect(interpolateString(`{path:${file}|json:/key}`)).toBe("  spaced  ");
   });
 
@@ -423,6 +434,7 @@ describe("interpolateString — {path:...}", () => {
       JSON.stringify({ opencode: { key: "s3cr3t" } }),
       "auth.json",
     );
+
     try {
       interpolateString(`{path:${file}|json:/opencode}`);
       expect.unreachable("expected throw");
@@ -441,6 +453,7 @@ describe("interpolateString — {path:...}", () => {
 
   it("rejects invalid JSON or a missing pointer without echoing contents", () => {
     const badJson = tempSecretFile("{not-json", "bad.json");
+
     const missingPointer = tempSecretFile(
       JSON.stringify({ key: "s3cr3t" }),
       "auth.json",
@@ -518,11 +531,13 @@ describe("interpolateString — escaping", () => {
     expect(interpolateString("just a { brace")).toBe("just a { brace");
   });
 });
+
 describe("interpolateWorkspaceString", () => {
   it("resolves workspace env/path tokens and labels fallback substitutions", async () => {
     const root = mkdtempSync(
       path.join(tmpdir(), "llame-workspace-interpolation-"),
     );
+
     writeFileSync(path.join(root, "token.txt"), " file-secret \n");
 
     const result = await interpolateWorkspaceString(
@@ -546,6 +561,7 @@ describe("interpolateWorkspaceString", () => {
     const root = mkdtempSync(
       path.join(tmpdir(), "llame-workspace-interpolation-"),
     );
+
     const environment: NodeJS.ProcessEnv = { OUTER: "${INNER}" };
     Object.setPrototypeOf(environment, { INHERITED: "not-an-env-value" });
 
@@ -584,6 +600,7 @@ describe("interpolateWorkspaceString", () => {
     const root = mkdtempSync(
       path.join(tmpdir(), "llame-workspace-interpolation-"),
     );
+
     await expect(
       interpolateWorkspaceString("--template={{name}}", root, {}),
     ).resolves.toEqual({
@@ -595,6 +612,7 @@ describe("interpolateWorkspaceString", () => {
     const root = mkdtempSync(
       path.join(tmpdir(), "llame-workspace-interpolation-"),
     );
+
     writeFileSync(path.join(root, "token.txt"), "file-secret");
 
     await expect(
@@ -615,6 +633,7 @@ describe("interpolateWorkspaceString", () => {
       root,
       { SET: "value", EMPTY: "", PLAIN: "" },
     );
+
     expect(result).toEqual({
       value: "value|fallback|",
       substitutions: [
@@ -628,6 +647,7 @@ describe("interpolateWorkspaceString", () => {
     const root = mkdtempSync(
       path.join(tmpdir(), "llame-workspace-interpolation-"),
     );
+
     await expect(
       interpolateWorkspaceString("${MISSING}", root, {}),
     ).rejects.toThrow("required environment variable MISSING is not set");
@@ -654,6 +674,7 @@ describe("InstanceConfigError", () => {
 describe("interpolateString — redaction", () => {
   it("a missing-variable error never contains any resolved value", () => {
     process.env.IC_TEST_SECRET = "sk-should-never-appear";
+
     try {
       // A sibling token resolves a secret; this one is missing and required.
       interpolateString("{env:IC_TEST_SECRET}{env:IC_TEST_VAR}");

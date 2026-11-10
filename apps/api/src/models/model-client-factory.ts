@@ -129,7 +129,9 @@ function createResponsesClient(
     requestHeaders: provider.headers,
     reasoningDeclared: model.reasoning !== undefined,
   };
+
   assignModelMetadata(config, model);
+
   return dependencies.createOpenAIModelClient(config);
 }
 
@@ -148,12 +150,15 @@ function createCompletionsClient(
     requestHeaders: provider.headers,
     userAgent,
   };
+
   assignModelMetadata(config, model);
+
   return (
     dependencies.createOpenAICompletionsModelClient ??
     createOpenAICompletionsModelClient
   )(config);
 }
+
 function createMessagesClient(
   provider: AnthropicMessagesProviderConfig,
   model: SystemModelCatalogEntry,
@@ -176,7 +181,9 @@ function createMessagesClient(
     // declaration, so this boolean is the whole signal the client needs.
     reasoningDeclared: model.reasoning !== undefined,
   };
+
   assignModelMetadata(config, model);
+
   return (
     dependencies.createAnthropicModelClient ?? createAnthropicModelClient
   )(config);
@@ -197,7 +204,9 @@ function createCodexClient(
     requestHeaders: provider.headers,
     userAgent,
   };
+
   assignModelMetadata(config, model);
+
   return (
     dependencies.createOpenAICodexModelClient ?? createOpenAICodexModelClient
   )(config);
@@ -217,7 +226,9 @@ function createOpenCodeGoClient(
     requestHeaders: provider.headers,
     userAgent,
   };
+
   assignModelMetadata(config, model);
+
   return (
     dependencies.createOpenCodeGoModelClient ?? createOpenCodeGoModelClient
   )(config);
@@ -233,13 +244,18 @@ function assignModelMetadata(
   model: SystemModelCatalogEntry,
 ): void {
   const pricing = toTokenPrice(model.pricingUsdPer1M);
+
   if (pricing !== undefined) config.pricing = pricing;
+
   if (model.billing !== undefined) config.billing = model.billing;
+
   if (model.compactionThresholdTokens !== undefined) {
     config.compactionThresholdTokens = model.compactionThresholdTokens;
   }
+
   // Every client's step composer decides image parts from this (vision-media D6).
   config.input = model.input;
+
   // The operator's provider-options object and the catalog output limit ride
   // the model entry, not the provider entry (provider-api-selection): every
   // client unwraps them from its own config at request time. Copied by
@@ -248,6 +264,7 @@ function assignModelMetadata(
   if (model.providerOptions !== undefined) {
     config.providerOptions = model.providerOptions;
   }
+
   if (model.maxOutputTokens !== undefined) {
     config.maxOutputTokens = model.maxOutputTokens;
   }

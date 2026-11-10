@@ -49,6 +49,7 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
   await composer.evaluate(async (textarea, name) => {
     const canvas = new OffscreenCanvas(2400, 600);
     const context = canvas.getContext("2d");
+
     if (!context) throw new Error("No 2d context");
     context.fillStyle = "#e4e4e7";
     context.fillRect(0, 0, 2400, 600);
@@ -94,17 +95,20 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
   await expect
     .poll(() => shown.evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBe(2400);
+
   // Fitted, the 2400-pixel original is scaled into the viewport.
   const renderedWidth = () =>
     shown.evaluate(
       (image: HTMLImageElement) => image.getBoundingClientRect().width,
     );
+
   await expect.poll(renderedWidth).toBeLessThan(2400);
 
   const actualSize = lightbox.getByRole("button", {
     name: "Actual size",
     exact: true,
   });
+
   await expect(actualSize).toHaveAttribute("aria-pressed", "false");
   await actualSize.click();
   await expect(actualSize).toHaveAttribute("aria-pressed", "true");
@@ -114,11 +118,14 @@ test("a pasted image reaches a vision model and opens in the lightbox after relo
     .poll(() =>
       shown.evaluate((image: HTMLImageElement) => {
         let panel = image.parentElement;
+
         while (panel && getComputedStyle(panel).overflowX !== "auto") {
           panel = panel.parentElement;
         }
+
         if (!panel || panel.scrollWidth <= panel.clientWidth) return 0;
         panel.scrollLeft = 400;
+
         return panel.scrollLeft;
       }),
     )
@@ -141,17 +148,20 @@ test("an image-only message sends and opens the same image in an owner fork", as
 
   const composer = page.getByPlaceholder("Describe a task or ask a question");
   await expect(composer).toBeEditable();
+
   // A 1200×800 PNG drawn in the page: bytes distinct from the pasted image
   // above, so the worker account's per-owner deduplication never reuses it.
   const dataUrl = await page.evaluate(async () => {
     const canvas = new OffscreenCanvas(1200, 800);
     const context = canvas.getContext("2d");
+
     if (!context) throw new Error("No 2d context");
     context.fillStyle = "#dbeafe";
     context.fillRect(0, 0, 1200, 800);
     context.fillStyle = "#1e3a8a";
     context.fillRect(300, 200, 600, 400);
     const blob = await canvas.convertToBlob({ type: "image/png" });
+
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result));
@@ -159,6 +169,7 @@ test("an image-only message sends and opens the same image in an owner fork", as
       reader.readAsDataURL(blob);
     });
   });
+
   const fileChooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Add files and more" }).click();
   await page.getByRole("menuitem", { name: "Upload photos & files" }).click();
@@ -192,9 +203,11 @@ test("an image-only message sends and opens the same image in an owner fork", as
   await expect(sourceThumbnail).toBeVisible({ timeout: 15_000 });
   const sourceSrc = await sourceThumbnail.getAttribute("src");
   const mediaId = MODEL_SRC.exec(sourceSrc ?? "")?.[1];
+
   if (mediaId === undefined) {
     throw new Error(`Thumbnail src is not a model variant: ${sourceSrc}`);
   }
+
   await expect(log.getByText(VISION_ANSWER)).toBeVisible();
 
   // Fork from the assistant answer: the fork copies the image-only message.

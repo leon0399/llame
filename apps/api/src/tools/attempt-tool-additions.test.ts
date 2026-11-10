@@ -29,7 +29,9 @@ function makeTool(
 
 function modelTool(declaration: ModelToolDeclaration): ToolSet[string] {
   const inputSchema = toFlexibleSchema(declaration.inputSchema);
+
   if (inputSchema === null) throw new Error('invalid test schema');
+
   return tool({
     description: declaration.description,
     inputSchema,
@@ -48,26 +50,32 @@ function setup(
     boundExecutables,
     createTool: modelTool,
   });
+
   additions.bindToolRecord(record);
+
   return { additions, boundExecutables, record };
 }
 
 function operatorFixture() {
   const id = 'mcp__web__lookup';
+
   const declaration: ModelToolDeclaration = {
     id,
     description: 'Look up a value.',
     inputSchema: { type: 'object', properties: {} },
   };
+
   const execute = vi.fn(() => ({
     status: 'success' as const,
     value: 'operator',
   }));
+
   const operator: Tool = {
     ...declaration,
     classification: 'unverified',
     execute,
   };
+
   return {
     id,
     operator,
@@ -76,17 +84,20 @@ function operatorFixture() {
     ]),
   };
 }
+
 it('distinguishes available and retained Workspace declarations', () => {
   const declaration: ModelToolDeclaration = {
     id: TOOL_ID,
     description: 'Look up a value.',
     inputSchema: { type: 'object', properties: {} },
   };
+
   const binding: AttemptToolBinding = {
     declaration,
     executor: makeTool(),
     server: SERVER,
   };
+
   const available = setup(new Map([[TOOL_ID, binding]]));
   expect(available.additions.hasAvailableWorkspaceDeclaration(SERVER)).toBe(
     true,
@@ -100,17 +111,20 @@ it('distinguishes available and retained Workspace declarations', () => {
   const disabled = setup(
     new Map([[TOOL_ID, { ...binding, available: false }]]),
   );
+
   expect(disabled.additions.hasAvailableWorkspaceDeclaration(SERVER)).toBe(
     false,
   );
   expect(disabled.additions.hasWorkspaceDeclaration(SERVER)).toBe(true);
 
   const operatorId = 'mcp__other__lookup';
+
   const operatorDeclaration: ModelToolDeclaration = {
     id: operatorId,
     description: 'Other lookup.',
     inputSchema: { type: 'object', properties: {} },
   };
+
   const operator = setup(
     new Map([
       [
@@ -121,6 +135,7 @@ it('distinguishes available and retained Workspace declarations', () => {
     {},
     ['mcp__*'],
   );
+
   expect(operator.additions.hasOperatorDeclaration(SERVER)).toBe(false);
   expect(operator.additions.hasOperatorDeclaration('other')).toBe(true);
 
@@ -155,6 +170,7 @@ describe('AttemptToolAdditions', () => {
     state.additions.disableAll();
     expect(state.additions.executorFor(id)).toBe(operator);
     const executor = state.additions.executorFor(id);
+
     if (executor === undefined) throw new Error('expected operator executor');
     expect(
       executor.execute(
@@ -171,6 +187,7 @@ describe('AttemptToolAdditions', () => {
 
   it('keeps an operator binding callable for a changed Workspace declaration', async () => {
     const { id, operator, state } = operatorFixture();
+
     const readded: Tool = {
       ...operator,
       description: 'Changed Workspace declaration.',
@@ -185,6 +202,7 @@ describe('AttemptToolAdditions', () => {
     state.additions.disableAll();
     expect(state.additions.executorFor(id)).toBe(operator);
     const executor = state.additions.executorFor(id);
+
     if (executor === undefined) throw new Error('expected operator executor');
     expect(
       executor.execute(
@@ -245,6 +263,7 @@ describe('AttemptToolAdditions', () => {
     expect(retained?.declaration).toEqual(before?.declaration);
     expect(retained?.executor).not.toBe(before?.executor);
     const executor = state.additions.executorFor(TOOL_ID);
+
     if (executor === undefined) throw new Error('expected retained executor');
     expect(
       await executor.execute(
@@ -308,6 +327,7 @@ describe('AttemptToolAdditions', () => {
     expect(state.boundExecutables.get(TOOL_ID)?.available).toBe(false);
 
     const executor = state.additions.executorFor(TOOL_ID);
+
     if (executor === undefined) throw new Error('expected retained executor');
     expect(
       await executor.execute(
@@ -327,6 +347,7 @@ describe('AttemptToolAdditions', () => {
   });
   it('refuses declarations that fail allowlist or schema admission', async () => {
     const state = setup();
+
     const refused = await state.additions.add(SERVER, [
       makeTool('mcp__other__lookup'),
       {
@@ -334,6 +355,7 @@ describe('AttemptToolAdditions', () => {
         inputSchema: { type: 'not-a-schema' },
       },
     ]);
+
     expect(refused.added).toEqual([]);
     expect(refused.refused).toEqual([
       { id: 'mcp__other__lookup', reason: 'wrong_server_namespace' },

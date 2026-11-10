@@ -7,6 +7,7 @@ function build() {
   const pings: Array<number> = [];
   let clock = 0;
   let lost = false;
+
   const beat = createHeartbeat({
     intervalMs: INTERVAL,
     misses: 3,
@@ -16,6 +17,7 @@ function build() {
     },
     sendPing: () => pings.push(clock),
   });
+
   /** Move the clock one interval at a time, firing each tick at its own time. */
   const advance = (intervals: number): void => {
     for (let step = 0; step < intervals; step += 1) {
@@ -23,6 +25,7 @@ function build() {
       vi.advanceTimersByTime(INTERVAL);
     }
   };
+
   return { beat, pings, advance, wasLost: () => lost };
 }
 

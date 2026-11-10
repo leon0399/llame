@@ -39,6 +39,7 @@ describe("resolveLastTurnModelEffort", () => {
       effort: undefined,
       permissionMode: "bypass" as const,
     };
+
     expect(resolveLastTurnModelEffort(data, turn)).toEqual({
       modelId: "model:recorded",
       effort: undefined,
@@ -51,6 +52,7 @@ describe("resolveLastTurnModelEffort", () => {
       effort: undefined,
       permissionMode: "bypass" as const,
     };
+
     expect(resolveLastTurnModelEffort(data, turn)).toEqual({
       modelId: "model:default",
       effort: undefined,
@@ -70,6 +72,7 @@ describe("resolveRestoredPermissionMode", () => {
       { value: "default" },
       { value: "bypass" },
     ];
+
     expect(resolveRestoredPermissionMode(modes, turn)).toBe("bypass");
   });
 
@@ -136,6 +139,7 @@ describe("useChatHistorySync", () => {
     const props = historySyncProps({
       interruption: { runId: "run-1", seq: 1 },
     });
+
     renderHistorySync(props);
 
     expect(props.resumeStream).toHaveBeenCalledTimes(1);
@@ -148,6 +152,7 @@ describe("useChatHistorySync", () => {
     const props = historySyncProps({
       interruption: { runId: "run-1", seq: 1 },
     });
+
     const { rerender } = renderHistorySync(props);
     expect(props.resumeStream).toHaveBeenCalledTimes(1);
 
@@ -167,6 +172,7 @@ describe("useChatHistorySync", () => {
       ...props,
       interruption: { runId: "run-1", seq: 1 },
     };
+
     rerender(current);
     expect(props.resumeStream).toHaveBeenCalledTimes(1);
 
@@ -187,6 +193,7 @@ describe("useChatHistorySync", () => {
         status: "ready",
         awaitedMessageIds: ["delivered"],
       });
+
       const { rerender } = renderHistorySync(props);
       expect(props.resumeStream).not.toHaveBeenCalled();
 
@@ -201,6 +208,7 @@ describe("useChatHistorySync", () => {
         messages: delivered,
         awaitedMessageIds: ["delivered"],
       });
+
       const { rerender } = renderHistorySync(props);
       expect(props.resumeStream).not.toHaveBeenCalled();
 
@@ -220,6 +228,7 @@ describe("useChatHistorySync", () => {
         status: "ready",
         awaitedMessageIds: ["item-id", "delivered"],
       });
+
       const { rerender } = renderHistorySync(props);
       expect(props.resumeStream).not.toHaveBeenCalled();
 

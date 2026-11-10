@@ -48,17 +48,22 @@ export function createMcpGuardedFetch(input: McpGuardedFetchInput): McpFetch {
     }),
     ...(input.onBytes !== undefined && { onBytes: input.onBytes }),
   });
+
   let sessionId: string | undefined;
 
   return async (request, init) => {
     const response = await boundedFetch(request, init);
     const observed = response.headers.get('mcp-session-id');
+
     if (observed === null || observed.length === 0) return response;
+
     if (sessionId === undefined) {
       sessionId = observed;
       input.onSessionId?.(observed);
+
       return response;
     }
+
     if (sessionId === observed) return response;
     await response.body?.cancel().catch(() => undefined);
     throw new McpSessionChangedError();

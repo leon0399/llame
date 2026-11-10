@@ -103,6 +103,7 @@ export class MachineTransport implements MCPTransport {
 
   async start(): Promise<void> {
     this.starting ??= this.open();
+
     return this.starting;
   }
 
@@ -112,14 +113,17 @@ export class MachineTransport implements MCPTransport {
   ): Promise<void> {
     options?.signal?.throwIfAborted();
     const channel = this.channel;
+
     if (channel === undefined || this.halted || this.shutdown) {
       return Promise.reject(
         new Error('The Machine Workspace MCP channel is closed.'),
       );
     }
+
     channel.notify(MCP_MESSAGE_NOTIFICATION, {
       message: toJsonValue(message),
     });
+
     return Promise.resolve();
   }
 
@@ -137,6 +141,7 @@ export class MachineTransport implements MCPTransport {
     // Machine's signal to put down the server it started for this channel.
     channel?.notify(CANCEL_NOTIFICATION, {});
     channel?.close();
+
     return Promise.resolve();
   }
 
@@ -144,6 +149,7 @@ export class MachineTransport implements MCPTransport {
     if (this.shutdown) {
       throw new Error('The Machine Workspace MCP transport is closed.');
     }
+
     const handle = await this.options.connector.openChannel(
       this.options.machine,
       'mcp.open',
@@ -154,6 +160,7 @@ export class MachineTransport implements MCPTransport {
       },
       this.options.signal === undefined ? {} : { signal: this.options.signal },
     );
+
     this.channel = handle.channel;
     this.listen(handle.channel);
     await this.publish(handle.result);
@@ -176,6 +183,7 @@ export class MachineTransport implements MCPTransport {
    *  MCP client's to lose. */
   private async publish(result: Promise<JsonValue>): Promise<void> {
     let value: JsonValue;
+
     try {
       value = await result;
     } catch (error) {
@@ -184,11 +192,14 @@ export class MachineTransport implements MCPTransport {
       channel?.close();
       throw error instanceof Error ? error : new Error(String(error));
     }
+
     const opened = readMcpOpenResult(value);
+
     if (opened === undefined) {
       this.fail(new Error('The Machine answered an unusable mcp.open result.'));
       throw new Error('The Machine answered an unusable mcp.open result.');
     }
+
     this.learn(opened.protectedValues);
     this.published = true;
   }
@@ -197,25 +208,34 @@ export class MachineTransport implements MCPTransport {
     switch (notification.method) {
       case MCP_STDERR_NOTIFICATION: {
         this.appendDiagnostic(readText(notification.params));
+
         return;
       }
+
       case MCP_PROTECTED_NOTIFICATION: {
         this.learn(readValues(notification.params));
+
         return;
       }
+
       case MCP_MESSAGE_NOTIFICATION: {
         const message = readRelayedMessage(notification.params);
+
         if (message === undefined) {
           this.fail(
             new Error(
               'The Machine relayed a message that is not a JSON-RPC message.',
             ),
           );
+
           return;
         }
+
         this.onmessage?.(message);
+
         return;
       }
+
       default:
         return;
     }
@@ -228,10 +248,12 @@ export class MachineTransport implements MCPTransport {
     this.halted = true;
     const channel = this.channel;
     this.channel = undefined;
+
     if (channel !== undefined && !channel.closed) {
       channel.notify(CANCEL_NOTIFICATION, {});
       channel.close();
     }
+
     this.diagnostics?.flush();
     this.onerror?.(error);
     this.onclose?.();
@@ -258,6 +280,7 @@ export class MachineTransport implements MCPTransport {
 function readText(params: JsonValue | undefined): string | undefined {
   if (!isSerializableRecord(params)) return undefined;
   const text = params['text'];
+
   return isStringValue(text) ? text : undefined;
 }
 
@@ -265,6 +288,7 @@ function readText(params: JsonValue | undefined): string | undefined {
 function readValues(params: JsonValue | undefined): ReadonlyArray<string> {
   if (!isSerializableRecord(params)) return [];
   const values = params['values'];
+
   return isTextList(values) ? values : [];
 }
 
@@ -278,6 +302,7 @@ function readRelayedMessage(
   params: JsonValue | undefined,
 ): JSONRPCMessage | undefined {
   if (!isSerializableRecord(params)) return undefined;
+
   try {
     return validateJSONRPCMessage(params['message']);
   } catch {
@@ -298,15 +323,19 @@ function toJsonContainer(
 ): JsonValue {
   if (Array.isArray(value)) {
     const items: ReadonlyArray<unknown> = value;
+
     return items.map((item) => toJsonValue(item));
   }
+
   const record: Record<string, JsonValue> = {};
+
   for (const [key, entry] of Object.entries(value)) {
     // An absent value is an omitted property in JSON, exactly as the frame
     // encoder treats it.
     if (entry === undefined) continue;
     record[key] = toJsonValue(entry);
   }
+
   return record;
 }
 
@@ -317,7 +346,9 @@ function toJsonContainer(
  */
 function toJsonValue(value: unknown): JsonValue {
   if (isJsonContainer(value)) return toJsonContainer(value);
+
   if (value === null || isString(value) || isBoolean(value)) return value;
+
   if (isNumber(value) && Number.isFinite(value)) return value;
   throw new Error('The message is not a JSON value.');
 }

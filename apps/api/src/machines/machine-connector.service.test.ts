@@ -42,14 +42,17 @@ function fixture(
   const peer = createProtocolPeer(options);
   const contacts: Array<MachineContact> = [];
   const waiters: Array<{ count: number; resolve: () => void }> = [];
+
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
     transportFactory: peer.factory,
     onContact: (contact) => {
       contacts.push(contact);
+
       for (let index = waiters.length - 1; index >= 0; index -= 1) {
         const waiter = waiters[index];
+
         if (waiter === undefined || contacts.length < waiter.count) continue;
         waiters.splice(index, 1);
         waiter.resolve();
@@ -59,6 +62,7 @@ function fixture(
     handshakeTimeoutMs: options.handshakeTimeoutMs ?? 2000,
     now: () => 1_700_000_000_000,
   });
+
   return {
     connector,
     peer,
@@ -68,6 +72,7 @@ function fixture(
       if (contacts.length >= count) return Promise.resolve();
       const { promise, resolve } = Promise.withResolvers<void>();
       waiters.push({ count, resolve });
+
       return promise;
     },
   };
@@ -90,6 +95,7 @@ describe('MachineConnector configuration surface', () => {
       machines: undefined,
       hubVersion: '1',
     });
+
     expect(connector.enabled()).toBe(false);
     expect(connector.names()).toEqual([]);
     expect(connector.isConfigured('devl')).toBe(false);
@@ -109,11 +115,13 @@ describe('MachineConnector configuration surface', () => {
 
   it('refuses an unconfigured Machine without opening a link', async () => {
     const { connector, contacts, sessionCount } = fixture();
+
     const error = refusal(
       await connector
         .request('nope', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error)),
     );
+
     expect(error.machine).toBe('nope');
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
@@ -126,6 +134,7 @@ describe('MachineConnector configuration surface', () => {
     const peer = createProtocolPeer({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     // `null` is what a bare YAML `devl:` (or JSON `"devl": null`) yields. The
     // operator loader's schema rejects that shape before a connector is built,
     // so this guard is the connector's own last line of defence.
@@ -133,20 +142,24 @@ describe('MachineConnector configuration surface', () => {
       ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
       hosts: { devl: { destination: 'box' } },
     };
+
     Object.defineProperty(machines.hosts, 'devl', {
       value: null,
       enumerable: true,
     });
+
     const connector = new MachineConnector({
       machines,
       hubVersion: '9.9.9',
       transportFactory: peer.factory,
     });
+
     const error = refusal(
       await connector
         .request('devl', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error)),
     );
+
     expect(error.machine).toBe('devl');
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
@@ -159,16 +172,19 @@ describe('MachineConnector configuration surface', () => {
       ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
       hosts: { devl: { destination: 'box' } },
     };
+
     // The loader always resolves `ssh` (defaulting the pinned known-hosts
     // file); drop it so the factory's own guard is the only thing left with no
     // transport injected.
     Reflect.deleteProperty(machines, 'ssh');
     const connector = new MachineConnector({ machines, hubVersion: '9.9.9' });
+
     const error = refusal(
       await connector
         .request('devl', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error)),
     );
+
     expect(error.machine).toBe('machine');
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
@@ -183,6 +199,7 @@ describe('MachineConnector session lifecycle', () => {
       daemonVersion: '1.2.3',
       answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
     });
+
     await expect(
       connector.request(
         'devl',
@@ -209,6 +226,7 @@ describe('MachineConnector session lifecycle', () => {
     const { connector, peer, sessionCount, awaitContacts } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
     const first = await peer.session(0);
     first.drop();
@@ -221,12 +239,15 @@ describe('MachineConnector session lifecycle', () => {
     const { connector, peer, sessionCount } = fixture({
       answers: { 'roots.list': { hold: true } },
     });
+
     const first = connector.request('devl', 'roots.list', {
       envelope: ENVELOPE,
     });
+
     const second = connector.request('devl', 'roots.list', {
       envelope: ENVELOPE,
     });
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     expect(sessionCount()).toBe(1);
@@ -241,6 +262,7 @@ describe('MachineConnector session lifecycle', () => {
     const { connector, sessionCount } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     await Promise.all([
       connector.request('devl', 'roots.list', { envelope: ENVELOPE }),
       connector.request('devl', 'roots.list', { envelope: ENVELOPE }),
@@ -251,11 +273,13 @@ describe('MachineConnector session lifecycle', () => {
 
   it('closes an idle session politely, reporting no failure', async () => {
     vi.useFakeTimers();
+
     try {
       const { connector, peer, contacts, sessionCount } = fixture({
         idleCloseMs: 20,
         answers: { 'roots.list': { value: { roots: [] } } },
       });
+
       await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
       const session = await peer.session(0);
       expect(session.stopped).toBe(false);
@@ -271,11 +295,13 @@ describe('MachineConnector session lifecycle', () => {
 
   it('defers the idle close on every request', async () => {
     vi.useFakeTimers();
+
     try {
       const { connector, peer } = fixture({
         idleCloseMs: 20,
         answers: { 'roots.list': { value: { roots: [] } } },
       });
+
       await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
       const session = await peer.session(0);
       await vi.advanceTimersByTimeAsync(10);
@@ -292,16 +318,19 @@ describe('MachineConnector session lifecycle', () => {
 
   it('keeps a session alive while a stream is open', async () => {
     vi.useFakeTimers();
+
     try {
       const { connector, peer } = fixture({
         idleCloseMs: 20,
         answers: { 'mcp.open': { hold: true } },
       });
+
       const handle = await connector.openChannel('devl', 'mcp.open', {
         root: '/srv/app',
         server: 'repo',
         envelope: ENVELOPE,
       });
+
       const session = await peer.session(0);
       session.release('mcp.open', { protectedValues: ['token'] }, true);
       await expect(handle.result).resolves.toEqual({
@@ -323,6 +352,7 @@ describe('MachineConnector failure classification', () => {
     const { connector, peer, contacts, awaitContacts } = fixture({
       answers: { 'fs.edit': { hold: true } },
     });
+
     const call = connector.request('devl', 'fs.edit', {
       oldText: 'a',
       newText: 'b',
@@ -330,6 +360,7 @@ describe('MachineConnector failure classification', () => {
       options: { displayPrefix: 'machine://devl' },
       envelope: ENVELOPE,
     });
+
     const outcome = call.catch((error: unknown) => rejection(error));
     const session = await peer.session(0);
     await session.awaitRequests(1);
@@ -348,11 +379,13 @@ describe('MachineConnector failure classification', () => {
     const { connector, sessionCount } = fixture({
       openFailure: () => 'ssh: connect to host box port 22: Connection refused',
     });
+
     const error = refusal(
       await connector
         .request('devl', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error)),
     );
+
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
     expect(sessionCount()).toBe(0);
@@ -366,9 +399,11 @@ describe('MachineConnector failure classification', () => {
     const { connector, peer, contacts, awaitContacts } = fixture({
       silentHello: true,
     });
+
     const call = connector.request('devl', 'roots.list', {
       envelope: ENVELOPE,
     });
+
     const outcome = call.catch((error: unknown) => rejection(error));
     const session = await peer.session(0);
     session.drop({ diagnostic });
@@ -384,11 +419,13 @@ describe('MachineConnector failure classification', () => {
       helloProtocolVersion: 7,
       handshakeTimeoutMs: 500,
     });
+
     const error = refusal(
       await connector
         .request('devl', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error)),
     );
+
     expect(error.reason).toBe('incompatible_version');
     expect(error.sent).toBe(false);
     await awaitContacts(1);
@@ -397,14 +434,17 @@ describe('MachineConnector failure classification', () => {
 
   it('reports a silent Machine as unreachable when the handshake times out', async () => {
     vi.useFakeTimers();
+
     try {
       const { connector } = fixture({
         silentHello: true,
         handshakeTimeoutMs: 20,
       });
+
       const outcome = connector
         .request('devl', 'roots.list', { envelope: ENVELOPE })
         .catch((error: unknown) => rejection(error));
+
       await vi.advanceTimersByTimeAsync(25);
       const error = refusal(await outcome);
       expect(error.reason).toBe('unreachable');
@@ -418,10 +458,13 @@ describe('MachineConnector failure classification', () => {
     const { connector } = fixture({
       answers: { 'fs.stat': { error: 'budget_exhausted' } },
     });
+
     const error = await connector
       .request('devl', 'fs.stat', { path: '/srv/app/a', envelope: ENVELOPE })
       .catch((error: unknown) => rejection(error));
+
     expect(error).toBeInstanceOf(MachineProtocolError);
+
     if (!(error instanceof MachineProtocolError))
       throw new Error('not the protocol error');
     expect(error.code).toBe('budget_exhausted');
@@ -431,7 +474,9 @@ describe('MachineConnector failure classification', () => {
     const { connector, peer } = fixture({
       answers: { 'fs.edit': { hold: true } },
     });
+
     const controller = new AbortController();
+
     const call = connector.request(
       'devl',
       'fs.edit',
@@ -444,6 +489,7 @@ describe('MachineConnector failure classification', () => {
       },
       { signal: controller.signal },
     );
+
     const outcome = call.catch((error: unknown) => rejection(error));
     const session = await peer.session(0);
     await session.awaitRequests(1);
@@ -456,6 +502,7 @@ describe('MachineConnector failure classification', () => {
     const { connector, sessionCount } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     const controller = new AbortController();
     controller.abort();
     await expect(
@@ -473,12 +520,14 @@ describe('MachineConnector failure classification', () => {
 describe('MachineConnector reachability', () => {
   it('decides once per attempt and never re-opens a hopeless session', async () => {
     let offline = true;
+
     const { connector, sessionCount } = fixture({
       openFailure: () =>
         offline
           ? 'ssh: connect to host box port 22: Connection refused'
           : undefined,
     });
+
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(false);
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(false);
     expect(sessionCount()).toBe(0);
@@ -493,10 +542,12 @@ describe('MachineConnector reachability', () => {
   it('does not probe an unconfigured or absent Machine', async () => {
     const { connector } = fixture();
     await expect(connector.reachable('nope', 'attempt-1')).resolves.toBe(false);
+
     const absent = new MachineConnector({
       machines: undefined,
       hubVersion: '1',
     });
+
     await expect(absent.reachable('devl', 'attempt-1')).resolves.toBe(false);
   });
 
@@ -504,11 +555,13 @@ describe('MachineConnector reachability', () => {
     const { connector, sessionCount } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     const verdicts = await Promise.all([
       connector.reachable('devl', 'attempt-9'),
       connector.reachable('devl', 'attempt-9'),
       connector.reachable('devl', 'attempt-9'),
     ]);
+
     expect(verdicts).toEqual([true, true, true]);
     expect(sessionCount()).toBe(1);
   });
@@ -517,6 +570,7 @@ describe('MachineConnector reachability', () => {
     const { connector, contacts, sessionCount } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(true);
     expect(sessionCount()).toBe(1);
     expect(contacts).toHaveLength(1);
@@ -528,6 +582,7 @@ describe('MachineConnector reachability', () => {
       daemonVersion: '1.2.3',
       answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
     });
+
     await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
     expect(contacts).toHaveLength(1);
     // The session is already live, so probing it re-stamps liveness rather
@@ -546,17 +601,20 @@ describe('MachineConnector reachability', () => {
 
   it('keeps every verdict while the cache is still at its bound', async () => {
     let offline = true;
+
     const { connector, sessionCount } = fixture({
       openFailure: () =>
         offline
           ? 'ssh: connect to host box port 22: Connection refused'
           : undefined,
     });
+
     for (let index = 0; index < REACHABILITY_CACHE_LIMIT; index += 1) {
       await expect(
         connector.reachable('devl', `attempt-${index}`),
       ).resolves.toBe(false);
     }
+
     offline = false;
     // A full cache evicts nothing yet, so the oldest verdict still stands.
     await expect(connector.reachable('devl', 'attempt-0')).resolves.toBe(false);
@@ -565,17 +623,20 @@ describe('MachineConnector reachability', () => {
 
   it('forgets the oldest verdict once the cache is over its bound', async () => {
     let offline = true;
+
     const { connector, sessionCount } = fixture({
       openFailure: () =>
         offline
           ? 'ssh: connect to host box port 22: Connection refused'
           : undefined,
     });
+
     for (let index = 0; index <= REACHABILITY_CACHE_LIMIT; index += 1) {
       await expect(
         connector.reachable('devl', `attempt-${index}`),
       ).resolves.toBe(false);
     }
+
     offline = false;
     // One attempt past the bound pushed `attempt-0` out, so it probes afresh.
     await expect(connector.reachable('devl', 'attempt-0')).resolves.toBe(true);
@@ -588,7 +649,9 @@ describe('MachineConnector contact reporting', () => {
     const peer = createProtocolPeer({
       answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
     });
+
     const logged = vi.fn();
+
     const connector = new MachineConnector({
       machines: MACHINES,
       hubVersion: '9.9.9',
@@ -598,6 +661,7 @@ describe('MachineConnector contact reporting', () => {
       },
       logger: { error: logged },
     });
+
     await expect(
       connector.request('devl', 'roots.list', { envelope: ENVELOPE }),
     ).resolves.toEqual({ roots: ['/srv/app'] });
@@ -615,18 +679,23 @@ describe('MachineConnector mutation serialization', () => {
     const { connector } = fixture();
     const events: Array<string> = [];
     let release: (() => void) | undefined;
+
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const first = connector.serializeMutation('devl', async () => {
       events.push('first:start');
       await gate;
       events.push('first:end');
     });
+
     const second = connector.serializeMutation('devl', () => {
       events.push('second:start');
+
       return Promise.resolve();
     });
+
     release?.();
     await Promise.all([first, second]);
     expect(events).toEqual(['first:start', 'first:end', 'second:start']);
@@ -635,18 +704,24 @@ describe('MachineConnector mutation serialization', () => {
   it('keeps Machines independent and survives a failed mutation', async () => {
     const { connector } = fixture();
     const events: Array<string> = [];
+
     const failed = connector.serializeMutation('devl', () => {
       events.push('devl:fail');
+
       return Promise.reject(new Error('nope'));
     });
+
     const other = connector.serializeMutation('gpu', () => {
       events.push('gpu:ok');
+
       return Promise.resolve();
     });
+
     await expect(failed).rejects.toThrow('nope');
     await other;
     await connector.serializeMutation('devl', () => {
       events.push('devl:next');
+
       return Promise.resolve();
     });
     expect(events).toEqual(['devl:fail', 'gpu:ok', 'devl:next']);
@@ -658,11 +733,13 @@ describe('MachineConnector channels', () => {
     const { connector, peer } = fixture({
       answers: { 'mcp.open': { hold: true } },
     });
+
     const handle = await connector.openChannel('devl', 'mcp.open', {
       root: '/srv/app',
       server: 'repo',
       envelope: ENVELOPE,
     });
+
     const session = await peer.session(0);
     session.release('mcp.open', { protectedValues: ['token'] }, true);
     await expect(handle.result).resolves.toEqual({
@@ -687,11 +764,13 @@ describe('MachineConnector channels', () => {
     const { connector, peer } = fixture({
       answers: { 'mcp.open': { hold: true } },
     });
+
     const handle = await connector.openChannel('devl', 'mcp.open', {
       root: '/srv/app',
       server: 'repo',
       envelope: ENVELOPE,
     });
+
     const outcome = handle.result.catch((error: unknown) => rejection(error));
     const session = await peer.session(0);
     await session.awaitRequests(1);
@@ -707,6 +786,7 @@ describe('MachineConnector shutdown', () => {
     const { connector, peer } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
     const session = await peer.session(0);
     connector.onModuleDestroy();

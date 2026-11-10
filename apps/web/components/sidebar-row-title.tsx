@@ -20,8 +20,10 @@ import { useTypewriter } from "./use-typewriter";
 
 /** px/s the title scrolls at on hover — slow enough to read as it passes. */
 const SCROLL_SPEED = 60;
+
 /** A pathological title must not crawl for 20s; ms bounds on the scroll. */
 const SCROLL_MS = { MIN: 150, MAX: 2500 };
+
 /** Held back this long so a sweep across the list does not set rows moving. */
 const SCROLL_DELAY = 300;
 
@@ -42,6 +44,7 @@ function syncTitleOverflow(params: {
     clip.dataset.clipped = String(clipped);
     node.dataset.clipped = String(clipped);
   }
+
   if (last === null || last.shift !== shift) {
     writeScroll(clip, shift);
   }
@@ -53,6 +56,7 @@ function syncTitleOverflow(params: {
   // pointerless and reduced-motion users.
   if (!row?.matches(":hover, :focus-within")) {
     const title = clipped ? text : "";
+
     if (clip.title !== title) clip.title = title;
   }
 
@@ -73,11 +77,13 @@ function useTitleOverflowSync(
   useEffect(() => {
     const clip = clipRef.current;
     const node = textRef.current;
+
     // No ResizeObserver (jsdom) means no layout to measure either; the title
     // renders plain, which is the same thing the guard below would produce.
     if (!clip || !node || !("ResizeObserver" in globalThis)) return;
 
     const row = clip.closest("[data-sidebar=menu-item]");
+
     if (process.env.NODE_ENV !== "production" && row === null) {
       console.warn(
         "SidebarRowTitle must render inside a SidebarMenuItem — hover and focus come from that row, so the fade and scroll stay inert here.",
@@ -88,6 +94,7 @@ function useTitleOverflowSync(
     // answer did not change, and each write here can invalidate style on an
     // element CSS selectors key off — so only write what actually moved.
     let last: OverflowState | null = null;
+
     const sync = () => {
       last = syncTitleOverflow({ clip, node, text, row, last });
     };
@@ -96,6 +103,7 @@ function useTitleOverflowSync(
     observer.observe(clip);
     // The text's own width moves when the appearance system swaps the font.
     observer.observe(node);
+
     return () => observer.disconnect();
   }, [text, clipRef, textRef]);
 }
@@ -194,6 +202,7 @@ function writeScroll(clip: HTMLElement, shift: number) {
       Math.max(SCROLL_MS.MIN, (shift / SCROLL_SPEED) * 1000),
     ),
   );
+
   // Negative, so the utilities above need no negated arbitrary value.
   clip.style.setProperty("--marquee-x", `${-Math.round(shift)}px`);
   clip.style.setProperty("--marquee-ms", `${duration}ms`);

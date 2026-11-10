@@ -33,6 +33,7 @@ async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'llame-knowledge-files-'));
   const directory = path.join(root, SPACE_ID);
   await mkdir(directory);
+
   return {
     root,
     directory,
@@ -44,6 +45,7 @@ async function withFixture<T>(
   callback: (value: Awaited<ReturnType<typeof fixture>>) => Promise<T>,
 ): Promise<T> {
   const value = await fixture();
+
   try {
     return await callback(value);
   } finally {
@@ -87,6 +89,7 @@ function fakeFilesystem(
   const bytes = options.bytes ?? Buffer.alloc(stats.size);
   const readLengths = options.readLengths ?? [];
   const fileClose = options.fileClose ?? (() => Promise.resolve());
+
   return {
     lstat: vi.fn((filePath: string) =>
       Promise.resolve(
@@ -97,10 +100,12 @@ function fakeFilesystem(
     ),
     opendir: vi.fn(() => {
       let index = 0;
+
       const directory: KnowledgeFilesystemDirectory = {
         read: vi.fn(() => Promise.resolve(entries[index++] ?? null)),
         close: vi.fn(() => Promise.resolve()),
       };
+
       return Promise.resolve(directory);
     }),
     open: vi.fn(() => {
@@ -114,18 +119,22 @@ function fakeFilesystem(
             position: number,
           ) => {
             readLengths.push(length);
+
             const bytesRead = Math.min(
               length,
               Math.max(0, bytes.length - position),
             );
+
             if (bytesRead > 0) {
               bytes.copy(buffer, offset, position, position + bytesRead);
             }
+
             return Promise.resolve({ bytesRead });
           },
         ),
         close: vi.fn(fileClose),
       };
+
       return Promise.resolve(file);
     }),
     realpath: vi.fn((filePath: string) => Promise.resolve(filePath)),
@@ -180,6 +189,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       const repeated = 'n\nx\nx\nx\n'.repeat(
         KNOWLEDGE_MAX_SEARCH_FILE_BYTES / Buffer.byteLength('n\nx\nx\nx\n'),
       );
+
       await writeFile(path.join(directory, 'many.md'), repeated);
 
       const result = await new KnowledgeFilesystemAdapter(binding).search(
@@ -208,6 +218,7 @@ describe('KnowledgeFilesystemAdapter', () => {
         'NEW',
         5,
       );
+
       expect(matches).toHaveLength(1);
       expect(matches[0]).toMatchObject({
         path: 'note.md',
@@ -230,6 +241,7 @@ describe('KnowledgeFilesystemAdapter', () => {
         5,
         { budget },
       );
+
       expect(first).toHaveLength(2);
       expect(budget.remainingFiles).toBe(0);
       await expect(
@@ -340,6 +352,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const adapter = new KnowledgeFilesystemAdapter(
       binding,
       fakeFilesystem(entries),
@@ -356,14 +369,19 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     let nextEntry = 0;
+
     const reads = vi.fn(() => {
       nextEntry += 1;
+
       if (nextEntry > KNOWLEDGE_MAX_ENTRIES + 1) {
         throw new Error('directory was read past its bound');
       }
+
       return Promise.resolve(fileEntry(`f${nextEntry}.txt`));
     });
+
     const close = vi.fn(() => Promise.resolve());
     const fileSystem = fakeFilesystem([]);
     fileSystem.opendir = vi.fn(() =>
@@ -386,16 +404,22 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const controller = new AbortController();
     const close = vi.fn(() => Promise.resolve());
+
     const read = vi.fn(() => {
       controller.abort();
+
       return Promise.resolve(fileEntry('note.md'));
     });
+
     const fileSystem = fakeFilesystem([]);
+
     const open = vi.fn(() =>
       Promise.reject(new Error('file open was not expected')),
     );
+
     fileSystem.open = open;
     fileSystem.opendir = vi.fn(() => Promise.resolve({ read, close }));
 
@@ -415,6 +439,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const fileSystem = fakeFilesystem([fileEntry('large.md')], {
       stats: fileStats(KNOWLEDGE_MAX_SEARCH_FILE_BYTES + 1),
     });
@@ -430,8 +455,10 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const readLengths: Array<number> = [];
     const close = vi.fn(() => Promise.resolve());
+
     const fileSystem = fakeFilesystem([fileEntry('large.md')], {
       stats: fileStats(0),
       bytes: Buffer.alloc(KNOWLEDGE_MAX_SEARCH_FILE_BYTES + 1),
@@ -454,12 +481,15 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const readLengths: Array<number> = [];
+
     const fileSystem = fakeFilesystem([fileEntry('note.md')], {
       stats: fileStats(1),
       bytes: Buffer.alloc(2),
       readLengths,
     });
+
     const budget = createKnowledgeFilesystemSearchBudget();
     budget.remainingBytes = 1;
 
@@ -473,15 +503,18 @@ describe('KnowledgeFilesystemAdapter', () => {
 
   it('rejects aggregate search bytes without returning partial matches', async () => {
     const fileSize = KNOWLEDGE_MAX_SEARCH_FILE_BYTES;
+
     const entries = Array.from(
       { length: Math.floor(KNOWLEDGE_MAX_SEARCH_BYTES / fileSize) + 1 },
       (_entry, index) => fileEntry(`f${index}.md`),
     );
+
     const binding = {
       id: SPACE_ID,
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const fileSystem = fakeFilesystem(entries, { stats: fileStats(fileSize) });
 
     await expect(
@@ -495,13 +528,17 @@ describe('KnowledgeFilesystemAdapter', () => {
       const root = await mkdtemp(
         path.join(tmpdir(), 'llame-knowledge-binding-'),
       );
+
       const child = path.join(root, SPACE_ID);
+
       const outside = await mkdtemp(
         path.join(tmpdir(), 'llame-knowledge-target-'),
       );
+
       try {
         await mkdir(child);
         let binding = { id: SPACE_ID, root, directory: child };
+
         if (kind === 'root symlink') {
           const link = `${root}-link`;
           await symlink(root, link, 'dir');
@@ -541,7 +578,9 @@ describe('KnowledgeFilesystemAdapter', () => {
         root: '/trusted/root',
         directory: `/trusted/root/${SPACE_ID}`,
       };
+
       const fileSystem = fakeFilesystem([fileEntry('note.md')]);
+
       if (kind === 'directory') {
         fileSystem.opendir = vi.fn(() =>
           Promise.reject(Object.assign(new Error('gone'), { code: 'ENOENT' })),
@@ -570,6 +609,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const fileSystem = fakeFilesystem([fileEntry('invalid.md')], {
       stats: fileStats(2),
       bytes: Buffer.from([0xc3, 0x28]),
@@ -586,6 +626,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const fileSystem = fakeFilesystem([]);
     fileSystem.opendir = vi.fn(
       () => new Promise<KnowledgeFilesystemDirectory>(() => undefined),
@@ -604,12 +645,15 @@ describe('KnowledgeFilesystemAdapter', () => {
       root: '/trusted/root',
       directory: `/trusted/root/${SPACE_ID}`,
     };
+
     const bytes = Buffer.from('needle\n'.repeat(100_000));
     const controller = new AbortController();
+
     const fileSystem = fakeFilesystem([fileEntry('large.md')], {
       stats: fileStats(bytes.length),
       bytes,
     });
+
     let abortScheduled = false;
     fileSystem.open = vi.fn(() =>
       Promise.resolve({
@@ -624,13 +668,16 @@ describe('KnowledgeFilesystemAdapter', () => {
             length,
             Math.max(0, bytes.length - position),
           );
+
           if (bytesRead > 0) {
             bytes.copy(buffer, offset, position, position + bytesRead);
           }
+
           if (bytesRead === 0 && !abortScheduled) {
             abortScheduled = true;
             setTimeout(() => controller.abort(), 0);
           }
+
           return Promise.resolve({ bytesRead });
         },
         close: () => Promise.resolve(),
@@ -650,6 +697,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       const outside = await mkdtemp(
         path.join(tmpdir(), 'llame-knowledge-outside-'),
       );
+
       await writeFile(path.join(outside, 'secret.md'), 'do not read');
       await symlink(outside, path.join(directory, 'linked'), 'dir');
       await symlink(
@@ -669,6 +717,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       const outside = await mkdtemp(
         path.join(tmpdir(), 'llame-knowledge-outside-'),
       );
+
       await mkdir(path.join(outside, 'notes'), { recursive: true });
       await writeFile(path.join(outside, 'notes', 'secret.md'), 'do not read');
       await mkdir(path.join(directory, 'notes'), { recursive: true });
@@ -726,12 +775,14 @@ describe('KnowledgeFilesystemAdapter', () => {
       const outside = await mkdtemp(
         path.join(tmpdir(), 'llame-knowledge-escape-'),
       );
+
       const adapter = new KnowledgeFilesystemAdapter(binding);
 
       const created = await adapter.resolveHostPath('research/2026/note.md', {
         allowMissing: true,
         createDirectories: true,
       });
+
       expect(created).toBe(path.join(directory, 'research', '2026', 'note.md'));
       expect(
         lstatSync(path.join(directory, 'research', '2026')).isDirectory(),
@@ -759,11 +810,14 @@ describe('KnowledgeFilesystemAdapter', () => {
         mkdir: async (directoryPath) => {
           if (directoryPath.endsWith('raced')) {
             await symlink(outside, directoryPath, 'dir');
+
             return;
           }
+
           await NODE_FILESYSTEM.mkdir(directoryPath);
         },
       });
+
       await expect(
         raced.resolveHostPath('raced/note.md', {
           allowMissing: true,
@@ -791,6 +845,7 @@ describe('KnowledgeFilesystemAdapter', () => {
       const outside = await mkdtemp(
         path.join(tmpdir(), 'llame-knowledge-swap-'),
       );
+
       await writeFile(path.join(outside, 'note.md'), 'secret\n');
       await mkdir(path.join(directory, 'notes'), { recursive: true });
       await writeFile(path.join(directory, 'notes', 'note.md'), 'mine\n');

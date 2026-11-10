@@ -15,6 +15,7 @@ function judgement(
 ): CandidateJudgement {
   const map =
     scores === undefined ? undefined : new Map(Object.entries(scores));
+
   return {
     status: map === undefined ? 'unavailable' : 'answered',
     probabilities: map,
@@ -30,9 +31,11 @@ function rank(result: CandidateJudgement | Error, input = cards) {
   const judge: Pick<DecisionJudge, 'judgeCandidates'> = {
     judgeCandidates: vi.fn(() => {
       if (result instanceof Error) return Promise.reject(result);
+
       return Promise.resolve(result);
     }),
   };
+
   return rankCards({
     judge,
     model: 'catalog-id',
@@ -78,6 +81,7 @@ describe('rankCards', () => {
         usage: { inputTokens: 0, outputTokens: 0, costUsd: null },
       }),
     );
+
     expect(result).toMatchObject({
       status: 'unavailable',
       order: ['a', 'b', 'c', 'd'],
@@ -126,6 +130,7 @@ describe('labeled ranking fixtures', () => {
       'rls-security-definer-web',
       'tenant-db',
     ]);
+
     for (const { cards: fixtureCards } of cases) {
       expect(fixtureCards.length).toBeLessThanOrEqual(40);
       expect(fixtureCards.some((card) => card.relevant)).toBe(true);
@@ -152,6 +157,7 @@ describe('labeled ranking fixtures', () => {
 
   it('shows only lines the grep pattern matches after the path line', () => {
     const retry = cases.find(({ name }) => name === 'retry-synthetic');
+
     for (const card of retry?.cards ?? []) {
       for (const line of card.text.split('\n').slice(1)) {
         expect(line.toLowerCase()).toMatch(/retry|backoff/);

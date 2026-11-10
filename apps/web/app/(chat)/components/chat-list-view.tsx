@@ -40,7 +40,9 @@ function isChatListShow(value: unknown): value is ListShow {
 /** The `?archived` filter a view sends; Active is the server default. */
 export function archivedFilter(show: ListShow): "only" | "with" | undefined {
   if (show === "archived") return "only";
+
   if (show === "all") return "with";
+
   return undefined;
 }
 
@@ -49,6 +51,7 @@ export function archivedFilter(show: ListShow): "only" | "with" | undefined {
  *  Archived has no Pinned section and lists archived pins too. */
 export function listViewFilters(show: ListShow): ProjectListFilters {
   if (show === "archived") return { archived: "only" };
+
   return { pinned: "exclude", archived: archivedFilter(show) };
 }
 
@@ -81,7 +84,9 @@ export function withOpenItem<T extends { id: string; updatedAt: string }>(
 ): Array<T> {
   if (!open) return items;
   const listed = (item: T) => item.id === open.id;
+
   if (items.some(listed) || shownElsewhere.some(listed)) return items;
+
   return [...items, open].sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
   );
@@ -150,6 +155,7 @@ export function ListViewMenu({ show, onShowChange }: ShowControlProps) {
 export function ListViewChip({ show, onShowChange }: ShowControlProps) {
   if (show === "active") return null;
   const label = SHOW_LABELS[show];
+
   return (
     <div className="px-2 pt-1">
       <Button
@@ -176,6 +182,7 @@ export function ChatListShowProvider({
 }) {
   const [show, setShow] = React.useState<ListShow>("active");
   const value = React.useMemo(() => ({ show, onShowChange: setShow }), [show]);
+
   return (
     <ChatListShowContext.Provider value={value}>
       {children}
@@ -185,8 +192,10 @@ export function ChatListShowProvider({
 
 export function useChatListShow(): ShowControlProps {
   const value = React.useContext(ChatListShowContext);
+
   if (value === null) {
     throw new Error("useChatListShow requires ChatListShowProvider");
   }
+
   return value;
 }

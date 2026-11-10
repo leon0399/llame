@@ -47,12 +47,15 @@ describe("messageBoundaries", () => {
       availableModels: [],
       onInspectContext: () => {},
     });
+
     expect(isValidElement(at.boundary)).toBe(true);
+
     if (!isValidElement<{ children: unknown }>(at.boundary)) return;
     // The wrapper div's only child is the real CompactionBoundary — proves
     // the right component (not a lookalike) is what gets mounted here.
     expect(isValidElement(at.boundary.props.children)).toBe(true);
     const inner = at.boundary.props.children;
+
     if (!isValidElement(inner)) return;
     expect(inner.type).toBe(CompactionBoundary);
 
@@ -64,6 +67,7 @@ describe("messageBoundaries", () => {
       availableModels: [],
       onInspectContext: () => {},
     });
+
     expect(elsewhere.boundary).toBeNull();
   });
 
@@ -76,6 +80,7 @@ describe("messageBoundaries", () => {
       availableModels: [],
       onInspectContext: () => {},
     });
+
     expect(result.boundary).toBeNull();
   });
 
@@ -103,6 +108,7 @@ describe("messageBoundaries", () => {
       availableModels: [],
       onInspectContext: () => {},
     });
+
     expect(isValidElement(fromUser.modelBoundary)).toBe(true);
 
     // The same context part on an ASSISTANT message is not a switch
@@ -112,6 +118,7 @@ describe("messageBoundaries", () => {
       role: "assistant",
       parts: [switchPart],
     };
+
     const fromAssistant = messageBoundaries({
       message: assistantWithPart,
       index: 0,
@@ -120,6 +127,7 @@ describe("messageBoundaries", () => {
       availableModels: [],
       onInspectContext: () => {},
     });
+
     expect(fromAssistant.modelBoundary).toBeNull();
   });
 
@@ -132,6 +140,7 @@ describe("messageBoundaries", () => {
       availableModels: [],
       onInspectContext: () => {},
     });
+
     expect(result.modelBoundary).toBeNull();
   });
 });
@@ -272,6 +281,7 @@ describe("hasVisibleContent", () => {
       mediaType: "image/png",
       url: "media://0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a8b",
     };
+
     expect(hasVisibleContent([file])).toBe(false);
     expect(hasVisibleContent([file, { type: "text", text: "Look." }])).toBe(
       true,

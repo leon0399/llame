@@ -72,6 +72,7 @@ export async function createRootOrg(input: {
 
 export function useCreateRootOrg() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: orgUnitsMutationKeys.createRoot(),
     scope: { id: "org-units-tree" },
@@ -91,9 +92,11 @@ export async function createChildOrg(input: {
   type?: OrgUnitType;
 }): Promise<OrgUnitResponse> {
   const body: CreateOrgUnitDto = { name: input.name };
+
   if (input.type) {
     body.type = input.type;
   }
+
   return withOrgUnitsErrors(() =>
     createChildOrgUnit(input.parentId, body, undefined, authenticatedFetch()),
   );
@@ -101,6 +104,7 @@ export async function createChildOrg(input: {
 
 export function useCreateChildOrg() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: orgUnitsMutationKeys.createChild(),
     scope: { id: "org-units-tree" },
@@ -122,6 +126,7 @@ export async function updateOrgUnit(
   input: UpdateOrgUnitInput,
 ): Promise<OrgUnitResponse> {
   const { orgUnitId, ...body } = input;
+
   return withOrgUnitsErrors(() =>
     updateOrgUnitEndpoint(orgUnitId, body, undefined, authenticatedFetch()),
   );
@@ -142,26 +147,32 @@ function applyOrgUnitPatch(
 ): OrgUnitResponse {
   if (unit.id !== variables.orgUnitId) return unit;
   const patched = { ...unit };
+
   if (variables.name !== undefined) {
     patched.name = variables.name;
   }
+
   if (variables.parentId !== undefined) {
     patched.parentId = variables.parentId;
   }
+
   return patched;
 }
 
 export function useUpdateOrgUnit() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: orgUnitsMutationKeys.update(),
     scope: { id: "org-units-tree" },
     mutationFn: updateOrgUnit,
     onMutate: async (variables) => {
       await queryClient.cancelQueries({ queryKey: orgUnitsQueryKeys.lists() });
+
       const previousLists = queryClient.getQueryData<Array<OrgUnitResponse>>(
         orgUnitsQueryKeys.lists(),
       );
+
       // Untouched when the list was never fetched (e.g. mutating before the
       // query mounted) — nothing to patch, and nothing to roll back later.
       if (previousLists) {
@@ -170,6 +181,7 @@ export function useUpdateOrgUnit() {
           previousLists.map((unit) => applyOrgUnitPatch(unit, variables)),
         );
       }
+
       return { previousLists };
     },
     onError: (_error, _variables, context) => {
@@ -201,15 +213,18 @@ export async function deleteOrgUnit(orgUnitId: string): Promise<void> {
 
 export function useDeleteOrgUnit() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: orgUnitsMutationKeys.delete(),
     scope: { id: "org-units-tree" },
     mutationFn: deleteOrgUnit,
     onMutate: async (orgUnitId) => {
       await queryClient.cancelQueries({ queryKey: orgUnitsQueryKeys.lists() });
+
       const previousLists = queryClient.getQueryData<Array<OrgUnitResponse>>(
         orgUnitsQueryKeys.lists(),
       );
+
       if (previousLists) {
         // Removing just this row is sufficient (no orphan patching needed):
         // the API enforces leaf-first delete (D4/task 4.1 — a unit with
@@ -220,6 +235,7 @@ export function useDeleteOrgUnit() {
           previousLists.filter((unit) => unit.id !== orgUnitId),
         );
       }
+
       return { previousLists };
     },
     onError: (_error, _orgUnitId, context) => {
@@ -259,6 +275,7 @@ export async function grantMembership(
 
 export function useGrantMembership() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: orgUnitsMutationKeys.grant(),
     scope: { id: "org-unit-memberships" },
@@ -308,6 +325,7 @@ async function cancelAndSnapshotMemberships(
 ): Promise<Array<MembershipResponse> | undefined> {
   const key = orgUnitsQueryKeys.memberships(orgUnitId);
   await queryClient.cancelQueries({ queryKey: key });
+
   return queryClient.getQueryData<Array<MembershipResponse>>(key);
 }
 
@@ -333,6 +351,7 @@ async function onMutateChangeMembershipRole(
     queryClient,
     variables.orgUnitId,
   );
+
   if (previousMemberships) {
     queryClient.setQueryData<Array<MembershipResponse>>(
       orgUnitsQueryKeys.memberships(variables.orgUnitId),
@@ -343,11 +362,13 @@ async function onMutateChangeMembershipRole(
       ),
     );
   }
+
   return { previousMemberships };
 }
 
 export function useChangeMembershipRole() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: orgUnitsMutationKeys.changeRole(),
     scope: { id: "org-unit-memberships" },
@@ -397,6 +418,7 @@ async function onMutateRevokeMembership(
     queryClient,
     variables.orgUnitId,
   );
+
   if (previousMemberships) {
     queryClient.setQueryData<Array<MembershipResponse>>(
       orgUnitsQueryKeys.memberships(variables.orgUnitId),
@@ -405,11 +427,13 @@ async function onMutateRevokeMembership(
       ),
     );
   }
+
   return { previousMemberships };
 }
 
 export function useRevokeMembership() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: orgUnitsMutationKeys.revoke(),
     scope: { id: "org-unit-memberships" },

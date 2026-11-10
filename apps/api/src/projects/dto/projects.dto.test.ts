@@ -74,6 +74,7 @@ describe('project DTOs', () => {
         validate(plainToInstance(UpdateProjectDto, { archived })),
       ).resolves.toEqual([]);
     }
+
     await expect(
       validate(plainToInstance(UpdateProjectDto, { archived: null })),
     ).resolves.not.toEqual([]);

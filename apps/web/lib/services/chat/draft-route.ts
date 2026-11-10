@@ -21,6 +21,7 @@ export function draftChatPath(
   }
 
   const query = searchParams.toString();
+
   return `/chat/${chatId}${query === "" ? "" : `?${query}`}`;
 }
 

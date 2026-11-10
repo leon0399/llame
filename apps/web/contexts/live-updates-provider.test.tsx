@@ -65,7 +65,9 @@ class FakeWebSocket {
 
 const latestSocket = () => {
   const socket = FakeWebSocket.instances.at(-1);
+
   if (!socket) throw new Error("no socket opened");
+
   return socket;
 };
 
@@ -77,6 +79,7 @@ function ConnectionProbe() {
     () => subscribe?.((message) => setReceived((all) => [...all, message])),
     [subscribe],
   );
+
   return (
     <div>
       <span data-testid="connected">{String(live?.connected)}</span>
@@ -94,6 +97,7 @@ function ConnectionProbe() {
 function RunsProbe() {
   const { activeChatIds, runPhaseByChatId, unseenRunOutcomes } =
     useActiveRuns();
+
   return (
     <div>
       <span data-testid="completed">
@@ -112,7 +116,9 @@ function renderLive(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+
   const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
   const view = render(
     <QueryClientProvider client={queryClient}>
       <LiveUpdatesProvider onSessionEnded={onSessionEnded}>
@@ -120,6 +126,7 @@ function renderLive(
       </LiveUpdatesProvider>
     </QueryClientProvider>,
   );
+
   return { queryClient, invalidate, view };
 }
 
@@ -159,12 +166,15 @@ beforeEach(() => {
   fetchMock.mockImplementation(async (input) => {
     const request = input instanceof Request ? input : new Request(input);
     const { pathname } = new URL(request.url);
+
     if (pathname === "/api/v1/me/runs") {
       return jsonResponse<Array<ActiveRunResponse>>([]);
     }
+
     if (pathname.startsWith("/api/v1/runs/")) {
       return jsonResponse({ id: runId, status: "running_model" });
     }
+
     throw new Error(`unrouted fetch in test: ${pathname}`);
   });
 });

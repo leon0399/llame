@@ -13,6 +13,7 @@ import { mediaLocator, parseMediaLocator } from './media-locator';
 import { PDF_MAX_PAGES } from './pdf-preparation';
 
 export type ToolResultOutput = ToolResultPart['output'];
+
 export type ToolContentPart = Extract<
   ToolResultOutput,
   { type: 'content' }
@@ -20,13 +21,16 @@ export type ToolContentPart = Extract<
 
 /** Images one epoch may attach: Anthropic's per-request limit (vision-media D6). */
 export const EPOCH_MAX_IMAGES = 100;
+
 /**
  * Summed base64 size of the attached images and PDFs: 28 MiB, the smallest
  * round bound that admits one 20 MiB PDF (pdf-media D5).
  */
 export const EPOCH_MAX_BASE64_BYTES = 29_360_128;
+
 /** The tokens an estimate charges each attached PDF page (pdf-media D6). */
 export const PDF_PAGE_TOKENS = 3000;
+
 /**
  * `COMPACTION_WINDOW_RATIO`, restated: `compaction.ts` imports the step
  * composer, which imports this module, so importing it here would be a cycle.
@@ -61,6 +65,7 @@ export function pdfPageBound(ctx: MediaAdmissionContext): number {
     ctx.contextWindowTokens * PDF_WINDOW_RATIO -
       (ctx.reservedOutputTokens ?? 0),
   );
+
   return Math.min(PDF_MAX_PAGES, Math.floor(budget / PDF_PAGE_TOKENS));
 }
 
@@ -113,21 +118,27 @@ export function admitEpochMedia(
   const maxPages = pdfPageBound(ctx);
   const used: WindowCost = { bytes: 0, images: 0, pages: 0 };
   let full = false;
+
   return refs.map((ref) => {
     const cost = windowCost(ref, descriptors, ctx.input);
+
     if (cost === 'exceeded') {
       full = true;
+
       return 'limit';
     }
+
     if (isString(cost)) return cost;
     full ||=
       used.images + cost.images > EPOCH_MAX_IMAGES ||
       used.bytes + cost.bytes > EPOCH_MAX_BASE64_BYTES ||
       used.pages + cost.pages > maxPages;
+
     if (full) return 'limit';
     used.images += cost.images;
     used.bytes += cost.bytes;
     used.pages += cost.pages;
+
     return 'attached';
   });
 }
@@ -145,14 +156,20 @@ function windowCost(
     if (ref.retained === 'exceeded') {
       return input.includes(ref.kind) ? 'exceeded' : 'omitted';
     }
+
     if (!input.includes(ref.retained)) return 'omitted';
+
     return ref.retained === 'pdf'
       ? { bytes: ref.byteSize, images: 0, pages: ref.pages }
       : { bytes: ref.byteSize, images: 1, pages: 0 };
   }
+
   const d = descriptors.get(ref);
+
   if (d === undefined) return 'unavailable';
+
   if (!input.includes(d.kind)) return 'omitted';
+
   return d.kind === 'pdf'
     ? { bytes: base64Size(d.byteSize), images: 0, pages: d.pages }
     : { bytes: base64Size(d.modelByteSize), images: 1, pages: 0 };
@@ -229,7 +246,9 @@ export function userImageRef(part: ImagePart): MediaRef | undefined {
   const unstored = unstoredRefSchema.safeParse(
     part.providerOptions?.[UNSTORED_MEDIA_OPTION],
   );
+
   if (unstored.success) return unstored.data;
+
   return isString(part.image) ? parseMediaLocator(part.image) : undefined;
 }
 
@@ -257,9 +276,11 @@ export function toolOutputUnstoredMedia(
   part: ToolContentPart,
 ): UnstoredRef | undefined {
   if (part.type !== 'custom') return undefined;
+
   const parsed = unstoredRefSchema.safeParse(
     part.providerOptions?.[UNSTORED_MEDIA_OPTION],
   );
+
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -283,6 +304,7 @@ export function isUnstoredMedia(
 /** The locator a native `read` call submitted, or undefined. */
 export function submittedLocator(input: unknown): string | undefined {
   if (!isRecord(input)) return undefined;
+
   return isString(input.path) ? input.path : undefined;
 }
 
@@ -296,17 +318,22 @@ export function mediaResultRef(
   locator: string | undefined,
 ): ReadMediaRef | undefined {
   const parsed = mediaReadResultSchema.safeParse(result);
+
   if (!parsed.success) return undefined;
   const metadata = parsed.data;
+
   if (metadata.media !== undefined) {
     const id = parseMediaLocator(metadata.media);
+
     return id === undefined
       ? undefined
       : metadata.kind === 'pdf'
         ? { kind: 'pdf', id }
         : id;
   }
+
   if (locator === undefined) return undefined;
+
   return metadata.kind === 'pdf'
     ? { locator, pages: metadata.pages }
     : { locator, width: metadata.width, height: metadata.height };
@@ -323,6 +350,7 @@ export function toolResultOutput(
   media: ToolMediaRef | undefined,
 ): ToolResultOutput {
   if (media === undefined) return { type: 'text', value: text };
+
   return {
     type: 'content',
     value: [
@@ -368,14 +396,18 @@ export function collectMediaRefs(
             : part.type === 'image'
               ? userImageRef(part)
               : undefined;
+
         return ref === undefined ? [] : [ref];
       });
     }
+
     if (message.role !== 'tool') return [];
+
     return message.content.flatMap((part) =>
       part.type === 'tool-result' && part.output.type === 'content'
         ? part.output.value.flatMap((item) => {
             const image = toolItemRef(item);
+
             return image === undefined ? [] : [image];
           })
         : [],
@@ -413,11 +445,14 @@ export async function loadMediaSizing(
   const refs = collectMediaRefs(messages);
   const descriptors = await resolver.describe(refs.filter(isString));
   const retained = new Map<string, RetainedMedia>();
+
   for (const ref of refs) {
     if (isString(ref)) continue;
     const entry = resolver.retainedMedia.get(ref.key);
+
     if (entry !== undefined) retained.set(ref.key, entry);
   }
+
   return {
     refs,
     descriptors,
@@ -442,13 +477,17 @@ function epochRef(
 ): EpochMediaRef {
   if (isString(ref)) return ref;
   const entry = retained.get(ref.key);
+
   if (entry === undefined) {
     throw new Error(`Retained media entry missing for ${ref.key}`);
   }
+
   if ('exceeded' in entry) {
     return { retained: 'exceeded', kind: 'pages' in ref ? 'pdf' : 'image' };
   }
+
   const byteSize = retainedEntrySize(entry);
+
   return 'pages' in entry
     ? { retained: 'pdf', byteSize, pages: entry.pages }
     : { retained: 'image', byteSize };

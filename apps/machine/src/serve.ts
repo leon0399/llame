@@ -63,12 +63,17 @@ export type MachineSession = {
 
 const OVERSIZE_FRAME_MESSAGE =
   "The frame's message exceeds the byte bound of this protocol.";
+
 const MALFORMED_FRAME_MESSAGE = "The frame is not a JSON-RPC message.";
+
 const NO_HANDSHAKE_MESSAGE =
   "The Machine session has not completed its handshake.";
+
 const OVERSIZE_ANSWER_MESSAGE =
   "The Machine's answer exceeds the frame byte bound of this protocol.";
+
 const FAILED_OPERATION_MESSAGE = "The Machine operation failed.";
+
 /** The `rpc.service` both ends of a Machine call report. */
 const MACHINE_RPC_SERVICE = "llame-machine";
 
@@ -104,12 +109,16 @@ function reportError(
 ): void {
   if (budget !== undefined && budget.expired()) {
     refuse(channel, "budget_exhausted", BUDGET_EXHAUSTED_MESSAGE);
+
     return;
   }
+
   if (error instanceof MachineRequestError) {
     refuse(channel, error.code, error.message);
+
     return;
   }
+
   // A stack or a host path never reaches the hub; stderr is the operator's.
   console.error("llame-machine: operation failed", error);
   Sentry.captureException(error);
@@ -122,20 +131,25 @@ function handleHello(
   request: JsonRpcRequest,
 ): void {
   let protocolVersion: number;
+
   try {
     protocolVersion = readHelloParams(request.params).protocolVersion;
   } catch (error) {
     reportError(channel, error);
+
     return;
   }
+
   if (protocolVersion !== PROTOCOL_VERSION) {
     channel.error("incompatible_version", INCOMPATIBLE_VERSION_MESSAGE, {
       hubProtocolVersion: protocolVersion,
       daemonProtocolVersion: PROTOCOL_VERSION,
     });
     session.stop("incompatible_version");
+
     return;
   }
+
   session.helloed = true;
   channel.result({
     protocolVersion: PROTOCOL_VERSION,
@@ -169,6 +183,7 @@ function withHubTrace<T>(
       "jsonrpc.request.id": String(request.id),
     },
   };
+
   return Sentry.continueTrace(
     {
       sentryTrace: envelope.trace?.sentryTrace,
@@ -185,16 +200,21 @@ function runOperation(
   method: Operation,
 ): void {
   let envelope: RequestEnvelope;
+
   try {
     envelope = readEnvelope(request.params, method);
   } catch (error) {
     reportError(channel, error);
+
     return;
   }
+
   if (envelope.budgetMs <= 0) {
     refuse(channel, "budget_exhausted", BUDGET_EXHAUSTED_MESSAGE);
+
     return;
   }
+
   const budget = startRequestBudget(envelope.budgetMs, channel.signal);
   void withHubTrace(envelope, request, () =>
     executeOperation(
@@ -215,6 +235,7 @@ function runOperation(
     )
     .finally(() => {
       budget.dispose();
+
       // A stream-keeping operation (`mcp.open`) relays until the server dies
       // or the hub cancels, and closes its own stream then.
       if (!keepsStreamOpen(method)) channel.close();
@@ -248,16 +269,22 @@ function handleRequest(
 ): void {
   if (channel.id === CONTROL_STREAM_ID) {
     handleHello(session, channel, request);
+
     return;
   }
+
   if (!session.helloed) {
     refuse(channel, "internal", NO_HANDSHAKE_MESSAGE);
+
     return;
   }
+
   if (!isOperation(request.method)) {
     refuse(channel, "internal", `Unknown method: ${request.method}`);
+
     return;
   }
+
   runOperation(session, channel, request, request.method);
 }
 
@@ -291,13 +318,18 @@ function handleFramerEvent(session: Session, event: FramerEvent): void {
     // A line past the wrapper bound names no stream to refuse, so the session
     // ends rather than the frame disappearing.
     session.stop("protocol_error");
+
     return;
   }
+
   const decoded = decodeFrame(event.line);
+
   if (decoded.ok) {
     session.multiplexer.handle(decoded.frame);
+
     return;
   }
+
   if (decoded.streamId === undefined) return;
   session.multiplexer.refuseStream(
     decoded.streamId,
@@ -312,6 +344,7 @@ async function pump(input: Readable, session: Session): Promise<void> {
   await new Promise<void>((resolve) => {
     input.on("data", (chunk: Buffer) => {
       session.heartbeat.record();
+
       for (const event of session.framer.push(chunk))
         handleFramerEvent(session, event);
     });
@@ -337,6 +370,7 @@ export function serveMachine(
 ): MachineSession {
   const session = openSession(input, output, options);
   void pump(input, session);
+
   return {
     done: session.done,
     stop: (reason = "closed") => {
@@ -352,16 +386,19 @@ function openSession(
 ): Session {
   const roots = options.roots ?? readRoots(rootsFileFor(options.configDir));
   const signal = createSignal<SessionEndReason>();
+
   const multiplexer = createFrameMultiplexer({
     send: (frame) => writeFrame(session, output, frame),
     onRequest: (channel, request) => handleRequest(session, channel, request),
   });
+
   const heartbeat = createHeartbeat({
     intervalMs: options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
     misses: options.heartbeatMisses ?? HEARTBEAT_MISSES,
     sendPing: () => multiplexer.control.notify(PING_NOTIFICATION),
     onLost: () => session.stop("heartbeat_lost"),
   });
+
   const session: Session = {
     input,
     roots,
@@ -377,10 +414,12 @@ function openSession(
     resolveDone: signal.resolve,
     stop: (reason) => endSession(session, reason),
   };
+
   // A hub that goes away mid-write ends the session like any other loss.
   output.on("error", () => {
     session.stop("closed");
   });
   heartbeat.start();
+
   return session;
 }

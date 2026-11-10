@@ -26,6 +26,7 @@ export const KNOWLEDGE_SPACE_MAX_LIMIT = 100;
 
 function validateKnowledgeSpaceListLimit(limit: number | undefined): number {
   const resolved = limit ?? KNOWLEDGE_SPACE_DEFAULT_LIMIT;
+
   if (
     !Number.isSafeInteger(resolved) ||
     resolved < 1 ||
@@ -33,6 +34,7 @@ function validateKnowledgeSpaceListLimit(limit: number | undefined): number {
   ) {
     throw new Error('Knowledge Space list limit is invalid');
   }
+
   return resolved;
 }
 
@@ -46,7 +48,9 @@ function nextKnowledgeSpaceCursor(
 ): string | null {
   if (rows.length <= page.length) return null;
   const last = page.at(-1);
+
   if (last === undefined) return null;
+
   return encodeKnowledgeSpaceCursor({
     createdAt: last.createdAt,
     id: last.knowledgeSpaceId,
@@ -92,11 +96,13 @@ export class KnowledgeSpaceService {
       const existing = await this.tenantDb.runAs(ownerUserId, (tx) =>
         new KnowledgeSpaceRepository(tx).findForOwnerForBinding(ownerUserId),
       );
+
       if (existing !== undefined) {
         this.localResolver.ensureChild(
           canonicalRoot,
           existing.knowledgeSpaceId,
         );
+
         return toKnowledgeSpaceApiProjection(existing);
       }
     }
@@ -111,6 +117,7 @@ export class KnowledgeSpaceService {
         name,
       }),
     );
+
     return toKnowledgeSpaceApiProjection(space);
   }
 
@@ -125,10 +132,12 @@ export class KnowledgeSpaceService {
     nextCursor: string | null;
   }> {
     const limit = validateKnowledgeSpaceListLimit(options.limit);
+
     const after =
       options.after === undefined
         ? undefined
         : decodeKnowledgeSpaceCursor(options.after);
+
     const rows = await this.tenantDb.runAs(ownerUserId, (tx) =>
       new KnowledgeSpaceRepository(tx).listForOwnerPage(
         ownerUserId,
@@ -136,7 +145,9 @@ export class KnowledgeSpaceService {
         after,
       ),
     );
+
     const page = rows.slice(0, limit);
+
     return {
       items: page.map(toKnowledgeSpaceApiProjection),
       nextCursor: nextKnowledgeSpaceCursor(rows, page),
@@ -153,6 +164,7 @@ export class KnowledgeSpaceService {
         ownerUserId,
       ),
     );
+
     return space === undefined
       ? undefined
       : toKnowledgeSpaceApiProjection(space);
@@ -164,6 +176,7 @@ export class KnowledgeSpaceService {
     input: { name: string },
   ): Promise<KnowledgeSpaceApiProjection | undefined> {
     const name = normalizeKnowledgeSpaceName(input.name);
+
     const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
       new KnowledgeSpaceRepository(tx).updateName(
         knowledgeSpaceId,
@@ -171,6 +184,7 @@ export class KnowledgeSpaceService {
         name,
       ),
     );
+
     return space === undefined
       ? undefined
       : toKnowledgeSpaceApiProjection(space);
@@ -186,13 +200,16 @@ export class KnowledgeSpaceService {
     const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
       new KnowledgeSpaceRepository(tx).findForOwnerForBinding(ownerUserId),
     );
+
     if (space === undefined) return undefined;
 
     const canonicalRoot = this.localResolver.resolveRoot();
+
     const directory = this.localResolver.resolveChild(
       canonicalRoot,
       space.knowledgeSpaceId,
     );
+
     return toKnowledgeSpaceBindingProjection(space, canonicalRoot, directory);
   }
 
@@ -207,13 +224,16 @@ export class KnowledgeSpaceService {
         ownerUserId,
       ),
     );
+
     if (space === undefined) return undefined;
 
     const canonicalRoot = this.localResolver.resolveRoot();
+
     const directory = this.localResolver.resolveChild(
       canonicalRoot,
       space.knowledgeSpaceId,
     );
+
     return toKnowledgeSpaceBindingProjection(space, canonicalRoot, directory);
   }
 

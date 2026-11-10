@@ -27,6 +27,7 @@ export function artifactLinePieces(source: string): Array<string> {
 /** One source line without its terminator; a lone `\r` stays content. */
 function lineBody(line: string): string {
   if (line.endsWith('\r\n')) return line.slice(0, -2);
+
   return line.endsWith('\n') ? line.slice(0, -1) : line;
 }
 
@@ -39,6 +40,7 @@ function lineBody(line: string): string {
  */
 export function artifactText(source: string): string {
   const text = artifactLinePieces(source).join('\n');
+
   return source.endsWith('\n') ? `${text}\n` : text;
 }
 
@@ -59,13 +61,16 @@ function splitCodeUnits(body: string): Array<string> {
   if (body.length <= ARTIFACT_LINE_UNITS) return [body];
   const pieces = new Array<string>();
   let start = 0;
+
   while (start < body.length) {
     const end = codePointSafeCutIndex(
       body,
       Math.min(start + ARTIFACT_LINE_UNITS, body.length),
     );
+
     pieces.push(body.slice(start, end));
     start = end;
   }
+
   return pieces;
 }

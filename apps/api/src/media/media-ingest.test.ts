@@ -25,6 +25,7 @@ async function pngDeclaring(width: number, height: number): Promise<Buffer> {
   png.writeUInt32BE(width, 16);
   png.writeUInt32BE(height, 20);
   png.writeUInt32BE(crc32(png.subarray(12, 29)), 29);
+
   return png;
 }
 
@@ -40,7 +41,9 @@ function noisePixels(width: number, height: number) {
 /** The DC quantizer of the first (luminance) JPEG quantization table. */
 function luminanceDcQuantizer(jpeg: Buffer): number {
   const dqt = jpeg.indexOf(Buffer.from([0xff, 0xdb]));
+
   if (dqt === -1) throw new Error('JPEG has no quantization table');
+
   // Marker (2), segment length (2), precision/table id (1), then the table.
   return jpeg[dqt + 5];
 }
@@ -54,8 +57,10 @@ async function refusal(
     if (error instanceof MediaIngestError) {
       return { code: error.code, message: error.message };
     }
+
     throw error;
   }
+
   throw new Error('Expected a MediaIngestError refusal');
 }
 
@@ -66,6 +71,7 @@ describe('prepareMedia refusals', () => {
     const svg = Buffer.from(
       '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>',
     );
+
     expect(await refusal(svg)).toEqual(UNSUPPORTED);
   });
 
@@ -90,6 +96,7 @@ describe('prepareMedia refusals', () => {
       Buffer.from([0xff, 0xd8, 0xff]),
       Buffer.alloc(64, 0),
     ]);
+
     expect(await refusal(corrupt)).toEqual(UNSUPPORTED);
   });
 
@@ -103,21 +110,25 @@ describe('prepareMedia refusals', () => {
 
   it('admits an input of exactly 20 MiB past the byte bound', async () => {
     const signature = (await solid(1, 1).png().toBuffer()).subarray(0, 8);
+
     const atBound = Buffer.concat([
       signature,
       Buffer.alloc(MEDIA_MAX_BYTES - signature.length),
     ]);
+
     expect(await refusal(atBound)).toEqual(UNSUPPORTED);
   });
 
   it('refuses a TIFF whose bytes 8-11 happen to read WEBP', async () => {
     const pixels = Buffer.alloc(4 * 4 * 3);
     pixels.write('WEBP', 0, 'latin1');
+
     const tiff = await sharp(pixels, {
       raw: { width: 4, height: 4, channels: 3 },
     })
       .tiff({ compression: 'none' })
       .toBuffer();
+
     expect(tiff.toString('latin1', 8, 12)).toBe('WEBP');
     expect(await refusal(tiff)).toEqual(UNSUPPORTED);
   });
@@ -174,6 +185,7 @@ describe('prepareMedia original', () => {
     const input = await solid(8000, 5000)
       .png({ compressionLevel: 9 })
       .toBuffer();
+
     expect(input.length).toBeLessThanOrEqual(MEDIA_MAX_BYTES);
 
     const prepared = await prepareMedia(input);
@@ -190,6 +202,7 @@ describe('prepareMedia original', () => {
       })
       .withMetadata({ orientation: 6 })
       .toBuffer();
+
     const inputMeta = await sharp(input).metadata();
     expect(inputMeta.orientation).toBe(6);
     expect(inputMeta.exif).toBeDefined();
@@ -221,6 +234,7 @@ describe('prepareMedia model variant', () => {
     const prepared = await prepareMedia(
       await solid(4000, 1000).png().toBuffer(),
     );
+
     expect(prepared.model).toMatchObject({
       mediaType: 'image/png',
       width: 2000,
@@ -239,6 +253,7 @@ describe('prepareMedia model variant', () => {
     const prepared = await prepareMedia(
       await solid(300, 200).jpeg().toBuffer(),
     );
+
     expect(prepared.model.mediaType).toBe('image/png');
     expect((await sharp(prepared.model.bytes).metadata()).format).toBe('png');
   });
@@ -246,9 +261,11 @@ describe('prepareMedia model variant', () => {
   it('keeps only the first frame of an animated GIF', async () => {
     const red = await solid(20, 10, '#ff0000').png().toBuffer();
     const blue = await solid(20, 10, '#0000ff').png().toBuffer();
+
     const gif = await sharp([red, blue], { join: { animated: true } })
       .gif()
       .toBuffer();
+
     expect((await sharp(gif).metadata()).pages).toBe(2);
 
     const prepared = await prepareMedia(gif);
@@ -312,6 +329,7 @@ describe('encodeModelVariant', () => {
       height: 4,
       channels: 4 as const,
     };
+
     const model = await encodeModelVariant(pixels, 1);
     expect(model.mediaType).toBe('image/jpeg');
     const { channels } = await sharp(model.bytes).stats();
@@ -373,9 +391,11 @@ describe('encodeThumbnail', () => {
       height: 64,
       hasAlpha: false,
     });
+
     const { data } = await thumbnail
       .raw()
       .toBuffer({ resolveWithObject: true });
+
     // Lossy WebP keeps white within a step; unflattened, it would be black.
     expect(Math.min(...data.subarray(0, 3))).toBeGreaterThanOrEqual(250);
   });

@@ -17,19 +17,27 @@ export function encodeLocatorPath(path: string): string | undefined {
   if (!path.startsWith('/') || path.includes('\u0000')) return undefined;
   const lastSeparator = path.lastIndexOf(SEPARATOR);
   let encoded = '';
+
   for (let index = 0; index < path.length; index += 1) {
     encoded += encodeCharacter(path.charCodeAt(index), index > lastSeparator);
   }
+
   return encoded;
 }
 
 function encodeCharacter(code: number, afterLastSeparator: boolean): string {
   if (code === 0x25) return '%25';
+
   if (code === 0x23) return '%23';
+
   if (code === 0x3f) return '%3F';
+
   if (code === 0x5c) return '%5C';
+
   if (code === 0x3a && afterLastSeparator) return '%3A';
+
   if (code <= 0x1f || code === 0x7f)
     return `%${code.toString(16).padStart(2, '0').toUpperCase()}`;
+
   return String.fromCharCode(code);
 }

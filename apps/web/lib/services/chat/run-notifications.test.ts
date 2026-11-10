@@ -14,6 +14,7 @@ describe("isTerminalRunStatus", () => {
     for (const s of ["completed", "failed", "cancelled", "expired"]) {
       expect(isTerminalRunStatus(s)).toBe(true);
     }
+
     for (const s of ["queued", "running_model", "running_tool"]) {
       expect(isTerminalRunStatus(s)).toBe(false);
     }

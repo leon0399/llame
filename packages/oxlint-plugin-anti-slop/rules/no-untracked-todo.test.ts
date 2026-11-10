@@ -5,6 +5,7 @@ import { noUntrackedTodoRule } from "./no-untracked-todo.ts";
 const tester = new RuleTester({
   languageOptions: { parserOptions: { lang: "ts" } },
 });
+
 const error = { messageId: "untracked" };
 
 tester.run("anti-slop/no-untracked-todo", noUntrackedTodoRule, {

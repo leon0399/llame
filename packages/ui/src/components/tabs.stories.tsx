@@ -139,9 +139,11 @@ export const Basic: Story = {
   ),
   play: async ({ canvas, userEvent }) => {
     const tabsList = canvas.getByRole("tablist");
+
     const overviewTab = within(tabsList).getByRole("tab", {
       name: "Overview",
     });
+
     const reportsTab = within(tabsList).getByRole("tab", { name: "Reports" });
 
     await expect(overviewTab).toHaveAttribute("aria-selected", "true");
@@ -216,6 +218,7 @@ export const Vertical: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     const accountTab = canvas.getByRole("tab", { name: "Account" });
+
     const notificationsTab = canvas.getByRole("tab", {
       name: "Notifications",
     });

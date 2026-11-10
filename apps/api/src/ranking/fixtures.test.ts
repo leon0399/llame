@@ -16,13 +16,16 @@ describe('loadRecordedAnswers', () => {
       fs.mkdtempSync(path.join(os.tmpdir(), 'ans-')),
       'missing',
     );
+
     expect(loadRecordedAnswers('case-a', dir)).toEqual([]);
   });
 
   it('reads only the case’s JSON answers, sorted, ignoring other cases and files', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ans-'));
+
     const write = (name: string, body: string) =>
       fs.writeFileSync(path.join(dir, name), body);
+
     write('case-a.jev-1.14.json', JSON.stringify(answer('jev-1.14', { a: 1 })));
     write('case-a.alpha.json', JSON.stringify(answer('alpha', { a: 2 })));
     write('case-ab.other.json', JSON.stringify(answer('other', { a: 3 })));
@@ -36,17 +39,20 @@ describe('loadRecordedAnswers', () => {
 
   it('orders answers by file name whatever order the directory lists them', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ans-'));
+
     for (const model of ['alpha', 'mid', 'zulu']) {
       fs.writeFileSync(
         path.join(dir, `case-a.${model}.json`),
         JSON.stringify(answer(model, { a: 1 })),
       );
     }
+
     const unsorted = () => [
       'case-a.zulu.json',
       'case-a.alpha.json',
       'case-a.mid.json',
     ];
+
     expect(
       loadRecordedAnswers('case-a', dir, unsorted).map((a) => a.model),
     ).toEqual(['alpha', 'mid', 'zulu']);

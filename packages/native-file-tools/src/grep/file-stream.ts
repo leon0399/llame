@@ -19,16 +19,21 @@ export async function openFileStream(
 ): Promise<GrepFileStream | GrepReadRefusal> {
   signal?.throwIfAborted();
   let handle: FileHandle | undefined;
+
   try {
     handle = await open(path, openFlags(followSymlinks));
     const stats = await handle.stat();
+
     if (!stats.isFile()) {
       await handle.close();
+
       return { kind: "unreadable" };
     }
+
     return fileStream(handle, stats.size, signal, after);
   } catch {
     await handle?.close().catch(() => undefined);
+
     return { kind: "unreadable" };
   }
 }
@@ -47,30 +52,38 @@ export function fileStream(
   after?: () => Promise<boolean>,
 ): GrepFileStream {
   let closing: Promise<void> | undefined;
+
   const close = (): Promise<void> => {
     closing ??= handle.close().catch(() => undefined);
+
     return closing;
   };
+
   async function* chunks(): AsyncGenerator<Uint8Array | GrepReadRefusal> {
     try {
       for (;;) {
         signal?.throwIfAborted();
         const chunk = Buffer.allocUnsafe(READ_CHUNK_BYTES);
         let bytesRead: number;
+
         try {
           ({ bytesRead } = await handle.read(chunk, 0, chunk.byteLength, null));
         } catch {
           yield { kind: "unreadable" };
+
           return;
         }
+
         // An empty read is the end of the file; a short read is not.
         if (bytesRead <= 0) break;
         yield chunk.subarray(0, bytesRead);
       }
+
       if (after !== undefined && !(await after())) yield { kind: "unreadable" };
     } finally {
       await close();
     }
   }
+
   return { size, close, chunks: chunks() };
 }

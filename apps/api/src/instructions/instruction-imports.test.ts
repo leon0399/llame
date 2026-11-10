@@ -30,12 +30,15 @@ function machineWorld(input: {
   const probed: Array<string> = [];
   const listed: Array<string> = [];
   const reads: Array<string> = [];
+
   const isDirectory = (path: string): boolean =>
     (input.directories ?? []).includes(path);
+
   /** The bare names one directory holds, as a Machine lists them. */
   const children = (path: string): Array<string> => {
     const prefix = path === '/' ? '/' : `${path}/`;
     const names = new Set<string>();
+
     for (const declared of [
       ...Object.keys(input.files),
       ...(input.directories ?? []),
@@ -43,14 +46,17 @@ function machineWorld(input: {
       if (!declared.startsWith(prefix) || declared === path) continue;
       names.add(declared.slice(prefix.length).split('/')[0]);
     }
+
     return [...names];
   };
+
   const scope: InstructionScope = {
     root: '/',
     label: (key) => locator(key),
     probe: (key) => {
       probed.push(key);
       const body = input.files[key];
+
       if (body !== undefined) {
         return Promise.resolve({
           kind: 'file' as const,
@@ -58,6 +64,7 @@ function machineWorld(input: {
           canonicalPath: locator(key),
         });
       }
+
       return Promise.resolve(
         isDirectory(key)
           ? {
@@ -70,20 +77,24 @@ function machineWorld(input: {
     },
     list: (key) => {
       listed.push(key);
+
       return Promise.resolve(children(key));
     },
   };
+
   const page: ReadPage = (selectorPath) => {
     reads.push(selectorPath);
     const marker = selectorPath.lastIndexOf(':raw:');
     const parsed = parseMachineLocator(selectorPath.slice(0, marker));
     const body = parsed.kind === 'path' ? input.files[parsed.path] : undefined;
+
     return Promise.resolve(
       body === undefined
         ? { status: 'error', type: 'not_found', message: 'No such file.' }
         : { status: 'success', kind: 'file', content: body, truncated: false },
     );
   };
+
   return { scope, page, probed, listed, reads };
 }
 
@@ -94,12 +105,14 @@ function stateOf(input: {
   readonly disclosed?: ReadonlyMap<string, ReadonlySet<string>>;
 }) {
   const world = machineWorld(input);
+
   const collector: InstructionImportCollector = {
     keys: new Set<string>(),
     attempted: new Set<string>(),
     files: [],
     denied: [],
   };
+
   const state: InstructionImportState = {
     collector,
     group: {
@@ -112,6 +125,7 @@ function stateOf(input: {
     disclosed: input.disclosed ?? new Map<string, ReadonlySet<string>>(),
     abortSignal: undefined,
   };
+
   return { ...world, state, collector };
 }
 

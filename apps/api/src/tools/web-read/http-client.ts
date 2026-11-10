@@ -134,6 +134,7 @@ const TEXT_MEDIA_TYPE = /^text\/|^application\/(?:json|xml)$|\+(?:json|xml)$/u;
 
 /** Binary types accepted only for the page response, never a probe or adapter. */
 const PAGE_MEDIA_TYPE = /^(?:image\/(?:png|jpeg|gif|webp)|application\/pdf)$/u;
+
 // Keep fetch admission independent of the image codec loaded by media ingestion.
 const MAX_PDF_BODY_BYTES = 20 * 1024 * 1024;
 
@@ -175,7 +176,9 @@ function addressRefusal(
     type: 'permission_denied',
     message: REJECTED_ADDRESS_MESSAGE,
   };
+
   if (refusedLocator === originalUrl) return failure;
+
   return { ...failure, rejectedUrl: rejectedHopUrl(refusedLocator) };
 }
 
@@ -186,15 +189,20 @@ async function readDocumentResponse(
 ): Promise<WebResponse | WebFetchFailure> {
   const contentType = contentTypeOf(response.headers.get('content-type'));
   const refusal = await refusalFor(response, contentType, init);
+
   if (refusal !== undefined) return redactAuthorization(refusal, init);
   const body = await readCappedBody(response, deadline, DEFAULT_MAX_BODY_BYTES);
+
   if (body.kind === 'failure') return redactAuthorization(body.failure, init);
+
   const fetched: WebResponse = {
     finalUrl: locator,
     contentType: contentType.value,
     body: decodeBody(body.bytes, contentType),
   };
+
   const link = response.headers.get('link');
+
   return link === null ? fetched : { ...fetched, link };
 }
 
@@ -205,22 +213,28 @@ async function readPageResponse(
 ): Promise<WebResponse | WebMediaResponse | WebFetchFailure> {
   const { response, locator } = reached;
   const contentType = contentTypeOf(response.headers.get('content-type'));
+
   if (!PAGE_MEDIA_TYPE.test(contentType.mediaType))
     return readDocumentResponse(reached, deadline);
+
   const refusal = await refusalFor(
     response,
     contentType,
     undefined,
     PAGE_MEDIA_TYPE,
   );
+
   if (refusal !== undefined) return refusal;
   const kind = contentType.mediaType === 'application/pdf' ? 'pdf' : 'image';
+
   const body = await readCappedBody(
     response,
     deadline,
     kind === 'pdf' ? MAX_PDF_BODY_BYTES : DEFAULT_MAX_BODY_BYTES,
   );
+
   if (body.kind === 'failure') return body.failure;
+
   return { finalUrl: locator, kind, bytes: body.bytes };
 }
 
@@ -239,12 +253,15 @@ function hopLocator(base: string, location: string | null): HopResolution {
   if (location === null || location.trim() === '') {
     return { failure: INVALID_REDIRECT };
   }
+
   let resolved: URL;
+
   try {
     resolved = new URL(location, base);
   } catch {
     return { failure: INVALID_REDIRECT };
   }
+
   if (
     resolved.username !== '' ||
     resolved.password !== '' ||
@@ -252,9 +269,11 @@ function hopLocator(base: string, location: string | null): HopResolution {
   ) {
     return { failure: INVALID_REDIRECT };
   }
+
   // An empty fragment setter drops the `#` delimiter with it, so a bare `#`
   // leaves no trace either.
   resolved.hash = '';
+
   return { url: canonicalHref(resolved) };
 }
 
@@ -276,8 +295,11 @@ async function followRedirect(
   const hop = hopLocator(base, response.headers.get('location'));
   // The redirect's own body is never content: the locator it names is.
   await cancelBody(response);
+
   if ('failure' in hop) return { failure: hop.failure };
+
   if (budget.redirects >= MAX_REDIRECTS) return { failure: TOO_MANY_REDIRECTS };
+
   if (deps.admit('hop', hop.url).decision === 'reject') {
     // The fixed message names no target; the locator's origin and path travel
     // beside it, bounded and stripped.
@@ -289,7 +311,9 @@ async function followRedirect(
       },
     };
   }
+
   budget.redirects += 1;
+
   return { next: hop.url };
 }
 
@@ -300,6 +324,7 @@ function unsupportedContentType(contentType: ContentType): WebFetchFailure {
       message: 'The response declares no content type.',
     };
   }
+
   return {
     type: 'unsupported_content_type',
     message: `Unsupported content type "${boundedEcho(contentType.mediaType)}".`,
@@ -311,7 +336,9 @@ function boundedHeader(
   name: string,
 ): string | undefined {
   const value = headers.get(name);
+
   if (value === null || value === '') return undefined;
+
   return boundedEcho(value);
 }
 
@@ -319,6 +346,7 @@ function rateLimitOf(headers: UndiciHeaders): WebFetchFailure['rateLimit'] {
   const remaining = boundedHeader(headers, 'x-ratelimit-remaining');
   const reset = boundedHeader(headers, 'x-ratelimit-reset');
   const retryAfter = boundedHeader(headers, 'retry-after');
+
   return {
     ...(remaining !== undefined && { remaining }),
     ...(reset !== undefined && { reset }),
@@ -332,6 +360,7 @@ function statusFailure(
   init?: WebRequestInit,
 ): WebFetchFailure {
   const retryAfter = status === 429 ? headers.get('retry-after') : null;
+
   const failure: WebFetchFailure =
     retryAfter === null || retryAfter === ''
       ? {
@@ -342,7 +371,9 @@ function statusFailure(
           type: 'http_status',
           message: `The server answered HTTP ${status}; retry after ${boundedEcho(retryAfter)}.`,
         };
+
   if (init === undefined) return failure;
+
   return { ...failure, httpStatus: status, rateLimit: rateLimitOf(headers) };
 }
 
@@ -356,12 +387,16 @@ async function refusalFor(
 ): Promise<WebFetchFailure | undefined> {
   if (!response.ok) {
     await cancelBody(response);
+
     return statusFailure(response.status, response.headers, init);
   }
+
   if (!accepted.test(contentType.mediaType)) {
     await cancelBody(response);
+
     return unsupportedContentType(contentType);
   }
+
   return undefined;
 }
 
@@ -380,20 +415,26 @@ export function createWebFetchSession(
     deadline: startCallDeadline(options),
     redirects: 0,
   };
+
   const connections = createConnectionPlanner(deps);
   const context: FetchLocatorContext = { options, deps, budget, connections };
+
   return {
     untilDeadline: budget.deadline.untilDeadline,
     fetch: (url, init) =>
       withFetchDeadline(context, async (deadline) => {
         const reached = await reachLocator(url, context, deadline, init);
+
         if (!('response' in reached)) return reached;
+
         return readDocumentResponse(reached, deadline, init);
       }),
     fetchPage: (url) =>
       withFetchDeadline(context, async (deadline) => {
         const reached = await reachLocator(url, context, deadline);
+
         if (!('response' in reached)) return reached;
+
         return readPageResponse(reached, deadline);
       }),
     dispose: () => {
@@ -431,6 +472,7 @@ function requestInitForOrigin(
   ) {
     return init;
   }
+
   return withoutAuthorization(init);
 }
 
@@ -439,11 +481,14 @@ function redactAuthorization(
   init: WebRequestInit | undefined,
 ): WebFetchFailure {
   const value = init?.authorization?.value;
+
   if (value === undefined || value === '') return failure;
   let message = failure.message;
+
   for (const part of value.split(/\s+/u)) {
     if (part !== '') message = message.replaceAll(part, '[redacted]');
   }
+
   return message === failure.message ? failure : { ...failure, message };
 }
 
@@ -454,6 +499,7 @@ async function withFetchDeadline<T>(
   run: (deadline: FetchDeadline) => Promise<T>,
 ): Promise<T> {
   const deadline = context.budget.deadline.startFetch();
+
   try {
     return await run(deadline);
   } finally {
@@ -481,6 +527,7 @@ async function reachLocator(
 ): Promise<ReachedLocator | WebFetchFailure> {
   let locator = url;
   let requestInit = requestInitForOrigin(url, init);
+
   for (;;) {
     const outcome = await context.connections.request(
       locator,
@@ -488,20 +535,26 @@ async function reachLocator(
       deadline,
       requestInit,
     );
+
     if (outcome.kind === 'failure')
       return redactAuthorization(outcome.failure, init);
+
     if (outcome.kind === 'address_refused')
       return addressRefusal(url, outcome.locator);
     const { response } = outcome;
     const redirects = init?.body === undefined && isRedirect(response);
+
     if (!redirects) return { response, locator };
+
     const hop = await followRedirect(
       response,
       locator,
       context.deps,
       context.budget,
     );
+
     if ('failure' in hop) return redactAuthorization(hop.failure, init);
+
     if (new URL(hop.next).origin !== new URL(locator).origin)
       requestInit = requestInit && { accept: requestInit.accept };
     locator = hop.next;

@@ -247,6 +247,7 @@ function ChatItemDialogs({
  *  provider — there nothing runs. */
 function useChatActivity(chatId: string) {
   const runs = useOptionalActiveRuns();
+
   return {
     activityStatus: resolveChatActivityStatus({
       processing: runs?.activeChatIds.has(chatId) ?? false,

@@ -35,6 +35,7 @@ import { editFile } from "./mutate";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
+
   return { ...original, opendir: vi.fn(original.opendir) };
 });
 
@@ -42,6 +43,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
  *  moves it by the file's size, a window read by one chunk. */
 async function hostReadBytes(): Promise<number> {
   const io = await readHostFile("/proc/self/io", "utf8");
+
   return Number(/rchar: (\d+)/u.exec(io)?.[1] ?? 0);
 }
 
@@ -266,6 +268,7 @@ describe("native source reads", () => {
         { length: 3000 },
         (_, index) => `${"x".repeat(index === 1999 ? lastLine : 5)}\n`,
       ).join("");
+
     await writeFile(path, source(5));
     const probe = await readFile({ path: `${path}:raw` });
     assertFileSuccess(probe);
@@ -295,6 +298,7 @@ describe("native source reads", () => {
         { length: 3000 },
         (_, index) => `${"x".repeat(index === 1999 ? lastLine : 1)}\n`,
       ).join("");
+
     await writeFile(path, source(1));
     const probe = await readFile({ path });
     assertFileSuccess(probe);
@@ -368,6 +372,7 @@ describe("native source reads", () => {
     expect(measureReadRendering(result)).toBeLessThanOrEqual(
       MAX_RESULT_CODE_UNITS,
     );
+
     if (
       result.status !== "success" ||
       result.kind !== "file" ||
@@ -375,10 +380,13 @@ describe("native source reads", () => {
     ) {
       throw new Error("Expected a continued native read");
     }
+
     expect(result.content.endsWith("\n")).toBe(true);
+
     const continuation = await readFile({
       path: `${path}:raw:${result.nextOffset + 1}-${result.nextOffset + 1}`,
     });
+
     expect(continuation).toMatchObject({ status: "success", content: line });
   });
 
@@ -450,6 +458,7 @@ describe("native source reads", () => {
 
   it("returns the empty result for a tail or open-ended member on an empty file", async () => {
     await writeFile(path, "");
+
     for (const selector of ["-5", "1-"]) {
       expect(await readFile({ path: `${path}:${selector}` })).toMatchObject({
         status: "success",
@@ -564,6 +573,7 @@ describe("native source reads", () => {
         status: "error",
         type: "invalid_selector",
       });
+
       if (result.status !== "error") throw new Error("Expected a refusal");
       expectWorkingForms(result.message);
     },
@@ -575,6 +585,7 @@ describe("native source reads", () => {
       status: "error",
       type: "invalid_selector",
     });
+
     if (result.status !== "error") throw new Error("Expected a refusal");
     expectWorkingForms(result.message);
   });
@@ -617,10 +628,12 @@ describe("native source reads", () => {
   it("uses the resolved host extension for readResolvedFile outline", async () => {
     const hostPath = join(directory, "SKILL.md");
     await writeFile(hostPath, "# Skill\n");
+
     const result = await readResolvedFile(hostPath, {
       displayPath: join(directory, "skill"),
       selector: "outline",
     });
+
     expect(result).toMatchObject({
       status: "success",
       path: join(directory, "skill"),
@@ -751,8 +764,10 @@ describe("native source reads", () => {
 
   it("keeps a dropped non-space from closing a fence", async () => {
     const sourcePath = join(directory, "large-closer.md");
+
     const content =
       "```\n" + "`".repeat(20_000) + "x\n# Hidden\n```\n# Shown\n";
+
     await writeFile(sourcePath, content);
     const result = await readFile({ path: `${sourcePath}:outline` });
     assertFileSuccess(result);
@@ -805,11 +820,13 @@ describe("native source reads", () => {
     const closer = "</script>";
     const closerStart = chunkSize - 4;
     const opener = "<script>";
+
     const content =
       opener +
       "x".repeat(closerStart - opener.length) +
       closer +
       "\n\n# Heading\n\nbody\n";
+
     await writeFile(sourcePath, content);
     const result = await readFile({ path: `${sourcePath}:outline` });
     assertFileSuccess(result);
@@ -825,12 +842,14 @@ describe("native source reads", () => {
 
   it("reads the head without buffering a huge sparse trailing line", async () => {
     const file = await open(path, "w");
+
     try {
       await file.write("first\nsecond\nthird\n");
       await file.truncate(256 * 1024 * 1024);
     } finally {
       await file.close();
     }
+
     expect(await readFile({ path: `${path}:1-1` })).toMatchObject({
       status: "success",
       content: "1: first\n2: second\n",
@@ -920,12 +939,14 @@ describe("native source reads", () => {
       "omits the total past the count bound without scanning the file",
       async () => {
         const file = await open(path, "w");
+
         try {
           await file.write("first\nsecond\nthird\n");
           await file.truncate(READ_LINE_COUNT_MAX_BYTES + 1);
         } finally {
           await file.close();
         }
+
         const before = await hostReadBytes();
         const result = await readFile({ path: `${path}:1-1` });
         const scanned = (await hostReadBytes()) - before;
@@ -1264,26 +1285,31 @@ describe("native source reads", () => {
       await writeFile(path, numbered(100));
       const abort = new AbortController();
       abort.abort();
+
       const result = await readResolvedFile(path, {
         displayPath: "kb://space/big.md",
         selector: "40-50,60-70",
         signal: abort.signal,
       });
+
       expect(result.status).toBe("error");
       expect("content" in result).toBe(false);
     });
 
     it("withholds the reserved envelope room from the shared cap", async () => {
       await writeFile(path, numbered(40, "x".repeat(300)));
+
       const full = await readResolvedFile(path, {
         displayPath: "kb://space/a.md",
         selector: "5-10,20-30",
       });
+
       const reserved = await readResolvedFile(path, {
         displayPath: "kb://space/a.md",
         selector: "5-10,20-30",
         reserveCodeUnits: 10_000,
       });
+
       assertMultiFileSuccess(full);
       assertMultiFileSuccess(reserved);
       expect(reserved.content.length).toBeLessThan(full.content.length);
@@ -1294,10 +1320,12 @@ describe("native source reads", () => {
 
     it("fails invalid_selector when range metadata cannot fit", async () => {
       await writeFile(path, numbered(10));
+
       const members = Array.from(
         { length: 64 },
         (_, i) => `${i * 10 + 1}-${i * 10 + 2}`,
       ).join(",");
+
       expect(
         await readResolvedFile(path, {
           displayPath: "kb://space/a.md",
@@ -1324,11 +1352,13 @@ describe("native source reads", () => {
         path,
         `${"a\n".repeat(10)}${"x".repeat(MAX_RESULT_CODE_UNITS)}\n${`${"y".repeat(500)}\n`.repeat(10)}`,
       );
+
       const result = await readResolvedFile(path, {
         displayPath: "kb://space/a.md",
         selector: "2-3,12-20",
         reserveCodeUnits: MAX_RESULT_CODE_UNITS - 3000,
       });
+
       assertMultiFileSuccess(result);
       expect(result).toMatchObject({
         requestedRanges: [
@@ -1511,8 +1541,10 @@ describe("native source reads", () => {
       const baseline = await readFile({ path: realFile });
       assertFileSuccess(baseline);
       expect(baseline.truncated).toBe(false);
+
       const measured = (result: SingleReadSuccess) =>
         measureReadRendering({ ...result, truncated: true, nextOffset: 1 });
+
       await writeFile(
         realFile,
         `${"x".repeat(MAX_RESULT_CODE_UNITS - measured(baseline) + 1)}\n`,
@@ -1554,10 +1586,12 @@ describe("native reads resolved by a scheme owner", () => {
 
   it("shows the display path and the pre-split selector", async () => {
     await writeFile(path, "a\nb\nc\nd\ne\n");
+
     const result = await readResolvedFile(path, {
       displayPath: "kb://space/note.md",
       selector: "2-3",
     });
+
     assertFileSuccess(result);
     expect(result).toMatchObject({
       path: "kb://space/note.md",
@@ -1568,10 +1602,12 @@ describe("native reads resolved by a scheme owner", () => {
 
   it("places an end-relative member against the resolved file's line count", async () => {
     await writeFile(path, numbered(8));
+
     const result = await readResolvedFile(path, {
       displayPath: "skill://pdf/SKILL.md",
       selector: "-3",
     });
+
     assertFileSuccess(result);
     expect(result).toMatchObject({
       requestedRange: { startLine: 6, endLine: 8 },
@@ -1585,9 +1621,11 @@ describe("native reads resolved by a scheme owner", () => {
     await mkdir(join(directory, "kb:"), { recursive: true });
     const hostPath = literal.replace("kb://", "kb:/");
     await writeFile(hostPath, "only\n");
+
     const result = await readResolvedFile(hostPath, {
       displayPath: "kb://space/a.md",
     });
+
     assertFileSuccess(result);
     expect(result.content).toBe("1: only\n");
   });
@@ -1614,6 +1652,7 @@ describe("native reads resolved by a scheme owner", () => {
       displayPath: "skill://pdf/SKILL.md",
       followSymlinks: true,
     });
+
     assertFileSuccess(result);
     expect(result.content).toBe("1: # Skill\n");
   });
@@ -1683,13 +1722,16 @@ describe("native reads resolved by a scheme owner", () => {
   it("withholds the reserved envelope room from the shared cap", async () => {
     const line = "x".repeat(200);
     await writeFile(path, `${line}\n`.repeat(200));
+
     const full = await readResolvedFile(path, {
       displayPath: "kb://space/a.md",
     });
+
     const reserved = await readResolvedFile(path, {
       displayPath: "kb://space/a.md",
       reserveCodeUnits: 10_000,
     });
+
     assertFileSuccess(full);
     assertFileSuccess(reserved);
     expect(reserved.content.length).toBeLessThan(full.content.length);
@@ -1702,10 +1744,12 @@ describe("native reads resolved by a scheme owner", () => {
     await writeFile(path, "line\n".repeat(50_000));
     const abort = new AbortController();
     abort.abort();
+
     const result = await readResolvedFile(path, {
       displayPath: "kb://space/big.md",
       signal: abort.signal,
     });
+
     // Without the signal reaching the loop this returns a full successful
     // window: the abort would only discard the promise, not the reading.
     expect(result.status).toBe("error");
@@ -1714,9 +1758,11 @@ describe("native reads resolved by a scheme owner", () => {
 
   it("headers a directory listing with the display path", async () => {
     await writeFile(path, "a\n");
+
     const result = await readResolvedFile(directory, {
       displayPath: "kb://space/",
     });
+
     expect(result).toMatchObject({
       status: "success",
       kind: "directory",
@@ -1738,6 +1784,7 @@ describe("native reads resolved by a scheme owner", () => {
       displayPath: "skill://pdf/linked.md",
       followSymlinks: true,
     });
+
     assertFileSuccess(result);
     expect(result).toMatchObject({
       path: "skill://pdf/linked.md",
@@ -1816,6 +1863,7 @@ describe("missing file suggestions", () => {
     for (const name of ["abcdefghij.md", "abcdefghik.txt"]) {
       await writeFile(join(directory, name), "unchanged");
     }
+
     expect(
       await readFile({ path: join(directory, "abcdefghij.txt") }),
     ).toMatchObject({
@@ -1835,6 +1883,7 @@ describe("missing file suggestions", () => {
     ]) {
       await writeFile(join(directory, name), "unchanged");
     }
+
     expect(await readFile({ path: join(directory, "notes0") })).toMatchObject({
       message:
         "File not found. Similar names in the same directory: notes1, notes2, notes3, notes4, notes5.",
@@ -1875,15 +1924,18 @@ describe("missing file suggestions", () => {
     await writeFile(join(directory, "notes.md"), "unchanged");
     const path = `${join(directory, "notes.txt")}/`;
     const opened = vi.spyOn(filesystem, "opendir");
+
     for (const result of [
       await readFile({ path }),
       await readResolvedFile(path, { displayPath: "kb://space/notes.txt/" }),
     ]) {
       expect(result).toMatchObject({ type: "not_found" });
+
       if (result.status !== "error")
         throw new Error("Expected a missing target");
       expect(result.message).not.toContain("Similar names");
     }
+
     expect(opened).not.toHaveBeenCalled();
   });
 
@@ -1904,16 +1956,20 @@ describe("missing file suggestions", () => {
   it("preserves directory elision and root continuation under output bounds", async () => {
     for (const child of ["alpha", "beta"]) {
       await mkdir(join(directory, child));
+
       for (const prefix of ["0", "1", "2"]) {
         await writeFile(join(directory, child, prefix + "x".repeat(99)), "");
       }
     }
+
     const lastName = "z" + "x".repeat(99);
     await writeFile(join(directory, lastName), "");
+
     const partial = await readResolvedFile(directory, {
       displayPath: "kb://space/",
       reserveCodeUnits: MAX_RESULT_CODE_UNITS - 700,
     });
+
     expect(partial).toMatchObject({
       status: "success",
       kind: "directory",
@@ -1933,6 +1989,7 @@ describe("missing file suggestions", () => {
       displayPath: "kb://space/",
       reserveCodeUnits: MAX_RESULT_CODE_UNITS - 150,
     });
+
     expect(truncated).toMatchObject({
       content:
         "kb://space/\n  - alpha/\n    … 3 entries\n  - beta/\n    … 3 entries\n",
@@ -1956,6 +2013,7 @@ describe("missing file suggestions", () => {
       selector: "1-5",
       reserveCodeUnits: MAX_RESULT_CODE_UNITS - 100,
     });
+
     expect(flat).toMatchObject({
       content: "kb://space/\n  - alpha/\n  - beta/\n",
       truncated: true,
@@ -1966,11 +2024,13 @@ describe("missing file suggestions", () => {
 
   it("counts token retries against the same scoring budget", async () => {
     await mkdir(join(directory, "a".repeat(254)));
+
     for (let index = 0; index < 70; index++) {
       await mkdir(
         join(directory, `${String(index).padStart(5, "0")}${"b".repeat(250)}`),
       );
     }
+
     expect(
       await readFile({ path: join(directory, "a".repeat(255)) }),
     ).toStrictEqual({
@@ -1986,6 +2046,7 @@ describe("missing file suggestions", () => {
         join(directory, `${String(index).padStart(5, "0")}${"a".repeat(250)}`),
       );
     }
+
     const opened = vi.spyOn(filesystem, "opendir");
     const result = await readFile({ path: join(directory, "a".repeat(255)) });
     expect(result).toStrictEqual({
@@ -2008,7 +2069,9 @@ describe("missing file suggestions", () => {
        });`,
       join(directory, "a".repeat(255)),
     ]);
+
     const measured: unknown = JSON.parse(stdout);
+
     if (!isRecord(measured) || !isNumber(measured.elapsed))
       throw new Error("Missing timing result");
     expect(measured.result).toStrictEqual(result);

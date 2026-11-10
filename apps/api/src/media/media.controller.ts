@@ -85,9 +85,11 @@ const UPLOAD_OPTIONS = {
 /** The one HTTP body of each ingest refusal, whichever layer detects it. */
 function ingestRefusal(error: MediaIngestError): HttpException {
   const tooLarge = error.code === 'media_too_large';
+
   const statusCode = tooLarge
     ? HttpStatus.PAYLOAD_TOO_LARGE
     : HttpStatus.UNSUPPORTED_MEDIA_TYPE;
+
   return new HttpException(
     {
       statusCode,
@@ -111,6 +113,7 @@ class UploadTooLargeFilter implements ExceptionFilter {
     const refusal = ingestRefusal(
       new MediaIngestError(MEDIA_REFUSAL.fileTooLarge),
     );
+
     host
       .switchToHttp()
       .getResponse<Response>()
@@ -172,12 +175,15 @@ export class MediaController {
     if (file === undefined) {
       throw new BadRequestException('Exactly one file field named "file"');
     }
+
     try {
       const { media, created } = await this.media.ingest(userId, {
         bytes: file.buffer,
         source: file.originalname,
       });
+
       res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
+
       return toMediaDescriptor(media);
     } catch (error) {
       if (error instanceof MediaIngestError) throw ingestRefusal(error);
@@ -195,6 +201,7 @@ export class MediaController {
     @Query() query: ListMediaQueryDto,
   ): Promise<MediaPageResponse> {
     const page = await this.media.listOwned(userId, query);
+
     return {
       items: page.items.map(toMediaDescriptor),
       nextCursor: page.nextCursor,
@@ -212,7 +219,9 @@ export class MediaController {
     @Param('id') id: string,
   ): Promise<MediaResponse> {
     const media = await this.media.findOwned(userId, id);
+
     if (media === undefined) throw new NotFoundException();
+
     return toMediaDescriptor(media);
   }
 
@@ -267,22 +276,28 @@ export class MediaController {
     res: Response,
   ): Promise<void> {
     const media = await this.media.findOwned(userId, id);
+
     if (media === undefined) throw new NotFoundException();
+
     const contentType =
       variant === 'original' ? media.mediaType : media.modelMediaType;
+
     if (contentType === null) throw new NotFoundException();
 
     // The bytes under an id never change, so digest + variant is a strong
     // validator.
     res.setHeader('ETag', `"${media.sha256}-${variant}"`);
     res.setHeader('Cache-Control', 'private, no-cache');
+
     // Express compares If-None-Match (weak, list-aware) with the ETag above.
     if (req.fresh) {
       res.status(HttpStatus.NOT_MODIFIED).end();
+
       return;
     }
 
     const bytes = await this.media.readVariant(userId, id, variant);
+
     if (bytes === undefined) throw new NotFoundException();
     res.setHeader('Content-Type', contentType);
     res.setHeader('X-Content-Type-Options', 'nosniff');

@@ -41,6 +41,7 @@ const MILLISECONDS_PER_SECOND = 1000;
 function cutAtBound(result: UnknownRecord): boolean {
   const { truncationNotice } = result;
   const capped = isString(truncationNotice) && truncationNotice !== "";
+
   return result.cut === true || (result.truncated === true && !capped);
 }
 
@@ -56,14 +57,18 @@ function cutAtBound(result: UnknownRecord): boolean {
  */
 export function renderBashText(result: UnknownRecord): string {
   const wallTimeMs = result.wallTimeMs;
+
   const seconds = isNumber(wallTimeMs)
     ? `, ${(wallTimeMs / MILLISECONDS_PER_SECOND).toFixed(1)} s`
     : "";
+
   const exitCode = isNumber(result.exitCode) ? result.exitCode : 0;
+
   const header =
     result.type === "timed_out"
       ? `timed out${seconds}`
       : `exit ${exitCode}${seconds}`;
+
   // Each stream keeps what it produced: only the newline that ends its last
   // line is dropped, so joining the framing lines adds no blank line after it.
   // A stream of one newline therefore keeps one empty line, and only a pair of
@@ -73,12 +78,18 @@ export function renderBashText(result: UnknownRecord): string {
   const stdout = produced.replace(/\n$/u, "");
   const stderr = failed.replace(/\n$/u, "");
   const lines = [header];
+
   if (produced !== "") lines.push(stdout);
+
   if (failed !== "") lines.push(STDERR_LABEL, stderr);
+
   if (produced === "" && failed === "") lines.push(NO_OUTPUT);
+
   if (cutAtBound(result)) lines.push(OUTPUT_CUT_MARKER);
   const { truncationNotice } = result;
+
   if (isString(truncationNotice) && truncationNotice !== "")
     lines.push(`[${truncationNotice}]`);
+
   return lines.join("\n");
 }

@@ -87,11 +87,13 @@ async function withPackage<T>(
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), 'grep-scopes-')),
   );
+
   try {
     const directory = path.join(root, 'pdf');
     await mkdir(path.join(directory, 'notes'), { recursive: true });
     await writeFile(path.join(directory, 'SKILL.md'), 'needle\n');
     await writeFile(path.join(directory, 'notes', 'a.md'), 'needle\n');
+
     return await callback(root, directory);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -102,9 +104,11 @@ function scopesOf(outcome: ScopeOutcome) {
   if ('result' in outcome) {
     throw new Error(`expected scopes, received ${outcome.result.type}`);
   }
+
   if ('machine' in outcome) {
     throw new Error('expected scopes, received one Machine scope');
   }
+
   return outcome;
 }
 
@@ -305,6 +309,7 @@ describe('resolveScopes', () => {
       ['skill://absent'],
       admission,
     );
+
     expect(outcome).toMatchObject({
       result: { status: 'error', type: 'not_found' },
     });
@@ -314,6 +319,7 @@ describe('resolveScopes', () => {
     const outcome = scopesOf(
       await resolveScopes(hostContext(), ['/**'], admission),
     );
+
     const scope = outcome.scopes[0];
 
     expect(scope?.locatorFor('etc/hosts')).toBe('/etc/hosts');
@@ -343,6 +349,7 @@ describe('resolveScopes', () => {
       ['skill://pdf'],
       admission,
     );
+
     expect(outcome).toEqual({
       result: {
         status: 'error',
@@ -377,6 +384,7 @@ describe('resolveScopes', () => {
                 'The skill `manual` is manual-only. It loads only when the user names it explicitly in the current turn, for example by writing `$manual`.',
             },
           });
+
           return;
         }
       });
@@ -388,6 +396,7 @@ describe('resolveScopes', () => {
       const other = path.join(root, 'alpha');
       await mkdir(other, { recursive: true });
       await writeFile(path.join(other, 'SKILL.md'), 'needle\n');
+
       const catalog = catalogOf([
         packageEntry('pdf', directory),
         packageEntry('alpha', other),
@@ -420,6 +429,7 @@ describe('resolveScopes', () => {
       ['skill://'],
       admission,
     );
+
     expect(outcome).toMatchObject({
       result: { type: 'skill_catalog_unavailable' },
     });

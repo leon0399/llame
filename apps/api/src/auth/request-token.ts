@@ -17,11 +17,13 @@ export function getRequestToken(
   // these specific headers are discarded by Node's own parser, never
   // combined into an array — so no defensive array handling is needed here.
   const bearerToken = extractBearerToken(request.headers.authorization);
+
   if (bearerToken) {
     return bearerToken;
   }
 
   const cookieHeader = request.headers.cookie;
+
   return cookieHeader
     ? parseCookie(cookieHeader)[SESSION_COOKIE_NAME]
     : undefined;
@@ -36,6 +38,7 @@ function extractBearerToken(header: string | undefined): string | undefined {
 function parseCookie(header: string): Record<string, string> {
   return header.split(';').reduce<Record<string, string>>((cookies, part) => {
     const [rawName, ...rawValue] = part.trim().split('=');
+
     if (!rawName || rawValue.length === 0) {
       return cookies;
     }

@@ -24,7 +24,9 @@ function artifactOf(passages: ReadonlyArray<GrepPassage>): GrepArtifact {
     maxBytes: 10_000_000,
     mayCarryKnowledge: false,
   }).artifact;
+
   addGrepPassages(artifact, passages);
+
   return artifact;
 }
 
@@ -74,6 +76,7 @@ describe('grep file runs', () => {
       { length: 6 },
       (_, index) => `${String(index + 1)}: match ${'m'.repeat(60)}`,
     );
+
     const artifact = artifactOf([
       {
         locator: '/src/deep/file.ts:1-7',
@@ -81,6 +84,7 @@ describe('grep file runs', () => {
         matches: [1, 2, 3, 4, 5, 6],
       },
     ]);
+
     const [run] = grepFileRuns(artifact);
     const card = grepRunCard(artifact, run);
 
@@ -94,9 +98,11 @@ describe('grep file runs', () => {
 
   it('bounds a path longer than the card', () => {
     const path = `/${'p'.repeat(500)}.ts`;
+
     const artifact = artifactOf([
       { locator: `${path}:1-1`, content: '1: needle', matches: [1] },
     ]);
+
     const card = grepRunCard(artifact, grepFileRuns(artifact)[0]);
 
     expect(card).toBe(path.slice(0, GREP_RERANK_CARD_UNITS));
@@ -110,6 +116,7 @@ describe('grep file runs', () => {
         matches: [1],
       },
     ]);
+
     const card = grepRunCard(artifact, grepFileRuns(artifact)[0]);
 
     expect(card.startsWith('/a.ts\n1: x')).toBe(true);
@@ -118,6 +125,7 @@ describe('grep file runs', () => {
   it('puts a path of exactly the card minus one unit alone, with no empty line', () => {
     const path = `/${'p'.repeat(GREP_RERANK_CARD_UNITS - 5)}.ts`;
     expect(path).toHaveLength(GREP_RERANK_CARD_UNITS - 1);
+
     const artifact = artifactOf([
       { locator: `${path}:1-1`, content: '1: needle', matches: [1] },
     ]);
@@ -133,6 +141,7 @@ describe('grep file runs', () => {
         matches: [1, 2],
       },
     ]);
+
     const card = grepRunCard(long, grepFileRuns(long)[0]);
 
     // The first line takes all the room; the second finds none.
@@ -146,6 +155,7 @@ describe('grep file runs', () => {
         matches: [1, 2],
       },
     ]);
+
     const shortCard = grepRunCard(short, grepFileRuns(short)[0]);
 
     expect(shortCard.split('\n')).toHaveLength(3);
@@ -194,6 +204,7 @@ describe('replaced artifact passages', () => {
     content: '1: one',
     matches: [1],
   };
+
   const second: GrepPassage = {
     locator: '/a.ts:20-20',
     content: '20: two',

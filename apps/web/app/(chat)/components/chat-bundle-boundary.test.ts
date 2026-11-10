@@ -8,6 +8,7 @@ const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 
 function parse(relativePath: string): ts.SourceFile {
   const absolutePath = path.join(repoRoot, relativePath);
+
   return ts.createSourceFile(
     absolutePath,
     fs.readFileSync(absolutePath, "utf8"),
@@ -26,6 +27,7 @@ function staticImports(source: ts.SourceFile): Array<string> {
     ) {
       return [];
     }
+
     return [statement.moduleSpecifier.text];
   });
 }
@@ -42,10 +44,12 @@ function dynamicImports(source: ts.SourceFile): Array<string> {
     ) {
       imports.push(node.arguments[0].text);
     }
+
     ts.forEachChild(node, visit);
   }
 
   visit(source);
+
   return imports;
 }
 
@@ -75,12 +79,15 @@ function clientOnlyDynamicImports(source: ts.SourceFile): Array<string> {
           ts.ScriptKind.TSX,
         ),
       );
+
       imports.push(...loaderImports);
     }
+
     ts.forEachChild(node, visit);
   }
 
   visit(source);
+
   return imports;
 }
 
@@ -101,9 +108,11 @@ describe("chat bundle boundary", () => {
 
   test("loads markdown renderers from ChatMarkdownProvider, not the message row", () => {
     const row = parse("apps/web/app/(chat)/components/chat-message-row.tsx");
+
     const ready = parse(
       "apps/web/app/(chat)/components/use-chat-markdown-ready.tsx",
     );
+
     const renderers = [
       "@workspace/ui/components/ai-elements/message-response",
       "@workspace/ui/components/ai-elements/reasoning-content",

@@ -28,6 +28,7 @@ export function sliceWindow(options: SliceOptions, count: number): SliceWindow {
   if (options.pending !== undefined)
     return pendingSliceWindow(options.pending, count);
   const offset = options.offset ?? 0;
+
   return { offset, end: Math.min(offset + (options.limit ?? count), count) };
 }
 
@@ -43,8 +44,10 @@ export function sliceWindow(options: SliceOptions, count: number): SliceWindow {
  */
 function pendingSliceWindow(pending: string, count: number): SliceWindow {
   const placed = resolvePendingSelector(pending, count);
+
   if (placed.ranges !== undefined)
     throw new NativeFileError("invalid_selector", invalidSelectorMessage());
+
   return {
     offset: placed.offset,
     end: Math.min(placed.offset + (placed.limit ?? count), count),

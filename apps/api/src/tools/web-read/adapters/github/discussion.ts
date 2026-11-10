@@ -13,6 +13,7 @@ import {
 import type { GithubDiscussionTarget } from './url';
 
 const COMMENT_PAGE_SIZE = 100;
+
 /** Low enough that 100 comments' replies stay well inside the 5 MiB body
  *  bound; a longer reply chain is noted as truncated. */
 const REPLY_PAGE_SIZE = 20;
@@ -58,6 +59,7 @@ const AUTHORED_WIRE = z.object({
   url: z.string(),
   body: z.string(),
 });
+
 /** A connection's nodes are nullable where GitHub could not resolve one. */
 const COMMENT_WIRE = AUTHORED_WIRE.extend({
   isAnswer: z.boolean(),
@@ -68,6 +70,7 @@ const COMMENT_WIRE = AUTHORED_WIRE.extend({
       .transform((nodes) => nodes.filter((node) => node !== null)),
   }),
 });
+
 const DISCUSSION_WIRE = z.object({
   number: z.number().int(),
   title: z.string(),
@@ -95,6 +98,7 @@ const DISCUSSION_WIRE = z.object({
       .transform((nodes) => nodes.filter((node) => node !== null)),
   }),
 });
+
 /** A rate-limited GraphQL call answers HTTP 200 with an error type. */
 const RESPONSE_WIRE = z.object({
   data: z
@@ -104,7 +108,9 @@ const RESPONSE_WIRE = z.object({
     .nullish(),
   errors: z.array(z.object({ type: z.string().nullish() })).optional(),
 });
+
 type Discussion = z.infer<typeof DISCUSSION_WIRE>;
+
 type Authored = z.infer<typeof AUTHORED_WIRE>;
 
 /** Reads a discussion through GraphQL, which GitHub serves only to a token. */
@@ -117,19 +123,27 @@ export async function readGithubDiscussion(
     init: graphqlInit(options.init, target),
     notes: [],
   };
+
   const primary = await requestJson(`${options.apiOrigin}/graphql`, context);
+
   if (primary.kind === 'failed') return primaryFailure(primary.failure);
   const response = parseGithub(RESPONSE_WIRE, primary.body);
+
   if (response === undefined) return { kind: 'failed', failure: 'parse' };
+
   if (response.errors?.some((error) => error.type === 'RATE_LIMITED')) {
     return { kind: 'failed', failure: 'rate_limit' };
   }
+
   // A missing or inaccessible discussion arrives as HTTP 200 and a null.
   const discussion = response.data?.repository?.discussion;
+
   if (discussion === undefined || discussion === null) {
     return { kind: 'failed', failure: 'status' };
   }
+
   context.notes.push(...truncationNotes(discussion));
+
   return finishRendered(renderDiscussion(discussion), context);
 }
 
@@ -142,6 +156,7 @@ function graphqlInit(
     name: target.repo,
     number: target.number,
   };
+
   return {
     ...init,
     accept: 'application/json',
@@ -155,19 +170,23 @@ function graphqlInit(
 function truncationNotes(discussion: Discussion): ReadonlyArray<string> {
   const { comments } = discussion;
   const notes: Array<string> = [];
+
   if (comments.totalCount > comments.nodes.length) {
     notes.push(
       `comments truncated: the first ${comments.nodes.length} of ${comments.totalCount}`,
     );
   }
+
   for (const comment of comments.nodes) {
     const { replies } = comment;
+
     if (replies.totalCount > replies.nodes.length) {
       notes.push(
         `replies truncated: the first ${replies.nodes.length} of ${replies.totalCount} under ${comment.url}`,
       );
     }
   }
+
   return notes;
 }
 
@@ -182,14 +201,18 @@ function renderDiscussion(discussion: Discussion): string {
     ['Labels', formatLabels(discussion.labels)],
     ['URL', discussion.url],
   ];
+
   const lines = [`# Discussion #${discussion.number}: ${discussion.title}`, ''];
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   if (discussion.answer !== null) {
     lines.push('', '## Answer');
     appendComment(lines, discussion.answer, 3, []);
   }
+
   lines.push(
     '',
     '## Body',
@@ -198,12 +221,15 @@ function renderDiscussion(discussion: Discussion): string {
     '',
     `## Comments (${discussion.comments.nodes.length})`,
   );
+
   for (const comment of discussion.comments.nodes) {
     appendComment(lines, comment, 3, comment.isAnswer ? ['Answer: yes'] : []);
+
     for (const reply of comment.replies.nodes) {
       appendComment(lines, reply, 4, [`Reply to: ${comment.author}`]);
     }
   }
+
   return lines.join('\n').trim();
 }
 

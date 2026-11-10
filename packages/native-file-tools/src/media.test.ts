@@ -14,10 +14,12 @@ import type { FileFailure } from "./source-lines";
 
 /** A 5 MiB body behind each signature, the size a Machine read must carry. */
 const BODY = Buffer.alloc(5 * 1024 * 1024, 7);
+
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   BODY,
 ]);
+
 const PDF = Buffer.concat([Buffer.from("%PDF-1.7"), BODY]);
 
 const IMAGE = {
@@ -38,10 +40,13 @@ const PDF_RESULT = {
 
 function recordingHook(result: MediaDecodeSuccess | FileFailure) {
   const handed: Array<{ byteSize: number; bytes: Buffer }> = [];
+
   const hook: MediaReadHook = async ({ byteSize, readBytes }) => {
     handed.push({ byteSize, bytes: await readBytes() });
+
     return result;
   };
+
   return { hook, handed };
 }
 
@@ -60,11 +65,13 @@ describe("byte-buffer media reads", () => {
     const local = recordingHook(IMAGE);
     const buffered = recordingHook(IMAGE);
     const fromFile = await readFile({ path }, undefined, local.hook);
+
     const fromBytes = await readMediaBytes(
       PNG,
       { path },
       { media: buffered.hook },
     );
+
     expect(fromBytes).toEqual(fromFile);
     expect(fromBytes).toEqual({ ...IMAGE, path });
     expect(buffered.handed).toHaveLength(1);
@@ -121,6 +128,7 @@ describe("byte-buffer media reads", () => {
       type: "media_too_large" as const,
       message: "The file exceeds the media byte bound.",
     };
+
     const { hook } = recordingHook(refusal);
     await expect(
       readMediaBytes(PNG, { path: "/a.png" }, { media: hook }),

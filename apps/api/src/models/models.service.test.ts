@@ -31,22 +31,26 @@ const createOpenAIModelClientMock = vi.mocked(
   vi.fn<typeof createOpenAIModelClient>(),
   { partial: true },
 );
+
 createOpenAIModelClientMock.mockReturnValue({
   model: 'stub',
   provider: 'openai-responses',
   contextWindowTokens: 400_000,
   streamText: vi.fn(),
 });
+
 const createOpenAICompletionsModelClientMock = vi.mocked(
   vi.fn<typeof createOpenAICompletionsModelClient>(),
   { partial: true },
 );
+
 createOpenAICompletionsModelClientMock.mockReturnValue({
   model: 'stub',
   provider: 'openai-completions',
   contextWindowTokens: 400_000,
   streamText: vi.fn(),
 });
+
 const createModelClientOverride: typeof createModelClient = (input) =>
   createModelClient(input, {
     createOpenAIModelClient: createOpenAIModelClientMock,
@@ -216,6 +220,7 @@ describe('ModelsService', () => {
 
   it('lists no decision model and keeps a chat model that shares a decision id', () => {
     const [chatModel] = CATALOG;
+
     const service = createService({
       defaultModelId: chatModel.id,
       providers: [
@@ -245,6 +250,7 @@ describe('ModelsService', () => {
 
   it('lists no rerank model and keeps a chat model that shares a rerank id', () => {
     const [chatModel] = CATALOG;
+
     const service = createService({
       defaultModelId: chatModel.id,
       providers: [
@@ -320,6 +326,7 @@ describe('ModelsService', () => {
       expect(() => service.getAvailableModels()).toThrow(
         ModelConfigurationError,
       );
+
       try {
         service.getAvailableModels();
         throw new Error('expected getAvailableModels to throw');
@@ -329,6 +336,7 @@ describe('ModelsService', () => {
             cause: error,
           });
         }
+
         expect(error.code).toBe('model_configuration_invalid');
         expect(error.statusCode).toBe(503);
       }
@@ -445,6 +453,7 @@ describe('ModelsService', () => {
       defaultEffort: 'low',
       cacheInvalidatedByEffortChange: true,
     } as const;
+
     const reasoningModel: SystemModelCatalogEntry = {
       id: 'system:openai:reasoner',
       source: 'system',
@@ -457,6 +466,7 @@ describe('ModelsService', () => {
       referencesSkills: false,
       reasoning: REASONING,
     };
+
     // Destructured out rather than deleted after the fact: `reasoning` is
     // optional, so omitting it needs no cast and no mutation.
     const { reasoning: _declared, ...plainModel } = {
@@ -538,6 +548,7 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
     // bootable name) so the extension-based loader picks it up like a real boot.
     const { readFileSync, writeFileSync, mkdtempSync } =
       await import('node:fs');
+
     const { tmpdir } = await import('node:os');
     const dir = mkdtempSync(path.join(tmpdir(), 'models-config-'));
     const copy = path.join(dir, 'llame.config.jsonc');
@@ -580,11 +591,13 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
         ...pub
       }) => pub,
     );
+
     expect(response.models).toEqual(expectedPublic);
 
     expect(
       config.models.find((m) => m.id === 'system:openai:gpt-5.4-mini'),
     ).toMatchObject({ provider: 'openai', compactionThresholdTokens: 300 });
+
     for (const model of response.models) {
       expect(model).not.toHaveProperty('providerModelId');
       expect(model).not.toHaveProperty('provider');

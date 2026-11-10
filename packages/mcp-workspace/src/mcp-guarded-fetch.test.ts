@@ -28,6 +28,7 @@ describe('MCP session-guarded fetch', () => {
   it('learns the first session id once and accepts its repeats', async () => {
     const onSessionId = vi.fn();
     const sessions = ['session-first', 'session-first', 'session-first'];
+
     const guardedFetch = createMcpGuardedFetch({
       fetch: () =>
         Promise.resolve(sessionResponse(sessions.shift() ?? '', '{}')),
@@ -46,14 +47,18 @@ describe('MCP session-guarded fetch', () => {
   it('refuses a changed session id and cancels the response body', async () => {
     const onSessionId = vi.fn();
     const cancelled = vi.fn();
+
     const responses = [
       () => sessionResponse('session-first', '{}'),
       () => sessionResponse('session-second', '{}', cancelled),
     ];
+
     const guardedFetch = createMcpGuardedFetch({
       fetch: () => {
         const next = responses.shift();
+
         if (next === undefined) throw new Error('unexpected request');
+
         return Promise.resolve(next());
       },
       maxResponseBytes: 64,
@@ -72,10 +77,12 @@ describe('MCP session-guarded fetch', () => {
 
   it('treats an absent or empty session header as no session at all', async () => {
     const onSessionId = vi.fn();
+
     const headers: Array<Record<string, string>> = [
       {},
       { 'mcp-session-id': '' },
     ];
+
     const guardedFetch = createMcpGuardedFetch({
       fetch: () =>
         Promise.resolve(new Response('{}', { headers: headers.shift() ?? {} })),
@@ -103,6 +110,7 @@ describe('MCP session-guarded fetch', () => {
 
   it('refuses an oversized request before calling the server', async () => {
     const fetch = vi.fn(() => Promise.resolve(new Response('{}')));
+
     const guardedFetch = createMcpGuardedFetch({
       fetch,
       maxRequestBytes: 4,
@@ -121,9 +129,11 @@ describe('MCP session-guarded fetch', () => {
   it('forces redirect error and reports every received chunk to onBytes', async () => {
     const onBytes = vi.fn();
     const seen: Array<RequestInit> = [];
+
     const guardedFetch = createMcpGuardedFetch({
       fetch: (_input, init) => {
         seen.push(init ?? {});
+
         return Promise.resolve(
           new Response('{"ok":true}', {
             headers: { 'mcp-session-id': 'session-first' },

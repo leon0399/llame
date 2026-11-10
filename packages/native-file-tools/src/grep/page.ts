@@ -83,8 +83,10 @@ export function appendGrepFile(
   emission: GrepFileEmission,
 ): number {
   let emitted = 0;
+
   for (const passage of emission.passages) {
     const added = grepPassageUnits(page.results.at(-1), passage);
+
     // A passage the scan only partly holds can never be emitted whole: a cut
     // inside its held lines is the only form the page may keep.
     if (
@@ -97,6 +99,7 @@ export function appendGrepFile(
       page.last = pageKey(emission, passage);
       continue;
     }
+
     if (page.results.length === 0) {
       const cut = cutToFit(page, limits, emission, passage);
       page.units += grepPassageUnits(page.results.at(-1), cut);
@@ -107,10 +110,13 @@ export function appendGrepFile(
         endLine: passageEndLine(cut.locator),
       };
     }
+
     page.full = true;
     break;
   }
+
   if (emitted > 0) page.files += 1;
+
   return emitted;
 }
 
@@ -131,6 +137,7 @@ export function holdsGrownReserve(
     page.last === undefined
       ? page.reserveFloor
       : Math.max(grepContinuationUnits(page.last), page.reserveFloor);
+
   return (
     page.units + resume + warningReserve + limits.fixedReserve <=
     limits.pageUnits
@@ -150,6 +157,7 @@ function fits(
   added: number,
 ): boolean {
   const reserve = Math.max(grepContinuationUnits(key), page.reserveFloor);
+
   return (
     page.units + added + reserve + page.warningReserve + limits.fixedReserve <=
     limits.pageUnits
@@ -161,6 +169,7 @@ function pageKey(
   passage: GrepPassage,
 ): GrepPageKey {
   const startLine = passageStartLine(passage.locator);
+
   return {
     scopeIndex: emission.scopeIndex,
     rel: emission.rel,
@@ -180,7 +189,9 @@ function cutToFit(
     .slice(passage.locator.lastIndexOf(":") + 1)
     .split("-")
     .map(Number);
+
   const lines = passage.content.split("\n");
+
   const cutAt = (end: number): GrepPassage => ({
     locator: `${emission.fileLocator}:${start}-${end}`,
     content: lines.slice(0, end - start + 1).join("\n"),
@@ -190,13 +201,16 @@ function cutToFit(
     // ends the page and the cursor continues it.
     ...(emission.cappedAt === start && { truncated: true as const }),
   });
+
   // A cut passage ends the page, so its cursor names its last emitted line.
   for (let end = rangeEnd; end > start; end -= 1) {
     const cut = cutAt(end);
     const key = { ...pageKey(emission, cut), endLine: end };
+
     if (fits(page, limits, key, grepPassageUnits(page.results.at(-1), cut)))
       return cut;
   }
+
   // One line is the floor: a match never yields an empty page.
   return cutAt(start);
 }

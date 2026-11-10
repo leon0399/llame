@@ -51,11 +51,14 @@ function submittedDecision(
   url: string,
 ): PermissionDecision {
   const options = { toolId: 'read', args: { path: url } };
+
   return decidePermission(compiled, 'default', (evaluate) => {
     const submitted = evaluate(options);
+
     if (submitted.decision === 'reject' && submitted.reason !== 'no_allow') {
       return submitted;
     }
+
     return evaluate({
       ...options,
       projectFieldValue: nativeFileProjection('read'),
@@ -72,6 +75,7 @@ describe('createDerivedAdmission', () => {
         ],
       },
     });
+
     const admit = createDerivedAdmission(contextOf(compiled));
 
     const admitted = admit('hop', DOCS_URL);
@@ -98,7 +102,9 @@ describe('createDerivedAdmission', () => {
         reject: [{ field: 'path', literal: DOCS_URL }],
       },
     });
+
     const seen: Array<DerivedDecision> = [];
+
     const decision = createDerivedAdmission(
       contextOf(compiled, (entry) => seen.push(entry), 'bypass'),
     )('hop', OTHER_URL);
@@ -119,6 +125,7 @@ describe('createDerivedAdmission', () => {
         reject: [{ field: 'path', regex: String.raw`^http://` }],
       },
     });
+
     const admit = createDerivedAdmission(contextOf(compiled));
 
     expect(admit('suffix', OTHER_URL)).toMatchObject({
@@ -211,6 +218,7 @@ describe('createDerivedAdmission', () => {
   it('rejects a locator no clause admits and reports the refusal', () => {
     const compiled = policy({ read: { allow: true, reject: true } });
     const seen: Array<DerivedDecision> = [];
+
     const admit = createDerivedAdmission(
       contextOf(compiled, (decision) => seen.push(decision)),
     );
@@ -229,6 +237,7 @@ describe('createDerivedAdmission', () => {
 
   it('fails closed, as a rejection, when the context carries no policy', () => {
     const seen: Array<DerivedDecision> = [];
+
     const admit = createDerivedAdmission(
       contextOf(undefined, (decision) => seen.push(decision)),
     );
@@ -251,7 +260,9 @@ describe('createDerivedAdmission', () => {
         ],
       },
     });
+
     const seen: Array<DerivedDecision> = [];
+
     const admit = createDerivedAdmission(
       contextOf(compiled, (decision) => seen.push(decision)),
     );
@@ -263,6 +274,7 @@ describe('createDerivedAdmission', () => {
       'llms-txt',
       'adapter',
     ];
+
     for (const kind of kinds) admit(kind, DOCS_URL);
 
     expect(seen.map((entry) => [entry.kind, entry.url])).toStrictEqual(
@@ -284,6 +296,7 @@ describe('createDerivedAdmission', () => {
         ],
       },
     });
+
     const admit = createDerivedAdmission(contextOf(compiled));
 
     // A refused locator does not close the group, an admitted one does not open
@@ -303,7 +316,9 @@ describe('createAddressAdmission', () => {
         reject: [{ field: 'path', regex: String.raw`^https://10\.` }],
       },
     });
+
     const allow = policy({ read: { allow: true } });
+
     const noAllow = policy({
       read: {
         allow: [
@@ -311,6 +326,7 @@ describe('createAddressAdmission', () => {
         ],
       },
     });
+
     const seen: Array<DerivedDecision> = [];
 
     expect(
@@ -344,6 +360,7 @@ describe('createAddressAdmission', () => {
 
   it('admits bypass addresses without recording address decisions', () => {
     const seen: Array<DerivedDecision> = [];
+
     const admit = createAddressAdmission(
       contextOf(
         policy({
@@ -373,7 +390,9 @@ describe('createAddressAdmission', () => {
         ],
       },
     });
+
     const seen: Array<DerivedDecision> = [];
+
     const admit = createAddressAdmission(
       contextOf(compiled, (decision) => seen.push(decision)),
     );
@@ -396,6 +415,7 @@ describe('createAddressAdmission', () => {
 
   it('refuses when permission inspection exceeds its input limit', () => {
     const seen: Array<DerivedDecision> = [];
+
     const admit = createAddressAdmission(
       // A clause is required: a group with none decides without inspecting.
       contextOf(
@@ -408,6 +428,7 @@ describe('createAddressAdmission', () => {
         (decision) => seen.push(decision),
       ),
     );
+
     const locator = `https://93.184.216.34/?${'x'.repeat(1024 * 1024 + 1)}`;
 
     expect(admit('93.184.216.34', locator)).toBe(false);
@@ -438,6 +459,7 @@ describe('createAddressAdmission', () => {
 
   it('refuses without a compiled policy and does not report an unattributable refusal', () => {
     const seen: Array<DerivedDecision> = [];
+
     const admit = createAddressAdmission(
       contextOf(undefined, (decision) => seen.push(decision)),
     );
@@ -453,7 +475,9 @@ describe('createAddressAdmission', () => {
         reject: [{ field: 'path', regex: String.raw`^https://10\.0\.0\.` }],
       },
     });
+
     const seen: Array<DerivedDecision> = [];
+
     const admit = createAddressAdmission(
       contextOf(compiled, (decision) => seen.push(decision)),
     );

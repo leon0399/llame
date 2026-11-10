@@ -24,6 +24,7 @@ import {
 import { wrapStreamTextResult } from './stream-text-result-proxy';
 
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
+
 const messages = [
   { role: 'user', content: 'Say hello.' },
 ] satisfies Array<ModelMessage>;
@@ -82,6 +83,7 @@ function rejectingResult(error: unknown): ModelStreamResult {
       }),
     ],
   ];
+
   return wrapStreamTextResult(
     streamText({ model: failingModel(error), messages, maxRetries: 0 }),
     Object.fromEntries(channels),
@@ -100,6 +102,7 @@ function failingClient(error: unknown, reportError = true): ModelClient {
     contextWindowTokens: 128_000,
     streamText: (input) => {
       if (reportError) void input.onError?.({ error });
+
       return rejectingResult(error);
     },
     generateObject: (input) =>
@@ -142,6 +145,7 @@ describe('withRedactedFailures', () => {
     // redact what each channel rejects with.
     const client = withRedactedFailures(failingClient(error, false), [KEY]);
     const result = client.streamText({ chat: CHAT, messages });
+
     const failures = [
       ...(await Promise.all(
         STREAM_PROMISE_CHANNELS.map((channel) =>
@@ -154,6 +158,7 @@ describe('withRedactedFailures', () => {
     ];
 
     expect(failures).toHaveLength(STREAM_PROMISE_CHANNELS.length + 1);
+
     for (const failure of failures) {
       expect(failure).toBe(error);
       expect(APICallError.isInstance(failure)).toBe(true);
@@ -168,10 +173,12 @@ describe('withRedactedFailures', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
+
     const frozen = Object.freeze(apiError(`echoed ${KEY}`));
 
     const client = withRedactedFailures(failingClient(frozen), [KEY]);
     const result = client.streamText({ chat: CHAT, messages });
+
     const rejected = [
       await rejection(result.text),
       await rejection(result.usage),
@@ -179,12 +186,14 @@ describe('withRedactedFailures', () => {
     ];
 
     const [first] = rejected;
+
     for (const failure of rejected) {
       expect(failure).toBe(first);
       expect(APICallError.isInstance(failure)).toBe(true);
       expect(failure).not.toBe(frozen);
       expect(failure).toMatchObject({ message: 'echoed [REDACTED]' });
     }
+
     expect(warn).toHaveBeenCalledTimes(1);
   });
 

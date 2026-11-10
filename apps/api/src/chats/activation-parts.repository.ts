@@ -58,19 +58,27 @@ export class ActivationPartsRepository {
       .select({ parts: messages.parts })
       .from(messages)
       .where(messageOwner(input));
+
     const parts = Array.isArray(row?.parts) ? row.parts : [];
     const resolved = new Set<string>();
+
     for (const part of parts) {
       if (!isContextItemPart(part)) continue;
+
       if (part.data.producer !== ACTIVATION_PRODUCER) continue;
+
       if (input.runId !== undefined && part.data.runId !== input.runId) {
         continue;
       }
+
       const kind = part.data.payload['kind'];
+
       if (kind !== 'activation' && kind !== 'failure') continue;
       const skill: unknown = part.data.payload['skill'];
+
       if (isString(skill)) resolved.add(skill);
     }
+
     return resolved;
   }
 
@@ -101,6 +109,7 @@ export class ActivationPartsRepository {
   }): Promise<{ readonly applied: boolean }> {
     if (input.items.length === 0) return { applied: false };
     const parts = await lockParts(this.db, input);
+
     if (parts === undefined) return { applied: false };
 
     // Per-ITEM idempotence, not per-Run. A retry legitimately produces items the
@@ -110,9 +119,11 @@ export class ActivationPartsRepository {
     // fresh instructions while the stale omission notice stayed effective, so
     // the model would never see them.
     const stored = storedIdentities(parts, input.runId);
+
     const fresh = input.items.filter(
       (item) => !stored.has(activationIdentity(item)),
     );
+
     if (fresh.length === 0) return { applied: false };
 
     // A retry can resolve a selection an earlier attempt reported as omitted.
@@ -134,12 +145,15 @@ export class ActivationPartsRepository {
     // are recomputed against the rewritten rail, so the pair collapses to one
     // instead of accumulating a duplicate on every attempt.
     const carried = storedIdentities(rewritten, input.runId);
+
     const insert = fresh.filter(
       (item) => !carried.has(activationIdentity(item)),
     );
+
     if (insert.length === 0 && rewritten === parts) return { applied: false };
 
     const index = railInsertionIndex(rewritten, ACTIVATION_RANK);
+
     const [updated] = await this.db
       .update(messages)
       .set({
@@ -151,6 +165,7 @@ export class ActivationPartsRepository {
       })
       .where(messageOwner(input))
       .returning({ id: messages.id });
+
     return { applied: updated !== undefined };
   }
 }
@@ -165,7 +180,9 @@ export async function lockParts(
     .from(messages)
     .where(messageOwner(input))
     .for('update');
+
   if (row === undefined) return undefined;
+
   return Array.isArray(row.parts) ? row.parts : [];
 }
 
@@ -199,22 +216,27 @@ function producerRank(producer: string): number {
 function activationIdentity(part: ContextItemPart): string {
   const payload = part.data.payload;
   const kind = String(payload['kind']);
+
   if (kind === 'omission') {
     const skills: unknown = payload['skills'];
     const imports: unknown = payload['imports'];
     const names = Array.isArray(skills) ? skills.filter(isString) : [];
     const locators = Array.isArray(imports) ? imports.filter(isString) : [];
     const beyond = isNumber(payload['beyond']) ? payload['beyond'] : 0;
+
     const importsBeyond = isNumber(payload['importsBeyond'])
       ? payload['importsBeyond']
       : 0;
+
     return `omission:${[...names].sort(compareCodePoints).join(',')}|${[
       ...locators,
     ]
       .sort(compareCodePoints)
       .join(',')}|${beyond}|${importsBeyond}`;
   }
+
   const skill: unknown = payload['skill'];
+
   return `${kind}:${isString(skill) ? skill : ''}`;
 }
 
@@ -223,12 +245,16 @@ function resolvedNames(
   items: ReadonlyArray<AuthoredContextItemPart>,
 ): Set<string> {
   const names = new Set<string>();
+
   for (const item of items) {
     const kind = String(item.data.payload['kind']);
+
     if (kind !== 'activation' && kind !== 'failure') continue;
     const skill: unknown = item.data.payload['skill'];
+
     if (isString(skill)) names.add(skill);
   }
+
   return names;
 }
 
@@ -239,13 +265,16 @@ function rebuildOmission(
   skills: ReadonlyArray<string>,
 ): ContextItemPart | undefined {
   const imports: unknown = part.data.payload['imports'];
+
   const remainingImports = Array.isArray(imports)
     ? imports.filter(isString)
     : [];
+
   const unlisted = part.data.payload['beyond'];
   const stillUnlisted = isNumber(unlisted) ? unlisted : 0;
   const importsUnlisted = part.data.payload['importsBeyond'];
   const stillImportsUnlisted = isNumber(importsUnlisted) ? importsUnlisted : 0;
+
   if (
     skills.length === 0 &&
     remainingImports.length === 0 &&
@@ -254,6 +283,7 @@ function rebuildOmission(
   ) {
     return undefined;
   }
+
   return createSkillActivationOmissionItem({
     runId,
     skills,
@@ -273,23 +303,33 @@ function dropResolvedFromOmissions(
   resolved: ReadonlySet<string>,
 ): ReadonlyArray<unknown> {
   if (resolved.size === 0) return parts;
+
   const rewritten = parts.flatMap((part) => {
     if (!isContextItemPart(part)) return [part];
+
     if (part.data.producer !== ACTIVATION_PRODUCER) return [part];
+
     if (part.data.runId !== runId) return [part];
+
     if (part.data.payload['kind'] !== 'omission') return [part];
     const skills: unknown = part.data.payload['skills'];
+
     if (!Array.isArray(skills)) return [part];
+
     const remaining = skills.filter(
       (name) => isString(name) && !resolved.has(name),
     );
+
     if (remaining.length === skills.length) return [part];
     const rebuilt = rebuildOmission(part, runId, remaining);
+
     return rebuilt === undefined ? [] : [rebuilt];
   });
+
   const unchanged =
     rewritten.length === parts.length &&
     rewritten.every((part, index) => part === parts[index]);
+
   return unchanged ? parts : rewritten;
 }
 
@@ -299,12 +339,16 @@ function storedIdentities(
   runId: string,
 ): ReadonlySet<string> {
   const identities = new Set<string>();
+
   for (const part of parts) {
     if (!isContextItemPart(part)) continue;
+
     if (part.data.producer !== ACTIVATION_PRODUCER) continue;
+
     if (part.data.runId !== runId) continue;
     identities.add(activationIdentity(part));
   }
+
   return identities;
 }
 
@@ -320,7 +364,9 @@ export function railInsertionIndex(
   for (const [index, part] of parts.entries()) {
     if (!isContextItemPart(part)) return index;
     const partRank = producerRank(part.data.producer);
+
     if (partRank === -1 || partRank > rank) return index;
   }
+
   return parts.length;
 }

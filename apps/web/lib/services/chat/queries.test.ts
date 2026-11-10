@@ -81,6 +81,7 @@ describe("groupChatsByTimePeriod", () => {
 
   it("groups chats by time period even when they have the same updatedAt", () => {
     const now = new Date();
+
     const chat = (id: string, updatedAt: Date): ChatResponse => ({
       id,
       title: id,
@@ -109,6 +110,7 @@ describe("groupChatsByTimePeriod", () => {
 
   it("buckets yesterday, last month, and older separately from today/last week", () => {
     const now = new Date();
+
     const chat = (id: string, updatedAt: Date): ChatResponse => ({
       id,
       title: id,
@@ -120,6 +122,7 @@ describe("groupChatsByTimePeriod", () => {
       workspaceRoot: null,
       archivedAt: null,
     });
+
     const daysAgo = (n: number) =>
       new Date(now.getTime() - 60_000 * 60 * 24 * n);
 
@@ -162,10 +165,12 @@ describe("chat message query options", () => {
 
   it("keeps target history in a distinct cache identity", () => {
     const queryClient = new QueryClient();
+
     const ordinary = {
       pages: [messagesPage([{ id: "new", seq: 900, text: "new" }])],
       pageParams: [null],
     };
+
     const target = {
       pages: [messagesPage([{ id: "old", seq: 42, text: "old" }])],
       pageParams: [null],
@@ -209,6 +214,7 @@ describe("chat message query options", () => {
     });
 
     const retry = options.retry;
+
     if (!(retry instanceof Function)) {
       throw new Error("sent-draft recovery must expose a retry predicate");
     }
@@ -246,9 +252,11 @@ describe("chat message query options", () => {
     fetchMock.mockImplementation(async () => jsonResponse({ messages: [] }));
 
     const options = chatMessagesQueryOptions("closed-over-chat");
+
     if (options.queryFn === undefined) {
       throw new Error("expected a real queryFn");
     }
+
     const queryFn = options.queryFn;
     const abortController = new AbortController();
     const queryClient = new QueryClient();
@@ -288,9 +296,11 @@ describe("chat message query options", () => {
     const options = chatMessagesQueryOptions("closed-over-chat", {
       targetSeq: 700,
     });
+
     if (options.queryFn === undefined) {
       throw new Error("expected a real queryFn");
     }
+
     const queryFn = options.queryFn;
     const abortController = new AbortController();
     const queryClient = new QueryClient();
@@ -395,6 +405,7 @@ describe("toChatHistory", () => {
         stats: { beforeTokens: null, afterTokens: null, modelId: null },
       },
     };
+
     const older = messagesPage([
       { id: "m1", seq: 1, text: "one" },
       { id: "m2", seq: 2, text: "two" },
@@ -421,6 +432,7 @@ describe("toChatHistory", () => {
       { id: "m3", seq: 3, text: "three" },
       { id: "m4", seq: 4, text: "four" },
     ]);
+
     const overlapping = messagesPage([
       { id: "m3", seq: 3, text: "three" },
       { id: "m4", seq: 4, text: "four" },
@@ -501,6 +513,7 @@ describe("useChatQuery", () => {
       visibility: "private",
       workspaceRoot: "/home/operator/projects/llame",
     };
+
     fetchMock.mockResolvedValue(jsonResponse(chat));
     const queryClient = newTestQueryClient();
 

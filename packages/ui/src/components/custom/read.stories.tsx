@@ -44,6 +44,7 @@ const meta = {
 } satisfies Meta<typeof ReadTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -220,6 +221,7 @@ const SHOT_LOCATOR = "media://0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6d";
  *  variant, so only the original is ever loaded. */
 const PDF_ID = "0199d1c4-5e6f-7a8b-9c0d-1e2f3a4b5c6e";
 const PAPER_LOCATOR = `media://${PDF_ID}`;
+
 const STORED_PDF_SOURCES = {
   thumbnail: storedVariant("model"),
   original: `/api/v1/media/${PDF_ID}/original`,
@@ -409,9 +411,11 @@ export const StoredPdfResult: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+
     const link = canvas.getByRole("link", {
       name: `Open ${PDF_ID} in a new tab`,
     });
+
     await expect(link).toHaveAttribute("href", STORED_PDF_SOURCES.original);
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
@@ -551,9 +555,11 @@ export const WebAdapter: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /read/iu }));
+
     const link = canvas.getByRole("button", {
       name: "https://github.com/o/r/issues/1 opens in a new tab",
     });
+
     await expect(link).toHaveAttribute("data-streamdown", "link");
     await expect(canvas.getByText("adapter (github)")).toBeInTheDocument();
     await expect(

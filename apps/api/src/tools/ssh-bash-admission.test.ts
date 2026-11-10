@@ -53,6 +53,7 @@ function fakeSsh(
   const resolve = vi.fn<SshClient['resolve']>(() =>
     Promise.resolve(resolution),
   );
+
   const client: SshClient = {
     resolve,
     run: () =>
@@ -64,6 +65,7 @@ function fakeSsh(
     sshConfigText: () => undefined,
     dispose: () => undefined,
   };
+
   return { client, resolve };
 }
 
@@ -185,6 +187,7 @@ describe('admitSshBash canonical locator', () => {
 function refusal(admission: SshAdmission) {
   if (admission.kind !== 'refused')
     throw new Error(`expected a refusal, got ${admission.kind}`);
+
   return admission.result;
 }
 
@@ -253,6 +256,7 @@ function bashProbe() {
       binding: executionContext.sshBinding,
     }),
   );
+
   const tool: Tool<{
     command: string;
     cwd: string;
@@ -268,6 +272,7 @@ function bashProbe() {
     }),
     execute,
   };
+
   return { tool, execute };
 }
 

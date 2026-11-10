@@ -64,6 +64,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -96,6 +97,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
   it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on projects', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     // A superuser or BYPASSRLS role would make every assertion below vacuous.
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
@@ -104,6 +106,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
       SELECT relname, relrowsecurity, relforcerowsecurity
       FROM pg_class
       WHERE relname = 'projects'`;
+
     expect(row.relrowsecurity).toBe(true); // ENABLE
     expect(row.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit
   });
@@ -115,12 +118,14 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
       await tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${p1}, ${userAId}, 'A Project 1')`;
       await tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${p2}, ${userAId}, 'A Project 2')`;
     });
+
     try {
       const aRows = await asUser(
         userAId,
         (tx) =>
           tx`SELECT id FROM projects WHERE id IN (${p1}, ${p2}) ORDER BY id`,
       );
+
       expect(aRows.map((r) => r.id).sort((a, b) => a.localeCompare(b))).toEqual(
         [p1, p2].sort(),
       );
@@ -129,6 +134,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         userBId,
         (tx) => tx`SELECT id FROM projects WHERE id IN (${p1}, ${p2})`,
       );
+
       expect(bRows.length).toBe(0);
     } finally {
       await asUser(
@@ -140,6 +146,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
 
   it("non-owner cannot mutate another's project: B's rename and delete affect zero rows; A's own mutations succeed", async () => {
     const projectId = crypto.randomUUID();
+
     try {
       await asUser(
         userAId,
@@ -154,6 +161,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         (tx) =>
           tx`UPDATE projects SET name = 'Hijacked' WHERE id = ${projectId} RETURNING id`,
       );
+
       expect(bUpdate.length).toBe(0);
 
       // B's delete likewise affects 0 rows.
@@ -161,6 +169,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         userBId,
         (tx) => tx`DELETE FROM projects WHERE id = ${projectId} RETURNING id`,
       );
+
       expect(bDelete.length).toBe(0);
 
       // The project is untouched: still there, still named "Original name".
@@ -168,6 +177,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         userAId,
         (tx) => tx`SELECT name FROM projects WHERE id = ${projectId}`,
       );
+
       expect(stillA?.name).toBe('Original name');
 
       // A's own rename succeeds.
@@ -176,6 +186,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         (tx) =>
           tx`UPDATE projects SET name = 'Renamed by owner' WHERE id = ${projectId} RETURNING name`,
       );
+
       expect(aUpdate[0]?.name).toBe('Renamed by owner');
 
       // A's own delete succeeds.
@@ -183,6 +194,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         userAId,
         (tx) => tx`DELETE FROM projects WHERE id = ${projectId} RETURNING id`,
       );
+
       expect(aDelete.length).toBe(1);
     } finally {
       // Safety net in case an assertion above threw before A's delete ran.
@@ -207,11 +219,13 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
       userAId,
       (tx) => tx`SELECT id FROM projects WHERE name = 'forged'`,
     );
+
     expect(rows.length).toBe(0);
   });
 
   it('identity-absent context denies all project reads (fail closed)', async () => {
     const projectId = crypto.randomUUID();
+
     try {
       await asUser(
         userAId,
@@ -225,6 +239,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
       const rows = await sql.begin(
         (tx: SqlClient) => tx`SELECT id FROM projects WHERE id = ${projectId}`,
       );
+
       expect(rows.length).toBe(0);
     } finally {
       await asUser(
@@ -237,6 +252,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
   it("filing a chat into the owner's own project succeeds and sets project_id", async () => {
     const projectId = crypto.randomUUID();
     const chatId = crypto.randomUUID();
+
     try {
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${projectId}, ${userAId}, 'Filing target')`;
@@ -248,6 +264,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         (tx) =>
           tx`UPDATE chats SET project_id = ${projectId} WHERE id = ${chatId} RETURNING project_id`,
       );
+
       expect(updated[0]?.project_id).toBe(projectId);
     } finally {
       await asUser(
@@ -264,6 +281,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
   it("filing a chat into another owner's project is rejected (chats_owner WITH CHECK) and leaves the chat unfiled", async () => {
     const projectBId = crypto.randomUUID();
     const chatId = crypto.randomUUID();
+
     try {
       await asUser(
         userBId,
@@ -292,6 +310,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         userAId,
         (tx) => tx`SELECT project_id FROM chats WHERE id = ${chatId}`,
       );
+
       expect(row?.project_id).toBeNull();
     } finally {
       await asUser(
@@ -308,6 +327,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
   it('unfiling (setting project_id back to NULL) succeeds', async () => {
     const projectId = crypto.randomUUID();
     const chatId = crypto.randomUUID();
+
     try {
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${projectId}, ${userAId}, 'Unfile target')`;
@@ -319,6 +339,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         (tx) =>
           tx`UPDATE chats SET project_id = NULL WHERE id = ${chatId} RETURNING project_id`,
       );
+
       expect(updated[0]?.project_id).toBeNull();
     } finally {
       await asUser(
@@ -339,6 +360,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
     const projectId = crypto.randomUUID();
     const chatId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
+
     try {
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${projectId}, ${userAId}, 'Widen check')`;
@@ -352,12 +374,14 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         userBId,
         (tx) => tx`SELECT id FROM chats WHERE id = ${chatId}`,
       );
+
       expect(chatRows.length).toBe(0);
 
       const messageRows = await asUser(
         userBId,
         (tx) => tx`SELECT id FROM messages WHERE id = ${messageId}`,
       );
+
       expect(messageRows.length).toBe(0);
     } finally {
       await asUser(
@@ -374,6 +398,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
   it('deleting a project unfiles its chats (ON DELETE SET NULL) rather than destroying them', async () => {
     const projectId = crypto.randomUUID();
     const chatId = crypto.randomUUID();
+
     try {
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO projects (id, owner_user_id, name) VALUES (${projectId}, ${userAId}, 'To delete')`;
@@ -389,6 +414,7 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
         userAId,
         (tx) => tx`SELECT id, project_id FROM chats WHERE id = ${chatId}`,
       );
+
       expect(chat).toBeDefined();
       expect(chat.project_id).toBeNull();
       expect(chat.id).toBe(chatId);

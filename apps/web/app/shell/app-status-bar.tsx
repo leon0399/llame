@@ -66,9 +66,11 @@ function MachineDot({ status }: { status: MachineResponse["status"] }) {
  */
 function MachinesOverview() {
   const { data: machines } = useMachinesQuery();
+
   if (machines === undefined || machines.length === 0) return null;
 
   const online = machines.filter((m) => m.status === "online").length;
+
   return (
     <StatusBarGroup>
       {machines.slice(0, NAMED_MACHINES).map((machine) => (

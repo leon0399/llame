@@ -65,6 +65,7 @@ export type MediaReadSuccess = MediaDecodeSuccess & {
 function isImageSignature(head: Buffer): boolean {
   const ascii = (start: number, end: number) =>
     head.toString("latin1", start, end);
+
   return (
     ascii(0, 8) === "\x89PNG\r\n\x1a\n" ||
     (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) ||
@@ -77,7 +78,9 @@ function isImageSignature(head: Buffer): boolean {
 /** The media kind a file's leading bytes name, or undefined for the text path. */
 function mediaKindOf(head: Buffer): "image" | "pdf" | undefined {
   const isPdf = head.toString("latin1", 0, 5) === "%PDF-";
+
   if (isPdf) return "pdf";
+
   return isImageSignature(head) ? "image" : undefined;
 }
 
@@ -98,11 +101,14 @@ export async function readMedia(
   },
 ): Promise<MediaReadSuccess | FileFailure | undefined> {
   const { media, signal } = source;
+
   if (media === undefined) return undefined;
   const head = Buffer.alloc(SIGNATURE_BYTES);
   const { bytesRead } = await file.read(head, 0, SIGNATURE_BYTES, 0);
   const kind = mediaKindOf(head.subarray(0, bytesRead));
+
   if (kind === undefined) return undefined;
+
   // pending a line count, leaves the target off its no-selector defaults.
   if (
     target.raw ||
@@ -113,13 +119,16 @@ export async function readMedia(
     target.pending !== undefined
   )
     throw new NativeFileError("invalid_selector", MEDIA_SELECTOR_MESSAGE);
+
   const decoded = await media({
     kind,
     byteSize,
     readBytes: () => file.readFile({ signal }),
     signal,
   });
+
   if (decoded.status === "error") return decoded;
+
   return {
     ...decoded,
     path: target.path,
@@ -153,19 +162,25 @@ export async function readMediaBytes(
   },
 ): Promise<MediaReadSuccess | FileFailure | undefined> {
   const { media, signal } = source;
+
   if (media === undefined) return undefined;
   const kind = mediaKindOf(bytes.subarray(0, SIGNATURE_BYTES));
+
   if (kind === undefined) return undefined;
+
   if (target.selector !== undefined)
     throw new NativeFileError("invalid_selector", MEDIA_SELECTOR_MESSAGE);
   signal?.throwIfAborted();
+
   const decoded = await media({
     kind,
     byteSize: bytes.byteLength,
     readBytes: () => Promise.resolve(bytes),
     signal,
   });
+
   if (decoded.status === "error") return decoded;
+
   return {
     ...decoded,
     path: target.path,

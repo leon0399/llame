@@ -107,11 +107,14 @@ function useCreateOrgUnitForm(
 
   const submit = () => {
     const trimmed = name.trim();
+
     if (!trimmed) return;
+
     const onSuccess = () => {
       reset();
       onOpenChange(false);
     };
+
     if (parent) {
       createChild.mutate(
         { parentId: parent.id, name: trimmed, type },
@@ -130,6 +133,7 @@ function useCreateOrgUnitForm(
       reset();
       mutation.reset();
     }
+
     onOpenChange(next);
   };
 
@@ -255,10 +259,13 @@ export function RenameOrgUnitDialog({
 
   const submit = () => {
     const trimmed = name.trim();
+
     if (!trimmed || trimmed === unit.name) {
       onOpenChange(false);
+
       return;
     }
+
     update.mutate(
       { orgUnitId: unit.id, name: trimmed },
       { onSuccess: () => onOpenChange(false) },
@@ -286,9 +293,11 @@ function useMoveTargets(unit: OrgUnitResponse, units: Array<OrgUnitResponse>) {
     () => new Map(units.map((u) => [u.id, u])),
     [units],
   );
+
   const candidates = useMemo(() => {
     const blocked = descendantIdsOf(unit.id, units);
     blocked.add(unit.id);
+
     return units.filter((candidate) => !blocked.has(candidate.id));
   }, [unit.id, units]);
 
@@ -336,8 +345,10 @@ export function MoveOrgUnitDialog({
   const submit = () => {
     if (parentId === unit.parentId) {
       onOpenChange(false);
+
       return;
     }
+
     update.mutate(
       { orgUnitId: unit.id, parentId },
       { onSuccess: () => onOpenChange(false) },

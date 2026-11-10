@@ -20,11 +20,13 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 const config = {
   key: 'secret',
   searchType: 'com',
   folderId: undefined,
 } as const satisfies Parameters<typeof createYandexEngine>[0];
+
 const YandexRequestSchema = z
   .object({
     query: z
@@ -47,11 +49,14 @@ const YandexRequestSchema = z
     folderId: z.string().optional(),
   })
   .strict();
+
 type YandexRequest = z.infer<typeof YandexRequestSchema>;
+
 async function parseBody(
   init: RequestInit | undefined,
 ): Promise<YandexRequest> {
   const text = await new Response(init?.body ?? null).text();
+
   // SAFETY: The schema validates JSON parsed from the captured vendor request.
   return YandexRequestSchema.parse(JSON.parse(text) as unknown);
 }
@@ -62,19 +67,23 @@ function envelope(xml: string): string {
     rawData: Buffer.from(xml, 'utf8').toString('base64'),
   });
 }
+
 const fixture = (name: string): string =>
   readFileSync(join(__dirname, 'fixtures', name), 'utf8');
+
 /**
  * A response envelope around the fixture, which is hand-built from the
  * documented response format: the vendor's shape, not a captured payload.
  */
 const fixtureEnvelope = (): string =>
   envelope(fixture('yandex-web-search.xml'));
+
 const errorXml = (code: string, text: string): string =>
   envelope(
     `<?xml version="1.0" encoding="utf-8"?>
 <yandexsearch version="1.0"><response date="20261027T120000"><error code="${code}">${text}</error></response></yandexsearch>`,
   );
+
 const noResultsXml = (): string =>
   envelope(
     `<?xml version="1.0" encoding="utf-8"?>
@@ -100,6 +109,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-27T12:00:00.000Z'));
 });
+
 afterEach(() => vi.useRealTimers());
 
 describe('Yandex adapter', () => {
@@ -187,6 +197,7 @@ describe('Yandex adapter', () => {
 
   it('sends no objective, which the vendor has no field for', async () => {
     const recorded = captureFetch(fixtureEnvelope());
+
     const result = await createYandexEngine(config, {
       fetch: recorded.fetch,
     })(request({ objective: 'compare pgvector benchmarks' }));
@@ -207,6 +218,7 @@ describe('Yandex adapter', () => {
     'maps recency %s to the period %s',
     async (recency, period, note) => {
       const recorded = captureFetch(fixtureEnvelope());
+
       const result = await createYandexEngine(config, {
         fetch: recorded.fetch,
       })(request({ recency }));

@@ -57,6 +57,7 @@ const findClosingSlash = (line: string, bodyStart: number): number => {
       if (char === "]") {
         inClass = false;
       }
+
       continue;
     }
 
@@ -167,6 +168,7 @@ const scanLine = (
 const compiles = (pattern: string, flags: string): boolean => {
   try {
     new RegExp(pattern, flags);
+
     return true;
   } catch {
     return false;
@@ -211,6 +213,7 @@ export const splitBySpans = <Span extends { start: number; end: number }, T>(
     if (span.start > cursor) {
       out.push(mapPlain(text.slice(cursor, span.start)));
     }
+
     out.push(mapSpan(span));
     cursor = span.end;
   }
@@ -262,8 +265,10 @@ export const evaluateRegex = (
       if (match[0] === "") {
         continue;
       }
+
       ranges.push({ start: match.index, end: match.index + match[0].length });
       values.push(match[0]);
+
       if (values.length >= MAX_MATCHES) {
         break;
       }
@@ -292,6 +297,7 @@ export const findRegexCandidates = (text: string): Array<RegexCandidate> => {
     if (line.includes("/")) {
       scanLine(line, lineOffset, out);
     }
+
     lineOffset += line.length + 1;
   }
 

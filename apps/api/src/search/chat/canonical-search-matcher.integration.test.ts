@@ -15,6 +15,7 @@ import {
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
 
 describeIfDb('canonical search PostgreSQL line predicates', () => {
@@ -41,16 +42,19 @@ describeIfDb('canonical search PostgreSQL line predicates', () => {
     const fts = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
       evaluateCanonicalLinePredicates(tx, 'postgres gin index', candidates),
     );
+
     expect(fts).toEqual(new Set([1]));
 
     const typo = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
       evaluateCanonicalLinePredicates(tx, 'postgre gin idex', candidates),
     );
+
     expect(typo).toEqual(new Set([1]));
 
     const substring = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
       evaluateCanonicalLinePredicates(tx, 'trgm', candidates),
     );
+
     expect(substring).toEqual(new Set([2]));
   });
 
@@ -65,16 +69,19 @@ describeIfDb('canonical search PostgreSQL line predicates', () => {
     const percent = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
       evaluateCanonicalLinePredicates(tx, '%', candidates),
     );
+
     expect(percent).toEqual(new Set([1]));
 
     const underscore = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
       evaluateCanonicalLinePredicates(tx, '_', candidates),
     );
+
     expect(underscore).toEqual(new Set([2]));
 
     const backslash = await tenantDb.runAs(crypto.randomUUID(), (tx) =>
       evaluateCanonicalLinePredicates(tx, '\\', candidates),
     );
+
     expect(backslash).toEqual(new Set([3]));
   });
 });

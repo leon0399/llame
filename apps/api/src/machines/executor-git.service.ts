@@ -124,6 +124,7 @@ export type ExecutorTarget = {
 function creatableSegments(value: string): ReadonlyArray<string> | undefined {
   if (!path.posix.isAbsolute(value)) return undefined;
   const segments = value.split('/').filter((segment) => segment !== '');
+
   return segments.some((segment) => segment === '.' || segment === '..')
     ? undefined
     : segments;
@@ -154,6 +155,7 @@ export class ExecutorGit {
         'A checkout path must not contain a NUL byte.',
       );
     }
+
     return isMachineLocator(submittedPath)
       ? this.locateMachine(submittedPath)
       : this.locateLocal(submittedPath);
@@ -167,40 +169,48 @@ export class ExecutorGit {
         'A checkout path must be absolute.',
       );
     }
+
     const executorId = this.config.config.tools.nativeExecutorId;
+
     if (executorId === undefined) {
       throw new ExecutorGitError(
         'executor_unavailable',
         'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
       );
     }
+
     return { executorId, machine: undefined, path: submittedPath };
   }
 
   /** A locator names `machine:<name>`, which must be configured here. */
   private locateMachine(submittedPath: string): ExecutorTarget {
     const parsed = parseMachineLocator(submittedPath);
+
     if (parsed.kind === 'invalid') {
       throw new ExecutorGitError('invalid_path', parsed.message);
     }
+
     if (parsed.kind !== 'path') {
       throw new ExecutorGitError(
         'invalid_path',
         'A checkout path must name one Machine path.',
       );
     }
+
     if (parsed.selector !== undefined) {
       throw new ExecutorGitError(
         'invalid_path',
         'A checkout path must not carry a read selector.',
       );
     }
+
     if (!this.connector.isConfigured(parsed.name)) {
       throw new ExecutorGitError(
         'executor_unavailable',
         `No Machine named ${parsed.name} is configured, so its git surface cannot run.`,
       );
     }
+
     return {
       executorId: machineExecutorId(parsed.name),
       machine: parsed.name,
@@ -212,12 +222,14 @@ export class ExecutorGit {
   address(target: ExecutorTarget, executorPath: string): string {
     if (target.machine === undefined) return executorPath;
     const locator = formatMachineLocator(target.machine, executorPath);
+
     if (locator === undefined) {
       throw new ExecutorGitError(
         'invalid_path',
         'This path cannot be written as a Machine locator.',
       );
     }
+
     return locator;
   }
 
@@ -245,27 +257,33 @@ export class ExecutorGit {
         this.executorPath(target, address),
       );
     }
+
     // codeql[js/path-injection]
     const canonical = await realpath(address).catch(() => undefined);
+
     if (canonical === undefined) {
       throw new ExecutorGitError(
         'invalid_path',
         'The checkout path does not exist.',
       );
     }
+
     const entry = await stat(canonical).catch(() => undefined);
+
     if (entry === undefined) {
       throw new ExecutorGitError(
         'invalid_path',
         'The checkout path cannot be read.',
       );
     }
+
     if (!entry.isDirectory()) {
       throw new ExecutorGitError(
         'not_a_directory',
         'The checkout path is not a directory.',
       );
     }
+
     return canonical;
   }
 
@@ -275,6 +293,7 @@ export class ExecutorGit {
     machinePath: string,
   ): Promise<FsStatResult> {
     let answer: JsonValue;
+
     try {
       answer = await this.connector.request(machine, 'fs.stat', {
         envelope: { budgetMs: MACHINE_GIT_BUDGET_MS },
@@ -283,13 +302,16 @@ export class ExecutorGit {
     } catch (error) {
       throw dispatchFailure(machine, 'fs.stat', error);
     }
+
     const entry = readFsStatResult(answer);
+
     if (entry === undefined) {
       throw new ExecutorGitError(
         'git_failed',
         `The Machine ${machine} answered an unusable fs.stat result.`,
       );
     }
+
     return entry;
   }
 
@@ -299,28 +321,33 @@ export class ExecutorGit {
     machinePath: string,
   ): Promise<string> {
     const entry = await this.statOn(machine, machinePath);
+
     if (entry.kind === 'missing') {
       throw new ExecutorGitError(
         'invalid_path',
         'The checkout path does not exist.',
       );
     }
+
     if (entry.kind !== 'directory') {
       throw new ExecutorGitError(
         'not_a_directory',
         'The checkout path is not a directory.',
       );
     }
+
     const canonical =
       entry.realPath === undefined
         ? undefined
         : formatMachineLocator(machine, entry.realPath);
+
     if (canonical === undefined) {
       throw new ExecutorGitError(
         'git_failed',
         `The Machine ${machine} answered no real path for fs.stat.`,
       );
     }
+
     return canonical;
   }
 
@@ -340,22 +367,28 @@ export class ExecutorGit {
     address: string,
   ): Promise<string> {
     const segments = creatableSegments(this.executorPath(target, address));
+
     if (segments === undefined) {
       throw new ExecutorGitError(
         'invalid_path',
         'A worktree directory must be an absolute path without `.` or `..` segments.',
       );
     }
+
     const machine = target.machine;
+
     if (machine !== undefined)
       return this.machineCanonicalTarget({ ...target, machine }, segments);
+
     for (let end = segments.length; end >= 1; end -= 1) {
       const ancestor = `/${segments.slice(0, end).join('/')}`;
       // codeql[js/path-injection]
       const canonical = await realpath(ancestor).catch(() => undefined);
+
       if (canonical !== undefined)
         return path.posix.join(canonical, ...segments.slice(end));
     }
+
     return `/${segments.join('/')}`;
   }
 
@@ -369,18 +402,22 @@ export class ExecutorGit {
         target.machine,
         `/${segments.slice(0, end).join('/')}`,
       );
+
       if (entry.kind === 'missing') continue;
+
       if (entry.kind !== 'directory' || entry.realPath === undefined) {
         throw new ExecutorGitError(
           'invalid_path',
           'A worktree parent on this Machine is not a directory.',
         );
       }
+
       return this.address(
         target,
         path.posix.join(entry.realPath, ...segments.slice(end)),
       );
     }
+
     // No ancestor exists, so the whole path is still the caller's: render it in
     // the same locator form every other Machine answer uses.
     return this.address(target, `/${segments.join('/')}`);
@@ -389,8 +426,10 @@ export class ExecutorGit {
   /** Whether one address names an entry on its executor, creating nothing. */
   async exists(target: ExecutorTarget, address: string): Promise<boolean> {
     const value = this.executorPath(target, address);
+
     if (target.machine !== undefined)
       return (await this.statOn(target.machine, value)).kind !== 'missing';
+
     return (await stat(value).catch(() => undefined)) !== undefined;
   }
 
@@ -400,6 +439,7 @@ export class ExecutorGit {
   ): Promise<GitInspectResult> {
     if (target.machine === undefined)
       return this.local.inspect({ path: address });
+
     return this.ask(target.machine, GIT_INSPECT_METHOD, {
       build: (envelope, options) => ({
         envelope,
@@ -417,6 +457,7 @@ export class ExecutorGit {
   ): Promise<GitLocateResult> {
     if (target.machine === undefined)
       return this.local.locate({ path: address }, options);
+
     return this.ask(target.machine, GIT_LOCATE_METHOD, {
       build: (envelope, display) => ({
         envelope,
@@ -438,6 +479,7 @@ export class ExecutorGit {
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<GitStateResult> {
     const { gitEntry, limit, submodules, timeoutMs } = input;
+
     if (target.machine === undefined)
       return this.local.state(
         { path: address, gitEntry, limit, submodules },
@@ -445,6 +487,7 @@ export class ExecutorGit {
       );
     const path = this.executorPath(target, address);
     const entry = this.executorPath(target, gitEntry);
+
     return this.ask(target.machine, GIT_STATE_METHOD, {
       build: (envelope, display) => ({
         envelope,
@@ -471,6 +514,7 @@ export class ExecutorGit {
     },
   ): Promise<GitWorktreeAddResult> {
     if (target.machine === undefined) return this.local.worktreeAdd(input);
+
     return this.ask(target.machine, GIT_WORKTREE_ADD_METHOD, {
       build: (envelope, options) => ({
         envelope,
@@ -490,6 +534,7 @@ export class ExecutorGit {
   ): Promise<GitWorktreeListResult> {
     if (target.machine === undefined)
       return this.local.listWorktrees({ path: address });
+
     return this.ask(target.machine, GIT_WORKTREE_LIST_METHOD, {
       build: (envelope, options) => ({
         envelope,
@@ -506,6 +551,7 @@ export class ExecutorGit {
   ): Promise<GitWorktreeRemoveResult> {
     if (target.machine === undefined)
       return this.local.removeWorktree({ path: address });
+
     return this.ask(target.machine, GIT_WORKTREE_REMOVE_METHOD, {
       build: (envelope, options) => ({
         envelope,
@@ -524,12 +570,14 @@ export class ExecutorGit {
   executorPath(target: ExecutorTarget, address: string): string {
     if (target.machine === undefined) return address;
     const parsed = parseMachineLocator(address);
+
     if (parsed.kind !== 'path') {
       throw new ExecutorGitError(
         'invalid_path',
         'This address does not name one Machine path.',
       );
     }
+
     return parsed.path;
   }
 
@@ -554,6 +602,7 @@ export class ExecutorGit {
     },
   ): Promise<T> {
     let answer: JsonValue;
+
     try {
       answer = await this.connector.request(
         machine,
@@ -567,13 +616,16 @@ export class ExecutorGit {
     } catch (error) {
       throw dispatchFailure(machine, method, error);
     }
+
     const result = call.read(answer, machine);
+
     if (result === undefined) {
       throw new ExecutorGitError(
         'git_failed',
         `The Machine ${machine} answered an unusable ${method} result.`,
       );
     }
+
     return result;
   }
 }

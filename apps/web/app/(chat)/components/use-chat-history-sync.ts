@@ -87,6 +87,7 @@ export function useChatHistorySync(args: UseChatHistorySyncArgs) {
   const claimAttachSlot = useCallback(() => {
     attachedRef.current = true;
   }, []);
+
   useStreamRepair({
     attach,
     interruption: args.interruption,
@@ -111,9 +112,11 @@ function useHandoffAttach({
 }: UseChatHistorySyncArgs & { attach: () => void }) {
   useEffect(() => {
     if (awaitedMessageIds.length === 0 || status !== "ready") return;
+
     if (!messages.some((message) => awaitedMessageIds.includes(message.id))) {
       return;
     }
+
     onHandoffAttached();
     attach();
   }, [awaitedMessageIds, status, messages, attach, onHandoffAttached]);
@@ -150,6 +153,7 @@ function useHistoryAdoption({
       liveMessages: messages,
       replacement: replacementContext({ status, latestRun }),
     });
+
     if (healed !== null) setMessages(healed);
   }, [chatMessages, messages, status, latestRun, setMessages]);
 }

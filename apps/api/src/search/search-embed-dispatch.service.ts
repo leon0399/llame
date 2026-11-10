@@ -54,6 +54,7 @@ export class SearchEmbedDispatchService {
     if (!this.instanceConfig.config.search.chats.embeddingModelId) {
       return;
     }
+
     try {
       await this.ensureQueue();
       await this.queue.enqueue(
@@ -88,6 +89,7 @@ export class SearchEmbedDispatchService {
     ownerUserId: string,
   ): Promise<string | null> {
     await this.ensureQueue();
+
     // Returns the job id, or null when pg-boss coalesced this onto a job
     // already queued under the same singleton key. Callers that report counts
     // need to tell those apart — discarding the null made an already-queued
@@ -106,6 +108,7 @@ export class SearchEmbedDispatchService {
         this.queueReady = undefined;
         throw error;
       });
+
     return this.queueReady;
   }
 }

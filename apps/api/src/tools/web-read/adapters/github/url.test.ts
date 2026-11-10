@@ -106,6 +106,7 @@ describe('parseGithubUrl', () => {
       'https://github.com/o/r/commit/abcdefg.diff',
       'https://github.com/o/r/commit/abcdefg.patch',
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
@@ -133,6 +134,7 @@ describe('parseGithubUrl', () => {
       'https://github.com/o/r/raw/main/file',
       'https://github.com/o/r/compare/main...next',
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
@@ -169,11 +171,13 @@ describe('parseGithubUrl', () => {
       'trending',
       'users',
     ];
+
     for (const name of reserved) {
       expect(
         parseGithubUrl(new URL(`https://github.com/${name}/value`)),
       ).toBeUndefined();
     }
+
     expect(
       parseGithubUrl(new URL('https://github.com/Topics/value')),
     ).toBeUndefined();
@@ -243,6 +247,7 @@ describe('parseGithubUrl threads', () => {
       'https://github.enterprise.test/o/r/issues/1',
       'https://github.com/o/r/issues/1/comments',
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
@@ -281,6 +286,7 @@ describe('parseGithubUrl gists', () => {
         parseGithubUrl(new URL(`https://gist.github.com/o/${bound}`)),
       ).toStrictEqual({ kind: 'gist', id: bound });
     }
+
     expect(
       parseGithubUrl(
         new URL(`https://gist.github.com/${'a'.repeat(39)}/${id}`),
@@ -310,6 +316,7 @@ describe('parseGithubUrl gists', () => {
       `https://www.gist.github.com/octocat/${id}`,
       `https://gist.githubusercontent.com/octocat/${id}/raw`,
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
@@ -358,6 +365,7 @@ describe('parseGithubUrl releases', () => {
       ['v1.0%2B5%23x', 'v1.0+5#x'],
       ['v1%252F', 'v1%2F'],
     ] as const;
+
     for (const [encoded, tag] of tags) {
       expect(
         parseGithubUrl(
@@ -386,6 +394,7 @@ describe('parseGithubUrl releases', () => {
       'https://github.com/o/r/releases/',
       'https://github.com/o/r/releases?page=2',
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
@@ -413,6 +422,7 @@ describe('parseGithubUrl Actions jobs', () => {
     expect(parseGithubUrl(new URL(claimed))).toMatchObject({
       job: '9'.repeat(15),
     });
+
     for (const source of [
       `https://github.com/o/r/actions/runs/${'9'.repeat(16)}/job/1`,
       `https://github.com/o/r/actions/runs/1/job/${'9'.repeat(16)}`,
@@ -438,6 +448,7 @@ describe('parseGithubUrl Actions jobs', () => {
       'https://github.com/o/r/runs/2',
       'https://github.com/o/r/actions/jobs/2',
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
@@ -482,6 +493,7 @@ describe('parseGithubUrl discussions', () => {
       'https://github.com/o/r/discussions/12/comments',
       'http://github.com/o/r/discussions/12',
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }
@@ -496,6 +508,7 @@ describe('parseGithubUrl discussions', () => {
       'https://github.com/settings/x/releases/tag/v1',
       'https://github.com/settings/x/actions/runs/1/job/2',
     ];
+
     for (const source of unclaimed) {
       expect(parseGithubUrl(new URL(source))).toBeUndefined();
     }

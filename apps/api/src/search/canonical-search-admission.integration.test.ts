@@ -32,6 +32,7 @@ describeIfDb('canonical search process admission', () => {
     const assertReady = vi
       .fn()
       .mockRejectedValue(new Error('aggregate coverage incomplete'));
+
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(InstanceConfigService)
       .useValue({ config })
@@ -40,6 +41,7 @@ describeIfDb('canonical search process admission', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady })
       .compile();
+
     const app: INestApplication = moduleRef.createNestApplication();
     const db = moduleRef.get<DrizzleWithClient>('DB_DEV', { strict: false });
 
@@ -56,7 +58,9 @@ describeIfDb('canonical search process admission', () => {
     const assertReady = vi
       .fn()
       .mockRejectedValue(new Error('aggregate coverage incomplete'));
+
     const consumeSpy = vi.spyOn(PgBossQueueService.prototype, 'consume');
+
     const moduleRef = await Test.createTestingModule({
       imports: [WorkerModule],
     })
@@ -74,6 +78,7 @@ describeIfDb('canonical search process admission', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady })
       .compile();
+
     const db = moduleRef.get<DrizzleWithClient>('DB_DEV', { strict: false });
 
     try {

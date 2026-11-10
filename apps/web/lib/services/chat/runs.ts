@@ -68,6 +68,7 @@ export function runIdToCancel(
   messages: ReadonlyArray<Pick<UIMessage, "id" | "role">>,
 ): string | null {
   const last = messages.at(-1);
+
   return last?.role === "assistant" ? last.id : null;
 }
 
@@ -92,9 +93,11 @@ export async function cancelRun(runId: string): Promise<void> {
     );
   } catch (error) {
     const status = getApiErrorStatus(error);
+
     if (status === 404 || status === 409) {
       return;
     }
+
     throw error;
   }
 }

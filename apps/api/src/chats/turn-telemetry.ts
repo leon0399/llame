@@ -155,10 +155,12 @@ export const turnTelemetryLogger = pino({
 
 function resolveTurnTokenCounts(usage: BuildTurnTelemetryInput['usage']) {
   const inputTokens = tokenCount(usage?.inputTokens);
+
   const cachedInputTokens = Math.min(
     tokenCount(usage?.cachedInputTokens),
     inputTokens,
   );
+
   // Cache-creation tokens the provider bills, read from the AI SDK's
   // normalized detail field every wire fills. Bounded at what cache reads left
   // of the input total, the same way `cachedInputTokens` is bounded at the
@@ -168,13 +170,16 @@ function resolveTurnTokenCounts(usage: BuildTurnTelemetryInput['usage']) {
     tokenCount(usage?.inputTokenDetails?.cacheWriteTokens),
     inputTokens - cachedInputTokens,
   );
+
   const outputTokens = tokenCount(usage?.outputTokens);
+
   // Floor the total to the component sum: providers sometimes omit totalTokens (yielding 0)
   // even when input/output were consumed, which would under-report aggregate usage.
   const totalTokens = Math.max(
     tokenCount(usage?.totalTokens),
     inputTokens + outputTokens,
   );
+
   const reasoningTokens = optionalTokenCount(usage?.reasoningTokens);
 
   return {
@@ -229,6 +234,7 @@ function finalRequestContextTokens(
     input.stepCount === undefined || input.receipts.length !== input.stepCount
       ? undefined
       : input.receipts.at(-1);
+
   return finalReceipt === undefined
     ? undefined
     : requestContextTokens(finalReceipt);
@@ -254,12 +260,14 @@ function streamedOutputTelemetry(
   'firstTokenMs' | 'chunkCount' | 'generationMs' | 'tokensPerSecond'
 > {
   const chunkCount = input.chunkCount ?? 0;
+
   if (input.firstTokenMs === undefined || chunkCount <= 0) {
     return {};
   }
 
   const firstTokenMs = Math.round(input.firstTokenMs);
   const generationMs = Math.max(0, Math.round(input.generationMs ?? 0));
+
   return {
     firstTokenMs,
     chunkCount,
@@ -277,6 +285,7 @@ export function aggregateTurnTelemetry(
 ): TurnTelemetry & { complete: boolean } {
   const totals = aggregateReceiptTelemetry(input);
   const contextTokens = finalRequestContextTokens(input);
+
   return {
     ...(totals.hasReportedCounts && {
       inputTokens: totals.inputTokens,
@@ -328,9 +337,11 @@ function aggregateReceiptTelemetry(
     everyReceiptHasCounts: input.receipts.length > 0,
     everyReceiptHasReasoning: input.receipts.length > 0,
   };
+
   for (const receipt of input.receipts) {
     addReceiptTelemetry(totals, receipt, input);
   }
+
   return totals;
 }
 
@@ -340,11 +351,14 @@ function addReceiptTelemetry(
   input: AggregateTurnTelemetryInput,
 ): void {
   const hasInputTokens = optionalTokenCount(receipt.inputTokens) !== undefined;
+
   const hasOutputTokens =
     optionalTokenCount(receipt.outputTokens) !== undefined;
+
   totals.hasReportedCounts ||= hasInputTokens || hasOutputTokens;
   totals.everyReceiptHasCounts &&= hasInputTokens && hasOutputTokens;
   const receiptReasoningTokens = optionalTokenCount(receipt.reasoningTokens);
+
   if (receiptReasoningTokens === undefined) {
     totals.everyReceiptHasReasoning = false;
   } else {
@@ -359,11 +373,13 @@ function addReceiptTelemetry(
     latencyMs: input.latencyMs,
     price: input.price,
   });
+
   totals.inputTokens += telemetry.inputTokens;
   totals.cachedInputTokens += telemetry.cachedInputTokens;
   totals.cacheWriteTokens += telemetry.cacheWriteTokens;
   totals.outputTokens += telemetry.outputTokens;
   totals.totalTokens += telemetry.totalTokens;
+
   if (telemetry.costUsd !== null) {
     totals.costUsd += telemetry.costUsd;
   }
@@ -396,6 +412,7 @@ function completedTurnTelemetryLogPayload(
   input: CompletedTurnTelemetryLogInput,
 ): UnknownRecord {
   const telemetry = input.telemetry;
+
   return {
     event: 'assistant_turn_completed',
     chatId: input.chatId,
@@ -441,6 +458,7 @@ function calculateCostUsd(input: {
   price: TokenPrice | undefined;
 }): number | null {
   const price = input.price;
+
   if (!price) {
     return null;
   }
@@ -453,14 +471,18 @@ function calculateCostUsd(input: {
     input.cachedInputTokens,
     input.inputTokens,
   );
+
   const cacheWriteTokens = Math.min(
     input.cacheWriteTokens,
     input.inputTokens - cachedInputTokens,
   );
+
   const uncachedInputTokens =
     input.inputTokens - cachedInputTokens - cacheWriteTokens;
+
   const cachedInputUsdPer1M = price.cachedInputUsdPer1M ?? price.inputUsdPer1M;
   const cacheWriteUsdPer1M = price.cacheWriteUsdPer1M ?? price.inputUsdPer1M;
+
   const cost =
     (uncachedInputTokens * price.inputUsdPer1M +
       cachedInputTokens * cachedInputUsdPer1M +
@@ -488,8 +510,10 @@ export function requestContextTokens(
 ): number | undefined {
   const inputTokens = optionalTokenCount(usage.inputTokens);
   const outputTokens = optionalTokenCount(usage.outputTokens);
+
   if (inputTokens === undefined && outputTokens === undefined) {
     return undefined;
   }
+
   return tokenCount(inputTokens) + tokenCount(outputTokens);
 }

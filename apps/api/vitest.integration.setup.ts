@@ -16,15 +16,19 @@ import { isRecord, isString } from '@workspace/runtime-safety';
  * files therefore run sequentially.
  */
 const WORKER_DB_COUNT_VAR = 'LLAME_TEST_WORKER_DB_COUNT';
+
 const DATABASE_URL_VARS = [
   'TEST_DATABASE_URL',
   'TEST_UNPRIVILEGED_DATABASE_URL',
   'POSTGRES_URL',
 ] as const;
+
 const workerDatabaseCount = process.env[WORKER_DB_COUNT_VAR];
+
 if (workerDatabaseCount !== undefined) {
   const poolId = Number(process.env.VITEST_POOL_ID);
   const cloneCount = Number(workerDatabaseCount);
+
   // A worker beyond the cloned range would silently fall back to some other
   // database (or none), so say which assumption broke instead.
   if (!Number.isInteger(poolId) || poolId < 1 || poolId > cloneCount) {
@@ -32,13 +36,16 @@ if (workerDatabaseCount !== undefined) {
       `Integration databases are provisioned per worker (${cloneCount} clones), but VITEST_POOL_ID is '${process.env.VITEST_POOL_ID ?? '<unset>'}'.`,
     );
   }
+
   for (const key of DATABASE_URL_VARS) {
     const value = process.env[key];
+
     if (!value) {
       throw new Error(
         `Integration database is provisioned per worker, but ${key} is unset.`,
       );
     }
+
     const url = new URL(value);
     url.pathname = `/llame_test_${poolId}`;
     process.env[key] = url.href;
@@ -57,6 +64,7 @@ if (workerDatabaseCount !== undefined) {
 // Prefixed by the run (globalSetup) so teardown drops exactly this run's
 // schemas and never a concurrent run's.
 const prefix = process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t';
+
 process.env.PGBOSS_SCHEMA = `${prefix}_pgboss_${Math.random().toString(36).slice(2, 8)}`;
 
 // Make leaked handles attributable: if a previous file's pg-boss worker (or
@@ -82,6 +90,7 @@ process.env.PGBOSS_SCHEMA = `${prefix}_pgboss_${Math.random().toString(36).slice
 // which persists; the symbol key is typed via module augmentation instead
 // of Reflect.get/set, which would bypass NodeJS.Process's own type.
 const HANDLER_INSTALLED = Symbol.for('llame_integration_error_handlers');
+
 declare global {
   namespace NodeJS {
     interface Process {
@@ -92,6 +101,7 @@ declare global {
   // so it's read defensively via isRecord below rather than trusted as-is.
   var __vitest_worker__: unknown;
 }
+
 if (!process[HANDLER_INSTALLED]) {
   process[HANDLER_INSTALLED] = true;
 

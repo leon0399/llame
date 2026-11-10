@@ -17,15 +17,19 @@ export function startRequestBudget(
 ): RequestBudget {
   const controller = new AbortController();
   let expired = false;
+
   const forward = (): void => {
     controller.abort();
   };
+
   if (channelSignal.aborted) forward();
   else channelSignal.addEventListener("abort", forward, { once: true });
+
   const timer = setTimeout(() => {
     expired = true;
     controller.abort();
   }, budgetMs);
+
   return {
     signal: controller.signal,
     expired: () => expired,

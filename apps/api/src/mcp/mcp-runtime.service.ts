@@ -38,6 +38,7 @@ import {
 } from '@workspace/mcp-workspace';
 
 export { type McpRuntimeServerDefinition } from '@workspace/mcp-workspace';
+
 export type { McpMachineRuntimeDefinition } from './mcp-server-client';
 
 const REFRESH_BASE_MS = 60 * 60 * 1000;
@@ -45,6 +46,7 @@ const REFRESH_JITTER_MS = REFRESH_BASE_MS * 0.2;
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_CAP_MS = 5 * 60 * 1000;
 const SHUTDOWN_DEADLINE_MS = 5000;
+
 /**
  * Fast-retry budget for a stdio server (design.md D5). A remote server retries
  * indefinitely because reopening a socket is cheap and the usual cause is a
@@ -148,6 +150,7 @@ type ConnectionContext = Readonly<{
  *  which is what the fast-retry budget below is sized for. */
 function restartsProcess(definition: McpRuntimeDefinition): boolean {
   if (definition.transport === 'machine') return definition.kind === 'stdio';
+
   return isStdio(definition);
 }
 
@@ -165,6 +168,7 @@ function frozenDefinition(
   if (definition.transport !== 'machine') {
     return frozenRuntimeDefinition(definition);
   }
+
   const frozen: McpMachineRuntimeDefinition = {
     transport: 'machine',
     machine: definition.machine,
@@ -175,6 +179,7 @@ function frozenDefinition(
       protectedValues: Object.freeze([...definition.protectedValues]),
     }),
   };
+
   return Object.freeze(frozen);
 }
 
@@ -190,8 +195,10 @@ function defaultClientFactory(
           ),
         );
       }
+
       return machineClientFactory(config);
     }
+
     return 'command' in config
       ? McpServerClient.connectStdio(config)
       : McpServerClient.connect(config);
@@ -200,7 +207,9 @@ function defaultClientFactory(
 
 function clampRandom(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
+
   if (value >= 1) return 1;
+
   return value;
 }
 
@@ -248,11 +257,15 @@ export class McpRuntimeService
 
   async start(): Promise<void> {
     if (this.startPromise !== undefined) return this.startPromise;
+
     if (this.shuttingDown) return;
+
     const operations = this.records.flatMap((record) => {
       const operation = this.beginConnect(record);
+
       return operation === undefined ? [] : [operation];
     });
+
     this.startPromise = Promise.allSettled(operations).then(() => undefined);
     await this.startPromise;
   }
@@ -287,6 +300,7 @@ export class McpRuntimeService
 
   snapshotCandidates(): ReadonlyArray<TurnToolCandidate> {
     const candidates: Array<TurnToolCandidate> = [];
+
     for (const record of this.records) {
       if (record.state === 'ready') {
         for (const entry of record.catalog.entries.values()) {
@@ -318,19 +332,25 @@ export class McpRuntimeService
         }
       }
     }
+
     candidates.sort((left, right) => {
       const leftId = left.state === 'available' ? left.tool.id : left.id;
       const rightId = right.state === 'available' ? right.tool.id : right.id;
+
       return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
     });
+
     return Object.freeze(candidates);
   }
 
   resolveDynamicTool(id: string): McpDynamicToolResolution {
     const record = this.recordForToolId(id);
+
     if (record === undefined) return { state: 'not_dynamic' };
+
     if (record.state !== 'ready') return { state: 'unavailable' };
     const entry = record.catalog.entries.get(id);
+
     return entry === undefined
       ? { state: 'unavailable' }
       : {
@@ -342,6 +362,7 @@ export class McpRuntimeService
 
   stop(): Promise<void> {
     this.shutdownPromise ??= this.shutdown();
+
     return this.shutdownPromise;
   }
 
@@ -355,24 +376,30 @@ export class McpRuntimeService
 
   private isCanonicalToolId(record: ServerRecord, id: string): boolean {
     const parsed = parseMcpToolId(id);
+
     return parsed.success && parsed.serverId === record.serverId;
   }
 
   private beginConnect(record: ServerRecord): Promise<void> | undefined {
     if (this.shuttingDown || record.operation !== undefined) return undefined;
+
     if (record.timer !== undefined) {
       clearTimeout(record.timer);
       record.timer = undefined;
     }
+
     record.generation += 1;
     record.state = record.generation === 1 ? 'connecting' : 'reconnecting';
+
     const operation: RuntimeOperation = {
       generation: record.generation,
       controller: new AbortController(),
     };
+
     record.operation = operation;
     const connection = this.connectAndDiscover(record, operation);
     this.trackOperation(connection);
+
     return connection;
   }
 
@@ -389,6 +416,7 @@ export class McpRuntimeService
   ): Promise<McpRuntimeClient | undefined> {
     let callbackClient: McpRuntimeClient | undefined;
     let pendingDisconnect = false;
+
     const config:
       | McpServerClientConfig
       | McpStdioServerClientConfig
@@ -408,18 +436,25 @@ export class McpRuntimeService
         }
       },
     };
+
     const client = await this.clientFactory(config);
     callbackClient = client;
     operation.client = client;
+
     if (!this.isCurrentOperation(record, operation)) {
       closeWithoutWaiting(client);
+
       return undefined;
     }
+
     record.client = client;
+
     if (pendingDisconnect) {
       this.handleDisconnect(record, operation.generation, client);
+
       return undefined;
     }
+
     return client;
   }
 
@@ -428,21 +463,27 @@ export class McpRuntimeService
     operation: RuntimeOperation,
   ): Promise<void> {
     let client: McpRuntimeClient | undefined;
+
     try {
       client = await this.establishConnection(record, operation);
+
       if (client === undefined) return;
 
       const result = await client.discover({
         signal: operation.controller.signal,
       });
+
       if (!this.isCurrentClient(record, operation.generation, client)) {
         closeWithoutWaiting(client);
+
         return;
       }
+
       const catalog = this.buildCatalog(
         { record, generation: operation.generation, client },
         result,
       );
+
       record.catalog = catalog;
       record.rememberedIds = new Set(catalog.entries.keys());
       record.state = 'ready';
@@ -481,11 +522,13 @@ export class McpRuntimeService
     ) {
       return;
     }
+
     const operation: RuntimeOperation = {
       generation,
       controller: new AbortController(),
       client,
     };
+
     record.operation = operation;
     this.trackOperation(this.refresh(record, operation, client));
   }
@@ -507,11 +550,14 @@ export class McpRuntimeService
       const result = await client.discover({
         signal: operation.controller.signal,
       });
+
       if (!this.isCurrentClient(record, operation.generation, client)) return;
+
       const catalog = this.buildCatalog(
         { record, generation: operation.generation, client },
         result,
       );
+
       if (!this.isCurrentClient(record, operation.generation, client)) return;
       record.catalog = catalog;
       record.rememberedIds = new Set(catalog.entries.keys());
@@ -535,15 +581,18 @@ export class McpRuntimeService
     result: McpDiscoveryResult,
   ): RuntimeCatalog {
     const entries = new Map<string, RuntimeCatalogEntry>();
+
     for (const discovered of result.tools) {
       if (entries.has(discovered.definition.id)) {
         throw new Error('MCP discovery returned a duplicate admitted tool id.');
       }
+
       const declaration = {
         id: discovered.definition.id,
         description: discovered.definition.description,
         inputSchema: discovered.definition.inputSchema,
       };
+
       const declarationHash = hashToolDeclaration(declaration);
       entries.set(
         discovered.definition.id,
@@ -557,6 +606,7 @@ export class McpRuntimeService
         }),
       );
     }
+
     return Object.freeze({ entries });
   }
 
@@ -569,8 +619,10 @@ export class McpRuntimeService
   ): Promise<McpCallOutcome> {
     const runId = context.runId;
     const toolCallId = context.toolCallId ?? toolId;
+
     if (runId !== undefined) {
       context.abortSignal?.throwIfAborted();
+
       const prior = await context.tenantDb.runAs(context.userId, (db) =>
         new NativeFilesRepository(db).begin({
           runId,
@@ -583,9 +635,11 @@ export class McpRuntimeService
           path: toolId,
         }),
       );
+
       if (prior !== undefined) {
         return { disposition: 'none', result: prior };
       }
+
       context.onMcpDispatchRecorded?.();
       context.abortSignal?.throwIfAborted();
     }
@@ -595,11 +649,14 @@ export class McpRuntimeService
       messages: [],
       abortSignal: context.abortSignal,
     });
+
     const observed = {
       ...outcome,
       result: await capHeadResult(context, toolId, outcome.result),
     };
+
     if (runId === undefined) return observed;
+
     return this.persistMcpResult(context, runId, toolCallId, observed);
   }
 
@@ -616,6 +673,7 @@ export class McpRuntimeService
           result: outcome.result,
         }),
       );
+
       return outcome;
     } catch {
       return {
@@ -637,6 +695,7 @@ export class McpRuntimeService
   ): Tool {
     const { record, generation, client } = connection;
     const definition = discovered.definition;
+
     return Object.freeze({
       id: definition.id,
       description: definition.description,
@@ -644,6 +703,7 @@ export class McpRuntimeService
       inputSchema: definition.inputSchema,
       execute: async (context: ToolContext, args: UnknownRecord) => {
         const current = record.catalog.entries.get(definition.id);
+
         if (
           this.shuttingDown ||
           record.generation !== generation ||
@@ -657,15 +717,18 @@ export class McpRuntimeService
             message: `Tool "${definition.id}" is not available.`,
           } as const;
         }
+
         const outcome = await this.executeMcpDispatch(
           context,
           args,
           definition.id,
           discovered.execute,
         );
+
         if (outcome.disposition === 'reconnect') {
           this.handleDisconnect(record, generation, client);
         }
+
         return outcome.result;
       },
     });
@@ -681,7 +744,9 @@ export class McpRuntimeService
     record.catalog = EMPTY_CATALOG;
     record.state = 'reconnecting';
     record.unavailableReason = reason;
+
     if (record.client === client) record.client = undefined;
+
     if (client !== undefined) closeWithoutWaiting(client);
     this.noteSessionEnded(record);
     this.scheduleReconnect(record);
@@ -693,10 +758,13 @@ export class McpRuntimeService
     client: McpRuntimeClient,
   ): void {
     if (this.shuttingDown) return;
+
     if (!this.isCurrentClient(record, generation, client)) {
       closeWithoutWaiting(client);
+
       return;
     }
+
     this.transitionToReconnect(
       record,
       generation,
@@ -712,19 +780,23 @@ export class McpRuntimeService
     reason: ToolUnavailableReason,
   ): void {
     if (!this.isCurrentClient(record, generation, client)) return;
+
     if (record.timer !== undefined) {
       clearTimeout(record.timer);
       record.timer = undefined;
     }
+
     record.catalog = EMPTY_CATALOG;
     record.state = 'reconnecting';
     record.unavailableReason = reason;
     record.client = undefined;
     record.generation += 1;
+
     if (record.operation?.client === client) {
       record.operation.controller.abort();
       record.operation = undefined;
     }
+
     closeWithoutWaiting(client);
     this.noteSessionEnded(record);
     this.scheduleReconnect(record);
@@ -741,14 +813,18 @@ export class McpRuntimeService
     ) {
       return;
     }
+
     if (record.timer !== undefined) clearTimeout(record.timer);
     const delay = this.refreshDelay();
+
     const timer = setTimeout(() => {
       if (record.timer !== timer) return;
       record.timer = undefined;
+
       if (!this.isCurrentClient(record, generation, client)) return;
       this.beginRefresh(record, generation, client);
     }, delay);
+
     record.timer = timer;
   }
 
@@ -773,13 +849,17 @@ export class McpRuntimeService
   private noteSessionEnded(record: ServerRecord): void {
     const readyAt = record.readyAt;
     record.readyAt = undefined;
+
     if (readyAt === undefined) return;
+
     // Remote is untouched by design (D5): reopening a socket is cheap, its
     // backoff is unbounded anyway, and any complete success refunds it.
     if (!restartsProcess(record.definition)) {
       record.reconnectAttempt = 0;
+
       return;
     }
+
     if (this.now() - readyAt >= STDIO_STABLE_AFTER_MS) {
       record.reconnectAttempt = 0;
     }
@@ -788,12 +868,14 @@ export class McpRuntimeService
   private scheduleReconnect(record: ServerRecord): void {
     if (this.shuttingDown || record.timer !== undefined) return;
     const generation = record.generation;
+
     // A settled stdio record stays scheduled, but on the periodic occasion
     // rather than the exponential one: the fast budget is for a momentary
     // blip, and this path is for a condition that outlives it.
     const settled =
       restartsProcess(record.definition) &&
       record.reconnectAttempt >= STDIO_MAX_FAST_ATTEMPTS;
+
     const delay = settled
       ? this.refreshDelay()
       : Math.floor(
@@ -803,10 +885,13 @@ export class McpRuntimeService
               RECONNECT_BASE_MS * 2 ** Math.min(record.reconnectAttempt, 1024),
             ),
         );
+
     record.reconnectAttempt = Math.min(record.reconnectAttempt + 1, 1024);
+
     const timer = setTimeout(() => {
       if (record.timer !== timer) return;
       record.timer = undefined;
+
       if (
         this.shuttingDown ||
         record.generation !== generation ||
@@ -814,8 +899,10 @@ export class McpRuntimeService
       ) {
         return;
       }
+
       void this.beginConnect(record);
     }, delay);
+
     record.timer = timer;
   }
 
@@ -826,6 +913,7 @@ export class McpRuntimeService
     if (error instanceof McpProtocolUnsupportedError) {
       return 'protocol_unsupported';
     }
+
     return initializeFailed ? 'source_disconnected' : 'discovery_failed';
   }
 
@@ -856,29 +944,37 @@ export class McpRuntimeService
     this.shuttingDown = true;
     const clients = new Set<McpRuntimeClient>();
     const operations = [...this.inFlightOperations];
+
     for (const record of this.records) {
       if (record.timer !== undefined) {
         clearTimeout(record.timer);
         record.timer = undefined;
       }
+
       record.generation += 1;
       record.state = 'closing';
       record.catalog = EMPTY_CATALOG;
+
       if (record.client !== undefined) clients.add(record.client);
+
       if (record.operation !== undefined) {
         record.operation.controller.abort();
+
         if (record.operation.client !== undefined) {
           clients.add(record.operation.client);
         }
       }
+
       record.client = undefined;
       record.operation = undefined;
     }
 
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+
     const deadline = new Promise<void>((resolve) => {
       deadlineTimer = setTimeout(resolve, SHUTDOWN_DEADLINE_MS);
     });
+
     try {
       await Promise.race([
         Promise.allSettled([

@@ -78,6 +78,7 @@ import { isContextItemPart } from './context-item';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 const workerKnowledgeResolver: KnowledgeToolResolver = {
@@ -129,10 +130,12 @@ function workerModelClient(modelId: string, fail = false): ModelClient {
           },
         },
       ];
+
   const model = new MockLanguageModelV3({
     doStream: () =>
       Promise.resolve({ stream: simulateReadableStream({ chunks }) }),
   });
+
   return {
     model: modelId,
     provider: 'test',
@@ -209,11 +212,13 @@ describeIfDb(
               ]
             : [],
       );
+
       const availabilityManifest: ToolAvailabilityManifestV1 = {
         version: 1,
         entries: states.map((state) => {
           if (state.state === 'unavailable') return state;
           const declaration = declarations.find(({ id }) => id === state.id)!;
+
           return {
             id: state.id,
             state: 'available' as const,
@@ -224,12 +229,14 @@ describeIfDb(
           };
         }),
       };
+
       return {
         availabilityManifest,
         declarations,
         admittedIds: declarations.map(({ id }) => id),
       };
     }
+
     type PersistResult = {
       chatId: string;
       runId: string;
@@ -247,13 +254,17 @@ describeIfDb(
         userMessage: job.userMessage,
         client: workerModelClient(job.modelId, options.fail),
       });
+
       if (options.consume !== false) {
         await result.consumeStream?.();
       }
+
       const run = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findById(job.runId, userId),
       );
+
       if (!run) throw new Error(`Expected worker run ${job.runId}`);
+
       return run;
     };
 
@@ -269,6 +280,7 @@ describeIfDb(
       const resolve = vi
         .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(effectiveContext);
+
       try {
         await chatLoop
           .createMessageStream({
@@ -282,8 +294,10 @@ describeIfDb(
           })
           .then(() => undefined);
         const job = dispatchCalls.at(-1);
+
         if (!job) throw new Error('Expected accepted Run dispatch');
         await executeWorker(job, { consume: false });
+
         return {
           chatId,
           runId: job.runId,
@@ -306,7 +320,9 @@ describeIfDb(
       const stored = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findById(chatId, userId, userMessage.id),
       );
+
       if (!stored) throw new Error(`Expected user message ${userMessage.id}`);
+
       return stored.parts
         .filter(isContextItemPart)
         .find(({ data }) => data.producer === 'tool-availability')?.data.text;
@@ -325,6 +341,7 @@ describeIfDb(
         // stored by the dispatch.
         const run = await runs.findById(runId, userId);
         const attemptId = run?.activeAttemptId ?? undefined;
+
         return runs.markFinished(
           runId,
           userId,
@@ -358,6 +375,7 @@ describeIfDb(
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: false,
       });
+
       const models: ModelSelectionValidator = {
         validateModelSelection: (modelId: string) => ({
           id: modelId,
@@ -374,19 +392,23 @@ describeIfDb(
         // to "none".
         resolveEffortSelection: () => undefined,
       };
+
       const bridge: RunStreamResponder = {
         createUiMessageStreamResponse: vi
           .fn<RunStreamResponder['createUiMessageStreamResponse']>()
           .mockReturnValue(new Response()),
       };
+
       // A blocker this suite creates was just dispatched, so its job is LIVE;
       // each wedging scenario scripts the state it is actually about.
       jobState = vi.fn<RunDispatcher['jobState']>(() =>
         Promise.resolve('active'),
       );
+
       const dispatch: RunDispatcher = {
         dispatch: vi.fn<RunDispatcher['dispatch']>((job) => {
           dispatchCalls.push(job);
+
           return Promise.resolve();
         }),
         jobState,
@@ -429,6 +451,7 @@ describeIfDb(
               )
             : Promise.resolve(null),
       };
+
       runExecution = new RunExecutionService(
         tenantDb,
         noopCompaction,
@@ -491,20 +514,25 @@ describeIfDb(
           ownerUserId,
           title,
         });
+
         await new MessagesRepository(tx).create({
           chatId: chat.id,
           role: 'user',
           senderUserId: ownerUserId,
           parts: [{ type: 'text', text }],
         });
+
         return chat;
       });
 
     const finishActive = async (chatId: string) => {
       const run = await activeRun(chatId);
+
       if (!run) throw new Error('Expected an active run');
       const job = dispatchCalls.find(({ runId }) => runId === run.id);
+
       if (!job) throw new Error(`Expected dispatch for run ${run.id}`);
+
       return executeWorker(job);
     };
 
@@ -517,11 +545,13 @@ describeIfDb(
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
+
       const source = await tenantDb.runAs(userId, async (tx) => {
         const chat = await new ChatsRepository(tx).create({
           ownerUserId: userId,
           title: 'Mixed history source',
         });
+
         const messagesRepo = new MessagesRepository(tx);
         // Assistant speaks FIRST, so a naive "earliest message" would leak it.
         await messagesRepo.create({
@@ -545,14 +575,17 @@ describeIfDb(
           senderUserId: userId,
           parts: [{ type: 'text', text: 'later-user-must-not-leak' }],
         });
+
         return chat;
       });
+
       systemPrompt =
         'Base.{{#each chats.recent}} {{title}}|{{messageCount}}|{{excerpt}}{{/each}}';
       const chatId = crypto.randomUUID();
 
       await send(chatId, crypto.randomUUID(), 'target turn');
       await finishActive(chatId);
+
       const chat = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).findById(chatId, userId),
       );
@@ -560,6 +593,7 @@ describeIfDb(
       const entry = chat?.recencyDigestBaseline?.recent.find(
         ({ title }) => title === 'Mixed history source',
       );
+
       expect(entry).toMatchObject({
         excerpt: 'owner-opening',
         // Counts every stored message, not just the excerpted one.
@@ -582,9 +616,11 @@ describeIfDb(
 
       await send(chatId, crypto.randomUUID(), 'first target turn');
       const firstRun = await finishActive(chatId);
+
       const firstChat = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).findById(chatId, userId),
       );
+
       expect(firstChat?.recencyDigestBaseline?.recent[0]).toMatchObject({
         title: 'Baseline source',
         excerpt: 'source opening',
@@ -593,18 +629,21 @@ describeIfDb(
       await seedEligibleChat(userId, 'Later source', 'must stay absent');
       await send(chatId, crypto.randomUUID(), 'second target turn');
       await finishActive(chatId);
+
       const runs = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),
       );
 
       expect(runs).toHaveLength(2);
       expect(runs[0].id).toBe(firstRun.id);
+
       const secondReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           runs[1].id,
           userId,
         ),
       );
+
       expect(secondReceipts[0]?.systemPrompt).not.toContain('Later source');
       expect(secondReceipts[0]?.systemPrompt).not.toContain('must stay absent');
     });
@@ -613,13 +652,16 @@ describeIfDb(
     const digestState = (chatId: string) =>
       tenantDb.runAs(userId, async (tx) => {
         const chat = await new ChatsRepository(tx).findById(chatId, userId);
+
         const messages = await new MessagesRepository(tx).findByChatId(
           chatId,
           userId,
         );
+
         const latestUser = messages
           .filter(({ role }) => role === 'user')
           .at(-1);
+
         return {
           told: chat?.recencyDigestTold,
           baseline: chat?.recencyDigestBaseline,
@@ -633,11 +675,13 @@ describeIfDb(
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
+
       const source = await seedEligibleChat(
         userId,
         'Unrendered source',
         'unrendered opening',
       );
+
       // An operator template that renders the digest in neither surface: no
       // admitted tool description in this harness references `chats` either.
       systemPrompt = 'Base without the digest.';
@@ -726,12 +770,14 @@ describeIfDb(
 
       await send(chatId, crypto.randomUUID(), 'first target turn');
       const firstRun = await finishActive(chatId);
+
       const firstReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           firstRun.id,
           userId,
         ),
       );
+
       const firstReceipt = firstReceipts[0];
       expect(firstReceipt?.systemPrompt).toContain('<user_chat_history>');
       expect(firstReceipt?.systemPrompt).toContain('Receipt source');
@@ -746,19 +792,24 @@ describeIfDb(
       await seedEligibleChat(userId, 'Withheld new source', 'must not append');
       await send(chatId, crypto.randomUUID(), 'withdrawn target turn');
       await finishActive(chatId);
+
       const [first, second] = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),
       );
+
       const secondReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           second.id,
           userId,
         ),
       );
+
       const secondReceipt = secondReceipts[0];
+
       const messages = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userId),
       );
+
       const userMessages = messages.filter(({ role }) => role === 'user');
 
       expect(first?.id).toBe(firstRun.id);
@@ -776,13 +827,16 @@ describeIfDb(
 
       await send(chatId, crypto.randomUUID(), 'setting is off');
       await finishActive(chatId);
+
       const before = await tenantDb.runAs(userId, async (tx) => ({
         chat: await new ChatsRepository(tx).findById(chatId, userId),
         messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
       }));
+
       const beforeUserMessages = before.messages.filter(
         ({ role }) => role === 'user',
       );
+
       expect(before.chat?.recencyDigestBaseline).toBeNull();
       expect(before.chat?.recencyDigestTold).toBeNull();
       expectMessageParts(beforeUserMessages[0]?.parts ?? [], [
@@ -794,13 +848,16 @@ describeIfDb(
       });
       await send(chatId, crypto.randomUUID(), 'setting is on again');
       await finishActive(chatId);
+
       const after = await tenantDb.runAs(userId, async (tx) => ({
         chat: await new ChatsRepository(tx).findById(chatId, userId),
         messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
       }));
+
       const afterUserMessages = after.messages.filter(
         ({ role }) => role === 'user',
       );
+
       expect(after.chat?.recencyDigestBaseline?.recent).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ title: 'Re-enable source' }),
@@ -825,6 +882,7 @@ describeIfDb(
         send(chatId, crypto.randomUUID(), 'concurrent A'),
         send(chatId, crypto.randomUUID(), 'concurrent B'),
       ]);
+
       expect(
         results.filter(({ status }) => status === 'fulfilled'),
       ).toHaveLength(1);
@@ -832,25 +890,30 @@ describeIfDb(
         results.filter(({ status }) => status === 'rejected'),
       ).toHaveLength(1);
       await finishActive(chatId);
+
       const [chat, runs] = await tenantDb.runAs(userId, async (tx) => [
         await new ChatsRepository(tx).findById(chatId, userId),
         await new RunsRepository(tx).findByChatId(chatId, userId),
       ]);
+
       expect(chat?.recencyDigestBaseline).not.toBeNull();
       expect(chat?.recencyDigestTold).not.toBeNull();
       expect(runs).toHaveLength(1);
+
       const receipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           runs[0].id,
           userId,
         ),
       );
+
       expect(receipts).toHaveLength(1);
     });
 
     it('keeps another owner and the empty identity out of digest resolution', async () => {
       const otherUserId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Digest Other', ${`digest-other-${otherUserId}@test.com`})`;
+
       try {
         await seedEligibleChat(userId, 'Owner-visible title', 'owner opening');
         await seedEligibleChat(
@@ -864,6 +927,7 @@ describeIfDb(
           userId,
           crypto.randomUUID(),
         );
+
         expect(JSON.stringify(own.baseline)).toContain('Owner-visible title');
         expect(JSON.stringify(own.baseline)).not.toMatch(
           /OTHER OWNER SECRET TITLE|OTHER OWNER SECRET EXCERPT/,
@@ -892,6 +956,7 @@ describeIfDb(
       const runs = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),
       );
+
       expect(runs).toHaveLength(1);
       expect(runs[0].id).toBe(afterFirst!.id);
       expect(dispatchCalls).toHaveLength(1);
@@ -937,6 +1002,7 @@ describeIfDb(
         const blocker = await activeRun(chatId);
         expect(blocker).toBeDefined();
         jobState.mockResolvedValue(state);
+
         if (ageMs > 0) await ageRun(blocker!.id, ageMs);
 
         await expect(
@@ -948,10 +1014,13 @@ describeIfDb(
         const stillBlocking = await tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(blocker!.id, userId),
         );
+
         expect(stillBlocking?.status).toBe(blocker!.status);
+
         const messages = await tenantDb.runAs(userId, (tx) =>
           new MessagesRepository(tx).findByChatId(chatId, userId),
         );
+
         expect(messages.some(({ id }) => id === rejectedMessageId)).toBe(false);
         expect(dispatchCalls).toHaveLength(1);
       },
@@ -976,14 +1045,19 @@ describeIfDb(
         const expired = await tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(blocker!.id, userId),
         );
+
         expect(expired?.status).toBe('expired');
+
         const events = await tenantDb.runAs(userId, (tx) =>
           new RunEventsRepository(tx).listByRunId(blocker!.id, userId),
         );
+
         expect(events.map((e) => e.eventType)).toContain('run.expired');
+
         const messages = await tenantDb.runAs(userId, (tx) =>
           new MessagesRepository(tx).findByChatId(chatId, userId),
         );
+
         expect(messages.map(({ seq }) => seq)).toEqual([1, 2]);
         expect(dispatchCalls).toHaveLength(2);
       },
@@ -992,6 +1066,7 @@ describeIfDb(
     it("never judges another owner's run: a forged chat id is a 404 that reads no job state", async () => {
       const otherUserId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Other Owner', ${`other-owner-${otherUserId}@test.com`})`;
+
       try {
         // The other owner's chat, with a live queued run to protect.
         const theirChatId = crypto.randomUUID();
@@ -1039,9 +1114,11 @@ describeIfDb(
         ).rejects.toBeInstanceOf(NotFoundException);
 
         expect(jobState).not.toHaveBeenCalled();
+
         const untouched = await tenantDb.runAs(otherUserId, (tx) =>
           new RunsRepository(tx).findById(theirRunId, otherUserId),
         );
+
         expect(untouched?.status).toBe('queued');
       } finally {
         await sql`DELETE FROM users WHERE id = ${otherUserId}`;
@@ -1091,6 +1168,7 @@ describeIfDb(
               .where(eq(schema.runs.id, blocker!.id)),
           );
           spy.mockRestore();
+
           return this.findActiveByChatId(queriedChatId, queriedUserId);
         });
 
@@ -1113,11 +1191,13 @@ describeIfDb(
       const finishedBlocker = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findById(blocker!.id, userId),
       );
+
       expect(finishedBlocker?.status).toBe('completed');
 
       const runs = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),
       );
+
       expect(runs).toHaveLength(2);
       expect(dispatchCalls).toHaveLength(2);
     });
@@ -1132,6 +1212,7 @@ describeIfDb(
         'private opening',
       );
       const uniquePrompt = `Rollback prompt ${crypto.randomUUID()}`;
+
       const models: ModelSelectionValidator = {
         validateModelSelection: (modelId: string) => ({
           id: modelId,
@@ -1148,13 +1229,16 @@ describeIfDb(
         // to "none".
         resolveEffortSelection: () => undefined,
       };
+
       const dispatchRun = vi
         .fn<RunDispatcher['dispatch']>()
         .mockResolvedValue(undefined);
+
       const dispatch: RunDispatcher = {
         dispatch: dispatchRun,
         jobState: () => Promise.resolve('completed'),
       };
+
       const instanceConfig: InstanceConfigReader = {
         config: {
           ...BUILT_IN_DEFAULTS,
@@ -1170,6 +1254,7 @@ describeIfDb(
           },
         },
       };
+
       const failingLoop = new ChatLoopService(
         tenantDb,
         models,
@@ -1178,6 +1263,7 @@ describeIfDb(
         dispatch,
         new MediaService(tenantDb),
       );
+
       const before = await tenantDb.runAs(userId, async (tx) => ({
         chats: (await tx.select().from(schema.chats)).length,
         messages: (await tx.select().from(schema.messages)).length,
@@ -1185,11 +1271,13 @@ describeIfDb(
         runs: (await tx.select().from(schema.runs)).length,
         events: (await tx.select().from(schema.runEvents)).length,
       }));
+
       const append = vi
         .spyOn(RunEventsRepository.prototype, 'append')
         .mockRejectedValueOnce(new Error('forced run.created failure'));
 
       const targetChatId = crypto.randomUUID();
+
       try {
         await expect(
           failingLoop.createMessageStream({
@@ -1213,6 +1301,7 @@ describeIfDb(
         runs: (await tx.select().from(schema.runs)).length,
         events: (await tx.select().from(schema.runEvents)).length,
       }));
+
       expect(after).toEqual(before);
       expect(dispatchRun).not.toHaveBeenCalled();
 
@@ -1224,6 +1313,7 @@ describeIfDb(
       const rolledBack = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).findById(targetChatId, userId),
       );
+
       expect(rolledBack).toBeUndefined();
     });
 
@@ -1231,12 +1321,15 @@ describeIfDb(
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
+
       const target = await tenantDb.runAs(userId, async (tx) => {
         const chats = new ChatsRepository(tx);
+
         const chat = await chats.create({
           ownerUserId: userId,
           title: 'Target',
         });
+
         await chats.setRecencyDigestIfAbsent(
           chat.id,
           userId,
@@ -1251,9 +1344,12 @@ describeIfDb(
           },
           [],
         );
+
         return chat;
       });
+
       await seedEligibleChat(userId, 'Event source', 'opening');
+
       const append = vi
         .spyOn(RunEventsRepository.prototype, 'append')
         .mockRejectedValueOnce(new Error('forced append failure'));
@@ -1269,6 +1365,7 @@ describeIfDb(
       const after = await tenantDb.runAs(userId, (tx) =>
         new ChatsRepository(tx).findById(target.id, userId),
       );
+
       expect(after?.recencyDigestTold).toEqual([]);
     });
 
@@ -1279,19 +1376,24 @@ describeIfDb(
 
       await send(chatId, crypto.randomUUID(), 'first', modelA);
       const firstJob = dispatchCalls.at(-1);
+
       if (!firstJob) throw new Error('Expected first Run dispatch');
       await executeWorker(firstJob);
 
       await send(chatId, crypto.randomUUID(), 'same model', modelA);
       const sameModelJob = dispatchCalls.at(-1);
+
       if (!sameModelJob) throw new Error('Expected same-model Run dispatch');
+
       const preparedSameModel = await executeWorker(sameModelJob, {
         consume: false,
       });
+
       await finish(preparedSameModel.id, 'failed');
 
       await send(chatId, crypto.randomUUID(), 'switch after failure', modelB);
       const switchJob = dispatchCalls.at(-1);
+
       if (!switchJob) throw new Error('Expected model-switch Run dispatch');
       await executeWorker(switchJob);
 
@@ -1299,6 +1401,7 @@ describeIfDb(
         await new MessagesRepository(tx).findByChatId(chatId, userId),
         await new RunsRepository(tx).findByChatId(chatId, userId),
       ]);
+
       const userMessages = messages.filter(({ role }) => role === 'user');
       expectMessageParts(
         userMessages[0]?.parts ?? [],
@@ -1384,6 +1487,7 @@ describeIfDb(
       const persisted = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findById(chatId, userId, messageId),
       );
+
       // The forged client parts are gone; context-rail items are not added
       // until the worker prepares a successful attempt.
       expect(persisted?.parts).toEqual([
@@ -1395,19 +1499,24 @@ describeIfDb(
       const chatId = crypto.randomUUID();
       await send(chatId, crypto.randomUUID(), 'first context');
       const firstJob = dispatchCalls.at(-1);
+
       if (!firstJob) throw new Error('Expected first context dispatch');
       await executeWorker(firstJob, { consume: false });
+
       const firstRunResult = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findMostRecentByMessageSequence(chatId, userId),
       );
+
       if (!firstRunResult) throw new Error('Expected first run');
       const firstRun = firstRunResult.run;
+
       const firstReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           firstRun.id,
           userId,
         ),
       );
+
       expect(firstReceipts[0]?.systemPrompt).toBe(
         'Chat-loop integration prompt',
       );
@@ -1419,19 +1528,25 @@ describeIfDb(
 
       await send(chatId, crypto.randomUUID(), 'later context');
       const secondJob = dispatchCalls.at(-1);
+
       if (!secondJob) throw new Error('Expected later context dispatch');
       await executeWorker(secondJob, { consume: false });
+
       const runs = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findByChatId(chatId, userId),
       );
+
       const secondRun = runs[1];
+
       if (!secondRun) throw new Error('Expected second run');
+
       const secondReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           secondRun.id,
           userId,
         ),
       );
+
       expect(secondReceipts[0]?.systemPrompt).toBe('Later prompt');
       expect(secondReceipts[0]).not.toHaveProperty('declarations');
       expect(firstReceipts[0]?.systemPrompt).not.toBe(
@@ -1440,6 +1555,7 @@ describeIfDb(
     });
     it('persists only observable availability changes and uses every dispatched Run as the baseline', async () => {
       const chatId = crypto.randomUUID();
+
       const degraded = availabilityContext([
         {
           id: 'mcp__docs__lookup',
@@ -1447,6 +1563,7 @@ describeIfDb(
           reason: 'source_disconnected',
         },
       ]);
+
       const changedDiagnostic = availabilityContext([
         {
           id: 'mcp__docs__lookup',
@@ -1454,9 +1571,11 @@ describeIfDb(
           reason: 'source_connecting',
         },
       ]);
+
       const healthy = availabilityContext([
         { id: 'mcp__docs__lookup', state: 'available' },
       ]);
+
       const empty = availabilityContext([]);
 
       const first = await persistWithContext(
@@ -1464,6 +1583,7 @@ describeIfDb(
         'first degraded turn',
         degraded,
       );
+
       const firstAvailability = await availabilityItem(first);
       expect(firstAvailability).toContain('mcp__docs__lookup');
       expect(firstAvailability).toContain('server disconnected');
@@ -1478,6 +1598,7 @@ describeIfDb(
         'same outage with a changed internal reason',
         changedDiagnostic,
       );
+
       expect(await availabilityItem(unchangedOutage)).toBeUndefined();
       await finish(unchangedOutage.runId, 'completed');
 
@@ -1486,6 +1607,7 @@ describeIfDb(
         'tool recovered',
         healthy,
       );
+
       const recoveredAvailability = await availabilityItem(recovered);
       expect(recoveredAvailability).toContain('mcp__docs__lookup');
       expect(recoveredAvailability).toContain('tool restored');
@@ -1496,6 +1618,7 @@ describeIfDb(
         'disconnect and reconnect between attempts',
         healthy,
       );
+
       expect(await availabilityItem(transientFlap)).toBeUndefined();
       await finish(transientFlap.runId, 'expired');
 
@@ -1513,6 +1636,7 @@ describeIfDb(
         'newly eligible but unavailable',
         degraded,
       );
+
       expect(await availabilityItem(newlyUnavailable)).toContain(
         'mcp__docs__lookup',
       );
@@ -1523,15 +1647,18 @@ describeIfDb(
           userId,
         ),
       );
+
       expect(receipts[0]?.systemPrompt).toEqual(expect.any(String));
       expect(receipts[0]).not.toHaveProperty('availabilityManifest');
     });
 
     it('serializes the availability baseline read with concurrent accepted turns', async () => {
       const chatId = crypto.randomUUID();
+
       const healthy = availabilityContext([
         { id: 'mcp__docs__lookup', state: 'available' },
       ]);
+
       const degraded = availabilityContext([
         {
           id: 'mcp__docs__lookup',
@@ -1539,20 +1666,25 @@ describeIfDb(
           reason: 'source_disconnected',
         },
       ]);
+
       const baseline = await persistWithContext(
         chatId,
         'healthy baseline',
         healthy,
       );
+
       await finish(baseline.runId, 'completed');
 
       const gate = () => {
         let release!: () => void;
+
         const promise = new Promise<void>((resolve) => {
           release = resolve;
         });
+
         return { promise, release };
       };
+
       const firstLocked = gate();
       const releaseFirst = gate();
       const secondCalled = gate();
@@ -1561,6 +1693,7 @@ describeIfDb(
       // eslint-disable-next-line @typescript-eslint/unbound-method -- deliberately captured unbound and re-invoked with an explicit receiver below.
       const originalTouch = ChatsRepository.prototype.touch;
       let touchCalls = 0;
+
       const touch = vi
         .spyOn(ChatsRepository.prototype, 'touch')
         .mockImplementation(async function (
@@ -1569,11 +1702,14 @@ describeIfDb(
           queriedUserId: string,
         ): Promise<Awaited<ReturnType<ChatsRepository['touch']>>> {
           touchCalls += 1;
+
           if (touchCalls === 2) secondCalled.release();
+
           // Keep the real return value: `touch` now hands back the post-lock
           // row, and the caller renders from it.
           const touched: Awaited<ReturnType<ChatsRepository['touch']>> =
             await originalTouch.call(this, queriedChatId, queriedUserId);
+
           if (touchCalls === 1) {
             firstLocked.release();
             await releaseFirst.promise;
@@ -1581,12 +1717,15 @@ describeIfDb(
             secondLocked.release();
             await releaseSecond.promise;
           }
+
           return touched;
         });
+
       const resolve = vi
         .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(degraded)
         .mockResolvedValueOnce(healthy);
+
       const degradedMessageId = crypto.randomUUID();
       const recoveredMessageId = crypto.randomUUID();
 
@@ -1596,20 +1735,25 @@ describeIfDb(
           degradedMessageId,
           'concurrent degradation',
         );
+
         await firstLocked.promise;
+
         const recoveredTurn = send(
           chatId,
           recoveredMessageId,
           'concurrent recovery',
         );
+
         await secondCalled.promise;
 
         releaseFirst.release();
         await degradedTurn;
         await secondLocked.promise;
+
         const degradedJob = dispatchCalls.find(
           ({ userMessage }) => userMessage.id === degradedMessageId,
         );
+
         if (!degradedJob) throw new Error('Expected degraded Run dispatch');
         await executeWorker(degradedJob, {
           consume: false,
@@ -1621,6 +1765,7 @@ describeIfDb(
         const recoveredJob = dispatchCalls.find(
           ({ userMessage }) => userMessage.id === recoveredMessageId,
         );
+
         if (!recoveredJob) throw new Error('Expected recovered Run dispatch');
         await executeWorker(recoveredJob, { consume: false });
         expect(await availabilityItem(recoveredJob)).toContain('tool restored');
@@ -1638,6 +1783,7 @@ describeIfDb(
         const chat = await new ChatsRepository(tx).create({
           ownerUserId: userId,
         });
+
         const message = await new MessagesRepository(
           tx,
         ).createUserMessageIfAbsent({
@@ -1646,39 +1792,49 @@ describeIfDb(
           senderUserId: userId,
           parts: [{ type: 'text', text: 'historical turn' }],
         });
+
         const run = await new RunsRepository(tx).create({
           chatId: chat.id,
           messageId: message!.id,
           userId,
           modelId: 'system:openai:gpt-5.4-mini',
         });
+
         await new RunsRepository(tx).markFinished(run.id, userId, 'completed');
+
         return chat.id;
       });
+
       const healthy = availabilityContext([
         { id: 'mcp__docs__lookup', state: 'available' },
       ]);
+
       const afterLegacy = await persistWithContext(
         legacyChat,
         'first observed healthy turn',
         healthy,
       );
+
       expect(await availabilityItem(afterLegacy)).toBeUndefined();
+
       const observedReceipts = await tenantDb.runAs(userId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           afterLegacy.runId,
           userId,
         ),
       );
+
       expect(observedReceipts[0]?.systemPrompt).toEqual(expect.any(String));
       expect(observedReceipts[0]).not.toHaveProperty('availabilityManifest');
 
       const degradedChatId = crypto.randomUUID();
+
       const beforeCompaction = await persistWithContext(
         degradedChatId,
         'healthy before compaction',
         healthy,
       );
+
       await finish(beforeCompaction.runId, 'completed');
       await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).createCheckpoint({
@@ -1689,6 +1845,7 @@ describeIfDb(
           ),
         }),
       );
+
       const degraded = availabilityContext([
         {
           id: 'mcp__docs__lookup',
@@ -1696,29 +1853,36 @@ describeIfDb(
           reason: 'source_disconnected',
         },
       ]);
+
       const firstAfterCompaction = await persistWithContext(
         degradedChatId,
         'degraded after compaction',
         degraded,
       );
+
       const firstAfterAvailability =
         await availabilityItem(firstAfterCompaction);
+
       expect(firstAfterAvailability).toContain('mcp__docs__lookup');
       expect(firstAfterAvailability).toContain('server disconnected');
       await finish(firstAfterCompaction.runId, 'completed');
+
       const repeated = await persistWithContext(
         degradedChatId,
         'unchanged after new epoch baseline',
         degraded,
       );
+
       expect(await availabilityItem(repeated)).toBeUndefined();
 
       const healthyChatId = crypto.randomUUID();
+
       const degradedBefore = await persistWithContext(
         healthyChatId,
         'degraded before healthy epoch',
         degraded,
       );
+
       await finish(degradedBefore.runId, 'completed');
       await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).createCheckpoint({
@@ -1727,11 +1891,13 @@ describeIfDb(
           part: createCompactionCheckpointPart('Historical outage summary.'),
         }),
       );
+
       const healthyAfterCompaction = await persistWithContext(
         healthyChatId,
         'healthy after compaction',
         healthy,
       );
+
       expect(await availabilityItem(healthyAfterCompaction)).toBeUndefined();
     });
 
@@ -1740,6 +1906,7 @@ describeIfDb(
         shareRecentChats: true,
       });
       const chatId = crypto.randomUUID();
+
       const degraded = availabilityContext([
         {
           id: 'mcp__docs__lookup',
@@ -1751,15 +1918,19 @@ describeIfDb(
       const failedResolve = vi
         .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(degraded);
+
       let failedRun: Run;
+
       try {
         await send(chatId, crypto.randomUUID(), 'worker failure');
         const failedJob = dispatchCalls.at(-1);
+
         if (!failedJob) throw new Error('Expected failed Run dispatch');
         failedRun = await executeWorker(failedJob, { fail: true });
       } finally {
         failedResolve.mockRestore();
       }
+
       if (failedRun.status !== 'failed') {
         await finish(failedRun.id, 'failed');
       }
@@ -1768,9 +1939,11 @@ describeIfDb(
         chat: await new ChatsRepository(tx).findById(chatId, userId),
         messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
       }));
+
       // A first-turn digest baseline waits for a completed turn.
       expect(afterFailure.chat?.recencyDigestBaseline).toBeNull();
       expect(afterFailure.chat?.recencyDigestTold).toBeNull();
+
       // The reminder rode the dispatched request, so it stays on the failed
       // turn's user message.
       const unavailableReminder = {
@@ -1792,6 +1965,7 @@ describeIfDb(
           },
         },
       };
+
       expectMessageParts(
         afterFailure.messages.find(({ role }) => role === 'user')?.parts ?? [],
         [unavailableReminder, { type: 'text', text: 'worker failure' }],
@@ -1801,10 +1975,13 @@ describeIfDb(
       const successfulResolve = vi
         .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(degraded);
+
       let successfulRun: Run;
+
       try {
         await send(chatId, crypto.randomUUID(), 'accepted after failure');
         const successfulJob = dispatchCalls.at(-1);
+
         if (!successfulJob) throw new Error('Expected successful Run dispatch');
         successfulRun = await executeWorker(successfulJob);
       } finally {
@@ -1815,11 +1992,14 @@ describeIfDb(
         chat: await new ChatsRepository(tx).findById(chatId, userId),
         messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
       }));
+
       expect(afterSuccess.chat?.recencyDigestBaseline).not.toBeNull();
       expect(afterSuccess.chat?.recencyDigestTold).not.toBeNull();
+
       const userMessages = afterSuccess.messages.filter(
         ({ role }) => role === 'user',
       );
+
       // The failed Run's record is the baseline, so the unchanged outage is
       // not announced a second time.
       expectMessageParts(

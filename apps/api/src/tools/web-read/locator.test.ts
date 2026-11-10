@@ -110,6 +110,7 @@ describe('parseWebLocator', () => {
       selector: 'outline:5-9',
     });
     const result = parseWebLocator('https://h/doc.md:outline:1,3');
+
     if (!('type' in result)) throw new Error('expected selector failure');
     expect(result.type).toBe('invalid_selector');
   });
@@ -420,6 +421,7 @@ describe('parseWebLocator', () => {
       'outline:5+3',
       'outline:-5',
     ];
+
     const unnamed = ['outline:1,3', 'nonsense', '-', '1--2'];
     expect(named.filter((selector) => !isSelectorSuffix(selector))).toEqual([]);
     expect(unnamed.filter((selector) => isSelectorSuffix(selector))).toEqual(
@@ -450,9 +452,11 @@ describe('parseWebLocator', () => {
     expect(parseWebLocator('https://w.example/wiki/Special%3ASearch')).toEqual({
       url: 'https://w.example/wiki/Special%3ASearch',
     });
+
     const literalColon = parseWebLocator(
       'https://w.example/wiki/Special:Search',
     );
+
     expect(literalColon).toMatchObject({ type: 'invalid_selector' });
     expect(literalColon).toHaveProperty(
       'message',

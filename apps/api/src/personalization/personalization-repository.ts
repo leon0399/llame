@@ -36,6 +36,7 @@ export class PersonalizationRepository {
       .from(personalization)
       .where(eq(personalization.userId, ownerUserId))
       .limit(1);
+
     return row;
   }
 
@@ -61,6 +62,7 @@ export class PersonalizationRepository {
       .from(users)
       .where(eq(users.id, ownerUserId))
       .limit(1);
+
     return row;
   }
 
@@ -84,6 +86,7 @@ export class PersonalizationRepository {
         set: { ...update, updatedAt: new Date() },
       })
       .returning();
+
     return row;
   }
 }

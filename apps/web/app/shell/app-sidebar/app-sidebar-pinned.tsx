@@ -58,6 +58,7 @@ function PinnedChatLabel({
   const activeRuns = useOptionalActiveRuns();
   const naming = activeRuns?.activeChatIds.has(pin.itemId) ?? false;
   const muted = isArchived || (pin.item.title === null && !naming);
+
   return (
     <SidebarMenuButton
       className="min-w-0 flex-1"
@@ -199,6 +200,7 @@ function SortablePinnedRow({
   onReorderCommit: () => void;
 }) {
   const dragControls = useDragControls();
+
   return (
     <Reorder.Item
       as="li"
@@ -248,6 +250,7 @@ function useReorderablePins(pins: Array<PinnedItem> | undefined) {
   const onReorderCommit = () => {
     draggingRef.current = false;
     const next = itemsRef.current;
+
     const same =
       next.length === (pins?.length ?? 0) &&
       next.every(
@@ -255,6 +258,7 @@ function useReorderablePins(pins: Array<PinnedItem> | undefined) {
           pin.itemType === pins?.[i]?.itemType &&
           pin.itemId === pins?.[i]?.itemId,
       );
+
     if (same) return;
     reorderMutation.mutate(next);
   };
@@ -271,6 +275,7 @@ function useReorderablePins(pins: Array<PinnedItem> | undefined) {
  */
 export function AppSidebarPinned() {
   const { data: pins } = usePins();
+
   const { items, setItems, onDragStart, onReorderCommit } =
     useReorderablePins(pins);
 

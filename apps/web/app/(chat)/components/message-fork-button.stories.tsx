@@ -31,6 +31,7 @@ const meta = {
 } satisfies Meta<typeof MessageForkButton>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -49,6 +50,7 @@ export const Basic: Story = {
 
     await userEvent.click(button);
     await expect(forkMutate).toHaveBeenCalledTimes(1);
+
     // Direct call inspection instead of expect.any(Function): browser-mode
     // matchers instanceof-check against the wrong realm's Function.
     // SAFETY: MessageForkButton always calls `mutate` with these two
@@ -57,6 +59,7 @@ export const Basic: Story = {
       { chatId: string; fromMessageId: string },
       { onSuccess: (forked: { id: string }) => void },
     ];
+
     await expect(variables).toEqual({
       chatId: "chat-1",
       fromMessageId: "msg-2",

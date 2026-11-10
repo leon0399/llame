@@ -10,6 +10,7 @@ import {
 import { createHostedMcp, mcpTextParts } from './hosted-mcp';
 
 const hostedToolName = 'hosted_search';
+
 const hostedTool = {
   name: hostedToolName,
   description: 'Fixture search tool',
@@ -94,10 +95,12 @@ describe('createHostedMcp', () => {
         },
       ]),
     );
+
     activeFixture = fixture;
     const controller = new AbortController();
     const added = vi.spyOn(controller.signal, 'addEventListener');
     const removed = vi.spyOn(controller.signal, 'removeEventListener');
+
     const hosted = createHostedMcp<{ readonly q: string }>({
       url: fixture.url,
       toolName: hostedToolName,
@@ -115,6 +118,7 @@ describe('createHostedMcp', () => {
     const abortListener = added.mock.calls.find(
       ([event]) => event === 'abort',
     )?.[1];
+
     expect(abortListener).toBeDefined();
     expect(added).toHaveBeenCalledWith('abort', abortListener, { once: true });
     expect(removed).toHaveBeenCalledWith('abort', abortListener);
@@ -146,19 +150,24 @@ describe('createHostedMcp', () => {
         ],
       ),
     );
+
     activeFixture = fixture;
+
     const hosted = createHostedMcp<{ readonly q: string }>({
       url: fixture.url,
       toolName: hostedToolName,
       fetch: routedFetch(fixture),
     });
+
     const controller = new AbortController();
     const reason = new Error('caller cancelled the handshake');
+
     const pending = hosted.call(
       { q: 'read' },
       { signal: controller.signal, userAgent: 'llame/test' },
       (result) => mcpTextParts(result).join(' '),
     );
+
     await vi.waitFor(() => {
       expect(
         fixture
@@ -228,19 +237,24 @@ describe('createHostedMcp', () => {
         ],
       ),
     );
+
     activeFixture = fixture;
+
     const hosted = createHostedMcp<{ readonly q: string }>({
       url: fixture.url,
       toolName: hostedToolName,
       fetch: routedFetch(fixture),
     });
+
     const controller = new AbortController();
     const reason = new Error('caller cancelled the handshake');
+
     const pending = hosted.call(
       { q: 'read' },
       { signal: controller.signal, userAgent: 'llame/test' },
       (result) => mcpTextParts(result).join(' '),
     );
+
     await vi.waitFor(() => {
       expect(
         fixture
@@ -294,13 +308,17 @@ describe('createHostedMcp', () => {
         ],
       ),
     );
+
     activeFixture = fixture;
+
     const hosted = createHostedMcp<{ readonly q: string }>({
       url: fixture.url,
       toolName: hostedToolName,
       fetch: routedFetch(fixture),
     });
+
     const signal = new AbortController().signal;
+
     const interpret = (result: Parameters<typeof mcpTextParts>[0]): string =>
       mcpTextParts(result).join(' ');
 

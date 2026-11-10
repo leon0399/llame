@@ -20,6 +20,7 @@ import { RunsRepository } from '../runs/runs-repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
@@ -34,6 +35,7 @@ describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
     await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).createIfAbsent({ id, ownerUserId: owner, title }),
     );
+
     return id;
   };
 
@@ -45,12 +47,14 @@ describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
         senderUserId: owner,
         parts: [{ type: 'text', text: 'go' }],
       });
+
       const run = await new RunsRepository(tx).create({
         chatId,
         messageId: message.id,
         userId: owner,
         modelId: 'system:openai:gpt-5.4-mini',
       });
+
       return run.id;
     });
   };
@@ -64,6 +68,7 @@ describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
     tenantDb = new TenantDbService(db);
     a = crypto.randomUUID();
     b = crypto.randomUUID();
+
     for (const id of [a, b]) {
       await sql`INSERT INTO users (id, name, email) VALUES (${id}, 'R', ${`r-${id}@t.com`})`;
     }
@@ -122,6 +127,7 @@ describeIfDb('findActiveByUser — RLS + non-terminal filter', () => {
         visibility: 'public',
       }),
     );
+
     await newRun(a, publicChat.id);
 
     const asB = await tenantDb.runAs(b, (tx) =>

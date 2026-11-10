@@ -61,6 +61,7 @@ for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'])
 const CREATED_AT = new Date('2026-10-24T00:00:00.000Z');
 const OWNER = 'owner-1';
 const CHAT_ID = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
+
 const NAME: WorktreeName = {
   name: 'clear-field-0192',
   slug: 'clear-field-0192',
@@ -72,7 +73,9 @@ const connectors: Array<MachineConnector> = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+
   for (const connector of connectors.splice(0)) connector.onModuleDestroy();
+
   for (const directory of created.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -81,6 +84,7 @@ afterEach(() => {
 function tempDirectory(prefix = 'creation-worktree-'): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   created.push(directory);
+
   return directory;
 }
 
@@ -103,6 +107,7 @@ function clone(): string {
   writeFileSync(join(directory, 'README.md'), 'readme\n');
   runGit(directory, ['add', 'README.md']);
   runGit(directory, ['commit', '--quiet', '--message', 'first']);
+
   return directory;
 }
 
@@ -113,6 +118,7 @@ function headOf(directory: string): string {
 function linkedWorktree(main: string, branch: string): string {
   const target = join(tempDirectory('creation-linked-'), branch);
   runGit(main, ['worktree', 'add', '--quiet', '-b', branch, target]);
+
   return target;
 }
 
@@ -132,7 +138,9 @@ function executors(): ExecutorGit {
     machines: undefined,
     idleCloseMs: 1000,
   });
+
   connectors.push(connector);
+
   return new ExecutorGit(
     { config: configWith() },
     connector,
@@ -228,13 +236,16 @@ function context() {
   // the transaction handle is never dereferenced.
   // eslint-disable-next-line typescript/no-unsafe-type-assertion
   const tx = {} as Db;
+
   const tenantDb: TenantRunner = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
       callback(tx),
   );
+
   return { tenantDb, userId: OWNER, chatId: CHAT_ID };
 }
 
@@ -249,6 +260,7 @@ describe('planCreationWorktree', () => {
       creationInput(source, {
         decide: (kind, address) => {
           decisions.push([kind, address]);
+
           return undefined;
         },
       }),
@@ -261,6 +273,7 @@ describe('planCreationWorktree', () => {
       'llame',
       'clear-field-0192',
     );
+
     expect(plan).toEqual({
       mainClone: source,
       directory,
@@ -284,6 +297,7 @@ describe('planCreationWorktree', () => {
       creationInput(linked, {
         decide: (kind) => {
           decisions.push(kind);
+
           return undefined;
         },
       }),
@@ -295,6 +309,7 @@ describe('planCreationWorktree', () => {
 
   it('answers the rejection that ends the plan, before any write', async () => {
     const source = clone();
+
     const rejection: ToolErrorResult = {
       status: 'error',
       type: 'permission_denied',
@@ -315,6 +330,7 @@ describe('planCreationWorktree', () => {
 
   it('reports a supplied name whose directory already exists', async () => {
     const source = clone();
+
     const directory = join(
       source,
       '..',
@@ -322,6 +338,7 @@ describe('planCreationWorktree', () => {
       'llame',
       'clear-field-0192',
     );
+
     mkdirSync(directory, { recursive: true });
 
     await expect(
@@ -367,6 +384,7 @@ describe('addCreationWorktree', () => {
       'llame',
       'clear-field-0192',
     );
+
     expect(outcome).toEqual({
       status: 'bound',
       root: directory,
@@ -425,6 +443,7 @@ describe('addCreationWorktree', () => {
       branch: 'llame/clear-field-0192',
       sourceHead: second,
     };
+
     const outcome = await addCreationWorktree(
       context(),
       executors(),

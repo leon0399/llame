@@ -45,6 +45,7 @@ function toolPart(toolCallId: string) {
 function reasoningTexts(parts: ReadonlyArray<unknown>): Array<string> {
   return parts.flatMap((part) => {
     if (!isRecord(part) || part.type !== 'reasoning') return [];
+
     return isString(part.text) ? [part.text] : [];
   });
 }
@@ -54,6 +55,7 @@ async function uiPartsFromChunks(
   chunks: ReadonlyArray<UiChunk>,
 ): Promise<UIMessage['parts']> {
   const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`);
+
   const parsed = parseJsonEventStream({
     stream: new Blob(body).stream(),
     schema: uiMessageChunkSchema,
@@ -67,23 +69,28 @@ async function uiPartsFromChunks(
         if (!result.success) {
           throw result.error;
         }
+
         controller.enqueue(result.value);
       },
     }),
   );
 
   let reconstructed: UIMessage | undefined;
+
   for await (const message of readUIMessageStream({ stream: parsed })) {
     reconstructed = message;
   }
+
   if (reconstructed === undefined) {
     throw new Error('Expected the UI chunk stream to reconstruct a message');
   }
+
   return reconstructed.parts;
 }
 
 function chunksFrom(events: Array<RunEvent>): Array<UiChunk> {
   const translator = createRunEventTranslator(RUN_ID);
+
   return events.flatMap((runEvent) => translator.translate(runEvent));
 }
 
@@ -326,12 +333,15 @@ describe('assistant reasoning part identity across live, replay, and history', (
     expect(reconnectUi).toEqual(liveUi);
 
     expect(reasoningTexts(liveUi)).toEqual(reasoningTexts(durable));
+
     const uiKinds = liveUi.map((part) =>
       isRecord(part) ? part.type : undefined,
     );
+
     const durableKinds = durable.map((part) =>
       isRecord(part) ? part.type : undefined,
     );
+
     expect(uiKinds).toEqual([
       'reasoning',
       'reasoning',
@@ -394,6 +404,7 @@ describe('reasoning blocks a provider withheld (D18)', () => {
       event('model.delta', { text: 'the answer' }),
       event('run.completed', null),
     ];
+
     const live = createAssistantPartCollector();
     live.reasoning('', '0:0', firstSignature);
     live.toolRequested('c1');
@@ -447,6 +458,7 @@ describe('reasoning blocks a provider withheld (D18)', () => {
       event('model.delta', { text: 'the answer so far' }),
       event('reasoning.delta', { partId: '0:0', providerMetadata: redacted }),
     ];
+
     const live = createAssistantPartCollector();
     live.text('the answer so far');
     live.reasoning('', '0:0', redacted);
@@ -469,6 +481,7 @@ describe('reasoning blocks a provider withheld (D18)', () => {
     const itemMetadata = {
       openai: { itemId: 'rs_empty', reasoningEncryptedContent: 'enc-empty' },
     };
+
     const turnEvents: Array<RunEvent> = [
       event('reasoning.delta', {
         text: 'the earlier summary',
@@ -484,6 +497,7 @@ describe('reasoning blocks a provider withheld (D18)', () => {
       }),
       event('model.delta', { text: 'the answer' }),
     ];
+
     const live = createAssistantPartCollector();
     live.reasoning('the earlier summary', '0:rs_1:0');
     live.reasoning('', '0:rs_1:0', { openai: { itemId: 'rs_1' } });

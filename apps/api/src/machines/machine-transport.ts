@@ -60,6 +60,7 @@ export type MachineTransportFactory = {
 export function createProcessTransport(link: SshProcess): MachineTransport {
   const diagnostic = collectSshDiagnostic(link.stderr);
   let closedByHub = false;
+
   const ended = new Promise<MachineLinkEnd>((resolve) => {
     link.onClose((code, signal) =>
       resolve({ code, signal, diagnostic: diagnostic(), closedByHub }),
@@ -74,6 +75,7 @@ export function createProcessTransport(link: SshProcess): MachineTransport {
       });
     });
   });
+
   return {
     input: link.stdout,
     output: link.stdin,
@@ -127,6 +129,7 @@ export function createMachineSshTransportFactory(
       identityFile: options.ssh.identityFile,
       includeFile: options.ssh.configFile ?? defaultSshConfigFile(),
     });
+
     return configFile.path;
   }
 

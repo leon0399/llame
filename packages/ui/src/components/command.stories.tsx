@@ -236,7 +236,9 @@ export const AsDialog: Story = {
           setOpen((value) => !value);
         }
       };
+
       document.addEventListener("keydown", down);
+
       return () => document.removeEventListener("keydown", down);
     }, []);
 

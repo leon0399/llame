@@ -17,6 +17,7 @@ const chatPin = {
   pinnedAt: new Date('2026-08-01T00:00:00.000Z'),
   position: 0,
 };
+
 const projectPin = {
   userId: 'owner',
   itemType: 'project' as const,
@@ -27,6 +28,7 @@ const projectPin = {
 
 function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: {
@@ -42,20 +44,25 @@ function makeLoggedDb() {
 function writeResult<T>(result: T, setValues?: Array<{ position: number }>) {
   const terminal = Promise.resolve(result);
   const where = vi.fn(() => terminal);
+
   const set = vi.fn((value: { position: number }) => {
     setValues?.push(value);
+
     return { where };
   });
+
   return { set, where };
 }
 
 function selectResult<T>(result: T): never {
   const whereResult = Promise.resolve(result);
+
   const query = Object.assign(whereResult, {
     from: vi.fn(() => ({ where: vi.fn(() => whereResult) })),
     orderBy: vi.fn(() => whereResult),
     limit: vi.fn(() => whereResult),
   });
+
   // SAFETY: this Promise double implements the exact select().from().where()
   // chain used by the repository.
   // eslint-disable-next-line typescript/no-unsafe-type-assertion
@@ -71,7 +78,9 @@ function asDbQuery<T extends object>(query: T): never {
 
 function nextSelect(results: Array<never>): never {
   const result = results.shift();
+
   if (result === undefined) throw new Error('unexpected select call');
+
   return result;
 }
 
@@ -154,16 +163,20 @@ describe('PinsRepository reorder', () => {
 
   it('drops orphan pins, writes temporary and final positions, and returns hydrated rows', async () => {
     const orphan = { ...chatPin, itemId: 'chat-orphan' };
+
     const existingRows = [
       { itemType: chatPin.itemType, itemId: chatPin.itemId, position: 0 },
       { itemType: projectPin.itemType, itemId: projectPin.itemId, position: 1 },
       { itemType: orphan.itemType, itemId: orphan.itemId, position: 2 },
     ];
+
     const finalRows = [
       { ...projectPin, position: 0 },
       { ...chatPin, position: 1 },
     ];
+
     const db: Db = drizzle.mock({ schema });
+
     const selectResults = [
       selectResult(existingRows),
       selectResult([{ id: chatPin.itemId }]),
@@ -174,6 +187,7 @@ describe('PinsRepository reorder', () => {
         { id: projectPin.itemId, name: 'Project', archivedAt: null },
       ]),
     ];
+
     // SAFETY: every fixture implements the exact select().from().where()
     // subset used by reorder() and its final listWithCards() read.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(selectResults));
@@ -183,6 +197,7 @@ describe('PinsRepository reorder', () => {
     vi.spyOn(db, 'delete').mockImplementation(() => {
       const query = writeResult(undefined);
       deletes.push(query);
+
       // SAFETY: the query fixture above implements the exact fluent subset.
       return asDbQuery(query);
     });
@@ -193,6 +208,7 @@ describe('PinsRepository reorder', () => {
     vi.spyOn(db, 'update').mockImplementation(() => {
       const query = writeResult(undefined, setValues);
       updates.push(query);
+
       // SAFETY: the query fixture above implements the exact fluent subset.
       return asDbQuery(query);
     });
@@ -230,6 +246,7 @@ describe('PinsRepository reorder', () => {
 
   it('reorders a chat-only set without querying project cards', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const selectResults = [
       selectResult([
         { itemType: chatPin.itemType, itemId: chatPin.itemId, position: 0 },
@@ -238,6 +255,7 @@ describe('PinsRepository reorder', () => {
       selectResult([chatPin]),
       selectResult([{ id: chatPin.itemId, title: 'Chat', archivedAt: null }]),
     ];
+
     // SAFETY: these fixtures implement the select chains used by reorder() and
     // its final chat-only listWithCards() read.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(selectResults));
@@ -248,6 +266,7 @@ describe('PinsRepository reorder', () => {
     vi.spyOn(db, 'update').mockImplementation(() => {
       const query = writeResult(undefined, setValues);
       updates.push(query);
+
       // SAFETY: the query fixture above implements the exact fluent subset.
       return asDbQuery(query);
     });
@@ -285,6 +304,7 @@ describe('PinsRepository reorder', () => {
 describe('PinsRepository hydration and writes', () => {
   it('hydrates chat and project cards and drops an inaccessible pin', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const results = [
       selectResult([chatPin, projectPin, { ...chatPin, itemId: 'missing' }]),
       selectResult([{ id: chatPin.itemId, title: 'Chat', archivedAt: null }]),
@@ -292,6 +312,7 @@ describe('PinsRepository hydration and writes', () => {
         { id: projectPin.itemId, name: 'Project', archivedAt: null },
       ]),
     ];
+
     // SAFETY: the repository only invokes `from().where()` and then awaits the
     // returned fluent value; these fixtures provide exactly that subset.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(results));
@@ -322,14 +343,17 @@ describe('PinsRepository hydration and writes', () => {
         onConflictDoNothing: vi.fn(() => Promise.resolve()),
       })),
     }));
+
     const db: Db = drizzle.mock({ schema });
     // SAFETY: the insert fixture implements the exact values/conflict chain
     // used by `PinsRepository.pin`, and its terminal promise is deterministic.
     vi.spyOn(db, 'insert').mockImplementation(() => asDbQuery(insert()));
+
     const results = [
       selectResult([chatPin]),
       selectResult([{ id: chatPin.itemId, title: 'Chat', archivedAt: null }]),
     ];
+
     // SAFETY: the repository only invokes `from().where()` and then awaits the
     // returned fluent value; these fixtures provide exactly that subset.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(results));
@@ -350,16 +374,19 @@ describe('PinsRepository hydration and writes', () => {
         onConflictDoNothing: vi.fn(() => Promise.resolve()),
       })),
     }));
+
     const db: Db = drizzle.mock({ schema });
     // SAFETY: the insert fixture implements the exact values/conflict chain
     // used by PinsRepository.pin, and its terminal promise is deterministic.
     vi.spyOn(db, 'insert').mockImplementation(() => asDbQuery(insert()));
+
     const results = [
       selectResult([projectPin]),
       selectResult([
         { id: projectPin.itemId, name: 'Project', archivedAt: null },
       ]),
     ];
+
     // SAFETY: these fixtures implement the select chains used by findOneWithCard
     // and the project-card lookup.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(results));
@@ -376,10 +403,12 @@ describe('PinsRepository hydration and writes', () => {
 
   it('hydrates a chat-only list without querying project cards', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const results = [
       selectResult([chatPin]),
       selectResult([{ id: chatPin.itemId, title: 'Chat', archivedAt: null }]),
     ];
+
     // SAFETY: these fixtures implement the select chains used by listWithCards
     // and its chat-card lookup.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(results));
@@ -399,12 +428,14 @@ describe('PinsRepository hydration and writes', () => {
 
   it('hydrates a project-only list without querying chat cards', async () => {
     const db: Db = drizzle.mock({ schema });
+
     const results = [
       selectResult([projectPin]),
       selectResult([
         { id: projectPin.itemId, name: 'Project', archivedAt: null },
       ]),
     ];
+
     // SAFETY: these fixtures implement the select chains used by listWithCards
     // and its project-card lookup.
     vi.spyOn(db, 'select').mockImplementation(() => nextSelect(results));
@@ -428,6 +459,7 @@ describe('PinsRepository hydration and writes', () => {
         onConflictDoNothing: vi.fn(() => Promise.resolve()),
       })),
     }));
+
     const missingPinDb: Db = drizzle.mock({ schema });
     // SAFETY: the insert fixture implements the exact values/conflict chain
     // used by `PinsRepository.pin`, and its terminal promise is deterministic.

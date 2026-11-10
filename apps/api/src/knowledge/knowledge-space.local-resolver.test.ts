@@ -53,12 +53,14 @@ describe('KnowledgeSpaceLocalResolver', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-root-'));
     const child = path.join(root, SPACE_ID);
     let childLookedUp = false;
+
     const fileSystem: KnowledgeFileSystem = {
       lstatSync: (filePath) => {
         if (filePath === child && !childLookedUp) {
           childLookedUp = true;
           throw Object.assign(new Error('missing'), { code: 'ENOENT' });
         }
+
         return lstatSync(filePath);
       },
       mkdirSync: (directoryPath) => {
@@ -67,6 +69,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
       },
       realpathSync: (filePath) => realpathSync(filePath),
     };
+
     const resolver = new KnowledgeSpaceLocalResolver(root, fileSystem);
 
     expect(resolver.ensureChild(resolver.resolveRoot(), SPACE_ID)).toBe(child);
@@ -77,14 +80,17 @@ describe('KnowledgeSpaceLocalResolver', () => {
     (kind) => {
       const root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-root-'));
       const child = path.join(root, SPACE_ID);
+
       if (kind === 'symlink') {
         const target = mkdtempSync(
           path.join(tmpdir(), 'llame-knowledge-target-'),
         );
+
         symlinkSync(target, child, 'dir');
       } else {
         writeFileSync(child, 'not a directory');
       }
+
       const resolver = new KnowledgeSpaceLocalResolver(root);
 
       expect(() =>
@@ -130,6 +136,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
       }),
       mkdirSync: () => undefined,
     };
+
     expect(() =>
       new KnowledgeSpaceLocalResolver(
         '/configured',
@@ -147,6 +154,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
       }),
       mkdirSync: () => undefined,
     };
+
     expect(() =>
       new KnowledgeSpaceLocalResolver('/configured', unreadable).resolveRoot(),
     ).toThrow(KnowledgeSpaceUnavailableError);
@@ -154,6 +162,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
 
   it('fails closed on non-not-found child lookup, creation, or race errors', () => {
     const stats = { isDirectory: () => true, isSymbolicLink: () => false };
+
     const lookupFailure: KnowledgeFileSystem = {
       realpathSync: (value) => value,
       lstatSync: () => {
@@ -161,6 +170,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
       },
       mkdirSync: () => undefined,
     };
+
     expect(() =>
       new KnowledgeSpaceLocalResolver('/root', lookupFailure).ensureChild(
         '/root',
@@ -169,6 +179,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
     ).toThrow(KnowledgeSpaceUnavailableError);
 
     let firstLookup = true;
+
     const createFailure: KnowledgeFileSystem = {
       realpathSync: (value) => value,
       lstatSync: () => {
@@ -176,12 +187,14 @@ describe('KnowledgeSpaceLocalResolver', () => {
           firstLookup = false;
           throw Object.assign(new Error('missing'), { code: 'ENOENT' });
         }
+
         return stats;
       },
       mkdirSync: () => {
         throw Object.assign(new Error('denied'), { code: 'EACCES' });
       },
     };
+
     expect(() =>
       new KnowledgeSpaceLocalResolver('/root', createFailure).ensureChild(
         '/root',
@@ -190,6 +203,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
     ).toThrow(KnowledgeSpaceUnavailableError);
 
     firstLookup = true;
+
     const raceFailure: KnowledgeFileSystem = {
       realpathSync: (value) => value,
       lstatSync: () => {
@@ -197,12 +211,14 @@ describe('KnowledgeSpaceLocalResolver', () => {
           firstLookup = false;
           throw Object.assign(new Error('missing'), { code: 'ENOENT' });
         }
+
         throw Object.assign(new Error('still denied'), { code: 'EACCES' });
       },
       mkdirSync: () => {
         throw Object.assign(new Error('concurrent create'), { code: 'EEXIST' });
       },
     };
+
     expect(() =>
       new KnowledgeSpaceLocalResolver('/root', raceFailure).ensureChild(
         '/root',
@@ -213,11 +229,13 @@ describe('KnowledgeSpaceLocalResolver', () => {
 
   it('fails closed when an existing child resolves outside the configured root', () => {
     const stats = { isDirectory: () => true, isSymbolicLink: () => false };
+
     const escaped: KnowledgeFileSystem = {
       lstatSync: () => stats,
       mkdirSync: () => undefined,
       realpathSync: (value) => (value === '/root' ? value : '/other/root'),
     };
+
     expect(() =>
       new KnowledgeSpaceLocalResolver('/root', escaped).resolveChild(
         '/root',
@@ -233,6 +251,7 @@ describe('KnowledgeSpaceLocalResolver', () => {
         throw new Error('permission denied');
       },
     };
+
     expect(() =>
       new KnowledgeSpaceLocalResolver('/root', unreadable).resolveChild(
         '/root',

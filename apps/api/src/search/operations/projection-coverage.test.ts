@@ -15,6 +15,7 @@ describe('getProjectionCoverageReport', () => {
 
   it('maps the bounded aggregate readout without exposing tenant or content fields', async () => {
     const execute = vi.fn().mockResolvedValue([validRow]);
+
     const tenantDb: ProjectionCoverageQueryRunner = {
       runAsPublic: (fn) => fn({ execute }),
     };
@@ -42,6 +43,7 @@ describe('getProjectionCoverageReport', () => {
 
   it('fails closed when the aggregate function returns multiple rows', async () => {
     const execute = vi.fn().mockResolvedValue([validRow, validRow]);
+
     const tenantDb: ProjectionCoverageQueryRunner = {
       runAsPublic: (fn) => fn({ execute }),
     };
@@ -62,6 +64,7 @@ describe('getProjectionCoverageReport', () => {
     const execute = vi
       .fn()
       .mockResolvedValue([{ ...validRow, [field]: value }]);
+
     const tenantDb: ProjectionCoverageQueryRunner = {
       runAsPublic: (fn) => fn({ execute }),
     };
@@ -79,7 +82,9 @@ describe('getProjectionCoverageReport', () => {
       document_count: validRow.document_count,
       complete_document_count: validRow.complete_document_count,
     };
+
     const execute = vi.fn().mockResolvedValue([missing]);
+
     const tenantDb: ProjectionCoverageQueryRunner = {
       runAsPublic: (fn) => fn({ execute }),
     };
@@ -91,6 +96,7 @@ describe('getProjectionCoverageReport', () => {
 
   it('rejects a non-object aggregate row', async () => {
     const execute = vi.fn().mockResolvedValue([null]);
+
     const tenantDb: ProjectionCoverageQueryRunner = {
       runAsPublic: (fn) => fn({ execute }),
     };
@@ -104,12 +110,15 @@ describe('getProjectionCoverageReport', () => {
     const zero = vi
       .fn()
       .mockResolvedValue([{ ...validRow, chunker_version: 0 }]);
+
     const mismatch = vi
       .fn()
       .mockResolvedValue([{ ...validRow, chunker_version: 5 }]);
+
     const zeroDb: ProjectionCoverageQueryRunner = {
       runAsPublic: (fn) => fn({ execute: zero }),
     };
+
     const mismatchDb: ProjectionCoverageQueryRunner = {
       runAsPublic: (fn) => fn({ execute: mismatch }),
     };

@@ -15,29 +15,37 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 const requestUrl = (input: RequestInfo | URL): string => {
   if (input instanceof URL) return input.href;
+
   if (input instanceof Request) return input.url;
+
   return input;
 };
+
 type BraveFixtureBody = {
   readonly web?: {
     readonly results?: string | ReadonlyArray<Readonly<Record<string, string>>>;
   };
 };
+
 const response = (
   body: BraveFixtureBody,
   status = 200,
   headers: HeadersInit = { 'content-type': 'application/json' },
 ): Response => new Response(JSON.stringify(body), { status, headers });
+
 const emptyResponse = (): Response => response({ web: { results: [] } });
 
 it('maps query, limit, freshness, headers, and HTML descriptions', async () => {
   let seenUrl = '';
   let seenInit: RequestInit | undefined;
+
   const fetch: VendorFetch = (input, init) => {
     seenUrl = requestUrl(input);
     seenInit = init;
+
     return Promise.resolve(
       response({
         web: {
@@ -53,10 +61,12 @@ it('maps query, limit, freshness, headers, and HTML descriptions', async () => {
       }),
     );
   };
+
   const result = await createBraveEngine(
     { key: 'secret' },
     { fetch },
   )(request());
+
   const url = new URL(seenUrl);
   expect(url.origin + url.pathname).toBe(BRAVE_SEARCH_URL);
   expect(url.searchParams.get('q')).toBe('site:example.test "quoted"');
@@ -88,10 +98,13 @@ it.each([
   ['year', 'py'],
 ] as const)('maps %s recency to %s freshness', async (recency, freshness) => {
   let seenUrl = '';
+
   const fetch: VendorFetch = (input) => {
     seenUrl = requestUrl(input);
+
     return Promise.resolve(emptyResponse());
   };
+
   await createBraveEngine({ key: 'secret' }, { fetch })(request({ recency }));
   expect(new URL(seenUrl).searchParams.get('freshness')).toBe(freshness);
 });
@@ -101,23 +114,29 @@ it('returns empty when Brave has no results', async () => {
     { key: 'secret' },
     { fetch: () => Promise.resolve(emptyResponse()) },
   );
+
   await expect(engine(request())).resolves.toEqual({ kind: 'empty' });
 });
 
 it('clamps the requested count to the brave maximum', async () => {
   let seenUrl = '';
+
   const fetch: VendorFetch = (input) => {
     seenUrl = requestUrl(input);
+
     return Promise.resolve(emptyResponse());
   };
+
   await createBraveEngine({ key: 'secret' }, { fetch })(request({ limit: 25 }));
   expect(new URL(seenUrl).searchParams.get('count')).toBe('20');
 });
 
 it('ignores the objective without a note', async () => {
   let seenUrl = '';
+
   const fetch: VendorFetch = (input) => {
     seenUrl = requestUrl(input);
+
     return Promise.resolve(
       response({
         web: {
@@ -126,10 +145,12 @@ it('ignores the objective without a note', async () => {
       }),
     );
   };
+
   const output = await createBraveEngine(
     { key: 'secret' },
     { fetch },
   )(request({ objective: 'compare pgvector benchmarks' }));
+
   expect(new URL(seenUrl).searchParams.get('q')).toBe(
     'site:example.test "quoted"',
   );
@@ -146,6 +167,7 @@ it('classifies a malformed successful payload as an upstream error', async () =>
       fetch: () => Promise.resolve(response({ web: { results: 'malformed' } })),
     },
   );
+
   await expect(engine(request())).rejects.toMatchObject({
     failureClass: 'upstream_error',
   });
@@ -168,17 +190,20 @@ it('skips malformed individual results', async () => {
         ),
     },
   );
+
   await expect(engine(request())).resolves.toEqual({
     kind: 'results',
     results: [{ title: 'valid', url: 'https://example.test/' }],
   });
   const output = await engine(request());
+
   if (output.kind !== 'results') throw new Error('expected results output');
   expect(output.results[0]).not.toHaveProperty('published');
 });
 
 it('classifies auth without exposing an echoed key', async () => {
   const key = 'secret-key';
+
   const engine = createBraveEngine(
     { key },
     {
@@ -186,6 +211,7 @@ it('classifies auth without exposing an echoed key', async () => {
         Promise.resolve(new Response(`failure body ${key}`, { status: 401 })),
     },
   );
+
   await expect(engine(request())).rejects.toMatchObject({
     failureClass: 'auth',
   });
@@ -197,15 +223,18 @@ it('classifies rate limits and refuses redirects', async () => {
     { key: 'secret' },
     { fetch: () => Promise.resolve(new Response('', { status: 429 })) },
   );
+
   await expect(rateLimited(request())).rejects.toMatchObject({
     failureClass: 'rate_limited',
   });
   let requests = 0;
+
   const redirected = createBraveEngine(
     { key: 'secret' },
     {
       fetch: () => {
         requests += 1;
+
         return Promise.resolve(
           new Response('', {
             status: 302,
@@ -215,6 +244,7 @@ it('classifies rate limits and refuses redirects', async () => {
       },
     },
   );
+
   await expect(redirected(request())).rejects.toMatchObject({
     failureClass: 'upstream_error',
   });

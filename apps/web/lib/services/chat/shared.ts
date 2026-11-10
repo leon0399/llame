@@ -48,6 +48,7 @@ export async function fetchSharedChat(
     undefined,
     createOptionalAuthFetch(globalThis.fetch),
   );
+
   return normalizeSharedChat(response);
 }
 
@@ -64,6 +65,7 @@ export async function forkSharedChat(id: string): Promise<ChatResponse> {
     undefined,
     createAuthenticatedBrowserFetch(globalThis.fetch),
   );
+
   return response;
 }
 
@@ -89,6 +91,7 @@ function isTextPart(
 
 export function useForkSharedChat() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id: string) => forkSharedChat(id),
     // The new chat appears in the caller's OWN sidebar list — same

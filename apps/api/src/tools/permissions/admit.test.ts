@@ -79,6 +79,7 @@ describe('admitPermission', () => {
 
   it('keeps absent policy fail-closed for callers that require a decision', () => {
     const decide = vi.fn<(evaluate: EvaluateCall) => PermissionDecision>();
+
     const noPolicy: ToolContext = {
       configuredCredentials: [],
       userId: 'owner',

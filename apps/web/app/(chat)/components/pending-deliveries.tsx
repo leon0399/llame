@@ -32,15 +32,19 @@ export type PendingDeliveriesProps = {
  *  message with no text. */
 function previewText(item: ChatDeliveryResponse): string {
   const text = deliveryText(item);
+
   if (text !== "") return text;
   const files = deliveryFiles(item).length;
+
   return files === 1 ? "1 attachment" : `${files} attachments`;
 }
+
 /** The accessible name of a row button: the action and a short excerpt of the
  *  item, so rows with the same actions stay apart. */
 function actionName(action: string, item: ChatDeliveryResponse) {
   const preview = previewText(item);
   const excerpt = preview.length > 40 ? `${preview.slice(0, 40)}…` : preview;
+
   return `${action}: ${excerpt}`;
 }
 
@@ -86,6 +90,7 @@ function HurryActions({
  *  use. */
 function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
   const { item } = hurry;
+
   return (
     <div className="flex shrink-0 items-center">
       <HurryActions {...hurry} />
@@ -138,6 +143,7 @@ export function PendingDeliveries({
   ...actions
 }: PendingDeliveriesProps) {
   if (items.length === 0) return null;
+
   return (
     <section aria-label="Pending messages" className="mb-2">
       {paused && (

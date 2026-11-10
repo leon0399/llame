@@ -85,6 +85,7 @@ describe('temporal payload validation', () => {
       instant: INSTANT,
       timeZone: 'Europe/Madrid',
     });
+
     expect(item.data.producer).toBe('temporal');
     expect(item.data.form).toBe('snapshot');
     expect(item.data.payload).toEqual({
@@ -120,6 +121,7 @@ describe('temporal rendering', () => {
     const canonical = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Kathmandu',
     }).resolvedOptions().timeZone;
+
     expect(temporalPart({ timeZone: 'Asia/Kathmandu' }).data.text).toContain(
       `Message received: 2026-08-19 22:21+05:45 (${canonical})`,
     );
@@ -133,6 +135,7 @@ describe('temporal rendering', () => {
 
   it('does not read the process timezone', () => {
     const original = process.env.TZ;
+
     try {
       process.env.TZ = 'America/Los_Angeles';
       const west = temporalPart().data.text;
@@ -155,6 +158,7 @@ describe('temporal rendering', () => {
 
 describe('temporal rows in assembled context', () => {
   const systemPrompt = 'You are llame.';
+
   const msg = (input: {
     seq: number;
     role: 'user' | 'assistant';
@@ -211,6 +215,7 @@ describe('temporal rows in assembled context', () => {
       systemPrompt,
       modelId: 'test-model',
     }).messages;
+
     const blocks = contentBlockTexts(first.content);
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toContain('Message received:');
@@ -222,10 +227,12 @@ describe('temporal rows in assembled context', () => {
       systemPrompt,
       modelId: 'test-model',
     });
+
     const second = buildContext(conversation, {
       systemPrompt,
       modelId: 'test-model',
     });
+
     // The property the whole design rests on: no message's serialized form
     // changes between requests, so the cached prefix stays valid.
     expect(JSON.stringify(second.messages)).toBe(
@@ -272,6 +279,7 @@ describe('temporal rows in assembled context', () => {
         absorbedThroughSeq: 2,
       },
     });
+
     expect(
       messages.filter((m) =>
         contentText(m.content).includes('Message received:'),

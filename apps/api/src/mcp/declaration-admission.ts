@@ -50,11 +50,15 @@ function safeRefusalId(
   if (!isRecord(definition) || !isString(definition.name)) {
     return undefined;
   }
+
   if (containsProtectedValueJson(definition.name, protectedValues)) {
     return undefined;
   }
+
   const toolId = createMcpToolId(serverId, definition.name);
+
   if (!toolId.success) return undefined;
+
   return containsProtectedValueJson(toolId.id, protectedValues)
     ? undefined
     : toolId.id;
@@ -65,11 +69,13 @@ function sanitizeDescription(
   protectedValues: ReadonlyArray<string>,
 ): string {
   const redacted = sanitizeProtectedValueJson(value, protectedValues);
+
   if (!redacted.success || !isString(redacted.value)) {
     // A string leaf has no object key and the protected-value boundary always
     // returns a string. Keep this branch fail-closed if that contract changes.
     return MCP_REDACTION_MARKER;
   }
+
   return sanitizeAuthoredText(redacted.value);
 }
 
@@ -114,8 +120,10 @@ function resolveSupportedSchemaDialect(
   schema: JsonSchemaDocument,
 ): SupportedSchemaDialect | undefined {
   const declared = schema.$schema;
+
   if (!isString(declared)) return 'draft-07';
   const normalized = declared.endsWith('#') ? declared.slice(0, -1) : declared;
+
   switch (normalized) {
     case 'http://json-schema.org/draft-07/schema':
     case 'https://json-schema.org/draft-07/schema':
@@ -147,12 +155,16 @@ function safeSubschemaArray(
   if (!Array.isArray(value)) {
     return safeInstanceValue(value, protectedValues);
   }
+
   const safe: Array<unknown> = [];
+
   for (const item of value) {
     const result = safeSchemaNode(item, dialect, protectedValues);
+
     if (!result.success) return result;
     safe.push(result.value);
   }
+
   return { success: true, value: safe };
 }
 
@@ -164,15 +176,20 @@ function safeSubschemaMap(
   if (!isRecord(value)) {
     return safeInstanceValue(value, protectedValues);
   }
+
   const safeEntries: Array<[string, unknown]> = [];
+
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
     }
+
     const result = safeSchemaNode(item, dialect, protectedValues);
+
     if (!result.success) return result;
     safeEntries.push([key, result.value]);
   }
+
   return { success: true, value: Object.fromEntries(safeEntries) };
 }
 
@@ -184,17 +201,22 @@ function safeDependencies(
   if (!isRecord(value)) {
     return safeInstanceValue(value, protectedValues);
   }
+
   const safeEntries: Array<[string, unknown]> = [];
+
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
     }
+
     const result = Array.isArray(item)
       ? safeInstanceValue(item, protectedValues)
       : safeSchemaNode(item, dialect, protectedValues);
+
     if (!result.success) return result;
     safeEntries.push([key, result.value]);
   }
+
   return { success: true, value: Object.fromEntries(safeEntries) };
 }
 
@@ -217,32 +239,41 @@ function safeSchemaKeywordValue(
   if (COMMON_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
     return safeSchemaNode(item, dialect, protectedValues);
   }
+
   if (COMMON_SUBSCHEMA_ARRAY_KEYWORDS.has(key)) {
     return safeSubschemaArray(item, dialect, protectedValues);
   }
+
   if (COMMON_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
     return safeSubschemaMap(item, dialect, protectedValues);
   }
+
   if (key === 'dependencies') {
     return safeDependencies(item, dialect, protectedValues);
   }
+
   if (key === 'items') {
     return Array.isArray(item) && dialect !== '2020-12'
       ? safeSubschemaArray(item, dialect, protectedValues)
       : safeSchemaNode(item, dialect, protectedValues);
   }
+
   if (key === 'additionalItems' && dialect !== '2020-12') {
     return safeSchemaNode(item, dialect, protectedValues);
   }
+
   if (dialect !== 'draft-07' && MODERN_SINGLE_SUBSCHEMA_KEYWORDS.has(key)) {
     return safeSchemaNode(item, dialect, protectedValues);
   }
+
   if (dialect !== 'draft-07' && MODERN_SUBSCHEMA_MAP_KEYWORDS.has(key)) {
     return safeSubschemaMap(item, dialect, protectedValues);
   }
+
   if (dialect === '2020-12' && key === 'prefixItems') {
     return safeSubschemaArray(item, dialect, protectedValues);
   }
+
   return safeInstanceValue(item, protectedValues);
 }
 
@@ -254,18 +285,23 @@ function safeSchemaNode(
   if (!isRecord(value)) return safeInstanceValue(value, protectedValues);
 
   const safeEntries: Array<[string, unknown]> = [];
+
   for (const [key, item] of Object.entries(value)) {
     if (containsProtectedValueJson(key, protectedValues)) {
       return { success: false };
     }
+
     if (key === 'description' && isString(item)) {
       safeEntries.push([key, sanitizeDescription(item, protectedValues)]);
       continue;
     }
+
     const result = safeSchemaKeywordValue(key, item, dialect, protectedValues);
+
     if (!result.success) return result;
     safeEntries.push([key, result.value]);
   }
+
   return { success: true, value: Object.fromEntries(safeEntries) };
 }
 
@@ -313,19 +349,25 @@ function admitDefinitionIdentity(
   ) {
     return { success: false, reason: 'invalid_declaration' };
   }
+
   assertActive?.();
+
   if (containsProtectedValueJson(definition.name, protectedValues)) {
     return { success: false, reason: 'protected_value' };
   }
 
   const toolId = createMcpToolId(serverId, definition.name);
+
   if (!toolId.success) {
     return { success: false, reason: 'invalid_tool_id' };
   }
+
   if (containsProtectedValueJson(toolId.id, protectedValues)) {
     return { success: false, reason: 'protected_value' };
   }
+
   assertActive?.();
+
   return {
     success: true,
     name: definition.name,
@@ -351,20 +393,26 @@ async function admitDefinitionSchema(
   assertActive: (() => void) | undefined,
 ): Promise<SchemaAdmission> {
   const dialect = resolveSupportedSchemaDialect(inputSchema);
+
   const safeSchema =
     dialect === undefined
       ? safeInstanceValue(inputSchema, protectedValues)
       : safeSchemaNode(inputSchema, dialect, protectedValues);
+
   assertActive?.();
+
   if (!safeSchema.success || !isRecord(safeSchema.value)) {
     return { success: false, reason: 'protected_value' };
   }
+
   assertActive?.();
   const schemaAdmission = await admitToolInputSchema(safeSchema.value);
   assertActive?.();
+
   if (!schemaAdmission.success) {
     return { success: false, reason: schemaAdmission.reason };
   }
+
   return {
     success: true,
     inputSchema: canonicalize(schemaAdmission.inputSchema),
@@ -418,6 +466,7 @@ async function admitOneMcpToolDefinition(
     protectedValues,
     assertActive,
   );
+
   if (!identity.success) {
     return refusalAdmission(index, refusalId, identity.reason);
   }
@@ -427,11 +476,13 @@ async function admitOneMcpToolDefinition(
     protectedValues,
     assertActive,
   );
+
   if (!schemaAdmission.success) {
     return refusalAdmission(index, refusalId, schemaAdmission.reason);
   }
 
   assertActive?.();
+
   const tool = {
     id: identity.toolId,
     remoteName: identity.name,
@@ -441,7 +492,9 @@ async function admitOneMcpToolDefinition(
     ),
     inputSchema: schemaAdmission.inputSchema,
   };
+
   assertActive?.();
+
   return { success: true, tool };
 }
 
@@ -465,19 +518,24 @@ function resolveNameCollisions(
   assertActive: (() => void) | undefined,
 ): Array<AdmittedMcpToolDefinition> {
   assertActive?.();
+
   const collisionIndexes = findAsciiCaseFoldedCollisionIndexes(
     provisional.map(({ tool }) => tool.id),
   );
+
   assertActive?.();
   const admitted: Array<AdmittedMcpToolDefinition> = [];
+
   for (const [provisionalIndex, { index, tool }] of provisional.entries()) {
     assertActive?.();
+
     if (collisionIndexes.has(provisionalIndex)) {
       refused.push({ index, id: tool.id, reason: 'name_collision' });
     } else {
       admitted.push(tool);
     }
   }
+
   return admitted;
 }
 
@@ -488,15 +546,18 @@ export async function admitMcpToolDefinitions(input: {
   readonly assertActive?: () => void;
 }): Promise<McpDeclarationAdmissionResult> {
   const protectedValues = normalizeProtectedValues(input.protectedValues);
+
   const context: AdmissionContext = {
     serverId: input.serverId,
     protectedValues,
     assertActive: input.assertActive,
   };
+
   const provisional: Array<{
     readonly index: number;
     readonly tool: AdmittedMcpToolDefinition;
   }> = [];
+
   const refused: Array<{
     index: number;
     id?: string;
@@ -505,6 +566,7 @@ export async function admitMcpToolDefinitions(input: {
 
   for (const [index, definition] of input.definitions.entries()) {
     const result = await admitOneMcpToolDefinition(index, definition, context);
+
     if (result.success) {
       provisional.push({ index, tool: result.tool });
     } else {
@@ -517,6 +579,7 @@ export async function admitMcpToolDefinitions(input: {
     refused,
     input.assertActive,
   );
+
   input.assertActive?.();
   refused.sort((left, right) => left.index - right.index);
   input.assertActive?.();

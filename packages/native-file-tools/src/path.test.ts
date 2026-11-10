@@ -158,6 +158,7 @@ describe("native read selectors", () => {
       directory,
       ...Array.from({ length: 8 }, () => "x".repeat(140)),
     );
+
     await mkdir(parent, { recursive: true });
     const path = join(parent, "source");
     await writeFile(path, "source");
@@ -430,9 +431,11 @@ describe("native read selectors", () => {
         { length: count },
         (_, i) => `${i * 10 + 1}-${i * 10 + 2}`,
       ).join(",");
+
     const accepted = await resolveReadTarget(
       `${directory}/notes:${members(64)}`,
     );
+
     expect(accepted.ranges).toHaveLength(64);
     await expect(
       resolveReadTarget(`${directory}/notes:${members(65)}`),
@@ -529,6 +532,7 @@ describe("native path schemes", () => {
       raw: selector.startsWith("raw"),
       pending,
     };
+
     if (selector.startsWith("outline"))
       Object.assign(expected, { outline: true });
     expect(applySelectorSuffix("/root/a.md", selector)).toStrictEqual(expected);
@@ -593,6 +597,7 @@ describe("splitSelectorSuffix", () => {
     // Literal-path precedence is unchanged: a file named `x:60-64:raw` is
     // that file, and `2024:10` stays raw only as `2024:10:raw:1-1`.
     const directory = await mkdtemp(join(tmpdir(), "native-split-"));
+
     try {
       const literal = join(directory, "x:60-64:raw");
       await writeFile(literal, "literal");

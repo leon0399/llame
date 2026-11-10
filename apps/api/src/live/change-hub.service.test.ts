@@ -24,10 +24,12 @@ function makeListener() {
     listen: vi.fn((onNotify: (raw: string) => void, onListen: () => void) => {
       listener.onNotify = onNotify;
       listener.onListen = onListen;
+
       return Promise.resolve();
     }),
     close: vi.fn(() => Promise.resolve()),
   };
+
   return listener;
 }
 
@@ -52,20 +54,24 @@ const chatUpdate = notify({ k: 'chat', chat: LIVE_CHAT_ID, deleted: false });
 function connect(hub: ChangeHubService, owner = LIVE_OWNER) {
   const received: Array<LiveMessage> = [];
   const frames: Array<string> = [];
+
   const unsubscribe = hub.subscribe(owner, (frame) => {
     frames.push(frame);
     const parsed: unknown = JSON.parse(frame);
     received.push(liveMessageSchema.parse(parsed));
   });
+
   return { received, frames, unsubscribe };
 }
 
 function connectInstance(hub: ChangeHubService) {
   const received: Array<LiveMessage> = [];
+
   const unsubscribe = hub.subscribeInstance((frame) => {
     const parsed: unknown = JSON.parse(frame);
     received.push(liveMessageSchema.parse(parsed));
   });
+
   return { received, unsubscribe };
 }
 
@@ -123,14 +129,18 @@ describe('ChangeHubService', () => {
 
   it('merges notifications for a record whose read has not started', async () => {
     let release = () => {};
+
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+
     const loader = makeLoader({
       run: vi.fn(() => gate.then(() => liveRunRecord())),
     });
+
     const hub = new ChangeHubService(makeListener(), loader);
     const { received } = connect(hub);
+
     const runChange = notify({
       k: 'run',
       run: LIVE_RUN_ID,
@@ -172,6 +182,7 @@ describe('ChangeHubService', () => {
       makeListener(),
       makeLoader({ chat: vi.fn(() => Promise.resolve(undefined)) }),
     );
+
     const { received } = connect(hub);
 
     hub.dispatch(chatUpdate);
@@ -188,6 +199,7 @@ describe('ChangeHubService', () => {
         chat: vi.fn(() => Promise.reject(new Error('database unavailable'))),
       }),
     );
+
     const { received } = connect(hub);
 
     hub.dispatch(chatUpdate);
@@ -360,6 +372,7 @@ describe('ChangeHubService listener lifecycle', () => {
     const hub = new ChangeHubService(listener, makeLoader());
     await hub.onModuleInit();
     const { received } = connect(hub);
+
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
@@ -391,6 +404,7 @@ describe('ChangeHubService diagnostics', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     new ChangeHubService(makeListener(), makeLoader()).dispatch('{');
     expect(warn).toHaveBeenCalledWith(
       'Dropped malformed live change notification',
@@ -401,12 +415,14 @@ describe('ChangeHubService diagnostics', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const hub = new ChangeHubService(
       makeListener(),
       makeLoader({
         chat: vi.fn(() => Promise.reject(new Error('database unavailable'))),
       }),
     );
+
     connect(hub);
     hub.dispatch(chatUpdate);
     await vi.waitFor(() =>
@@ -420,6 +436,7 @@ describe('ChangeHubService diagnostics', () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const hub = new ChangeHubService(makeListener(), makeLoader());
     hub.subscribe(LIVE_OWNER, () => {
       throw new Error('socket gone');
@@ -434,6 +451,7 @@ describe('ChangeHubService diagnostics', () => {
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
+
     const hub = new ChangeHubService(
       makeListener(),
       makeLoader({
@@ -442,6 +460,7 @@ describe('ChangeHubService diagnostics', () => {
         ),
       }),
     );
+
     const { received } = connect(hub);
     hub.dispatch(chatUpdate);
     await vi.waitFor(() => expect(error).toHaveBeenCalled());

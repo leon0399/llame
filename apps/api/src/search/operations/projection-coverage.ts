@@ -40,6 +40,7 @@ export type ProjectionCoverageQueryRunner = {
 
 function readCount(row: UnknownRecord, field: string): number {
   const value = row[field];
+
   if (
     !isNumber(value) ||
     !Number.isFinite(value) ||
@@ -50,6 +51,7 @@ function readCount(row: UnknownRecord, field: string): number {
       `projection coverage field '${field}' must be a finite non-negative safe integer`,
     );
   }
+
   return value;
 }
 
@@ -63,6 +65,7 @@ function readProjectionCoverageRow(
 
   const expectedFields = [...PROJECTION_COVERAGE_FIELDS].sort();
   const actualFields = Object.keys(row).sort();
+
   if (
     actualFields.length !== expectedFields.length ||
     actualFields.some((field, index) => field !== expectedFields[index])
@@ -73,9 +76,11 @@ function readProjectionCoverageRow(
   }
 
   const chunkerVersion = readCount(row, 'chunker_version');
+
   if (chunkerVersion === 0) {
     throw new Error('projection coverage chunker_version must be positive');
   }
+
   if (chunkerVersion !== requestedChunkerVersion) {
     throw new Error(
       `projection coverage chunker_version ${chunkerVersion} does not match requested ${requestedChunkerVersion}`,
@@ -118,14 +123,18 @@ export async function getProjectionCoverageReport(
       FROM llame_search_projection_coverage_v2(${chunkerVersion})
     `),
   );
+
   const result = [...rows];
+
   if (result.length === 0) {
     throw new Error('projection coverage returned no aggregate row');
   }
+
   if (result.length !== 1) {
     throw new Error(
       `projection coverage expected exactly one aggregate row, received ${result.length}`,
     );
   }
+
   return readProjectionCoverageRow(result[0], chunkerVersion);
 }

@@ -96,6 +96,7 @@ function useGrantMembershipForm(orgUnitId: string) {
 
   const submit = () => {
     const trimmed = userId.trim();
+
     if (!trimmed) return;
     grant.mutate(
       { orgUnitId, userId: trimmed, role },
@@ -105,10 +106,13 @@ function useGrantMembershipForm(orgUnitId: string) {
 
   const handleSubmit = () => {
     if (!userId.trim()) return;
+
     if (role === "owner") {
       setConfirmOwnerGrant(true);
+
       return;
     }
+
     submit();
   };
 
@@ -181,6 +185,7 @@ function MembershipRoleControl({
       </Button>
     );
   }
+
   return (
     <RolePicker
       value={membership.role}
@@ -246,11 +251,14 @@ function useMembershipRowState(
 
   const applyRole = (role: GrantableRole) => {
     if (role === membership.role) return;
+
     // Promoting to owner is ownership-affecting — confirm first.
     if (role === "owner") {
       setConfirmOwnerRole(true);
+
       return;
     }
+
     changeRole.mutate({ orgUnitId, userId: membership.userId, role });
   };
 
@@ -314,10 +322,13 @@ function myRoleDescription(
   viaUnit: OrgUnitResponse | undefined,
 ): string {
   if (myRoleQuery.isLoading) return "Loading your role…";
+
   if (!myRoleQuery.data) return "You have no role on this unit.";
+
   const inherited = myRoleQuery.data.inherited
     ? ` (inherited from ${viaUnit?.name ?? "an ancestor"})`
     : "";
+
   return `Your role here: ${roleLabel(myRoleQuery.data.role)}${inherited}`;
 }
 

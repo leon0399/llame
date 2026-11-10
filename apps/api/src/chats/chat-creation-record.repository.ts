@@ -34,6 +34,7 @@ export class ChatCreationRecordRepository {
         worktreeDirectory: input.worktreeDirectory,
       }),
     };
+
     await this.db
       .insert(chatCreationRecords)
       .values({
@@ -59,6 +60,7 @@ export class ChatCreationRecordRepository {
     chatId: string,
   ): Promise<string | undefined> {
     const attempts = await this.findAttempts(ownerUserId, chatId);
+
     return [...attempts]
       .reverse()
       .find((attempt) => attempt.worktreeDirectory !== undefined)
@@ -80,6 +82,7 @@ export class ChatCreationRecordRepository {
         ),
       )
       .limit(1);
+
     return row?.attempts ?? [];
   }
 }

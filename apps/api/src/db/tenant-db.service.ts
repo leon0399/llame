@@ -74,6 +74,7 @@ export class TenantDbService {
       await tx.execute(
         sql`select set_config('app.current_user_id', ${userId}, true)`,
       );
+
       return fn(tx);
     }, config);
   }
@@ -89,6 +90,7 @@ export class TenantDbService {
   async runAsPublic<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
     return this.db.transaction(async (tx) => {
       await tx.execute(sql`select set_config('app.current_user_id', '', true)`);
+
       return fn(tx);
     });
   }

@@ -21,6 +21,7 @@ export type JsonValue =
 export function stubFetch(): Mock<typeof fetch> {
   const fetchMock = vi.fn<typeof fetch>();
   vi.stubGlobal("fetch", fetchMock);
+
   return fetchMock;
 }
 
@@ -57,8 +58,10 @@ export function requestFromCall(
   index = 0,
 ): Request {
   const request = fetchMock.mock.calls[index]?.[0];
+
   if (!(request instanceof Request)) {
     throw new Error(`expected fetch call ${index} to receive a Request`);
   }
+
   return request;
 }

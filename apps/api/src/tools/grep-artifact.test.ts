@@ -74,6 +74,7 @@ let root: string;
 /** One call's trusted context with a mocked tenant database. */
 function contextOf(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner-a',
     chatId: 'chat-a',
@@ -121,7 +122,9 @@ async function writePassageFiles(count: number): Promise<void> {
 
 async function run(context: ToolContext, args: unknown): Promise<ToolResult> {
   const parsed = grepInputSchema.safeParse(args);
+
   if (!parsed.success) throw new Error('the fixture arguments must parse');
+
   return nativeGrepTool.execute(context, parsed.data);
 }
 
@@ -129,6 +132,7 @@ function success(result: ToolResult): ToolResult & { status: 'success' } {
   if (result.status !== 'success') {
     throw new Error(`expected success, received ${result.type}`);
   }
+
   return result;
 }
 
@@ -138,7 +142,9 @@ function writtenParts() {
 
 function artifactText(): string {
   const part = writtenParts()[0];
+
   if (part === undefined) throw new Error('the call wrote no artifact part');
+
   return part.content.toString('utf8');
 }
 
@@ -154,7 +160,9 @@ type InlinePassage = {
 /** The inline passages, with only the fields the tests assert. */
 function resultsOf(result: ToolResult): ReadonlyArray<InlinePassage> {
   const results = success(result).results;
+
   if (!Array.isArray(results)) return [];
+
   return results.filter(isRecord).map((entry) => ({
     cut: entry['cut'] === true,
     truncated: entry['truncated'] === true,
@@ -171,21 +179,26 @@ function leftOutOf(
   result: ToolResult,
 ): { readonly count: number; readonly of: string } | undefined {
   const leftOut = success(result).leftOut;
+
   if (!isRecord(leftOut)) return undefined;
   const { count, of } = leftOut;
+
   if (!isNumber(count) || !isString(of)) return undefined;
+
   return { count, of };
 }
 
 /** The one-based last line the inline part shows of its single passage. */
 function endLineOf(result: ToolResult): number {
   const locator = resultsOf(result)[0]?.locator ?? '';
+
   return Number(/:\d+-(\d+)$/u.exec(locator)?.[1]);
 }
 
 /** The stored notice text of a result, without its brackets. */
 function bodyText(result: ToolResult): string {
   const notice = success(result).truncationNotice;
+
   return isString(notice) ? notice : '';
 }
 
@@ -195,7 +208,9 @@ function headings(text: string): ReadonlyArray<string> {
 
 function warningsOf(result: ToolResult): ReadonlyArray<string> {
   const warnings = success(result).warnings;
+
   if (!Array.isArray(warnings)) return [];
+
   return warnings.flatMap((warning) =>
     isRecord(warning) && isString(warning['kind']) ? [warning['kind']] : [],
   );
@@ -213,8 +228,10 @@ function remainderOf(result: ToolResult):
     }
   | undefined {
   const remainder = success(result).remainder;
+
   if (!isRecord(remainder)) return undefined;
   const next = Array.isArray(remainder['next']) ? remainder['next'] : [];
+
   return {
     files: Number(remainder['files']),
     passages: Number(remainder['passages']),
@@ -254,6 +271,7 @@ afterEach(async () => {
 describe('grep artifacts', () => {
   it('stores the whole walk and keeps the head of its text inline', async () => {
     await writePassageFiles(25);
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -279,6 +297,7 @@ describe('grep artifacts', () => {
     expect(remainder?.next).toHaveLength(10);
     // Each named range starts at the file's heading line in the artifact.
     const lines = artifactText().split('\n');
+
     for (const entry of remainder?.next ?? []) {
       expect(lines[entry.start - 1]).toBe(`## ${entry.locator}`);
     }
@@ -286,6 +305,7 @@ describe('grep artifacts', () => {
 
   it('keeps inline line numbers equal to the artifact lines', async () => {
     await writePassageFiles(25);
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -295,14 +315,17 @@ describe('grep artifacts', () => {
     expect(remainder).toBeDefined();
     const shown = (remainder?.next[0]?.start ?? 1) - 1;
     const artifactLines = artifactText().split('\n').slice(0, shown);
+
     const inlineLines = renderToolResultText('grep', result)
       .split('\n')
       .slice(0, shown);
+
     expect(inlineLines).toEqual(artifactLines);
   });
 
   it('ends the notice at the line after the inline part', async () => {
     await writePassageFiles(25);
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -320,6 +343,7 @@ describe('grep artifacts', () => {
   it('creates no artifact for a result that fits inline', async () => {
     await writeAt('d/a.ts', '1: needle\n');
     await writeAt('d/b.ts', '1: needle\n');
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -333,6 +357,7 @@ describe('grep artifacts', () => {
   it('creates no artifact for a walk with no match', async () => {
     await writeAt('d/a.ts', '1: nothing\n');
     await writeAt('d/b.bin', '\u0000\u0001\u0002');
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -346,6 +371,7 @@ describe('grep artifacts', () => {
 
   it('keeps the head and counts the files it left out without a reader', async () => {
     await writePassageFiles(25);
+
     const result = await run(contextOf({ artifactReadable: false }), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -366,6 +392,7 @@ describe('grep artifacts', () => {
 
   it('stops the walk at the artifact byte bound', async () => {
     await writePassageFiles(25);
+
     const result = await run(contextOf({ artifactMaxBytes: 20_000 }), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -383,7 +410,9 @@ describe('grep artifacts', () => {
     const lines = Array.from({ length: 400 }, (_, index) =>
       longLine(`needle ${String(index + 1)} `, 100),
     );
+
     await writeAt('d/big.ts', lines.join('\n'));
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/big.ts`],
@@ -422,11 +451,14 @@ describe('grep artifacts', () => {
     const artifact = artifactText().split('\n');
     expect(artifact).toHaveLength(401);
     expect(artifact[0]).toBe(`## ${path.join(root, 'd/big.ts')}`);
+
     // Every source line of the passage appears exactly once.
     const numbered = artifact.flatMap((entry) => {
       const match = /^\*?(\d+): /u.exec(entry);
+
       return match === null ? [] : [Number(match[1])];
     });
+
     expect(numbered).toEqual(
       Array.from({ length: 400 }, (_, index) => index + 1),
     );
@@ -436,7 +468,9 @@ describe('grep artifacts', () => {
     const lines = Array.from({ length: 400 }, (_, index) =>
       longLine(`needle ${String(index + 1)} `, 100),
     );
+
     await writeAt('d/big.ts', lines.join('\n'));
+
     const result = await run(contextOf({ artifactReadable: false }), {
       patterns: ['needle'],
       scopes: [`${root}/d/big.ts`],
@@ -458,6 +492,7 @@ describe('grep artifacts', () => {
     await writeAt('d/a.ts', '1: needle\n');
     await writeAt('d/b.ts', '1: needle\n');
     await writeAt('d/c.ts', '1: needle\n');
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -473,9 +508,11 @@ describe('grep artifacts', () => {
 
   it('counts the results a head left out without a whole file', async () => {
     const lines: Array<string> = [];
+
     for (let match = 0; match < 20; match += 1)
       lines.push(longLine('a'), longLine('needle '), longLine('b'), '', '');
     await writeAt('d/one.ts', lines.join('\n'));
+
     const result = await run(contextOf({ artifactReadable: false }), {
       patterns: ['needle'],
       scopes: [`${root}/d/**`],
@@ -496,9 +533,11 @@ describe('grep artifacts', () => {
 
   it('marks a file twentieth passage and stores no twenty-first', async () => {
     const lines: Array<string> = [];
+
     for (let match = 0; match < 25; match += 1)
       lines.push(longLine('a'), longLine('needle '), longLine('b'), '', '');
     await writeAt('d/many.ts', lines.join('\n'));
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/d/many.ts`],
@@ -527,6 +566,7 @@ describe('grep artifacts', () => {
     const files = headings(artifactText()).map((line) =>
       path.basename(line.slice(3)),
     );
+
     expect(files.indexOf('a.ts')).toBeLessThan(files.indexOf('b.ts'));
   });
 
@@ -538,6 +578,7 @@ describe('grep artifacts', () => {
     );
     await writeAt('.ignore', 'excluded-*/\n');
     await writePassageFiles(25);
+
     const result = await run(contextOf(), {
       patterns: ['needle'],
       scopes: [`${root}/**`],
@@ -562,6 +603,7 @@ describe('grep inline boundaries', () => {
   function stateOf(passages: ReadonlyArray<GrepPassage>, maxBytes = 1_000_000) {
     const state = createPageState({ maxBytes, mayCarryKnowledge: false });
     addGrepPassages(state.artifact, passages);
+
     return state;
   }
 
@@ -574,6 +616,7 @@ describe('grep inline boundaries', () => {
       { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
       { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7488)}`, matches: [1] },
     ]);
+
     // The fixture renders the whole result in exactly the inline bound.
     expect(measureGrepRendering(pageResult(two))).toBe(15_000);
     const exact = await finishGrepCall(two, unreadable(), 20, ASK);
@@ -585,6 +628,7 @@ describe('grep inline boundaries', () => {
       { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
       { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7489)}`, matches: [1] },
     ]);
+
     const capped = await finishGrepCall(over, unreadable(), 20, ASK);
     expect(leftOutOf(capped)).toMatchObject({ of: 'files', count: 1 });
   });
@@ -594,6 +638,7 @@ describe('grep inline boundaries', () => {
     // Two lines, so a stricter comparison loses a line rather than lands on
     // the same single-line floor: the block takes `budget` code units.
     const first = budget - 17 - 10;
+
     const result = await finishGrepCall(
       stateOf([
         {
@@ -619,6 +664,7 @@ describe('grep inline boundaries', () => {
       { length: 40 },
       (_, index) => `${String(index + 1)}: ${'y'.repeat(400)}`,
     ).join('\n');
+
     const result = await finishGrepCall(
       stateOf([{ locator: 'a.md:1-40', content, matches: [1] }]),
       unreadable(),
@@ -637,6 +683,7 @@ describe('grep inline boundaries', () => {
     const state = stateOf([
       { locator: 'a.md:1-2', content: '1: a\n2: b', matches: [1], cut: true },
     ]);
+
     const result = await finishGrepCall(state, unreadable(), 20, ASK);
     const plain = resultsOf(result)[0];
     expect(plain?.cut).toBe(false);
@@ -654,6 +701,7 @@ describe('grep inline boundaries', () => {
         truncated: true,
       },
     ]);
+
     const cappedResult = await finishGrepCall(capped, unreadable(), 20, ASK);
     expect(resultsOf(cappedResult)[0]?.truncated).toBe(true);
     expect(renderToolResultText('grep', cappedResult)).toContain(
@@ -665,6 +713,7 @@ describe('grep inline boundaries', () => {
 describe('grep rerank', () => {
   const MODEL = 'jev';
   const KEY = 'decision-key-fixture';
+
   const BOUNDS = {
     maxFilesExamined: null,
     maxEntriesListed: null,
@@ -678,11 +727,14 @@ describe('grep rerank', () => {
   /** A lane double that answers `answers`, records each call, and protects KEY. */
   function lane(answers: Answer) {
     const calls: Array<JudgeCandidatesInput> = [];
+
     const decisions: DecisionJudge = {
       judgeCandidates: (input) => {
         calls.push(input);
+
         const unavailable =
           answers === 'unavailable' || Object.keys(answers).length === 0;
+
         const judgement: CandidateJudgement = unavailable
           ? {
               status: 'unavailable',
@@ -700,10 +752,12 @@ describe('grep rerank', () => {
               model: 'jev-test',
               latencyMs: 30,
             };
+
         return Promise.resolve(judgement);
       },
       protectText: (_model, text) => text.replaceAll(KEY, '[protected]'),
     };
+
     return { calls, decisions };
   }
 
@@ -726,15 +780,19 @@ describe('grep rerank', () => {
       maxBytes: 1_000_000,
       mayCarryKnowledge: false,
     });
+
     addGrepPassages(state.artifact, passages);
+
     return state;
   }
 
   function rerankOf(result: ToolResult) {
     const display = success(result).display;
+
     const parsed = RERANK_RECORD.safeParse(
       isRecord(display) ? display['rerank'] : undefined,
     );
+
     return parsed.success ? parsed.data : undefined;
   }
 
@@ -753,6 +811,7 @@ describe('grep rerank', () => {
     await writePassageFiles(3);
     const args = { patterns: ['needle'], scopes: [`${root}/d/**`] };
     const plain = await run(contextOf(), args);
+
     const asked = await run(contextOf(), {
       ...args,
       objective: 'where the needle lives',
@@ -777,11 +836,13 @@ describe('grep rerank', () => {
 
   it('sends the objective, or the joined patterns, as the criterion', async () => {
     const answers = lane({ p0: 0.1, p1: 0.9, p2: 0.5 });
+
     const passages = [
       longPassage('/a.ts', 1),
       longPassage('/b.ts', 1),
       longPassage('/c.ts', 1),
     ];
+
     await finishGrepCall(
       stateOf(passages),
       rankedContext(answers.decisions),
@@ -808,6 +869,7 @@ describe('grep rerank', () => {
 
   it('makes no decision call for a result that fits inline or is empty', async () => {
     const answers = lane({ p0: 0.9 });
+
     const small = await finishGrepCall(
       stateOf([
         { locator: '/a.ts:1-1', content: '1: needle', matches: [1] },
@@ -818,6 +880,7 @@ describe('grep rerank', () => {
       20,
       ASK,
     );
+
     const empty = await finishGrepCall(
       stateOf([]),
       rankedContext(answers.decisions),
@@ -834,6 +897,7 @@ describe('grep rerank', () => {
 
   it('ranks two long runs, which overfill the inline part', async () => {
     const answers = lane({ p0: 0.2, p1: 0.8 });
+
     const result = await finishGrepCall(
       stateOf([longPassage('/a.ts', 1, 9000), longPassage('/b.ts', 1, 9000)]),
       rankedContext(answers.decisions),
@@ -848,6 +912,7 @@ describe('grep rerank', () => {
 
   it('ranks by whole runs and states the order in the record only', async () => {
     const answers = lane({ p0: 0.1, p2: 0.9 });
+
     const result = await finishGrepCall(
       stateOf([
         longPassage('/a.ts', 1),
@@ -880,6 +945,7 @@ describe('grep rerank', () => {
 
   it('keeps three runs when a reorder puts one file beside itself', async () => {
     const answers = lane({ p0: 0.9, p1: 0.1, p2: 0.8 });
+
     const result = await finishGrepCall(
       stateOf([
         longPassage('/x.ts', 10),
@@ -909,13 +975,17 @@ describe('grep rerank', () => {
     // Every finding starts on its heading line.
     const lines = artifactText().split('\n');
     const stored = writtenParts()[0]?.findings;
+
     if (!isRecord(stored) || !Array.isArray(stored['findings'])) {
       throw new Error('the artifact stores findings');
     }
+
     const starts = stored['findings']
       .filter(isRecord)
       .map((finding) => Number(finding['start']));
+
     expect(starts).toHaveLength(3);
+
     for (const start of starts)
       expect(lines[start - 1]?.startsWith('## ')).toBe(true);
   });
@@ -925,6 +995,7 @@ describe('grep rerank', () => {
     // puts the two x runs side by side and y last; the inline part ends after
     // the second x run, so it consumes the lengths only that far.
     const answers = lane({ p0: 0.9, p2: 0.8, p1: 0.1 });
+
     const result = await finishGrepCall(
       stateOf([
         longPassage('/x.ts', 10),
@@ -952,14 +1023,17 @@ describe('grep rerank', () => {
 
   it('keeps walk order and says so after a failed rank call', async () => {
     const answers = lane('unavailable');
+
     const state = stateOf([
       longPassage('/a.ts', 1),
       longPassage('/b.ts', 1),
       longPassage('/c.ts', 1),
     ]);
+
     state.warnings.set('deadline', 1);
     state.ignored.count = 1;
     state.ignored.paths.push('/d/dist');
+
     const result = await finishGrepCall(
       state,
       rankedContext(answers.decisions),
@@ -990,17 +1064,22 @@ describe('grep rerank', () => {
     // reserve without that line would overrun.
     const reserve = grepLeftOutUnits(999_999_999, 'results');
     const edge = 15_000 - reserve - GREP_RANKING_UNITS;
+
     const fit = (units: number) =>
       measureGrepRendering({
         results: [longPassage('/a.ts', 1), longPassage('/b.ts', 1, units)],
         complete: true,
       });
+
     let swept = 0;
+
     for (let units = 6000; units < 9000; units += 1) {
       const filled = fit(units);
+
       if (filled < edge - 1 || filled > edge + GREP_RANKING_UNITS + 1) continue;
       swept += 1;
       const answers = lane('unavailable');
+
       const result = await finishGrepCall(
         stateOf([
           longPassage('/a.ts', 1),
@@ -1032,15 +1111,18 @@ describe('grep rerank', () => {
         20,
         ASK,
       );
+
       expect(resultsOf(unranked)).toHaveLength(
         filled <= edge + GREP_RANKING_UNITS ? 2 : 1,
       );
     }
+
     expect(swept).toBeGreaterThanOrEqual(GREP_RANKING_UNITS);
   });
 
   it('ranks the judged runs first when only some are answered', async () => {
     const answers = lane({ p2: 0.7 });
+
     const result = await finishGrepCall(
       stateOf([
         longPassage('/a.ts', 1),
@@ -1062,25 +1144,31 @@ describe('grep rerank', () => {
   it('ends the walk at 108 seconds before ranking and lets 120 seconds abort the rank', async () => {
     const space = '44444444-4444-4444-8444-444444444444';
     const body = `${'x'.repeat(6000)} needle`;
+
     for (const name of ['a', 'b', 'c']) {
       await writeAt(`kb/${space}/${name}.md`, body);
     }
+
     for (let n = 1; n <= 9; n += 1) {
       await writeAt(`kb/${space}/d${n}.md`, body);
     }
+
     await writeAt(`kb/${space}/zz/d.md`, body);
     await writeAt('d/later.ts', body);
+
     const binding = {
       id: space,
       name: space,
       root: path.join(root, 'kb'),
       directory: path.join(root, 'kb', space),
     };
+
     const knowledgeResolver: KnowledgeToolResolver = {
       listForOwnerPage: () => Promise.resolve({ spaces: [] }),
       resolveBindingForOwnerById: () => Promise.resolve(binding),
       createAdapter: (resolved) => new KnowledgeFilesystemAdapter(resolved),
     };
+
     // The walk's deadline passes once it has taken and read a.md, b.md, and
     // c.md. The read-ahead keeps at most eight reads queued behind the one the
     // walk waits on and frees a slot only when the walk takes a file, so the
@@ -1091,6 +1179,7 @@ describe('grep rerank', () => {
     const openWalk: KnowledgeFilesystemAdapter['openWalk'] =
       // eslint-disable-next-line @typescript-eslint/unbound-method -- captured unbound and re-invoked with an explicit receiver below.
       KnowledgeFilesystemAdapter.prototype.openWalk;
+
     let opens = 0;
     let walkTakenThree = Promise.withResolvers<void>();
     vi.spyOn(
@@ -1103,10 +1192,12 @@ describe('grep rerank', () => {
     ): Promise<KnowledgeWalkOpen> {
       opens += 1;
       const ordinal = opens;
+
       if (ordinal === 12) {
         vi.setSystemTime(108_001);
         walkTakenThree.resolve();
       }
+
       // SAFETY: the captured method resolves exactly a KnowledgeWalkOpen.
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- `.call` on the captured method is typed any by the linter.
       const opened = (await openWalk.call(
@@ -1114,10 +1205,12 @@ describe('grep rerank', () => {
         file,
         signal,
       )) as KnowledgeWalkOpen;
+
       if ('kind' in opened) return opened;
       const { chunks } = opened;
       const held = ordinal > 3;
       const gate = walkTakenThree.promise;
+
       return {
         size: opened.size,
         close: () => opened.close(),
@@ -1127,17 +1220,20 @@ describe('grep rerank', () => {
         })(),
       };
     });
+
     const args = {
       patterns: ['needle'],
       scopes: [`kb://${space}/`, `${root}/d/**`],
       limit: 1,
     };
+
     const seen: Array<{
       readonly now: number;
       readonly keys: ReadonlyArray<string>;
       readonly texts: string;
       readonly signal: AbortSignal | undefined;
     }> = [];
+
     const decisionsOf = (
       controller: AbortController,
       timeout: DOMException | undefined,
@@ -1149,22 +1245,28 @@ describe('grep rerank', () => {
           texts: input.cards.map((card) => card.text).join('\n'),
           signal: input.abortSignal,
         });
+
         if (timeout === undefined) {
           return lane('unavailable').decisions.judgeCandidates(input);
         }
+
         vi.setSystemTime(120_001);
         controller.abort(timeout);
+
         return Promise.reject(timeout);
       },
       protectText: (_model, text) => text,
     });
+
     vi.useFakeTimers({ toFake: ['Date'] });
+
     try {
       // The walk's deadline passes inside the first scope: the second scope is
       // never opened, the deadline warning stands, and the judge sees only
       // the first scope's runs, under the enclosing signal.
       vi.setSystemTime(0);
       const open = new AbortController();
+
       const result = await run(
         rankedContext(decisionsOf(open, undefined), {
           knowledgeResolver,
@@ -1173,6 +1275,7 @@ describe('grep rerank', () => {
         }),
         args,
       );
+
       expect(warningsOf(result)).toEqual(['deadline']);
       expect(success(result).ranking).toBe('unavailable');
       expect(seen).toHaveLength(1);
@@ -1209,14 +1312,17 @@ describe('grep rerank', () => {
     const controller = new AbortController();
     const timeout = new DOMException('tool timeout', 'TimeoutError');
     let seen: AbortSignal | undefined;
+
     const decisions: DecisionJudge = {
       judgeCandidates: (input) => {
         seen = input.abortSignal;
         controller.abort(timeout);
+
         return Promise.reject(timeout);
       },
       protectText: (_model, text) => text,
     };
+
     const state = stateOf([
       longPassage('/a.ts', 1),
       longPassage('/b.ts', 1),
@@ -1238,6 +1344,7 @@ describe('grep rerank', () => {
   describe('with a rerank model', () => {
     const RERANK_KEY = 'rerank-key-fixture';
     const rerankBounds = { ...BOUNDS, rerank: { model: 'rr-fast' } };
+
     const threeRuns = () =>
       stateOf([
         longPassage('/a.ts', 1),
@@ -1284,6 +1391,7 @@ describe('grep rerank', () => {
       const bodies: Array<string> = [];
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
         bodies.push(await new Response(init?.body).text());
+
         return Response.json({
           model: 'cohere/rerank-v5.0-fast',
           results: [
@@ -1352,6 +1460,7 @@ describe('grep rerank', () => {
     it('settles with the runner timeout when the deadline passes during the request', async () => {
       const controller = new AbortController();
       const timeout = new DOMException('tool timeout', 'TimeoutError');
+
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')
         .mockImplementation((_url, init) => {
@@ -1360,8 +1469,10 @@ describe('grep rerank', () => {
             reject(new DOMException('aborted', 'AbortError'));
           });
           controller.abort(timeout);
+
           return promise;
         });
+
       const state = threeRuns();
 
       await expect(
@@ -1390,10 +1501,12 @@ describe('grep rerank', () => {
 
   it('sends an empty run id without one, and no objective or signal key unset', async () => {
     const answers = lane({ p0: 0.1, p1: 0.9, p2: 0.5 });
+
     const { runId, ...withoutRun } = contextOf({
       decisions: answers.decisions,
       grepBounds: BOUNDS,
     });
+
     expect(runId).toBe('run-a');
     await finishGrepCall(
       stateOf([
@@ -1416,11 +1529,13 @@ describe('grep rerank', () => {
       judgeCandidates: () => Promise.reject(new Error('judge down')),
       protectText: (_model, text) => text,
     };
+
     const passages = [
       longPassage('/a.ts', 1),
       longPassage('/b.ts', 1),
       longPassage('/c.ts', 1),
     ];
+
     const bare = stateOf(passages);
     await finishGrepCall(bare, rankedContext(decisions), 20, ASK_X);
     const signalled = stateOf(passages);
@@ -1437,6 +1552,7 @@ describe('grep rerank', () => {
 
   it('opens one heading for a run of two passages of one file when ranked', async () => {
     const answers = lane({ p0: 0.2, p1: 0.9, p2: 0.5 });
+
     const result = await finishGrepCall(
       stateOf([
         longPassage('/a.ts', 1),
@@ -1468,18 +1584,22 @@ describe('grep rerank', () => {
     await writeAt('d/secret.ts', body);
     await writeAt(`kb/${space}/notes/a.md`, body);
     await writeAt(`kb/${space}/notes/secret.md`, body);
+
     const binding = {
       id: space,
       name: space,
       root: path.join(root, 'kb'),
       directory,
     };
+
     const knowledgeResolver: KnowledgeToolResolver = {
       listForOwnerPage: () => Promise.resolve({ spaces: [] }),
       resolveBindingForOwnerById: () => Promise.resolve(binding),
       createAdapter: (resolved) => new KnowledgeFilesystemAdapter(resolved),
     };
+
     const answers = lane({ p0: 0.4, p1: 0.6 });
+
     const result = await run(
       rankedContext(answers.decisions, {
         knowledgeResolver,
@@ -1514,16 +1634,19 @@ describe('grep rerank', () => {
 
   it('replaces the decision key in locators and text before any cut', async () => {
     const answers = lane({ p0: 0.5, p1: 0.9 });
+
     const keyed: GrepPassage = {
       locator: `/${KEY}/a.ts:3-3`,
       content: `3: token ${KEY} ${'x'.repeat(6000)}`,
       matches: [3],
     };
+
     const state = stateOf([
       keyed,
       longPassage('/b.ts', 1),
       longPassage('/c.ts', 1),
     ]);
+
     const result = await finishGrepCall(
       state,
       rankedContext(answers.decisions),
@@ -1536,24 +1659,29 @@ describe('grep rerank', () => {
     expect(text).not.toContain(KEY);
     expect(artifactText()).not.toContain(KEY);
     expect(JSON.stringify(answers.calls)).not.toContain(KEY);
+
     const first = resultsOf(result).find((entry) =>
       entry.locator.includes('[protected]'),
     );
+
     expect(first?.matches).toEqual([3]);
     expect(first?.locator.endsWith(':3-3')).toBe(true);
   });
 
   it('replaces the decision key in the unfinished file and ignored directories', async () => {
     const answers = lane({ p0: 0.5, p1: 0.9, p2: 0.1 });
+
     const state = stateOf([
       longPassage('/a.ts', 1),
       longPassage('/b.ts', 1),
       longPassage('/c.ts', 1),
     ]);
+
     state.ignored.count = 1;
     state.ignored.paths.push(`/r/${KEY}/dist`);
     state.ignored.seen.add(`/r/${KEY}/dist`);
     state.unfinished = `/r/${KEY}/big.log`;
+
     const result = await finishGrepCall(
       state,
       rankedContext(answers.decisions),
@@ -1574,11 +1702,13 @@ describe('grep rerank', () => {
 
   it('preserves source text that resembles rank metadata', async () => {
     const answers = lane({ p0: 0.9, p1: 0.5, p2: 0.1 });
+
     const resembling: GrepPassage = {
       locator: '/a.ts:1-1',
       content: `1: jev-test rerank 0.9 runLengths ${'x'.repeat(6000)}`,
       matches: [1],
     };
+
     const result = await finishGrepCall(
       stateOf([resembling, longPassage('/b.ts', 1), longPassage('/c.ts', 1)]),
       rankedContext(answers.decisions),

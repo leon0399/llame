@@ -109,6 +109,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it('targets a configured gateway base URL unchanged', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       baseUrl: 'https://api.z.ai/api/anthropic',
     });
@@ -125,10 +126,12 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
   it('ignores an ambient ANTHROPIC_BASE_URL: the configured destination wins', async () => {
     const harness = buildHarness({ streamEvents: hello });
     vi.stubEnv('ANTHROPIC_BASE_URL', 'https://ambient.example.test');
+
     try {
       const client = buildClient(harness, {
         baseUrl: 'https://api.z.ai/api/anthropic',
       });
+
       await expect(
         client.streamText({ chat: CHAT, messages }).text,
       ).resolves.toBe('hello');
@@ -143,6 +146,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it("carries the configured product token on the request's user-agent (design D6)", async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       userAgent: 'llame/9.9.9-canary',
     });
@@ -160,6 +164,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it('renders configured request headers on a main-lane streaming request', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       requestHeaders: { 'X-Session-Id': ['', ''] },
     });
@@ -173,6 +178,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it('renders the search lane in the configured session header', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       requestHeaders: { 'X-Session-Id': ['', ''] },
     });
@@ -200,6 +206,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it('lets an operator User-Agent replace llame’s token on streaming requests', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       requestHeaders: { 'User-Agent': ['acme-gateway-client/1'] },
     });
@@ -215,6 +222,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it('merges a lowercase operator Anthropic-Beta with the adapter beta on streaming requests', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       requestHeaders: { 'anthropic-beta': ['operator-beta'] },
     });
@@ -230,6 +238,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it('lets the adapter beta replace a differently cased operator Anthropic-Beta on streaming requests', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       requestHeaders: { 'Anthropic-Beta': ['operator-beta'] },
     });
@@ -259,6 +268,7 @@ describe('createAnthropicModelClient — construction (anthropic-provider 3.2, 3
 
   it('carries the entry pricing, billing mode, and compaction threshold on the client', () => {
     const harness = buildHarness();
+
     const client = buildClient(harness, {
       pricing: { inputUsdPer1M: 3, outputUsdPer1M: 15 },
       compactionThresholdTokens: 64_000,
@@ -327,6 +337,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
   it('lets the declared effort outrank an operator effort key', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       providerOptions: { effort: 'low' },
     });
@@ -342,6 +353,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
   it('forwards an operator effort when no vocabulary is declared, with no thinking configuration', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       reasoningDeclared: false,
       providerOptions: { effort: 'medium' },
@@ -373,6 +385,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
   it('removes the display default with {"thinking": {"display": null}} and keeps adaptive thinking and the binding', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       providerOptions: { thinking: { display: null } },
     });
@@ -392,6 +405,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
   it('carries a manual-budget override with the effort still set and no drop instruction', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       // An id off the adapter's own table: its `max_tokens` default is the
       // 128k `claude-` branch, and the manual budget is added to it silently
@@ -416,6 +430,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
   it('carries a disabled override with no drop instruction', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       providerOptions: { thinking: { type: 'disabled' } },
     });
@@ -436,6 +451,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
       { blockBinding: { prefixMismatchBehavior: 'error' } },
       { blockBinding: null },
     ];
+
     for (const thinking of bindings) {
       const harness = buildHarness({ streamEvents: hello });
       const client = buildClient(harness, { providerOptions: { thinking } });
@@ -475,6 +491,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
     for (const sendReasoning of [false, null]) {
       const harness = buildHarness({ streamEvents: hello });
+
       const client = buildClient(harness, {
         providerOptions: { sendReasoning },
       });
@@ -509,6 +526,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
   it('sends no instruction-only thinking object when a stripped binding leaves nothing', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       reasoningDeclared: false,
       providerOptions: {
@@ -526,6 +544,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 
   it('forwards an unrecognized option key without failing or retargeting', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       providerOptions: { future_option: { nested: [1, 2, 3] } },
     });
@@ -552,6 +571,7 @@ describe('createAnthropicModelClient — effort and thinking defaults (3.5)', ()
 describe('createAnthropicModelClient — cache control default (3.6)', () => {
   it('omits the top-level cache control when the operator removes it with null', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       providerOptions: { cacheControl: null },
     });
@@ -565,6 +585,7 @@ describe('createAnthropicModelClient — cache control default (3.6)', () => {
 
   it('replaces the default with the operator longer lifetime', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       providerOptions: { cacheControl: { type: 'ephemeral', ttl: '1h' } },
     });
@@ -614,8 +635,10 @@ describe('createAnthropicModelClient — output limits (D17)', () => {
       { providerModelId: 'claude-mythos-9', maxTokens: 128_000 },
       { providerModelId: 'glm-5', maxTokens: 4096 },
     ];
+
     for (const { providerModelId, maxTokens } of cases) {
       const harness = buildHarness({ streamEvents: hello });
+
       const client = buildClient(harness, {
         providerModelId,
         reasoningDeclared: false,
@@ -630,6 +653,7 @@ describe('createAnthropicModelClient — output limits (D17)', () => {
 
   it('lets the adapter lower a declared limit above a recognized ceiling', async () => {
     const harness = buildHarness({ streamEvents: hello });
+
     const client = buildClient(harness, {
       providerModelId: 'claude-sonnet-4-5',
       reasoningDeclared: false,
@@ -656,6 +680,7 @@ describe('createAnthropicModelClient — text part ids and metadata (A7)', () =>
       title: 'Example',
       encrypted_index: 'idx-1',
     };
+
     const harness = buildHarness({
       streamEvents: messageEnvelope([
         'event: content_block_start',
@@ -676,6 +701,7 @@ describe('createAnthropicModelClient — text part ids and metadata (A7)', () =>
         '',
       ]),
     });
+
     const client = buildClient(harness);
     const collector = createAssistantPartCollector();
 
@@ -725,9 +751,11 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
       }),
       consumeStream: async () => {
         await terminal(options);
+
         if (settlementFails) throw new Error('stream settlement failed');
       },
     }));
+
     return buildClient({
       ...harness,
       dependencies: { ...harness.dependencies, streamText: stream },
@@ -735,6 +763,7 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
   }
 
   const runTimeout = new Error('run-timeout');
+
   const terminalPaths: Array<{
     path: string;
     terminal: Terminal;
@@ -800,6 +829,7 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
     }) => {
       const client = buildRacingClient(terminal, settlementFails === true);
       let deliveries = 0;
+
       const observed: Array<{
         callback: string;
         deliveries: number;
@@ -822,9 +852,11 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
             deliveries,
             ...(error instanceof Error && { message: error.message }),
           });
+
           if (callbackFailure !== undefined) throw callbackFailure;
         },
       });
+
       const settlement = result.consumeStream();
 
       if (rejection !== undefined) {
@@ -832,6 +864,7 @@ describe('createAnthropicModelClient — reasoning channel settlement (D18)', ()
       } else {
         await settlement;
       }
+
       expect(observed).toEqual([expected]);
     },
   );
@@ -868,7 +901,9 @@ describe('createAnthropicModelClient — stream-idle watchdog (design D4)', () =
           { headers: { 'Content-Type': 'text/event-stream' } },
         ),
     });
+
     const reported: Array<unknown> = [];
+
     const onError = ({ error }: { error: unknown }) => {
       reported.push(error);
     };
@@ -881,6 +916,7 @@ describe('createAnthropicModelClient — stream-idle watchdog (design D4)', () =
       messages,
       onError,
     });
+
     // The SDK streams nothing until a result accessor is read.
     const drained = result.fullStream.pipeTo(new WritableStream());
     await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);

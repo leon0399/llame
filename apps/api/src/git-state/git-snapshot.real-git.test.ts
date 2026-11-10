@@ -35,6 +35,7 @@ const connectors: Array<MachineConnector> = [];
 
 afterEach(() => {
   for (const connector of connectors.splice(0)) connector.onModuleDestroy();
+
   for (const directory of created.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -61,6 +62,7 @@ function repository(): string {
   writeFileSync(join(directory, 'tracked.txt'), 'one\n');
   runGit(directory, ['add', '.']);
   runGit(directory, ['commit', '--quiet', '--message', 'first commit']);
+
   return directory;
 }
 
@@ -71,11 +73,14 @@ function service(): GitSnapshotService {
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
   });
+
   connectors.push(connector);
+
   const config: LlameConfig = {
     ...BUILT_IN_DEFAULTS,
     tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'snapshot-host' },
   };
+
   return new GitSnapshotService(
     new ExecutorGit({ config }, connector, localGitSurface()),
   );

@@ -40,6 +40,7 @@ function templatePattern(template: string): RegExp {
         : piece.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`),
     )
     .join('');
+
   return new RegExp(`^${source}/?$`);
 }
 
@@ -52,7 +53,9 @@ function documentedMethods(document: OpenAPIObject): Array<PathMethods> {
         method in item ? [method.toUpperCase()] : [],
       ),
     );
+
     if (methods.has('GET')) methods.add('HEAD');
+
     return {
       pattern: templatePattern(template),
       parameters: template.split('{').length - 1,
@@ -71,8 +74,10 @@ function allowedMethods(
   path: string,
 ): ReadonlySet<string> | undefined {
   const matches = routes.filter((route) => route.pattern.test(path));
+
   if (matches.length === 0) return undefined;
   const fewest = Math.min(...matches.map((route) => route.parameters));
+
   return new Set(
     matches
       .filter((route) => route.parameters === fewest)
@@ -89,9 +94,11 @@ export function rejectUndeclaredMethods(
   document: OpenAPIObject,
 ): (req: Request, res: Response, next: NextFunction) => void {
   const routes = documentedMethods(document);
+
   return (req, res, next) => {
     if (req.method === 'OPTIONS') return next();
     const allowed = allowedMethods(routes, req.path);
+
     if (allowed === undefined || allowed.has(req.method)) return next();
     res
       .status(405)

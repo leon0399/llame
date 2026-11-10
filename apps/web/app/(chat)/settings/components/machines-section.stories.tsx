@@ -66,6 +66,7 @@ const meta = {
 } satisfies Meta<typeof MachinesSection>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

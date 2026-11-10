@@ -23,6 +23,7 @@ const NON_DTO_TYPES = new Set<unknown>([
 export class RequireObjectBodyPipe implements PipeTransform {
   transform<T>(value: T, metadata: ArgumentMetadata): T {
     const dto = metadata.metatype;
+
     if (
       metadata.type === 'body' &&
       dto !== undefined &&
@@ -32,6 +33,7 @@ export class RequireObjectBodyPipe implements PipeTransform {
     ) {
       throw new BadRequestException('The request body must be a JSON object.');
     }
+
     return value;
   }
 }

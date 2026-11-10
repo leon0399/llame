@@ -52,7 +52,9 @@ const connectors: Array<MachineConnector> = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+
   for (const connector of connectors.splice(0)) connector.onModuleDestroy();
+
   for (const directory of created.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -61,6 +63,7 @@ afterEach(() => {
 function tempDirectory(prefix = 'worktree-removal-'): string {
   const directory = mkdtempSync(join(tmpdir(), prefix));
   created.push(directory);
+
   return directory;
 }
 
@@ -83,6 +86,7 @@ function clone(): string {
   writeFileSync(join(directory, 'README.md'), 'readme\n');
   runGit(directory, ['add', 'README.md']);
   runGit(directory, ['commit', '--quiet', '--message', 'first']);
+
   return directory;
 }
 
@@ -90,6 +94,7 @@ function clone(): string {
 function worktree(source: string, branch: string) {
   const directory = join(tempDirectory(), branch.replaceAll('/', '-'));
   runGit(source, ['worktree', 'add', '--quiet', '-b', branch, directory]);
+
   return { directory, head: runGit(directory, ['rev-parse', 'HEAD']).trim() };
 }
 
@@ -113,6 +118,7 @@ function hostile(repository: string): string {
     'core.fsmonitor',
     join(monitor, 'fsmonitor.sh'),
   ]);
+
   return marker;
 }
 
@@ -123,7 +129,9 @@ function executors(tools: Partial<LlameConfig['tools']> = {}): ExecutorGit {
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
   });
+
   connectors.push(connector);
+
   return new ExecutorGit(
     { config: configWith(tools) },
     connector,
@@ -157,14 +165,17 @@ function service(
   } = {},
 ): RemovalUnderTest {
   const db: Db = drizzle.mock({ schema });
+
   const runner = {
     runAs: async <T>(_userId: string, operation: (tx: Db) => Promise<T>) =>
       operation(db),
   };
+
   // SAFETY: this service only calls `runAs`, which the stub supplies; the real
   // class opens a transaction and sets the RLS identity a unit test cannot.
   // eslint-disable-next-line typescript/no-unsafe-type-assertion
   const tenantDb = runner as never;
+
   return {
     removal: new WorktreeRemovalService(
       tenantDb,
@@ -222,9 +233,12 @@ async function failureOf(promise: Promise<void>): Promise<{
     const body: unknown = error.getResponse();
     const code = isRecord(body) ? body['code'] : undefined;
     const message = isRecord(body) ? body['message'] : undefined;
+
     if (!isString(code) || !isString(message)) throw error;
+
     return { code, status: error.getStatus(), message };
   }
+
   throw new Error('The removal resolved instead of failing.');
 }
 
@@ -547,6 +561,7 @@ describe('WorktreeRemovalService', () => {
     rowOf(checkoutRow(directory));
     const executorsOf = executors();
     const locate = vi.spyOn(executorsOf, 'locateEntry');
+
     const { removal } = service({
       config: configWith({ allowed: [] }),
       executors: executorsOf,
@@ -569,6 +584,7 @@ describe('WorktreeRemovalService', () => {
     rowOf(checkoutRow(directory));
     const executorsOf = executors();
     const locate = vi.spyOn(executorsOf, 'locateEntry');
+
     const { removal } = service({
       executors: executorsOf,
       group: {
@@ -592,6 +608,7 @@ describe('WorktreeRemovalService', () => {
     const { directory } = worktree(source, 'llame/x');
     runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
     rowOf(checkoutRow(directory));
+
     const { removal, deleteCheckout } = service({
       group: { allow: [{ field: 'path', regex: '^/' }] },
     });
@@ -611,6 +628,7 @@ describe('WorktreeRemovalService', () => {
     rowOf(checkoutRow(directory));
     const executorsOf = executors({ nativeExecutorId: undefined });
     const locate = vi.spyOn(executorsOf, 'locateEntry');
+
     const { removal } = service({
       config: configWith({ nativeExecutorId: undefined }),
       executors: executorsOf,

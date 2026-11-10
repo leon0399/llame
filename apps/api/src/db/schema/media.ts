@@ -118,4 +118,5 @@ export const mediaBlobs = pgTable(
 ).enableRLS();
 
 export type MediaObject = InferSelectModel<typeof mediaObjects>;
+
 export type MediaVariant = (typeof mediaVariant.enumValues)[number];

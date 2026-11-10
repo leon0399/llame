@@ -64,10 +64,15 @@ const outputSchema = z.discriminatedUnion("kind", [
 ]);
 
 type WebSearchResult = z.infer<typeof resultSchema>;
+
 type Citation = z.infer<typeof citationSchema>;
+
 type WebSearchAnswer = z.infer<typeof answerSchema>;
+
 type WebSearchOutput = z.infer<typeof outputSchema>;
+
 type WebSearchResultsOutput = Extract<WebSearchOutput, { kind: "results" }>;
+
 type WebSearchAnswerOutput = Extract<WebSearchOutput, { kind: "answer" }>;
 
 /** Props for the dedicated web search tool row. */
@@ -87,6 +92,7 @@ export type WebSearchToolProps = {
 function parseHttpUrl(value: string): URL | undefined {
   try {
     const url = new URL(value);
+
     return url.protocol === "http:" || url.protocol === "https:"
       ? url
       : undefined;
@@ -124,6 +130,7 @@ export function SearchLink({
   Markdown: ComponentType<{ children?: string }>;
 }) {
   const parsedUrl = parseHttpUrl(url);
+
   if (!parsedUrl) return <span>{label}</span>;
 
   return (
@@ -206,6 +213,7 @@ function CitationList({
   Markdown: ComponentType<{ children?: string }>;
 }) {
   if (citations.length === 0) return null;
+
   return (
     <ol className={cn("list-decimal space-y-2", className)}>
       {citations.map((citation, index) => (
@@ -257,6 +265,7 @@ function ResultsBody({
   Markdown: ComponentType<{ children?: string }>;
 }) {
   const record = rankRecordOf(output.display);
+
   return (
     <div className="space-y-4">
       {record ? (
@@ -325,6 +334,7 @@ export function WebSearchTool({
 }: WebSearchToolProps): ReactElement {
   const validOutput = outputSchema.safeParse(output).data;
   let result: ReactElement;
+
   if (validOutput?.kind === "results") {
     result = <ResultsBody output={validOutput} Markdown={Markdown} />;
   } else if (validOutput) {
@@ -332,6 +342,7 @@ export function WebSearchTool({
   } else {
     result = <ToolResultFallback output={output} pendingLabel="Searching…" />;
   }
+
   return (
     <ToolRow
       name="web_search"

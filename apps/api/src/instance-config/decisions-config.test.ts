@@ -134,6 +134,7 @@ describe('decisionModels config', () => {
     ]);
 
     let message = '';
+
     try {
       loadInstanceConfig({ DECISION_ID: 'secret-shared-id' });
     } catch (error) {
@@ -238,6 +239,7 @@ describe('decisionModels config', () => {
     ]);
 
     let message = '';
+
     try {
       loadInstanceConfig({
         DECISION_ID: 'sk-secret-looking-id',

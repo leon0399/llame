@@ -8,6 +8,7 @@ describe("modelVisibleResult", () => {
       content: "text",
       display: { oldText: "a", newText: "b" },
     };
+
     expect(modelVisibleResult(result)).toEqual({
       status: "success",
       kind: "file",
@@ -27,6 +28,7 @@ describe("modelVisibleResult", () => {
       path: "/work/shot.png",
       thumbnail: "data:image/webp;base64,UklGRg==",
     };
+
     expect(modelVisibleResult(image)).toEqual({
       status: "success",
       kind: "image",

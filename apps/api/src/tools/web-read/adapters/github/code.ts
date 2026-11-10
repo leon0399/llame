@@ -55,6 +55,7 @@ const PAGE_SIZE = 100;
 const MAX_COMMIT_FILES = 3000;
 
 type CodeContext = GithubRequestContext & { readonly source: URL };
+
 type ResolveResult =
   | {
       readonly kind: 'ok';
@@ -62,20 +63,24 @@ type ResolveResult =
       readonly path: ReadonlyArray<string>;
     }
   | { readonly kind: 'failed'; readonly failure: WebFetchFailure };
+
 type CandidateResult =
   | { readonly kind: 'found'; readonly ref: string }
   | { readonly kind: 'none' }
   | { readonly kind: 'failed'; readonly failure: WebFetchFailure };
+
 type CodeRequest = (
   ref: string,
   path: ReadonlyArray<string>,
 ) => Promise<GithubJsonResult>;
+
 type BlobDecodeResult =
   | { readonly kind: 'ok'; readonly content: string }
   | {
       readonly kind: 'failed';
       readonly failure: 'parse' | 'binary' | 'too_large';
     };
+
 type MatchingRefsRequest = (
   namespace: 'heads' | 'tags',
   first: string,
@@ -92,6 +97,7 @@ export async function readGithubCode(
   },
 ): Promise<WebAdapterOutcome> {
   const context: CodeContext = { ...options, notes: [] };
+
   switch (target.kind) {
     case 'repository':
       return readRepository(target, context);
@@ -103,6 +109,7 @@ export async function readGithubCode(
       return readCommit(target, context);
   }
 }
+
 async function readRepository(
   target: GithubRepositoryTarget,
   context: CodeContext,
@@ -111,10 +118,13 @@ async function readRepository(
     `${context.apiOrigin}${repoPath(target)}`,
     context,
   );
+
   if (primary.kind === 'failed') return primaryFailure(primary.failure);
   const repository = parseGithubRepository(primary.body);
+
   if (repository === undefined) return { kind: 'failed', failure: 'parse' };
   const document = await loadRepositorySections(repository, target, context);
+
   return finish(document, context);
 }
 
@@ -125,6 +135,7 @@ async function loadRepositorySections(
 ): Promise<GithubRepositoryDocument> {
   const entries = await loadRootTree(repository.defaultBranch, target, context);
   const readme = await loadReadme(target, context);
+
   return {
     kind: 'repository',
     displayPath: context.source.href,
@@ -144,19 +155,27 @@ async function loadRootTree(
 ) {
   const path = `${context.apiOrigin}${treePath(target, ref, [])}?recursive=1`;
   const result = await requestJson(path, context);
+
   if (result.kind === 'failed') {
     recordSecondaryFailure('tree', result.failure, context);
+
     return undefined;
   }
+
   const entries = parseGithubTree(result.body);
+
   if (entries === undefined) {
     recordSecondaryFailure('tree', PARSE_FAILURE, context);
+
     return undefined;
   }
+
   if (toGithubDirectoryEntries(entries).length > DIRECTORY_TRAVERSAL_BUDGET) {
     context.notes.push('tree omitted: too_large');
+
     return undefined;
   }
+
   return entries;
 }
 
@@ -168,15 +187,21 @@ async function loadReadme(
     `${context.apiOrigin}${repoPath(target)}/readme`,
     context,
   );
+
   if (result.kind === 'failed') {
     recordSecondaryFailure('README', result.failure, context);
+
     return undefined;
   }
+
   const decoded = decodeBlob(result.body);
+
   if (decoded.kind === 'failed') {
     context.notes.push(`README omitted: ${decoded.failure}`);
+
     return undefined;
   }
+
   return decoded.content;
 }
 
@@ -190,9 +215,12 @@ async function readTree(
       context,
     ),
   );
+
   if (resolved.kind === 'failed') return primaryFailure(resolved.failure);
   const entries = parseGithubTree(resolved.body);
+
   if (entries === undefined) return { kind: 'failed', failure: 'parse' };
+
   return {
     kind: 'rendered',
     content: '',
@@ -217,11 +245,14 @@ async function readBlob(
       context,
     ),
   );
+
   if (resolved.kind === 'failed') return primaryFailure(resolved.failure);
   const decoded = decodeBlob(resolved.body);
+
   if (decoded.kind === 'failed') {
     return { kind: 'failed', failure: decoded.failure };
   }
+
   return {
     kind: 'rendered',
     content: decoded.content,
@@ -240,12 +271,16 @@ async function readCommit(
     )}?per_page=${PAGE_SIZE}&page=1`,
     context,
   );
+
   if (firstPage.kind === 'failed') {
     return primaryFailure(firstPage.failure);
   }
+
   const commit = parseGithubCommit(firstPage.body);
+
   if (commit === undefined) return { kind: 'failed', failure: 'parse' };
   const files = await loadCommitFiles(target, commit.files, context);
+
   return finish(
     {
       kind: 'commit',
@@ -266,7 +301,9 @@ async function loadCommitFiles(
   context: CodeContext,
 ): Promise<ReadonlyArray<GithubFile>> {
   const files = [...firstFiles];
+
   if (firstFiles.length < PAGE_SIZE) return files;
+
   for (let page = 2; files.length < MAX_COMMIT_FILES; page += 1) {
     const result = await requestJson(
       `${context.apiOrigin}${repoPath(target)}/commits/${encodeURIComponent(
@@ -274,21 +311,28 @@ async function loadCommitFiles(
       )}?per_page=${PAGE_SIZE}&page=${page}`,
       context,
     );
+
     if (result.kind === 'failed') {
       recordSecondaryFailure('files', result.failure, context);
       break;
     }
+
     const pageFiles = parseGithubCommitFiles(result.body);
+
     if (pageFiles === undefined) {
       recordSecondaryFailure('files', PARSE_FAILURE, context);
       break;
     }
+
     files.push(...pageFiles);
+
     if (pageFiles.length < PAGE_SIZE) return files;
   }
+
   if (files.length >= MAX_COMMIT_FILES) {
     context.notes.push('files omitted: too_large');
   }
+
   return files.slice(0, MAX_COMMIT_FILES);
 }
 
@@ -299,11 +343,15 @@ async function resolveRef(
 ): Promise<ResolveResult> {
   const segments = target.segments;
   const first = segments[0];
+
   if (first === undefined) return { kind: 'failed', failure: PARSE_FAILURE };
   const initial = await attempt(first, segments.slice(1), request);
+
   if (initial.kind === 'ok') return initial;
+
   if (!canResolveRef(first, segments, initial.failure)) return initial;
   const locator = segments.join('/');
+
   const lookup: MatchingRefsRequest = (namespace, lookupFirst) =>
     requestJson(
       `${context.apiOrigin}${repoPath(
@@ -311,19 +359,25 @@ async function resolveRef(
       )}/git/matching-refs/${namespace}/${encodeURIComponent(lookupFirst)}`,
       context,
     );
+
   const heads = await matchingCandidate('heads', first, locator, lookup);
+
   if (heads.kind === 'failed') return heads;
+
   const candidate =
     heads.kind === 'found'
       ? heads
       : await matchingCandidate('tags', first, locator, lookup);
+
   if (candidate.kind !== 'found') {
     return candidate.kind === 'failed'
       ? candidate
       : { kind: 'failed', failure: initial.failure };
   }
+
   const suffix = locator.slice(candidate.ref.length);
   const path = suffix.split('/').filter((segment) => segment !== '');
+
   return attempt(candidate.ref, path, request);
 }
 
@@ -333,6 +387,7 @@ async function attempt(
   request: CodeRequest,
 ): Promise<ResolveResult> {
   const result = await request(ref, path);
+
   return result.kind === 'ok'
     ? { kind: 'ok', body: result.body, path }
     : result;
@@ -355,14 +410,18 @@ async function matchingCandidate(
   lookup: MatchingRefsRequest,
 ): Promise<CandidateResult> {
   const result = await lookup(namespace, first);
+
   if (result.kind === 'failed') {
     return result.failure.httpStatus === 404
       ? { kind: 'none' }
       : { kind: 'failed', failure: result.failure };
   }
+
   const refs = parseGithubMatchingRefs(result.body);
+
   if (refs === undefined) return { kind: 'failed', failure: PARSE_FAILURE };
   const ref = longestCandidate(refs, locator, namespace);
+
   return ref === undefined ? { kind: 'none' } : { kind: 'found', ref };
 }
 
@@ -373,14 +432,18 @@ function longestCandidate(
 ): string | undefined {
   const prefix = `refs/${namespace}/`;
   let longest: string | undefined;
+
   for (const item of refs) {
     if (!item.ref.startsWith(prefix)) continue;
     const candidate = item.ref.slice(prefix.length);
+
     if (locator !== candidate && !locator.startsWith(`${candidate}/`)) continue;
+
     if (longest === undefined || candidate.length > longest.length) {
       longest = candidate;
     }
   }
+
   return longest;
 }
 
@@ -388,16 +451,20 @@ function decodeBlobPayload(payload: GithubBlobPayload): BlobDecodeResult {
   if (payload.size !== undefined && payload.size > MAX_ADAPTER_DOCUMENT_BYTES) {
     return { kind: 'failed', failure: 'too_large' };
   }
+
   if (
     payload.encoding !== 'base64' ||
     ((payload.size ?? 0) > 0 && payload.content === '')
   ) {
     return { kind: 'failed', failure: 'binary' };
   }
+
   const bytes = decodeBase64(payload.content);
+
   if (bytes === undefined || bytes.includes(0)) {
     return { kind: 'failed', failure: 'binary' };
   }
+
   try {
     return {
       kind: 'ok',
@@ -410,17 +477,21 @@ function decodeBlobPayload(payload: GithubBlobPayload): BlobDecodeResult {
 
 function decodeBlob(body: string): BlobDecodeResult {
   const parsed = parseGithubBlob(body);
+
   if (parsed === undefined || parsed.kind === 'directory') {
     return { kind: 'failed', failure: 'parse' };
   }
+
   return decodeBlobPayload(parsed.payload);
 }
 
 function decodeBase64(content: string): Buffer | undefined {
   const compact = content.replaceAll(/\s+/gu, '');
+
   if (compact.length % 4 === 1 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(compact)) {
     return undefined;
   }
+
   return Buffer.from(compact, 'base64');
 }
 
@@ -438,6 +509,7 @@ function treePath(
 ): string {
   const suffix = encodeURIComponent(ref);
   const pathText = path.map(encodeURIComponent).join('/');
+
   return `${repoPath(target)}/git/trees/${suffix}${
     pathText === '' ? '' : `:${pathText}`
   }`;

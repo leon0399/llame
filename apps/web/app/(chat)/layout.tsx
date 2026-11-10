@@ -28,6 +28,7 @@ import { SessionDetailsProvider } from "./components/session-details/details-sta
  *  them, with their sections as the user arranged them. */
 async function readShellState() {
   const cookieStore = await cookies();
+
   return {
     railOpen: cookieStore.get("sidebar_state")?.value === "true",
     detailsOpen: cookieStore.get(SESSION_DETAILS_COOKIE)?.value !== "false",

@@ -12,11 +12,13 @@ import { createDiscourseAdapter } from './adapter';
 
 const HOST = 'forum.example.test';
 const ORIGIN = `https://${HOST}`;
+
 const adapter = createDiscourseAdapter({
   id: 'forum',
   use: 'discourse',
   hosts: [HOST, 'help.example.test'],
 });
+
 const TOPIC_URL = `${ORIGIN}/t/12.json`;
 const TOPIC_PAGE = `${ORIGIN}/t/welcome-hello/12`;
 const JSON_INIT = { accept: 'application/json' };
@@ -71,11 +73,13 @@ function chunkUrl(chunk: ReadonlyArray<number>): string {
 async function read(source: string, routes: ReadonlyArray<[string, Reply]>) {
   const run = scriptedIo(new Map(routes.map(([url, reply]) => [url, [reply]])));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
 function contentOf(outcome: WebAdapterOutcome): string {
   if (outcome.kind !== 'rendered') throw new Error('expected a render');
+
   return outcome.content;
 }
 
@@ -299,6 +303,7 @@ describe('Discourse adapter read', () => {
     expect(headings(outcome)).toStrictEqual(
       Array.from({ length: 200 }, (_, index) => {
         const label = index === 0 ? 'Post' : 'Reply';
+
         return `## ${label} · ${index + 1}/200 — @user${index + 1}`;
       }),
     );
@@ -345,6 +350,7 @@ describe('Discourse adapter read', () => {
   it('keeps the posts before a request that fails and stops there', async () => {
     const first = ids(21, 120);
     const second = ids(121, 200);
+
     const throttled: WebFetchFailure = {
       type: 'http_status',
       message: 'HTTP 429',
@@ -356,6 +362,7 @@ describe('Discourse adapter read', () => {
       [TOPIC_URL, response(topic(posts(1, 20), ids(1, 250)))],
       [chunkUrl(first), throttled],
     ]);
+
     const late = await read(TOPIC_PAGE, [
       [TOPIC_URL, response(topic(posts(1, 20), ids(1, 250)))],
       [chunkUrl(first), response({ post_stream: { posts: posts(21, 120) } })],

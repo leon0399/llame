@@ -4,6 +4,7 @@ import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const ANSWER = "Mocked answer from the e2e model server.";
+
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
@@ -26,6 +27,7 @@ test("an anonymous visitor can open a public shared chat", async ({
   });
 
   const chatId = new URL(page.url()).pathname.split("/").pop();
+
   if (!chatId) throw new Error(`Could not extract chat id from ${page.url()}`);
 
   const shareResponse = await page.request.patch(
@@ -35,6 +37,7 @@ test("an anonymous visitor can open a public shared chat", async ({
       data: { visibility: "public" },
     },
   );
+
   expect(
     shareResponse.ok(),
     `Making chat public failed with ${shareResponse.status()}`,
@@ -44,6 +47,7 @@ test("an anonymous visitor can open a public shared chat", async ({
     baseURL: test.info().project.use.baseURL,
     storageState: { cookies: [], origins: [] },
   });
+
   try {
     const anonymousPage = await anonymousContext.newPage();
     await anonymousPage.goto(`/shared/${chatId}`);

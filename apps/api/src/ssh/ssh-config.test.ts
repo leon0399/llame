@@ -30,6 +30,7 @@ describe('renderSshConfig', () => {
 
   it('sets every hop-level safety option', () => {
     const text = renderSshConfig(base);
+
     for (const expected of [
       'UserKnownHostsFile "/etc/llame/machine_known_hosts"',
       'GlobalKnownHostsFile none',
@@ -52,10 +53,12 @@ describe('renderSshConfig', () => {
 
   it('turns the agent off unless an agent is selected', () => {
     expect(renderSshConfig(base).split('\n')).toContain('  IdentityAgent none');
+
     const lines = renderSshConfig({
       ...base,
       identityAgent: '/run/user/1000/agent.sock',
     }).split('\n');
+
     expect(lines).toContain('  IdentityAgent "/run/user/1000/agent.sock"');
     expect(lines).not.toContain('  IdentityAgent none');
   });
@@ -75,6 +78,7 @@ describe('renderSshConfig', () => {
       knownHostsFile: '/srv/llame keys/pinned"x',
       includeFile: '/home/me/my config',
     });
+
     expect(text).toContain(
       String.raw`UserKnownHostsFile "/srv/llame keys/pinned\"x"`,
     );
@@ -106,6 +110,7 @@ describe('createSshConfigFile', () => {
       knownHostsFile: '/tmp/pinned',
       includeFile: '/tmp/operator-config',
     });
+
     try {
       expect(statSync(file.path).mode & 0o777).toBe(0o600);
       expect(
@@ -115,12 +120,14 @@ describe('createSshConfigFile', () => {
     } finally {
       file.dispose();
     }
+
     expect(() => statSync(file.path)).toThrow(/ENOENT/u);
   });
 
   it('gives each call its own directory', () => {
     const first = createSshConfigFile(base());
     const second = createSshConfigFile(base());
+
     try {
       expect(first.path).not.toBe(second.path);
     } finally {
@@ -170,7 +177,9 @@ function base() {
 /** The one path a write mock saw, with a clear failure instead of a cast. */
 function only(written: ReadonlyArray<string>): string {
   const [first] = written;
+
   if (first === undefined)
     throw new Error('the generated file was never written');
+
   return first;
 }

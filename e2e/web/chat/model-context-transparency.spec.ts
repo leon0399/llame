@@ -16,8 +16,10 @@ const ANSWER = "Mocked answer from the e2e model server.";
 const DEFAULT_MODEL_ID = "system:openai:gpt-5.4-mini";
 const TARGET_MODEL_ID = "e2e:context-target-carmine";
 const ORIGINAL_TEXT = "Remember e2eoriginaljuniper for the transparency proof.";
+
 const CHECKPOINT_SUMMARY =
   "Generated checkpoint e2ecompactionlilac must stay out of chat search.";
+
 const EXPECTED_TARGET_PROMPT = `# E2E context target
 
 This complete model-specific prompt contains e2epromptcitrine.
@@ -53,6 +55,7 @@ test.describe("model-context transparency (browser, full stack)", () => {
     });
 
     const chatId = new URL(page.url()).pathname.split("/").pop();
+
     if (!chatId) {
       throw new Error(`Could not extract chat id from URL: ${page.url()}`);
     }
@@ -74,37 +77,46 @@ test.describe("model-context transparency (browser, full stack)", () => {
     const switchBoundary = page.getByRole("button", {
       name: `Model changed from ${DEFAULT_MODEL_ID} to ${TARGET_MODEL_ID}`,
     });
+
     await expect(switchBoundary).toBeVisible();
 
     const triggeringMessage = page.getByText(ORIGINAL_TEXT);
     await expect(triggeringMessage).toBeVisible();
     const triggeringMessageHandle = await triggeringMessage.elementHandle();
+
     if (!triggeringMessageHandle) {
       throw new Error(
         "Triggering user message disappeared before ordering check",
       );
     }
+
     expect(
       await switchBoundary.evaluate((boundary, message) => {
         let content = boundary.parentElement;
+
         while (content && !content.contains(message)) {
           content = content.parentElement;
         }
+
         if (!content || !content.closest('[role="log"]')) return false;
 
         const directChild = (element: Element): Element | null => {
           let current: Element | null = element;
+
           while (current?.parentElement && current.parentElement !== content) {
             current = current.parentElement;
           }
+
           return current?.parentElement === content ? current : null;
         };
 
         const boundaryBlock = directChild(boundary);
         const messageBlock = directChild(message);
+
         if (!boundaryBlock || !messageBlock) return false;
 
         const children = Array.from(content.children);
+
         return (
           children.indexOf(messageBlock) === children.indexOf(boundaryBlock) + 1
         );
@@ -120,6 +132,7 @@ test.describe("model-context transparency (browser, full stack)", () => {
     const receipt = page.getByRole("dialog", {
       name: "System prompt receipt",
     });
+
     await expect(receipt).toBeVisible();
     await expect(
       receipt.getByRole("heading", { name: /System prompt receipts/ }),
@@ -138,21 +151,25 @@ test.describe("model-context transparency (browser, full stack)", () => {
       `${apiUrl}/api/v1/chats/${chatId}/messages`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
+
     // Status in the message: a bare `.ok()` boolean turns any failure into
     // "expected true, received false" with no clue whether it was 401, 429, …
     expect(
       messagesResponse.ok(),
       `GET messages failed with ${messagesResponse.status()}`,
     ).toBe(true);
+
     // SAFETY: this is the api's own chat-messages endpoint (under test
     // here), whose { messages: [...] } envelope is fixed by its own OpenAPI
     // contract.
     const { messages } = (await messagesResponse.json()) as {
       messages: Array<{ seq: number }>;
     };
+
     const absorbedThroughSeq = Math.max(
       ...messages.map((message) => message.seq),
     );
+
     seedCheckpoint(chatId, absorbedThroughSeq, CHECKPOINT_SUMMARY, {
       ownerUserId: account.id,
     });
@@ -171,7 +188,9 @@ test.describe("model-context transparency (browser, full stack)", () => {
         `${apiUrl}/api/v1/chats/search?q=${encodeURIComponent(query)}`,
         { headers: { Authorization: `Bearer ${account.token}` } },
       );
+
       expect(response.ok()).toBe(true);
+
       // SAFETY: this is the api's own chat search endpoint (under test
       // here), whose { results: [...] } envelope is fixed by its own
       // OpenAPI contract.
@@ -186,6 +205,7 @@ test.describe("model-context transparency (browser, full stack)", () => {
           originalResult = (await search("e2eoriginaljuniper")).find(
             (result) => result.id === chatId,
           );
+
           return originalResult?.id;
         },
         { timeout: 20_000 },
@@ -200,6 +220,7 @@ test.describe("model-context transparency (browser, full stack)", () => {
       "maxLength", // advertised tool input schema
       "e2ecompactionlilac", // generated compaction summary
     ] as const;
+
     for (const term of hiddenSearchTerms) {
       expect(await search(term), `${term} must not match chat search`).toEqual(
         [],

@@ -92,9 +92,11 @@ function renderIssue(document: GithubIssueDocument): string {
     '',
     `State: ${document.state}`,
   ];
+
   if (document.stateReason !== null) {
     lines.push(`State reason: ${document.stateReason}`);
   }
+
   lines.push(
     `Author: ${document.author}`,
     `Created: ${document.createdAt}`,
@@ -109,6 +111,7 @@ function renderIssue(document: GithubIssueDocument): string {
     `## Comments (${document.comments.length})`,
   );
   appendComments(lines, document.comments);
+
   return lines.join('\n').trim();
 }
 
@@ -134,11 +137,13 @@ function renderPullRequest(document: GithubPullDocument): string {
     '',
     formatItemBody(document.body ?? '', 'No description provided.'),
   ];
+
   appendFiles(lines, document.files);
   appendReviews(lines, document.reviews);
   appendReviewComments(lines, document.reviewComments);
   lines.push('', `## Comments (${document.comments.length})`);
   appendComments(lines, document.comments);
+
   return lines.join('\n').trim();
 }
 
@@ -160,6 +165,7 @@ export function formatItemBody(body: string, fallback: string): string {
 
 function formatReviewCounts(reviews: ReadonlyArray<GithubReview>): string {
   const latest = new Map<string, string>();
+
   for (const review of reviews) {
     if (
       review.state === 'APPROVED' ||
@@ -169,15 +175,19 @@ function formatReviewCounts(reviews: ReadonlyArray<GithubReview>): string {
       latest.set(review.author, review.state);
     }
   }
+
   const states = [...latest.values()];
   const approved = states.filter((state) => state === 'APPROVED').length;
+
   const changesRequested = states.filter(
     (state) => state === 'CHANGES_REQUESTED',
   ).length;
+
   const counts = [
     approved > 0 ? `${approved} approved` : '',
     changesRequested > 0 ? `${changesRequested} changes requested` : '',
   ].filter(Boolean);
+
   return counts.length === 0
     ? 'none'
     : `${counts.join(', ')} (latest per reviewer)`;
@@ -186,12 +196,17 @@ function formatReviewCounts(reviews: ReadonlyArray<GithubReview>): string {
 function formatChecks(checks: GithubChecks): string {
   if (checks.kind === 'unavailable') return 'unavailable';
   const parts: Array<string> = [];
+
   if (checks.passed > 0) parts.push(`${checks.passed} passed`);
+
   if (checks.failed.length > 0) {
     parts.push(`${checks.failed.length} failed (${checks.failed.join(', ')})`);
   }
+
   if (checks.pending > 0) parts.push(`${checks.pending} pending`);
+
   if (checks.notLoaded > 0) parts.push(`${checks.notLoaded} not loaded`);
+
   return parts.length === 0 ? 'none' : parts.join(', ');
 }
 
@@ -200,11 +215,13 @@ export function appendFiles(
   files: ReadonlyArray<GithubFile>,
 ): void {
   lines.push('', `## Files (${files.length})`);
+
   for (const file of files) {
     const renamed =
       file.previousFilename === undefined
         ? ''
         : ` (renamed from ${file.previousFilename})`;
+
     lines.push(
       `- ${file.filename} (${file.status}, +${file.additions} -${file.deletions})${renamed}`,
     );
@@ -216,6 +233,7 @@ function appendReviews(
   reviews: ReadonlyArray<GithubReview>,
 ): void {
   lines.push('', `## Reviews (${reviews.length})`);
+
   for (const review of reviews) {
     appendItem(lines, review.author, review.submittedAt, {
       fields: [
@@ -234,13 +252,17 @@ function appendReviewComments(
   comments: ReadonlyArray<GithubReviewComment>,
 ): void {
   lines.push('', `## Review Comments (${comments.length})`);
+
   for (const comment of comments) {
     const location =
       comment.line === null ? comment.path : `${comment.path}:${comment.line}`;
+
     const fields = [`ID: ${comment.id}`];
+
     if (comment.inReplyTo !== null)
       fields.push(`Reply to: ${comment.inReplyTo}`);
     fields.push(`Location: ${location}`);
+
     if (comment.side !== null) fields.push(`Side: ${comment.side}`);
     fields.push(`URL: ${comment.url}`);
     appendItem(lines, comment.author, comment.createdAt, {

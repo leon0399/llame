@@ -25,6 +25,7 @@ export function proxy(req: NextRequest) {
 
   if (!hasSessionCookie) {
     let callbackUrl = nextUrl.pathname;
+
     if (nextUrl.search) {
       callbackUrl += nextUrl.search;
     }

@@ -22,6 +22,7 @@ describe("fs.grep", () => {
 
   it("keys a cursor on every search input", () => {
     const key = fsGrepCursorKey(SEARCH);
+
     const variants = [
       { ...SEARCH, path: "/srv/other" },
       { ...SEARCH, globSuffix: undefined },
@@ -30,7 +31,9 @@ describe("fs.grep", () => {
       { ...SEARCH, literal: true },
       { ...SEARCH, ignoreCase: true },
     ];
+
     const keys = variants.map((variant) => fsGrepCursorKey(variant));
+
     for (const variant of keys) expect(variant).not.toBe(key);
     expect(new Set(keys).size).toBe(keys.length);
   });

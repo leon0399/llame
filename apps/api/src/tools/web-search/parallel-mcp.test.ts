@@ -70,6 +70,7 @@ const recordedPayload = {
 };
 
 type TextPart = { readonly type: 'text'; readonly text: string };
+
 type RpcResultBody =
   | { readonly tools: ReadonlyArray<typeof parallelTool> }
   | {
@@ -119,6 +120,7 @@ let activeFixture: McpTestFixture | undefined;
 
 function currentFixture(): McpTestFixture {
   if (activeFixture === undefined) throw new Error('fixture is not active');
+
   return activeFixture;
 }
 
@@ -140,6 +142,7 @@ describe('Parallel MCP engine', () => {
       ]),
     );
     const seen: Array<CapturedRequest> = [];
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), seen),
     });
@@ -202,6 +205,7 @@ describe('Parallel MCP engine', () => {
         ),
       ]),
     );
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
@@ -236,6 +240,7 @@ describe('Parallel MCP engine', () => {
         ),
       ]),
     );
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
@@ -249,6 +254,7 @@ describe('Parallel MCP engine', () => {
   it('maps a tool error to upstream_error without its text', async () => {
     const vendorText =
       'Error executing tool web_search: search_queries must be non-empty';
+
     activeFixture = await createMcpTestFixture(
       fixtureScripts([
         rpcResult(2, {
@@ -265,6 +271,7 @@ describe('Parallel MCP engine', () => {
         ),
       ]),
     );
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
@@ -296,6 +303,7 @@ describe('Parallel MCP engine', () => {
       activeFixture = await createMcpTestFixture(
         fixtureScripts([rpcResult(2, { content })]),
       );
+
       const engine = createParallelMcpEngine({
         fetch: routedFetch(currentFixture(), []),
       });
@@ -310,6 +318,7 @@ describe('Parallel MCP engine', () => {
 
   it('rejects an endpoint that declares no web_search tool', async () => {
     activeFixture = await createMcpTestFixture(fixtureScripts([], [[]]));
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
@@ -335,6 +344,7 @@ describe('Parallel MCP engine', () => {
       'tools/call': [],
       $delete: [],
     });
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
@@ -349,6 +359,7 @@ describe('Parallel MCP engine', () => {
     activeFixture = await createMcpTestFixture(
       fixtureScripts([], [[parallelTool]]),
     );
+
     const engine = createParallelMcpEngine({
       fetch: () => Promise.reject(new Error('connection refused')),
     });
@@ -370,6 +381,7 @@ describe('Parallel MCP engine', () => {
         ),
       ]),
     );
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
@@ -381,6 +393,7 @@ describe('Parallel MCP engine', () => {
     const initialized = mcpStreamableHttpInitialize({
       sessionId: 'parallel-session',
     });
+
     const ok = (id: number) =>
       rpcResult(
         id,
@@ -388,6 +401,7 @@ describe('Parallel MCP engine', () => {
           structuredContent: recordedPayload,
         }),
       );
+
     activeFixture = await createMcpTestFixture({
       $get: [initialized, initialized].map(() => ({
         kind: 'raw' as const,
@@ -417,13 +431,16 @@ describe('Parallel MCP engine', () => {
         { kind: 'raw' as const, status: 204, body: '' },
       ],
     });
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
+
     const callCount = () =>
       currentFixture()
         .requestSummaries()
         .filter(({ rpcMethod }) => rpcMethod === 'tools/call').length;
+
     const initializeCount = () =>
       currentFixture()
         .requestSummaries()
@@ -443,6 +460,7 @@ describe('Parallel MCP engine', () => {
     const initialized = mcpStreamableHttpInitialize({
       sessionId: 'parallel-session',
     });
+
     activeFixture = await createMcpTestFixture({
       $get: [initialized, initialized].map(() => ({
         kind: 'raw' as const,
@@ -484,13 +502,16 @@ describe('Parallel MCP engine', () => {
         { kind: 'raw' as const, status: 204, body: '' },
       ],
     });
+
     const engine = createParallelMcpEngine({
       fetch: routedFetch(currentFixture(), []),
     });
+
     const callCount = () =>
       currentFixture()
         .requestSummaries()
         .filter(({ rpcMethod }) => rpcMethod === 'tools/call').length;
+
     const initializeCount = () =>
       currentFixture()
         .requestSummaries()

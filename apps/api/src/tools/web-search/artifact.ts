@@ -65,6 +65,7 @@ export async function spillWebSearchResult(
     received,
     { limit, fetchSize, objective },
   );
+
   if (JSON.stringify(full) === JSON.stringify(whole))
     return { ...whole, ...record };
 
@@ -72,8 +73,10 @@ export async function spillWebSearchResult(
   // adds, so it is fitted with the notice's room kept back.
   const inline = normalizeOutput(source, limit, INLINE_NOTICE_RESERVE);
   const rendered = renderWebSearchOutput(full);
+
   const written =
     rendered === undefined ? undefined : await storeArtifact(context, rendered);
+
   const notice =
     written === undefined || rendered === undefined
       ? leftOutNotice(full, inline)
@@ -85,6 +88,7 @@ export async function spillWebSearchResult(
             renderWebSearchOutput(inline)?.blocks ?? [],
           ),
         );
+
   return {
     ...inline,
     ...(written !== undefined && { artifact: written.locator }),
@@ -113,19 +117,24 @@ async function rankedSpillSource(
   { limit, fetchSize, objective }: WebSearchSpill,
 ): Promise<SpillSource> {
   const prepared = prepareSource(context, received);
+
   const count = retainsMergedSet(context, prepared)
     ? Number.POSITIVE_INFINITY
     : fetchSize;
+
   const full = normalizeFullOutput(prepared, count);
   const whole = normalizeOutput(prepared, limit);
   const fits = JSON.stringify(full) === JSON.stringify(whole);
+
   const ranking =
     prepared.kind === 'results' && !fits
       ? await rankWebSearchResults(context, prepared, objective)
       : undefined;
+
   if (prepared.kind !== 'results' || ranking === undefined)
     return { source: prepared, record: {}, full, whole };
   const source = rankedSource(prepared, ranking);
+
   return {
     source,
     record:
@@ -193,6 +202,7 @@ function storedNotice(
   next: number,
 ): string {
   const hostFiles = artifactHostFiles(context, 'web_search', written);
+
   const notice = artifactNotice(
     [{ locator: written.locator, lines: written.lineCount }],
     {
@@ -200,6 +210,7 @@ function storedNotice(
       hostFiles,
     },
   );
+
   return notice.slice(1, -1);
 }
 
@@ -217,6 +228,7 @@ function nextArtifactLine(
 ): number {
   const reproduced = reproducedBlocks(fullBlocks, inlineBlocks);
   const boundary = fullBlocks[reproduced - 1];
+
   return boundary === undefined ? FIRST_BLOCK_LINE : boundary.end + 1;
 }
 
@@ -226,10 +238,12 @@ function reproducedBlocks(
   inline: ReadonlyArray<WebSearchTextBlock>,
 ): number {
   let reproduced = 0;
+
   for (const block of inline) {
     if (block.text !== full[reproduced].text) break;
     reproduced += 1;
   }
+
   return reproduced;
 }
 
@@ -239,6 +253,7 @@ function leftOutNotice(
   inline: WebSearchSuccess,
 ): string {
   const count = leftOutCount(full, inline);
+
   return `left out: ${count} ${count === 1 ? 'result' : 'results'}; full result not stored`;
 }
 
@@ -253,25 +268,31 @@ function leftOutCount(
 ): number {
   if (full.kind === 'answer') {
     if (inline.kind !== 'answer') return 0;
+
     return (
       full.citations.length -
       inline.citations.length +
       (full.answer === inline.answer ? 0 : 1)
     );
   }
+
   if (inline.kind !== 'results') return 0;
   const answers = full.answers ?? [];
   const inlineAnswers = inline.answers ?? [];
+
   const keptFullCitations = answers
     .slice(0, inlineAnswers.length)
     .reduce((total, answer) => total + answer.citations.length, 0);
+
   const keptInlineCitations = inlineAnswers.reduce(
     (total, answer) => total + answer.citations.length,
     0,
   );
+
   const cutAnswers = inlineAnswers.filter(
     (answer, index) => answer.answer !== answers[index].answer,
   ).length;
+
   return (
     full.results.length -
     inline.results.length +

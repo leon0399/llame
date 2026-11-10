@@ -30,4 +30,5 @@ async function bootstrap() {
     'Worker context ready (no HTTP) — consumers gated by LLAME_WORKER_PROFILE',
   );
 }
+
 void bootstrap();

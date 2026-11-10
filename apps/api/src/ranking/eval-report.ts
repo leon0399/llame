@@ -21,6 +21,7 @@ function row(
   const relevant = new Set(
     rankingCase.cards.filter((card) => card.relevant).map((card) => card.key),
   );
+
   return {
     caseName: rankingCase.name,
     ranker,
@@ -36,6 +37,7 @@ export function evaluateCase(
   answers: ReadonlyArray<RecordedAnswer>,
 ): Array<EvalRow> {
   const keys = rankingCase.cards.map((card) => card.key);
+
   return [
     row(rankingCase, 'canonical', keys, { latencyMs: null, costUsd: null }),
     ...answers.map((answer) =>

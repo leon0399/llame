@@ -120,6 +120,7 @@ describe("parseTurnUsage", () => {
     const parsed = parseTurnUsage({
       usage: { complete: "false", billing: "subscription-like" },
     });
+
     expect(parsed?.complete).toBeUndefined();
     expect(parsed?.billing).toBeUndefined();
   });
@@ -140,6 +141,7 @@ describe("parseTurnUsage", () => {
     const parsed = parseTurnUsage({
       usage: { totalTokens: 30, costUsd: null },
     });
+
     expect(parsed?.costUsd).toBeNull();
   });
 
@@ -161,6 +163,7 @@ describe("parseTurnUsage", () => {
     const parsed = parseTurnUsage({
       usage: { totalTokens: "lots", outputTokens: 5 },
     });
+
     expect(parsed?.totalTokens).toBeUndefined();
     expect(parsed?.outputTokens).toBe(5);
   });
@@ -173,6 +176,7 @@ describe("parseTurnUsage", () => {
         tokensPerSecond: "40",
       },
     });
+
     expect(parsed?.firstTokenMs).toBeUndefined();
     expect(parsed?.chunkCount).toBeUndefined();
     expect(parsed?.tokensPerSecond).toBeUndefined();
@@ -227,6 +231,7 @@ describe("buildUsageLine", () => {
       effort: "xhigh",
       latencyMs: 900,
     });
+
     expect(result?.text).toBe("GPT-4o · Extra High · 900ms");
     expect(
       result?.sections
@@ -241,6 +246,7 @@ describe("buildUsageLine", () => {
       permissionMode: "bypass",
       latencyMs: 900,
     });
+
     expect(result?.text).toBe("GPT-5 · high · Bypass · 900ms");
     expect(result?.sections).toContainEqual({
       header: "Cost & model",
@@ -258,6 +264,7 @@ describe("buildUsageLine", () => {
       effort: "high",
       latencyMs: 900,
     });
+
     expect(result?.text).toBe("GPT-5 · high · 900ms");
     expect(result?.text).not.toContain("Bypass");
     expect(
@@ -342,6 +349,7 @@ describe("buildUsageLine", () => {
       tokensPerSecond: 62.7,
       chunkCount: 312,
     });
+
     expect(result?.sections).toContainEqual({
       header: "Performance",
       rows: [
@@ -361,9 +369,11 @@ describe("buildUsageLine", () => {
       tokensPerSecond: 0.4,
       chunkCount: 12,
     });
+
     const performance = result?.sections.find(
       (section) => section.header === "Performance",
     );
+
     expect(performance?.rows).toContainEqual({
       label: "Speed",
       value: "0.4 tok/s",
@@ -378,9 +388,11 @@ describe("buildUsageLine", () => {
       tokensPerSecond: 40,
       chunkCount: 2400,
     });
+
     const performance = result?.sections.find(
       (section) => section.header === "Performance",
     );
+
     expect(performance?.rows).toContainEqual({
       label: "Speed",
       value: "40 tok/s",
@@ -398,9 +410,11 @@ describe("buildUsageLine", () => {
       firstTokenMs: 300,
       chunkCount: 40,
     });
+
     const performance = result?.sections.find(
       (section) => section.header === "Performance",
     );
+
     expect(performance?.rows).toContainEqual({
       label: "First token",
       value: "300ms",
@@ -416,6 +430,7 @@ describe("buildUsageLine", () => {
       cachedInputTokens: 0,
       outputTokens: 20,
     });
+
     const tokens = result?.sections.find((s) => s.header === "Tokens");
     expect(tokens?.rows).toContainEqual({
       label: "of which cached",
@@ -431,6 +446,7 @@ describe("buildUsageLine", () => {
       cacheWriteTokens: 11_200,
       outputTokens: 20,
     });
+
     const tokens = result?.sections.find((s) => s.header === "Tokens");
     expect(tokens?.rows).toContainEqual({
       label: "of which cache write",
@@ -444,6 +460,7 @@ describe("buildUsageLine", () => {
       inputTokens: 10,
       outputTokens: 20,
     });
+
     const tokens = result?.sections.find((s) => s.header === "Tokens");
     expect(tokens?.rows.map((r) => r.label)).not.toContain(
       "of which cache write",
@@ -456,9 +473,11 @@ describe("buildUsageLine", () => {
       inputTokens: 10,
       outputTokens: 20,
     });
+
     const rows = result?.sections.find(
       (section) => section.header === "Tokens",
     )?.rows;
+
     expect(rows).toContainEqual({ label: "of which reasoning", value: "—" });
     expect(rows?.[rows.findIndex((row) => row.label === "Output") + 1]).toEqual(
       { label: "of which reasoning", value: "—" },
@@ -471,6 +490,7 @@ describe("buildUsageLine", () => {
       inputTokens: 1500,
       outputTokens: 1_234_000,
     });
+
     const tokens = result?.sections.find((s) => s.header === "Tokens");
     expect(tokens?.rows).toContainEqual({ label: "Input", value: "1.5k" });
     expect(tokens?.rows).toContainEqual({ label: "Output", value: "1.2M" });
@@ -487,6 +507,7 @@ describe("buildUsageLine", () => {
       complete: true,
       billing: "usage",
     });
+
     expect(result?.text).toBe("GPT-4o · 900ms");
     expect(result?.incompleteNotice).toBeUndefined();
     expect(result?.sections).toContainEqual({
@@ -505,6 +526,7 @@ describe("buildUsageLine", () => {
       totalTokens: 30,
       costUsd: 0.0063,
     });
+
     expect(result?.incompleteNotice).toBeUndefined();
     expect(
       result?.sections
@@ -535,6 +557,7 @@ describe("buildUsageLine", () => {
       })
         ?.sections.find((section) => section.header === "Cost & model")
         ?.rows.find((row) => row.label === "Est. cost")?.value;
+
     expect(costValue(1.239)).toBe("≥ $1.23");
     expect(costValue(0.0149)).toBe("≥ $0.014");
     expect(costValue(0.01)).toBe("≥ $0.010");
@@ -549,6 +572,7 @@ describe("buildUsageLine", () => {
       costUsd: 0,
       complete: false,
     });
+
     expect(result?.text).toBe("GPT-4o · ≥ 0 tokens · ≥ $0.0000");
     const tokens = result?.sections.find((s) => s.header === "Tokens");
     expect(tokens?.rows).toContainEqual({ label: "Output", value: "—" });
@@ -572,6 +596,7 @@ describe("buildUsageLine", () => {
       complete: false,
       billing: "usage",
     });
+
     expect(result?.text).toBe("GPT-4o · ≥ 2.7k tokens · ≥ $0.0063");
     expect(result?.incompleteNotice).toBe(
       "Recorded usage may not cover all of this Run's spend",
@@ -592,6 +617,7 @@ describe("buildUsageLine", () => {
       totalTokens: 2751,
       complete: false,
     });
+
     expect(result?.text).toBe("GPT-4o · ≥ 2.7k tokens");
     expect(result?.sections).toContainEqual({
       header: "Cost & model",
@@ -608,6 +634,7 @@ describe("buildUsageLine", () => {
       totalTokens: 1_999_999,
       complete: false,
     });
+
     expect(result?.text).toBe("GPT-4o · ≥ 1.9M tokens");
     expect(result?.sections).toContainEqual({
       header: "Cost & model",
@@ -626,6 +653,7 @@ describe("buildUsageLine", () => {
       complete: true,
       billing: "subscription",
     });
+
     expect(result?.sections).toContainEqual({
       header: "Cost & model",
       rows: [
@@ -644,6 +672,7 @@ describe("buildUsageLine", () => {
       complete: false,
       billing: "subscription",
     });
+
     expect(result?.text).toBe("GPT-4o · ≥ 2.7k tokens");
     expect(result?.sections).toContainEqual({
       header: "Cost & model",
@@ -664,9 +693,11 @@ describe("buildUsageLine", () => {
       costUsd: null,
       billing: "subscription",
     });
+
     const costSection = result?.sections.find(
       (section) => section.header === "Cost & model",
     );
+
     expect(costSection?.rows.map((row) => row.label)).not.toContain(
       "Notional cost",
     );
@@ -716,6 +747,7 @@ describe("reload parity (live message-metadata vs. history)", () => {
         },
       ],
     });
+
     const historyLine = buildUsageLine(
       parseTurnUsage(historyMessage?.metadata),
       MODELS,
@@ -841,6 +873,7 @@ describe("MessageUsage", () => {
     const { container } = render(
       <MessageUsage metadata={{ usage: { status: "completed" } }} />,
     );
+
     expect(container.innerHTML).toBe("");
   });
 });

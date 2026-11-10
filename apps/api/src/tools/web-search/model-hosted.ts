@@ -22,8 +22,11 @@ type HostedConfig = Extract<
   WebSearchEngineConfig,
   { readonly type: 'model-hosted' }
 >;
+
 type ModelSource = Awaited<ModelStreamResult['sources']>[number];
+
 type UrlSource = Extract<ModelSource, { readonly sourceType: 'url' }>;
+
 type HostedAnswer = {
   readonly text: string;
   readonly sources: ReadonlyArray<ModelSource>;
@@ -67,6 +70,7 @@ function domainPlan(wire: WireProfile, filters: SiteFilters): DomainPlan {
     wire.singleDomainList &&
     filters.include.length > 0 &&
     filters.exclude.length > 0;
+
   return {
     allowedDomains: filters.include,
     blockedDomains: droppedExclusions ? [] : filters.exclude,
@@ -78,6 +82,7 @@ function domainPlan(wire: WireProfile, filters: SiteFilters): DomainPlan {
 function domainLists(plan: DomainPlan) {
   if (plan.allowedDomains.length === 0 && plan.blockedDomains.length === 0)
     return undefined;
+
   return {
     ...(plan.allowedDomains.length > 0 && {
       allowedDomains: plan.allowedDomains,
@@ -93,6 +98,7 @@ function anthropicWebSearch(plan: DomainPlan): ToolSet[string] {
     maxUses: ANTHROPIC_MAX_SEARCHES,
     ...domainLists(plan),
   });
+
   // SAFETY: `@ai-sdk/anthropic` resolves its own copy of `@ai-sdk/provider-utils`, so the tool's schema type carries a different `unique symbol` than the `ToolSet` of `ai`. Both copies register the schema brand with `Symbol.for("vercel.ai.schema")`, so the value is the SDK's own, valid provider tool at runtime.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- type-only mismatch between two installed copies of one package; the value is not reshaped.
   return searchTool as ToolSet[string];
@@ -101,6 +107,7 @@ function anthropicWebSearch(plan: DomainPlan): ToolSet[string] {
 const OPENAI_WIRE: WireProfile = {
   tools: (plan) => {
     const filters = domainLists(plan);
+
     return {
       web_search: openai.tools.webSearch({
         ...(filters !== undefined && { filters }),
@@ -176,7 +183,9 @@ function hostedMessages(request: EngineRequest): Array<ModelMessage> {
 function providerFailure(error: unknown): EngineFailure {
   const response = RetryError.isInstance(error) ? error.lastError : error;
   const status = isRecord(response) ? response['statusCode'] : undefined;
+
   if (status === 401 || status === 403) return new EngineFailure('auth');
+
   return new EngineFailure(status === 429 ? 'rate_limited' : 'upstream_error');
 }
 
@@ -192,6 +201,7 @@ async function requestHostedAnswer(
   request: EngineRequest,
 ): Promise<HostedAnswer> {
   const { modelClients } = request;
+
   if (modelClients?.createClient === undefined)
     throw new EngineFailure('upstream_error');
   const wire = WIRES[config.wire];
@@ -199,6 +209,7 @@ async function requestHostedAnswer(
   // `text` then rejects with a generic "no output" error that carries none of
   // it. The callback also replaces the SDK's default, which logs the raw error.
   const failures: Array<unknown> = [];
+
   try {
     const result = modelClients.createClient(config.model).streamText({
       chat: { id: request.chatId, lane: 'search' },
@@ -214,12 +225,15 @@ async function requestHostedAnswer(
         failures.push(error);
       },
     });
+
     const text = await result.text;
     const sources = await result.sources;
+
     if (failures.length === 0) return { text, sources };
   } catch {
     // Classified below from what `onError` reported, else as an upstream error.
   }
+
   if (request.signal.aborted) throwAbort(request.signal);
   throw providerFailure(failures[0]);
 }
@@ -233,8 +247,10 @@ export function createModelHostedEngine(config: HostedConfig): Engine {
     const wire = WIRES[config.wire];
     const plan = domainPlan(wire, splitSiteFilters(request.query));
     const { text, sources } = await requestHostedAnswer(config, plan, request);
+
     const citations = sources.flatMap((source): Array<RawCitation> => {
       if (source.sourceType !== 'url' || !wire.isCitation(source)) return [];
+
       return [
         {
           url: source.url,
@@ -242,8 +258,10 @@ export function createModelHostedEngine(config: HostedConfig): Engine {
         },
       ];
     });
+
     if (text.trim().length === 0 || citations.length === 0)
       throw new EngineFailure('ungrounded');
+
     return {
       kind: 'answer',
       answer: text,

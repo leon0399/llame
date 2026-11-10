@@ -29,6 +29,7 @@ export type EvalEmbedBackend = {
  */
 export function resolveSecret(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
+
   try {
     return interpolateString(v);
   } catch (error) {
@@ -40,6 +41,7 @@ export function resolveSecret(v: unknown): string | undefined {
 export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
   let configPath: string;
   let raw: string;
+
   try {
     configPath = resolveConfigPath();
     raw = readFileSync(configPath, 'utf8');
@@ -48,42 +50,54 @@ export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
   }
 
   let parsed: unknown;
+
   try {
     parsed = parseConfigText(raw, configPath);
   } catch {
     return undefined;
   }
+
   if (!isRecord(parsed)) return undefined;
 
   const search = parsed['search'];
+
   if (!isRecord(search)) return undefined;
   const chats = search['chats'];
+
   if (!isRecord(chats)) return undefined;
   const modelId = chats['embeddingModelId'];
+
   if (typeof modelId !== 'string') return undefined;
 
   const models = parsed['embeddingModels'];
   const providers = parsed['providers'];
+
   if (!Array.isArray(models) || !Array.isArray(providers)) return undefined;
 
   const model = models.find((m: unknown) => isRecord(m) && m['id'] === modelId);
+
   if (!isRecord(model)) return undefined;
 
   const modelProvider = model['provider'];
+
   if (typeof modelProvider !== 'string') return undefined;
 
   const provider = providers.find(
     (p: unknown) => isRecord(p) && p['id'] === modelProvider,
   );
+
   if (!isRecord(provider)) return undefined;
 
   const credential = resolveSecret(provider['key']);
+
   if (!credential) return undefined;
 
   const dims = Number(model['dimensions']);
+
   if (!Number.isFinite(dims) || dims <= 0) return undefined;
 
   const providerModelId = model['providerModelId'];
+
   if (typeof providerModelId !== 'string') return undefined;
 
   const config: OpenAIEmbeddingBackendConfig = {
@@ -94,11 +108,14 @@ export function resolveEvalEmbedBackend(): EvalEmbedBackend | undefined {
   };
 
   const baseUrl = resolveSecret(provider['baseUrl']);
+
   if (baseUrl) config.baseUrl = baseUrl;
 
   const qp = model['queryPrefix'];
+
   if (typeof qp === 'string') config.queryPrefix = qp;
   const dp = model['documentPrefix'];
+
   if (typeof dp === 'string') config.documentPrefix = dp;
 
   return {

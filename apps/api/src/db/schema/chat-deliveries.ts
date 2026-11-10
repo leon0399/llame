@@ -20,6 +20,7 @@ export type ChatDeliveryProducer = 'owner';
 
 /** How a pending item reaches the Chat; the API accepts a mode once its layer ships. */
 export const chatDeliveryModes = ['steer', 'interrupt', 'queue'] as const;
+
 export type ChatDeliveryMode = (typeof chatDeliveryModes)[number];
 
 export const chatDeliveryStates = [
@@ -27,6 +28,7 @@ export const chatDeliveryStates = [
   'delivered',
   'withdrawn',
 ] as const;
+
 export type ChatDeliveryState = (typeof chatDeliveryStates)[number];
 
 /** The send settings an item keeps until it becomes a Run (accept-time values). */

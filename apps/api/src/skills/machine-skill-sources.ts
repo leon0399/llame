@@ -72,10 +72,12 @@ export type MachineSkillRequest = <M extends MachineSkillMethod>(
 
 /** Bound on the requests one snapshot may spend; each is an SSH round trip. */
 export const MAX_MACHINE_SKILL_REQUESTS = 512;
+
 /** Bound on the skill text one snapshot may hold in memory. */
 export const MAX_MACHINE_SKILL_BYTES = 1024 * 1024;
 
 const SKILL_DOCUMENT_FILENAME = 'SKILL.md';
+
 /**
  * `fs.read` returns what a model would be shown, which for a text file is the
  * numbered rendering. The snapshot parses frontmatter, so it asks for the
@@ -83,6 +85,7 @@ const SKILL_DOCUMENT_FILENAME = 'SKILL.md';
  * text.
  */
 const RAW_READ_SELECTOR = 'raw';
+
 /** The sidecars the catalog consults for invocation control, in its order. */
 const SIDECAR_PATHS: ReadonlyArray<string> = [
   path.join('agents', 'llame.yaml'),
@@ -94,6 +97,7 @@ const CANCELLED_MESSAGE =
 
 /** A Machine skill path, in either spelling `path.join` can leave behind. */
 const MACHINE_SKILL_PATH = new RegExp(`^${MACHINE_SCHEME}:/{1,2}`, 'iu');
+
 /** A scheme whose `//` `path.join` collapsed, at the start of a path. */
 const COLLAPSED_SCHEME = new RegExp(`^(${MACHINE_SCHEME}):/(?!/)`, 'iu');
 
@@ -120,10 +124,12 @@ export async function snapshotMachineSkillSources(input: {
   readonly budgetMs?: number;
 }): Promise<MachineSkillSources | undefined> {
   const sources = machineWorkspaceSkillSources(input.root);
+
   if (sources === undefined) return undefined;
 
   const budgetMs = input.budgetMs ?? MACHINE_PREPARATION_BUDGET_MS;
   const deadline = AbortSignal.timeout(budgetMs);
+
   const snapshot = new MachineSkillSnapshot({
     sources,
     request: input.request,
@@ -134,7 +140,9 @@ export async function snapshotMachineSkillSources(input: {
         : AbortSignal.any([input.signal, deadline]),
     displayPrefix: `${MACHINE_SCHEME}://${sources[0].name}`,
   });
+
   await snapshot.collect();
+
   return { fileSystem: snapshot, diagnostics: [...snapshot.diagnostics] };
 }
 
@@ -182,6 +190,7 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
   async collect(): Promise<void> {
     for (const source of this.options.sources) {
       const snapshotted = await this.readSource(source);
+
       if (snapshotted === undefined) continue;
       this.byIdentity.set(`${source.name}\u0000${source.path}`, snapshotted);
       this.spellings.set(source.locator, snapshotted);
@@ -192,14 +201,18 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     if (!MACHINE_SKILL_PATH.test(directoryPath)) {
       return NODE_SKILL_FILE_SYSTEM.readDirectory(directoryPath);
     }
+
     const source = this.sourceOf(directoryPath);
+
     if (source === undefined) {
       throw new Error(
         `The Machine skill source ${directoryPath} was not read.`,
       );
     }
+
     // The catalog joins children onto this exact spelling, so remember it.
     this.spellings.set(directoryPath, source);
+
     return source.dirents;
   }
 
@@ -207,6 +220,7 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     if (!MACHINE_SKILL_PATH.test(filePath)) {
       return NODE_SKILL_FILE_SYSTEM.fileKind(filePath);
     }
+
     return this.locate(filePath)?.kind ?? 'unavailable';
   }
 
@@ -214,13 +228,16 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     if (!MACHINE_SKILL_PATH.test(filePath)) {
       return NODE_SKILL_FILE_SYSTEM.readTextFile(filePath);
     }
+
     const text = this.locate(filePath)?.text;
+
     if (text === undefined) {
       // The catalog catches this exactly as it catches a failed host read.
       throw new Error(
         `The Machine skill snapshot holds no text for ${filePath}.`,
       );
     }
+
     return text;
   }
 
@@ -230,10 +247,12 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
       if (!filePath.startsWith(`${spelling}/`)) continue;
       const relative = filePath.slice(spelling.length + 1);
       const kind = source.kinds.get(relative);
+
       return kind === undefined
         ? undefined
         : { kind, text: source.texts.get(relative) };
     }
+
     return undefined;
   }
 
@@ -242,7 +261,9 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     const parsed = parseMachineLocator(
       directoryPath.replace(COLLAPSED_SCHEME, '$1://'),
     );
+
     if (parsed.kind !== 'path') return undefined;
+
     return this.byIdentity.get(`${parsed.name}\u0000${parsed.path}`);
   }
 
@@ -250,9 +271,12 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     source: MachineSkillSource,
   ): Promise<SnapshottedSource | undefined> {
     const listed = await this.fetchList(source.path);
+
     if (listed === undefined) return undefined;
     const narrowed = this.narrow(readFsListResult, listed, source.locator);
+
     if (narrowed === undefined) return undefined;
+
     if (isNativeFailure(narrowed)) {
       // A source that is not there, or is not a directory, is skipped exactly
       // as a local one is; only a listing that failed for another reason is
@@ -265,12 +289,15 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
           `Skill source ${source.locator} is unreadable: ${narrowed.message}`,
         );
       }
+
       return undefined;
     }
+
     if (narrowed.truncated) {
       this.diagnostics.push(
         `Skill source ${source.locator} exceeds ${MAX_SOURCE_CHILDREN} children; the source is skipped.`,
       );
+
       return undefined;
     }
 
@@ -280,14 +307,17 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
       kinds: new Map(),
       texts: new Map(),
     };
+
     for (const entry of narrowed.entries) {
       pending.dirents.push({
         name: entry.name,
         isDirectory: () => entry.kind === 'directory',
         isSymbolicLink: () => entry.kind === 'link',
       });
+
       if (!(await this.collectChild(pending, entry))) return undefined;
     }
+
     return pending;
   }
 
@@ -297,14 +327,18 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     entry: FsListEntry,
   ): Promise<boolean> {
     if (entry.kind !== 'directory' && entry.kind !== 'link') return true;
+
     if (entry.kind === 'link') {
       const target = await this.followedKind(
         path.posix.join(pending.source.path, entry.name),
       );
+
       if (target === undefined) return false;
       pending.kinds.set(entry.name, target);
+
       if (target !== 'directory') return true;
     }
+
     // A link to a directory is published at its link path, so the package is
     // read through the link exactly as the catalog will ask for it.
     const document = await this.read(
@@ -312,13 +346,17 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
       entry.name,
       SKILL_DOCUMENT_FILENAME,
     );
+
     if (document === undefined) return false;
+
     if (document.kind !== 'file' || document.text === undefined) return true;
+
     for (const sidecar of SIDECAR_PATHS) {
       if ((await this.read(pending, entry.name, sidecar)) === undefined) {
         return false;
       }
     }
+
     return true;
   }
 
@@ -330,21 +368,26 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
   ): Promise<MachineSkillFile | undefined> {
     const filePath = path.posix.join(pending.source.path, child, relativePath);
     const answer = await this.fetchRead(filePath);
+
     if (answer === undefined) return undefined;
+
     const narrowed = this.narrow(
       readFsReadResult,
       answer,
       `${this.options.displayPrefix}${filePath}`,
     );
+
     if (narrowed === undefined) return undefined;
 
     const file = fileOf(narrowed);
     const key = path.join(child, relativePath);
     pending.kinds.set(key, file.kind);
+
     if (file.text !== undefined) {
       pending.texts.set(key, file.text);
       this.bytes += file.text.length;
     }
+
     return file;
   }
 
@@ -353,17 +396,22 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     childPath: string,
   ): Promise<CatalogFileKind | undefined> {
     const answer = await this.fetchStat(childPath);
+
     if (answer === undefined) return undefined;
+
     const narrowed = this.narrow(
       readFsStatResult,
       answer,
       `${this.options.displayPrefix}${childPath}`,
     );
+
     if (narrowed === undefined) return undefined;
+
     // The daemon follows the link, so this is the target's kind: a dangling
     // link reads `missing` there and `unavailable` locally, which the catalog
     // reports the same way.
     if (narrowed.kind === 'directory') return 'directory';
+
     return narrowed.kind === 'file' ? 'file' : 'unavailable';
   }
 
@@ -413,6 +461,7 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     request: () => Promise<JsonValue>,
   ): Promise<JsonValue | undefined> {
     if (!this.permit()) return undefined;
+
     try {
       return await request();
     } catch (error) {
@@ -423,6 +472,7 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
               error instanceof Error ? error.message : 'an unknown failure'
             }`,
       );
+
       return undefined;
     }
   }
@@ -430,23 +480,31 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
   /** Reserve one request, or stop the snapshot at the bound it reached. */
   private permit(): boolean {
     if (this.stopped !== undefined) return false;
+
     if (this.options.signal.aborted) {
       this.stop(CANCELLED_MESSAGE);
+
       return false;
     }
+
     if (this.requests >= MAX_MACHINE_SKILL_REQUESTS) {
       this.stop(
         `The Machine skill snapshot reached its ${MAX_MACHINE_SKILL_REQUESTS}-request bound; the rest of the Machine Workspace's skills were skipped.`,
       );
+
       return false;
     }
+
     if (this.bytes >= MAX_MACHINE_SKILL_BYTES) {
       this.stop(
         `The Machine skill snapshot reached its ${MAX_MACHINE_SKILL_BYTES}-byte bound; the rest of the Machine Workspace's skills were skipped.`,
       );
+
       return false;
     }
+
     this.requests += 1;
+
     return true;
   }
 
@@ -466,11 +524,13 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
     at: string,
   ): T | undefined {
     const narrowed = read(value);
+
     if (narrowed === undefined) {
       this.stop(
         `The Machine skill snapshot read an unreadable result at ${at}`,
       );
     }
+
     return narrowed;
   }
 }
@@ -478,10 +538,13 @@ class MachineSkillSnapshot implements SkillCatalogFileSystem {
 /** What one `fs.read` answer proves about a path the catalog asks about. */
 function fileOf(result: FsReadResult): MachineSkillFile {
   if (result.status === 'error') return { kind: kindOfRefusal(result.type) };
+
   if (result.kind === 'directory') return { kind: 'directory' };
+
   // `fs.read` never answers with a media shape: the daemon reads without a
   // media hook, so anything else is not a skill document at all.
   if (result.kind !== 'file') return { kind: 'unavailable' };
+
   // A bounded read is never parsed as if it were the whole document.
   return result.truncated
     ? { kind: 'file' }
@@ -495,5 +558,6 @@ function fileOf(result: FsReadResult): MachineSkillFile {
  */
 function kindOfRefusal(type: NativeFailureType): CatalogFileKind {
   if (type === 'not_found') return 'missing';
+
   return type === 'not_regular_file' ? 'unavailable' : 'file';
 }

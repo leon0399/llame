@@ -35,6 +35,7 @@ function isJournalEntry(value: unknown): value is JournalEntry {
 const parsedJournal: unknown = JSON.parse(
   readFileSync(join(__dirname, 'migrations', 'meta', '_journal.json'), 'utf8'),
 );
+
 if (
   !isRecord(parsedJournal) ||
   !Array.isArray(parsedJournal.entries) ||
@@ -42,6 +43,7 @@ if (
 ) {
   throw new Error('Malformed meta/_journal.json: expected { entries: [...] }');
 }
+
 const journal = {
   entries: parsedJournal.entries,
 };
@@ -55,6 +57,7 @@ describe('migration journal', () => {
     const violations = journal.entries
       .filter((entry, i) => entry.idx !== i)
       .map((entry) => `${entry.tag} (idx=${entry.idx})`);
+
     expect(violations).toEqual([]);
   });
 
@@ -66,6 +69,7 @@ describe('migration journal', () => {
         (entry) =>
           `${entry.tag} (when=${entry.when}) is not newer than its predecessor`,
       );
+
     expect(violations).toEqual([]);
   });
 });

@@ -7,6 +7,7 @@ const THROW_MATCHERS = new Set(["toThrow", "toThrowError"]);
 /** Does `.not` appear anywhere in the matcher chain leading to this call? */
 function isNegated(node: ESTree.Expression): boolean {
   let current: ESTree.Expression = node;
+
   while (current.type === "MemberExpression") {
     if (
       !current.computed &&
@@ -15,8 +16,10 @@ function isNegated(node: ESTree.Expression): boolean {
     ) {
       return true;
     }
+
     current = current.object;
   }
+
   return false;
 }
 
@@ -51,9 +54,13 @@ export const noVacuousThrowAssertionRule = defineRule({
       CallExpression(node) {
         if (node.arguments.length > 0) return;
         const { callee } = node;
+
         if (callee.type !== "MemberExpression" || callee.computed) return;
+
         if (callee.property.type !== "Identifier") return;
+
         if (!THROW_MATCHERS.has(callee.property.name)) return;
+
         if (isNegated(callee.object)) return;
 
         context.report({

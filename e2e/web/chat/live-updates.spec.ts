@@ -12,12 +12,14 @@ import { expect, test } from "../../support/fixtures";
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
 const modelUrl = `http://localhost:${process.env.E2E_MODEL_PORT ?? "4303"}`;
 
 async function releaseHold(token: string): Promise<void> {
   const response = await fetch(`${modelUrl}/hold/${token}/release`, {
     method: "POST",
   });
+
   expect(response.ok).toBe(true);
 }
 
@@ -61,6 +63,7 @@ test("a second tab sees a new chat, its run progress, and a rename live", async 
 
     // Renamed elsewhere (API, as another device would): tab B shows the name.
     const renamed = `Live rename ${Date.now()}`;
+
     const response = await page.request.patch(
       `${apiUrl}/api/v1/chats/${chatId}`,
       {
@@ -68,6 +71,7 @@ test("a second tab sees a new chat, its run progress, and a rename live", async 
         data: { title: renamed },
       },
     );
+
     expect(response.status(), await response.text()).toBe(200);
     await expect(row).toContainText(renamed, { timeout: 5000 });
   } finally {

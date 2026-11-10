@@ -23,6 +23,7 @@ import { writeFileSync } from "node:fs";
 const config = JSON.parse(process.env.MACHINE_MCP_FIXTURE ?? "{}");
 
 if (config.pidFile) writeFileSync(config.pidFile, String(process.pid));
+
 if (config.envDumpPath)
   writeFileSync(config.envDumpPath, JSON.stringify(process.env));
 
@@ -44,6 +45,7 @@ const handlers = {
   },
   "notifications/initialized"() {
     for (const chunk of config.stderr ?? []) process.stderr.write(chunk);
+
     if (config.exitAfterInit) process.exit(4);
   },
   "tools/list"(message) {
@@ -57,10 +59,13 @@ const handlers = {
 
 function handleMessage(message) {
   const handler = handlers[message.method];
+
   if (handler) {
     handler(message);
+
     return;
   }
+
   if (message.id !== undefined) {
     send({
       jsonrpc: "2.0",
@@ -71,15 +76,19 @@ function handleMessage(message) {
 }
 
 let buffer = "";
+
 process.stdin.on("data", (data) => {
   buffer += data.toString("utf8");
   let newline = buffer.indexOf("\n");
+
   while (newline !== -1) {
     const line = buffer.slice(0, newline);
     buffer = buffer.slice(newline + 1);
+
     if (line.trim() !== "") {
       handleMessage(JSON.parse(line));
     }
+
     newline = buffer.indexOf("\n");
   }
 });

@@ -90,11 +90,14 @@ describe('model prompt file loading', () => {
       [defaultPromptPath, 'Default for {{model.id}}'],
       [path.join(path.dirname(configPath), 'shared.md'), 'Hello {{model.id}}'],
     ]);
+
     const readFile = vi.fn((file: string) => contents.get(file) ?? '');
+
     const access: PromptFileAccess = {
       isFile: vi.fn((file: string) => contents.has(file)),
       readFile,
     };
+
     const prompts = loader(access);
 
     expect(
@@ -638,9 +641,11 @@ describe('project-default prompt packaging contract', () => {
 
   it('declares the prompt asset in Nest packaging and can load the source asset', () => {
     const apiRoot = path.resolve(__dirname, '../..');
+
     const nestConfig: unknown = JSON.parse(
       readFileSync(path.join(apiRoot, 'nest-cli.json'), 'utf8'),
     );
+
     if (
       !isRecord(nestConfig) ||
       !isRecord(nestConfig.compilerOptions) ||
@@ -1157,6 +1162,7 @@ describe('bounded skill-catalog projection', () => {
       'base{{#if skills}}{{#if skills.omitted}}{{skills.omitted}} more{{/if}}{{/if}}',
     );
     const template = loader().resolve({ id: 'm' }).systemPromptTemplate;
+
     const render = (omitted: number) =>
       renderSystemPromptTemplate({
         template,
@@ -1364,8 +1370,10 @@ describe('bounded web-search engine projection', () => {
       },
     ],
   };
+
   const ENGINE_TEMPLATE =
     'base{{#if webSearch}}{{#each webSearch.engines}}<engine id="{{id}}" type="{{type}}" kind="{{kind}}" position="{{position}}" recency="{{recency}}" limit="{{queryLimit}}"{{#if objective}} objective="{{objective}}"{{/if}}{{#if description}} description="{{description}}"{{/if}}/>{{/each}}{{/if}}';
+
   const render = (
     template: string,
     input?: { engines: typeof engines.engines },
@@ -1608,6 +1616,7 @@ function renderPackagedReadDescription(
   admittedToolIds: ReadonlyArray<string>,
 ): string {
   const model = { id: 'model' };
+
   return createToolPromptRenderer({ configPath, models: [model] }).render({
     toolId: 'read',
     model,
@@ -1625,6 +1634,7 @@ describe('llame-owned tool description templates', () => {
       models: [{ id: 'model' }],
       webSearch: engineList,
     });
+
     const rendered = renderer.render({
       toolId: 'web_search',
       model: { id: 'model' },
@@ -1696,6 +1706,7 @@ describe('llame-owned tool description templates', () => {
       path.join(path.dirname(configPath), 'override.md'),
       'Search briefly.',
     );
+
     const renderer = createToolPromptRenderer({
       configPath,
       instancePromptFiles: { web_search: 'override.md' },
@@ -1709,22 +1720,26 @@ describe('llame-owned tool description templates', () => {
       anchor: TEST_ANCHOR,
       admittedToolIds: ['web_search'],
     }).text;
+
     expect(rendered).toBe('Search briefly.');
   });
 
   it('selects model overrides before instance overrides and packaged defaults', () => {
     const modelPath = path.join(path.dirname(configPath), 'model.md');
     const instancePath = path.join(path.dirname(configPath), 'instance.md');
+
     const contents = new Map([
       [modelPath, 'model {{model.id}}'],
       [instancePath, 'instance {{model.id}}'],
     ]);
+
     const access: PromptFileAccess = {
       isFile: () => true,
       readFile: (filePath) =>
         contents.get(filePath) ??
         `packaged ${path.basename(filePath)} {{model.id}}`,
     };
+
     const renderer = createToolPromptRenderer({
       configPath,
       instancePromptFiles: { bash: 'instance.md' },
@@ -1746,6 +1761,7 @@ describe('llame-owned tool description templates', () => {
       toolId: 'bash' as const,
       admittedToolIds: ['bash'],
     };
+
     expect(renderer.render({ ...base, model: { id: 'model' } }).text).toBe(
       'model model',
     );
@@ -1759,9 +1775,11 @@ describe('llame-owned tool description templates', () => {
 
   it('rejects an instance override whose only text hides behind a user gate', () => {
     const gatedPath = path.join(path.dirname(configPath), 'gated.md');
+
     const contents = new Map([
       [gatedPath, '{{#if user.personalization}}Honour the owner.{{/if}}'],
     ]);
+
     const access: PromptFileAccess = {
       isFile: () => true,
       readFile: (filePath) =>
@@ -1781,6 +1799,7 @@ describe('llame-owned tool description templates', () => {
 
   it('rejects a packaged description that renders empty for every attempt', () => {
     const packagedBash = resolvePackagedToolDescriptionPath('bash');
+
     const access: PromptFileAccess = {
       isFile: () => true,
       readFile: (filePath) =>
@@ -1807,12 +1826,14 @@ describe('llame-owned tool description templates', () => {
         'Base description. {{#if tools.edit}}Prefer edit for small replacements.{{/if}}',
       ],
     ]);
+
     const access: PromptFileAccess = {
       isFile: () => true,
       readFile: (filePath) =>
         contents.get(filePath) ??
         `packaged ${path.basename(filePath)} {{model.id}}`,
     };
+
     const renderer = createToolPromptRenderer({
       configPath,
       instancePromptFiles: { bash: 'cross-tool.md' },
@@ -1840,12 +1861,14 @@ describe('llame-owned tool description templates', () => {
         '{{#if model.name}}Assistant for {{model.name}}.{{/if}}',
       ],
     ]);
+
     const access: PromptFileAccess = {
       isFile: () => true,
       readFile: (filePath) =>
         contents.get(filePath) ??
         `packaged ${path.basename(filePath)} {{model.id}}`,
     };
+
     const rendererFor = (
       models: ReadonlyArray<{ id: string; name?: string }>,
     ) =>
@@ -1865,22 +1888,26 @@ describe('llame-owned tool description templates', () => {
   it('renders packaged cross-tool advice only when the recommended tool is admitted', () => {
     // A configured model, so the packaged files also clear the boot probe.
     const model = { id: 'model' };
+
     const renderer = createToolPromptRenderer({
       configPath,
       models: [model],
     });
+
     const bashWithoutEdit = renderer.render({
       toolId: 'bash',
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['bash'],
     }).text;
+
     const bashWithEdit = renderer.render({
       toolId: 'bash',
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['bash', 'edit'],
     }).text;
+
     expect(bashWithoutEdit).not.toContain(
       'Prefer native edit for small exact replacements.',
     );
@@ -1895,12 +1922,14 @@ describe('llame-owned tool description templates', () => {
       anchor: TEST_ANCHOR,
       admittedToolIds: ['search_conversations'],
     }).text;
+
     const searchWithReader = renderer.render({
       toolId: 'search_conversations',
       model,
       anchor: TEST_ANCHOR,
       admittedToolIds: ['conversation_read', 'search_conversations'],
     }).text;
+
     expect(searchWithoutReader).not.toContain(
       'Use returned coordinates with conversation_read',
     );
@@ -1918,6 +1947,7 @@ describe('llame-owned tool description templates', () => {
     // edit, the cwd instruction and the ssh authority are the same.
     const model = { id: 'model' };
     const renderer = createToolPromptRenderer({ configPath, models: [model] });
+
     for (const admittedToolIds of [['bash'], ['bash', 'edit']]) {
       const rendered = renderer.render({
         toolId: 'bash',
@@ -1943,6 +1973,7 @@ describe('llame-owned tool description templates', () => {
     // operator: the three it names hold on every engine or are enforced after
     // the response, and every other operator is a plain word somewhere.
     const model = { id: 'model' };
+
     const rendered = createToolPromptRenderer({
       configPath,
       models: [model],
@@ -1967,6 +1998,7 @@ describe('llame-owned tool description templates', () => {
     expect(rendered).toContain('objective');
     expect(rendered).toContain('2,000');
     expect(rendered).toContain("over an engine's own limit skips that engine");
+
     for (const unsupported of [
       'after:',
       'before:',
@@ -1977,6 +2009,7 @@ describe('llame-owned tool description templates', () => {
     ]) {
       expect(rendered).not.toContain(unsupported);
     }
+
     expect(rendered).not.toMatch(/\bOR\b/u);
   });
 
@@ -1986,6 +2019,7 @@ describe('llame-owned tool description templates', () => {
     // does. The target bullet's own gate sits inside its sentence, so both
     // catalogs read the same claim about the locators that need no executor.
     const withoutKnowledge = renderPackagedReadDescription(['read']);
+
     const withKnowledge = renderPackagedReadDescription([
       'read',
       'knowledge_search',
@@ -2005,6 +2039,7 @@ describe('llame-owned tool description templates', () => {
         'machine://, ssh://, and web locators need no local native executor',
       );
     }
+
     expect(withoutKnowledge).not.toContain('kb://');
     expect(withoutKnowledge).not.toContain('Knowledge content is untrusted');
     expect(withKnowledge).toContain('kb://<knowledgeSpaceId>/<path>');
@@ -2082,9 +2117,11 @@ describe('llame-owned tool description templates', () => {
 
   it('probes only its own model for a model-scoped tool description override', () => {
     const gatedPath = path.join(path.dirname(configPath), 'model-gated.md');
+
     const contents = new Map([
       [gatedPath, '{{#if user.personalization}}Honour the owner.{{/if}}'],
     ]);
+
     const access: PromptFileAccess = {
       isFile: () => true,
       readFile: (filePath) =>

@@ -37,17 +37,22 @@ function importedImage(entry: ImportEntry, key: string): ImportedImage | null {
   // PDFs have document tiles, never image variants or lightbox slides.
   if ("kind" in entry) return null;
   const alt = entry.locator;
+
   if ("media" in entry) {
     const sources = storedImageSources(entry.media);
+
     if (sources === null) return null;
     const caption = mediaCaption(entry.media);
+
     return {
       thumbnail: { src: sources.thumbnail, alt },
       slide: { key, src: sources.original, alt, caption },
     };
   }
+
   if (!("thumbnail" in entry) || entry.thumbnail === undefined) return null;
   const caption = mediaCaption(entry.locator, entry);
+
   return {
     thumbnail: { src: entry.thumbnail, alt },
     slide: { key, src: entry.thumbnail, alt, caption },
@@ -74,10 +79,14 @@ function importedTile(entry: ImportEntry, key: string): ImportedTile | null {
       },
     };
   }
+
   const image = importedImage(entry, key);
+
   if (image !== null) return { key, image };
+
   if (!("width" in entry)) return null;
   const { width, height, mediaType } = entry;
+
   return { key, size: { width, height, mediaType } };
 }
 
@@ -86,10 +95,13 @@ function importedTile(entry: ImportEntry, key: string): ImportedTile | null {
  *  PDF remains a static document tile. */
 function ImportedMedia({ imports }: Pick<PromptImportsPayload, "imports">) {
   const [openKey, setOpenKey] = useState<string | null>(null);
+
   const tiles = imports.flatMap(
     (entry, index) => importedTile(entry, String(index)) ?? [],
   );
+
   if (tiles.length === 0) return null;
+
   return (
     <>
       <ul
@@ -147,6 +159,7 @@ export function PromptImportsPart(payload: PromptImportsPayload) {
             entry.truncated
               ? "truncated"
               : entry.outcome;
+
           const detail =
             entry.resolved !== undefined && entry.resolved !== entry.locator
               ? `${entry.locator} → ${entry.resolved}`

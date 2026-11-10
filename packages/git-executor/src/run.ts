@@ -49,12 +49,15 @@ function collect(limit: number): CollectedOutput {
   const decoder = new StringDecoder("utf8");
   let length = 0;
   let truncated = false;
+
   return {
     push: (chunk) => {
       if (length >= limit) {
         truncated = true;
+
         return;
       }
+
       const decoded = decoder.write(chunk);
       const text = decoded.slice(0, limit - length);
       truncated ||= text.length < decoded.length;
@@ -72,6 +75,7 @@ function exitOutcome(
   output: GitOutput,
 ): GitProcessResult {
   if (timedOut) return { status: "timed_out", ...output };
+
   return code === 0
     ? { status: "ok", ...output }
     : { status: "failed", exitCode: code ?? -1, ...output };
@@ -101,7 +105,9 @@ type Completion = {
  */
 function killProcessGroup(child: ChildProcess): void {
   const { pid } = child;
+
   if (pid === undefined) return;
+
   try {
     process.kill(-pid, "SIGKILL");
   } catch {
@@ -117,12 +123,15 @@ function watchCompletion(
 ): Completion {
   let timedOut = false;
   let settled = false;
+
   const stop = (): void => {
     timedOut = true;
     killProcessGroup(child);
   };
+
   const timer = setTimeout(stop, Math.max(1, options.timeoutMs));
   options.signal?.addEventListener("abort", stop, { once: true });
+
   return {
     timedOut: () => timedOut,
     settle: (result) => {
@@ -153,17 +162,22 @@ export function runGitProcess(
   },
 ): Promise<GitProcessResult> {
   const { promise, resolve } = Promise.withResolvers<GitProcessResult>();
+
   if (options.signal?.aborted) {
     resolve(ABORTED);
+
     return promise;
   }
+
   const stdout = collect(STDOUT_BOUND);
   const stderr = collect(STDERR_BOUND);
+
   const output = () => ({
     stdout: stdout.text(),
     stderr: stderr.text(),
     truncated: stdout.truncated(),
   });
+
   const child = spawn("git", args, {
     env: gitEnvironment(options),
     // Its own process group, so the deadline can end the git children too; see
@@ -171,6 +185,7 @@ export function runGitProcess(
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
   });
+
   const completion = watchCompletion(child, options, resolve);
   child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
@@ -183,6 +198,7 @@ export function runGitProcess(
   child.on("close", (code: number | null) =>
     completion.settle(exitOutcome(completion.timedOut(), code, output())),
   );
+
   return promise;
 }
 

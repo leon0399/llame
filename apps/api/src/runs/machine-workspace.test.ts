@@ -67,6 +67,7 @@ const allowWorkspaceEntry = compileToolPermissionMap(
   { read: { allow: true }, enter_workspace: { allow: true } },
   'test-policy',
 );
+
 /** The same policy without an `enter_workspace` allow: the group is absent. */
 const denyWorkspaceEntry = compileToolPermissionMap(
   { read: { allow: true } },
@@ -91,6 +92,7 @@ function fakeConnector(
   const calls: Array<RecordedRequest> = [];
   const reachability: Array<string> = [];
   const configured = options.configured ?? ['devl'];
+
   return {
     calls,
     reachability,
@@ -99,10 +101,12 @@ function fakeConnector(
       isConfigured: (name: string) => configured.includes(name),
       reachable: (name: string, attemptKey: string) => {
         reachability.push(`${name}\u0000${attemptKey}`);
+
         return Promise.resolve(options.reachable ?? true);
       },
       request: (name, method, params, requestOptions) => {
         calls.push({ name, method, params, signal: requestOptions?.signal });
+
         return (
           options.answer?.() ??
           Promise.resolve({
@@ -258,6 +262,7 @@ describe('decideMachineWorkspace', () => {
           ...(realPath !== undefined && { realPath }),
         }),
     });
+
     await expect(
       decideMachineWorkspace(decisionInput(machine.connector)),
     ).resolves.toEqual({ kind: 'detach', reason: 'root_moved' });
@@ -305,6 +310,7 @@ describe('decideMachineWorkspace', () => {
           new MachineUnavailableError('devl', 'unreachable', false, 'lost'),
         ),
     });
+
     const input = decisionInput(machine.connector);
     await expect(decideMachineWorkspace(input)).resolves.toEqual({
       kind: 'unavailable',
@@ -318,6 +324,7 @@ describe('decideMachineWorkspace', () => {
     const machine = fakeConnector({
       answer: () => Promise.reject(new Error('machine_error: not registered')),
     });
+
     const input = decisionInput(machine.connector);
     await expect(decideMachineWorkspace(input)).resolves.toEqual({
       kind: 'detach',
@@ -387,11 +394,14 @@ describe('prepareMachineSkills', () => {
     const machine = fakeConnector({
       answer: () => Promise.reject(new Error('unreachable')),
     });
+
     const catalogs = new Map<string, SkillCatalogPort>();
+
     const roots = Array.from(
       { length: 9 },
       (_unused, index) => `machine://devl/srv/app${index}`,
     );
+
     for (const root of roots) {
       await prepareMachineSkills(catalogs, {
         connector: machine.connector,
@@ -401,6 +411,7 @@ describe('prepareMachineSkills', () => {
         skillDirectories: [],
       });
     }
+
     expect(catalogs.size).toBe(8);
     expect(catalogs.has(roots[0] ?? '')).toBe(false);
     expect(catalogs.has(roots[8] ?? '')).toBe(true);
@@ -414,7 +425,9 @@ describe('prepareMachineSkills', () => {
     const machine = fakeConnector({
       answer: () => Promise.reject(new Error('unreachable')),
     });
+
     const catalogs = new Map<string, SkillCatalogPort>();
+
     const params = {
       connector: machine.connector,
       machineName: 'devl',
@@ -422,6 +435,7 @@ describe('prepareMachineSkills', () => {
       toolAllowlist: ['read'],
       skillDirectories: [],
     };
+
     await prepareMachineSkills(catalogs, params);
     const first = catalogs.get(MACHINE_ROOT);
     const asked = machine.calls.length;
@@ -439,6 +453,7 @@ describe('detachedBinding', () => {
       generation: 3,
       reason: 'root_missing',
     });
+
     expect(binding.chat).toBeUndefined();
     expect(Object.keys(binding)).toEqual(['chat']);
   });
@@ -449,6 +464,7 @@ describe('detachedBinding', () => {
       generation: 3,
       reason: 'root_moved',
     });
+
     expect(binding.chat).toMatchObject({
       id: 'chat-1',
       workspaceRoot: null,
@@ -467,6 +483,7 @@ describe('detachedBinding', () => {
       reason: 'executor_absent',
       removedMachine: 'devl',
     });
+
     expect(binding.machine).toEqual({
       name: 'devl',
       available: false,
@@ -477,6 +494,7 @@ describe('detachedBinding', () => {
 
 describe('machineAvailabilityNarration', () => {
   const available: MachineWorkspaceState = { name: 'devl', available: true };
+
   const unavailable: MachineWorkspaceState = {
     name: 'devl',
     available: false,
@@ -518,6 +536,7 @@ describe('machineAvailabilityNarration', () => {
       machine: unavailable,
       toldAvailable: true,
     });
+
     expect(narration?.available).toBe(false);
     expect(narration?.part).toMatchObject({
       data: {
@@ -536,11 +555,13 @@ describe('machineAvailabilityNarration', () => {
       machine: available,
       toldAvailable: null,
     });
+
     const lost = machineAvailabilityNarration({
       runId: RUN_ID,
       machine: unavailable,
       toldAvailable: null,
     });
+
     expect(recovered?.available).toBe(true);
     expect(recovered?.part.data.text).toContain('devl');
     expect(recovered?.part.data.text).not.toBe(lost?.part.data.text);
@@ -584,6 +605,7 @@ describe('machineInstructionWorld', () => {
     runId: RUN_ID,
     deliverySequence: 4,
   };
+
   /** A page reader stands in for the audited `read` every world shares. */
   const readPage: ReadPage = () =>
     Promise.resolve({ status: 'success', content: 'page' });
@@ -626,12 +648,14 @@ describe('machineInstructionWorld', () => {
       roots: ['/srv'],
       answers: { 'roots.list': { value: { roots: ['/srv'] } } },
     });
+
     const world = machineInstructionWorld({
       enabled: true,
       connector: machineConnector(peer),
       readPage,
       identity,
     });
+
     expect(world?.readPage).toBe(readPage);
     const scope = await world?.probe({ name: 'devl', path: '/srv/notes.md' });
     expect(scope?.root).toBe('/srv');

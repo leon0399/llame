@@ -21,6 +21,7 @@ describe('toPinnedItemResponse', () => {
       title: 'Hello',
       archivedAt: null,
     };
+
     expect(toPinnedItemResponse(row)).toEqual({
       itemType: 'chat',
       itemId: 'c1',
@@ -37,6 +38,7 @@ describe('toPinnedItemResponse', () => {
       title: null,
       archivedAt: null,
     };
+
     expect(toPinnedItemResponse(row).item).toEqual({
       id: 'c2',
       title: null,
@@ -52,6 +54,7 @@ describe('toPinnedItemResponse', () => {
       name: 'Acme',
       archivedAt: null,
     };
+
     expect(toPinnedItemResponse(row).item).toEqual({
       id: 'p1',
       name: 'Acme',
@@ -84,6 +87,7 @@ describe('PinsService.pin — error mapping', () => {
         },
       ],
     }).compile();
+
     return moduleRef.get(PinsService);
   }
 
@@ -91,6 +95,7 @@ describe('PinsService.pin — error mapping', () => {
     const svc = await makeService(() =>
       Promise.reject(Object.assign(new Error('rls'), { code: '42501' })),
     );
+
     await expect(svc.pin('u1', 'chat', 'c1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
@@ -102,6 +107,7 @@ describe('PinsService.pin — error mapping', () => {
         Object.assign(new Error('rls'), { cause: { code: '42501' } }),
       ),
     );
+
     await expect(svc.pin('u1', 'project', 'p1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
@@ -122,6 +128,7 @@ describe('PinsService.pin — error mapping', () => {
       title: 'ok',
       archivedAt: null,
     };
+
     const svc = await makeService(() => Promise.resolve(row));
     await expect(svc.pin('u1', 'chat', 'c1')).resolves.toEqual(row);
   });
@@ -140,18 +147,21 @@ describe('PinsService.pin — error mapping', () => {
       title: 'ok',
       archivedAt: null,
     };
+
     const runAs = vi
       .fn()
       .mockRejectedValueOnce(
         Object.assign(new Error('uniq'), { code: '23505' }),
       )
       .mockResolvedValueOnce(row);
+
     const moduleRef = await Test.createTestingModule({
       providers: [
         PinsService,
         { provide: TenantDbService, useValue: { runAs } },
       ],
     }).compile();
+
     const svc = moduleRef.get(PinsService);
 
     await expect(svc.pin('u1', 'chat', 'c1')).resolves.toEqual(row);
@@ -189,6 +199,7 @@ describe('PinsController', () => {
       controllers: [PinsController],
       providers: [{ provide: PinsService, useValue: service }],
     }).compile();
+
     return moduleRef.get(PinsController);
   }
 
@@ -209,6 +220,7 @@ describe('PinsController', () => {
         archivedAt: null,
       },
     ];
+
     const listPins = vi.fn().mockResolvedValue(rows);
     const service = { listPins };
     const controller = await makeController(service);
@@ -228,6 +240,7 @@ describe('PinsController', () => {
       title: 'C',
       archivedAt: null,
     };
+
     const pin = vi.fn().mockResolvedValue(row);
     const service = { pin };
     const controller = await makeController(service);
@@ -254,8 +267,10 @@ describe('PinsController', () => {
         archivedAt: null,
       },
     ];
+
     const reorderPins = vi.fn().mockResolvedValue(rows);
     const controller = await makeController({ reorderPins });
+
     const body = {
       items: [
         { itemType: 'project' as const, itemId: 'p1' },

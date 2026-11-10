@@ -31,9 +31,11 @@ export function evaluatePermission(
   options: EvaluatePermissionOptions,
 ): PermissionDecision {
   const group = policy.groups.get(options.toolId);
+
   if (group === undefined) {
     return reject(policy.id, 'no_allow', null);
   }
+
   return evaluateGroup(policy.id, options.toolId, group, options);
 }
 
@@ -54,6 +56,7 @@ function evaluateGroup(
   }
 
   const clauses = [...group.rejectClauses, ...group.allowClauses];
+
   if (clauses.length === 0) {
     return group.allowWholeTool
       ? allow(policyId, wholeToolReference(toolId, 'allow'))
@@ -61,9 +64,11 @@ function evaluateGroup(
   }
 
   const invalidField = invalidFieldReference(clauses, options.validFields);
+
   if (invalidField !== null) {
     return reject(policyId, 'invalid_field', invalidField);
   }
+
   return decideGroup({ policyId, toolId, group, options, clauses });
 }
 
@@ -79,19 +84,25 @@ function decideGroup(input: GroupDecisionInput): PermissionDecision {
   const { policyId, toolId, group, options, clauses } = input;
   const selection = new ClauseSelection(options, clauses);
   const rejected = firstMatch(selection, group.rejectClauses);
+
   if (rejected !== undefined) {
     return reject(policyId, 'explicit_reject', clauseReference(rejected));
   }
+
   if (selection.exceeded) return reject(policyId, 'input_limit', null);
 
   if (group.allowWholeTool) {
     return allow(policyId, wholeToolReference(toolId, 'allow'));
   }
+
   const allowed = firstMatch(selection, group.allowClauses);
+
   if (allowed !== undefined) {
     return allow(policyId, clauseReference(allowed));
   }
+
   if (selection.exceeded) return reject(policyId, 'input_limit', null);
+
   return reject(policyId, 'no_allow', null);
 }
 
@@ -102,6 +113,7 @@ function firstMatch(
   for (const clause of clauses) {
     if (selection.matches(clause)) return clause;
   }
+
   return undefined;
 }
 
@@ -110,11 +122,13 @@ function invalidFieldReference(
   validFields: ReadonlySet<string> | undefined,
 ): PermissionClauseReference | null {
   if (validFields === undefined) return null;
+
   for (const clause of clauses) {
     if ('field' in clause.target && !validFields.has(clause.target.field)) {
       return clauseReference(clause);
     }
   }
+
   return null;
 }
 
@@ -146,9 +160,11 @@ class ClauseSelection {
     this.isFlexibleField =
       options.isFlexibleWhitespaceField ??
       ((field) => options.toolId === 'bash' && field === 'command');
+
     const usesAllFields = clauses.some(
       (clause) => 'allFields' in clause.target,
     );
+
     this.allFieldsValues =
       !isRecord(this.args) || !usesAllFields
         ? []
@@ -167,6 +183,7 @@ class ClauseSelection {
       'allFields' in clause.target
         ? this.allFieldsValues
         : this.fieldValues(clause.target.field);
+
     return values.some((selected) => this.match(clause, selected));
   }
 
@@ -175,12 +192,15 @@ class ClauseSelection {
       const fromAllFields = this.allFieldsValues.find(
         (selected) => selected.field === field,
       );
+
       this.fieldCache.set(
         field,
         fromAllFields ?? this.projectSelected(field, this.budget),
       );
     }
+
     const selected = this.fieldCache.get(field);
+
     return selected === undefined ? [] : [selected];
   }
 
@@ -189,6 +209,7 @@ class ClauseSelection {
     budget: SelectionBudget,
   ): SelectedPermissionValue | undefined {
     const selected = selectFieldValue(this.args, field, budget);
+
     return selected === undefined
       ? undefined
       : {

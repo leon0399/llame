@@ -23,10 +23,12 @@ export function renderCollectedDirectory(
   const roots = entries.map(toDirEntry);
   const sourceByName = new Map(entries.map((entry) => [entry.name, entry]));
   const children: Array<ChildDir> = [];
+
   for (const root of roots) {
     if (root.kind !== "directory") continue;
     children.push(childDirectory(root.name, sourceByName.get(root.name)));
   }
+
   return renderCollectedDirectoryParts(targetPath, roots, children, options);
 }
 
@@ -42,6 +44,7 @@ function childDirectory(
   entries.sort(compareEntries);
   const totalCount = entries.length;
   const overBudget = totalCount > DIRECTORY_TRAVERSAL_BUDGET;
+
   return {
     name,
     entries: overBudget

@@ -6,7 +6,9 @@ import {
 
 function parseTarget(target: string): RewriteTarget {
   const parsed = parseRewriteTarget(target);
+
   if ('error' in parsed) throw new Error(parsed.error);
+
   return parsed;
 }
 
@@ -87,6 +89,7 @@ describe('parseRewriteTarget', () => {
   ])('rejects %s (%s)', (target, expected) => {
     const result = parseRewriteTarget(target);
     expect(result).toHaveProperty('error');
+
     if (!('error' in result)) throw new Error('expected target error');
     expect(result.error).toContain(expected);
   });
@@ -97,6 +100,7 @@ describe('expandRewriteTarget', () => {
     const target = parseTarget(
       'https://x.pcstyle.dev{path}?literal=kept&source={query}',
     );
+
     const source = new URL('https://x.com/a');
     Object.defineProperty(source, 'search', { value: '?/?#@&' });
     expect(expandRewriteTarget(target, source)).toBe(

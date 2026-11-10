@@ -74,6 +74,7 @@ describe('an activated skill', () => {
         truncationNotice: '[truncated after 1 KiB]',
       },
     ];
+
     const item = createSkillActivationItem({ ...activation, imports });
 
     expect(bodyOf(item)).toBe(
@@ -227,6 +228,7 @@ describe('the selections left unattempted', () => {
       'skill://research/references/checklist.md',
       'skill://research/references/example.md',
     ];
+
     const item = createSkillActivationOmissionItem({
       runId: RUN_ID,
       skills: [],
@@ -273,6 +275,7 @@ describe('the selections left unattempted', () => {
       { length: MAX_OMISSION_IMPORT_NAMES + 2 },
       (_, index) => `skill://research/import-${index}.md`,
     );
+
     const item = createSkillActivationOmissionItem({
       runId: RUN_ID,
       skills: [],
@@ -294,6 +297,7 @@ describe('the selections left unattempted', () => {
   it('truncates an over-long imported locator with an ellipsis', () => {
     const exact = `skill://research/${'a'.repeat(MAX_OMISSION_IMPORT_LOCATOR_LENGTH - 'skill://research/'.length)}`;
     const long = `${exact}b`;
+
     const item = createSkillActivationOmissionItem({
       runId: RUN_ID,
       skills: [],

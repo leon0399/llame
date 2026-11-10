@@ -12,6 +12,7 @@ export function unwrapArrayExpression(node: ESTree.Node): ESTree.Node {
   ) {
     node = node.expression;
   }
+
   return node;
 }
 
@@ -21,13 +22,17 @@ export function resolveArrayBinding(
   node: ESTree.Node,
 ): Variable | null {
   node = unwrapArrayExpression(node);
+
   if (node.type !== "Identifier") return null;
   let scope: Scope | null = sourceCode.getScope(node);
+
   while (scope !== null) {
     const variable = scope.set.get(node.name);
+
     if (variable !== undefined) return variable;
     scope = scope.upper;
   }
+
   return null;
 }
 
@@ -36,11 +41,14 @@ export function arrayMethodTarget(
   node: ESTree.Node,
 ): { readonly name: string; readonly object: ESTree.Node } | null {
   node = unwrapArrayExpression(node);
+
   if (node.type !== "MemberExpression") return null;
   const property = node.property;
+
   if (!node.computed && property.type === "Identifier") {
     return { name: property.name, object: node.object };
   }
+
   if (
     node.computed &&
     property.type === "Literal" &&
@@ -48,16 +56,20 @@ export function arrayMethodTarget(
   ) {
     return { name: property.value, object: node.object };
   }
+
   return null;
 }
 
 function isArrayAnnotation(type: ESTree.TSType): boolean {
   if (type.type === "TSArrayType" || type.type === "TSTupleType") return true;
+
   if (type.type === "TSParenthesizedType")
     return isArrayAnnotation(type.typeAnnotation);
+
   if (type.type === "TSTypeOperator" && type.operator === "readonly") {
     return isArrayAnnotation(type.typeAnnotation);
   }
+
   return (
     type.type === "TSTypeReference" &&
     type.typeName.type === "Identifier" &&
@@ -72,9 +84,12 @@ export function isKnownArrayExpression(
   visited = new Set<Variable>(),
 ): boolean {
   node = unwrapArrayExpression(node);
+
   if (node.type === "ArrayExpression") return true;
+
   if (node.type === "CallExpression") {
     const method = arrayMethodTarget(node.callee);
+
     return (
       method !== null &&
       [
@@ -92,20 +107,26 @@ export function isKnownArrayExpression(
       isKnownArrayExpression(sourceCode, method.object, visited)
     );
   }
+
   if (node.type !== "Identifier") return false;
   const variable = resolveArrayBinding(sourceCode, node);
+
   if (variable === null || visited.has(variable)) return false;
   visited.add(variable);
+
   if (
     variable.references.some(
       (reference) => reference.isWrite() && !reference.init,
     )
   )
     return false;
+
   for (const identifier of variable.identifiers) {
     const annotation = identifier.typeAnnotation?.typeAnnotation;
+
     if (annotation !== undefined) return isArrayAnnotation(annotation);
   }
+
   for (const definition of variable.defs) {
     if (
       definition.type === "Variable" &&
@@ -118,5 +139,6 @@ export function isKnownArrayExpression(
       return isKnownArrayExpression(sourceCode, definition.node.init, visited);
     }
   }
+
   return false;
 }

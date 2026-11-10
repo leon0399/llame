@@ -34,7 +34,9 @@ function temporaryDirectory(label: string): string {
   const directory = mkdtempSync(
     path.join(tmpdir(), `llame-skill-read-${label}-`),
   );
+
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -49,11 +51,13 @@ function createPackage(
     path.join(packageDirectory, 'SKILL.md'),
     `---\nname: ${name}\ndescription: ${options.description ?? `The ${name} skill.`}\n---\n# Instructions\n`,
   );
+
   if (options.sidecar !== undefined) {
     const agents = path.join(packageDirectory, 'agents');
     mkdirSync(agents, { recursive: true });
     writeFileSync(path.join(agents, 'openai.yaml'), options.sidecar);
   }
+
   return packageDirectory;
 }
 
@@ -169,6 +173,7 @@ describe('resolveSkillLocator', () => {
     const resolved = await resolverResult(source, '');
 
     expect(resolved).toMatchObject({ catalog: true });
+
     if (!isSkillCatalogResult(resolved)) throw new Error('expected catalog');
     expect(resolved.entries.map((entry) => entry.name)).toEqual([
       'pdf',
@@ -425,11 +430,13 @@ describe('resolveSkillLocator', () => {
     });
 
     const missing = path.join(source, 'gone');
+
     const unavailable = await resolveSkillLocator(
       new SkillCatalog([missing]),
       'pdf',
       NO_SKILL_SELECTION,
     );
+
     expect(unavailable).toMatchObject({
       status: 'error',
       type: 'skill_catalog_unavailable',

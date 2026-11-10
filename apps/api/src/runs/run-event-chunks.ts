@@ -55,6 +55,7 @@ export function payloadField(payload: unknown, key: string) {
   if (!isRecord(payload)) {
     return undefined;
   }
+
   return payload[key];
 }
 
@@ -64,6 +65,7 @@ export function payloadString(
   key: string,
 ): string | undefined {
   const value = payloadField(payload, key);
+
   return isString(value) ? value : undefined;
 }
 
@@ -73,5 +75,6 @@ export function payloadNumber(
   key: string,
 ): number | undefined {
   const value = payloadField(payload, key);
+
   return isNumber(value) ? value : undefined;
 }

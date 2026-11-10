@@ -63,18 +63,23 @@ export function branchName(
   value: string,
 ): { readonly name: string } | { readonly message: string } {
   if (value === "") return { message: "A branch name must not be empty." };
+
   if (value.startsWith("-"))
     return { message: "A branch name must not start with `-`." };
+
   if (FORBIDDEN_REF_CHARACTERS.test(value))
     return {
       message: "A branch name must not hold whitespace or ref punctuation.",
     };
+
   if (value.includes("..") || value.includes("@{"))
     return { message: "A branch name must not hold `..` or `@{`." };
+
   if (value.endsWith("/") || value.endsWith(".") || value.endsWith(".lock"))
     return {
       message: "A branch name must not end with `/`, `.`, or `.lock`.",
     };
+
   if (
     value
       .split("/")
@@ -83,6 +88,7 @@ export function branchName(
     return {
       message: "A branch name must not hold an empty or dot-leading segment.",
     };
+
   return { name: value };
 }
 
@@ -95,10 +101,13 @@ export function baseReference(
   value: string,
 ): { readonly ref: string } | { readonly message: string } {
   if (value === "") return { message: "A base ref must not be empty." };
+
   if (value.startsWith("-"))
     return { message: "A base ref must not start with `-`." };
+
   if (FORBIDDEN_BYTES.test(value))
     return { message: "A base ref must not hold whitespace or control bytes." };
+
   return { ref: value };
 }
 
@@ -116,8 +125,10 @@ export function parseWorktreeRecords(
 ): Array<GitWorktreeEntry> {
   const entries: Array<GitWorktreeEntry> = [];
   let draft: GitWorktreeEntry | undefined;
+
   for (const record of porcelain.split("\0")) {
     if (record === "") continue;
+
     if (record.startsWith("worktree ")) {
       if (draft !== undefined) entries.push(draft);
       draft = {
@@ -129,7 +140,9 @@ export function parseWorktreeRecords(
       };
       continue;
     }
+
     if (draft === undefined) continue;
+
     if (record.startsWith("HEAD "))
       draft = { ...draft, head: record.slice("HEAD ".length) };
     else if (record.startsWith("branch "))
@@ -139,7 +152,9 @@ export function parseWorktreeRecords(
     else if (record === "prunable" || record.startsWith("prunable "))
       draft = { ...draft, prunable: true };
   }
+
   if (draft !== undefined) entries.push(draft);
+
   return entries;
 }
 
@@ -153,14 +168,20 @@ function readAddInput(input: WorktreeAddInput):
     }
   | GitFailure {
   const source = absoluteGitPath(input.source);
+
   if ("status" in source) return source;
   const directory = absoluteGitPath(input.directory);
+
   if ("status" in directory) return directory;
   const branch = branchName(input.branch);
+
   if (!("name" in branch)) return invalidInput(branch.message);
+
   const base =
     input.baseRef === undefined ? undefined : baseReference(input.baseRef);
+
   if (base !== undefined && !("ref" in base)) return invalidInput(base.message);
+
   return {
     source: source.path,
     directory: directory.path,
@@ -174,6 +195,7 @@ export async function addWorktree(
   options: GitCallOptions = {},
 ): Promise<GitWorktreeAddResult> {
   const values = readAddInput(input);
+
   if ("status" in values) return values;
 
   return withGit(
@@ -193,11 +215,14 @@ export async function addWorktree(
         values.directory,
         ...(values.baseRef === undefined ? [] : [values.baseRef]),
       ]);
+
       if (added.status !== "ok") return processFailure(added);
       // The new worktree's HEAD, read in place: the source's HEAD may have
       // moved after the branch was created, so it cannot answer this.
       const head = await git(["-C", values.directory, "rev-parse", "HEAD"]);
+
       if (head.status !== "ok") return processFailure(head);
+
       return {
         status: "ok",
         path: values.directory,
@@ -213,7 +238,9 @@ export async function listWorktrees(
   options: GitCallOptions = {},
 ): Promise<GitWorktreeListResult> {
   const path = absoluteGitPath(source.path);
+
   if ("status" in path) return path;
+
   return withGit(
     path.path,
     {
@@ -222,7 +249,9 @@ export async function listWorktrees(
     },
     async (git) => {
       const listed = await git(["worktree", "list", "--porcelain", "-z"]);
+
       if (listed.status !== "ok") return processFailure(listed);
+
       return {
         status: "ok",
         worktrees: parseWorktreeRecords(listed.stdout),
@@ -236,7 +265,9 @@ export async function removeWorktree(
   options: GitCallOptions = {},
 ): Promise<GitWorktreeRemoveResult> {
   const path = absoluteGitPath(target.path);
+
   if ("status" in path) return path;
+
   return withGit(
     path.path,
     {
@@ -250,6 +281,7 @@ export async function removeWorktree(
         "--end-of-options",
         path.path,
       ]);
+
       return removed.status === "ok"
         ? { status: "ok" }
         : processFailure(removed);

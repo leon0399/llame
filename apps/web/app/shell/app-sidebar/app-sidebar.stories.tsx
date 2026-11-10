@@ -37,6 +37,7 @@ let fetchMock: Mock<typeof fetch>;
 function sentRoutes() {
   return fetchMock.mock.calls.map(([input]) => {
     const request = input instanceof Request ? input : new Request(input);
+
     return `${request.method} ${new URL(request.url).pathname}`;
   });
 }
@@ -47,6 +48,7 @@ async function loadedRail(canvasElement: HTMLElement) {
   const user = await canvas.findByRole("button", { name: /Ada Lovelace/ });
   await canvas.findByRole("link", { name: "Pinned chat 30" });
   await expect(sentRoutes()).toEqual(["GET /api/v1/pins", "GET /auth/v1/me"]);
+
   return { canvas, user };
 }
 
@@ -54,8 +56,10 @@ async function loadedRail(canvasElement: HTMLElement) {
 function scrollingAncestor(element: HTMLElement) {
   for (let node = element.parentElement; node; node = node.parentElement) {
     const { overflowY } = getComputedStyle(node);
+
     if (overflowY === "auto" || overflowY === "scroll") return node;
   }
+
   throw new Error("expected a scrolling region around the element");
 }
 
@@ -74,11 +78,14 @@ const meta = {
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
+
       if (key === "GET /auth/v1/me") return Promise.resolve(jsonResponse(ME));
+
       if (key === "GET /api/v1/pins")
         return Promise.resolve(jsonResponse(PINS));
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -91,6 +98,7 @@ const meta = {
 } satisfies Meta<typeof AppSidebar>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

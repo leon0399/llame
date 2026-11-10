@@ -32,16 +32,21 @@ export type Step<T> = T | GitFailure;
 /** One record per remote URL: `remote.<name>.url\n<url>` up to a NUL. */
 export function parseRemoteRecords(stdout: string): Array<GitRepositoryRemote> {
   const remotes: Array<GitRepositoryRemote> = [];
+
   for (const record of stdout.split("\0")) {
     const separator = record.indexOf("\n");
+
     if (separator === -1) continue;
     const key = record.slice(0, separator);
     const name = key.slice("remote.".length, key.length - ".url".length);
+
     if (!key.startsWith("remote.") || !key.endsWith(".url") || name === "") {
       continue;
     }
+
     remotes.push({ name, url: record.slice(separator + 1) });
   }
+
   return remotes;
 }
 
@@ -65,6 +70,7 @@ async function workingTree(git: GitRunner): Promise<
   }>
 > {
   const toplevel = await git(["rev-parse", "--show-toplevel"]);
+
   if (toplevel.status !== "ok") return processFailure(toplevel);
 
   // One call per directory, not one call for both: two paths on two lines
@@ -75,8 +81,10 @@ async function workingTree(git: GitRunner): Promise<
     "--path-format=absolute",
     "--git-common-dir",
   ]);
+
   if (common.status !== "ok") return processFailure(common);
   const own = await git(["rev-parse", "--path-format=absolute", "--git-dir"]);
+
   if (own.status !== "ok") return processFailure(own);
   const commonDir = withoutTrailingNewline(common.stdout);
   const gitDir = withoutTrailingNewline(own.stdout);
@@ -85,9 +93,11 @@ async function workingTree(git: GitRunner): Promise<
   const worktreeList = linked
     ? await git(["worktree", "list", "--porcelain", "-z"])
     : undefined;
+
   if (worktreeList !== undefined && worktreeList.status !== "ok") {
     return processFailure(worktreeList);
   }
+
   return {
     toplevel: withoutTrailingNewline(toplevel.stdout),
     commonDir,
@@ -110,12 +120,15 @@ async function remoteUrls(
     "--get-regexp",
     String.raw`^remote\..*\.url$`,
   ]);
+
   // `git config --get-regexp` exits 1 when nothing matches, which is a
   // repository without a remote, not a failed call.
   if (remotes.status === "timed_out") return processFailure(remotes);
+
   if (remotes.status === "failed" && remotes.exitCode !== 1) {
     return processFailure(remotes);
   }
+
   return parseRemoteRecords(remotes.status === "ok" ? remotes.stdout : "");
 }
 
@@ -127,9 +140,12 @@ async function position(
   Step<{ readonly branch: string | null; readonly head: string | null }>
 > {
   const branch = await git(["symbolic-ref", "--short", "--quiet", "HEAD"]);
+
   if (branch.status === "timed_out") return processFailure(branch);
   const head = await git(["rev-parse", "--verify", "HEAD"]);
+
   if (head.status === "timed_out") return processFailure(head);
+
   return {
     branch: branch.status === "ok" ? branch.stdout.trim() : null,
     head: head.status === "ok" ? head.stdout.trim() : null,
@@ -138,11 +154,15 @@ async function position(
 
 async function inspectWithin(git: GitRunner): Promise<GitInspectResult> {
   const tree = await workingTree(git);
+
   if ("status" in tree) return tree;
   const remotes = await remoteUrls(git);
+
   if ("status" in remotes) return remotes;
   const at = await position(git);
+
   if ("status" in at) return at;
+
   return { status: "ok", ...tree, remotes, ...at };
 }
 
@@ -151,7 +171,9 @@ export async function inspectRepository(
   options: GitCallOptions = {},
 ): Promise<GitInspectResult> {
   const path = absoluteGitPath(input.path);
+
   if ("status" in path) return path;
+
   return withGit(
     path.path,
     {

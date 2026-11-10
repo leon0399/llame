@@ -75,14 +75,19 @@ export function parseArtifactFindings(
   if (!isRecord(value) || value['version'] !== FINDINGS_VERSION) {
     return undefined;
   }
+
   const findings = value['findings'];
+
   if (!Array.isArray(findings)) return undefined;
   const parsed: Array<ArtifactFinding> = [];
+
   for (const entry of findings) {
     const finding = parseFinding(entry);
+
     if (finding === undefined) return undefined;
     parsed.push(finding);
   }
+
   return { version: FINDINGS_VERSION, findings: parsed };
 }
 
@@ -92,6 +97,7 @@ function parseFinding(value: unknown): ArtifactFinding | undefined {
   const start = value['start'];
   const end = value['end'];
   const locators = value['locators'];
+
   if (
     !isFindingRule(rule) ||
     !isLineNumber(start) ||
@@ -101,7 +107,9 @@ function parseFinding(value: unknown): ArtifactFinding | undefined {
   ) {
     return undefined;
   }
+
   const texts = locators.filter(isString);
+
   if (
     texts.length === 0 ||
     texts.length !== locators.length ||
@@ -109,6 +117,7 @@ function parseFinding(value: unknown): ArtifactFinding | undefined {
   ) {
     return undefined;
   }
+
   return { locators: texts, rule, start, end };
 }
 
@@ -140,10 +149,13 @@ export function withholdFindings(
   resolved: ReadTarget,
 ): string {
   if (part.findings === null || part.findings === undefined) return text;
+
   if (!evaluatesPermission(context)) return text;
   const lines = splitSourceLines(text);
   const withheld = withheldLines(context, part, resolved, lines.length);
+
   if (withheld.size === 0) return text;
+
   return lines
     .map((line, index) =>
       withheld.has(index + 1)
@@ -164,19 +176,23 @@ function withheldLines(
 ): Set<number> {
   const withheld = new Set<number>();
   const document = parseArtifactFindings(part.findings);
+
   const outOfBounds =
     document !== undefined &&
     document.findings.some(
       ({ start, end }) => start > lineCount || end > lineCount,
     );
+
   if (document === undefined || outOfBounds) {
     // A record this build cannot read names no range to keep, so the part
     // fails closed: a policy tightening must never reveal more than it did.
     for (let line = 1; line <= lineCount; line += 1) withheld.add(line);
+
     return withheld;
   }
 
   const window = servedWindow(resolved, lineCount);
+
   // A Markdown read pulls in the headings above its window. Which of them are
   // ancestors needs the Markdown parse, so every finding above the window is
   // judged; the window itself is clamped to one read, so paging stays linear.
@@ -184,10 +200,14 @@ function withheldLines(
     part.contentType === 'text/markdown' && !resolved.raw && window.start > 1
       ? 1
       : window.start;
+
   const verdicts = new Map<string, boolean>();
+
   for (const finding of document.findings) {
     const served = finding.start <= window.end && finding.end >= reachStart;
+
     if (!served || !withheldFinding(context, finding, verdicts)) continue;
+
     for (
       let line = finding.start;
       line <= Math.min(lineCount, finding.end);
@@ -196,6 +216,7 @@ function withheldLines(
       withheld.add(line);
     }
   }
+
   return withheld;
 }
 
@@ -208,17 +229,22 @@ function withheldLines(
  */
 function servedWindow(resolved: ReadTarget, lineCount: number): LineWindow {
   if (resolved.outline === true) return { start: 1, end: lineCount };
+
   if (resolved.ranges !== undefined) {
     const ranges = resolved.expandedRanges ?? resolved.ranges;
     const first = ranges.at(0);
     const last = ranges.at(-1);
+
     if (first === undefined || last === undefined) return { start: 1, end: 0 };
+
     return {
       start: first.offset + 1,
       end: Math.min(lineCount, last.offset + last.limit),
     };
   }
+
   const grow = resolved.raw ? 0 : 1;
+
   return {
     start: Math.max(1, resolved.offset + 1 - grow),
     end: Math.min(
@@ -247,14 +273,18 @@ function withheldLocator(
 ): boolean {
   const key = `${rule}\0${locator}`;
   const known = verdicts.get(key);
+
   if (known !== undefined) return known;
+
   const withdrawn =
     context.permissionPolicy === undefined
       ? true
       : rule === 'allow_only'
         ? !allowsLocator(context, locator)
         : rejectsWebLocatorRead(context, locator);
+
   verdicts.set(key, withdrawn);
+
   return withdrawn;
 }
 

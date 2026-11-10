@@ -113,6 +113,7 @@ export async function composeStepMessages(
   { resolver, context, moveToolMedia = false }: ComposeStepOptions,
 ): Promise<Array<ModelMessage>> {
   const sizing = await loadMediaSizing(messages, resolver, context);
+
   if (sizing.refs.length === 0) return messages;
 
   // One owner-scoped read for the step's attached stored references; the
@@ -120,6 +121,7 @@ export async function composeStepMessages(
   const sent = sizing.refs.flatMap((ref, index) =>
     isString(ref) && sizing.statuses[index] === 'attached' ? [ref] : [],
   );
+
   const bytes =
     sent.length === 0
       ? new Map<string, Uint8Array>()
@@ -143,8 +145,10 @@ function attachedBytes(
   loaded: ReadonlyMap<string, Uint8Array>,
 ): Array<ProjectedMedia> {
   const { source } = media;
+
   if ('base64' in source) return withBytes(media, source.base64);
   const data = loaded.get(source.id);
+
   return data === undefined
     ? textOf(unavailablePlaceholder(source.id, media.kind))
     : withBytes(media, data);
@@ -188,6 +192,7 @@ function projectMediaRefs(
     sizing.statuses.length -
     (options.skipTailRefs ?? 0) -
     collectMediaRefs(messages).length;
+
   const project = (
     { subject, attached }: ResolvedMedia,
     status: MediaAdmission | undefined,
@@ -195,20 +200,26 @@ function projectMediaRefs(
     if (!sizing.context.input.includes(subject.kind)) {
       return textOf(omittedPlaceholder(subject));
     }
+
     return status === 'attached' && attached !== undefined
       ? attach(attached)
       : textOf(limitPlaceholder(subject));
   };
+
   const projectRef: ProjectRef = (ref, index, kind) => {
     const status = sizing.statuses[offset + index];
+
     if (!isString(ref)) {
       return project(unstoredMedia(ref, sizing.retained), status);
     }
+
     const descriptor = sizing.descriptors.get(ref);
+
     return descriptor === undefined
       ? textOf(unavailablePlaceholder(ref, kind))
       : project(storedMedia(ref, descriptor), status);
   };
+
   return mapMediaRefs(messages, projectRef, options.moveToolMedia);
 }
 
@@ -240,14 +251,17 @@ export function projectSizedText(
     sizing,
     (media) => {
       charge(media);
+
       return withBytes(media, UNSIZED);
     },
     { moveToolMedia: true, skipTailRefs },
   );
+
   return projected.map((message): ModelMessage => {
     if (message.role !== 'user' || !Array.isArray(message.content)) {
       return message;
     }
+
     return {
       ...message,
       content: message.content.filter(
@@ -268,12 +282,14 @@ function unstoredPdfFilename(locator: string): string {
   const source = /^https?:\/\//iu.test(locator)
     ? new URL(locator).pathname
     : locator;
+
   return basename(source) || 'document.pdf';
 }
 
 function storedMedia(id: string, d: MediaDescriptor): ResolvedMedia {
   const subject = storedSubject(d);
   const source = { id };
+
   return d.kind === 'pdf'
     ? {
         subject,
@@ -301,7 +317,9 @@ function unstoredMedia(
 ): ResolvedMedia {
   const subject = unstoredSubject(ref);
   const entry = retained.get(ref.key);
+
   if (entry === undefined || 'exceeded' in entry) return { subject };
+
   return 'pages' in entry
     ? {
         subject,
@@ -357,12 +375,16 @@ export function mapMediaRefs(
   moveToolMedia = false,
 ): Array<ModelMessage> {
   let index = 0;
+
   const next: NextRef = (ref, kind) => {
     index += 1;
+
     return project(ref, index - 1, kind);
   };
+
   const mapped: Array<ModelMessage> = [];
   const moved: Array<UserContentPart> = [];
+
   const flush = () => {
     if (moved.length === 0) return;
     mapped.push({
@@ -370,15 +392,19 @@ export function mapMediaRefs(
       content: [{ type: 'text', text: MOVED_MEDIA_HEADER }, ...moved.splice(0)],
     });
   };
+
   for (const message of messages) {
     if (message.role === 'tool') {
       mapped.push(mapToolRefs(message, next, moveToolMedia ? moved : null));
       continue;
     }
+
     flush();
     mapped.push(mapUserRefs(message, next));
   }
+
   flush();
+
   return mapped;
 }
 
@@ -387,8 +413,11 @@ type ProjectRef = (
   index: number,
   kind: MediaKind,
 ) => Array<ProjectedMedia>;
+
 type NextRef = (ref: MediaRef, kind: MediaKind) => Array<ProjectedMedia>;
+
 type ToolMessage = Extract<ModelMessage, { role: 'tool' }>;
+
 type ToolMessagePart = ToolMessage['content'][number];
 
 /** A user message with its references labelled and projected. */
@@ -396,7 +425,9 @@ function mapUserRefs(message: ModelMessage, next: NextRef): ModelMessage {
   if (message.role !== 'user' || !Array.isArray(message.content)) {
     return message;
   }
+
   const content = mapUserContentRefs(message.content, next);
+
   return content === undefined ? message : { ...message, content };
 }
 
@@ -413,23 +444,30 @@ function mapUserContentRefs(
 ): Array<UserContentPart> | undefined {
   const labels: Record<MediaKind, number> = { image: 0, pdf: 0 };
   let mapped = false;
+
   const content = parts.flatMap((part): Array<UserContentPart> => {
     if (part.type === 'image') {
       const image = userImageRef(part);
+
       if (image !== undefined) {
         mapped = true;
+
         return next(image, fileKind(part.mediaType));
       }
     }
+
     if (part.type !== 'file') return [part];
     const id = fileMediaRef(part);
+
     if (id === undefined) return [part];
     mapped = true;
     const kind = fileKind(part.mediaType);
     labels[kind] += 1;
     const label = `${LABEL[kind]} ${labels[kind]} (${mediaLocator(id)}):`;
+
     return [{ type: 'text', text: label }, ...next(id, kind)];
   });
+
   return mapped ? content : undefined;
 }
 
@@ -445,6 +483,7 @@ function mapToolRefs(
   const content = message.content.map((part) =>
     mapToolResultRefs(part, next, moved),
   );
+
   return content.every((part, at) => part === message.content[at])
     ? message
     : { ...message, content };
@@ -463,33 +502,44 @@ function mapToolResultRefs(
   if (part.type !== 'tool-result' || part.output.type !== 'content') {
     return part;
   }
+
   const items = part.output.value;
   const refs = items.map((item) => toolItemRef(item));
+
   if (refs.every((ref) => ref === undefined)) return part;
   const movedBefore = moved?.length ?? 0;
+
   const value = items.flatMap((item, at): Array<ToolContentPart> => {
     const image = refs[at];
+
     if (image === undefined) return [item];
+
     const mediaKind: MediaKind =
       item.type === 'file-url' || (!isString(image) && 'pages' in image)
         ? 'pdf'
         : 'image';
+
     return next(image, mediaKind).flatMap(
       (projected): Array<ToolContentPart> => {
         if (projected.type === 'text') return [projected];
+
         if (moved === null) return [toolContentOf(projected)];
         const locator = isString(image) ? mediaLocator(image) : image.locator;
         const label = `${projected.type === 'file' ? 'PDF' : 'Image'} from ${part.toolName} ${JSON.stringify(locator)}:`;
         moved.push({ type: 'text', text: label }, projected);
+
         return [];
       },
     );
   });
+
   const output = toolOutput(value);
+
   const emptied =
     (moved?.length ?? 0) > movedBefore &&
     output.type === 'text' &&
     output.value === '';
+
   return {
     ...part,
     output: emptied ? { type: 'text', value: MEDIA_FOLLOWS } : output,
@@ -502,10 +552,13 @@ function toolContentOf(
 ): ToolContentPart {
   if (projected.type === 'image') {
     const data = base64Of(projected.image);
+
     return { type: 'image-data', data, mediaType: projected.mediaType };
   }
+
   const { mediaType, filename } = projected;
   const data = base64Of(projected.data);
+
   return { type: 'file-data', data, mediaType, filename };
 }
 
@@ -523,6 +576,7 @@ function toolOutput(value: Array<ToolContentPart>): ToolResultOutput {
   const texts = value.flatMap((item) =>
     item.type === 'text' ? [item.text] : [],
   );
+
   return texts.length === value.length
     ? { type: 'text', value: texts.join('\n') }
     : { type: 'content', value };
@@ -550,11 +604,13 @@ export function installStepPreparation(
   const tools = input.tools !== undefined;
   // `null` and absent both mean "no cap" (design D1).
   const cap = input.maxSteps ?? undefined;
+
   const context: MediaAdmissionContext = {
     input: model.input ?? ['text'],
     contextWindowTokens: model.contextWindowTokens,
     reservedOutputTokens: input.reservedOutputTokens ?? null,
   };
+
   // Step-cap enforcement (SPEC tool-calling): once `maxSteps` PRIOR steps have
   // requested a tool, stop declaring tools for the next step — the model is
   // forced to answer from accumulated context in the SAME streamText() call.
@@ -562,13 +618,16 @@ export function installStepPreparation(
     const override = tools
       ? await input.onStepStart?.({ messages, stepNumber })
       : undefined;
+
     const capReached =
       tools &&
       cap !== undefined &&
       steps.filter((step) => step.toolCalls.length > 0).length >= cap;
+
     if (capReached) {
       input.onCapReached?.();
     }
+
     const composed =
       input.media === undefined
         ? override
@@ -577,6 +636,7 @@ export function installStepPreparation(
             context,
             moveToolMedia,
           });
+
     return {
       ...(composed && { messages: composed }),
       ...(capReached && { activeTools: [] }),
@@ -594,5 +654,6 @@ export function toolLoopStopWhen(
 ): Parameters<typeof streamText>[0]['stopWhen'] {
   const capped =
     input.maxSteps == null ? () => false : stepCountIs(input.maxSteps + 1);
+
   return input.stopWhenExtra ? [capped, input.stopWhenExtra] : capped;
 }

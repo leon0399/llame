@@ -60,10 +60,12 @@ function typeReferenceName(type: ESTree.TSTypeReference): string | null {
 
 function isInsideTypeAliasDeclaration(node: ESTree.Node): boolean {
   let current: ESTree.Node | null = node.parent;
+
   while (current !== null && current.type !== "Program") {
     if (current.type === "TSTypeAliasDeclaration") return true;
     current = current.parent;
   }
+
   return false;
 }
 
@@ -74,6 +76,7 @@ function isPlainAliasConsumerUse(
   if (node.type !== "TSTypeReference" || node.typeArguments?.params.length)
     return false;
   const name = typeReferenceName(node);
+
   return (
     name !== null &&
     visibleTypeAlias(name, node, environment.typeAliases) !== null &&
@@ -84,12 +87,14 @@ function isPlainAliasConsumerUse(
 function isInsideTypeParameterConstraint(node: ESTree.TSType): boolean {
   let child: ESTree.Node = node;
   let parent: ESTree.Node | null = child.parent;
+
   while (parent !== null && parent.type !== "Program") {
     if (parent.type === "TSTypeParameter" && parent.constraint === child)
       return true;
     child = parent;
     parent = child.parent;
   }
+
   return false;
 }
 
@@ -98,9 +103,12 @@ function shouldReportType(
   environment: TypeEnvironment,
 ): boolean {
   if (isInsideTypeParameterConstraint(node)) return false;
+
   if (isPlainAliasConsumerUse(node, environment)) return false;
+
   if (classifyUnsafeDictionary(node, environment) === null) return false;
   let current: ESTree.Node | null = node.parent;
+
   while (current !== null && current.type !== "Program") {
     if (
       isTypeNode(current) &&
@@ -109,6 +117,7 @@ function shouldReportType(
       return false;
     current = current.parent;
   }
+
   return true;
 }
 
@@ -127,12 +136,15 @@ export const noUnsafeDictionaryTypeRule = defineRule({
   },
   createOnce(context) {
     let environment: TypeEnvironment | null = null;
+
     const report = (node: ESTree.Node, value: string) => {
       context.report({ node, messageId: "unsafeDictionary", data: { value } });
     };
+
     const reportIfUnsafe = (node: ESTree.TSType) => {
       if (environment === null || !shouldReportType(node, environment)) return;
       const unsafe = classifyUnsafeDictionary(node, environment);
+
       if (unsafe === null) return;
       report(node, unsafe.unsafeValue);
     };
@@ -154,10 +166,12 @@ export const noUnsafeDictionaryTypeRule = defineRule({
           node.parent.type === "TSTypeLiteral"
         )
           return;
+
         const unsafe = classifyUnsafeDictionaryValue(
           node.typeAnnotation.typeAnnotation,
           environment,
         );
+
         if (unsafe !== null) report(node, unsafe.unsafeValue);
       },
     };

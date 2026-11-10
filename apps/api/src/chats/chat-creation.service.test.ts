@@ -263,7 +263,9 @@ function stubRepositories(): RepositoryStubs {
           id: input.id,
           projectId: input.projectId ?? null,
         };
+
         stubs.findChatById.mockResolvedValue(created);
+
         return Promise.resolve(created);
       }),
     hasMessage: vi
@@ -306,6 +308,7 @@ function stubRepositories(): RepositoryStubs {
       .spyOn(ChatCreationRecordRepository.prototype, 'findAttempts')
       .mockResolvedValue([]),
   };
+
   return stubs;
 }
 
@@ -327,37 +330,48 @@ function makeService(options: {
   // Every repository the route touches is spied at its prototype, so the
   // transaction handle is never dereferenced.
   const tx = asDouble<Db>(drizzle.mock({ schema }));
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
       callback(tx),
   );
   const config = options.config ?? configWith();
+
   const recordProjectDefault = vi
     .spyOn(ProjectsService.prototype, 'recordProjectDefault')
     .mockResolvedValue(defaultRow());
+
   const listMachines = vi.fn(() => Promise.resolve(options.machines ?? []));
   const machines = asDouble<MachinesService>({ list: listMachines });
+
   const runExclusively = vi.fn(
     <T>(_chatId: string, run: () => Promise<T>): Promise<T> => run(),
   );
+
   const locks = asDouble<ChatCreationLock>({ runExclusively });
+
   const enter = vi.fn<ChatCreationWorkspace['enter']>(() =>
     Promise.resolve({ status: 'unbound' }),
   );
+
   const workspace = asDouble<ChatCreationWorkspace>({ enter });
   const validateTurn = vi.fn<ChatLoopService['validateTurn']>();
+
   const startFirstRun = vi.fn<ChatLoopService['startFirstRun']>(() =>
     Promise.resolve({ runId: 'run-1' }),
   );
+
   const chatLoop = {
     validateTurn,
     startFirstRun,
   } satisfies Pick<ChatLoopService, 'validateTurn' | 'startFirstRun'>;
 
   const projects = new ProjectsService(tenantDb);
+
   return {
     service: new ChatCreationService(
       tenantDb,
@@ -963,6 +977,7 @@ describe('ChatCreationService resend rules', () => {
       branch: 'llame/one',
       origin: 'created',
     });
+
     const stubs = stubRepositories();
     stubs.findChatWorktree.mockResolvedValue({
       lease: leaseRow(),
@@ -1005,6 +1020,7 @@ describe('ChatCreationService resend rules', () => {
 
   it('rebinds a creation lease and reports its worktree', async () => {
     const stubs = stubRepositories();
+
     const worktreeRow = checkoutRow({
       id: '88888888-8888-4888-8888-888888888888',
       kind: 'worktree',
@@ -1013,6 +1029,7 @@ describe('ChatCreationService resend rules', () => {
       parentCheckoutId: CHECKOUT_ID,
       origin: 'created',
     });
+
     stubs.findChatById.mockResolvedValue({ ...chat });
     stubs.findChatWorktree.mockResolvedValue({
       lease: leaseRow(),
@@ -1150,6 +1167,7 @@ describe('ChatCreationService offline executors', () => {
     stubs.listMainCheckouts.mockResolvedValue([
       checkoutRow({ executorId: 'machine:nas' }),
     ]);
+
     const service = makeService({
       stubs,
       machines: [machineView('nas', 'offline')],
@@ -1215,6 +1233,7 @@ describe('ChatCreationService offline executors', () => {
       ),
     );
     stubs.findRepository.mockResolvedValue(repositoryRow());
+
     const service = makeService({
       stubs,
       machines: [machineView('nas', 'offline')],
@@ -1226,6 +1245,7 @@ describe('ChatCreationService offline executors', () => {
         },
       },
     });
+
     service.enter.mockResolvedValue({ status: 'bound', root: ROOT });
 
     await service.service.create(

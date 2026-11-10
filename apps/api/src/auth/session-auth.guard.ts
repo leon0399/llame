@@ -13,6 +13,7 @@ import { IS_PUBLIC_KEY } from './public.decorator';
 import { getRequestToken } from './request-token';
 
 export type SessionAuthService = Pick<AuthService, 'validateToken'>;
+
 export type SessionAuthReflector = Pick<Reflector, 'getAllAndOverride'>;
 
 @Injectable()
@@ -31,17 +32,20 @@ export class SessionAuthGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
+
     if (isPublic) {
       return true;
     }
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = getRequestToken(request);
+
     if (!token) {
       throw new UnauthorizedException();
     }
 
     const session = await this.authService.validateToken(token);
+
     if (!session?.userId) {
       throw new UnauthorizedException();
     }

@@ -35,6 +35,7 @@ const range = (count: number) => Array.from({ length: count }, (_, n) => n);
 
 /** Raw bytes whose base64 form is exactly 5 MiB. */
 const FIVE_MIB_BASE64_RAW = (5 * 1024 * 1024 * 3) / 4;
+
 /** 20 MiB: the largest PDF ingest stores, 27,962,028 bytes of base64. */
 const TWENTY_MIB = 20 * 1024 * 1024;
 
@@ -59,6 +60,7 @@ describe('admitEpochMedia', () => {
 
   it('attaches the 100 oldest images and puts the 101st at the limit', () => {
     const ids = range(101).map(mediaId);
+
     const statuses = admit(
       ids,
       ids.map((id) => descriptor(id)),
@@ -73,6 +75,7 @@ describe('admitEpochMedia', () => {
   it('stops at the byte bound: six 5 MiB base64 variants attach five', () => {
     const large = range(6).map(mediaId);
     const small = range(3).map((n) => mediaId(100 + n));
+
     const statuses = admit(
       [...large, ...small],
       [
@@ -95,6 +98,7 @@ describe('admitEpochMedia', () => {
 
   it('counts a PDF original toward the byte bound: six 5 MiB base64 PDFs attach five', () => {
     const ids = range(6).map(mediaId);
+
     const statuses = admit(
       ids,
       ids.map((id) =>
@@ -108,6 +112,7 @@ describe('admitEpochMedia', () => {
 
   it('lets images and PDFs share the byte bound', () => {
     const [pdf = '', image = ''] = range(2).map(mediaId);
+
     const statuses = admit(
       [pdf, image],
       [
@@ -123,6 +128,7 @@ describe('admitEpochMedia', () => {
 
   it('attaches a variant that fills the byte bound exactly', () => {
     const [first = '', second = ''] = range(2).map(mediaId);
+
     const statuses = admit(
       [first, second],
       [
@@ -136,6 +142,7 @@ describe('admitEpochMedia', () => {
 
   it('stops at the page bound: an 80-page then a 30-page PDF on a 400,000-token model', () => {
     const [first = '', second = '', image = ''] = range(3).map(mediaId);
+
     const statuses = admit(
       [first, second, image],
       [
@@ -151,6 +158,7 @@ describe('admitEpochMedia', () => {
 
   it('puts a 64-page PDF over the 53-page bound of a 200,000-token model at the limit, and everything after it', () => {
     const [large = '', small = '', image = ''] = range(3).map(mediaId);
+
     const statuses = admit(
       [large, small, image],
       [
@@ -178,6 +186,7 @@ describe('admitEpochMedia', () => {
 
   it('omits a 20 MiB PDF on an image-only model without touching the image budget', () => {
     const [pdf = '', ...images] = range(6).map(mediaId);
+
     const statuses = admit(
       [pdf, ...images],
       [
@@ -193,6 +202,7 @@ describe('admitEpochMedia', () => {
 
   it('omits a retained image on a model without image input, exceeded or not', () => {
     const id = mediaId(1);
+
     const statuses = admit(
       [
         id,
@@ -209,6 +219,7 @@ describe('admitEpochMedia', () => {
   it('counts images and PDFs separately: 100 images still leave room for a PDF', () => {
     const images = range(100).map(mediaId);
     const [pdf, extra] = [mediaId(500), mediaId(501)];
+
     const statuses = admit(
       [...images, pdf, extra],
       [...[...images, extra].map((id) => descriptor(id)), pdfDescriptor(pdf)],
@@ -233,6 +244,7 @@ describe('admitEpochMedia', () => {
 
   it('counts a repeated id again', () => {
     const id = mediaId(1);
+
     const statuses = admit(
       range(101).map(() => id),
       [descriptor(id)],
@@ -247,6 +259,7 @@ describe('admitEpochMedia', () => {
   it('marks unresolvable references unavailable without counting them', () => {
     const known = range(100).map(mediaId);
     const unknown = mediaId(999);
+
     const statuses = admit(
       [unknown, ...known, unknown],
       known.map((id) => descriptor(id)),
@@ -259,6 +272,7 @@ describe('admitEpochMedia', () => {
 
   it('counts a retained read as one image: 99 attachments, a read, and one more', () => {
     const owner = range(100).map(mediaId);
+
     const statuses = admit(
       [
         ...owner.slice(0, 99),
@@ -277,10 +291,12 @@ describe('admitEpochMedia', () => {
 
   it('sizes a retained image by its exact base64 length', () => {
     const fiveMiB = 5 * 2 ** 20;
+
     const retained = {
       retained: 'image',
       byteSize: fiveMiB,
     } as const;
+
     const statuses = admit(
       range(6).map(() => retained),
       [],
@@ -295,6 +311,7 @@ describe('admitEpochMedia', () => {
       byteSize: 5 * 2 ** 20,
       pages: 10,
     } as const;
+
     const statuses = admit(
       range(6).map(() => retained),
       [],
@@ -306,6 +323,7 @@ describe('admitEpochMedia', () => {
 
   it('latches the window at a read past its message bound without costing anything', () => {
     const [image = '', later = ''] = range(2).map(mediaId);
+
     const statuses = admit(
       [image, { retained: 'exceeded', kind: 'image' }, later],
       [descriptor(image), descriptor(later)],
@@ -428,6 +446,7 @@ describe('collectMediaRefs', () => {
 
   it('lists prompt-import image references in place and skips byte images', () => {
     const unstored = { ...SHOT, key: 'prompt-import:run:shot.png' };
+
     const messages: Array<ModelMessage> = [
       {
         role: 'user',
@@ -478,6 +497,7 @@ describe('imageResultRef', () => {
       path: '/host/projected/shot.png',
       thumbnail: 'data:image/webp;base64,UklGRg==',
     };
+
     expect(mediaResultRef(result, SHOT.locator)).toEqual(SHOT);
     expect(mediaResultRef(result, undefined)).toBeUndefined();
   });
@@ -537,6 +557,7 @@ describe('loadMediaSizing', () => {
   it('admits retained references by the entries the attempt holds', async () => {
     const { resolver } = fakeResolver([]);
     const variant = Buffer.alloc((EPOCH_MAX_BASE64_BYTES * 3) / 4);
+
     const entry = {
       ...SHOT,
       model: {
@@ -546,8 +567,10 @@ describe('loadMediaSizing', () => {
         data: variant.toString('base64'),
       },
     };
+
     resolver.retainedMedia.set('c1', entry);
     resolver.retainedMedia.set('c2', entry);
+
     const result = (toolCallId: string): ModelMessage => ({
       role: 'tool',
       content: [
@@ -596,14 +619,17 @@ describe('loadMediaSizing', () => {
 
   it('keeps a retained PDF beyond the append-only byte window', async () => {
     const byteSize = 12 * 1024 * 1024;
+
     const { resolver } = fakeResolver([
       pdfDescriptor(mediaId(1), { pages: 1, byteSize }),
     ]);
+
     resolver.retainedMedia.set('c2', {
       locator: '/work/second.pdf',
       pages: 1,
       data: Buffer.alloc(byteSize).toString('base64'),
     });
+
     const sizing = await loadMediaSizing(
       [
         {
@@ -631,6 +657,7 @@ describe('loadMediaSizing', () => {
       resolver,
       VISION_PDF,
     );
+
     expect(sizing.statuses).toEqual(['attached', 'limit']);
   });
 });

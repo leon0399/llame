@@ -20,6 +20,7 @@ import {
 import { assertNotArchived } from '../db/assert-not-archived';
 import { type Project, pins, projects, type PinItemType } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+
 export { type Db } from '../db/tenant-db.service';
 
 export class ProjectsRepository {
@@ -58,6 +59,7 @@ export class ProjectsRepository {
         .select({ itemId: pins.itemId })
         .from(pins)
         .where(pinnedByOwner);
+
       conditions.push(not(exists(pinSubquery)));
     }
 
@@ -131,6 +133,7 @@ export class ProjectsRepository {
     },
   ): Promise<Project | undefined> {
     const current = await this.findById(projectId, ownerUserId);
+
     if (!current) return undefined;
 
     // Archive guard (chat-project-archive): an archived resource rejects every
@@ -202,16 +205,21 @@ type ProjectPatch = {
  */
 function projectPatchFields(patch: ProjectPatch, current: Project) {
   const fields: Partial<typeof projects.$inferInsert> = {};
+
   if (patch.name !== undefined) fields.name = patch.name;
+
   if (patch.description !== undefined) fields.description = patch.description;
+
   if (patch.defaultExecutorId !== undefined) {
     fields.defaultExecutorId = patch.defaultExecutorId;
   }
+
   if (patch.archived === true && current.archivedAt === null) {
     fields.archivedAt = new Date();
   } else if (patch.archived === false) {
     fields.archivedAt = null;
   }
+
   return {
     fields,
     contentChanged:

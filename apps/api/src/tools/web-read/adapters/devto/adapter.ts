@@ -44,6 +44,7 @@ const ARTICLE = z.object({
   body_markdown: z.string(),
   user: z.object({ name: z.string() }),
 });
+
 type Article = z.infer<typeof ARTICLE>;
 
 /** Matches `dev.to/{username}/{slug}`; profiles, tag pages, search, and
@@ -52,9 +53,12 @@ export function parseDevtoUrl(source: URL): DevtoTarget | undefined {
   if (source.protocol !== 'https:' || source.host !== 'dev.to') {
     return undefined;
   }
+
   const match = ARTICLE_PATH.exec(source.pathname);
+
   if (match === null) return undefined;
   const [, username, slug] = match;
+
   // `/{username}/series` is the profile's series index, not an article.
   return Object.hasOwn(SITE_PAGES, username) || slug === 'series'
     ? undefined
@@ -69,16 +73,21 @@ export function createDevtoAdapter(config: DevtoWebAdapterConfig): WebAdapter {
     match: (source) => parseDevtoUrl(source) !== undefined,
     read: async (source, io) => {
       const { username, slug } = parseDevtoUrl(source)!;
+
       const fetched = await io.fetch(
         `${source.origin}/api/articles/${username}/${slug}`,
         JSON_INIT,
       );
+
       if ('type' in fetched) return primaryFailure(fetched);
       const article = parseJsonBody(fetched.body, ARTICLE);
+
       if (article === undefined) return { kind: 'failed', failure: 'parse' };
       // Some articles are stored with CRLF line endings.
       const body = article.body_markdown.replaceAll('\r\n', '\n').trim();
+
       if (!body) return { kind: 'failed', failure: 'empty' };
+
       return {
         kind: 'rendered',
         content: renderArticle(article, body),
@@ -93,17 +102,23 @@ function renderArticle(article: Article, body: string): string {
   // Unless the author wrote one, dev.to cuts the description from the body's
   // first characters, whitespace runs included.
   const description = article.description?.replaceAll(/\s+/gu, ' ').trim();
+
   const fields: Array<[string, string | null | undefined]> = [
     ['Author', article.user.name],
     ['Published', article.published_at],
     ['Tags', article.tags.join(', ')],
     ['URL', article.url],
   ];
+
   const lines = [`# ${article.title}`, ''];
+
   if (description) lines.push(description, '');
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   lines.push('', body);
+
   return lines.join('\n');
 }

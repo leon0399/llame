@@ -13,7 +13,9 @@ export function recallAtK(
   if (relevant.size === 0) return 1;
   const top = new Set(rankedIds.slice(0, k));
   let hit = 0;
+
   for (const id of relevant) if (top.has(id)) hit += 1;
+
   return hit / relevant.size;
 }
 
@@ -28,17 +30,22 @@ export function ndcgAtK(
   k: number,
 ): number {
   if (relevant.size === 0) return 1;
+
   const idealDcg = Array.from(
     { length: Math.min(relevant.size, k) },
     (_, i) => 1 / Math.log2(i + 2),
   ).reduce((a, b) => a + b, 0);
+
   if (idealDcg === 0) return 0;
   let dcg = 0;
   const top = rankedIds.slice(0, k);
+
   for (let i = 0; i < top.length; i += 1) {
     const id = top[i];
+
     if (id !== undefined && relevant.has(id)) dcg += 1 / Math.log2(i + 2);
   }
+
   return dcg / idealDcg;
 }
 
@@ -50,6 +57,7 @@ export function reciprocalRank(
   for (let i = 0; i < rankedIds.length; i += 1) {
     if (relevant.has(rankedIds[i])) return 1 / (i + 1);
   }
+
   return 0;
 }
 
@@ -109,6 +117,7 @@ export function summarizeEval(
       ndcg: ndcgAtK(r.rankedIds, r.relevant, k),
       zero: r.rankedIds.length === 0 ? 1 : 0,
     };
+
     const c = cats.get(r.category) ?? emptyBucket();
     cats.set(r.category, c);
     overall.push(row);
@@ -116,6 +125,7 @@ export function summarizeEval(
   }
 
   const byCategory: EvalSummary['byCategory'] = {};
+
   for (const [category, c] of cats) {
     byCategory[category] = summarizeBucket(c);
   }

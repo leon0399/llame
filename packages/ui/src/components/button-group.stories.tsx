@@ -514,6 +514,7 @@ export const WithSelect: Story = {
       { value: "€", label: "Euro" },
       { value: "£", label: "British Pound" },
     ];
+
     const [currency, setCurrency] = React.useState("$");
 
     return (

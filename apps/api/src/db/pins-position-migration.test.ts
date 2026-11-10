@@ -5,6 +5,7 @@ const migration = readFileSync(
   join(__dirname, 'migrations', '20260826125629_gifted_tigra.sql'),
   'utf8',
 );
+
 const normalized = migration.replaceAll(/\s+/g, ' ');
 
 describe('pins position migration', () => {
@@ -16,13 +17,17 @@ describe('pins position migration', () => {
     const noForce = migration.indexOf(
       'ALTER TABLE "pins" NO FORCE ROW LEVEL SECURITY',
     );
+
     const backfill = migration.indexOf('UPDATE pins AS p');
+
     const force = migration.indexOf(
       'ALTER TABLE "pins" FORCE ROW LEVEL SECURITY',
     );
+
     const notNull = migration.indexOf(
       'ALTER TABLE "pins" ALTER COLUMN "position" SET NOT NULL',
     );
+
     expect(noForce).toBeGreaterThan(-1);
     expect(backfill).toBeGreaterThan(noForce);
     expect(force).toBeGreaterThan(backfill);

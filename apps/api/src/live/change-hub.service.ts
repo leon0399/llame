@@ -72,6 +72,7 @@ export function toWireMessage(
 ): LiveMessage | undefined {
   const wire: unknown = JSON.parse(JSON.stringify(message));
   const parsed = liveMessageSchema.safeParse(wire);
+
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -110,8 +111,10 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     const set = this.subscribers.get(ownerId) ?? new Set<LiveSubscriber>();
     set.add(subscriber);
     this.subscribers.set(ownerId, set);
+
     return () => {
       set.delete(subscriber);
+
       if (set.size === 0) this.subscribers.delete(ownerId);
     };
   }
@@ -122,6 +125,7 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
    */
   subscribeInstance(subscriber: LiveSubscriber): () => void {
     this.instanceSubscribers.add(subscriber);
+
     return () => {
       this.instanceSubscribers.delete(subscriber);
     };
@@ -130,21 +134,29 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   /** Handle one NOTIFY payload. */
   dispatch(raw: string): void {
     const notification = parseChangeNotification(raw);
+
     if (!notification) {
       this.logger.warn('Dropped malformed live change notification');
+
       return;
     }
+
     if (notification.k === 'machine') {
       this.dispatchInstance(notification);
+
       return;
     }
+
     // Fold every notification, even for owners with no subscriber, so the
     // tracker's state stays current for when one connects.
     const progress = this.tracker.apply(notification);
+
     if (progress) this.send(notification.owner, progress);
+
     // Records are read only for an owner someone is listening to.
     if (!this.subscribers.has(notification.owner)) return;
     const job = recordJobFor(notification);
+
     if (job) this.enqueue(notification.owner, job);
   }
 
@@ -154,17 +166,21 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   ): void {
     if (this.instanceSubscribers.size === 0) return;
     const job = recordJobFor(notification);
+
     if (job) this.enqueue(INSTANCE_AUDIENCE, job);
   }
 
   private enqueue(audience: Audience, job: RecordJob): void {
     const existing = this.queues.get(audience);
     const queue = existing ?? { jobs: [], waiting: new Set<string>() };
+
     if (job.key !== undefined) {
       if (queue.waiting.has(job.key)) return;
       queue.waiting.add(job.key);
     }
+
     queue.jobs.push(job);
+
     if (existing) return;
     this.queues.set(audience, queue);
     void this.drain(audience, queue);
@@ -173,8 +189,10 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   private async drain(audience: Audience, queue: SendQueue): Promise<void> {
     for (let job = queue.jobs.shift(); job; job = queue.jobs.shift()) {
       if (job.key !== undefined) queue.waiting.delete(job.key);
+
       try {
         const message = await job.load(this.loader);
+
         if (message) this.send(audience, message);
       } catch (error) {
         this.logger.warn(
@@ -183,13 +201,16 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
         this.send(audience, { type: 'resync' });
       }
     }
+
     this.queues.delete(audience);
   }
 
   private onListen(): void {
     this.listenCount += 1;
+
     if (this.listenCount === 1) return;
     this.logger.warn('Live change listener reconnected; requesting resync');
+
     // A socket also holds an instance subscription, and its client refetches
     // instance-wide lists on any `resync`, so the owner stream covers it.
     for (const owner of this.subscribers.keys()) {
@@ -202,18 +223,24 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
       audience === INSTANCE_AUDIENCE
         ? this.instanceSubscribers
         : this.subscribers.get(audience);
+
     if (!subscribers || subscribers.size === 0) return;
     const wire = toWireMessage(message);
+
     if (!wire) {
       this.logger.error(
         `Dropped a ${message.type} message that violates asyncapi.websocket.yaml`,
       );
+
       // The client stopped polling while connected; have it refetch instead.
       if (message.type !== 'resync') this.send(audience, { type: 'resync' });
+
       return;
     }
+
     // Serialized once per audience, not once per socket.
     const frame = JSON.stringify(wire);
+
     for (const subscriber of subscribers) {
       try {
         subscriber(frame);

@@ -38,6 +38,7 @@ function membership(
 }
 
 const acme = unit({ id: "u1", name: "Acme" });
+
 const eng = unit({
   id: "u2",
   name: "Acme / Eng",
@@ -49,6 +50,7 @@ const eng = unit({
 type Handler = (request: Request) => Response | Promise<Response>;
 
 const notFound = () => jsonResponse({ message: "not found" }, 404);
+
 const ownerHere = () =>
   jsonResponse({ role: "owner", viaOrgUnitId: "u1", inherited: false });
 
@@ -63,6 +65,7 @@ function routeFetch(handlers: Record<string, Handler>) {
     fetchMock.mockImplementation(async (input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
+
       const handler =
         key === "GET /auth/v1/me"
           ? () =>
@@ -74,9 +77,12 @@ function routeFetch(handlers: Record<string, Handler>) {
                 image: null,
               })
           : handlers[key];
+
       if (!handler) throw new Error(`unrouted fetch in story: ${key}`);
+
       return handler(request);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -94,7 +100,9 @@ function sentRequest(method: string): Promise<Request> {
           input instanceof Request && input.method === method,
       )
       .at(-1);
+
     if (!found) throw new Error(`no ${method} request sent yet`);
+
     return found;
   });
 }
@@ -103,6 +111,7 @@ function sentRequest(method: string): Promise<Request> {
 async function openedDialog(title: string) {
   const dialog = await screen.findByRole("alertdialog", { name: title });
   await waitFor(() => expect(dialog).toBeVisible());
+
   return dialog;
 }
 
@@ -113,6 +122,7 @@ const meta = {
 } satisfies Meta<typeof MembersPanel>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

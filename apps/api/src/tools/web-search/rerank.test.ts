@@ -42,12 +42,14 @@ const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
 const KEY = 'sk-decision-secret';
 
 type JudgeFn = (input: JudgeCandidatesInput) => Promise<CandidateJudgement>;
+
 type ResultsSource = Extract<SearchChainSuccess, { kind: 'results' }>;
 
 let insertParts: MockInstance<ArtifactsRepository['insertParts']>;
 
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -112,15 +114,18 @@ function lane(
   } = {},
 ) {
   const spy = vi.fn<JudgeFn>(judge);
+
   const decisions: DecisionJudge = {
     judgeCandidates: spy,
     protectText: (_model, text) => text.replaceAll(KEY, '[REDACTED]'),
   };
+
   const webSearch: WebSearchConfig = {
     engines,
     chain: [],
     ...(rerank && { rerank: { model: 'jev' } }),
   };
+
   return { spy, context: testContext({ decisions, webSearch }) };
 }
 
@@ -164,7 +169,9 @@ function source(
 function outputOf(result: ToolResult) {
   if (result.status !== 'success') throw new Error('expected a success');
   const output = webSearchOutputSchema.parse(result);
+
   if (output.kind !== 'results') throw new Error('expected results');
+
   return output;
 }
 
@@ -183,12 +190,15 @@ const recordSchema = z.object({
 /** The stored rank record of a result, parsed; absent when none was stored. */
 function record(result: ToolResult): z.infer<typeof recordSchema> | undefined {
   if (!('display' in result) || !isRecord(result.display)) return undefined;
+
   return recordSchema.parse(result.display.rerank);
 }
 
 function writtenText(): string {
   const part = insertParts.mock.calls[0]?.[1]?.[0];
+
   if (part === undefined) throw new Error('Expected one written artifact.');
+
   return part.content.toString('utf8');
 }
 
@@ -224,6 +234,7 @@ describe('deduplication', () => {
       ]),
       inlineCall,
     );
+
     expect(outputOf(result).results.map((item) => item.url)).toEqual([
       'https://www.example.test/docs/',
       'https://example.test/r/3',
@@ -233,11 +244,13 @@ describe('deduplication', () => {
 
   it('counts left out results after deduplication', async () => {
     const list = [...results(12), resultAt(99, { url: resultAt(0).url })];
+
     const result = await spillWebSearchResult(
       testContext({ artifactReadable: false }),
       source(list),
       inlineCall,
     );
+
     expect(titles(result)).toHaveLength(10);
     expect(result).toMatchObject({
       truncationNotice: 'left out: 2 results; full result not stored',
@@ -246,11 +259,13 @@ describe('deduplication', () => {
 
   it('skips the rank call when the repeat leaves the set within the limit', async () => {
     const { spy, context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       context,
       source([...results(10), resultAt(99, { url: resultAt(0).url })]),
       inlineCall,
     );
+
     expect(spy).not.toHaveBeenCalled();
     expect(titles(result)).toEqual(results(10).map((item) => item.title));
     expect(record(result)).toBeUndefined();
@@ -260,10 +275,12 @@ describe('deduplication', () => {
 describe('the fits-inline guard', () => {
   it('ranks twenty fetched results and shows the first ten by score', async () => {
     const { spy, context } = lane(byKeyNumber((n) => n / 100));
+
     const result = await spillWebSearchResult(context, source(results(20)), {
       ...inlineCall,
       objective: 'find the thing',
     });
+
     const input = spy.mock.calls[0][0];
     expect(input).toMatchObject({
       model: 'jev',
@@ -311,11 +328,13 @@ describe('the fits-inline guard', () => {
 
   it('makes no decision call when five results fit inline', async () => {
     const { spy, context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       context,
       source(results(5)),
       inlineCall,
     );
+
     expect(spy).not.toHaveBeenCalled();
     expect(titles(result)).toEqual(results(5).map((item) => item.title));
     expect(record(result)).toBeUndefined();
@@ -325,15 +344,18 @@ describe('the fits-inline guard', () => {
     const list = Array.from({ length: 10 }, (_unused, index) =>
       wideResult(index),
     );
+
     const unranked = normalizeOutput(source(list), 10, 256);
     expect(unranked.kind === 'results' && unranked.results).toHaveLength(7);
 
     const { spy, context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       context,
       source(list),
       inlineCall,
     );
+
     expect(spy.mock.calls[0][0].cards).toHaveLength(10);
     expect(titles(result)).toEqual(
       Array.from(
@@ -345,10 +367,12 @@ describe('the fits-inline guard', () => {
 
   it('ranks a small set over the limit', async () => {
     const { spy, context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(context, source(results(2)), {
       limit: 1,
       fetchSize: 20,
     });
+
     expect(spy.mock.calls[0][0].cards).toHaveLength(2);
     expect(titles(result)).toEqual(['Title 01']);
   });
@@ -358,6 +382,7 @@ describe('the fits-inline guard', () => {
       byKeyNumber((n) => n),
       { rerank: false },
     );
+
     await spillWebSearchResult(context, source(results(20)), inlineCall);
     expect(spy).not.toHaveBeenCalled();
   });
@@ -380,11 +405,13 @@ describe('the fits-inline guard', () => {
 
   it('ranks the results of a parallel engine like any other', async () => {
     const { spy, context } = lane(byKeyNumber((n) => n / 100));
+
     const result = await spillWebSearchResult(
       context,
       source(results(12), { engine: 'parallel' }),
       inlineCall,
     );
+
     expect(spy).toHaveBeenCalledOnce();
     expect(titles(result)).toEqual(
       results(12)
@@ -406,10 +433,12 @@ describe('ordering', () => {
         }),
       ),
     );
+
     const result = await spillWebSearchResult(context, source(results(5)), {
       limit: 4,
       fetchSize: 20,
     });
+
     expect(titles(result)).toEqual([
       'Title 01',
       'Title 00',
@@ -429,10 +458,12 @@ describe('ordering', () => {
     const { context } = lane((input) =>
       Promise.resolve(judgement({ [input.cards[2].key]: 0.7 })),
     );
+
     const result = await spillWebSearchResult(context, source(results(6)), {
       limit: 3,
       fetchSize: 20,
     });
+
     expect(titles(result)).toEqual(['Title 02', 'Title 00', 'Title 01']);
     expect(outputOf(result).notes).toBeUndefined();
     expect(record(result)).toMatchObject({
@@ -449,12 +480,15 @@ describe('ordering', () => {
         wideResult(11 + index, 'Wide'),
       ),
     ];
+
     const { context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       { ...context, artifactReadable: false },
       source(list),
       { limit: 18, fetchSize: 20 },
     );
+
     expect(titles(result)).toHaveLength(7);
     expect(result).toMatchObject({
       truncationNotice: 'left out: 11 results; full result not stored',
@@ -463,11 +497,13 @@ describe('ordering', () => {
 
   it('keeps removal first and counts left out after ranking', async () => {
     const { context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       { ...context, artifactReadable: false },
       source(results(20), { removed: 2 }),
       inlineCall,
     );
+
     expect(outputOf(result).notes?.[0]).toBe('removed 2 entries');
     expect(result).toMatchObject({
       truncationNotice: 'left out: 10 results; full result not stored',
@@ -480,11 +516,13 @@ describe('a failed rank call', () => {
 
   it('keeps engine order, adds one note, and stores no record', async () => {
     const { context } = failing();
+
     const result = await spillWebSearchResult(
       context,
       source(results(20)),
       inlineCall,
     );
+
     expect(titles(result)).toEqual(results(10).map((item) => item.title));
     expect(outputOf(result).notes).toEqual(['rerank: unavailable']);
     expect(record(result)).toBeUndefined();
@@ -493,25 +531,30 @@ describe('a failed rank call', () => {
 
   it('treats a judge that throws as a failed call', async () => {
     const { context } = lane(() => Promise.reject(new Error('boom')));
+
     const result = await spillWebSearchResult(
       context,
       source(results(20)),
       inlineCall,
     );
+
     expect(outputOf(result).notes).toEqual(['rerank: unavailable']);
   });
 
   it('keeps removal first and the failure note last at the note cap', async () => {
     const { context } = failing();
+
     const notes = Array.from(
       { length: 11 },
       (_unused, i) => `engine-${i + 1}: empty`,
     );
+
     const result = await spillWebSearchResult(
       context,
       source(results(20), { notes, removed: 1 }),
       inlineCall,
     );
+
     expect(outputOf(result).notes).toEqual([
       'removed 1 entry',
       ...notes.slice(0, 7),
@@ -530,10 +573,13 @@ describe('a failed rank call', () => {
   it('propagates an enclosing cancellation without a failure note', async () => {
     const controller = new AbortController();
     const reason = new Error('cancelled');
+
     const { context } = lane(() => {
       controller.abort(reason);
+
       return Promise.reject(reason);
     });
+
     await expect(
       spillWebSearchResult(
         { ...context, abortSignal: controller.signal },
@@ -550,11 +596,13 @@ describe('aggregate candidate retention', () => {
       byKeyNumber((n) => n),
       { engines: AGGREGATE_ENGINES },
     );
+
     const result = await spillWebSearchResult(
       context,
       source(results(40), { engine: 'agg' }),
       inlineCall,
     );
+
     expect(spy.mock.calls[0][0].cards).toHaveLength(40);
     expect(titles(result)[0]).toBe('Title 39');
     expect(titles(result)).toHaveLength(10);
@@ -565,11 +613,13 @@ describe('aggregate candidate retention', () => {
     const { context } = lane(() => Promise.resolve(judgement(undefined)), {
       engines: AGGREGATE_ENGINES,
     });
+
     const result = await spillWebSearchResult(
       context,
       source(results(40), { engine: 'agg' }),
       inlineCall,
     );
+
     expect(titles(result)).toEqual(results(10).map((item) => item.title));
     expect(outputOf(result).notes).toEqual(['rerank: unavailable']);
     expect(writtenTitles()).toHaveLength(40);
@@ -585,6 +635,7 @@ describe('aggregate candidate retention', () => {
           new Headers(init?.headers).get('X-Subscription-Token') === 'a-key'
             ? 0
             : 20;
+
         return Promise.resolve(
           new Response(
             JSON.stringify({
@@ -610,8 +661,10 @@ describe('aggregate candidate retention', () => {
 
   it('retains both 20-result children through the tool: 40 cards, 40 artifact results', async () => {
     stubTwoBraves();
+
     try {
       const spy = vi.fn<JudgeFn>(byKeyNumber((n) => n));
+
       const context = testContext({
         decisions: { judgeCandidates: spy, protectText: (_m, t) => t },
         webSearch: {
@@ -621,11 +674,13 @@ describe('aggregate candidate retention', () => {
           rerank: { model: 'jev' },
         },
       });
+
       const result = await webSearchTool.execute(context, {
         query: 'query text',
         limit: 10,
         objective: 'find the thing',
       });
+
       expect(spy.mock.calls[0][0].cards).toHaveLength(40);
       expect(spy.mock.calls[0][0].objective).toBe('find the thing');
       expect(titles(result)).toHaveLength(10);
@@ -637,6 +692,7 @@ describe('aggregate candidate retention', () => {
 
   it('keeps the fetch-size cut through the tool when no model is configured', async () => {
     stubTwoBraves();
+
     try {
       const context = testContext({
         webSearch: {
@@ -645,10 +701,12 @@ describe('aggregate candidate retention', () => {
           fetchLimit: 20,
         },
       });
+
       const result = await webSearchTool.execute(context, {
         query: 'query text',
         limit: 10,
       });
+
       expect(titles(result)).toHaveLength(10);
       expect(writtenTitles()).toHaveLength(20);
     } finally {
@@ -659,12 +717,14 @@ describe('aggregate candidate retention', () => {
   it('sends 300 cards in two parallel requests and stores all 300', async () => {
     let inFlight = 0;
     let peak = 0;
+
     const decide = vi.fn(
       async (request: DecisionRequest): Promise<DecisionOutcome> => {
         inFlight += 1;
         peak = Math.max(peak, inFlight);
         await Promise.resolve();
         inFlight -= 1;
+
         return {
           status: 'answered',
           model: 'jev-1.14',
@@ -679,8 +739,10 @@ describe('aggregate candidate retention', () => {
         };
       },
     );
+
     const client: DecisionClient = { decide };
     const spy = vi.fn<JudgeFn>((input) => judgeCandidatesWith(client, input));
+
     const context = testContext({
       decisions: { judgeCandidates: spy, protectText: (_m, t) => t },
       webSearch: {
@@ -689,11 +751,13 @@ describe('aggregate candidate retention', () => {
         rerank: { model: 'jev' },
       },
     });
+
     const result = await spillWebSearchResult(
       context,
       source(results(300), { engine: 'agg' }),
       { limit: 10, fetchSize: 100 },
     );
+
     expect(decide).toHaveBeenCalledTimes(2);
     expect(peak).toBe(2);
     expect(record(result)).toMatchObject({ costUsd: 0.002 });
@@ -706,11 +770,13 @@ describe('the stored rank record', () => {
     const { context } = lane(byKeyNumber((n) => n));
     const list = results(12);
     list[11] = resultAt(11, { snippet: 'jev-1.14 rerank score 0.97 scores' });
+
     const result = await spillWebSearchResult(
       context,
       source(list),
       inlineCall,
     );
+
     expect(record(result)).toMatchObject({ model: 'jev-1.14' });
     const text = renderWebSearchText(result);
     // The closed output shape is what a replayed part renders from.
@@ -736,13 +802,16 @@ describe('decision-key replacement', () => {
 
   it('replaces the key on the wire, inline, in the artifact, and in rendered text', async () => {
     const { spy, context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       context,
       source(keyed()),
       inlineCall,
     );
+
     const wire = JSON.stringify(spy.mock.calls[0][0].cards);
     const rendered = renderWebSearchText(result) ?? '';
+
     for (const surface of [
       wire,
       JSON.stringify(result),
@@ -751,6 +820,7 @@ describe('decision-key replacement', () => {
     ]) {
       expect(surface).not.toContain(KEY);
     }
+
     expect(spy.mock.calls[0][0].cards[11].text).toContain(
       '[p11] Leak [REDACTED] here',
     );
@@ -762,11 +832,13 @@ describe('decision-key replacement', () => {
 
   it('replaces the key when the guard skips ranking', async () => {
     const { spy, context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       context,
       source(keyed().slice(10)),
       inlineCall,
     );
+
     expect(spy).not.toHaveBeenCalled();
     expect(JSON.stringify(result)).not.toContain(KEY);
     expect(renderWebSearchText(result)).toContain('Leak [REDACTED] here');
@@ -777,11 +849,13 @@ describe('decision-key replacement', () => {
       byKeyNumber((n) => n),
       { rerank: false },
     );
+
     const result = await spillWebSearchResult(
       context,
       source(keyed().slice(10)),
       inlineCall,
     );
+
     expect(renderWebSearchText(result)).toContain(KEY);
   });
 });
@@ -849,6 +923,7 @@ describe('what the lane receives', () => {
 describe('answers and citations of a results call', () => {
   it('replaces the key in the merged answers and their citations', async () => {
     const { context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       context,
       source(results(12), {
@@ -868,6 +943,7 @@ describe('answers and citations of a results call', () => {
       }),
       inlineCall,
     );
+
     const rendered = renderWebSearchText(result) ?? '';
     expect(JSON.stringify(result)).not.toContain(KEY);
     expect(rendered).not.toContain(KEY);
@@ -878,6 +954,7 @@ describe('answers and citations of a results call', () => {
 
   it('replaces the key in the title of an answer citation', async () => {
     const { context } = lane(byKeyNumber((n) => n));
+
     const result = await spillWebSearchResult(
       context,
       {
@@ -892,6 +969,7 @@ describe('answers and citations of a results call', () => {
       },
       inlineCall,
     );
+
     const rendered = renderWebSearchText(result) ?? '';
     expect(rendered).not.toContain(KEY);
     expect(JSON.stringify(result)).toContain('cited [REDACTED] title');
@@ -905,6 +983,7 @@ describe('which sources keep the whole merged set', () => {
     key: 'k',
     timeoutSeconds: 60,
   };
+
   const call = { limit: 10, fetchSize: 20 };
 
   it('stores only the fetch size for a single engine next to an aggregate', async () => {
@@ -914,6 +993,7 @@ describe('which sources keep the whole merged set', () => {
         engines: [...AGGREGATE_ENGINES, braveEntry],
       },
     );
+
     await spillWebSearchResult(context, source(results(40)), call);
     expect(writtenTitles()).toHaveLength(20);
   });
@@ -926,6 +1006,7 @@ describe('which sources keep the whole merged set', () => {
         rerank: false,
       },
     );
+
     await spillWebSearchResult(
       context,
       source(results(40), { engine: 'agg' }),
@@ -941,6 +1022,7 @@ describe('which sources keep the whole merged set', () => {
         engines: [{ ...braveEntry, id: 'agg' }, braveEntry],
       },
     );
+
     await spillWebSearchResult(
       context,
       source(results(40), { engine: 'agg' }),
@@ -971,11 +1053,13 @@ describe('ranking with a rerank model', () => {
         ],
       },
     });
+
     const webSearch: WebSearchConfig = {
       engines: [],
       chain: [],
       rerank: { model: 'rr-fast' },
     };
+
     return testContext({ decisions, webSearch, ...overrides });
   }
 
@@ -1041,6 +1125,7 @@ describe('ranking with a rerank model', () => {
         reject(new DOMException('aborted', 'AbortError'));
       });
       controller.abort(timeout);
+
       return promise;
     });
 

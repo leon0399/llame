@@ -200,12 +200,14 @@ function SearchSlot({
   onSearchingChange: (searching: boolean) => void;
 }) {
   const closed = useRef(false);
+
   if (!searching)
     return (
       <HeaderAction
         ref={(button) => {
           if (button === null || !closed.current) return;
           closed.current = false;
+
           if (document.activeElement === document.body) button.focus();
         }}
         label="Search projects"
@@ -214,6 +216,7 @@ function SearchSlot({
         <SearchIcon />
       </HeaderAction>
     );
+
   return (
     <SearchFilterInput
       value={search.query}
@@ -296,6 +299,7 @@ function ProjectListSidebarHeader({
   onNewProject: () => void;
 }) {
   const [searching, setSearching] = useState(false);
+
   return (
     <div
       className={cn(
@@ -385,6 +389,7 @@ function PinnedProjectGroup({
   pathname: string;
 }) {
   if (projects.length === 0) return null;
+
   return (
     <CollapsibleSidebarGroup title="Pinned">
       <ProjectRows
@@ -408,6 +413,7 @@ function ProjectGroup({
   pinnedAtByProjectId: ReadonlyMap<string, string>;
 }) {
   if (projects.length === 0) return null;
+
   return (
     <SidebarGroup>
       {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
@@ -434,15 +440,19 @@ type ProjectListSidebarContentProps = ReturnType<typeof useProjectListData> & {
 function ProjectListSidebarContent(props: ProjectListSidebarContentProps) {
   const { pinnedProjects, listedProjects, pinnedAtByProjectId, pathname } =
     props;
+
   if (props.isLoading && !props.hasData) return <ProjectListSkeleton />;
+
   if (!props.listLoading && !props.hasData)
     return <EmptyProjectsMessage text={NO_PROJECTS_TEXT[props.show]} />;
+
   if (
     !props.listLoading &&
     pinnedProjects.length === 0 &&
     listedProjects.length === 0
   )
     return <EmptyProjectsMessage text="No projects found" />;
+
   return (
     <>
       <PinnedProjectGroup projects={pinnedProjects} pathname={pathname} />
@@ -482,6 +492,7 @@ export function ProjectListSidebar() {
   }
 
   const view = { show, onShowChange: setShow };
+
   return (
     <Sidebar collapsible="none" className="hidden w-64 shrink-0 md:flex">
       <ProjectListSidebarHeader

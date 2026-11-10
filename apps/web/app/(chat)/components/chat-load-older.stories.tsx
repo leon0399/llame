@@ -18,6 +18,7 @@ function transcript(canvasElement: HTMLElement) {
   const scroller = canvas.getByRole("log").firstElementChild as HTMLElement;
   // SAFETY: the scroller holds the content it scrolls as its only child.
   const content = scroller.firstElementChild as HTMLElement;
+
   return { scroller, content, code: canvas.getByText(CODE_TEXT) };
 }
 
@@ -48,6 +49,7 @@ function growCodeAndMeasure(
   scroller: HTMLElement,
 ) {
   const heightBefore = content.getBoundingClientRect().height;
+
   return new Promise<{ scrollTop: number; distance: number }>((resolve) => {
     const observer = new ResizeObserver(() => {
       if (content.getBoundingClientRect().height <= heightBefore) return;
@@ -57,6 +59,7 @@ function growCodeAndMeasure(
         distance: distanceFromBottom(scroller),
       });
     });
+
     observer.observe(content);
     code.style.height = "700px";
   });
@@ -70,15 +73,19 @@ function select(
   focusOffset: number,
 ) {
   const selection = document.getSelection();
+
   if (!selection) throw new Error("the page has no selection");
   selection.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+
   return selection;
 }
 
 /** The text node `element` renders its text in. */
 function textOf(element: HTMLElement) {
   const text = element.firstChild;
+
   if (!(text instanceof Text)) throw new Error("expected a text node");
+
   return text;
 }
 
@@ -125,6 +132,7 @@ const meta = {
 } satisfies Meta<typeof ChatLoadOlder>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

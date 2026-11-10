@@ -63,6 +63,7 @@ function failure(
     message: `HTTP ${httpStatus}`,
     httpStatus,
   };
+
   return rateLimit === undefined ? result : { ...result, rateLimit };
 }
 
@@ -72,14 +73,17 @@ async function readGist(
   options: { readonly token?: string; readonly url?: string } = {},
 ) {
   const run = scriptedIo(new Map([[options.url ?? GIST_URL, replies]]));
+
   const outcome = await createGithubAdapter(config(options.token), {
     apiOrigin: API_ORIGIN,
   }).read(new URL(source), run.io);
+
   return { outcome, requests: run.requests };
 }
 
 function contentOf(outcome: WebAdapterOutcome): string {
   if (outcome.kind !== 'rendered') throw new Error('expected a render');
+
   return outcome.content;
 }
 
@@ -151,6 +155,7 @@ describe('GitHub gist adapter', () => {
     const bare = await readGist(`https://gist.github.com/${ID}`, [
       response(gist([file('a.txt', 'x')])),
     ]);
+
     const numeric = await readGist(
       'https://gist.github.com/2059',
       [response(gist([file('a.txt', 'x')], { id: '2059' }))],
@@ -203,9 +208,11 @@ describe('GitHub gist adapter', () => {
         }),
       ),
     ]);
+
     const spaced = await readGist(SOURCE, [
       response(gist([file('a.txt', 'x')], { description: '  \n ' })),
     ]);
+
     const multiline = await readGist(SOURCE, [
       response(gist([file('a.txt', 'x')], { description: 'one\n\n  two ' })),
     ]);
@@ -276,6 +283,7 @@ describe('GitHub gist adapter', () => {
       type: 'call_timeout',
       message: 'The web read exceeded its 30-second budget.',
     };
+
     await expect(readGist(SOURCE, [timeout])).resolves.toMatchObject({
       outcome: { kind: 'failed', failure: 'transport', fatal: timeout },
     });

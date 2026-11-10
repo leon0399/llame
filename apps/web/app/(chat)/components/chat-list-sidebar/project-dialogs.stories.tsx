@@ -46,26 +46,32 @@ function routeFetch() {
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
+
       if (key === "POST /api/v1/projects") {
         return new Promise<Response>((resolve) => {
           releaseCreate = () =>
             resolve(jsonResponse({ id: "p1", name: "New Co" }));
         });
       }
+
       if (key === "PATCH /api/v1/projects/p1") {
         return Promise.resolve(jsonResponse({ id: "p1", name: "Renamed" }));
       }
+
       if (key === "DELETE /api/v1/projects/p1") {
         return new Promise<Response>((resolve) => {
           releaseDelete = () => resolve(emptyResponse());
         });
       }
+
       if (key === "PATCH /api/v1/chats/c1") {
         return Promise.resolve(emptyResponse());
       }
+
       unrouted.push(key);
       throw new Error(`unrouted fetch in story: ${key}`);
     });
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -77,6 +83,7 @@ async function openedDialog(role: "dialog" | "alertdialog", name: string) {
   // The dialog portals into document.body, outside the story canvas.
   const dialog = await screen.findByRole(role, { name });
   await waitFor(() => expect(dialog).toBeVisible());
+
   return within(dialog);
 }
 
@@ -89,6 +96,7 @@ async function sentRequest(index = 0) {
 function sentRoutes() {
   return fetchMock.mock.calls.map(([input]) => {
     const request = input instanceof Request ? input : new Request(input);
+
     return `${request.method} ${new URL(request.url).pathname}`;
   });
 }
@@ -112,9 +120,13 @@ const meta = {
 } satisfies Meta<typeof NewProjectDialog>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
+
 type ForChatStory = StoryObj<typeof CreateProjectForChatDialog>;
+
 type EditStory = StoryObj<typeof EditProjectDialog>;
+
 type DeleteStory = StoryObj<typeof DeleteProjectDialog>;
 
 /**
@@ -189,6 +201,7 @@ export const CreateBlank: Story = {
  */
 function NewProjectFromSidebar() {
   const [open, setOpen] = useState(false);
+
   return (
     <>
       <Button onClick={() => setOpen(true)}>New project</Button>
@@ -233,6 +246,7 @@ function FileIntoNewProject({
   onClose,
 }: ComponentProps<typeof CreateProjectForChatDialog>) {
   const [chatId, setChatId] = useState<string | null>(null);
+
   return (
     <>
       <Button onClick={() => setChatId("c1")}>File into new project</Button>
@@ -478,6 +492,7 @@ function EditFromSidebar({
 }: ComponentProps<typeof EditProjectDialog>) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(initial.name);
+
   return (
     <>
       <Button onClick={() => setOpen(true)}>Edit details</Button>

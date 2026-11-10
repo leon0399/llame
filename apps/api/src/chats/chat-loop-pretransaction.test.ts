@@ -33,22 +33,29 @@ function makeService(models?: {
   resolveEffortSelection?: ModelSelectionValidator['resolveEffortSelection'];
 }) {
   const runAs = vi.fn();
+
   const validateModelSelection =
     models?.validateModelSelection ?? vi.fn(() => model);
+
   const dispatchRun = vi.fn();
   const tenantDb: TenantRunner = { runAs };
+
   const resolveEffortSelection =
     models?.resolveEffortSelection ?? vi.fn(() => undefined);
+
   const modelsService: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection,
   };
+
   const instanceConfig: InstanceConfigReader = {
     config: BUILT_IN_DEFAULTS,
   };
+
   const bridge: RunStreamResponder = {
     createUiMessageStreamResponse: vi.fn(),
   };
+
   const dispatch: RunDispatcher = {
     dispatch: dispatchRun,
     jobState: () => Promise.resolve('absent'),
@@ -84,6 +91,7 @@ describe('ChatLoopService pre-transaction guards', () => {
     const validateModelSelection = vi.fn(() => {
       throw new ModelNotAvailableError(input.modelId);
     });
+
     const { service, runAs, dispatchRun } = makeService({
       validateModelSelection,
     });
@@ -147,6 +155,7 @@ describe('ChatLoopService pre-transaction guards', () => {
   // being considered.
   it('reports an unavailable model without evaluating the effort', async () => {
     const resolveEffortSelection = vi.fn(() => undefined);
+
     const { service } = makeService({
       validateModelSelection: vi.fn(() => {
         throw new ModelNotAvailableError(input.modelId);

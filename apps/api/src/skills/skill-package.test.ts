@@ -22,6 +22,7 @@ describe('parseSkillPackage', () => {
       name: 'pdf',
       description: 'Extract text.',
     });
+
     // Unknown extension fields are inert and preserved, never interpreted.
     if (result.status !== 'parsed') throw new Error('expected parsed');
     expect(result.frontmatter['allowed-tools']).toBe('Bash(git:*)');
@@ -115,6 +116,7 @@ describe('parseSkillPackage', () => {
     const result = parseSkillPackage(text, 'pdf');
 
     expect(result.status).toBe('invalid');
+
     if (result.status !== 'invalid') throw new Error('expected invalid');
     expect(result.diagnostic).toContain(expected);
   });

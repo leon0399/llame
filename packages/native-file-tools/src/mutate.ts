@@ -20,6 +20,7 @@ import { measureEditRendering } from "./model-text";
 import type { FileFailure, LineRange } from "./read";
 
 type EditInput = { path: string; oldText: string; newText: string };
+
 type WriteInput = { path: string; content: string };
 
 /**
@@ -36,6 +37,7 @@ export type NativeMutateOptions = {
   readonly displayPath?: string | undefined;
   readonly reserveCodeUnits?: number | undefined;
 };
+
 /** Display-only data for the owner UI: the exact replaced and replacement
  *  text, with the post-edit line the region starts at. The model never sees
  *  it, so it does not count against the bound. */
@@ -105,10 +107,12 @@ function mutate<Result extends MutationSuccess>(
     () => {},
     () => {},
   );
+
   return pending.catch((error: unknown): FileFailure => {
     if (error instanceof NativeFileError)
       return { status: "error", type: error.type, message: error.message };
     const code = isNodeError(error) ? error.code : undefined;
+
     // `ELOOP` is `O_NOFOLLOW` refusing a symbolic link at a resolved target,
     // which reads report as `not_found`; `ENOTDIR` is a path component that
     // exists but is not a directory.
@@ -120,6 +124,7 @@ function mutate<Result extends MutationSuccess>(
           : code === "ENOTDIR"
             ? "not_regular_file"
             : "executor_unavailable";
+
     return {
       status: "error",
       type,
@@ -139,8 +144,10 @@ function validateContent(
   signal?: AbortSignal,
 ): void {
   signal?.throwIfAborted();
+
   if (parsePathScheme(path) || !isAbsolute(path) || path.includes("\0"))
     throw new NativeFileError("invalid_path");
+
   if (Buffer.from(content).toString("utf8") !== content)
     throw new NativeFileError("invalid_utf8");
 }
@@ -151,12 +158,15 @@ async function publishFile(
 ): Promise<void> {
   const temporary = join(dirname(input.path), `.llame-${randomUUID()}.tmp`);
   const file = await open(temporary, "wx", options.mode ?? 0o666);
+
   try {
     await file.writeFile(input.content, "utf8");
+
     if (options.mode !== undefined) await file.chmod(options.mode);
     await file.sync();
     await file.close();
     options.signal?.throwIfAborted();
+
     if (options.create) await link(temporary, input.path);
     else await rename(temporary, input.path);
   } finally {
@@ -216,11 +226,14 @@ function describeEdit(
   const lines = splitSourceLines(change.content);
   const lineCount = lines.length;
   const startLine = Math.max(1, change.line - EDIT_CONTEXT_LINES);
+
   const endLine = Math.min(
     lineCount,
     change.line + Math.max(change.replacementLines - 1, 0) + EDIT_CONTEXT_LINES,
   );
+
   const shownRange = lineCount === 0 ? null : { startLine, endLine };
+
   return boundMutationResult(
     {
       status: "success",
@@ -252,6 +265,7 @@ function boundMutationResult(
   reserveCodeUnits: number,
 ): EditSuccess {
   const cap = MAX_RESULT_CODE_UNITS - reserveCodeUnits;
+
   if (measureEditRendering(result) <= cap) return result;
   result.truncated = true;
   result.cut = true;
@@ -260,13 +274,17 @@ function boundMutationResult(
   // prefix that fits is the longest one the binary search accepts.
   let low = 0;
   let high = lines.length;
+
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
     const content = lines.slice(0, middle).join("");
+
     if (measureEditRendering({ ...result, content }) <= cap) low = middle;
     else high = middle - 1;
   }
+
   const content = lines.slice(0, low).join("");
+
   // Only a header wider than the whole cap leaves nothing to keep.
   if (measureEditRendering({ ...result, content }) > cap)
     throw new NativeFileError("invalid_path");
@@ -276,15 +294,19 @@ function boundMutationResult(
     startLine === undefined || low === 0
       ? null
       : { startLine, endLine: startLine + low - 1 };
+
   return result;
 }
 
 function replacement(source: string, input: EditInput): EditChange {
   if (input.oldText.length === 0) throw new NativeFileError("invalid_input");
   const position = source.indexOf(input.oldText);
+
   if (position < 0) throw new NativeFileError("old_text_not_found");
+
   if (source.indexOf(input.oldText, position + 1) >= 0)
     throw new NativeFileError("old_text_ambiguous");
+
   return {
     content:
       source.slice(0, position) +
@@ -303,17 +325,21 @@ export function editFile(
   return mutate<EditSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, input.newText, signal);
+
     // An absolute path is the host's own; a resolved target was authorized as
     // one exact entry, so resolving it through a link would edit another.
     const path =
       displayPath === undefined ? await realpath(input.path) : input.path;
+
     const source = await loadText(path, displayPath === undefined);
     const change = replacement(source, input);
     validateContent(path, change.content, signal);
+
     const result = describeEdit(input, change, {
       displayPath,
       reserveCodeUnits: options.reserveCodeUnits,
     });
+
     if (input.oldText !== input.newText) {
       const stats = await lstat(path);
       await publishFile(
@@ -321,6 +347,7 @@ export function editFile(
         { create: false, mode: stats.mode & 0o777, signal },
       );
     }
+
     return result;
   });
 }
@@ -336,11 +363,13 @@ export function createFile(
     await requireAbsent(input.path);
     validateContent(input.path, input.content, signal);
     const result = describeWrite(input, "create", { displayPath });
+
     // A resolved target's directories were created by its scheme owner, one
     // component at a time under its own symlink refusal; a recursive create
     // here would resolve through a link the owner just refused.
     if (displayPath === undefined) await createParentDirectories(input.path);
     await publishFile(input, { create: true, signal });
+
     return result;
   });
 }
@@ -363,9 +392,12 @@ async function resolveReplaceTarget(
 ): Promise<{ path: string; mode: number }> {
   const resolved = followSymlinks ? await realpath(path) : path;
   const stats = await lstat(resolved);
+
   if (stats.isSymbolicLink() && !followSymlinks)
     throw new NativeFileError("not_found");
+
   if (!stats.isFile()) throw new NativeFileError("not_regular_file");
+
   return { path: resolved, mode: stats.mode & 0o777 };
 }
 
@@ -377,16 +409,19 @@ export function replaceFile(
   return mutate<WriteSuccess>(async () => {
     const displayPath = options.displayPath;
     validateContent(input.path, "", signal);
+
     const target = await resolveReplaceTarget(
       input.path,
       displayPath === undefined,
     );
+
     validateContent(input.path, input.content, signal);
     const result = describeWrite(input, "replace", { displayPath });
     await publishFile(
       { path: target.path, content: input.content },
       { create: false, mode: target.mode, signal },
     );
+
     return result;
   }, REPLACE_TARGET_MISSING_MESSAGE);
 }
@@ -415,5 +450,6 @@ async function requireAbsent(path: string): Promise<void> {
     if (isNodeError(error) && error.code === "ENOENT") return;
     throw error;
   }
+
   throw new NativeFileError("file_exists", FILE_EXISTS_MESSAGE);
 }

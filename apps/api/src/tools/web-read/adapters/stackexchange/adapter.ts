@@ -28,6 +28,7 @@ const ANSWER_PAGE_SIZE = '100';
  *  its `site` parameter. */
 const SITE_HOST =
   /^(?:(?:(?:meta|[a-z]{2})\.)?stackoverflow\.com|superuser\.com|serverfault\.com|askubuntu\.com|mathoverflow\.net|stackapps\.com|(?:[a-z0-9]+\.){1,2}stackexchange\.com)$/u;
+
 /** A question with an optional slug and answer id (the answer permalink),
  *  or a `/q/` or `/a/` share link. */
 const POST_PATH =
@@ -45,6 +46,7 @@ const OWNER = z
   .object({ display_name: z.string().optional() })
   .optional()
   .transform((owner) => decodeText(owner?.display_name ?? 'deleted user'));
+
 const QUESTION_PAGE = z.object({
   items: z.array(
     z.object({
@@ -63,7 +65,9 @@ const QUESTION_PAGE = z.object({
     }),
   ),
 });
+
 type Question = z.infer<typeof QUESTION_PAGE>['items'][number];
+
 const ANSWER = z.object({
   answer_id: z.number().int(),
   body: z.string(),
@@ -72,11 +76,14 @@ const ANSWER = z.object({
   owner: OWNER,
   creation_date: z.number().int(),
 });
+
 type Answer = z.infer<typeof ANSWER>;
+
 const ANSWER_PAGE = z.object({
   items: z.array(ANSWER),
   has_more: z.boolean().optional(),
 });
+
 const ANSWER_LOOKUP = z.object({
   items: z.array(z.object({ question_id: z.number().int() })),
 });
@@ -88,9 +95,12 @@ export function parseStackexchangeUrl(
   if (source.protocol !== 'https:') return undefined;
   const site = source.host.replace(/^www\./u, '');
   const match = POST_PATH.exec(source.pathname);
+
   if (!SITE_HOST.test(site) || match === null) return undefined;
   const [, question, short, answer] = match;
+
   if (answer !== undefined) return { site, answer };
+
   return short === undefined
     ? { site, question }
     : { site, question: short, short: true };
@@ -102,6 +112,7 @@ export function createStackexchangeAdapter(
   options: { readonly apiOrigin?: string } = {},
 ): WebAdapter {
   const api = options.apiOrigin ?? STACKEXCHANGE_API_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
@@ -124,17 +135,22 @@ async function readThread(
 ): Promise<WebAdapterOutcome> {
   const query: Query = (path, extra = '') =>
     io.fetch(`${api}/2.3/${path}?site=${target.site}${extra}`, JSON_INIT);
+
   const resolved =
     target.question === undefined
       ? await questionOf(target, query)
       : { id: target.question };
+
   if ('outcome' in resolved) return resolved.outcome;
 
   const fetched = await query(`questions/${resolved.id}`, '&filter=withbody');
+
   if ('type' in fetched) return primaryFailure(fetched);
   const page = parseJsonBody(fetched.body, QUESTION_PAGE);
+
   if (page === undefined) return { kind: 'failed', failure: 'parse' };
   const question = page.items[0];
+
   if (question === undefined) {
     // A `/q/` id that is not a question may be an answer.
     return target.short === true
@@ -144,7 +160,9 @@ async function readThread(
 
   const notes: Array<string> = [];
   const answers = await loadAnswers(query, resolved.id, notes);
+
   if ('fatal' in answers) return primaryFailure(answers.fatal);
+
   return {
     kind: 'rendered',
     content: renderThread(question, answers.items),
@@ -159,11 +177,14 @@ async function questionOf(
   query: Query,
 ): Promise<{ readonly id: string } | { readonly outcome: WebAdapterOutcome }> {
   const lookup = await query(`answers/${target.answer}`);
+
   if ('type' in lookup) return { outcome: primaryFailure(lookup) };
   const page = parseJsonBody(lookup.body, ANSWER_LOOKUP);
+
   if (page === undefined)
     return { outcome: { kind: 'failed', failure: 'parse' } };
   const owner = page.items[0];
+
   return owner === undefined
     ? { outcome: { kind: 'failed', failure: 'empty' } }
     : { id: String(owner.question_id) };
@@ -185,13 +206,18 @@ async function loadAnswers(
     ),
     notes,
   );
+
   if ('fatal' in answers) return answers;
+
   if (answers.body === undefined) return {};
   const page = parseJsonBody(answers.body, ANSWER_PAGE);
+
   if (page === undefined) notes.push('answers omitted: parse');
+
   if (page?.has_more === true) {
     notes.push(`answers truncated: the first ${ANSWER_PAGE_SIZE} by score`);
   }
+
   return page === undefined ? {} : { items: page.items };
 }
 
@@ -203,6 +229,7 @@ function renderThread(
     question.view_count === undefined
       ? ''
       : ` · Views: ${formatCount(question.view_count)}`;
+
   const lines = [
     `# ${question.title}`,
     '',
@@ -210,10 +237,13 @@ function renderThread(
     `Tags: ${question.tags.join(', ')}`,
     `Asked: ${isoDate(question.creation_date)} by ${question.owner}`,
   ];
+
   if (question.closed_reason) lines.push(`Closed: ${question.closed_reason}`);
+
   if (question.content_license) {
     lines.push(`License: ${question.content_license}`);
   }
+
   lines.push(
     `URL: ${question.link}`,
     '',
@@ -226,11 +256,13 @@ function renderThread(
   const ordered = [...(answers ?? [])].sort(
     (left, right) => Number(right.is_accepted) - Number(left.is_accepted),
   );
+
   ordered.forEach((answer, index) => {
     lines.push(
       ...answerLines(answer, `${index + 1}/${ordered.length}`, question.link),
     );
   });
+
   return lines.join('\n');
 }
 
@@ -240,6 +272,7 @@ function answerLines(
   questionLink: string,
 ): Array<string> {
   const accepted = answer.is_accepted ? 'accepted · ' : '';
+
   return [
     '',
     '---',
@@ -256,6 +289,7 @@ function answerLines(
 /** Post bodies link within the site root-relatively (`/u/16940`). */
 function bodyMarkdown(html: string, link: string): string {
   const origin = new URL(link).origin;
+
   return convertToMarkdown(
     html.replaceAll(/\b(href|src)="\/(?!\/)/gu, `$1="${origin}/`),
   ).trim();

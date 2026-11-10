@@ -19,10 +19,12 @@ import { withoutRetainedMedia } from '../retained-media-egress';
  * The delivery modes a send may name.
  */
 export const SENDABLE_DELIVERY_MODES = ['queue', 'steer', 'interrupt'] as const;
+
 export type SendableDeliveryMode = (typeof SENDABLE_DELIVERY_MODES)[number];
 
 /** The modes a `PATCH` may set: a change to `queue` is never allowed. */
 export const CHANGEABLE_DELIVERY_MODES = ['steer', 'interrupt'] as const;
+
 export type ChangeableDeliveryMode = (typeof CHANGEABLE_DELIVERY_MODES)[number];
 
 export class ChangeChatDeliveryDto {

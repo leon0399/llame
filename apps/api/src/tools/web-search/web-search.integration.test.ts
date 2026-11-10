@@ -85,6 +85,7 @@ import type { KnowledgeToolCandidateResolverPort } from '../../knowledge/knowled
 import { BRAVE_SEARCH_URL } from './brave';
 import { YANDEX_SEARCH_URL } from './yandex';
 import { HOSTED_SEARCH_INSTRUCTIONS } from './model-hosted';
+
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 const SENTINEL_KEY = 'brave-canary';
@@ -96,6 +97,7 @@ const FIXTURE_QUERY = 'fixture query';
 const USER_TURN = 'search the fixture';
 const FIXTURE_RESULT_URL = 'https://Example.test/results/page#fragment';
 const FIXTURE_DESCRIPTION = `<b>${'x'.repeat(400)}</b>`;
+
 const FIXTURE_SUCCESS_BODY = JSON.stringify({
   web: {
     results: [
@@ -108,6 +110,7 @@ const FIXTURE_SUCCESS_BODY = JSON.stringify({
     ],
   },
 });
+
 const FIXTURE_MANY_BODY = JSON.stringify({
   web: {
     results: Array.from({ length: 15 }, (_unused, index) => ({
@@ -118,6 +121,7 @@ const FIXTURE_MANY_BODY = JSON.stringify({
     })),
   },
 });
+
 const USAGE = {
   inputTokens: {
     total: 1,
@@ -127,20 +131,24 @@ const USAGE = {
   },
   outputTokens: { total: 1, text: 1, reasoning: undefined },
 } satisfies LanguageModelV3Usage;
+
 const TOOL_FINISH = {
   unified: 'tool-calls',
   raw: undefined,
 } satisfies LanguageModelV3FinishReason;
+
 const STOP_FINISH = {
   unified: 'stop',
   raw: undefined,
 } satisfies LanguageModelV3FinishReason;
+
 type TokenCounts = {
   input: number;
   cached: number;
   output: number;
   reasoning: number;
 };
+
 function providerUsage(counts: TokenCounts): LanguageModelV3Usage {
   return {
     inputTokens: {
@@ -156,12 +164,14 @@ function providerUsage(counts: TokenCounts): LanguageModelV3Usage {
     },
   };
 }
+
 /** The price the scripted Run model carries, so its turn has an estimated cost. */
 const TEST_PRICE: TokenPrice = {
   inputUsdPer1M: 2,
   cachedInputUsdPer1M: 0.5,
   outputUsdPer1M: 8,
 };
+
 function textResponse(
   text: string,
   usage: LanguageModelV3Usage = USAGE,
@@ -173,8 +183,10 @@ function textResponse(
     { type: 'text-end', id: 'answer' },
     { type: 'finish', finishReason: STOP_FINISH, usage },
   ];
+
   return { stream: simulateReadableStream({ chunks }) };
 }
+
 function toolResponse(
   id: string,
   name: string,
@@ -191,9 +203,12 @@ function toolResponse(
     },
     { type: 'finish', finishReason: TOOL_FINISH, usage },
   ];
+
   return { stream: simulateReadableStream({ chunks }) };
 }
+
 type StreamOptions = Parameters<typeof streamText>[0];
+
 function createClient(
   model: MockLanguageModelV3,
   calls?: Array<ModelStreamInput>,
@@ -205,6 +220,7 @@ function createClient(
     pricing: TEST_PRICE,
     streamText(input) {
       calls?.push(input);
+
       const options: StreamOptions & { model: LanguageModelV3 } = {
         model,
         system: input.system,
@@ -225,6 +241,7 @@ function createClient(
             stepCount: event.steps.length,
           }),
       };
+
       if (input.tools !== undefined) {
         const maxSteps = input.maxSteps ?? undefined;
         options.tools = input.tools;
@@ -232,11 +249,14 @@ function createClient(
           maxSteps === undefined ? () => false : stepCountIs(maxSteps + 1);
         options.prepareStep = async ({ steps, stepNumber, messages }) => {
           const override = await input.onStepStart?.({ messages, stepNumber });
+
           const capped =
             maxSteps !== undefined &&
             steps.filter((step) => step.toolCalls.length > 0).length >=
               maxSteps;
+
           if (capped) input.onCapReached?.();
+
           return capped
             ? override === undefined
               ? { activeTools: [] }
@@ -245,8 +265,10 @@ function createClient(
               ? {}
               : { messages: override };
         };
+
         options.experimental_repairToolCall = ({ toolCall, error }) => {
           let sdkInput: unknown;
+
           try {
             // SAFETY: JSON.parse returns any; asserting unknown forces the
             // caller to narrow before use rather than silently inheriting any.
@@ -254,6 +276,7 @@ function createClient(
           } catch {
             sdkInput = toolCall.input;
           }
+
           input.onUnavailableToolCall?.({
             toolCallId: toolCall.toolCallId,
             toolName: toolCall.toolName,
@@ -267,22 +290,28 @@ function createClient(
               input: typeof sdkInput === 'object' ? sdkInput : {},
             },
           });
+
           return Promise.resolve(null);
         };
       }
+
       applyRequestUsageCallback(options, input);
+
       return streamText(options);
     },
   };
 }
+
 function modelFor(
   script: (turn: number) => LanguageModelV3StreamResult,
 ): MockLanguageModelV3 {
   let turn = 0;
+
   return new MockLanguageModelV3({
     doStream: () => Promise.resolve(script(++turn)),
   });
 }
+
 type FixtureMode =
   | 'success'
   | 'many'
@@ -290,14 +319,19 @@ type FixtureMode =
   | 'auth'
   | 'redirect'
   | 'yandex-denied';
+
 type Deferred = { promise: Promise<void>; resolve: () => void };
+
 function deferred(): Deferred {
   let resolve = () => {};
+
   const promise = new Promise<void>((done) => {
     resolve = () => done();
   });
+
   return { promise, resolve };
 }
+
 function send(
   response: ServerResponse,
   status: number,
@@ -307,6 +341,7 @@ function send(
   response.writeHead(status, headers);
   response.end(body);
 }
+
 function sendFixtureResponse(
   mode: Exclude<FixtureMode, 'hold'>,
   target: string | undefined,
@@ -341,38 +376,46 @@ function sendFixtureResponse(
       'content-type': 'application/json',
     });
 }
+
 async function closeServer(server: Server): Promise<void> {
   server.closeAllConnections();
   await new Promise<void>((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
 }
+
 async function startFixture() {
   let mode: FixtureMode = 'success';
   let target: string | undefined;
   const requests: Array<string> = [];
   let started = deferred();
   let aborted = deferred();
+
   const server = createServer((request, response) => {
     requests.push(request.url ?? '');
     started.resolve();
     request.on('error', () => undefined);
     response.on('error', () => undefined);
+
     if (mode === 'hold') {
       request.on('aborted', aborted.resolve);
       response.on('close', () => {
         if (!response.writableEnded) aborted.resolve();
       });
       response.writeHead(200, { 'content-type': 'application/json' });
+
       return;
     }
+
     sendFixtureResponse(mode, target, response);
   });
+
   server.on('clientError', (_error, socket) => socket.destroy());
   const listening = once(server, 'listening');
   server.listen(0, '127.0.0.1');
   await listening;
   const address = z.object({ port: z.number() }).parse(server.address());
+
   return {
     origin: `http://127.0.0.1:${address.port}`,
     requests,
@@ -388,6 +431,7 @@ async function startFixture() {
     close: () => closeServer(server),
   };
 }
+
 function stubFetch(fixture: { origin: string }): () => void {
   const realFetch = globalThis.fetch;
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
@@ -396,21 +440,26 @@ function stubFetch(fixture: { origin: string }): () => void {
       : input instanceof URL
         ? input
         : new URL(input.url);
+
     if (requested.origin !== BRAVE_ORIGIN && requested.origin !== YANDEX_ORIGIN)
       throw new Error(`Unexpected outbound URL: ${requested.href}`);
+
     return realFetch(
       new URL(`${requested.pathname}${requested.search}`, fixture.origin),
       init,
     );
   });
+
   return () => vi.unstubAllGlobals();
 }
+
 const SEARCH_CONFIG: WebSearchConfig = {
   engines: [
     { id: 'brave', type: 'brave', key: SENTINEL_KEY, timeoutSeconds: 60 },
   ],
   chain: ['brave'],
 };
+
 /**
  * The `yandex` engine of a config whose key and folder id arrive as `{env:...}`
  * tokens, resolved by the real loader: the loop then carries values an operator
@@ -420,6 +469,7 @@ function yandexSearchConfig(): WebSearchConfig {
   const directory = mkdtempSync(
     path.join(tmpdir(), 'llame-yandex-integration-'),
   );
+
   const configPath = path.join(directory, 'llame.config.jsonc');
   writeFileSync(
     configPath,
@@ -438,15 +488,19 @@ function yandexSearchConfig(): WebSearchConfig {
       },
     }),
   );
+
   const webSearch = loadInstanceConfig({
     LLAME_CONFIG_PATH: configPath,
     YANDEX_API_KEY: YANDEX_SENTINEL_KEY,
     YANDEX_FOLDER_ID: YANDEX_SENTINEL_FOLDER_ID,
   }).webSearch;
+
   if (webSearch === undefined)
     throw new Error('the Yandex fixture resolved no webSearch section');
+
   return webSearch;
 }
+
 const knowledgeResolver: KnowledgeToolResolver = {
   listForOwnerPage: () => Promise.resolve({ spaces: [] }),
   resolveBindingForOwnerById: () => Promise.resolve(undefined),
@@ -456,6 +510,7 @@ const knowledgeResolver: KnowledgeToolResolver = {
     isInsideSpace: () => Promise.resolve(true),
   }),
 };
+
 const testModelEntry: SystemModelCatalogEntry = {
   id: 'mock',
   source: 'system',
@@ -467,6 +522,7 @@ const testModelEntry: SystemModelCatalogEntry = {
   systemPromptSource: 'project_default',
   referencesSkills: false,
 };
+
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
   resolve: () =>
     Promise.resolve(
@@ -477,10 +533,12 @@ const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
       })),
     ),
 };
+
 const ALLOW_SEARCH = compileToolPermissionMap(
   { web_search: { allow: true } },
   'web-search-test-policy',
 );
+
 const REJECT_QUERY = compileToolPermissionMap(
   {
     web_search: {
@@ -490,6 +548,7 @@ const REJECT_QUERY = compileToolPermissionMap(
   },
   'web-search-test-policy',
 );
+
 const ALLOW_SEARCH_AND_READ = compileToolPermissionMap(
   {
     web_search: { allow: true },
@@ -497,6 +556,7 @@ const ALLOW_SEARCH_AND_READ = compileToolPermissionMap(
   },
   'web-search-test-policy',
 );
+
 /**
  * Allows `read` of any path, so an `artifact://` locator is admitted and the
  * Run can store what it does not show inline (tool-result-artifacts D9).
@@ -508,6 +568,7 @@ const ALLOW_SEARCH_AND_ARTIFACT = compileToolPermissionMap(
   },
   'web-search-test-policy',
 );
+
 /** The fixture's only result host, as a `read` group the results cannot pass. */
 const REJECTING_RESULT_READ = compileToolPermissionMap(
   {
@@ -519,12 +580,15 @@ const REJECTING_RESULT_READ = compileToolPermissionMap(
   },
   'web-search-test-policy',
 );
+
 const HOSTED_QUERY = 'latest fixture release';
 const HOSTED_ANSWER = 'Fixture 2.0 shipped on 2026-10-01.';
 const HOSTED_CITATION_TITLE = 'Fixture 2.0 release notes';
+
 // The provider cites a mixed-case, fragmented URL; the tool part stores its canonical form.
 const HOSTED_CITATION_URL = 'https://Example.test/releases/2.0#notes';
 const HOSTED_CITATION_HREF = 'https://example.test/releases/2.0';
+
 // The Run's two requests, as the run-usage-accounting two-request scenarios report them.
 const RUN_TOOL_REQUEST_USAGE = providerUsage({
   input: 1000,
@@ -532,12 +596,14 @@ const RUN_TOOL_REQUEST_USAGE = providerUsage({
   output: 200,
   reasoning: 150,
 });
+
 const RUN_ANSWER_REQUEST_USAGE = providerUsage({
   input: 1400,
   cached: 1000,
   output: 100,
   reasoning: 60,
 });
+
 // Far above the Run's own, so any of it reaching the message is unmistakable.
 const HOSTED_REQUEST_USAGE = providerUsage({
   input: 50_000,
@@ -545,12 +611,14 @@ const HOSTED_REQUEST_USAGE = providerUsage({
   output: 9000,
   reasoning: 0,
 });
+
 const HOSTED_MODEL: SystemModelCatalogEntry = {
   ...testModelEntry,
   id: 'hosted-search-model',
   provider: 'hosted-provider',
   providerModelId: 'gpt-hosted-search',
 };
+
 /** Two models on two providers: the Run's, and the one hosting the search. */
 const HOSTED_INSTANCE: Pick<LlameConfig, 'defaults' | 'providers' | 'models'> =
   {
@@ -573,6 +641,7 @@ const HOSTED_INSTANCE: Pick<LlameConfig, 'defaults' | 'providers' | 'models'> =
     ],
     models: [testModelEntry, HOSTED_MODEL],
   };
+
 const HOSTED_SEARCH_CONFIG: WebSearchConfig = {
   engines: [
     {
@@ -585,6 +654,7 @@ const HOSTED_SEARCH_CONFIG: WebSearchConfig = {
   ],
   chain: ['hosted'],
 };
+
 /** What the hosted model's side of one scenario recorded. */
 type HostedSide = {
   /** The Responses-wire client configs the model factory built, in order. */
@@ -592,6 +662,7 @@ type HostedSide = {
   /** Every request that reached the hosted model's client, in order. */
   readonly requests: Array<ModelStreamInput>;
 };
+
 const hostedProviderScript: HostedStreamScript = () =>
   Promise.resolve(
     answerStream(
@@ -601,16 +672,19 @@ const hostedProviderScript: HostedStreamScript = () =>
       HOSTED_REQUEST_USAGE,
     ),
   );
+
 /** The production client factory with only the Responses wire's constructor scripted. */
 function hostedModelFactory(hosted: HostedSide): typeof createModelClient {
   return (input) =>
     createModelClient(input, {
       createOpenAIModelClient: (config) => {
         hosted.built.push(config);
+
         return scriptedModelClient(hostedProviderScript, hosted.requests);
       },
     });
 }
+
 type ServiceOptions = {
   allowed: ReadonlyArray<string>;
   permissionPolicy: CompiledPolicy;
@@ -620,6 +694,7 @@ type ServiceOptions = {
   /** Replaces the Brave-only `SEARCH_CONFIG` for one scenario. */
   webSearch?: WebSearchConfig;
 };
+
 function service(options: ServiceOptions): RunExecutionService {
   const config: InstanceConfigReader = {
     config: {
@@ -638,6 +713,7 @@ function service(options: ServiceOptions): RunExecutionService {
       },
     },
   };
+
   // The hosted scenario runs the real `ModelsService`, so the engine builds the
   // referenced model's client as a Run's worker would.
   const models: ModelSelectionValidator =
@@ -650,9 +726,11 @@ function service(options: ServiceOptions): RunExecutionService {
           { config: config.config, productUserAgent: 'llame/web-search-test' },
           hostedModelFactory(options.hosted),
         );
+
   const compaction: CompactionCapability = {
     summarizeCheckpoint: () => Promise.resolve(null),
   };
+
   return new RunExecutionService(
     tenantDb,
     compaction,
@@ -677,26 +755,31 @@ function service(options: ServiceOptions): RunExecutionService {
     undefined,
   );
 }
+
 let sql!: Sql;
 let tenantDb!: TenantDbService;
 let userId!: string;
 let fixture!: Awaited<ReturnType<typeof startFixture>>;
 let restoreFetch!: () => void;
 const activeChats = new Set<string>();
+
 async function seedRun(label: string, effort?: string) {
   const chatId = crypto.randomUUID();
+
   const seeded = await tenantDb.runAs(userId, async (tx) => {
     await new ChatsRepository(tx).createIfAbsent({
       id: chatId,
       ownerUserId: userId,
       title: `Web search ${label}`,
     });
+
     const userMessage = await new MessagesRepository(tx).create({
       chatId,
       role: 'user',
       senderUserId: userId,
       parts: [{ type: 'text', text: USER_TURN }],
     });
+
     const run = await new RunsRepository(tx).create({
       chatId,
       messageId: userMessage.id,
@@ -704,12 +787,17 @@ async function seedRun(label: string, effort?: string) {
       modelId: `test:web-search-${label}-${crypto.randomUUID()}`,
       effort,
     });
+
     return { userMessage, run };
   });
+
   activeChats.add(chatId);
+
   return { chatId, ...seeded };
 }
+
 type ExecuteOptions = { signal?: AbortSignal; calls?: Array<ModelStreamInput> };
+
 async function execute(
   seeded: Awaited<ReturnType<typeof seedRun>>,
   runner: RunExecutionService,
@@ -727,10 +815,12 @@ async function execute(
     },
     client: createClient(model, options?.calls),
   };
+
   if (options?.signal !== undefined) request.abortSignal = options.signal;
   const result = await runner.executeRun(request);
   await result.consumeStream?.();
 }
+
 async function waitStatus(
   runId: string,
   status: 'completed' | 'cancelled' | 'expired' | 'failed',
@@ -740,64 +830,85 @@ async function waitStatus(
       const run = await tenantDb.runAs(userId, (tx) =>
         new RunsRepository(tx).findById(runId, userId),
       );
+
       return run?.status === status ? true : undefined;
     },
     5000,
     `${status} run`,
   );
 }
+
 async function eventsFor(runId: string): Promise<Array<RunEvent>> {
   return tenantDb.runAs(userId, (tx) =>
     new RunEventsRepository(tx).listByRunId(runId, userId),
   );
 }
+
 const recordSchema = z.record(z.string(), z.unknown());
+
 type Part = UnknownRecord;
+
 const partsSchema = z.array(recordSchema);
+
 async function assistantMessage(chatId: string) {
   const messages = await tenantDb.runAs(userId, (tx) =>
     new MessagesRepository(tx).findByChatId(chatId, userId),
   );
+
   const assistant = messages.find((message) => message.role === 'assistant');
+
   if (assistant === undefined)
     throw new Error('Assistant message was not persisted.');
+
   return assistant;
 }
+
 async function assistantParts(chatId: string): Promise<Array<Part>> {
   return partsSchema.parse((await assistantMessage(chatId)).parts);
 }
+
 function partOf(parts: ReadonlyArray<Part>, type: string): Part | undefined {
   return parts.find((part) => part['type'] === type);
 }
+
 function callEvents(
   events: ReadonlyArray<RunEvent>,
   id: string,
 ): Array<RunEvent> {
   return events.filter((event) => {
     const parsed = recordSchema.safeParse(event.payload);
+
     return parsed.success && parsed.data['toolCallId'] === id;
   });
 }
+
 function lastEvent(events: ReadonlyArray<RunEvent>): RunEvent {
   const event = events.at(-1);
+
   if (event === undefined) throw new Error('Expected a tool event.');
+
   return event;
 }
+
 function payload(event: RunEvent): UnknownRecord {
   return recordSchema.parse(event.payload);
 }
+
 const errorSchema = z.object({
   status: z.literal('error'),
   type: z.string(),
   message: z.string().optional(),
 });
+
 const resultSchema = z.object({
   kind: z.literal('results'),
   engine: z.string(),
   query: z.string(),
   results: z.array(z.object({ url: z.string(), snippet: z.string() })),
 });
+
 type LogCapture = { text: () => string; restore: () => void };
+
 function captureLogs(): LogCapture {
   const spies = [
     vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined),
@@ -805,15 +916,18 @@ function captureLogs(): LogCapture {
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined),
     vi.spyOn(Logger.prototype, 'debug').mockImplementation(() => undefined),
   ];
+
   return {
     text: () => JSON.stringify(spies.map((spy) => spy.mock.calls)),
     restore: () => spies.forEach((spy) => spy.mockRestore()),
   };
 }
+
 const ALLOW_READ = compileToolPermissionMap(
   { read: { allow: true } },
   'web-search-test-policy',
 );
+
 const FAILURE_CASES: ReadonlyArray<{
   label: string;
   mode: Exclude<FixtureMode, 'success' | 'hold'>;
@@ -828,6 +942,7 @@ const FAILURE_CASES: ReadonlyArray<{
     secret: false,
   },
 ];
+
 describeIfDb('web search through the real tool loop', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
@@ -848,6 +963,7 @@ describeIfDb('web search through the real tool loop', () => {
   afterAll(async () => {
     restoreFetch?.();
     await fixture?.close();
+
     if (sql) {
       await sql`DELETE FROM users WHERE id = ${userId}`;
       await sql.end();
@@ -856,6 +972,7 @@ describeIfDb('web search through the real tool loop', () => {
   it('allowlisted search returns normalized results and persists the bounded part', async () => {
     fixture.configure('success');
     const seeded = await seedRun('success');
+
     const model = modelFor((turn) =>
       turn === 1
         ? toolResponse('search-call', 'web_search', {
@@ -864,6 +981,7 @@ describeIfDb('web search through the real tool loop', () => {
           })
         : textResponse('Search completed.'),
     );
+
     await execute(
       seeded,
       service({ allowed: ['web_search'], permissionPolicy: ALLOW_SEARCH }),
@@ -892,6 +1010,7 @@ describeIfDb('web search through the real tool loop', () => {
   it('stores results past the inline limit in an artifact a read serves', async () => {
     fixture.configure('many');
     const seeded = await seedRun('artifact');
+
     const model = modelFor((turn) =>
       turn === 1
         ? toolResponse('search-artifact', 'web_search', {
@@ -900,6 +1019,7 @@ describeIfDb('web search through the real tool loop', () => {
           })
         : textResponse('Search completed.'),
     );
+
     await execute(
       seeded,
       service({
@@ -923,10 +1043,12 @@ describeIfDb('web search through the real tool loop', () => {
     expect(output.results).toHaveLength(10);
     const record = recordSchema.parse(part?.['output']);
     expect(record['artifact']).toBe('artifact://web_search-1');
+
     const rendered = renderToolResultText('web_search', {
       ...record,
       status: 'success',
     });
+
     expect(rendered.match(/^## \d+\./gmu)).toHaveLength(10);
     expect(rendered.split('\n').at(-1)).toMatch(
       /^\[full result: artifact:\/\/web_search-1 \(\d+ lines\); continue with artifact:\/\/web_search-1:\d+-\]$/u,
@@ -936,6 +1058,7 @@ describeIfDb('web search through the real tool loop', () => {
     // withholds the result it names.
     if (!isString(record['artifact']))
       throw new Error('Expected the artifact locator.');
+
     const readContext: ToolContext = {
       configuredCredentials: [],
       userId,
@@ -950,7 +1073,9 @@ describeIfDb('web search through the real tool loop', () => {
         'web-search-artifact-read',
       ),
     };
+
     const read = await readArtifact(readContext, 'read', record['artifact']);
+
     if (read.status !== 'success' || !isString(read['content']))
       throw new Error('Expected a read success.');
     const content = read['content'];
@@ -963,6 +1088,7 @@ describeIfDb('web search through the real tool loop', () => {
   it('rejects a query permission before the Brave fixture receives a request', async () => {
     fixture.configure('success');
     const seeded = await seedRun('permission-rejected');
+
     const model = modelFor((turn) =>
       turn === 1
         ? toolResponse('rejected-call', 'web_search', {
@@ -970,6 +1096,7 @@ describeIfDb('web search through the real tool loop', () => {
           })
         : textResponse('Permission rejection was non-fatal.'),
     );
+
     await execute(
       seeded,
       service({ allowed: ['web_search'], permissionPolicy: REJECT_QUERY }),
@@ -991,6 +1118,7 @@ describeIfDb('web search through the real tool loop', () => {
     fixture.configure('hold');
     const seeded = await seedRun('cancelled');
     const controller = new AbortController();
+
     const running = execute(
       seeded,
       service({ allowed: ['web_search'], permissionPolicy: ALLOW_SEARCH }),
@@ -999,6 +1127,7 @@ describeIfDb('web search through the real tool loop', () => {
       ),
       { signal: controller.signal },
     );
+
     await fixture.started();
     await tenantDb.runAs(userId, (tx) =>
       new RunsRepository(tx).requestCancel(seeded.run.id, userId),
@@ -1023,11 +1152,13 @@ describeIfDb('web search through the real tool loop', () => {
   it('aborts an in-flight request at the call deadline and records timeout', async () => {
     fixture.configure('hold');
     const seeded = await seedRun('deadline');
+
     const model = modelFor((turn) =>
       turn === 1
         ? toolResponse('deadline-call', 'web_search', { query: FIXTURE_QUERY })
         : textResponse('The deadline was recorded.'),
     );
+
     await execute(
       seeded,
       service({
@@ -1057,8 +1188,10 @@ describeIfDb('web search through the real tool loop', () => {
         mode === 'redirect' ? `${fixture.origin}/sink` : undefined,
       );
       const logs = secret ? captureLogs() : undefined;
+
       try {
         const seeded = await seedRun(label);
+
         const model = modelFor((turn) =>
           turn === 1
             ? toolResponse(`${label}-call`, 'web_search', {
@@ -1066,6 +1199,7 @@ describeIfDb('web search through the real tool loop', () => {
               })
             : textResponse('The failure was handled.'),
         );
+
         await execute(
           seeded,
           service({ allowed: ['web_search'], permissionPolicy: ALLOW_SEARCH }),
@@ -1074,14 +1208,17 @@ describeIfDb('web search through the real tool loop', () => {
         await waitStatus(seeded.run.id, 'completed');
         expect(fixture.requests).toHaveLength(1);
         const events = await eventsFor(seeded.run.id);
+
         const error = errorSchema.parse(
           payload(lastEvent(callEvents(events, `${label}-call`))).output,
         );
+
         expect(error).toMatchObject({
           status: 'error',
           type: 'web_search_failed',
         });
         expect(error.message).toContain(expected);
+
         if (secret) {
           expect(
             JSON.stringify(await assistantParts(seeded.chatId)),
@@ -1097,13 +1234,16 @@ describeIfDb('web search through the real tool loop', () => {
   it('never discloses an interpolated Yandex key or folder id', async () => {
     fixture.configure('yandex-denied');
     const logs = captureLogs();
+
     try {
       const seeded = await seedRun('yandex-denied');
+
       const model = modelFor((turn) =>
         turn === 1
           ? toolResponse('yandex-call', 'web_search', { query: FIXTURE_QUERY })
           : textResponse('The failure was handled.'),
       );
+
       await execute(
         seeded,
         service({
@@ -1116,9 +1256,11 @@ describeIfDb('web search through the real tool loop', () => {
       await waitStatus(seeded.run.id, 'completed');
       expect(fixture.requests).toStrictEqual(['/v2/web/search']);
       const events = await eventsFor(seeded.run.id);
+
       const error = errorSchema.parse(
         payload(lastEvent(callEvents(events, 'yandex-call'))).output,
       );
+
       expect(error).toMatchObject({
         status: 'error',
         type: 'web_search_failed',
@@ -1126,6 +1268,7 @@ describeIfDb('web search through the real tool loop', () => {
       expect(error.message).toContain('auth');
       const parts = JSON.stringify(await assistantParts(seeded.chatId));
       const serialized = JSON.stringify(events);
+
       for (const secret of [YANDEX_SENTINEL_KEY, YANDEX_SENTINEL_FOLDER_ID]) {
         expect(parts).not.toContain(secret);
         expect(serialized).not.toContain(secret);
@@ -1139,6 +1282,7 @@ describeIfDb('web search through the real tool loop', () => {
     fixture.configure('success');
     const seeded = await seedRun('unlisted');
     const calls: Array<ModelStreamInput> = [];
+
     const model = modelFor((turn) =>
       turn === 1
         ? toolResponse('unlisted-web-search', 'web_search', {
@@ -1146,6 +1290,7 @@ describeIfDb('web search through the real tool loop', () => {
           })
         : textResponse('I continued.'),
     );
+
     await execute(
       seeded,
       service({ allowed: ['read'], permissionPolicy: ALLOW_READ }),
@@ -1168,17 +1313,21 @@ describeIfDb('web search through the real tool loop', () => {
   it('allows web_search independently while read rejects the returned URL before any request', async () => {
     fixture.configure('success');
     const seeded = await seedRun('read-policy');
+
     const model = modelFor((turn) => {
       if (turn === 1)
         return toolResponse('search-for-read-policy', 'web_search', {
           query: FIXTURE_QUERY,
         });
+
       if (turn === 2)
         return toolResponse('read-returned-url', 'read', {
           path: 'https://example.test/results/page',
         });
+
       return textResponse('The read was blocked.');
     });
+
     await execute(
       seeded,
       service({
@@ -1189,10 +1338,12 @@ describeIfDb('web search through the real tool loop', () => {
     );
     await waitStatus(seeded.run.id, 'completed');
     expect(fixture.requests).toHaveLength(1);
+
     const readEvents = callEvents(
       await eventsFor(seeded.run.id),
       'read-returned-url',
     );
+
     expect(readEvents.map((event) => event.eventType)).toEqual([
       'tool.requested',
       'tool.completed',
@@ -1212,6 +1363,7 @@ describeIfDb('web search through the real tool loop', () => {
     fixture.configure('success');
     const seeded = await seedRun('removed-result');
     const logs = captureLogs();
+
     try {
       const model = modelFor((turn) =>
         turn === 1
@@ -1220,6 +1372,7 @@ describeIfDb('web search through the real tool loop', () => {
             })
           : textResponse('The removal was non-fatal.'),
       );
+
       await execute(
         seeded,
         service({
@@ -1230,10 +1383,12 @@ describeIfDb('web search through the real tool loop', () => {
       );
       await waitStatus(seeded.run.id, 'completed');
       expect(fixture.requests).toHaveLength(1);
+
       const part = partOf(
         await assistantParts(seeded.chatId),
         'tool-web_search',
       );
+
       expect(part).toMatchObject({
         toolCallId: 'removed-result-call',
         state: 'output-available',
@@ -1259,6 +1414,7 @@ describeIfDb('web search through the real tool loop', () => {
     const seeded = await seedRun('hosted', 'high');
     const calls: Array<ModelStreamInput> = [];
     const hosted: HostedSide = { built: [], requests: [] };
+
     const model = modelFor((turn) =>
       turn === 1
         ? toolResponse(
@@ -1269,6 +1425,7 @@ describeIfDb('web search through the real tool loop', () => {
           )
         : textResponse('Fixture 2.0 is the latest.', RUN_ANSWER_REQUEST_USAGE),
     );
+
     await execute(
       seeded,
       service({
@@ -1355,11 +1512,13 @@ describeIfDb('web search through the real tool loop', () => {
     fixture.configure('success');
     const seeded = await seedRun('catalog');
     const calls: Array<ModelStreamInput> = [];
+
     const model = modelFor((turn) =>
       turn === 1
         ? toolResponse('catalog-call', 'web_search', { query: FIXTURE_QUERY })
         : textResponse('Search completed.'),
     );
+
     await execute(
       seeded,
       service({ allowed: ['web_search'], permissionPolicy: ALLOW_SEARCH }),

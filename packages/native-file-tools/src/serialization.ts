@@ -14,5 +14,6 @@ import {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- native output is already a JSON-shaped tool result at this boundary; JSON.stringify performs the shared serialization, including its toJSON and undefined handling.
 export function serializeNativeModelOutput(value: unknown): string {
   const visible = neutralizeReservedDelimitersDeep(modelVisibleResult(value));
+
   return JSON.stringify(visible ?? null) ?? "null";
 }

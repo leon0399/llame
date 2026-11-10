@@ -28,13 +28,17 @@ export function priceOf(
   info: LumaTicketInfo | null | undefined,
 ): string | undefined {
   if (info === null || info === undefined) return undefined;
+
   if (info.is_free === true) return 'Free';
   const cents = info.price?.cents;
+
   if (cents === null || cents === undefined) return undefined;
   const formatted = formatMoney(cents, info.price?.currency);
   const max = info.max_price?.cents;
+
   if (max === null || max === undefined || max === cents) return formatted;
   const maxCurrency = info.max_price?.currency ?? info.price?.currency;
+
   return `${formatted}–${formatMoney(max, maxCurrency)}`;
 }
 
@@ -44,10 +48,13 @@ export function ticketLines(
 ): Array<string> {
   if (types === null || types === undefined) return [];
   const lines: Array<string> = [];
+
   for (const type of types) {
     const line = ticketLine(type, zone);
+
     if (line !== undefined) lines.push(`- ${line}`);
   }
+
   return lines;
 }
 
@@ -56,11 +63,14 @@ export function formatEventTime(
   timeZone: string | null | undefined,
 ): string | undefined {
   const instant = textOrUndefined(iso);
+
   if (instant === undefined || Number.isNaN(Date.parse(instant)))
     return undefined;
   const zone = textOrUndefined(timeZone);
+
   if (zone === undefined) return instant;
   const local = localStamp(new Date(instant), zone);
+
   return local ?? `${instant} (${zone})`;
 }
 
@@ -68,6 +78,7 @@ export function countOf(value: number | null | undefined): string | undefined {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return undefined;
   }
+
   return String(value);
 }
 
@@ -76,6 +87,7 @@ export function textOrUndefined(
 ): string | undefined {
   if (value === null || value === undefined) return undefined;
   const text = oneLine(value);
+
   return text === '' ? undefined : text;
 }
 
@@ -87,6 +99,7 @@ function ticketLine(
   const name = textOrUndefined(type.name) ?? 'Ticket';
   const window = ticketWindow(type, zone);
   const price = ticketPrice(type);
+
   return window === undefined
     ? `${name} — ${price}`
     : `${name} — ${price}, ${window}`;
@@ -96,6 +109,7 @@ function ticketPrice(type: LumaTicketType): string {
   if (type.type === 'free' || type.cents === null || type.cents === undefined) {
     return 'Free';
   }
+
   if (
     type.is_flexible === true &&
     type.min_cents !== null &&
@@ -103,6 +117,7 @@ function ticketPrice(type: LumaTicketType): string {
   ) {
     return `from ${formatMoney(type.min_cents, type.currency)}`;
   }
+
   return formatMoney(type.cents, type.currency);
 }
 
@@ -112,9 +127,13 @@ function ticketWindow(
 ): string | undefined {
   const start = formatEventTime(type.valid_start_at, zone);
   const end = formatEventTime(type.valid_end_at, zone);
+
   if (start !== undefined && end !== undefined) return `${start} – ${end}`;
+
   if (end !== undefined) return `until ${end}`;
+
   if (start !== undefined) return `from ${start}`;
+
   return undefined;
 }
 
@@ -123,13 +142,16 @@ function formatMoney(
   currency: string | null | undefined,
 ): string {
   const amount = cents / 100;
+
   const code =
     currency === null || currency === undefined
       ? ''
       : currency.trim().toUpperCase();
+
   if (!/^[A-Z]{3}$/u.test(code)) {
     return code === '' ? amount.toFixed(2) : `${amount.toFixed(2)} ${code}`;
   }
+
   try {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -152,6 +174,7 @@ function localStamp(date: Date, timeZone: string): string | undefined {
       hourCycle: 'h23',
       timeZoneName: 'longOffset',
     }).formatToParts(date);
+
     return stampFromParts(parts, timeZone);
   } catch {
     return undefined;
@@ -168,6 +191,7 @@ function stampFromParts(
   const hour = partValue(parts, 'hour');
   const minute = partValue(parts, 'minute');
   const zoneName = partValue(parts, 'timeZoneName');
+
   if (
     year === undefined ||
     month === undefined ||
@@ -178,6 +202,7 @@ function stampFromParts(
   ) {
     return undefined;
   }
+
   return `${year}-${month}-${day} ${hour}:${minute} ${offsetLabel(zoneName)} (${timeZone})`;
 }
 
@@ -188,11 +213,13 @@ function partValue(
   for (const part of parts) {
     if (part.type === type) return part.value;
   }
+
   return undefined;
 }
 
 function offsetLabel(name: string): string {
   if (name === 'GMT' || name === 'UTC') return 'UTC+00:00';
+
   return name.startsWith('GMT') ? `UTC${name.slice(3)}` : name;
 }
 

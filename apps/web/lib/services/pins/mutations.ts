@@ -71,6 +71,7 @@ type PinVariables =
 
 function toOptimisticPinnedItem(vars: PinVariables): PinnedItem {
   const pinnedAt = new Date().toISOString();
+
   switch (vars.itemType) {
     case "chat":
       return {
@@ -91,13 +92,16 @@ function toOptimisticPinnedItem(vars: PinVariables): PinnedItem {
 
 export function usePinItem() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (vars: PinVariables) => pinItem(vars.itemType, vars.itemId),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });
+
       const previous = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
+
       const optimisticPin = toOptimisticPinnedItem(vars);
       queryClient.setQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
@@ -106,9 +110,11 @@ export function usePinItem() {
             (pin) =>
               !(pin.itemType === vars.itemType && pin.itemId === vars.itemId),
           );
+
           return [optimisticPin, ...withoutExisting];
         },
       );
+
       return { previous };
     },
     onError: (_error, vars, context) => {
@@ -153,19 +159,23 @@ type UnpinVariables = { itemType: PinItemType; itemId: string };
 
 export function useUnpinItem() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (vars: UnpinVariables) => unpinItem(vars.itemType, vars.itemId),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });
+
       const previous = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
+
       queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), (old) =>
         (old ?? []).filter(
           (pin) =>
             !(pin.itemType === vars.itemType && pin.itemId === vars.itemId),
         ),
       );
+
       return { previous };
     },
     onError: (_error, vars, context) => {
@@ -217,16 +227,20 @@ export const pinMutationKeys = {
  */
 export function useReorderPins() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationKey: pinMutationKeys.reorder(),
     scope: { id: "pins-reorder" },
     mutationFn: (items: Array<PinnedItem>) => reorderPins(items),
     onMutate: async (items) => {
       await queryClient.cancelQueries({ queryKey: pinQueryKeys.list() });
+
       const previous = queryClient.getQueryData<Array<PinnedItem>>(
         pinQueryKeys.list(),
       );
+
       queryClient.setQueryData<Array<PinnedItem>>(pinQueryKeys.list(), items);
+
       return { previous };
     },
     onError: (_error, _items, context) => {

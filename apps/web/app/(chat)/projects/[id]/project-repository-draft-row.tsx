@@ -52,14 +52,17 @@ function checkoutPath(path: string) {
 function usePathRepository() {
   const register = useRegisterCheckout();
   const checkouts = useCheckoutsQuery();
+
   const resolve = async (path: string) => {
     const known = checkouts.data?.find(
       (checkout) => checkout.path === checkoutPath(path),
     );
+
     return (
       known?.repositoryId ?? (await register.mutateAsync({ path })).repositoryId
     );
   };
+
   return { resolve, pending: register.isPending };
 }
 
@@ -76,6 +79,7 @@ function useAddRepository(
   const link = useLinkProjectRepository();
   const pathRepository = usePathRepository();
   const [failure, setFailure] = useState<string | null>(null);
+
   const linkRepository = async (repositoryId: string) => {
     await link.mutateAsync({
       projectId,
@@ -83,8 +87,10 @@ function useAddRepository(
       isPrimary: linkedRepositoryIds.size === 0,
     });
   };
+
   const run = async (write: () => Promise<void>, fallback: string) => {
     setFailure(null);
+
     try {
       await write();
       onDone();
@@ -92,6 +98,7 @@ function useAddRepository(
       setFailure(repositoryFailureMessage(error, fallback));
     }
   };
+
   return {
     failure,
     pending: link.isPending || pathRepository.pending,
@@ -100,6 +107,7 @@ function useAddRepository(
     addPath: (path: string) =>
       run(async () => {
         const repositoryId = await pathRepository.resolve(path);
+
         if (!linkedRepositoryIds.has(repositoryId)) {
           await linkRepository(repositoryId);
         }
@@ -146,8 +154,10 @@ function useCatalogMatches(
   query: string,
 ) {
   const catalog = useRepositoriesQuery().data ?? [];
+
   if (looksLikePath(query)) return [];
   const needle = query.toLowerCase();
+
   return catalog.filter(
     (repository) =>
       !linkedRepositoryIds.has(repository.id) &&
@@ -225,14 +235,18 @@ function DraftOptions({
  *  field will do with what it holds. */
 function draftStatus(search: string, matches: number): string {
   if (search === "") return "Search your repositories, or paste a path";
+
   if (looksLikePath(search)) return "Enter adds this clone";
+
   if (matches === 0) return "No match. Paste a path to add a clone";
+
   return matches === 1 ? "1 match" : `${matches} matches`;
 }
 
 /** A refusal inside a draft's floating box, inset from its edges. */
 export function DraftFailure({ message }: { message: string | null }) {
   if (message === null) return null;
+
   return (
     <div className="p-2">
       <Refusal message={message} />
@@ -271,6 +285,7 @@ function useDraftFieldBehavior({
 }: Omit<DraftFieldProps, "onQueryChange" | "monospace" | "combobox">) {
   const field = useRef<HTMLInputElement>(null);
   useEffect(() => field.current?.focus(), []);
+
   return {
     ref: field,
     value: query,
@@ -281,6 +296,7 @@ function useDraftFieldBehavior({
         event.stopPropagation();
         onCancel();
       }
+
       if (event.key === "Enter") onEnter?.();
     },
     onBlur: () => {
@@ -299,6 +315,7 @@ export function DraftField({
   ...props
 }: DraftFieldProps) {
   const shared = useDraftFieldBehavior(props);
+
   if (combobox) {
     return (
       <CommandInput
@@ -308,6 +325,7 @@ export function DraftField({
       />
     );
   }
+
   return (
     <input
       {...shared}
@@ -366,7 +384,9 @@ function DraftPopout({
   add: ReturnType<typeof useAddRepository>;
 }) {
   const hasOptions = looksLikePath(search) || matches.length > 0;
+
   if (!hasOptions && add.failure === null) return null;
+
   return (
     <DraftFloat>
       {hasOptions ? (
@@ -393,9 +413,12 @@ function useActiveOption(
   matches: ReadonlyArray<RepositoryResponse>,
 ) {
   const [active, setActive] = useState("");
+
   if (looksLikePath(search)) return [`path:${search}`, setActive] as const;
   const values = matches.map(optionValue);
+
   if (values.includes(active)) return [active, setActive] as const;
+
   return [values[0] ?? "", setActive] as const;
 }
 

@@ -62,10 +62,13 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
   async function seedChat(): Promise<Chat> {
     const id = crypto.randomUUID();
     chatIds.push(id);
+
     const chat = await tenantDb.runAs(owner, (tx) =>
       new ChatsRepository(tx).createIfAbsent({ id, ownerUserId: owner }),
     );
+
     if (chat === undefined) throw new Error('The chat was not created');
+
     return chat;
   }
 
@@ -99,7 +102,9 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
         )
         .limit(1),
     );
+
     if (row === undefined) throw new Error('The chat was not found');
+
     return row;
   }
 
@@ -125,6 +130,7 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
           and(eq(schema.runs.chatId, chat.id), eq(schema.runs.userId, owner)),
         ),
     );
+
     expect(runs).toEqual([]);
   });
 
@@ -165,6 +171,7 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
 
   it('refuses a Chat that holds a Run and stores nothing', async () => {
     const chat = await seedChat();
+
     // A Run's message can be removed (the column is `ON DELETE set null`), so
     // a Chat can hold a Run and no message; the Run check must catch it.
     const message = await tenantDb.runAs(owner, (tx) =>
@@ -174,6 +181,7 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
         parts: [{ type: 'text', text: 'A reply whose Run outlives it.' }],
       }),
     );
+
     await tenantDb.runAs(owner, async (tx) => {
       await new RunsRepository(tx).create({
         chatId: chat.id,
@@ -210,14 +218,18 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
 
   it('recognizes the root of the Chat’s own creation lease', async () => {
     const chat = await seedChat();
+
     const seeded = await tenantDb.runAs(owner, async (tx) => {
       const repositories = new RepositoriesRepository(tx);
+
       const repository = await repositories.createRepository({
         ownerUserId: owner,
         displayName: 'llame',
         canonicalRemote: 'github.com/leon0399/llame',
       });
+
       if (repository === undefined) throw new Error('No repository row');
+
       const main: Checkout | undefined = await repositories.createCheckout({
         ownerUserId: owner,
         repositoryId: repository.id,
@@ -228,6 +240,7 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
         branch: 'main',
         origin: 'registered',
       });
+
       const worktree: Checkout | undefined = await repositories.createCheckout({
         ownerUserId: owner,
         repositoryId: repository.id,
@@ -238,6 +251,7 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
         branch: 'llame/one',
         origin: 'created',
       });
+
       if (worktree === undefined) throw new Error('No worktree row');
       await repositories.createLease({
         ownerUserId: owner,
@@ -246,6 +260,7 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
         baseRef: 'main',
         baseCommit: 'a'.repeat(40),
       });
+
       return worktree;
     });
 

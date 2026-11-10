@@ -10,14 +10,17 @@ import {
 
 export const compareCodePoints = (left: string, right: string): number => {
   const leftScalars = Array.from(left, (scalar) => scalar.codePointAt(0) ?? 0);
+
   const rightScalars = Array.from(
     right,
     (scalar) => scalar.codePointAt(0) ?? 0,
   );
+
   const sharedLength = Math.min(leftScalars.length, rightScalars.length);
 
   for (let index = 0; index < sharedLength; index += 1) {
     const difference = leftScalars[index] - rightScalars[index];
+
     if (difference !== 0) {
       return difference;
     }
@@ -44,6 +47,7 @@ export function canonicalize(value: unknown): CanonicalJsonValue {
   if (Array.isArray(value)) {
     return value.map(canonicalize);
   }
+
   // The array branch above already returned, so `isRecord`'s own
   // `!Array.isArray` conjunct is a no-op here, not a behavior change.
   if (isRecord(value)) {
@@ -53,6 +57,7 @@ export function canonicalize(value: unknown): CanonicalJsonValue {
         .map(([key, child]) => [key, canonicalize(child)]),
     );
   }
+
   // Numbers, booleans, null, and undefined are already JSON-shaped. Anything
   // else (symbol, function, bigint) is not a shape hashed/compared tool
   // declarations carry — fail closed instead of passing it through.
@@ -65,6 +70,7 @@ export function canonicalize(value: unknown): CanonicalJsonValue {
   ) {
     return value;
   }
+
   // eslint-disable-next-line anti-slop/no-runtime-typeof -- diagnostic interpolation naming the rejected value's runtime type in the thrown message, not narrowing it; no predicate form applies to a value already excluded from every accepted branch above.
   throw new TypeError(`Cannot canonicalize a value of type ${typeof value}.`);
 }

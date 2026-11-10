@@ -14,6 +14,7 @@ import {
 } from './identity-repository';
 
 const now = new Date('2026-09-01T00:00:00.000Z');
+
 const root: OrgUnit = {
   id: '11111111-1111-4111-8111-111111111111',
   parentId: null,
@@ -25,6 +26,7 @@ const root: OrgUnit = {
   createdAt: now,
   updatedAt: now,
 };
+
 const child: OrgUnit = {
   ...root,
   id: '22222222-2222-4222-8222-222222222222',
@@ -33,6 +35,7 @@ const child: OrgUnit = {
   name: 'Child',
   path: `${root.path}/22222222-2222-4222-8222-222222222222`,
 };
+
 const membership: Membership = {
   id: '33333333-3333-4333-8333-333333333333',
   userId: 'member-1',
@@ -40,6 +43,7 @@ const membership: Membership = {
   role: 'member',
   createdAt: now,
 };
+
 const externalIdentity: ExternalIdentity = {
   id: '44444444-4444-4444-8444-444444444444',
   userId: 'owner-1',
@@ -57,18 +61,23 @@ type QueryRows = ReadonlyArray<
   | { orgUnitId: string; role: Membership['role'] }
   | { id: string }
 >;
+
 type QueryCall = { method: string; args: Array<unknown> };
+
 type LoggedQuery = { sql: string; params: Array<unknown> };
 
 /** A Promise fluent query double; every repository chain ends by awaiting it. */
 function queryResult(value: QueryRows, calls: Array<QueryCall>) {
   const terminal = Promise.resolve(value);
+
   const chain =
     (method: string) =>
     (...args: Array<unknown>) => {
       calls.push({ method, args });
+
       return terminal;
     };
+
   return Object.assign(terminal, {
     from: chain('from'),
     where: chain('where'),
@@ -102,35 +111,42 @@ function makeDb(options: {
   const updateResults = [...(options.update ?? [])];
   const deleteResults = [...(options.delete ?? [])];
   const calls: Array<QueryCall> = [];
+
   const select = vi
     .spyOn(db, 'select')
     .mockImplementation(() =>
       asQuery(queryResult(selectResults.shift() ?? [], calls)),
     );
+
   const insert = vi
     .spyOn(db, 'insert')
     .mockImplementation(() =>
       asQuery(queryResult(insertResults.shift() ?? [], calls)),
     );
+
   const update = vi
     .spyOn(db, 'update')
     .mockImplementation(() =>
       asQuery(queryResult(updateResults.shift() ?? [], calls)),
     );
+
   const remove = vi
     .spyOn(db, 'delete')
     .mockImplementation(() =>
       asQuery(queryResult(deleteResults.shift() ?? [], calls)),
     );
+
   return { db, calls, select, insert, update, remove };
 }
 
 function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
+
   const db: Db = drizzle.mock({
     schema,
     logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
   });
+
   return { db, queries };
 }
 
@@ -162,19 +178,25 @@ describe('OrgUnitsRepository', () => {
     ).resolves.toBe(child);
     expect(rootDb.insert).toHaveBeenCalledOnce();
     expect(childDb.insert).toHaveBeenCalledOnce();
+
     const rootValues = rootDb.calls.find(({ method }) => method === 'values')
       ?.args[0];
+
     if (!isRecord(rootValues)) {
       throw new Error('expected root insert values');
     }
+
     expect(rootValues['id']).toEqual(expect.any(String));
     expect(rootValues['path']).toEqual(expect.any(String));
     expect(rootValues['path']).toBe(rootValues['id']);
+
     const childValues = childDb.calls.find(({ method }) => method === 'values')
       ?.args[0];
+
     if (!isRecord(childValues)) {
       throw new Error('expected child insert values');
     }
+
     expect(childValues).toMatchObject({ parentId: root.id });
     expect(childValues['id']).toEqual(expect.any(String));
     expect(childValues['path']).toEqual(expect.any(String));
@@ -187,6 +209,7 @@ describe('OrgUnitsRepository', () => {
     const { db, select } = makeDb({
       select: [[root], [root, child], [root, child]],
     });
+
     const repository = new OrgUnitsRepository(db);
 
     await expect(repository.findById(root.id)).resolves.toBe(root);
@@ -215,13 +238,16 @@ describe('OrgUnitsRepository', () => {
       select: [[child], [root], [root], [child], [root]],
       update: [[], [child]],
     });
+
     await expect(
       new OrgUnitsRepository(moveDb.db).move({ id: child.id }, root),
     ).resolves.toBe(child);
     expect(moveDb.update).toHaveBeenCalledTimes(2);
+
     const moveSets = moveDb.calls
       .filter(({ method }) => method === 'set')
       .map(({ args }) => args[0]);
+
     expect(moveSets[0]).toHaveProperty('path');
     expect(moveSets[1]).toMatchObject({ parentId: root.id });
 
@@ -229,6 +255,7 @@ describe('OrgUnitsRepository', () => {
       select: [[child], [root], [child]],
       update: [[], [root]],
     });
+
     await expect(
       new OrgUnitsRepository(rootDb.db).moveToRoot({ id: child.id }),
     ).resolves.toBe(root);
@@ -239,6 +266,7 @@ describe('OrgUnitsRepository', () => {
     const cycleDb = makeDb({
       select: [[root], [child], [root], [root], [child]],
     });
+
     await expect(
       new OrgUnitsRepository(cycleDb.db).move({ id: root.id }, child),
     ).rejects.toBeInstanceOf(MoveIntoOwnSubtreeError);
@@ -254,6 +282,7 @@ describe('OrgUnitsRepository', () => {
       update: [[child], [child]],
       delete: [[{ id: child.id }], []],
     });
+
     const repository = new OrgUnitsRepository(writeDb.db);
     await expect(repository.rename(child.id, 'Renamed')).resolves.toBe(child);
     await expect(
@@ -261,9 +290,11 @@ describe('OrgUnitsRepository', () => {
     ).resolves.toBe(child);
     await expect(repository.delete(child.id)).resolves.toBe(true);
     await expect(repository.delete(child.id)).resolves.toBe(false);
+
     const writeSets = writeDb.calls
       .filter(({ method }) => method === 'set')
       .map(({ args }) => args[0]);
+
     expect(writeSets[0]).toMatchObject({ name: 'Renamed' });
     expect(writeSets[1]).toMatchObject({ settings: { color: 'blue' } });
   });
@@ -275,6 +306,7 @@ describe('MembershipsRepository', () => {
       select: [[membership], [membership], [membership], [membership]],
       update: [[membership]],
     });
+
     const repository = new MembershipsRepository(db);
 
     await expect(
@@ -315,6 +347,7 @@ describe('MembershipsRepository', () => {
         [{ orgUnitId: root.id, role: 'owner' }],
       ],
     });
+
     const repository = new MembershipsRepository(db);
 
     await expect(repository.summarize('owner-1', [])).resolves.toEqual(
@@ -334,6 +367,7 @@ describe('MembershipsRepository', () => {
     const { db } = makeDb({
       delete: [[{ id: membership.id }], []],
     });
+
     const repository = new MembershipsRepository(db);
 
     await expect(repository.revoke(membership.userId, root.id)).resolves.toBe(
@@ -351,6 +385,7 @@ describe('ExternalIdentitiesRepository', () => {
       insert: [[externalIdentity]],
       select: [[externalIdentity]],
     });
+
     const repository = new ExternalIdentitiesRepository(db);
 
     await expect(
@@ -380,19 +415,24 @@ function lockedIdsInOrder(calls: Array<QueryCall>): Array<string> {
   calls.forEach((call, index) => {
     if (call.method !== 'for') return;
     const predicate = calls[index - 1]?.args[0];
+
     if (!is(predicate, SQL)) {
       throw new Error('expected a where predicate before the row lock');
     }
+
     ids.push(String(dialect.sqlToQuery(predicate).params[0]));
   });
+
   return ids;
 }
 
 function insertValues(calls: Array<QueryCall>): UnknownRecord {
   const values = calls.find(({ method }) => method === 'values')?.args[0];
+
   if (!isRecord(values)) {
     throw new Error('expected insert values');
   }
+
   return values;
 }
 
@@ -473,12 +513,14 @@ describe('OrgUnitsRepository tree-root locking', () => {
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       path: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     };
+
     const otherChild: OrgUnit = {
       ...child,
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       parentId: otherRoot.id,
       path: `${otherRoot.path}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`,
     };
+
     const { db, calls } = makeDb({
       select: [
         [otherChild],
@@ -524,6 +566,7 @@ describe('OrgUnitsRepository move guards', () => {
       ...child,
       id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
     };
+
     const { db } = makeDb({
       select: [[child], [twin], [root], [child], [twin]],
       update: [[], [child]],
@@ -538,10 +581,12 @@ describe('OrgUnitsRepository move guards', () => {
 describe('OrgUnitsRepository subtree rebase SQL', () => {
   it('rewrites the path prefix with substr past the old prefix, bounded to it', async () => {
     const queries: Array<LoggedQuery> = [];
+
     const db: Db = drizzle.mock({
       schema,
       logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
     });
+
     const selectResults: Array<QueryRows> = [
       [child],
       [root],
@@ -549,6 +594,7 @@ describe('OrgUnitsRepository subtree rebase SQL', () => {
       [child],
       [root],
     ];
+
     vi.spyOn(db, 'select').mockImplementation(() =>
       asQuery(queryResult(selectResults.shift() ?? [], [])),
     );

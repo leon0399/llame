@@ -75,11 +75,14 @@ export async function runOwnerBatches(
   let total = 0;
   let affectedOwners = 0;
   const failures: Array<OwnerWriteFailure> = [];
+
   for (let i = 0; i < ownerIds.length; i += CONCURRENCY) {
     const batch = ownerIds.slice(i, i + CONCURRENCY);
+
     const results = await Promise.allSettled(
       batch.map((ownerId) => runAsOwner(ownerId)),
     );
+
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
         if (result.value.count > 0) {
@@ -97,6 +100,7 @@ export async function runOwnerBatches(
       }
     });
   }
+
   return { total, affectedOwners, failures };
 }
 
@@ -115,6 +119,7 @@ export async function forEachOwner(
   const owners = await tenantDb.runAsPublic((tx) =>
     tx.select({ id: users.id }).from(users),
   );
+
   return runOwnerBatches(
     owners.map((owner) => owner.id),
     (ownerId) => tenantDb.runAs(ownerId, (tx) => writeForOwner(tx, ownerId)),

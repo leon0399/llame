@@ -10,7 +10,9 @@ import { isWorkspaceDetachReason } from './workspace-binding';
 import { WorkspaceBindingRepository } from './workspace-binding.repository';
 
 type QueryValue = string | number | null | SQL;
+
 type QueryRow = Readonly<Record<string, QueryValue>>;
+
 type QueryUpdate = Readonly<{
   workerId?: string;
   workspaceRoot?: string | null;
@@ -21,10 +23,12 @@ type QueryUpdate = Readonly<{
   workspaceToldFrom?: string | null;
   workspaceToldAvailable?: boolean | null;
 }>;
+
 type QueryProjection = Readonly<{
   id?: typeof schema.chats.id;
   workspaceGeneration?: typeof schema.chats.workspaceGeneration;
 }>;
+
 type QueryCall = {
   method: string;
   value?: QueryUpdate;
@@ -32,15 +36,19 @@ type QueryCall = {
   /// The projection a `select` asked for, when it is not one of the two above.
   selection?: Readonly<{ id?: unknown }>;
 };
+
 type QueryRows = ReadonlyArray<QueryRow>;
 
 function queryResult(value: QueryRows, calls: Array<QueryCall>) {
   const terminal = Promise.resolve(value);
   const chain = () => terminal;
+
   const set = (next: QueryUpdate) => {
     calls.push({ method: 'set', value: next });
+
     return terminal;
   };
+
   return Object.assign(terminal, {
     from: chain,
     innerJoin: chain,
@@ -51,6 +59,7 @@ function queryResult(value: QueryRows, calls: Array<QueryCall>) {
     orderBy: chain,
     returning: (projection: QueryProjection) => {
       calls.push({ method: 'returning', projection });
+
       return terminal;
     },
   });
@@ -75,16 +84,19 @@ function makeDb(options: {
       method: 'select',
       selection: isRecord(selection) ? selection : undefined,
     });
+
     return asQuery(queryResult(selects.shift() ?? [], calls));
   });
   vi.spyOn(db, 'update').mockImplementation(() =>
     asQuery(queryResult(updates.shift() ?? [], calls)),
   );
+
   return { db, calls };
 }
 
 const run = [{ id: 'run-1' }];
 const started = [{ sequence: 7 }];
+
 const current = {
   workspaceRoot: '/work/old',
   workspaceExecutorId: 'worker-a',
@@ -241,6 +253,7 @@ describe('WorkspaceBindingRepository', () => {
   it('records Machine availability only for a narration that passes one', async () => {
     const { db, calls } = makeDb({ update: [[], [], []] });
     const repository = new WorkspaceBindingRepository(db);
+
     const told = {
       chatId: 'chat-a',
       ownerUserId: 'owner-a',
@@ -292,9 +305,11 @@ describe('WorkspaceBindingRepository', () => {
       previousRoot: '/work/old',
       generation: 5,
     });
+
     const sets = machine.calls
       .filter(({ method, value }) => method === 'set' && value !== undefined)
       .map(({ value }) => value);
+
     expect(sets).toHaveLength(1);
     expect(sets[0]).toMatchObject({
       workspaceRoot: 'machine://build-1/home/operator/app',
@@ -306,6 +321,7 @@ describe('WorkspaceBindingRepository', () => {
       select: fenceSelect(),
       update: [[{ workspaceGeneration: 5 }]],
     });
+
     await expect(
       new WorkspaceBindingRepository(local.db).enter({
         chatId: 'chat-a',
@@ -316,9 +332,11 @@ describe('WorkspaceBindingRepository', () => {
         root: '/work/new',
       }),
     ).resolves.toMatchObject({ status: 'switched' });
+
     const localSets = local.calls
       .filter(({ method, value }) => method === 'set' && value !== undefined)
       .map(({ value }) => value);
+
     expect(localSets).toHaveLength(1);
     expect(localSets[0]).toMatchObject({
       workspaceExecutorId: 'worker-a',
@@ -378,6 +396,7 @@ describe('WorkspaceBindingRepository', () => {
       select: fenceSelect(),
       update: [[{ id: 'run-1' }], [{ workspaceGeneration: 5 }]],
     });
+
     await expect(
       new WorkspaceBindingRepository(switched.db).enter({
         chatId: 'chat-a',
@@ -392,9 +411,11 @@ describe('WorkspaceBindingRepository', () => {
       status: 'switched',
       previousRoot: '/work/old',
     });
+
     const sets = switched.calls
       .filter(({ method, value }) => method === 'set' && value !== undefined)
       .map(({ value }) => value);
+
     expect(sets[0]).toMatchObject({ workerId: 'worker-a' });
     expect(sets[1]).toMatchObject({
       workspaceRoot: '/work/new',
@@ -402,9 +423,11 @@ describe('WorkspaceBindingRepository', () => {
       workspaceDetachReason: null,
     });
     const bindGeneration = sets[1]?.workspaceGeneration;
+
     if (bindGeneration === undefined) {
       throw new Error('expected a bind generation SQL expression');
     }
+
     expect(new PgDialect().sqlToQuery(bindGeneration).sql).toBe(
       '"chats"."workspace_generation" + 1',
     );
@@ -413,6 +436,7 @@ describe('WorkspaceBindingRepository', () => {
       select: fenceSelect(),
       update: [[{ id: 'run-1' }], [{ workspaceGeneration: 5 }]],
     });
+
     await expect(
       new WorkspaceBindingRepository(executorChanged.db).enter({
         chatId: 'chat-a',
@@ -435,6 +459,7 @@ describe('WorkspaceBindingRepository', () => {
       workspaceExecutorId: null,
       workspaceGeneration: 0,
     };
+
     const { db } = makeDb({
       select: fenceSelect(unbound),
       update: [[{ id: 'run-1' }], [{ workspaceGeneration: 1 }]],
@@ -461,6 +486,7 @@ describe('WorkspaceBindingRepository', () => {
       select: fenceSelect(),
       update: [[{ id: 'run-1' }], [{ workspaceGeneration: 6 }]],
     });
+
     await expect(
       new WorkspaceBindingRepository(exiting.db).exit({
         chatId: 'chat-a',
@@ -473,9 +499,11 @@ describe('WorkspaceBindingRepository', () => {
       status: 'cleared',
       previousRoot: '/work/old',
     });
+
     const exitSets = exiting.calls
       .filter(({ method, value }) => method === 'set' && value !== undefined)
       .map(({ value }) => value);
+
     expect(exitSets[0]).toMatchObject({ workerId: 'worker-a' });
     expect(exitSets[1]).toMatchObject({
       workspaceRoot: null,
@@ -483,16 +511,20 @@ describe('WorkspaceBindingRepository', () => {
       workspaceDetachReason: null,
     });
     const exitGeneration = exitSets[1]?.workspaceGeneration;
+
     if (exitGeneration === undefined) {
       throw new Error('expected an exit generation SQL expression');
     }
+
     expect(new PgDialect().sqlToQuery(exitGeneration).sql).toBe(
       '"chats"."workspace_generation" + 1',
     );
+
     const stale = makeDb({
       select: fenceSelect(),
       update: [[{ id: 'run-1' }]],
     });
+
     await expect(
       new WorkspaceBindingRepository(stale.db).detach({
         chatId: 'chat-a',
@@ -503,15 +535,18 @@ describe('WorkspaceBindingRepository', () => {
         reason: 'root_missing',
       }),
     ).resolves.toBe('stale');
+
     const unbound = {
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceGeneration: 4,
     };
+
     const unboundDetach = makeDb({
       select: fenceSelect(unbound),
       update: [[{ id: 'chat-a' }]],
     });
+
     await expect(
       new WorkspaceBindingRepository(unboundDetach.db).detach({
         chatId: 'chat-a',
@@ -530,6 +565,7 @@ describe('WorkspaceBindingRepository', () => {
       select: fenceSelect(),
       update: [[]],
     });
+
     await expect(
       new WorkspaceBindingRepository(noRow.db).detach({
         chatId: 'chat-a',
@@ -561,18 +597,22 @@ describe('WorkspaceBindingRepository', () => {
         reason: 'permission_rejected',
       }),
     ).resolves.toBe('detached');
+
     const sets = calls
       .filter(({ method, value }) => method === 'set' && value !== undefined)
       .map(({ value }) => value);
+
     expect(sets[0]).toMatchObject({
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceDetachReason: 'permission_rejected',
     });
     const detachGeneration = sets[0]?.workspaceGeneration;
+
     if (detachGeneration === undefined) {
       throw new Error('expected a detach generation SQL expression');
     }
+
     expect(new PgDialect().sqlToQuery(detachGeneration).sql).toBe(
       '"chats"."workspace_generation" + 1',
     );
@@ -595,6 +635,7 @@ describe('Workspace detach reason validation', () => {
     ]) {
       expect(isWorkspaceDetachReason(reason)).toBe(true);
     }
+
     expect(isWorkspaceDetachReason('unknown')).toBe(false);
   });
 });

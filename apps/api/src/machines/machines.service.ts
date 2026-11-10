@@ -25,6 +25,7 @@ export class MachinesService {
     const rows = await this.status.listForUser(userId, names);
     const byName = new Map(rows.map((row) => [row.name, row]));
     const now = Date.now();
+
     return names.map((name) => machineStatusView(name, byName.get(name), now));
   }
 }

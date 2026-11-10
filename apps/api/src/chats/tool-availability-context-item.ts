@@ -83,6 +83,7 @@ export interface ToolAvailabilityPayload extends UnknownRecord {
 function isSortedToolIdArray(value: unknown): value is Array<string> {
   if (!Array.isArray(value)) return false;
   let previous: string | undefined;
+
   for (const id of value) {
     if (
       !isString(id) ||
@@ -91,8 +92,10 @@ function isSortedToolIdArray(value: unknown): value is Array<string> {
     ) {
       return false;
     }
+
     previous = id;
   }
+
   return true;
 }
 
@@ -102,6 +105,7 @@ function isReasonEntries<TReason extends string>(
 ): value is Array<{ id: string; reason: TReason }> {
   if (!Array.isArray(value)) return false;
   let previous: string | undefined;
+
   for (const entry of value) {
     if (
       !isExactRecord(entry, ['id', 'reason']) ||
@@ -113,8 +117,10 @@ function isReasonEntries<TReason extends string>(
     ) {
       return false;
     }
+
     previous = entry['id'];
   }
+
   return true;
 }
 
@@ -133,6 +139,7 @@ export function isToolAvailabilityPayload(
   ) {
     return false;
   }
+
   if (
     (value['kind'] !== 'initial' && value['kind'] !== 'delta') ||
     !isSortedToolIdArray(value['added']) ||
@@ -143,6 +150,7 @@ export function isToolAvailabilityPayload(
   ) {
     return false;
   }
+
   // Rebuilt from the individually-narrowed fields above (not `value` itself,
   // whose own type flow analysis does not carry across the compound `||`
   // condition) so no assertion is needed here.
@@ -179,6 +187,7 @@ function satisfiesToolAvailabilityInvariants(
     ...value.becameUnavailable.map(({ id }) => id),
     ...value.nowAvailable.map(({ id }) => id),
   ];
+
   return allIds.length > 0 && new Set(allIds).size === allIds.length;
 }
 
@@ -189,6 +198,7 @@ export function createToolAvailabilityItem(input: {
   if (!isToolAvailabilityPayload(input.payload)) {
     throw new TypeError('Invalid server-authored tool availability metadata');
   }
+
   return createRenderedContextItem({
     producer: 'tool-availability',
     form: 'notice',
@@ -213,9 +223,11 @@ export function deriveToolAvailabilityPayload(input: {
   readonly previous?: ToolAvailabilityManifest;
 }): ToolAvailabilityPayload | null {
   const current = parseToolAvailabilityManifest(input.current);
+
   if (current.version !== 1) {
     throw new TypeError('Current tool availability must be observed');
   }
+
   const previous =
     input.previous === undefined
       ? undefined
@@ -235,7 +247,9 @@ function deriveInitialToolAvailabilityPayload(
       ? [{ id: entry.id, reason: entry.reason }]
       : [],
   );
+
   if (unavailable.length === 0) return null;
+
   return {
     kind: 'initial',
     added: [],
@@ -289,9 +303,11 @@ export function deriveToolAvailabilityPayloadFromStates(input: {
   readonly previous: ReadonlyArray<ToolAvailabilityState>;
 }): ToolAvailabilityPayload | null {
   const current = parseToolAvailabilityManifest(input.current);
+
   if (current.version !== 1) {
     throw new TypeError('Current tool availability must be observed');
   }
+
   return deriveToolAvailabilityDeltaFromMaps(
     statesById(input.previous),
     entriesById(current),
@@ -323,6 +339,7 @@ function applyToolTransition(
   } else if (prior?.state === 'unavailable' && next?.state === 'available') {
     const priorReason =
       prior !== undefined && 'reason' in prior ? prior.reason : undefined;
+
     buckets.nowAvailable.push({
       id,
       reason:
@@ -348,12 +365,14 @@ function deriveToolAvailabilityDeltaFromMaps(
     becameUnavailable: [],
     nowAvailable: [],
   };
+
   for (const id of ids) {
     applyToolTransition(id, previous.get(id), current.get(id), buckets);
   }
 
   const { added, removed, unavailable, becameUnavailable, nowAvailable } =
     buckets;
+
   if (
     added.length === 0 &&
     removed.length === 0 &&

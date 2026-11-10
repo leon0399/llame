@@ -42,6 +42,7 @@ describe('resolvePromptUserInput', () => {
       personalization: profile({ preferredName: 'Leo' }),
       account,
     });
+
     expect(withheld).not.toHaveProperty('name');
     expect(withheld).not.toHaveProperty('email');
 

@@ -155,9 +155,11 @@ function fakeTx(): Db {
   const savepoint: Savepoint = {
     transaction: (callback) => callback(tx),
   };
+
   // The service only reaches the transaction for `createRunForMessage`'s
   // savepoint; every repository method is prototype-spied.
   const tx = asDouble<Db>(savepoint);
+
   return tx;
 }
 
@@ -165,18 +167,22 @@ const validRequest: FollowUpRequestInput = { action: 'continue' };
 
 function makeService() {
   const tx = fakeTx();
+
   const tenantDb: TenantRunner = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
+
   // Each admission closes with a record of whether its transaction callback
   // threw: a refusal that keeps a committed stuck-Run expiry must not.
   const transactions: Array<{ rejected: boolean }> = [];
+
   const runAs = vi
     .spyOn(tenantDb, 'runAs')
     .mockImplementation(
       async <T>(_userId: string, callback: (db: Db) => Promise<T>) => {
         const record = { rejected: false };
         transactions.push(record);
+
         try {
           return await callback(tx);
         } catch (error) {
@@ -187,28 +193,36 @@ function makeService() {
     );
 
   const validateModelSelection = vi.fn(() => model);
+
   const resolveEffortSelection = vi.fn<
     ModelSelectionValidator['resolveEffortSelection']
   >((_model, effort) => effort);
+
   const models: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection,
   };
+
   const instanceConfig: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
+
   const jobState = vi.fn<RunDispatcher['jobState']>(() =>
     Promise.resolve('absent'),
   );
+
   const dispatch: RunDispatcher = { dispatch: vi.fn(async () => {}), jobState };
 
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
     .mockResolvedValue(chat);
+
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(chat);
+
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
+
   const findTurnState = vi
     .spyOn(MessagesRepository.prototype, 'findTurnState')
     .mockResolvedValue({
@@ -219,32 +233,41 @@ function makeService() {
         modelId: model.id,
       }),
     });
+
   const hasLaterUserMessage = vi
     .spyOn(MessagesRepository.prototype, 'hasLaterUserMessage')
     .mockResolvedValue(false);
+
   const findReply = vi
     .spyOn(MessagesRepository.prototype, 'findReply')
     .mockResolvedValue(
       replyWith({ status: 'error', runId: sourceRun.id, modelId: model.id }),
     );
+
   const findLatestByChatId = vi
     .spyOn(RunsRepository.prototype, 'findLatestByChatId')
     .mockResolvedValue(sourceRun);
+
   const findActiveByChatId = vi
     .spyOn(RunsRepository.prototype, 'findActiveByChatId')
     .mockResolvedValue(undefined);
+
   const markFinished = vi
     .spyOn(RunsRepository.prototype, 'markFinished')
     .mockResolvedValue(undefined);
+
   const listByRunId = vi
     .spyOn(RunEventsRepository.prototype, 'listByRunId')
     .mockResolvedValue([]);
+
   const findFirstByType = vi
     .spyOn(RunEventsRepository.prototype, 'findFirstByType')
     .mockResolvedValue(undefined);
+
   const cancelActiveRunsForMessage = vi
     .spyOn(RunsRepository.prototype, 'cancelActiveRunsForMessage')
     .mockResolvedValue([]);
+
   const createRun = vi
     .spyOn(RunsRepository.prototype, 'create')
     .mockImplementation((runInput) =>
@@ -258,6 +281,7 @@ function makeService() {
         sourceRunId: runInput.sourceRunId ?? null,
       }),
     );
+
   const append = vi
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue({
@@ -484,6 +508,7 @@ describe('FollowUpAdmissionService', () => {
   it('validates a Regenerate like a chat send, in the chat-send order', async () => {
     const { service, validateModelSelection, resolveEffortSelection, runAs } =
       makeService();
+
     resolveEffortSelection.mockReturnValue('high');
 
     await admit(service, {
@@ -566,6 +591,7 @@ describe('FollowUpAdmissionService', () => {
       append,
       resolveEffortSelection,
     } = makeService();
+
     resolveEffortSelection.mockReturnValue('high');
     findLatestByChatId.mockResolvedValue({
       ...sourceRun,
@@ -1026,6 +1052,7 @@ describe('FollowUpAdmissionService', () => {
       // The Continue check refuses: the expired Run left no reply.
       api.findLatestByChatId.mockResolvedValue(expiredRun);
       api.findReply.mockResolvedValue(undefined);
+
       return api;
     }
 
@@ -1088,6 +1115,7 @@ describe('FollowUpAdmissionService', () => {
       resolveEffortSelection,
       createRun,
     } = makeService();
+
     findLatestByChatId.mockResolvedValue({ ...sourceRun, effort: 'high' });
 
     await admit(service);

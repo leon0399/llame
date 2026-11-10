@@ -105,7 +105,9 @@ export function turnStatusForTerminalRun(
   status: TerminalRunStatus,
 ): TurnStatus {
   if (status === 'completed') return 'completed';
+
   if (status === 'failed') return 'error';
+
   return 'aborted';
 }
 
@@ -148,6 +150,7 @@ export function isRunningUsage(usage: unknown): usage is RunningReplyUsage {
 function stringField(value: unknown, key: string): string | undefined {
   if (!isRecord(value)) return undefined;
   const field = value[key];
+
   return isString(field) ? field : undefined;
 }
 
@@ -164,6 +167,7 @@ export function ownsLiveReply(
   widened: boolean,
 ): boolean {
   if (reply === undefined) return widened;
+
   return (
     !isCompletedAssistantTurn(reply) &&
     (widened || isRunningUsage(reply.usage)) &&
@@ -177,6 +181,7 @@ function tokenlessUsage(
   models: BillingCatalog,
 ): TokenlessReplyUsage {
   const model = models.find(({ id }) => id === identity.modelId);
+
   // No request of that attempt reported counts, so a priced model omits
   // `costUsd` and an unpriced, incompletely priced, or no longer configured
   // one records it as unknown, matching the executing attempt's usage.
@@ -202,6 +207,7 @@ function eventsAfterLatestDelivery(
   const delivered = events.findLastIndex(
     (event) => event.eventType === 'run.delivered',
   );
+
   return events.slice(delivered + 1);
 }
 
@@ -219,10 +225,13 @@ export function attemptWindow(
       event.eventType === 'model.requested' &&
       stringField(event.payload, 'attemptId') === attemptId,
   );
+
   if (start === -1) return [];
+
   const end = events.findIndex(
     (event, index) => index > start && event.eventType === 'run.started',
   );
+
   return events.slice(start, end === -1 ? undefined : end);
 }
 
@@ -238,22 +247,29 @@ export function placeStoredContextItems(
 ): Array<MessagePart> {
   const placed: Array<MessagePart> = [...rebuilt];
   const earlierToolCallIds = new Set<string>();
+
   for (const part of snapshot) {
     if (!isContextItemPart(part)) {
       const toolCallId = stringField(part, 'toolCallId');
+
       if (toolCallId !== undefined) earlierToolCallIds.add(toolCallId);
       continue;
     }
+
     let index =
       placed.findLastIndex((candidate) => {
         const toolCallId = stringField(candidate, 'toolCallId');
+
         return toolCallId !== undefined && earlierToolCallIds.has(toolCallId);
       }) + 1;
+
     while (index < placed.length && isContextItemPart(placed[index])) {
       index += 1;
     }
+
     placed.splice(index, 0, part);
   }
+
   return placed;
 }
 
@@ -270,12 +286,14 @@ async function settleOpenToolCalls(
   const events = new RunEventsRepository(tx);
   const appended: Array<RunEvent> = [];
   const { openToolCalls } = reconstructDurableAssistant(log);
+
   for (const [toolCallId, { toolName, permission }] of openToolCalls) {
     if (status === 'completed') {
       throw new Error(
         `Run ${run.id} cannot complete with durable tool calls still open.`,
       );
     }
+
     const nativeResult =
       toolName === 'edit' ||
       toolName === 'write' ||
@@ -283,6 +301,7 @@ async function settleOpenToolCalls(
       toolName.startsWith('mcp__')
         ? await new NativeFilesRepository(tx).priorOutcome(run.id, toolCallId)
         : undefined;
+
     const result = nativeResult ?? toolTerminationResult(status, toolName);
     appended.push(
       await events.append(run.id, 'tool.completed', {
@@ -294,6 +313,7 @@ async function settleOpenToolCalls(
       }),
     );
   }
+
   return appended;
 }
 
@@ -314,6 +334,7 @@ function replyParts(
     rebuilt,
     continued === undefined ? snapshot : ownSnapshotParts(snapshot, run.id),
   );
+
   return continued === undefined ? placed : [...continued.parts, ...placed];
 }
 
@@ -330,6 +351,7 @@ function dispatchedReplyWrite(
   if (!log.some((event) => event.eventType === 'model.requested')) {
     return undefined;
   }
+
   return {
     parts: reconstructDurableAssistant(
       [...log, ...settled],
@@ -364,11 +386,15 @@ function rebuiltReplyWrite(
   const log = eventsAfterLatestDelivery(fullLog);
   const continued = continueStateFromEvents(log);
   const stepOffset = continueStepOffset(continued);
+
   if (reply === undefined) {
     return dispatchedReplyWrite(input, log, settled, stepOffset);
   }
+
   const running = reply.usage;
+
   if (!isRunningUsage(running)) return undefined;
+
   return {
     parts: replyParts(
       input.run,
@@ -410,7 +436,9 @@ export async function persistReply(
       usage: write.usage,
     });
   }
+
   if (!turn.userMessage) return undefined;
+
   return messagesRepo.createAssistantReplyIfAbsent({
     chatId: write.chatId,
     parts: write.parts,
@@ -437,17 +465,23 @@ export async function finalizeRunReply(
   const chatId = live?.chatId ?? run.chatId;
   const inReplyTo = live?.inReplyTo ?? run.messageId;
   const messagesRepo = new MessagesRepository(tx);
+
   const turn =
     inReplyTo === null
       ? undefined
       : await messagesRepo.findTurnState(chatId, run.userId, inReplyTo);
+
   const reply = turn?.assistantMessage;
+
   if (reply !== undefined && isCompletedAssistantTurn(reply)) return undefined;
   const log = await new RunEventsRepository(tx).listByRunId(run.id, run.userId);
   const settled = await settleOpenToolCalls(tx, run, input.status, log);
+
   if (inReplyTo === null || turn === undefined) return undefined;
+
   if (live !== undefined) {
     if (!ownsLiveReply(reply, input.attemptId, true)) return undefined;
+
     return persistReply(messagesRepo, turn, {
       chatId,
       inReplyTo,
@@ -455,8 +489,11 @@ export async function finalizeRunReply(
       usage: live.telemetry,
     });
   }
+
   const write = rebuiltReplyWrite(input, reply, log, settled);
+
   if (write === undefined) return undefined;
+
   return persistReply(messagesRepo, turn, { chatId, inReplyTo, ...write });
 }
 
@@ -482,6 +519,7 @@ export async function failRunTransactionally(
       'failed',
       { error: { message } },
     );
+
     if (failed) {
       await finalizeRunReply(tx, { run: failed, status: 'failed', models });
       await new RunEventsRepository(tx).append(job.runId, 'run.failed', {

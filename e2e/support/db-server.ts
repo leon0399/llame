@@ -7,28 +7,36 @@ import { fileURLToPath } from "node:url";
 
 // oxlint-disable-next-line unicorn/prefer-import-meta-properties -- Root is CommonJS; tsx cannot transform import.meta.dirname here.
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
 const rlsFunctionOwnerSqlPath = resolve(
   repoRoot,
   "docker/postgres/rls-function-owner.sql",
 );
+
 const vectorExtensionSqlPath = resolve(
   repoRoot,
   "docker/postgres/initdb/03-vector-extension.sql",
 );
+
 const container = process.env.E2E_DB_CONTAINER ?? "llame-e2e-postgres";
+
 const image =
   process.env.E2E_DB_PG_IMAGE ??
   "pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f";
+
 const dbPort = process.env.E2E_DB_PORT ?? "55433";
 const readyPort = Number(process.env.E2E_DB_READY_PORT ?? "4302");
+
 const postgresUrl =
   process.env.POSTGRES_URL ??
   `postgres://app:app@localhost:${dbPort}/llame_e2e`;
+
 const databaseName = new URL(postgresUrl).pathname.replace(/^\//, "");
 
 let server: Server | undefined;
 let shuttingDown = false;
 let resolveShutdown: (() => void) | undefined;
+
 const shutdown = new Promise<void>((resolve) => {
   resolveShutdown = resolve;
 });
@@ -40,6 +48,7 @@ function requestShutdown(): void {
 }
 
 process.once("SIGINT", requestShutdown);
+
 process.once("SIGTERM", requestShutdown);
 
 function run(
@@ -106,8 +115,10 @@ async function waitForPostgres(): Promise<void> {
 
     if (result.status === 0) {
       consecutive += 1;
+
       if (consecutive >= requiredConsecutive) {
         process.stdout.write(" ready\n");
+
         return;
       }
     } else {
@@ -230,6 +241,7 @@ async function startReadyServer(): Promise<void> {
     if (request.url === "/ready") {
       response.writeHead(200, { "content-type": "text/plain" });
       response.end("ok");
+
       return;
     }
 
@@ -263,16 +275,22 @@ async function main(): Promise<void> {
       `${dbPort}:5432`,
       image,
     ]);
+
     if (shuttingDown) return;
     await waitForPostgres();
+
     if (shuttingDown) return;
     provisionDatabase();
+
     if (shuttingDown) return;
     provisionVectorExtension();
+
     if (shuttingDown) return;
     migrateDatabase();
+
     if (shuttingDown) return;
     provisionRlsFunctionOwner();
+
     if (shuttingDown) return;
     await startReadyServer();
     await waitForShutdown();

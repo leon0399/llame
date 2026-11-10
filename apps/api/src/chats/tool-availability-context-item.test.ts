@@ -163,6 +163,7 @@ describe('deriveToolAvailabilityPayload', () => {
       available('same_tool', 'b'.repeat(64)),
       unavailable('stays_down', 'tool_missing'),
     ]);
+
     const current = manifest([
       unavailable('changed_tool', 'declaration_refused'),
       available('down_tool'),

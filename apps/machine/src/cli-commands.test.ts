@@ -23,14 +23,17 @@ type Cli = {
 function cli(reason?: SessionEndReason): Cli {
   const out: Array<string> = [];
   const err: Array<string> = [];
+
   const collect: CliEnvironment = {
     out: (text) => out.push(text),
     err: (text) => err.push(text),
   };
+
   const session = (): MachineSession => ({
     done: Promise.resolve(reason ?? "closed"),
     stop: () => {},
   });
+
   return {
     env: reason === undefined ? collect : { ...collect, serve: session },
     out: () => out.join(""),

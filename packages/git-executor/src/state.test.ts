@@ -42,9 +42,11 @@ async function observe(
   options: { readonly timeoutMs?: number } = {},
 ) {
   const located = await locateRepository({ path });
+
   if (located.status !== "ok") {
     throw new Error(`expected a repository at ${path}`);
   }
+
   return stateRepository(
     {
       path,
@@ -59,9 +61,11 @@ async function observe(
 
 async function observed(path: string, overrides: Partial<StateInput> = {}) {
   const result = await observe(path, overrides);
+
   if (result.status !== "ok") {
     throw new Error(`expected a state, got ${JSON.stringify(result)}`);
   }
+
   return result;
 }
 
@@ -93,6 +97,7 @@ function trackedRepository() {
   commitFile(directory, "README.md");
   runGit(directory, ["remote", "add", "origin", remote]);
   runGit(directory, ["push", "--quiet", "--set-upstream", "origin", "main"]);
+
   return { directory, remote };
 }
 
@@ -119,6 +124,7 @@ function divergedRepository() {
   writeFileSync(join(directory, "shared two.txt"), "main\n");
   runGit(directory, ["add", "shared.txt", "shared two.txt"]);
   runGit(directory, ["commit", "--quiet", "--message", "main side"]);
+
   return directory;
 }
 
@@ -253,6 +259,7 @@ describe("stateRepository fields", () => {
 
   it("lists five commits, newest first", async () => {
     const directory = repositoryWithCommit();
+
     for (const name of ["a", "b", "c", "d", "e", "f"]) {
       commitFile(directory, `${name}.txt`);
     }
@@ -378,6 +385,7 @@ describe("stateRepository upstream", () => {
     const directory = repositoryWithCommit();
     const oid = runGit(directory, ["rev-parse", "HEAD"]).trim();
     const log = join(tempDirectory(), "argv.log");
+
     const shim = `for a in "$@"; do
   if [ "$a" = status ]; then
     printf '# branch.oid ${oid}\\0# branch.head main\\0# branch.upstream --all\\0# branch.ab +0 -0\\0'
@@ -473,12 +481,15 @@ describe("stateRepository paths", () => {
   /** A repository with changes in the root, in `sub`, and in a sibling. */
   function changedTree() {
     const directory = repositoryWithCommit();
+
     for (const path of ["sub/deep/in.txt", "other/out.txt"]) {
       mkdirSync(join(directory, path, ".."), { recursive: true });
       writeFileSync(join(directory, path), "x\n");
     }
+
     runGit(directory, ["add", "."]);
     runGit(directory, ["commit", "--quiet", "--message", "tree"]);
+
     return directory;
   }
 
@@ -526,6 +537,7 @@ describe("stateRepository paths", () => {
 
   it("counts paths above the bound as omitted", async () => {
     const directory = repositoryWithCommit();
+
     for (let index = 0; index < 26; index += 1) {
       writeFileSync(
         join(directory, `file-${String(index).padStart(2, "0")}.txt`),
@@ -547,6 +559,7 @@ describe("stateRepository paths", () => {
 
   it("clamps a negative or fractional bound once", async () => {
     const directory = repositoryWithCommit();
+
     for (const name of ["a.txt", "b.txt", "c.txt"]) {
       writeFileSync(join(directory, name), "x\n");
     }
@@ -575,6 +588,7 @@ describe("stateRepository submodules", () => {
       "lib",
     ]);
     runGit(directory, ["commit", "--quiet", "--message", "add submodule"]);
+
     return directory;
   }
 
@@ -666,6 +680,7 @@ describe("stateRepository pinning and refusals", () => {
     expect(result).toMatchObject({ status: "error", type: "git_failed" });
     const calls = readFileSync(log, "utf8").trim().split("\n");
     expect(calls.length).toBeGreaterThan(0);
+
     for (const call of calls) {
       expect(call).toContain(`-C ${nested} --work-tree=${nested}`);
     }
@@ -783,6 +798,7 @@ describe("stateRepository pinning and refusals", () => {
     runGit(directory, ["add", ".gitattributes", "data.txt"]);
     runGit(directory, ["commit", "--quiet", "--message", "attributes"]);
     writeFileSync(join(directory, "data.txt"), "changed\n");
+
     const refuse =
       'export GIT_TEST_ASSUME_DIFFERENT_OWNER=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1\nexec "$REAL_GIT" "$@"';
 
@@ -805,10 +821,12 @@ describe("stateRepository pinning and refusals", () => {
     writeFileSync(program, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
     chmodSync(program, 0o755);
     const commit = runGit(directory, ["cat-file", "commit", "HEAD"]);
+
     const signed = commit.replace(
       "\n\n",
       "\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----\n\n",
     );
+
     const id = execFileSync(
       "git",
       ["hash-object", "-t", "commit", "-w", "--stdin"],
@@ -818,6 +836,7 @@ describe("stateRepository pinning and refusals", () => {
         input: signed,
       },
     ).trim();
+
     runGit(directory, ["update-ref", "HEAD", id]);
     runGit(directory, ["config", "log.showSignature", "true"]);
     runGit(directory, ["config", "gpg.program", program]);
@@ -837,9 +856,11 @@ describe("stateRepository pinning and refusals", () => {
     const directory = repositoryWithCommit();
     const folder = join(directory, "many");
     mkdirSync(folder);
+
     for (let index = 0; index < 6000; index += 1) {
       writeFileSync(join(folder, `${"n".repeat(200)}-${index}`), "");
     }
+
     runGit(directory, ["add", "many"]);
 
     const result = await observe(folder);
@@ -868,6 +889,7 @@ describe("stateRepository admission", () => {
     const sub = join(directory, "sub");
     mkdirSync(sub);
     const located = await locateRepository({ path: sub });
+
     if (located.status !== "ok") throw new Error("expected a repository");
     mkdirSync(join(sub, ".git"));
 
@@ -898,6 +920,7 @@ describe("stateRepository admission", () => {
 
   it("refuses a relative path or entry before any lookup", async () => {
     const directory = repositoryWithCommit();
+
     for (const input of [
       { path: "relative", gitEntry: join(directory, ".git") },
       { path: directory, gitEntry: ".git" },
@@ -1001,9 +1024,11 @@ describe("stateRepository admission", () => {
             if (burned) return true;
             burned = true;
             const until = Date.now() + 1500;
+
             while (Date.now() < until) {
               // Burn the admission share of the budget.
             }
+
             return true;
           },
         },
@@ -1025,9 +1050,11 @@ describe("stateRepository admission", () => {
         {
           confine: () => {
             const until = Date.now() + 50;
+
             while (Date.now() < until) {
               // Outlast the deadline.
             }
+
             return true;
           },
         },
@@ -1045,13 +1072,16 @@ describe("stateRepository admission", () => {
     const objects = join(directory, ".git", "objects");
     mkdirSync(join(objects, "info"), { recursive: true });
     const lines: Array<string> = [];
+
     for (let index = 0; index < 5; index += 1) {
       const pool = join(directory, `pool-${index}`);
       mkdirSync(pool);
       lines.push(pool);
     }
+
     writeFileSync(join(objects, "info", "alternates"), `${lines.join("\n")}\n`);
     const located = await locateRepository({ path: directory });
+
     if (located.status !== "ok") throw new Error("no repository");
     controller.abort();
 
@@ -1088,19 +1118,23 @@ describe("stateRepository admission", () => {
   it("follows a chain of alternates past six links to an outside one", async () => {
     const directory = repositoryWithCommit();
     const outside = tempDirectory();
+
     const links = Array.from({ length: 6 }, (_, index) =>
       join(directory, `chain-${index}`),
     );
+
     const next = [...links.slice(1), outside];
     mkdirSync(join(directory, ".git", "objects", "info"), { recursive: true });
     writeFileSync(
       join(directory, ".git", "objects", "info", "alternates"),
       `${links[0]}\n`,
     );
+
     for (const [index, link] of links.entries()) {
       mkdirSync(join(link, "info"), { recursive: true });
       writeFileSync(join(link, "info", "alternates"), `${next[index]}\n`);
     }
+
     const inside = (path: string) => path.startsWith(directory);
 
     await expect(
@@ -1110,17 +1144,21 @@ describe("stateRepository admission", () => {
 
   it("refuses an alternate chain longer than the cap, even inside the root", async () => {
     const directory = repositoryWithCommit();
+
     const links = Array.from({ length: 70 }, (_, index) =>
       join(directory, `chain-${index}`),
     );
+
     mkdirSync(join(directory, ".git", "objects", "info"), { recursive: true });
     writeFileSync(
       join(directory, ".git", "objects", "info", "alternates"),
       `${links[0]}\n`,
     );
+
     for (const [index, link] of links.entries()) {
       mkdirSync(join(link, "info"), { recursive: true });
       const target = links[index + 1];
+
       if (target !== undefined) {
         writeFileSync(join(link, "info", "alternates"), `${target}\n`);
       }

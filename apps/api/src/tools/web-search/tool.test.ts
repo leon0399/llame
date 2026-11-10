@@ -137,8 +137,10 @@ describe('web search tool declaration', () => {
     });
   });
 });
+
 it('passes the chat id and each call’s model clients to hosted search', async () => {
   const calls: Array<ModelStreamInput> = [];
+
   const client = scriptedModelClient(
     () =>
       Promise.resolve(
@@ -146,10 +148,12 @@ it('passes the chat id and each call’s model clients to hosted search', async 
       ),
     calls,
   );
+
   const firstCreate = vi.fn<(modelId: string) => ModelClient>(() => client);
   const secondCreate = vi.fn<(modelId: string) => ModelClient>(() => client);
   const firstModelClients = { createClient: firstCreate };
   const secondModelClients = { createClient: secondCreate };
+
   const config: WebSearchConfig = {
     engines: [
       {
@@ -162,6 +166,7 @@ it('passes the chat id and each call’s model clients to hosted search', async 
     ],
     chain: ['hosted'],
   };
+
   const baseContext: Omit<ToolContext, 'chatId' | 'modelClients'> = {
     configuredCredentials: [],
     userId: 'user',
@@ -170,7 +175,9 @@ it('passes the chat id and each call’s model clients to hosted search', async 
     },
     webSearch: config,
   };
+
   const input = { query: 'latest', limit: 1 };
+
   const expected = {
     status: 'success',
     kind: 'answer',
@@ -179,6 +186,7 @@ it('passes the chat id and each call’s model clients to hosted search', async 
     answer: 'grounded',
     citations: [{ url: 'https://example.test/a' }],
   };
+
   await expect(
     webSearchTool.execute(
       { ...baseContext, chatId: 'chat-one', modelClients: firstModelClients },
@@ -229,7 +237,9 @@ it('forwards recency and the product user agent to the configured engine', async
       ),
     ),
   );
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -251,6 +261,7 @@ it('forwards recency and the product user agent to the configured engine', async
         chain: ['brave'],
       },
     };
+
     await expect(
       webSearchTool.execute(context, {
         query: 'llame',
@@ -263,8 +274,10 @@ it('forwards recency and the product user agent to the configured engine', async
       results: [{ title: 'Result', url: 'https://example.test/a' }],
     });
     const [url, init] = fetch.mock.calls[0] ?? [];
+
     const requestUrl =
       url instanceof Request ? url.url : url instanceof URL ? url.href : url;
+
     expect(new URL(requestUrl).searchParams.get('freshness')).toBe('pd');
     expect(new Headers(init?.headers).get('User-Agent')).toBe('llame/test');
   } finally {
@@ -283,7 +296,9 @@ it('forwards the objective to an engine that accepts one', async () => {
       ),
     ),
   );
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -299,6 +314,7 @@ it('forwards the objective to an engine that accepts one', async () => {
         chain: ['exa'],
       },
     };
+
     await expect(
       webSearchTool.execute(context, {
         query: 'llame',
@@ -306,9 +322,11 @@ it('forwards the objective to an engine that accepts one', async () => {
         limit: 5,
       }),
     ).resolves.toMatchObject({ status: 'success', kind: 'results' });
+
     const text = await new Response(
       fetch.mock.calls[0]?.[1]?.body ?? null,
     ).text();
+
     const body: unknown = JSON.parse(text);
     expect(body).toMatchObject({
       query: 'llame',
@@ -322,6 +340,7 @@ it('forwards the objective to an engine that accepts one', async () => {
 it('wires aggregate children and merges their results', async () => {
   const fetch = vi.fn<VendorFetch>((_input, init) => {
     const key = new Headers(init?.headers).get('X-Subscription-Token');
+
     const entries =
       key === 'first-key'
         ? [
@@ -332,13 +351,16 @@ it('wires aggregate children and merges their results', async () => {
             { title: 'Third', url: 'https://example.test/u3' },
             { title: 'Shared', url: 'https://example.test/u1' },
           ];
+
     return Promise.resolve(
       new Response(JSON.stringify({ web: { results: entries } }), {
         headers: { 'content-type': 'application/json' },
       }),
     );
   });
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -391,8 +413,10 @@ it('wires aggregate children and merges their results', async () => {
 
 it('skips an over-long aggregate child and calls only the other engine', async () => {
   const hosts: Array<string> = [];
+
   const fetch = vi.fn<VendorFetch>((input) => {
     hosts.push(new URL(requestUrl(input)).host);
+
     return Promise.resolve(
       new Response(
         JSON.stringify({
@@ -402,7 +426,9 @@ it('skips an over-long aggregate child and calls only the other engine', async (
       ),
     );
   });
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -420,10 +446,12 @@ it('skips an over-long aggregate child and calls only the other engine', async (
         chain: ['mix'],
       },
     };
+
     const output = await webSearchTool.execute(context, {
       query: 'x'.repeat(650),
       limit: 10,
     });
+
     // The brave child's declared 600-code-point limit skips it before a
     // request, so only the Exa host is called.
     expect(hosts).toStrictEqual(['api.exa.ai']);
@@ -443,7 +471,9 @@ it('refuses an unknown selected engine before any request', async () => {
   const fetch = vi.fn<VendorFetch>(() =>
     Promise.reject(new Error('no request expected')),
   );
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -460,6 +490,7 @@ it('refuses an unknown selected engine before any request', async () => {
         chain: ['brave'],
       },
     };
+
     await expect(
       webSearchTool.execute(context, {
         query: 'llame',
@@ -480,8 +511,10 @@ it('refuses an unknown selected engine before any request', async () => {
 
 it('runs only the engine the call selects, also an aggregate child', async () => {
   const keys: Array<string | null> = [];
+
   const fetch = vi.fn<VendorFetch>((_input, init) => {
     keys.push(new Headers(init?.headers).get('X-Subscription-Token'));
+
     return Promise.resolve(
       new Response(
         JSON.stringify({
@@ -493,7 +526,9 @@ it('runs only the engine the call selects, also an aggregate child', async () =>
       ),
     );
   });
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -521,6 +556,7 @@ it('runs only the engine the call selects, also an aggregate child', async () =>
         chain: ['mix'],
       },
     };
+
     await expect(
       webSearchTool.execute(context, {
         query: 'llame',
@@ -554,6 +590,7 @@ it('reuses one Exa MCP client across tool executions', async () => {
       additionalProperties: false,
     },
   };
+
   type RpcResult =
     | { readonly tools: ReadonlyArray<typeof exaTool> }
     | {
@@ -562,10 +599,12 @@ it('reuses one Exa MCP client across tool executions', async () => {
           readonly text: string;
         }>;
       };
+
   const rpcResult = (id: number, result: RpcResult) => ({
     kind: 'json' as const,
     body: { jsonrpc: '2.0', id, result },
   });
+
   const fixture = await createMcpTestFixture({
     $get: [{ kind: 'raw', status: 405, body: '' }],
     initialize: [mcpStreamableHttpInitialize({ sessionId: 'exa-session' })],
@@ -591,11 +630,15 @@ it('reuses one Exa MCP client across tool executions', async () => {
     ],
     $delete: [{ kind: 'raw', status: 204, body: '' }],
   });
+
   const originalFetch = globalThis.fetch;
+
   const fetch = vi.fn<VendorFetch>((_input, init) =>
     originalFetch(fixture.url, init),
   );
+
   vi.stubGlobal('fetch', fetch);
+
   const context: ToolContext = {
     configuredCredentials: [],
     userId: 'user',
@@ -649,6 +692,7 @@ const braveSearch = (): WebSearchConfig => ({
   ],
   chain: ['brave'],
 });
+
 /** The `read` group of the canonical rejected-host scenarios. */
 const REJECTING_READ: ToolPermissionMap = {
   read: {
@@ -656,6 +700,7 @@ const REJECTING_READ: ToolPermissionMap = {
     reject: [{ field: 'path', regex: '^https://grokipedia\\.com/' }],
   },
 };
+
 function braveResults(
   results: ReadonlyArray<{ title: string; url: string }>,
 ): void {
@@ -670,6 +715,7 @@ function braveResults(
     ),
   );
 }
+
 function searchContext(
   permissionPolicy: CompiledPolicy,
   options: {
@@ -694,12 +740,15 @@ it('removes the results a read reject clause matches and counts them in the firs
     { title: 'Kept one', url: 'https://example.test/a' },
     { title: 'Kept two', url: 'https://example.test/b' },
   ]);
+
   try {
     const policy = compileToolPermissionMap(REJECTING_READ, 'test-policy');
+
     const output = await webSearchTool.execute(searchContext(policy), {
       query: 'llame',
       limit: 10,
     });
+
     expect(output).toMatchObject({
       status: 'success',
       kind: 'results',
@@ -730,12 +779,15 @@ it('removes a result by the canonical URL the output shows', async () => {
     { title: 'Colon in the path', url: 'https://Grokipedia.com/wiki/Talk:Foo' },
     { title: 'Kept', url: 'https://example.test/a' },
   ]);
+
   try {
     const policy = compileToolPermissionMap(REJECTING_READ, 'test-policy');
+
     const output = await webSearchTool.execute(searchContext(policy), {
       query: 'llame',
       limit: 10,
     });
+
     expect(output).toMatchObject({
       status: 'success',
       results: [{ title: 'Kept', url: 'https://example.test/a' }],
@@ -750,6 +802,7 @@ const KEEPING_READ_GROUPS: ReadonlyArray<[string, PermissionGroup]> = [
   ['no web allow', { allow: [{ field: 'path', regex: '^/' }] }],
   ['a whole-tool reject', { reject: true }],
 ];
+
 it.each(KEEPING_READ_GROUPS)(
   'keeps every result when the read group has %s',
   async (_case, read) => {
@@ -757,12 +810,15 @@ it.each(KEEPING_READ_GROUPS)(
       { title: 'First', url: 'https://grokipedia.com/page' },
       { title: 'Second', url: 'https://example.test/a' },
     ]);
+
     try {
       const policy = compileToolPermissionMap({ read }, 'test-policy');
+
       const output = await webSearchTool.execute(searchContext(policy), {
         query: 'llame',
         limit: 10,
       });
+
       expect(output).toMatchObject({
         status: 'success',
         results: [
@@ -782,12 +838,15 @@ it('keeps a rejected host in the bypass mode and discloses no note', async () =>
     { title: 'First', url: 'https://grokipedia.com/page' },
     { title: 'Second', url: 'https://example.test/a' },
   ]);
+
   try {
     const policy = compileToolPermissionMap(REJECTING_READ, 'test-policy');
+
     const output = await webSearchTool.execute(
       searchContext(policy, { mode: 'bypass' }),
       { query: 'llame', limit: 10 },
     );
+
     expect(output).toMatchObject({
       status: 'success',
       results: [
@@ -809,15 +868,18 @@ it('removes an excluded -site: host, its subdomains, an IDN and a dotted host', 
     { title: 'IDN', url: 'https://xn--bcher-kva.de/catalog' },
     { title: 'Kept', url: 'https://example.test/a' },
   ]);
+
   try {
     const policy = compileToolPermissionMap(
       { read: { allow: true } },
       'test-policy',
     );
+
     const output = await webSearchTool.execute(searchContext(policy), {
       query: 'pgvector -site:Reddit.com. -site:bücher.de',
       limit: 10,
     });
+
     expect(output).toMatchObject({
       status: 'success',
       results: [{ url: 'https://example.test/a' }],
@@ -831,6 +893,7 @@ it('removes an excluded -site: host, its subdomains, an IDN and a dotted host', 
 
 it('puts one count note before the engine notes of an aggregate', async () => {
   type Entry = { readonly title: string; readonly url: string };
+
   const entriesOf = (key: string | null): ReadonlyArray<Entry> =>
     key === 'first-key'
       ? [
@@ -844,10 +907,12 @@ it('puts one count note before the engine notes of an aggregate', async () => {
             { title: 'Kept two', url: 'https://example.test/u2' },
           ]
         : [];
+
   vi.stubGlobal(
     'fetch',
     vi.fn<VendorFetch>((_input, init) => {
       const key = new Headers(init?.headers).get('X-Subscription-Token');
+
       return Promise.resolve(
         new Response(JSON.stringify({ web: { results: entriesOf(key) } }), {
           headers: { 'content-type': 'application/json' },
@@ -855,11 +920,13 @@ it('puts one count note before the engine notes of an aggregate', async () => {
       );
     }),
   );
+
   try {
     const policy = compileToolPermissionMap(
       { read: { allow: true } },
       'test-policy',
     );
+
     const output = await webSearchTool.execute(
       searchContext(policy, {
         webSearch: {
@@ -881,6 +948,7 @@ it('puts one count note before the engine notes of an aggregate', async () => {
       }),
       { query: 'pgvector -site:reddit.com', limit: 10 },
     );
+
     expect(output).toMatchObject({
       status: 'success',
       kind: 'results',
@@ -918,6 +986,7 @@ it('runs a hosted child inside an aggregate and returns its answer', async () =>
     ],
     chain: ['mix'],
   };
+
   // Each hosted child answers with its own model id and cites it, so the
   // attached answer belongs to the child that requested it.
   const clientFor = (modelId: string) =>
@@ -980,7 +1049,9 @@ it('asks each engine for the fetch size and clamps it to the vendor maximum', as
       ),
     ),
   );
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -1001,8 +1072,10 @@ it('asks each engine for the fetch size and clamps it to the vendor maximum', as
     await webSearchTool.execute(context, { query: 'llame', limit: 10 });
 
     const [url] = fetch.mock.calls[0] ?? [];
+
     const requestUrl =
       url instanceof Request ? url.url : url instanceof URL ? url.href : url;
+
     expect(new URL(requestUrl).searchParams.get('count')).toBe('20');
   } finally {
     vi.unstubAllGlobals();
@@ -1020,7 +1093,9 @@ it('passes a fetch size below the vendor maximum through unchanged', async () =>
       ),
     ),
   );
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -1048,6 +1123,7 @@ it('passes a fetch size below the vendor maximum through unchanged', async () =>
     const body: unknown = JSON.parse(
       await new Response(fetch.mock.calls[0]?.[1]?.body ?? null).text(),
     );
+
     expect(body).toMatchObject({ count: 5 });
   } finally {
     vi.unstubAllGlobals();
@@ -1058,6 +1134,7 @@ it('cuts the aggregate merge to the fetch size', async () => {
   const fetch = vi.fn<VendorFetch>((_input, init) => {
     const key = new Headers(init?.headers).get('X-Subscription-Token');
     const offset = key === 'first-key' ? 0 : 5;
+
     return Promise.resolve(
       new Response(
         JSON.stringify({
@@ -1072,7 +1149,9 @@ it('cuts the aggregate merge to the fetch size', async () => {
       ),
     );
   });
+
   vi.stubGlobal('fetch', fetch);
+
   try {
     const context: ToolContext = {
       configuredCredentials: [],
@@ -1103,6 +1182,7 @@ it('cuts the aggregate merge to the fetch size', async () => {
     });
 
     expect(result).toMatchObject({ kind: 'results' });
+
     if (result.status !== 'success') return;
     expect(result['results']).toHaveLength(5);
     expect(result).not.toHaveProperty('artifact');

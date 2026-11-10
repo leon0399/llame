@@ -59,6 +59,7 @@ d('compaction lineage over HTTP (#57)', () => {
     // its first model request (providers-and-models-as-code, #167: per-model
     // override, replacing the removed COMPACTION_TOKEN_THRESHOLD env var).
     models.client.compactionThresholdTokens = 1;
+
     const mod = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -81,6 +82,7 @@ d('compaction lineage over HTTP (#57)', () => {
         password: 'password123',
         name: 'Compact',
       });
+
     expect(res.status).toBe(201);
     cookie = cookieOf(res);
     const registerBody: unknown = res.body;
@@ -103,6 +105,7 @@ d('compaction lineage over HTTP (#57)', () => {
           parts: [{ type: 'text', text }],
         },
       });
+
     expect(res.status).toBe(200);
   }
 
@@ -110,6 +113,7 @@ d('compaction lineage over HTTP (#57)', () => {
     const rows = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     return rows
       .filter((row) => row.role === 'checkpoint')
       .sort((a, b) => b.seq - a.seq)[0];
@@ -120,13 +124,16 @@ d('compaction lineage over HTTP (#57)', () => {
     const rows = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     const row = rows.find(
       (message) =>
         message.role === 'user' && JSON.stringify(message.parts).includes(text),
     );
+
     if (row === undefined) {
       throw new Error(`No user message carries ${text}`);
     }
+
     return row.seq;
   }
 
@@ -154,8 +161,10 @@ d('compaction lineage over HTTP (#57)', () => {
   ): string | null {
     if (message?.role !== 'user') return null;
     const content = message.content;
+
     if (!Array.isArray(content) || content.length !== 1) return null;
     const part = content[0];
+
     return part.type === 'text' ? part.text : null;
   }
 
@@ -176,9 +185,11 @@ d('compaction lineage over HTTP (#57)', () => {
     // the turn's first model request.
     await sendTurn(chatId, 'turn-2');
     const first = await latestCheckpoint(chatId);
+
     if (first === undefined) {
       throw new Error('Expected turn 2 to publish a compaction row');
     }
+
     expect(first.absorbedThroughSeq).toBe(
       (await userSeq(chatId, 'turn-2')) - 1,
     );
@@ -200,6 +211,7 @@ d('compaction lineage over HTTP (#57)', () => {
     // and the second compaction lands on top of the first.
     await sendTurn(chatId, 'turn-3');
     const second = await latestCheckpoint(chatId);
+
     if (second === undefined) {
       throw new Error('Expected turn 3 to publish a compaction row');
     }
@@ -224,9 +236,11 @@ d('compaction lineage over HTTP (#57)', () => {
     );
     expect(firstCheckpoint).toContain(firstSummary);
     expect(compactionCalls()).toHaveLength(2);
+
     const secondCall = compactionCalls().find(
       (turn) => storedCheckpointText(turn.messages[0]) === firstCheckpoint,
     );
+
     expect(secondCall).toBeDefined();
     expect(secondCall!.messages[0]).toEqual({
       role: 'user',
@@ -245,12 +259,15 @@ d('compaction lineage over HTTP (#57)', () => {
     // prompt.
     await sendTurn(chatId, 'turn-4');
     const third = await latestCheckpoint(chatId);
+
     if (third === undefined) {
       throw new Error('Expected turn 4 to publish a compaction row');
     }
+
     const lastChatTurn = models.client.turns
       .filter((t) => t.messages.at(-1)?.content !== COMPACTION_INSTRUCTION)
       .at(-1)!;
+
     expect(lastChatTurn.messages[0]).toEqual({
       role: 'user',
       content: [{ type: 'text', text: readCheckpointText(third) }],

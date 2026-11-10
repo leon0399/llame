@@ -20,6 +20,7 @@ const MainRailContext = createContext<SidebarContextProps | null>(null);
  */
 export function MainRailProvider({ children }: { children: ReactNode }) {
   const rail = useSidebar();
+
   return (
     <MainRailContext.Provider value={rail}>{children}</MainRailContext.Provider>
   );
@@ -29,6 +30,7 @@ export function MainRailProvider({ children }: { children: ReactNode }) {
  *  nearest sidebar, which is then the rail itself. */
 export function useMainRail(): SidebarContextProps {
   const nearest = useSidebar();
+
   return useContext(MainRailContext) ?? nearest;
 }
 

@@ -51,8 +51,10 @@ type ComposerSelections = {
 function useComposerSelections(composerChatId: string): ComposerSelections {
   const { selectedModel, setSelectedModel, selectedEffort, getPermissionMode } =
     useChatContext();
+
   const { modelReadyForSend, modelSendUnavailableReason } =
     useChatModelSelection(selectedModel, setSelectedModel);
+
   return {
     modelId: selectedModel,
     effort: selectedEffort,
@@ -78,15 +80,20 @@ type CreateRequestInput = {
 function createRequest(input: CreateRequestInput): CreateChatRequest | null {
   const { modelId, modelReadyForSend, effort, permissionMode } =
     input.selections;
+
   if (!modelReadyForSend || modelId === undefined) return null;
+
   if (input.text.length === 0 && input.files.length === 0) return null;
+
   const parts: CreateChatMessageDto["parts"] = [
     ...(input.text.length > 0
       ? [{ type: "text" as const, text: input.text }]
       : []),
     ...input.files,
   ];
+
   const checkout = input.location.location.checkout;
+
   return buildCreateChatRequest({
     chatId: input.chatId,
     messageId: safeRandomUUID(),
@@ -127,10 +134,13 @@ async function sendCreate(
   try {
     const response = await args.createChat.mutateAsync(request);
     const workspace = workspaceFailure(response.workspace);
+
     if (workspace === null) {
       args.onSent(response.chat.id);
+
       return;
     }
+
     args.onWorkspaceFailure(
       {
         ...workspace,
@@ -147,8 +157,10 @@ async function sendCreate(
     // duplicate it.
     if (chatAlreadyHoldsMessage(error)) {
       args.onSent(chatId);
+
       return;
     }
+
     args.onFailure(createChatFailureMessage(error));
   }
 }
@@ -161,10 +173,12 @@ async function sendCreate(
 export function createSubmitHandler(args: SubmitArgs) {
   return (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
     if (args.createChat.isPending || args.attachments.sendBlocked) return;
     const text = args.input.trim();
     const files = attachmentFileParts(args.attachments.items);
     const chatId = args.retryChatId ?? safeRandomUUID();
+
     const request = createRequest({
       text,
       files,
@@ -173,6 +187,7 @@ export function createSubmitHandler(args: SubmitArgs) {
       location: args.location,
       selections: args.selections,
     });
+
     if (request === null) return;
     args.onFailure(null);
     args.onRetain(chatId);
@@ -217,15 +232,19 @@ export type ChatCreation = {
  */
 function useCreationAttempt(projectId: string | null) {
   const [failure, setFailure] = React.useState<string | null>(null);
+
   const [workspaceFailed, setWorkspaceFailure] =
     React.useState<WorkspaceFailure | null>(null);
+
   const [retry, setRetry] = React.useState<RetryChat | null>(null);
   const [scope, setScope] = React.useState(projectId);
+
   if (scope !== projectId) {
     setScope(projectId);
     setFailure(null);
     setWorkspaceFailure(null);
   }
+
   return {
     failure,
     setFailure,
@@ -251,6 +270,7 @@ function useCreationAttempt(projectId: string | null) {
  *  page opens the chat. */
 function useOpenCreatedChat(args: ChatCreationArgs, forget: () => void) {
   const router = useRouter();
+
   return (chatId: string) => {
     const sent = args.attachments.items;
     forget();
@@ -274,6 +294,7 @@ export function useChatCreation(args: ChatCreationArgs): ChatCreation {
   const attempt = useCreationAttempt(args.projectId);
   const openCreated = useOpenCreatedChat(args, attempt.forget);
   const { projectId } = args;
+
   const location = useComposerLocation({
     projectId,
     failed: attempt.workspaceFailed,
@@ -282,8 +303,10 @@ export function useChatCreation(args: ChatCreationArgs): ChatCreation {
     // Editing the location corrects the draft, so the warning goes away.
     onChange: attempt.clear,
   });
+
   const active = projectId !== null || location.location.checkout !== null;
   const retryKey = projectId ?? "";
+
   const onSubmit: React.FormEventHandler<HTMLFormElement> = (event) =>
     createSubmitHandler({
       ...args,
@@ -299,6 +322,7 @@ export function useChatCreation(args: ChatCreationArgs): ChatCreation {
       },
       onSent: openCreated,
     })(event);
+
   return {
     active,
     onSubmit,

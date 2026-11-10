@@ -19,6 +19,7 @@ export function eligibleMessagePredicate(alias: string): SQL {
   const role = sql`${sql.identifier(alias)}.role`;
   const usage = sql`${sql.identifier(alias)}.usage`;
   const revisedAt = sql`${sql.identifier(alias)}.revised_at`;
+
   return sql`(
     ${role} = 'user'
     OR (

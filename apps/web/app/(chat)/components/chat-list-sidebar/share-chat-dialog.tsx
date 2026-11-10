@@ -27,12 +27,14 @@ type ShareableChat = {
 function useShareChatDialog(chat: ShareableChat) {
   const setVisibility = useSetChatVisibility();
   const [copied, setCopied] = useState(false);
+
   // While the toggle mutation is in flight, reflect its target value instead
   // of the (stale, pre-refetch) `chat.visibility` prop — otherwise the switch
   // visually snaps back/stays put until the chat-list query settles.
   const isPublic = setVisibility.isPending
     ? setVisibility.variables?.visibility === "public"
     : chat.visibility === "public";
+
   const link = isServer
     ? `/shared/${chat.id}`
     : `${window.location.origin}/shared/${chat.id}`;

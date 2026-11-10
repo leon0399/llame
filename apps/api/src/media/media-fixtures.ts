@@ -56,6 +56,7 @@ export function pdfDescriptor(
  */
 export function descriptorRow(d: MediaDescriptor) {
   const image = d.kind === 'image' ? d : undefined;
+
   return {
     id: d.id,
     name: d.name,
@@ -79,6 +80,7 @@ export function descriptorRow(d: MediaDescriptor) {
 export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
   const known = new Map(descriptors.map((entry) => [entry.id, entry]));
   const loads: Array<string> = [];
+
   const resolver: RunMediaResolver = {
     retainedMedia: new Map(),
     describe: (ids) =>
@@ -86,12 +88,14 @@ export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
         new Map(
           ids.flatMap((id) => {
             const found = known.get(id);
+
             return found === undefined ? [] : [[id, found] as const];
           }),
         ),
       ),
     loadModelBytes: (ids) => {
       loads.push(...ids);
+
       return Promise.resolve(
         new Map(
           ids.flatMap((id) =>
@@ -103,6 +107,7 @@ export function fakeResolver(descriptors: ReadonlyArray<MediaDescriptor>) {
       );
     },
   };
+
   return { resolver, loads };
 }
 

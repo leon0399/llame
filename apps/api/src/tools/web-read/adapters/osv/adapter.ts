@@ -10,6 +10,7 @@ export const OSV_API_ORIGIN = 'https://api.osv.dev';
 const OSV_ID = /^[A-Za-z][A-Za-z0-9]*-[A-Za-z0-9._:-]{1,100}$/u;
 const CVE_ID = /^CVE-\d{4}-\d{4,}$/u;
 const GHSA_ID = /^GHSA(?:-[23456789cfghjmpqrvwx]{4}){3}$/u;
+
 /** A page path that names an advisory, with the id pattern it takes. */
 const SITES = {
   'osv.dev': { prefix: '/vulnerability/', id: OSV_ID },
@@ -61,6 +62,7 @@ const VULN = z.object({
     })
     .optional(),
 });
+
 type Vuln = z.infer<typeof VULN>;
 
 /** Matches an advisory page on OSV.dev, an NVD CVE page, a GitHub advisory,
@@ -68,18 +70,25 @@ type Vuln = z.infer<typeof VULN>;
 export function parseOsvUrl(source: URL): string | undefined {
   if (source.protocol !== 'https:') return undefined;
   const host = source.host.replace(/^www\./u, '');
+
   if (host === 'cve.org' && source.pathname === '/CVERecord') {
     const id = source.searchParams.get('id') ?? '';
+
     return CVE_ID.test(id) ? id : undefined;
   }
+
   const site = Object.entries(SITES).find(([name]) => name === host)?.[1];
+
   if (site === undefined) return undefined;
+
   if (!source.pathname.startsWith(site.prefix)) return undefined;
+
   // `read` asks for a colon in a path segment as `%3A`, as in `RHSA-2022:0001`.
   const id = source.pathname
     .slice(site.prefix.length)
     .replace(/\/$/u, '')
     .replaceAll(/%3A/giu, ':');
+
   return site.id.test(id) ? id : undefined;
 }
 
@@ -89,19 +98,24 @@ export function createOsvAdapter(
   options: { readonly apiOrigin?: string } = {},
 ): WebAdapter {
   const api = options.apiOrigin ?? OSV_API_ORIGIN;
+
   return {
     id: config.id,
     route: 'native',
     match: (source) => parseOsvUrl(source) !== undefined,
     read: async (source, io) => {
       const id = parseOsvUrl(source)!;
+
       const fetched = await io.fetch(
         `${api}/v1/vulns/${encodeURIComponent(id)}`,
         { accept: 'application/json' },
       );
+
       if ('type' in fetched) return primaryFailure(fetched);
       const vuln = parseJsonBody(fetched.body, VULN);
+
       if (vuln === undefined) return { kind: 'failed', failure: 'parse' };
+
       return {
         kind: 'rendered',
         content: renderVuln(vuln),
@@ -123,12 +137,16 @@ function renderVuln(vuln: Vuln): string {
     ['Related', vuln.related.join(', ')],
     ['URL', `https://osv.dev/vulnerability/${vuln.id}`],
   ];
+
   const title = vuln.summary ? `${vuln.id}: ${vuln.summary}` : vuln.id;
   const lines = [`# ${title}`, ''];
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   const details = vuln.details?.trim();
+
   return [
     ...lines,
     ...section('Affected', vuln.affected.flatMap(affectedLines)),
@@ -157,6 +175,7 @@ function severityOf(vuln: Vuln): string {
       severity.map(({ score }) => score),
     ),
   ].filter(Boolean);
+
   return [...new Set(scores)].join('; ');
 }
 
@@ -166,20 +185,26 @@ function affectedLines(entry: Vuln['affected'][number]): Array<string> {
   const name = entry.package
     ? `${entry.package.ecosystem} ${entry.package.name}`
     : undefined;
+
   if (entry.ranges.length === 0) {
     const versions = entry.versions.join(', ');
+
     if (name === undefined) return [];
+
     return [versions ? `- ${name}: versions ${versions}` : `- ${name}`];
   }
+
   return entry.ranges.map((range) => {
     const subject =
       range.type === 'GIT'
         ? [name, 'GIT', range.repo].filter(Boolean).join(' ')
         : (name ?? range.type);
+
     const events = range.events
       .flatMap((event) => Object.entries(event))
       .map(([kind, version]) => `${kind} ${version}`)
       .join(', ');
+
     return `- ${subject}: ${events}`;
   });
 }

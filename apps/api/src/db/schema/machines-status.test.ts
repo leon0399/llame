@@ -9,7 +9,9 @@ function checkSql(name: string): string {
   const check = getTableConfig(machinesStatus).checks.find(
     (candidate) => candidate.name === name,
   );
+
   if (check === undefined) throw new Error(`${name} missing`);
+
   return dialect.sqlToQuery(check.value).sql;
 }
 
@@ -34,6 +36,7 @@ describe('machines_status schema', () => {
 
   it('stores the contact, failure, and daemon report columns with an empty roots default', () => {
     const config = getTableConfig(machinesStatus);
+
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column]),
     );
@@ -65,6 +68,7 @@ describe('machines_status schema', () => {
     expect(columns.updated_at.notNull).toBe(true);
 
     const rootsDefault = columns.roots.default;
+
     if (!is(rootsDefault, SQL))
       throw new Error('roots default missing or not SQL');
     expect(dialect.sqlToQuery(rootsDefault).sql).toBe(`'[]'::jsonb`);

@@ -24,6 +24,7 @@ describe('SearchReindexDispatchService.enqueueChatReindex', () => {
   it('ensures the queue and enqueues an owner-scoped chat with its singleton key', async () => {
     const ensureQueue = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockResolvedValue('job-id');
+
     const service = new SearchReindexDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
     );
@@ -42,8 +43,10 @@ describe('SearchReindexDispatchService.enqueueChatReindex', () => {
     const warnSpy = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const ensureQueue = vi.fn().mockResolvedValue(undefined);
     const enqueue = vi.fn().mockRejectedValue(new Error('queue down'));
+
     const service = new SearchReindexDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
     );
@@ -60,11 +63,14 @@ describe('SearchReindexDispatchService.enqueueChatReindex', () => {
     const warnSpy = vi
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
+
     const ensureQueue = vi
       .fn()
       .mockRejectedValueOnce(new Error('boot failed'))
       .mockResolvedValue(undefined);
+
     const enqueue = vi.fn().mockResolvedValue('job-id');
+
     const service = new SearchReindexDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
     );
@@ -79,13 +85,16 @@ describe('SearchReindexDispatchService.enqueueChatReindex', () => {
 
   it('shares one queue-provisioning promise across concurrent enqueue calls', async () => {
     let releaseEnsureQueue: (() => void) | undefined;
+
     const ensureQueue = vi.fn(
       () =>
         new Promise<void>((resolve) => {
           releaseEnsureQueue = resolve;
         }),
     );
+
     const enqueue = vi.fn().mockResolvedValue('job-id');
+
     const service = new SearchReindexDispatchService(
       fakeQueue({ ensureQueue, enqueue }),
     );

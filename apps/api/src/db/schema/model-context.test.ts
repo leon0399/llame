@@ -7,6 +7,7 @@ import { runs, systemPromptReceipts } from './index';
 describe('system prompt receipt schema', () => {
   it('stores only owner-scoped system prompt fields', () => {
     const config = getTableConfig(systemPromptReceipts);
+
     const columns = Object.fromEntries(
       config.columns.map((column) => [column.name, column]),
     );
@@ -38,23 +39,28 @@ describe('system prompt receipt schema', () => {
       ['system_prompt_receipts_owner_select', 'select'],
       ['system_prompt_receipts_owner_insert', 'insert'],
     ]);
+
     const hasOwnerRunAttemptIndex = config.indexes.some((index) => {
       const indexConfig: unknown = index.config;
+
       return (
         isRecord(indexConfig) &&
         indexConfig.name === 'system_prompt_receipts_owner_run_attempt_uidx' &&
         indexConfig.unique === true
       );
     });
+
     expect(hasOwnerRunAttemptIndex).toBe(true);
   });
 
   it('owner-constrains each receipt to its run', () => {
     const config = getTableConfig(systemPromptReceipts);
+
     const receiptForeignKey = config.foreignKeys.find(
       (foreignKey) =>
         foreignKey.getName() === 'system_prompt_receipts_run_id_user_id_fk',
     );
+
     const reference = receiptForeignKey?.reference();
 
     expect(reference?.columns.map((column) => column.name)).toEqual([
@@ -71,6 +77,7 @@ describe('system prompt receipt schema', () => {
 
   it('scopes every policy clause to the current owner', () => {
     const dialect = new PgDialect();
+
     const policies = getTableConfig(systemPromptReceipts).policies.map(
       (policy) =>
         [

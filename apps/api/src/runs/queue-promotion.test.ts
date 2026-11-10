@@ -13,14 +13,17 @@ import { promoteNextQueueItem } from './queue-promotion';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 const at = new Date('2026-11-08T00:00:00.000Z');
+
 const item = chatDeliveryRow({
   settings: { modelId: 'model-1', effort: 'high', permissionMode: 'bypass' },
 });
+
 const completed = asDouble<Run>({
   id: 'completed-run',
   chatId: item.chatId,
   userId: item.ownerUserId,
 });
+
 const message = asDouble<Message>({
   id: item.id,
   chatId: item.chatId,
@@ -37,44 +40,56 @@ function makeSetup(
   const tx = asDouble<Db>({
     transaction: <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
+
   const validateModelSelection = vi.fn(() => {
     throw new Error('replaced by the test');
   });
+
   const models: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection: (_model, requested) => requested,
   };
+
   validateModelSelection.mockReturnValue(asDouble({ id: 'model-1' }));
+
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(asDouble<Chat>({ archivedAt: null }));
+
   const firstPendingQueueItem = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
     .mockResolvedValue(item);
+
   const markDelivered = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
     .mockResolvedValue(item);
+
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
     .mockResolvedValue(message);
+
   vi.spyOn(
     RunsRepository.prototype,
     'cancelActiveRunsForMessage',
   ).mockResolvedValue([]);
+
   const createRun = vi
     .spyOn(RunsRepository.prototype, 'create')
     .mockImplementation((created) =>
       Promise.resolve(asDouble<Run>({ ...created, status: 'queued' })),
     );
+
   vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(
     asDouble({}),
   );
+
   const promote = () =>
     promoteNextQueueItem(tx, {
       completed,
       models,
       enabledPermissionModes,
     });
+
   return {
     promote,
     validateModelSelection,
@@ -157,6 +172,7 @@ describe('promoteNextQueueItem', () => {
   it('promotes nothing when no queue item is pending', async () => {
     const { promote, firstPendingQueueItem, createUserMessageIfAbsent } =
       makeSetup();
+
     firstPendingQueueItem.mockResolvedValue(undefined);
 
     await expect(promote()).resolves.toBeUndefined();
@@ -175,6 +191,7 @@ describe('promoteNextQueueItem', () => {
       createUserMessageIfAbsent,
       createRun,
     } = makeSetup();
+
     validateModelSelection.mockImplementation(() => {
       throw new ModelNotAvailableError('model-1');
     });
@@ -200,6 +217,7 @@ describe('promoteNextQueueItem', () => {
   it('leaves an item waiting when its id is already a message', async () => {
     const { promote, createUserMessageIfAbsent, createRun, markDelivered } =
       makeSetup();
+
     createUserMessageIfAbsent.mockResolvedValue(undefined);
 
     await expect(promote()).resolves.toBeUndefined();

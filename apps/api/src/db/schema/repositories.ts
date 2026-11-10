@@ -41,6 +41,7 @@ import { chats } from './chats';
 
 // The checkout kind vocabulary, mirrored by `checkouts_kind_check`.
 export type CheckoutKind = 'main' | 'worktree';
+
 // The checkout origin vocabulary, mirrored by `checkouts_origin_check`.
 export type CheckoutOrigin = 'registered' | 'adopted' | 'created';
 
@@ -239,6 +240,9 @@ export const worktreeLeases = pgTable(
 ).enableRLS();
 
 export type Repository = InferSelectModel<typeof repositories>;
+
 export type RepositoryAlias = InferSelectModel<typeof repositoryAliases>;
+
 export type Checkout = InferSelectModel<typeof checkouts>;
+
 export type WorktreeLease = InferSelectModel<typeof worktreeLeases>;

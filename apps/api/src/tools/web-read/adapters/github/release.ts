@@ -24,6 +24,7 @@ const RELEASE_ENTRY_WIRE = z.object({
   published_at: NULLABLE,
   created_at: z.string(),
 });
+
 const RELEASE_WIRE = RELEASE_ENTRY_WIRE.extend({
   author: USER,
   body: NULLABLE,
@@ -35,7 +36,9 @@ const RELEASE_WIRE = RELEASE_ENTRY_WIRE.extend({
     }),
   ),
 });
+
 type Release = z.infer<typeof RELEASE_WIRE>;
+
 type ReleaseEntry = z.infer<typeof RELEASE_ENTRY_WIRE>;
 
 /** One request reads a release by tag, the latest one, or the newest page. */
@@ -44,11 +47,14 @@ export async function readGithubRelease(
   options: GithubReadOptions,
 ): Promise<WebAdapterOutcome> {
   const context: GithubRequestContext = { ...options, notes: [] };
+
   const primary = await requestJson(
     `${options.apiOrigin}${releasePath(target)}`,
     context,
   );
+
   if (primary.kind === 'failed') return primaryFailure(primary.failure);
+
   return target.kind === 'release-list'
     ? readList(target, primary.body, context)
     : readOne(primary.body, context);
@@ -58,6 +64,7 @@ function releasePath(
   target: GithubReleaseTarget | GithubReleaseListTarget,
 ): string {
   const base = `${repoPath(target)}/releases`;
+
   switch (target.kind) {
     case 'release':
       // Each component is encoded and the slashes kept, as GitHub spells a
@@ -75,7 +82,9 @@ function readOne(
   context: GithubRequestContext,
 ): WebAdapterOutcome {
   const release = parseGithub(RELEASE_WIRE, body);
+
   if (release === undefined) return { kind: 'failed', failure: 'parse' };
+
   return finishRendered(renderRelease(release), context);
 }
 
@@ -85,18 +94,22 @@ function readList(
   context: GithubRequestContext,
 ): WebAdapterOutcome {
   const releases = parseGithub(z.array(RELEASE_ENTRY_WIRE), body);
+
   if (releases === undefined) return { kind: 'failed', failure: 'parse' };
+
   if (releases.length === RELEASE_PAGE_SIZE) {
     context.notes.push(
       `releases truncated: the first ${RELEASE_PAGE_SIZE} only`,
     );
   }
+
   return finishRendered(renderReleaseList(target, releases), context);
 }
 
 function renderRelease(release: Release): string {
   // GitHub names an unnamed release after its tag.
   const name = release.name === release.tag_name ? null : release.name;
+
   const fields: Array<[string, string | null]> = [
     ['Tag', release.tag_name],
     ['Author', release.author],
@@ -105,25 +118,31 @@ function renderRelease(release: Release): string {
     ['Draft', `${release.draft}`],
     ['URL', release.html_url],
   ];
+
   const lines = [
     `# Release ${[release.tag_name, name].filter(Boolean).join(': ')}`,
     '',
   ];
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   lines.push('', `## Assets (${release.assets.length})`);
+
   for (const asset of release.assets) {
     lines.push(
       `- ${asset.name} — ${asset.size.toLocaleString('en-US')} bytes — ${asset.browser_download_url}`,
     );
   }
+
   lines.push(
     '',
     '## Body',
     '',
     formatItemBody(release.body ?? '', 'No release notes provided.'),
   );
+
   return lines.join('\n');
 }
 
@@ -132,7 +151,9 @@ function renderReleaseList(
   releases: ReadonlyArray<ReleaseEntry>,
 ): string {
   const lines = [`# Releases: ${target.owner}/${target.repo}`, ''];
+
   if (releases.length === 0) lines.push('No releases.');
+
   for (const release of releases) {
     const fields = [
       release.tag_name,
@@ -142,7 +163,9 @@ function renderReleaseList(
       release.draft ? 'draft' : null,
       release.html_url,
     ];
+
     lines.push(`- ${fields.filter(Boolean).join(' — ')}`);
   }
+
   return lines.join('\n');
 }

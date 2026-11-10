@@ -34,6 +34,7 @@ afterEach(() => {
 function temporaryDirectory(label: string): string {
   const directory = mkdtempSync(path.join(tmpdir(), `llame-skills-${label}-`));
   temporaryDirectories.push(directory);
+
   return directory;
 }
 
@@ -45,6 +46,7 @@ function writeSkillFile(
   const packageDirectory = path.join(source, directory);
   mkdirSync(packageDirectory, { recursive: true });
   writeFileSync(path.join(packageDirectory, 'SKILL.md'), content);
+
   return packageDirectory;
 }
 
@@ -59,9 +61,11 @@ function skillDocument(
     `name: ${name}`,
     `description: ${options.description ?? `The ${name} skill.`}`,
   ];
+
   if (options.extraFrontmatter !== undefined) {
     lines.push(options.extraFrontmatter);
   }
+
   return `---\n${lines.join('\n')}\n---\n# Instructions\n`;
 }
 
@@ -79,6 +83,7 @@ function createPackage(
     name,
     skillDocument(name, options),
   );
+
   for (const [relativePath, content] of Object.entries(
     options.sidecars ?? {},
   )) {
@@ -86,6 +91,7 @@ function createPackage(
     mkdirSync(path.dirname(filePath), { recursive: true });
     writeFileSync(filePath, content);
   }
+
   return packageDirectory;
 }
 
@@ -105,11 +111,13 @@ function entryNamed(
   name: string,
 ): SkillCatalogEntry {
   const entry = snapshot.entries.find((candidate) => candidate.name === name);
+
   if (entry === undefined) {
     throw new Error(
       `No catalog entry named ${name}; saw ${snapshot.entries.map((candidate) => candidate.name).join(', ')}`,
     );
   }
+
   return entry;
 }
 
@@ -127,10 +135,12 @@ describe('SkillCatalog discovery', () => {
     const source = temporaryDirectory('operator-only');
     createPackage(source, 'pdf');
     const reads: Array<string> = [];
+
     const fileSystem: SkillCatalogFileSystem = {
       ...NODE_SKILL_FILE_SYSTEM,
       readDirectory: (directory) => {
         reads.push(directory);
+
         return NODE_SKILL_FILE_SYSTEM.readDirectory(directory);
       },
     };
@@ -288,6 +298,7 @@ describe('SkillCatalog discovery', () => {
       { length: MAX_SKILL_SOURCES + 1 },
       (_, index) => `/opt/readable-skills-${index}`,
     );
+
     const snapshot = snapshotWith(directories, {
       ...NODE_SKILL_FILE_SYSTEM,
       readDirectory: () => [],
@@ -304,6 +315,7 @@ describe('SkillCatalog discovery', () => {
   });
   it('refuses to resolve precedence above the per-source child bound', () => {
     const source = temporaryDirectory('wide');
+
     const children: ReadonlyArray<CatalogDirent> = Array.from(
       { length: MAX_SOURCE_CHILDREN + 1 },
       (_, index) => ({
@@ -324,11 +336,13 @@ describe('SkillCatalog discovery', () => {
 
   it('reports an unexpected child read failure as an unavailable source', () => {
     const source = temporaryDirectory('child-failure');
+
     const child: CatalogDirent = {
       name: 'pdf',
       isDirectory: () => true,
       isSymbolicLink: () => false,
     };
+
     const snapshot = snapshotWith([source], {
       ...NODE_SKILL_FILE_SYSTEM,
       readDirectory: () => [child],
@@ -376,6 +390,7 @@ describe('SkillCatalog discovery', () => {
     writeFileSync(nonDirectory, 'not a directory');
     const missing = path.join(operator, 'missing-source');
     const oversized = path.join(operator, 'oversized-source');
+
     const children: ReadonlyArray<CatalogDirent> = Array.from(
       { length: MAX_SOURCE_CHILDREN + 1 },
       (_, index) => ({
@@ -384,12 +399,14 @@ describe('SkillCatalog discovery', () => {
         isSymbolicLink: () => false,
       }),
     );
+
     createPackage(operator, 'operator-only');
 
     const snapshot = new SkillCatalog([operator], {
       ...NODE_SKILL_FILE_SYSTEM,
       readDirectory: (directoryPath) => {
         if (directoryPath === oversized) return children;
+
         return NODE_SKILL_FILE_SYSTEM.readDirectory(directoryPath);
       },
     }).getSnapshot([missing, nonDirectory, oversized]);
@@ -406,6 +423,7 @@ describe('SkillCatalog discovery', () => {
       { length: MAX_SKILL_SOURCES },
       (_, index) => temporaryDirectory(`operator-${index}`),
     );
+
     const workspace = temporaryDirectory('workspace-extra');
     createPackage(workspace, 'workspace-only');
 
@@ -448,6 +466,7 @@ describe('SkillCatalog discovery', () => {
     { timeout: 20_000 },
     () => {
       const source = temporaryDirectory('real-oversized');
+
       // Two past the bound, so a missing early break is observable: the read
       // would then return every child instead of exactly MAX_SOURCE_CHILDREN+1.
       for (let i = 0; i <= MAX_SOURCE_CHILDREN + 1; i += 1) {
@@ -600,6 +619,7 @@ describe('SkillCatalog invocation controls', () => {
   ): SkillCatalogEntry {
     const source = temporaryDirectory('control');
     createPackage(source, 'pdf', options);
+
     return entryNamed(snapshotOf(source), 'pdf');
   }
 

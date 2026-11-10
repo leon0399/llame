@@ -48,37 +48,46 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
 
   beforeEach(async () => {
     chatId = crypto.randomUUID();
+
     const seeded = await tenantDb.runAs(owner, async (tx) => {
       const createdChat = await new ChatsRepository(tx).createIfAbsent({
         id: chatId,
         ownerUserId: owner,
         title: 'Workspace binding',
       });
+
       if (createdChat === undefined) {
         throw new Error('Workspace binding integration chat was not created');
       }
+
       const message = await new MessagesRepository(tx).create({
         chatId,
         role: 'user',
         senderUserId: owner,
         parts: [{ type: 'text', text: 'Bind a workspace.' }],
       });
+
       const run = await new RunsRepository(tx).create({
         chatId,
         userId: owner,
         messageId: message.id,
         modelId: 'workspace-binding-test',
       });
+
       const started = await new RunsRepository(tx).markStarted(run.id, owner);
+
       if (started === undefined) {
         throw new Error('Workspace binding integration Run did not start');
       }
+
       const event = await new RunEventsRepository(tx).append(
         run.id,
         'run.started',
       );
+
       return { runId: run.id, startedSequence: event.sequence };
     });
+
     runId = seeded.runId;
     startedSequence = seeded.startedSequence;
   });
@@ -109,11 +118,14 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
           and(eq(schema.chats.id, chatId), eq(schema.chats.ownerUserId, owner)),
         )
         .limit(1);
+
       return current;
     });
+
     if (row === undefined) {
       throw new Error('Workspace binding integration chat was not found');
     }
+
     return row;
   };
 
@@ -124,11 +136,14 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
         .from(schema.runs)
         .where(and(eq(schema.runs.id, runId), eq(schema.runs.userId, owner)))
         .limit(1);
+
       return current;
     });
+
     if (row === undefined) {
       throw new Error('Workspace binding integration Run was not found');
     }
+
     return row;
   };
 
@@ -175,6 +190,7 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
   it('fences and persists every binding transition and delivery state', async () => {
     const rootA = '/work/project-a';
     const rootB = '/work/project-b';
+
     const unbound: WorkspaceRow = {
       workspaceRoot: null,
       workspaceExecutorId: null,
@@ -278,11 +294,14 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
 
     const superseding = await tenantDb.runAs(owner, async (tx) => {
       const restarted = await new RunsRepository(tx).markStarted(runId, owner);
+
       if (restarted === undefined) {
         throw new Error('Workspace binding integration Run did not restart');
       }
+
       return new RunEventsRepository(tx).append(runId, 'run.started');
     });
+
     expect(
       await tenantDb.runAs(owner, (tx) =>
         new WorkspaceBindingRepository(tx).isCurrentDelivery({

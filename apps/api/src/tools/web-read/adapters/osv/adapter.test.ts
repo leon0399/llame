@@ -13,17 +13,20 @@ const adapter = createOsvAdapter(
   { id: 'advisories', use: 'osv' },
   { apiOrigin: API_ORIGIN },
 );
+
 const NOT_FOUND: WebFetchFailure = {
   type: 'http_status',
   message: 'HTTP 404',
   httpStatus: 404,
 };
+
 const GHSA = 'GHSA-jfh8-c2jp-5v3q';
 
 async function read(source: string, reply: Reply, id = GHSA) {
   const url = `${API_ORIGIN}/v1/vulns/${encodeURIComponent(id)}`;
   const run = scriptedIo(new Map([[url, [reply]]]));
   const outcome = await adapter.read(new URL(source), run.io);
+
   return { outcome, urls: run.requests.map((request) => request.url) };
 }
 

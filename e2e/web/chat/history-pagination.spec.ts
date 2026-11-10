@@ -14,6 +14,7 @@ import { seedMessages } from "./seed-messages";
 
 const ANSWER = "Mocked answer from the e2e model server.";
 const SEEDED_COUNT = 130;
+
 // The chat's 2 real messages + the seeded rows.
 const TOTAL_MESSAGES = 2 + SEEDED_COUNT;
 const WINDOW = 100;
@@ -27,7 +28,9 @@ const WHEEL_STEP = 800;
 function scrollerState(page: Page) {
   return page.evaluate(() => {
     const scroller = document.querySelector('[role="log"] > div');
+
     if (!scroller) return null;
+
     return {
       top: Math.round(scroller.scrollTop),
       fromBottom: Math.round(
@@ -46,10 +49,12 @@ function topmostInViewport(page: Page) {
       "[data-message-key]",
     )) {
       const box = element.getBoundingClientRect();
+
       if (box.bottom > 0 && box.top < window.innerHeight) {
         return { key: element.dataset.messageKey ?? "", top: box.top };
       }
     }
+
     return null;
   });
 }
@@ -59,6 +64,7 @@ function topOfMessage(page: Page, key: string) {
     const element = document.querySelector<HTMLElement>(
       `[data-message-key="${CSS.escape(wanted)}"]`,
     );
+
     return element ? element.getBoundingClientRect().top : null;
   }, key);
 }
@@ -81,6 +87,7 @@ test.describe("chat history pagination (#187)", () => {
       timeout: 15_000,
     });
     const chatId = new URL(page.url()).pathname.split("/").at(-1);
+
     if (!chatId) throw new Error("chat id missing from URL");
 
     seedMessages(chatId, SEEDED_COUNT, account.id);
@@ -111,8 +118,10 @@ test.describe("chat history pagination (#187)", () => {
     await log.hover();
     let sawPrepend = false;
     let lastCount = await messages.count();
+
     for (let step = 0; step < 300; step++) {
       const state = await scrollerState(page);
+
       if (state !== null && state.top <= 0 && lastCount >= TOTAL_MESSAGES) {
         break;
       }
@@ -123,11 +132,13 @@ test.describe("chat history pagination (#187)", () => {
       await page.waitForTimeout(120);
 
       const count = await messages.count();
+
       if (count > lastCount) sawPrepend = true;
       lastCount = count;
 
       if (before && before.key.length > 0) {
         const after = await topOfMessage(page, before.key);
+
         if (after !== null) {
           const drift = after - before.top;
           expect(
@@ -144,11 +155,15 @@ test.describe("chat history pagination (#187)", () => {
     // screen, and the loader control removed itself.
     expect(sawPrepend).toBe(true);
     await expect(messages).toHaveCount(TOTAL_MESSAGES);
+
     const firstTop = await page.evaluate(() => {
       const element = document.querySelector("[data-message-key]");
+
       return element ? element.getBoundingClientRect().top : null;
     });
+
     const viewportHeight = page.viewportSize()?.height ?? 720;
+
     if (firstTop === null) throw new Error("first message not rendered");
     expect(firstTop).toBeGreaterThan(-100);
     expect(firstTop).toBeLessThan(viewportHeight);

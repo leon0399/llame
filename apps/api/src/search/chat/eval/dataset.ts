@@ -57,6 +57,7 @@ const OVERSIZED_FILLER =
   'During the call we reviewed staffing levels, the quarterly budget, ' +
   'open hiring requisitions, and the rollout timeline for the internal ' +
   'tooling migration. ';
+
 export const OVERSIZED_TRANSCRIPT_TEXT =
   OVERSIZED_FILLER.repeat(70) +
   'The final action item was to retire the legacy invoicing service and ' +

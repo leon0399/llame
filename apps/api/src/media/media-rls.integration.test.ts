@@ -37,6 +37,7 @@ import { MediaService } from './media.service';
 const roleRow = z.tuple([
   z.object({ rolsuper: z.boolean(), rolbypassrls: z.boolean() }),
 ]);
+
 const rlsRows = z.array(
   z.object({
     relname: z.string(),
@@ -44,12 +45,14 @@ const rlsRows = z.array(
     relforcerowsecurity: z.boolean(),
   }),
 );
+
 const countRow = z.tuple([z.object({ n: z.number() })]);
 const variantRows = z.array(z.object({ variant: z.string() }));
 
 vi.setConfig({ testTimeout: 30_000 });
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error('TEST_DATABASE_URL is required for media RLS tests');
 }
@@ -66,6 +69,7 @@ describe('RLS integration — media store tenancy', () => {
   const asUser = <T>(userId: string, fn: (tx: Sql) => Promise<T>) =>
     sql.begin(async (tx: Sql) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -86,9 +90,11 @@ describe('RLS integration — media store tenancy', () => {
     await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Media B', ${`media-b-${userBId}@test.com`})`;
 
     objectAId = (await ingestAs(userAId, await randomPng())).media.id;
+
     const pdfBytes = await readFile(
       join(__dirname, 'testing/pdf/one-page.pdf'),
     );
+
     pdfAId = (await ingestAs(userAId, pdfBytes)).media.id;
   });
 
@@ -104,6 +110,7 @@ describe('RLS integration — media store tenancy', () => {
     const [role] = roleRow.parse(
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`,
     );
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
@@ -114,6 +121,7 @@ describe('RLS integration — media store tenancy', () => {
         WHERE relname IN ('media_blobs', 'media_objects')
         ORDER BY relname`,
     );
+
     expect(rows).toEqual([
       {
         relname: 'media_blobs',
@@ -133,12 +141,15 @@ describe('RLS integration — media store tenancy', () => {
       const [objects] = countRow.parse(
         await tx`SELECT count(*)::int AS n FROM media_objects WHERE id = ${objectAId}`,
       );
+
       // Ordered by the text value, so 'model' sorts before 'original'.
       const blobs = variantRows.parse(
         await tx`SELECT variant::text AS variant FROM media_blobs WHERE media_id = ${objectAId} ORDER BY variant::text`,
       );
+
       return { objects: objects.n, variants: blobs.map((b) => b.variant) };
     });
+
     expect(counts).toEqual({ objects: 1, variants: ['model', 'original'] });
   });
 
@@ -148,6 +159,7 @@ describe('RLS integration — media store tenancy', () => {
       blobs:
         await tx`SELECT media_id FROM media_blobs WHERE media_id = ${objectAId}`,
     }));
+
     expect(seen.objects).toHaveLength(0);
     expect(seen.blobs).toHaveLength(0);
   });
@@ -155,12 +167,14 @@ describe('RLS integration — media store tenancy', () => {
   it('shows and changes nothing without a current owner identity', async () => {
     const emptyIdentity = await sql.begin(async (tx: Sql) => {
       await tx`SELECT set_config('app.current_user_id', '', true)`;
+
       return {
         objects: await tx`SELECT id FROM media_objects WHERE id = ${objectAId}`,
         blobs:
           await tx`SELECT media_id FROM media_blobs WHERE media_id = ${objectAId}`,
       };
     });
+
     expect(emptyIdentity.objects).toHaveLength(0);
     expect(emptyIdentity.blobs).toHaveLength(0);
 
@@ -173,6 +187,7 @@ describe('RLS integration — media store tenancy', () => {
       updated:
         await tx`UPDATE media_objects SET name = 'x' WHERE id = ${objectAId} RETURNING id`,
     }));
+
     expect(unset.objects).toHaveLength(0);
     expect(unset.blobs).toHaveLength(0);
     expect(unset.updated).toHaveLength(0);
@@ -217,11 +232,13 @@ describe('RLS integration — media store tenancy', () => {
         deletedObjects:
           await tx`DELETE FROM media_objects WHERE id = ${objectAId} RETURNING id`,
       }));
+
       expect(changed.renamed).toHaveLength(0);
       expect(changed.rewritten).toHaveLength(0);
       expect(changed.deletedBlobs).toHaveLength(0);
       expect(changed.deletedObjects).toHaveLength(0);
     }
+
     expect(await media.findOwned(userAId, objectAId)).toMatchObject({
       id: objectAId,
       name: 'a.png',
@@ -230,6 +247,7 @@ describe('RLS integration — media store tenancy', () => {
 
   it("resolves A's object for A only, and B's lookup matches an unknown id", async () => {
     const id = parseMediaLocator(`media://${objectAId}`);
+
     if (id === undefined) throw new Error('Expected a canonical locator');
 
     expect(await media.findOwned(userAId, id)).toMatchObject({ id });
@@ -250,6 +268,7 @@ describe('RLS integration — media store tenancy', () => {
         await tx`SELECT variant::text AS variant FROM media_blobs WHERE media_id = ${pdfAId}`,
       ),
     );
+
     expect(owner).toEqual([{ variant: 'original' }]);
 
     const seen = await asUser(userBId, async (tx) => ({
@@ -257,6 +276,7 @@ describe('RLS integration — media store tenancy', () => {
       blobs:
         await tx`SELECT media_id FROM media_blobs WHERE media_id = ${pdfAId}`,
     }));
+
     expect(seen.objects).toHaveLength(0);
     expect(seen.blobs).toHaveLength(0);
     expect(await media.findOwned(userBId, pdfAId)).toBeUndefined();
@@ -307,6 +327,7 @@ describe('RLS integration — media store tenancy', () => {
 
   it('yields one object for concurrent identical ingests', async () => {
     const bytes = await randomPng();
+
     const results = await Promise.all([
       ingestAs(userAId, bytes),
       ingestAs(userAId, bytes),
@@ -314,6 +335,7 @@ describe('RLS integration — media store tenancy', () => {
 
     expect(results[0].media.id).toBe(results[1].media.id);
     expect(results.filter((r) => r.created)).toHaveLength(1);
+
     const [count] = countRow.parse(
       await asUser(
         userAId,
@@ -321,6 +343,7 @@ describe('RLS integration — media store tenancy', () => {
           tx`SELECT count(*)::int AS n FROM media_objects WHERE sha256 = ${results[0].media.sha256}`,
       ),
     );
+
     expect(count.n).toBe(1);
   });
 
@@ -339,11 +362,14 @@ describe('RLS integration — media store tenancy', () => {
               vi.spyOn(tx, 'insert').mockImplementation(() => {
                 throw new Error('blob write failed');
               });
+
               return builder;
             });
+
           return fn(tx);
         }),
     };
+
     const bytes = await randomPng();
 
     await expect(
@@ -360,6 +386,7 @@ describe('RLS integration — media store tenancy', () => {
           tx`SELECT count(*)::int AS n FROM media_objects WHERE name = 'atomic.png' AND owner_user_id = ${userAId}`,
       ),
     );
+
     expect(count.n).toBe(0);
   });
 
@@ -367,11 +394,14 @@ describe('RLS integration — media store tenancy', () => {
     // A fresh owner, so earlier tests' ingests do not shape the pages.
     const userCId = randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userCId}, 'Media C', ${`media-c-${userCId}@test.com`})`;
+
     try {
       const ownIds: Array<string> = [];
+
       for (const _ of [1, 2, 3]) {
         ownIds.push((await ingestAs(userCId, await randomPng())).media.id);
       }
+
       const foreignId = (await ingestAs(userBId, await randomPng())).media.id;
 
       const first = await media.listOwned(userCId, { limit: 2 });
@@ -382,6 +412,7 @@ describe('RLS integration — media store tenancy', () => {
         before: first.nextCursor ?? undefined,
         limit: 2,
       });
+
       expect(second.items.map(({ id }) => id)).toEqual([ownIds[0]]);
       expect(second.nextCursor).toBeNull();
 

@@ -71,6 +71,7 @@ describe('context item envelope', () => {
 
   it('creates a part only through the server-authoring path', () => {
     const text = '<system-reminder>final text</system-reminder>';
+
     const part = createContextItemPart({
       producer: 'compaction',
       form: 'checkpoint',
@@ -78,6 +79,7 @@ describe('context item envelope', () => {
       payload: { summary: 'x' },
       text,
     });
+
     expect(isContextItemPart(part)).toBe(true);
     expect(part.data.form).toBe('checkpoint');
     expect(part.data.text).toBe(text);
@@ -151,10 +153,12 @@ describe('client message sanitization', () => {
 describe('vocabulary tolerance', () => {
   it('parses an unrecognized form rather than rejecting the item', () => {
     const part = validPart();
+
     const withUnknownForm = {
       ...part,
       data: { ...part.data, form: 'catalog' },
     };
+
     // Parses: rejecting it would make adding a form a coordinated boundary.
     expect(isContextItemPart(withUnknownForm)).toBe(true);
   });
@@ -164,6 +168,7 @@ describe('vocabulary tolerance', () => {
       ...validPart(),
       data: { ...validPart().data, producer: 'from-a-newer-api' },
     };
+
     expect(isContextItemPart(part)).toBe(true);
     expect(isRecognizedProducer('from-a-newer-api')).toBe(false);
     expect(isRecognizedProducer('tool-availability')).toBe(true);
@@ -206,6 +211,7 @@ describe('rendering', () => {
       form: undefined,
       body: 'x',
     });
+
     expect(rendered).toContain('<system-reminder producer="recency-digest">');
     expect(rendered).not.toContain('form=');
   });
@@ -241,6 +247,7 @@ describe('rendering', () => {
       form: 'notice',
       body: 'anything',
     });
+
     expect(rendered).toContain(CONTEXT_ITEM_PROVENANCE);
     expect(CONTEXT_ITEM_PROVENANCE).toMatch(/not written by the user/i);
   });
@@ -253,6 +260,7 @@ describe('rendering', () => {
       form: 'notice',
       body: 'x',
     });
+
     expect(rendered).toContain('<system-reminder producer="tool-availability"');
     expect(rendered?.match(/<system-reminder/g)).toHaveLength(1);
   });

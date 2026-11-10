@@ -56,6 +56,7 @@ type Fixture = Readonly<{
 function fixture(options: ProtocolPeerOptions = {}): Fixture {
   let latest: PeerSession | undefined;
   const peer = createProtocolPeer({ roots: ['/srv/work'], ...options });
+
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
@@ -64,11 +65,14 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
       open: (openOptions) => {
         const transport = peer.factory.open(openOptions);
         latest = peer.sessions.at(-1);
+
         return transport;
       },
     },
   });
+
   connectors.push(connector);
+
   return { connector, peer, latest: () => latest };
 }
 
@@ -90,6 +94,7 @@ function machineDefinition(
       `Expected a configured Machine server, got ${JSON.stringify(config)}`,
     );
   }
+
   return config.definition;
 }
 
@@ -318,11 +323,17 @@ function field(
 ): JsonValue | undefined {
   if (!isRecord(params)) return undefined;
   const value = params[key];
+
   if (isRecord(value)) return value;
+
   if (value === null) return value;
+
   if (isString(value)) return value;
+
   if (isNumber(value)) return value;
+
   if (isBoolean(value)) return value;
+
   return undefined;
 }
 
@@ -330,7 +341,9 @@ function jsonRpcCall(message: JsonValue | undefined): JsonRpcCall | undefined {
   if (!isRecord(message)) return undefined;
   const id = message['id'];
   const method = message['method'];
+
   if (!isString(method) || (!isString(id) && !isNumber(id))) return undefined;
+
   return { id, method };
 }
 
@@ -340,14 +353,18 @@ function jsonRpcCall(message: JsonValue | undefined): JsonRpcCall | undefined {
  */
 function mcpServerFixture(): Fixture {
   const latestSession: SessionHolder = {};
+
   const peer = createProtocolPeer({
     roots: ['/srv/work'],
     answers: { 'mcp.open': { hold: true } },
     onNotification: (method, notification) => {
       if (method !== 'mcp.open') return;
+
       if (notification.method !== 'mcp.message') return;
       const call = jsonRpcCall(field(notification.params, 'message'));
+
       if (call === undefined) return;
+
       const answer: JsonValue | undefined =
         call.method === 'initialize'
           ? {
@@ -374,12 +391,14 @@ function mcpServerFixture(): Fixture {
                 },
               }
             : undefined;
+
       if (answer === undefined) return;
       latestSession.current?.notify('mcp.open', 'mcp.message', {
         message: answer,
       });
     },
   });
+
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
@@ -388,11 +407,14 @@ function mcpServerFixture(): Fixture {
       open: (openOptions) => {
         const transport = peer.factory.open(openOptions);
         latestSession.current = peer.sessions.at(-1);
+
         return transport;
       },
     },
   });
+
   connectors.push(connector);
+
   return { connector, peer, latest: () => latestSession.current };
 }
 
@@ -424,6 +446,7 @@ describe('machineServerClientFactory', () => {
       server: 'storybook',
       kind: 'stdio',
     });
+
     const session = await machine.peer.session(0);
     await session.awaitRequests(1);
     expect(session.calls).toEqual([
@@ -439,6 +462,7 @@ describe('machineServerClientFactory', () => {
     session.release('mcp.open', { protectedValues: ['repo-token'] }, true);
 
     const client = await connecting;
+
     try {
       const discovery = await client.discover();
       expect(discovery.tools.map((entry) => entry.definition.id)).toEqual([

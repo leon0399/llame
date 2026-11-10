@@ -49,6 +49,7 @@ const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
 const MODEL_ID = 'system:openai:gpt-5.4-mini';
+
 /** A model the operator removed from the catalog. */
 const REMOVED_MODEL_ID = 'system:openai:retired';
 
@@ -100,6 +101,7 @@ function modelValidator(): ModelSelectionValidator {
       if (modelId === REMOVED_MODEL_ID) {
         throw new ModelNotAvailableError(modelId);
       }
+
       return catalogEntry(modelId);
     },
     // The production implementation, so the stored-effort rules are real.
@@ -122,13 +124,16 @@ describeIfDb('follow-up admission', () => {
     const jobState = vi.fn<RunDispatcher['jobState']>(() =>
       Promise.resolve('absent'),
     );
+
     const dispatch: RunDispatcher = {
       dispatch: vi.fn(async () => {}),
       jobState,
     };
+
     const bridge: RunStreamResponder = {
       createUiMessageStreamResponse: vi.fn(() => new Response()),
     };
+
     const instanceConfig: InstanceConfigReader = {
       config: {
         ...BUILT_IN_DEFAULTS,
@@ -142,6 +147,7 @@ describeIfDb('follow-up admission', () => {
         },
       },
     };
+
     const chatLoop = new ChatLoopService(
       tenantDb,
       modelValidator(),
@@ -197,18 +203,22 @@ describeIfDb('follow-up admission', () => {
     runningAttempt?: boolean;
   }): Promise<TurnFixture> {
     const ownerUserId = options.ownerUserId ?? api.userId;
+
     return api.tenantDb.runAs(ownerUserId, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
         ownerUserId,
         title: 'Follow-up turn',
       });
+
       if (options.archived === true) {
         await tx
           .update(schema.chats)
           .set({ archivedAt: new Date() })
           .where(eq(schema.chats.id, chat.id));
       }
+
       const messagesRepo = new MessagesRepository(tx);
+
       const userMessage = await messagesRepo.create({
         chatId: chat.id,
         role: 'user',
@@ -218,6 +228,7 @@ describeIfDb('follow-up admission', () => {
           ...(options.triggerItems ?? []),
         ],
       });
+
       if (options.laterUserMessage === true) {
         await messagesRepo.create({
           chatId: chat.id,
@@ -228,6 +239,7 @@ describeIfDb('follow-up admission', () => {
       }
 
       const runsRepo = new RunsRepository(tx);
+
       const created = await runsRepo.create({
         chatId: chat.id,
         messageId: userMessage.id,
@@ -238,13 +250,16 @@ describeIfDb('follow-up admission', () => {
         followUpAction: options.followUpAction,
         sourceRunId: options.sourceRunId,
       });
+
       let run: Run = created;
+
       if (options.runningAttempt === true) {
         run =
           (await runsRepo.markStarted(created.id, ownerUserId, {
             workerId: 'worker-1',
           })) ?? created;
       }
+
       if (
         options.status !== 'running_model' &&
         options.status !== 'queued' &&
@@ -257,6 +272,7 @@ describeIfDb('follow-up admission', () => {
             options.status,
           )) ?? run;
       }
+
       if (options.ageMs !== undefined) {
         await tx
           .update(schema.runs)
@@ -269,8 +285,10 @@ describeIfDb('follow-up admission', () => {
       }
 
       let replyId: string | undefined;
+
       if (options.reply !== false) {
         const usageStatus = options.replyUsageStatus ?? 'error';
+
         const reply = await messagesRepo.create({
           chatId: chat.id,
           role: 'assistant',
@@ -292,6 +310,7 @@ describeIfDb('follow-up admission', () => {
                 },
           inReplyTo: userMessage.id,
         });
+
         replyId = reply.id;
       }
 
@@ -333,6 +352,7 @@ describeIfDb('follow-up admission', () => {
   function chatUpdatedAt(chatId: string, ownerUserId = api.userId) {
     return api.tenantDb.runAs(ownerUserId, async (tx) => {
       const chat = await new ChatsRepository(tx).findById(chatId, ownerUserId);
+
       return chat?.updatedAt.getTime();
     });
   }
@@ -374,6 +394,7 @@ describeIfDb('follow-up admission', () => {
       });
 
       const beforeAdmission = await chatUpdatedAt(fixture.chatId);
+
       const admitted = await admit(fixture, {
         action: 'continue',
         permissionMode: 'bypass',
@@ -422,6 +443,7 @@ describeIfDb('follow-up admission', () => {
         status: 'failed',
         replyParts: settledCall('call-1'),
       });
+
       await api.tenantDb.runAs(api.userId, (tx) =>
         new RunEventsRepository(tx).append(fixture.runId, 'tool.requested', {
           toolCallId: 'call-1',
@@ -458,6 +480,7 @@ describeIfDb('follow-up admission', () => {
         status: 'failed',
         laterUserMessage: true,
       });
+
       const replyBefore = await replyOf(fixture);
 
       await expect(
@@ -475,6 +498,7 @@ describeIfDb('follow-up admission', () => {
         replyUsageStatus: 'running',
         laterUserMessage: true,
       });
+
       api.jobState.mockResolvedValue('active');
 
       await expect(
@@ -507,6 +531,7 @@ describeIfDb('follow-up admission', () => {
         runningAttempt: true,
         replyUsageStatus: 'running',
       });
+
       api.jobState.mockResolvedValue('active');
 
       await expect(
@@ -526,6 +551,7 @@ describeIfDb('follow-up admission', () => {
         replyUsageStatus: 'running',
         ageMs: STUCK_AGE_MS,
       });
+
       api.jobState.mockResolvedValue('absent');
 
       const admitted = await admit(fixture, { action: 'continue' });
@@ -554,6 +580,7 @@ describeIfDb('follow-up admission', () => {
         reply: false,
         ageMs: STUCK_AGE_MS,
       });
+
       api.jobState.mockResolvedValue('absent');
       const recencyBefore = await chatUpdatedAt(fixture.chatId);
 
@@ -583,12 +610,14 @@ describeIfDb('follow-up admission', () => {
       async (_name, request) => {
         const otherUserId = crypto.randomUUID();
         await api.sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Other', ${`other-${otherUserId}@test.com`})`;
+
         try {
           const foreign = await seedTurn({
             ownerUserId: otherUserId,
             status: 'running_model',
             runningAttempt: true,
           });
+
           const before = await runsOfChat(foreign.chatId, otherUserId);
           const replyBefore = await replyOf(foreign, otherUserId);
 
@@ -672,6 +701,7 @@ describeIfDb('follow-up admission', () => {
 
     it('rejects a permission mode the operator did not enable', async () => {
       const fixture = await seedTurn({ status: 'failed' });
+
       const admission = new FollowUpAdmissionService(
         api.tenantDb,
         modelValidator(),
@@ -732,6 +762,7 @@ describeIfDb('follow-up admission', () => {
 
     it('refuses a Continue when the reply belongs to an older Run', async () => {
       const fixture = await seedTurn({ status: 'failed' });
+
       // A Regenerate on another model that failed before dispatch: it is the
       // latest Run, and it left no reply of its own.
       const failedRegenerate = await api.tenantDb.runAs(api.userId, (tx) =>
@@ -744,6 +775,7 @@ describeIfDb('follow-up admission', () => {
           sourceRunId: fixture.runId,
         }),
       );
+
       await api.tenantDb.runAs(api.userId, (tx) =>
         new RunsRepository(tx).markFinished(
           failedRegenerate.id,
@@ -839,6 +871,7 @@ describeIfDb('follow-up admission', () => {
           effort: 'max',
         }),
       ).rejects.toBeInstanceOf(EffortNotAvailableError);
+
       const admission = new FollowUpAdmissionService(
         api.tenantDb,
         modelValidator(),
@@ -850,6 +883,7 @@ describeIfDb('follow-up admission', () => {
         },
         { dispatch: vi.fn(async () => {}), jobState: api.jobState },
       );
+
       await expect(
         admit(
           fixture,
@@ -989,10 +1023,12 @@ describeIfDb('follow-up admission', () => {
         status: 'completed',
         replyUsageStatus: 'completed',
       });
+
       const regenerate = await admit(fixture, {
         action: 'regenerate',
         modelId: MODEL_ID,
       });
+
       // The Regenerate Run died before it dispatched, so the reply still
       // belongs to the completed Run.
       await api.tenantDb.runAs(api.userId, (tx) =>
@@ -1027,14 +1063,17 @@ describeIfDb('follow-up admission', () => {
         replyUsageStatus: 'completed',
         replyParts: [{ type: 'text', text: 'first segment' }],
       });
+
       const delivered = await api.tenantDb.runAs(api.userId, async (tx) => {
         const messages = new MessagesRepository(tx);
+
         const steer = await messages.create({
           chatId: first.chatId,
           role: 'user',
           senderUserId: api.userId,
           parts: [{ type: 'text', text: 'also do this' }],
         });
+
         const reply = await messages.create({
           chatId: first.chatId,
           role: 'assistant',
@@ -1043,12 +1082,15 @@ describeIfDb('follow-up admission', () => {
           usage: { status: 'error', runId: first.runId, modelId: MODEL_ID },
           inReplyTo: steer.id,
         });
+
         await tx
           .update(schema.runs)
           .set({ messageId: steer.id })
           .where(eq(schema.runs.id, first.runId));
+
         return { steerId: steer.id, replyId: reply.id };
       });
+
       return {
         fixture: {
           ...first,
@@ -1091,6 +1133,7 @@ describeIfDb('follow-up admission', () => {
         followUpAction: 'regenerate',
         sourceRunId: fixture.runId,
       });
+
       // Only the reply of the delivered message is replaced: the first
       // segment's reply stays in the Chat.
       const firstReply = await api.tenantDb.runAs(api.userId, (tx) =>
@@ -1100,6 +1143,7 @@ describeIfDb('follow-up admission', () => {
           firstReplyId,
         ),
       );
+
       expect(firstReply?.parts).toEqual([
         { type: 'text', text: 'first segment' },
       ]);

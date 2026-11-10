@@ -11,7 +11,9 @@ import { type PermissionClause } from '../tools/permissions/types';
 import { PORTABLE_TOOL_PERMISSIONS } from './portable-tool-policy';
 
 type AddressLocator = { readonly address: string; readonly locator: string };
+
 type ExampleReadRejects = ReadonlyArray<PermissionClause>;
+
 type ExampleConfig = {
   readonly tools: {
     readonly permissions: {
@@ -28,10 +30,12 @@ const examplePermissionClauseSchema = z.union([
   z.object({ allFields: z.literal(true), literal: z.string().min(1) }).strict(),
   z.object({ allFields: z.literal(true), regex: z.string().min(1) }).strict(),
 ]);
+
 const examplePermissionMatcherSchema = z.union([
   z.literal(true),
   z.array(examplePermissionClauseSchema),
 ]);
+
 const exampleConfigSchema = z
   .object({
     tools: z
@@ -66,6 +70,7 @@ function createInternalAddresses(): BlockList {
   addresses.addAddress('::1', 'ipv6');
   addresses.addSubnet('fc00::', 7, 'ipv6');
   addresses.addSubnet('fe80::', 10, 'ipv6');
+
   return addresses;
 }
 
@@ -77,6 +82,7 @@ function appendAddressLocators(
 ): void {
   for (const port of ['', ':8080']) {
     const locator = `http://${hostname}${port}/`;
+
     if (seen.has(locator)) continue;
     seen.add(locator);
     result.push({ address, locator });
@@ -108,12 +114,16 @@ function appendIpv4BoundaryLocators(
 
 function createIpv6FirstHextets(): Set<number> {
   const hextets = new Set<number>();
+
   for (let value = 0; value <= 0x1f; value += 1) hextets.add(value);
+
   for (let highByte = 0; highByte <= 0xff; highByte += 1) {
     hextets.add(highByte << 8);
     hextets.add((highByte << 8) | 0xff);
   }
+
   for (let value = 0xfb_00; value <= 0xff_ff; value += 1) hextets.add(value);
+
   return hextets;
 }
 
@@ -122,8 +132,10 @@ function appendIpv6BoundaryLocators(
   seen: Set<string>,
 ): void {
   const suffixes = ['::1', ':0:0:0:0:0:0:1', '::'];
+
   for (const firstHextet of createIpv6FirstHextets()) {
     const prefix = firstHextet.toString(16);
+
     for (const suffix of suffixes) {
       appendIpv6Locators(result, seen, `${prefix}${suffix}`);
     }
@@ -148,14 +160,17 @@ function createBoundaryAddressLocators(): ReadonlyArray<AddressLocator> {
   const seen = new Set<string>();
   appendIpv4BoundaryLocators(result, seen);
   appendIpv6BoundaryLocators(result, seen);
+
   return result;
 }
 
 function readRegexRejects(): Array<string> {
   const rejects = PORTABLE_TOOL_PERMISSIONS.read.reject;
+
   if (rejects === undefined || rejects === true) {
     throw new Error('portable read rejects are missing');
   }
+
   return rejects.flatMap((clause) =>
     'field' in clause && clause.field === 'path' && 'regex' in clause
       ? [clause.regex]
@@ -172,10 +187,13 @@ function exampleReadRejects(): ExampleReadRejects {
       ),
     ),
   );
+
   const rejects = document.tools.permissions.read.reject;
+
   if (rejects === undefined || rejects === true) {
     throw new Error('example read rejects are missing');
   }
+
   return rejects;
 }
 
@@ -183,6 +201,7 @@ describe('portable web address policy', () => {
   const f5Patterns = readRegexRejects().filter((pattern) =>
     pattern.startsWith('^http://'),
   );
+
   const f5Matchers = f5Patterns.map((pattern) =>
     compileRegexMatcher(pattern, 'tools.permissions.read.reject'),
   );
@@ -197,16 +216,20 @@ describe('portable web address policy', () => {
     () => {
       expect(f5Patterns).toHaveLength(6);
       const mismatches: Array<string> = [];
+
       for (const { address, locator } of ADDRESS_LOCATORS) {
         const rejected = f5Matchers.some((matcher) =>
           matcher.matchesExact(locator),
         );
+
         const expected = !INTERNAL_ADDRESSES.check(
           address,
           address.includes(':') ? 'ipv6' : 'ipv4',
         );
+
         if (rejected !== expected) mismatches.push(locator);
       }
+
       expect(mismatches).toEqual([]);
     },
   );
@@ -219,9 +242,11 @@ describe('portable web address policy', () => {
       'http://1e100.net/',
       'http://10.example/',
     ];
+
     const matches = hostnames.filter((locator) =>
       f5Matchers.some((matcher) => matcher.matchesExact(locator)),
     );
+
     expect(matches).toEqual([]);
   });
 
@@ -229,7 +254,9 @@ describe('portable web address policy', () => {
     const f7Pattern = readRegexRejects().find((pattern) =>
       pattern.startsWith(String.raw`^https?://(?:169\.254\.169\.254`),
     );
+
     if (f7Pattern === undefined) throw new Error('F7 is missing');
+
     const matcher = compileRegexMatcher(
       f7Pattern,
       'tools.permissions.read.reject',
@@ -245,6 +272,7 @@ describe('portable web address policy', () => {
     ]) {
       expect(matcher.matchesExact(locator)).toBe(true);
     }
+
     for (const locator of [
       'http://169.254.169.25/x',
       'http://169.254.170.20/',

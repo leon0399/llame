@@ -42,6 +42,7 @@ export class PinsService {
       if (error instanceof PinReorderMismatchError) {
         throw new ConflictException(error.message);
       }
+
       throw error;
     }
   }
@@ -68,6 +69,7 @@ export class PinsService {
       // A concurrent net-new pin raced on `pins_user_position_unique`
       // (23505) — retry once; the peer has committed by now.
     }
+
     try {
       return await this.attemptPin(userId, itemType, itemId);
     } catch (error) {
@@ -84,7 +86,9 @@ export class PinsService {
     itemId: string,
   ): Promise<PinnedRow> {
     const row = await this.insertPin(userId, itemType, itemId);
+
     if (!row) throw new NotFoundException(notFoundMessage(itemType));
+
     return row;
   }
 
@@ -98,9 +102,11 @@ export class PinsService {
   private isRetryablePinRace(err: unknown, itemType: PinItemType): boolean {
     if (err instanceof HttpException) throw err;
     const code = pgErrorCode(err);
+
     if (code === '42501' || code === '23503') {
       throw new NotFoundException(notFoundMessage(itemType));
     }
+
     return code === '23505';
   }
 

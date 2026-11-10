@@ -12,6 +12,7 @@ describe('FakeStreamingModelClient', () => {
     const client = new FakeStreamingModelClient();
     client.titleResponse = new Promise<string>(() => undefined);
     const abort = new AbortController();
+
     const title = client.streamText({
       messages,
       system: TITLE_SYSTEM_PROMPT,

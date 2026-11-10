@@ -54,6 +54,7 @@ export type HydratedCanonicalSearchDocument = {
 
 function parseSafePositiveInteger(value: string): number | null {
   const parsed = Number(value);
+
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
@@ -65,6 +66,7 @@ function parseValidOffset(value: number | null): number | null {
 
 function parseTimestamp(value: Date | string): Date | null {
   const parsed = value instanceof Date ? new Date(value) : new Date(value);
+
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
@@ -138,6 +140,7 @@ function decodeCanonicalMessage(
 
   const messageSeq = parseSafePositiveInteger(row.message_seq);
   const { firstSeq, lastSeq } = range;
+
   if (messageSeq === null || messageSeq < firstSeq || messageSeq > lastSeq) {
     return null;
   }
@@ -145,6 +148,7 @@ function decodeCanonicalMessage(
   // A checkpoint carries model-facing presentation text, never canonical
   // source evidence. It stays in the walk, but is never a boundary.
   const { message_role: role } = row;
+
   if (role === 'checkpoint' || role === 'system' || role === 'tool') {
     return nonSourceMessage(messageSeq, 'presentation');
   }
@@ -160,6 +164,7 @@ function decodeCanonicalMessage(
   ) {
     return nonSourceMessage(messageSeq, 'invalid');
   }
+
   return {
     messageSeq,
     kind: 'source',
@@ -170,6 +175,7 @@ function decodeCanonicalMessage(
 }
 
 type RowPosition = { isFirst: boolean; isLast: boolean };
+
 type SourceRange = { start: number; end: number };
 
 function hasValidSourceRange(
@@ -198,6 +204,7 @@ function resolveDocumentBoundary(
 ): { boundary: DocumentBoundary; range: MessageSeqRange } | null {
   const [firstRow] = rows;
   const lastRow = rows.at(-1);
+
   if (firstRow === undefined || lastRow === undefined) return null;
   const firstMessageId = firstRow.first_message_id;
   const lastMessageId = firstRow.last_message_id;
@@ -271,7 +278,9 @@ function resolveRowOutcome(
   if (decoded.kind === 'presentation') {
     return isBoundary ? { kind: 'stop' } : { kind: 'skip' };
   }
+
   if (decoded.kind === 'invalid') return { kind: 'stop' };
+
   if (
     decoded.role === null ||
     decoded.timestamp === null ||
@@ -281,6 +290,7 @@ function resolveRowOutcome(
   }
 
   const textLength = decoded.visibleText.length;
+
   if (textLength === 0) {
     // The chunker skips empty eligible messages, so an empty boundary means
     // the projection no longer identifies the source it was built from.
@@ -288,6 +298,7 @@ function resolveRowOutcome(
   }
 
   const range = sourceOffsets(position, sameMessage, boundary, textLength);
+
   if (!hasValidSourceRange(position, sameMessage, textLength, range)) {
     return { kind: 'stop' };
   }
@@ -313,6 +324,7 @@ export function hydrateCanonicalSearchRows(
   if (candidate.bestDocumentId === null || rows.length === 0) return null;
 
   const resolved = resolveDocumentBoundary(rows, candidate);
+
   if (resolved === null) return null;
   const { boundary, range } = resolved;
 
@@ -321,17 +333,22 @@ export function hydrateCanonicalSearchRows(
 
   for (const [index, row] of rows.entries()) {
     const decoded = decodeCanonicalMessage(row, candidate, boundary, range);
+
     if (decoded === null || decoded.messageSeq <= previousSeq) {
       return null;
     }
+
     previousSeq = decoded.messageSeq;
 
     const position = {
       isFirst: index === 0,
       isLast: index === rows.length - 1,
     };
+
     const outcome = resolveRowOutcome(decoded, position, boundary);
+
     if (outcome.kind === 'stop') return null;
+
     if (outcome.kind === 'message') messages.push(outcome.message);
   }
 

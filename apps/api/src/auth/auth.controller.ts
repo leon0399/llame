@@ -66,10 +66,12 @@ export class AuthController {
     // misconfiguration fails the request without committing a user/session it can't
     // then set a cookie for.
     const cookieOptions = getSessionCookieOptions();
+
     const result = await this.authService.register(
       input,
       getSessionMetadata(request),
     );
+
     setSessionCookie(
       response,
       result.token,
@@ -95,10 +97,12 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<AuthTokenResponse> {
     const cookieOptions = getSessionCookieOptions();
+
     const result = await this.authService.login(
       input,
       getSessionMetadata(request),
     );
+
     setSessionCookie(
       response,
       result.token,
@@ -159,10 +163,12 @@ export class AuthController {
     // Resolve (and validate) cookie config before revoking, so a prod misconfig
     // can't revoke the session and then 500 leaving the stale cookie in the browser.
     const cookieOptions = getSessionCookieOptions();
+
     const revokedCount = await this.authService.revokeCurrentSession(
       userId,
       sessionId,
     );
+
     clearSessionCookie(response, cookieOptions);
 
     return { revokedCount };
@@ -198,11 +204,13 @@ export class AuthController {
     // Validate cookie config before revoking when we'll need to clear the cookie.
     const cookieOptions =
       query.scope === 'all' ? getSessionCookieOptions() : undefined;
+
     const result = await this.authService.revokeSessions(
       userId,
       sessionId,
       query.scope ?? 'others',
     );
+
     if (query.scope === 'all') {
       clearSessionCookie(response, cookieOptions);
     }
@@ -252,6 +260,7 @@ function getSessionCookieOptions(): CookieOptions {
 function getSessionCookieDomain(): string | undefined {
   // eslint-disable-next-line anti-slop/forbid-process-env-outside-env-ts -- pending migration into llame.config.jsonc: this is a product setting read as a bare env var, which skips schema validation and secret marking. Recorded in the stella oxlint study, docs/research/lint/2026-08-31-stella-oxlint-plugins.md at commit 75735d28.
   const domain = process.env.SESSION_COOKIE_DOMAIN?.trim();
+
   if (domain) {
     return domain;
   }

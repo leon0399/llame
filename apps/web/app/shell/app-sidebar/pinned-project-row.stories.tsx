@@ -30,6 +30,7 @@ const projectPin: PinnedProject = {
 
 function PinnedProjectRowStory(props: { pin: PinnedProject }) {
   const dragControls = useDragControls();
+
   return <PinnedProjectRow pin={props.pin} dragControls={dragControls} />;
 }
 
@@ -58,6 +59,7 @@ const meta = {
 } satisfies Meta<typeof PinnedProjectRowStory>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

@@ -10,9 +10,12 @@ export const DISPLAY_NAME_MAX = 200;
 /** Why `name` is not one path segment, or `null` when it is. */
 export function displayNameProblem(name: string): string | null {
   if (name.trim() === '') return 'must not be blank';
+
   if (name === '.' || name === '..') return 'must not be "." or ".."';
+
   if (name.includes('/') || name.includes('\0'))
     return 'must not contain "/" or a NUL byte';
+
   return name.length > DISPLAY_NAME_MAX
     ? `must be at most ${DISPLAY_NAME_MAX} characters`
     : null;
@@ -32,5 +35,6 @@ export function derivedDisplayName(
       .split('/')
       .filter((part) => part !== '')
       .at(-1) ?? '';
+
   return displayNameProblem(segment) === null ? segment : 'repository';
 }

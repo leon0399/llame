@@ -41,6 +41,7 @@ function testContext(
   onNativeMutationUnknown?: () => void,
 ): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     configuredCredentials: [],
     userId: 'owner',
@@ -91,9 +92,11 @@ describe('bash durable admission', () => {
     const nested = join(directory, 'nested');
     const relativeCwd = 'nested';
     await mkdir(nested);
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValue(undefined);
+
     vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
       runId: 'run',
       sequence: 1,
@@ -161,9 +164,11 @@ describe('bash durable admission', () => {
     const root = await mkdtemp(join(tmpdir(), 'bash-workspace-root-'));
     const nested = join(root, 'nested');
     await mkdir(nested);
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValue(undefined);
+
     vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
       runId: 'run',
       sequence: 1,
@@ -171,6 +176,7 @@ describe('bash durable admission', () => {
       payload: null,
       createdAt: new Date(),
     });
+
     const workspaceContext = {
       ...testContext(),
       workspaceRoot: createWorkspaceRootCell(root),
@@ -251,6 +257,7 @@ describe('bash durable admission', () => {
 
   it('leaves an ssh:// cwd alone in a Machine Workspace', async () => {
     const runs: Array<SshRunRequest> = [];
+
     const client: SshClient = {
       resolve: () =>
         Promise.resolve({
@@ -259,10 +266,12 @@ describe('bash durable admission', () => {
         }),
       run: (request): Promise<SshRunOutcome> => {
         runs.push(request);
+
         const nonce =
           /printf '%s:start\\n' '([0-9a-f]+)'/u.exec(
             String(request.input),
           )?.[1] ?? '';
+
         return Promise.resolve({
           outcome: 'ended',
           stdout: Buffer.from(`${nonce}:start\n/home/box/work\n`),
@@ -276,9 +285,11 @@ describe('bash durable admission', () => {
       sshConfigText: () => undefined,
       dispose: () => undefined,
     };
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValue(undefined);
+
     vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
       runId: 'run',
       sequence: 1,
@@ -324,6 +335,7 @@ describe('bash durable admission', () => {
       sshConfigText: () => undefined,
       dispose: () => undefined,
     };
+
     const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
 
     const result = await runTool(
@@ -446,11 +458,14 @@ describe('bash durable admission', () => {
           testContext(`invalid-${cwd}`),
           5,
         );
+
         expect(result).toMatchObject({ status: 'error', type: 'unavailable' });
+
         if (result.status === 'error') {
           expect(result.message).toContain('literal');
         }
       }
+
       expect(begin).not.toHaveBeenCalled();
     } finally {
       await chmod(lockedDirectory, 0o700);
@@ -460,9 +475,11 @@ describe('bash durable admission', () => {
 
   it('adds env values to the fixed base without inheriting the parent environment', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-env-'));
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValue(undefined);
+
     vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
       runId: 'run',
       sequence: 1,
@@ -485,11 +502,14 @@ describe('bash durable admission', () => {
       );
 
       expect(result).toMatchObject({ status: 'success' });
+
       if (result.status === 'success') {
         expect(result).not.toHaveProperty('cut');
+
         if (!isString(result.stdout)) {
           throw new Error('Expected bash stdout to be a string');
         }
+
         // Bash and the local launcher add runtime variables such as PWD,
         // SHLVL, and _. Assert the environment contract without freezing
         // those implementation details or their ordering.
@@ -501,6 +521,7 @@ describe('bash durable admission', () => {
           variables.some((line) => line.startsWith('LLAME_HOST_ONLY_SECRET=')),
         ).toBe(false);
       }
+
       expect(begin).toHaveBeenCalledOnce();
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -519,13 +540,16 @@ describe('bash durable admission', () => {
         testContext(),
         5,
       );
+
       expect(result).toMatchObject({
         status: 'error',
         type: 'unavailable',
       });
+
       if (result.status !== 'error') {
         throw new Error('Expected an unavailable result');
       }
+
       expect(result.message).toContain('PATH');
       expect(begin).not.toHaveBeenCalled();
     } finally {
@@ -538,14 +562,17 @@ describe('bash durable admission', () => {
     const provider = 'PROVIDER-CANARY-7f3';
     const mcp = 'MCP-HEADER-CANARY-2b9';
     const knowledge = '/srv/knowledge/root';
+
     const context = {
       ...testContext(),
       artifactReadable: true,
       configuredCredentials: [provider, mcp],
     };
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockResolvedValue({
@@ -555,8 +582,10 @@ describe('bash durable admission', () => {
         payload: null,
         createdAt: new Date(),
       });
+
     const insertParts = stubArtifactWrites();
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const result = await runTool(
         bashTool,
@@ -576,12 +605,14 @@ describe('bash durable admission', () => {
         .flatMap(([, written]) => written)
         .map((part) => part.content.toString('utf8'))
         .join('\n');
+
       expectRedacted(parts, [provider, mcp]);
       expect(parts).toContain(knowledge);
 
       const events = append.mock.calls
         .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
         .join('\n');
+
       expectRedacted(events, [provider, mcp]);
       expect(events).toContain(knowledge);
     } finally {
@@ -594,6 +625,7 @@ describe('bash durable admission', () => {
       ...testContext(),
       artifactMaxBytes: 131_072,
     });
+
     expect(bounds.outputBoundBytes).toBe(131_072);
     expect(bounds.outputBound).toBeUndefined();
   });
@@ -612,6 +644,7 @@ describe('bash durable admission', () => {
       createdAt: new Date(),
     });
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const timedOut = await runTool(
         bashTool,
@@ -627,6 +660,7 @@ describe('bash durable admission', () => {
         status: 'error',
         type: 'timed_out',
       });
+
       if (timedOut.status === 'error') {
         // A stopped command names itself and the measured time, never an exit
         // code it did not report.
@@ -644,6 +678,7 @@ describe('bash durable admission', () => {
         // the next call must not depend on the machine's wall-clock load.
         5,
       );
+
       expect(next).toMatchObject({
         status: 'success',
         stdout: 'next',
@@ -656,10 +691,12 @@ describe('bash durable admission', () => {
   it('keeps user cancellation separate from the effective timeout', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-cancel-'));
     const abort = new AbortController();
+
     const context = {
       ...testContext(),
       abortSignal: abort.signal,
     };
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
@@ -671,6 +708,7 @@ describe('bash durable admission', () => {
       createdAt: new Date(),
     });
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const resultPromise = runTool(
         bashTool,
@@ -678,6 +716,7 @@ describe('bash durable admission', () => {
         context,
         5,
       );
+
       setTimeout(() => abort.abort(), 20);
 
       await expect(resultPromise).resolves.toMatchObject({
@@ -693,6 +732,7 @@ describe('bash durable admission', () => {
     const directory = await mkdtemp(
       join(tmpdir(), 'bash-persistence-timeout-'),
     );
+
     const context = testContext();
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
@@ -702,6 +742,7 @@ describe('bash durable admission', () => {
     );
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
     const startedAt = Date.now();
+
     try {
       const result = await runTool(
         bashTool,
@@ -726,13 +767,16 @@ describe('bash durable admission', () => {
     const secondPath = join(directory, 'next-effect');
     const context = testContext();
     let resolveFirstBegin!: (value: undefined) => void;
+
     const firstBegin = new Promise<undefined>((resolve) => {
       resolveFirstBegin = resolve;
     });
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockReturnValueOnce(firstBegin)
       .mockResolvedValue(undefined);
+
     const append = vi
       .spyOn(RunEventsRepository.prototype, 'append')
       .mockResolvedValue({
@@ -742,7 +786,9 @@ describe('bash durable admission', () => {
         payload: null,
         createdAt: new Date(),
       });
+
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const first = runTool(
         bashTool,
@@ -750,6 +796,7 @@ describe('bash durable admission', () => {
         context,
         0.05,
       );
+
       await expect(first).resolves.toMatchObject({
         status: 'error',
         type: 'outcome_unknown',
@@ -761,6 +808,7 @@ describe('bash durable admission', () => {
         { ...context, toolCallId: 'call-2' },
         5,
       );
+
       expect(next).toMatchObject({ status: 'success' });
       await expect(readFile(secondPath, 'utf8')).resolves.toBe('next');
 
@@ -791,6 +839,7 @@ describe('bash durable admission', () => {
         stderr: 'partial stderr',
         truncated,
       };
+
       // The message is the bash text shape: the command was stopped, not
       // exited, so the header names itself and the 0.1 s measured before the
       // deadline stopped it.
@@ -813,6 +862,7 @@ describe('bash durable admission', () => {
       stderr: '',
       truncated: false,
     };
+
     expect(toToolResult(result)).toEqual({
       status: 'error',
       type: 'timed_out',
@@ -829,6 +879,7 @@ describe('bash durable admission', () => {
       truncated: false,
       wallTimeMs: 2460,
     };
+
     expect(toToolResult(result)).toEqual({
       status: 'error',
       type: 'command_failed',
@@ -845,6 +896,7 @@ describe('bash durable admission', () => {
       truncated: false,
       wallTimeMs: 1240,
     };
+
     expect(toToolResult(result)).toStrictEqual({
       status: 'success',
       exitCode: 0,
@@ -863,6 +915,7 @@ describe('bash durable admission', () => {
       truncated: true,
       wallTimeMs: 1240,
     };
+
     expect(toToolResult(result)).toStrictEqual({
       status: 'success',
       exitCode: 0,
@@ -881,6 +934,7 @@ describe('bash durable admission', () => {
       stderr: '',
       truncated: false,
     };
+
     const settled = toToolResult(result);
     expect(settled).toStrictEqual({
       status: 'success',
@@ -893,6 +947,7 @@ describe('bash durable admission', () => {
   it('does not start a command when the durable attempt cannot commit', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
     const path = join(directory, 'effect');
+
     const context: ToolContext = {
       configuredCredentials: [],
       userId: 'owner',
@@ -906,6 +961,7 @@ describe('bash durable admission', () => {
         runAs: () => Promise.reject(new Error('Database unavailable')),
       },
     };
+
     try {
       const result = await runTool(
         bashTool,
@@ -913,6 +969,7 @@ describe('bash durable admission', () => {
         context,
         5,
       );
+
       expect(result).toMatchObject({
         status: 'error',
         type: 'outcome_unknown',
@@ -928,10 +985,12 @@ describe('bash durable admission', () => {
   it('releases the process slot when begin fails before the attempt is committed', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
     const context = testContext();
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockRejectedValueOnce(new Error('Database unavailable'))
       .mockResolvedValueOnce(undefined);
+
     vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
       runId: 'run',
       sequence: 1,
@@ -940,10 +999,12 @@ describe('bash durable admission', () => {
       createdAt: new Date(),
     });
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       await expect(
         bashTool.execute(context, { command: 'printf first' }),
       ).rejects.toThrow('Database unavailable');
+
       const result = await bashTool.execute(
         { ...context, toolCallId: 'call-2' },
         { command: 'printf second' },
@@ -959,6 +1020,7 @@ describe('bash durable admission', () => {
   it('releases the process slot when begin returns a refusal', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
     const context = testContext();
+
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValueOnce({
@@ -967,6 +1029,7 @@ describe('bash durable admission', () => {
         message: 'This Run cannot use this native executor.',
       })
       .mockResolvedValueOnce(undefined);
+
     vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
       runId: 'run',
       sequence: 1,
@@ -975,10 +1038,12 @@ describe('bash durable admission', () => {
       createdAt: new Date(),
     });
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       await expect(
         bashTool.execute(context, { command: 'printf first' }),
       ).resolves.toMatchObject({ type: 'executor_unavailable' });
+
       const result = await bashTool.execute(
         { ...context, toolCallId: 'call-2' },
         { command: 'printf second' },
@@ -1002,6 +1067,7 @@ describe('bash durable admission', () => {
       new Error('event log unavailable'),
     );
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const result = await runTool(
         bashTool,
@@ -1058,6 +1124,7 @@ describe('bash durable admission', () => {
       'findPartContent',
     ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const result = await bashTool.execute(
         { ...testContext(), artifactHostFiles: true },
@@ -1093,6 +1160,7 @@ describe('bash durable admission', () => {
     });
     const list = vi.spyOn(ArtifactsRepository.prototype, 'listChatPartFiles');
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const result = await bashTool.execute(
         { ...testContext() },
@@ -1128,6 +1196,7 @@ describe('bash durable admission', () => {
     ).mockRejectedValue(new Error('the store is unavailable'));
     const warn = vi.spyOn(Logger.prototype, 'warn');
     vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
     try {
       const result = await bashTool.execute(
         { ...testContext(), artifactHostFiles: true },

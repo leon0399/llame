@@ -102,12 +102,14 @@ export async function evaluateCanonicalLinePredicates(
   if (normalizedQuery.length === 0 || candidates.length === 0) return new Set();
 
   const likePattern = `%${normalizedQuery.replaceAll(/[\\%_]/g, String.raw`\$&`)}%`;
+
   const values = sql.join(
     candidates.map(
       (candidate) => sql`(${candidate.id}, ${candidate.normalizedText})`,
     ),
     sql`, `,
   );
+
   const rows = await tx.execute<{ line_id: number | string }>(sql`
     WITH candidates(line_id, normalized_text) AS (
       VALUES ${values}
@@ -128,12 +130,15 @@ export async function evaluateCanonicalLinePredicates(
 
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
   const matchedLineIds = new Set<number>();
+
   for (const row of rows) {
     const lineId = Number(row.line_id);
+
     if (Number.isSafeInteger(lineId) && candidateIds.has(lineId)) {
       matchedLineIds.add(lineId);
     }
   }
+
   return matchedLineIds;
 }
 
@@ -148,15 +153,18 @@ export async function matchCanonicalSearchPreview(
   evaluate: CanonicalLinePredicateEvaluator,
 ): Promise<CanonicalSearchPreviewPassage | null> {
   const normalizedQuery = normalizeForSearch(query);
+
   if (normalizedQuery.length === 0) return null;
 
   const internalLines = buildInternalLines(document);
+
   if (internalLines.length === 0) return null;
 
   const matchingIds = await evaluate(
     normalizedQuery,
     internalLines.map(({ id, normalizedText }) => ({ id, normalizedText })),
   );
+
   const matchedLines = internalLines
     .filter((line) => matchingIds.has(line.id))
     .map((line) => ({
@@ -179,16 +187,21 @@ function selectPreviewPassage(
   passages.sort((left, right) => {
     const leftSeq =
       left.matches[0]?.line.message.messageSeq ?? Number.MAX_SAFE_INTEGER;
+
     const rightSeq =
       right.matches[0]?.line.message.messageSeq ?? Number.MAX_SAFE_INTEGER;
+
     return leftSeq - rightSeq || left.start - right.start;
   });
 
   const selected = passages[0];
+
   if (selected === undefined) return null;
 
   const firstMatch = selected.matches[0];
+
   if (firstMatch === undefined) return null;
+
   const selectedLines = scanConversationLogicalLines(
     firstMatch.line.message.visibleText,
   ).slice(selected.start, selected.end + 1);
@@ -213,6 +226,7 @@ function selectPreviewPassage(
 function linesFromMessage(message: CanonicalSearchMessage, startId: number) {
   const lines: Array<InternalLine> = [];
   let id = startId;
+
   if (
     !Number.isSafeInteger(message.sourceStart) ||
     !Number.isSafeInteger(message.sourceEndExclusive) ||
@@ -225,17 +239,21 @@ function linesFromMessage(message: CanonicalSearchMessage, startId: number) {
 
   for (const logical of scanConversationLogicalLines(message.visibleText)) {
     const sourceStart = Math.max(logical.startOffset, message.sourceStart);
+
     const sourceEndExclusive = Math.min(
       logical.endOffsetExclusive,
       message.sourceEndExclusive,
     );
+
     if (sourceStart >= sourceEndExclusive) continue;
 
     const sourceText = message.visibleText.slice(
       sourceStart,
       sourceEndExclusive,
     );
+
     const normalizedText = normalizeForSearch(sourceText);
+
     if (normalizedText.length === 0) continue;
     lines.push({
       id,
@@ -247,6 +265,7 @@ function linesFromMessage(message: CanonicalSearchMessage, startId: number) {
     });
     id += 1;
   }
+
   return { lines, nextId: id };
 }
 
@@ -255,6 +274,7 @@ function buildInternalLines(
 ): Array<InternalLine> {
   const result: Array<InternalLine> = [];
   let id = 0;
+
   const messages = document.messages
     .map((message, index) => ({ message, index }))
     .sort(
@@ -292,6 +312,7 @@ function findExactAnchor(
       normalizedQuery,
       occurrence,
     );
+
     if (mapped !== undefined) {
       return {
         line: line.logical.line,
@@ -301,6 +322,7 @@ function findExactAnchor(
       };
     }
   }
+
   return undefined;
 }
 
@@ -312,11 +334,14 @@ function makeAnchor(
     line.sourceStart,
     line.sourceEndExclusive,
   );
+
   const mapping = buildNormalizedMapping(raw, line.normalizedText);
+
   const exact =
     mapping === undefined
       ? undefined
       : findExactAnchor(line, raw, normalizedQuery, mapping);
+
   if (exact !== undefined) return exact;
 
   return {
@@ -337,7 +362,9 @@ function firstCodePointEnd(
   endOffsetExclusive: number,
 ): number {
   const codePoint = text.codePointAt(startOffset);
+
   if (codePoint === undefined) return startOffset;
+
   return Math.min(
     endOffsetExclusive,
     startOffset + (codePoint > 0xff_ff ? 2 : 1),
@@ -348,27 +375,34 @@ function buildPassages(
   matchedLines: ReadonlyArray<MatchedLine>,
 ): Array<LineInterval> {
   const grouped = new Map<number, Array<MatchedLine>>();
+
   for (const match of matchedLines) {
     const group = grouped.get(match.line.message.messageSeq);
+
     if (group === undefined)
       grouped.set(match.line.message.messageSeq, [match]);
     else group.push(match);
   }
 
   const passages: Array<LineInterval> = [];
+
   for (const group of grouped.values()) {
     group.sort(
       (left, right) => left.line.logical.line - right.line.logical.line,
     );
+
     const totalLines = scanConversationLogicalLines(
       group[0]?.line.message.visibleText ?? '',
     ).length;
+
     if (totalLines === 0) continue;
 
     let current: LineInterval | undefined;
+
     for (const match of group) {
       const start = Math.max(0, match.line.logical.line - 1);
       const end = Math.min(totalLines - 1, match.line.logical.line + 1);
+
       if (current === undefined) {
         current = { start, end, matches: [match] };
       } else if (start <= current.end + 1) {
@@ -382,6 +416,7 @@ function buildPassages(
         current = { start, end, matches: [match] };
       }
     }
+
     if (current !== undefined) passages.push(...partitionInterval(current));
   }
 
@@ -395,15 +430,20 @@ function partitionInterval(interval: LineInterval): Array<LineInterval> {
 
   while (interval.end - start + 1 > CANONICAL_SEARCH_MAX_PASSAGE_LINES) {
     const lastMatch = remainingMatches.at(-1);
+
     if (lastMatch === undefined) break;
+
     const boundary = Math.min(
       start + CANONICAL_SEARCH_MAX_PASSAGE_LINES - 1,
       lastMatch.line.logical.line - 1,
     );
+
     if (boundary < start) break;
+
     const partitionMatches = remainingMatches.filter(
       (match) => match.line.logical.line <= boundary,
     );
+
     if (partitionMatches.length === 0) break;
     result.push({ start, end: boundary, matches: partitionMatches });
     remainingMatches = remainingMatches.filter(
@@ -415,6 +455,7 @@ function partitionInterval(interval: LineInterval): Array<LineInterval> {
   if (remainingMatches.length > 0) {
     result.push({ start, end: interval.end, matches: remainingMatches });
   }
+
   return result;
 }
 
@@ -425,22 +466,27 @@ function mapNormalizedOccurrence(
   occurrence: number,
 ): { startOffset: number; endOffsetExclusive: number } | undefined {
   const occurrenceEnd = occurrence + query.length;
+
   const segments = mapping.segments.filter(
     (segment) =>
       segment.normalizedStart < occurrenceEnd &&
       segment.normalizedEndExclusive > occurrence,
   );
+
   const first = segments[0];
   const last = segments.at(-1);
+
   if (first === undefined || last === undefined) return undefined;
 
   const startOffset = first.rawStart;
   const endOffsetExclusive = last.rawEndExclusive;
+
   if (
     normalizeForSearch(raw.slice(startOffset, endOffsetExclusive)) !== query
   ) {
     return undefined;
   }
+
   return { startOffset, endOffsetExclusive };
 }
 
@@ -458,16 +504,21 @@ type NormalizedFragment = {
  *  normalize together. Phase 1 of `buildNormalizedMapping`. */
 function buildCombiningMarkFragments(raw: string): Array<NormalizedFragment> {
   const fragments: Array<NormalizedFragment> = [];
+
   for (let offset = 0; offset < raw.length;) {
     const rawStart = offset;
     const firstCodePoint = raw.codePointAt(offset);
+
     if (firstCodePoint === undefined) break;
     offset += firstCodePoint > 0xff_ff ? 2 : 1;
+
     while (offset < raw.length) {
       const codePoint = raw.codePointAt(offset);
+
       if (codePoint === undefined || !isCombiningMark(codePoint)) break;
       offset += codePoint > 0xff_ff ? 2 : 1;
     }
+
     const rawEndExclusive = offset;
     fragments.push({
       text: raw.slice(rawStart, rawEndExclusive).normalize('NFKC'),
@@ -475,6 +526,7 @@ function buildCombiningMarkFragments(raw: string): Array<NormalizedFragment> {
       rawEndExclusive,
     });
   }
+
   return fragments;
 }
 
@@ -493,9 +545,12 @@ function appendNormalizedToken(
       rawStart: fragment.rawStart,
       rawEndExclusive: fragment.rawEndExclusive,
     });
+
     return;
   }
+
   const previous = tokens.at(-1);
+
   if (previous?.text === ' ') {
     previous.rawEndExclusive = fragment.rawEndExclusive;
   } else {
@@ -513,13 +568,17 @@ function tokenizeFragments(
   fragments: ReadonlyArray<NormalizedFragment>,
 ): Array<NormalizedFragment> {
   const tokens: Array<NormalizedFragment> = [];
+
   for (const fragment of fragments) {
     for (const character of Array.from(fragment.text)) {
       appendNormalizedToken(tokens, character, fragment);
     }
   }
+
   while (tokens[0]?.text === ' ') tokens.shift();
+
   while (tokens.at(-1)?.text === ' ') tokens.pop();
+
   return tokens;
 }
 
@@ -533,15 +592,18 @@ function foldAndVerifyTokens(
 ): { normalized: string; foldedFragments: Array<string> } | undefined {
   const preLowerNormalized = tokens.map((token) => token.text).join('');
   const normalized = preLowerNormalized.toLowerCase();
+
   if (normalized !== expectedNormalized) return undefined;
 
   const foldedFragments = tokens.map((token) => token.text.toLowerCase());
+
   if (
     foldedFragments.reduce((total, fragment) => total + fragment.length, 0) !==
     normalized.length
   ) {
     return undefined;
   }
+
   return { normalized, foldedFragments };
 }
 
@@ -554,16 +616,20 @@ function buildNormalizedSegments(
 ): Array<NormalizedSegment> | undefined {
   const segments: Array<NormalizedSegment> = [];
   let normalizedOffset = 0;
+
   for (const [index, token] of tokens.entries()) {
     const foldedFragment = foldedFragments[index];
+
     if (foldedFragment === undefined) return undefined;
     const normalizedEndExclusive = normalizedOffset + foldedFragment.length;
+
     if (
       normalizedEndExclusive <= normalizedOffset ||
       normalizedEndExclusive > normalizedLength
     ) {
       return undefined;
     }
+
     segments.push({
       normalizedStart: normalizedOffset,
       normalizedEndExclusive,
@@ -572,7 +638,9 @@ function buildNormalizedSegments(
     });
     normalizedOffset = normalizedEndExclusive;
   }
+
   if (normalizedOffset !== normalizedLength) return undefined;
+
   return segments;
 }
 
@@ -590,6 +658,7 @@ function buildNormalizedMapping(
   const tokens = tokenizeFragments(fragments);
 
   const folded = foldAndVerifyTokens(tokens, expectedNormalized);
+
   if (folded === undefined) return undefined;
   const { normalized, foldedFragments } = folded;
 
@@ -598,6 +667,7 @@ function buildNormalizedMapping(
     foldedFragments,
     normalized.length,
   );
+
   if (segments === undefined) return undefined;
 
   return { normalized, segments };

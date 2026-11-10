@@ -61,6 +61,7 @@ export const InlineCodeLiteral: Story = {
     const token = await canvas.findByRole("button", {
       name: "/\\d+\\.\\d+/",
     });
+
     await expect(token.closest("code")).not.toBeNull();
   },
 };
@@ -90,6 +91,7 @@ export const CodeBlockLiteral: Story = {
       const sources = new Set(
         [...marked].map((span) => span.getAttribute("data-regex-token")),
       );
+
       expect([...sources]).toEqual([SLUG_LITERAL]);
 
       // The marked spans must cover the literal *exactly*: a literal spans
@@ -373,9 +375,11 @@ export const TableWithLiterals: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "View fullscreen" }),
     );
+
     const overlay = await body.findByRole("dialog", {
       name: "View fullscreen",
     });
+
     await userEvent.click(
       within(overlay).getAllByRole("button", { name: "/^\\s*$/" })[0],
     );
@@ -416,6 +420,7 @@ export const TestRegexFlow: Story = {
     const menuItem = await body.findByRole("menuitem", {
       name: "Test regex",
     });
+
     await userEvent.click(menuItem);
 
     const input = await body.findByRole("textbox", { name: "Text to match" });
@@ -435,6 +440,7 @@ export const TestRegexFlow: Story = {
       const results = within(
         body.getByText("Match").parentElement as HTMLElement,
       );
+
       expect(results.getByText("my-slug")).toBeVisible();
       const highlight = document.querySelector("mark");
       expect(highlight).not.toBeNull();
@@ -480,6 +486,7 @@ export const GlobalFlagMatches: Story = {
       const results = within(
         body.getByText("Match").parentElement as HTMLElement,
       );
+
       expect(results.getByText("1")).toBeVisible();
       expect(results.getByText("22")).toBeVisible();
       expect(document.querySelectorAll("mark").length).toBe(2);

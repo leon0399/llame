@@ -18,8 +18,10 @@ export async function readCreatedFlags(
     userId,
     'run.created',
   );
+
   const payload = created?.payload;
   const record = isRecord(payload) ? payload : {};
+
   return {
     replacesUsage: record['replacesUsage'] === true,
     notice: record['notice'] === true,

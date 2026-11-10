@@ -45,6 +45,7 @@ import { RepositoriesRepository } from './repositories.repository';
 // cannot produce on demand.
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof NodeFsPromises>();
+
   return {
     ...actual,
     realpath: vi.fn(actual.realpath),
@@ -121,6 +122,7 @@ function inspected(
   overrides: Partial<GitInspectSuccess> = {},
 ): GitInspectSuccess {
   const toplevel = overrides.toplevel ?? '/work/proj';
+
   return {
     status: 'ok',
     commonDir: `${toplevel}/.git`,
@@ -143,26 +145,33 @@ function makeService(options: {
   readonly inspection?: GitInspectResult;
 }) {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   vi.spyOn(tenantDb, 'runAs').mockImplementation(
     async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
       callback(db),
   );
+
   const inspect = vi
     .fn<LocalGit['inspect']>()
     .mockResolvedValue(options.inspection ?? inspected());
+
   // The real dispatch runs, over a local surface whose one operation the case
   // controls: the canonical probe is the shipped one.
   const local: LocalGit = { ...localGitSurface(), inspect };
+
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     machines: undefined,
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
   });
+
   opened.push(connector);
+
   const config = {
     ...BUILT_IN_DEFAULTS,
     tools: {
@@ -170,6 +179,7 @@ function makeService(options: {
       ...(options.tools ?? ALLOWED_LOCAL),
     },
   };
+
   const service = new CheckoutRegistrationService(
     tenantDb,
     { config },
@@ -179,6 +189,7 @@ function makeService(options: {
       'test-policy',
     ),
   );
+
   return { service, inspect };
 }
 
@@ -266,6 +277,7 @@ async function failureOf(promise: Promise<unknown>) {
       return failureSchema.parse(error.getResponse());
     throw error;
   }
+
   throw new Error('expected the call to fail');
 }
 
@@ -382,6 +394,7 @@ describe('CheckoutRegistrationService gates', () => {
     const { service, inspect } = makeService({
       group: { allow: [{ field: 'path', literal: '/work/proj/sub' }] },
     });
+
     // A symlink target outside the allow list is refused even though the
     // submitted path was admitted.
     vi.mocked(realpath).mockResolvedValue('/work/elsewhere');
@@ -436,6 +449,7 @@ describe('CheckoutRegistrationService gates', () => {
         mainWorktree: '/work/proj',
       }),
     });
+
     vi.mocked(realpath).mockResolvedValue('/work/wt/sub');
 
     // The submitted and canonical paths are this worktree's subdirectory and
@@ -642,10 +656,12 @@ describe('storing the checkout', () => {
         branch: 'feature',
       }),
     });
+
     vi.mocked(realpath).mockResolvedValue('/work/wt');
     const parent = checkoutRow({ id: PARENT_ID, path: '/work/proj' });
     data.findCheckoutByPath.mockResolvedValue(parent);
     data.findRepository.mockResolvedValue(repository);
+
     const created = checkoutRow({
       id: CHILD_ID,
       path: '/work/wt',
@@ -653,6 +669,7 @@ describe('storing the checkout', () => {
       parentCheckoutId: PARENT_ID,
       branch: 'feature',
     });
+
     data.createCheckout.mockResolvedValue(created);
 
     await expect(service.register(OWNER, { path: '/work/wt' })).resolves.toBe(
@@ -863,6 +880,7 @@ describe('adoption of an unselected repository', () => {
     const { service } = makeService({
       inspection: inspected({ remotes: [] }),
     });
+
     data.createRepository.mockResolvedValue(undefined);
 
     // A NULL remote never conflicts on the unique key, so reaching here is a
@@ -884,6 +902,7 @@ describe('origin agreement', () => {
         remotes: [],
       }),
     });
+
     vi.mocked(realpath).mockResolvedValue('/work/wt');
     data.findCheckoutByPath.mockResolvedValue(
       checkoutRow({ id: PARENT_ID, path: '/work/proj' }),
@@ -967,17 +986,20 @@ describe('the main clone of a worktree', () => {
   ) {
     const made = makeService({ inspection });
     vi.mocked(realpath).mockResolvedValue('/work/wt');
+
     return made;
   }
 
   it('adopts an unrecorded main clone next to the worktree', async () => {
     const { service } = worktreeService();
+
     const parent = checkoutRow({
       id: PARENT_ID,
       path: '/work/proj',
       branch: null,
       origin: 'adopted',
     });
+
     const created = checkoutRow({
       id: CHILD_ID,
       path: '/work/wt',
@@ -985,6 +1007,7 @@ describe('the main clone of a worktree', () => {
       parentCheckoutId: PARENT_ID,
       branch: 'feature',
     });
+
     data.createCheckout
       .mockResolvedValueOnce(parent)
       .mockResolvedValueOnce(created);
@@ -1020,12 +1043,14 @@ describe('the main clone of a worktree', () => {
   it('reads the parent a concurrent registration adopted first', async () => {
     const { service } = worktreeService();
     const parent = checkoutRow({ id: PARENT_ID, path: '/work/proj' });
+
     const created = checkoutRow({
       id: CHILD_ID,
       path: '/work/wt',
       kind: 'worktree',
       parentCheckoutId: PARENT_ID,
     });
+
     // The parent lookup misses twice, the insert loses, and the committed row
     // of the winner is visible to the third read.
     data.findCheckoutByPath

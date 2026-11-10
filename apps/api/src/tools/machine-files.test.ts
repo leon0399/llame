@@ -71,12 +71,14 @@ type Fixture = {
 
 function fixture(options: ProtocolPeerOptions = {}): Fixture {
   const peer = createProtocolPeer(options);
+
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
     transportFactory: peer.factory,
     handshakeTimeoutMs: 2000,
   });
+
   return { peer, connector };
 }
 
@@ -85,6 +87,7 @@ function context(
   overrides: Partial<ToolContext> = {},
 ): ToolContext {
   const db: Db = drizzle.mock({ schema });
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -109,6 +112,7 @@ function stubFence() {
   const begin = vi
     .spyOn(NativeFilesRepository.prototype, 'begin')
     .mockResolvedValue(undefined);
+
   const append = vi
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue({
@@ -118,18 +122,21 @@ function stubFence() {
       payload: null,
       createdAt: new Date(),
     });
+
   return { begin, append };
 }
 
 function mediaStore(result: 'image' | 'not-media' = 'image') {
   const handed: Array<{ locator: string; byteSize: number; bytes: Buffer }> =
     [];
+
   const store: ToolMediaStore = {
     readMedia:
       (locator): MediaReadHook =>
       async ({ byteSize, readBytes }) => {
         const bytes = await readBytes();
         handed.push({ locator, byteSize, bytes });
+
         return result === 'not-media'
           ? { status: 'error', type: 'unsupported_media_type', message: 'no' }
           : {
@@ -142,6 +149,7 @@ function mediaStore(result: 'image' | 'not-media' = 'image') {
       },
     findMedia: () => Promise.resolve(undefined),
   };
+
   return { store, handed };
 }
 
@@ -160,12 +168,14 @@ describe('Machine native reads', () => {
     const { peer, connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/app/README.md' },
       context(connector),
       5,
     );
+
     expect(result).toEqual(READ_FILE);
     const session = await peer.session(0);
     expect(session.calls).toEqual([
@@ -190,6 +200,7 @@ describe('Machine native reads', () => {
     const { peer, connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
+
     await runTool(
       nativeReadTool,
       { path: 'MACHINE://DEVL/srv/app/README.md:1-5' },
@@ -218,12 +229,14 @@ describe('Machine native reads', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/a%23b.md' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       path: 'machine://devl/srv/a%23b.md',
@@ -247,12 +260,14 @@ describe('Machine native reads', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/a%23b' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       path: 'machine://devl/srv/a%23b',
       content: 'machine://devl/srv/a%23b\n  - note.md',
@@ -288,12 +303,14 @@ describe('Machine native reads', () => {
     const { connector } = fixture({
       openFailure: () => 'ssh: connect to host box port 22: Connection refused',
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/app/a.ts' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'machine_unavailable',
@@ -308,6 +325,7 @@ describe('Machine native reads', () => {
     const { peer, connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: '/srv/app/README.md' },
@@ -316,6 +334,7 @@ describe('Machine native reads', () => {
       }),
       5,
     );
+
     expect(result).toMatchObject({ path: 'machine://devl/srv/app/README.md' });
     const session = await peer.session(0);
     expect(session.calls[0]?.params).toMatchObject({
@@ -328,6 +347,7 @@ describe('Machine native reads', () => {
     const { peer, connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
+
     await runTool(
       nativeReadTool,
       { path: 'README.md' },
@@ -356,10 +376,12 @@ describe('Machine native reads', () => {
 
   it('treats an unconfigured feature as an unknown scheme', async () => {
     const peer = createProtocolPeer();
+
     const connector = new MachineConnector({
       machines: undefined,
       hubVersion: '9.9.9',
     });
+
     await expect(
       runTool(
         nativeReadTool,
@@ -381,12 +403,14 @@ describe('Machine listings', () => {
 
   it('lists the configured Machines with their status and no route', async () => {
     const { connector } = fixture();
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       kind: 'directory',
@@ -400,12 +424,14 @@ describe('Machine listings', () => {
 
   it('lists the names without status when no reader is supplied', async () => {
     const { connector } = fixture();
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://' },
       context(connector, { machineStatus: undefined }),
       5,
     );
+
     expect(result).toMatchObject({
       content: '- machine://devl\n- machine://gpu',
     });
@@ -415,12 +441,14 @@ describe('Machine listings', () => {
     const { peer, connector } = fixture({
       answers: { 'roots.list': { value: { roots: ['/srv/app', '/home/me'] } } },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       path: 'machine://devl',
@@ -434,6 +462,7 @@ describe('Machine listings', () => {
     const { connector } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
     });
+
     await expect(
       runTool(
         nativeReadTool,
@@ -459,6 +488,7 @@ describe('Machine listings', () => {
 
   it('refuses both listing forms for a mutation without effect', async () => {
     const { peer, connector } = fixture();
+
     for (const path of ['machine://', 'machine://devl']) {
       await expect(
         runTool(nativeWriteTool, { path, content: 'x' }, context(connector), 5),
@@ -467,6 +497,7 @@ describe('Machine listings', () => {
         type: 'unsupported_operation',
       });
     }
+
     expect(peer.sessions).toHaveLength(0);
   });
 
@@ -474,12 +505,14 @@ describe('Machine listings', () => {
     const { connector } = fixture({
       answers: { 'roots.list': { error: 'path_not_registered' } },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'error',
       type: 'path_not_registered',
@@ -496,6 +529,7 @@ describe('Machine media', () => {
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
       Buffer.alloc(5 * 1024 * 1024, 7),
     ]);
+
     const { peer, connector } = fixture({
       answers: {
         'fs.read': {
@@ -508,13 +542,16 @@ describe('Machine media', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const { store, handed } = mediaStore();
+
     const call = runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/shot.png' },
       context(connector, { media: store }),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -541,6 +578,7 @@ describe('Machine media', () => {
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
       Buffer.alloc(32, 7),
     ]);
+
     const { peer, connector } = fixture({
       answers: {
         'fs.read': {
@@ -549,12 +587,14 @@ describe('Machine media', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const call = runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/shot.png:1-2' },
       context(connector, { media: mediaStore().store }),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -572,6 +612,7 @@ describe('Machine media', () => {
 
   it('keeps the text refusal when the bytes are not media', async () => {
     const bytes = Buffer.from([0x00, 0x01, 0x02, 0x03]);
+
     const { peer, connector } = fixture({
       answers: {
         'fs.read': {
@@ -580,12 +621,14 @@ describe('Machine media', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const call = runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/data.bin' },
       context(connector, { media: mediaStore().store }),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -609,12 +652,14 @@ describe('Machine media', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const call = runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/shot.png' },
       context(connector, { media: mediaStore().store }),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -636,6 +681,7 @@ describe('Machine media', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeReadTool,
@@ -654,6 +700,7 @@ describe('Machine media', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeReadTool,
@@ -692,6 +739,7 @@ describe('Machine mutations', () => {
 
   it('edits through the unbound fence and reports the locator', async () => {
     const { begin, append } = stubFence();
+
     const { peer, connector } = fixture({
       answers: {
         'fs.edit': {
@@ -709,6 +757,7 @@ describe('Machine mutations', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeEditTool,
       {
@@ -719,6 +768,7 @@ describe('Machine mutations', () => {
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       path: 'machine://devl/srv/app/a.ts',
@@ -746,6 +796,7 @@ describe('Machine mutations', () => {
 
   it('forwards the daemon bound cut through the cap', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.edit': {
@@ -764,6 +815,7 @@ describe('Machine mutations', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeEditTool,
       {
@@ -774,6 +826,7 @@ describe('Machine mutations', () => {
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       truncated: true,
@@ -783,6 +836,7 @@ describe('Machine mutations', () => {
 
   it('creates through fs.write and keeps created', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: {
         'fs.write': {
@@ -796,6 +850,7 @@ describe('Machine mutations', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeWriteTool,
@@ -828,9 +883,11 @@ describe('Machine mutations', () => {
 
   it('records no attempt when the Machine is unreachable before dispatch', async () => {
     const { begin } = stubFence();
+
     const { connector } = fixture({
       openFailure: () => 'ssh: connect to host box port 22: Connection refused',
     });
+
     await expect(
       runTool(
         nativeEditTool,
@@ -847,15 +904,18 @@ describe('Machine mutations', () => {
 
   it('settles a session lost after dispatch as outcome_unknown', async () => {
     const { append } = stubFence();
+
     const { peer, connector } = fixture({
       answers: { 'fs.edit': { hold: true } },
     });
+
     const call = runTool(
       nativeEditTool,
       { path: 'machine://devl/srv/app/a.ts', oldText: 'a', newText: 'b' },
       context(connector),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(1);
     session.drop({ code: 255, diagnostic: 'Connection reset by peer' });
@@ -876,9 +936,11 @@ describe('Machine mutations', () => {
 
   it('reports a Machine refusal as a settled result', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: { 'fs.edit': { error: 'path_not_registered' } },
     });
+
     await expect(
       runTool(
         nativeEditTool,
@@ -895,9 +957,11 @@ describe('Machine mutations', () => {
 
   it('reports an exhausted budget as a timed-out attempt', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: { 'fs.edit': { error: 'budget_exhausted' } },
     });
+
     await expect(
       runTool(
         nativeEditTool,
@@ -914,6 +978,7 @@ describe('Machine mutations', () => {
       type: 'outcome_unknown',
       message: 'prior',
     };
+
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(prior);
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
     const { connector } = fixture();
@@ -959,10 +1024,12 @@ describe('Machine bash', () => {
     const provider = 'PROVIDER-CANARY-7f3';
     const mcp = 'MCP-HEADER-CANARY-2b9';
     const knowledge = '/srv/app/knowledge/root';
+
     const filler = Array.from(
       { length: 4000 },
       (_, line) => `line ${String(line)}`,
     ).join('\n');
+
     const { peer, connector } = fixture({
       answers: {
         'proc.bash': {
@@ -976,6 +1043,7 @@ describe('Machine bash', () => {
         },
       },
     });
+
     const { append } = stubFence();
     const insertParts = stubArtifactWrites();
 
@@ -998,12 +1066,14 @@ describe('Machine bash', () => {
       .flatMap(([, written]) => written)
       .map((part) => part.content.toString('utf8'))
       .join('\n');
+
     expectRedacted(parts, [provider, mcp]);
     expect(parts).toContain(knowledge);
 
     const events = append.mock.calls
       .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
       .join('\n');
+
     expectRedacted(events, [provider, mcp]);
     expect(events).toContain(knowledge);
 
@@ -1015,6 +1085,7 @@ describe('Machine bash', () => {
 
   it('drops a member prefix a Machine bound or deadline cut', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'proc.bash': {
@@ -1042,6 +1113,7 @@ describe('Machine bash', () => {
 
   it('keeps a member prefix a finished command wrote itself', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'proc.bash': {
@@ -1074,6 +1146,7 @@ describe('Machine bash', () => {
 
   it('drops a member prefix a Machine timeout cut', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'proc.bash': {
@@ -1102,9 +1175,11 @@ describe('Machine bash', () => {
 
   it('runs in the given Machine directory without a local executor', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: { 'proc.bash': { value: BASH_OK } },
     });
+
     await expect(
       runTool(
         bashTool,
@@ -1123,17 +1198,20 @@ describe('Machine bash', () => {
 
   it('settles unchanged when the daemon reports no wall time', async () => {
     stubFence();
+
     // A daemon that predates `wallTimeMs` sends neither it nor the dropped
     // constant fields.
     const { connector } = fixture({
       answers: { 'proc.bash': { value: BASH_OK } },
     });
+
     const result = await runTool(
       bashTool,
       { command: 'pwd', cwd: 'machine://devl/srv/app' },
       context(connector, { nativeExecutorId: undefined }),
       5,
     );
+
     expect(result).toEqual({
       status: 'success',
       exitCode: 0,
@@ -1144,9 +1222,11 @@ describe('Machine bash', () => {
 
   it('keeps the wall time the daemon measured', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: { 'proc.bash': { value: { ...BASH_OK, wallTimeMs: 1240 } } },
     });
+
     await expect(
       runTool(
         bashTool,
@@ -1159,9 +1239,11 @@ describe('Machine bash', () => {
 
   it('resolves a relative cwd inside a Machine Workspace on the Machine', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: { 'proc.bash': { value: BASH_OK } },
     });
+
     await runTool(
       bashTool,
       { command: 'ls', cwd: 'packages/ui' },
@@ -1178,9 +1260,11 @@ describe('Machine bash', () => {
 
   it('uses the Machine Workspace root for an omitted cwd', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: { 'proc.bash': { value: BASH_OK } },
     });
+
     await runTool(
       bashTool,
       { command: 'pwd' },
@@ -1197,9 +1281,11 @@ describe('Machine bash', () => {
 
   it('maps a bare absolute cwd in a Machine Workspace', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: { 'proc.bash': { value: BASH_OK } },
     });
+
     await runTool(
       bashTool,
       { command: 'pwd', cwd: '/home/me/shop/src' },
@@ -1229,15 +1315,18 @@ describe('Machine bash', () => {
 
   it('settles a lost command session as outcome_unknown', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: { 'proc.bash': { hold: true } },
     });
+
     const call = runTool(
       bashTool,
       { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
       context(connector),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(1);
     session.drop({ code: 255, diagnostic: 'Connection reset by peer' });
@@ -1262,9 +1351,11 @@ describe('Machine bash', () => {
 
   it('reports a Machine refusal as a settled bash result', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: { 'proc.bash': { error: 'path_not_registered' } },
     });
+
     await expect(
       runTool(
         bashTool,
@@ -1284,6 +1375,7 @@ describe('Machine permission matching', () => {
 
   it('refuses an encoded spelling that a reject names in decoded text', async () => {
     const { peer, connector } = fixture();
+
     const policy = compileToolPermissionMap(
       {
         read: {
@@ -1295,6 +1387,7 @@ describe('Machine permission matching', () => {
       },
       'machine-reject',
     );
+
     await expect(
       runTool(
         nativeReadTool,
@@ -1308,10 +1401,12 @@ describe('Machine permission matching', () => {
 
   it('does not admit a mapped bare path through a local allow', async () => {
     const { peer, connector } = fixture();
+
     const policy = compileToolPermissionMap(
       { read: { allow: [{ field: 'path', regex: '^/home/me/' }] } },
       'local-allow',
     );
+
     await expect(
       runTool(
         nativeReadTool,
@@ -1328,12 +1423,14 @@ describe('Machine permission matching', () => {
 
   it('refuses a Machine another Machine rule does not admit', async () => {
     const { peer, connector } = fixture();
+
     const policy = compileToolPermissionMap(
       {
         read: { allow: [{ field: 'path', regex: '^machine://devl/home/me/' }] },
       },
       'machine-scoped',
     );
+
     await expect(
       runTool(
         nativeReadTool,
@@ -1349,6 +1446,7 @@ describe('Machine permission matching', () => {
     const { connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
+
     const policy = compileToolPermissionMap(
       {
         read: {
@@ -1359,6 +1457,7 @@ describe('Machine permission matching', () => {
       },
       'selector-free',
     );
+
     await expect(
       runTool(
         nativeReadTool,
@@ -1371,6 +1470,7 @@ describe('Machine permission matching', () => {
 
   it('matches a Machine bash cwd as its canonical locator', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'proc.bash': {
@@ -1384,12 +1484,14 @@ describe('Machine permission matching', () => {
         },
       },
     });
+
     const policy = compileToolPermissionMap(
       {
         bash: { allow: [{ field: 'cwd', literal: 'machine://devl/srv/app' }] },
       },
       'machine-bash',
     );
+
     await expect(
       runTool(
         bashTool,
@@ -1427,12 +1529,14 @@ describe('Machine result canonicalization', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/app/a.ts' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       path: 'machine://devl/srv/app/a.ts',
@@ -1453,12 +1557,14 @@ describe('Machine result canonicalization', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/app/link.md' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       path: 'machine://devl/srv/app/real.md',
@@ -1480,12 +1586,14 @@ describe('Machine result canonicalization', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/a%23b.md' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       path: 'machine://devl/srv/a%23b.md',
       content: 'machine://devl/srv/a#b.md holds the body',
@@ -1501,6 +1609,7 @@ describe('Machine listing rendering', () => {
       machines: undefined,
       hubVersion: '9.9.9',
     });
+
     await expect(
       executeMachineNative(
         context(connector),
@@ -1522,6 +1631,7 @@ describe('Machine listing rendering', () => {
       },
       hubVersion: '9.9.9',
     });
+
     await expect(
       runTool(nativeReadTool, { path: 'machine://' }, context(connector), 5),
     ).resolves.toEqual({
@@ -1541,6 +1651,7 @@ describe('Machine listing rendering', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeReadTool,
@@ -1560,6 +1671,7 @@ describe('Machine listing rendering', () => {
 
   it('reports an offline Machine with no failure reason', async () => {
     const { connector } = fixture();
+
     const statuses: ReadonlyArray<MachineStatusView> = [
       {
         name: 'devl',
@@ -1582,6 +1694,7 @@ describe('Machine listing rendering', () => {
         roots: [],
       },
     ];
+
     await expect(
       runTool(
         nativeReadTool,
@@ -1598,6 +1711,7 @@ describe('Machine listing rendering', () => {
 
   it('names the listing refusal a mutation of either form earns', async () => {
     const { connector } = fixture();
+
     for (const path of ['machine://', 'machine://devl']) {
       await expect(
         runTool(nativeWriteTool, { path, content: 'x' }, context(connector), 5),
@@ -1634,6 +1748,7 @@ describe('Machine request cancellation', () => {
     const { connector } = fixture({
       answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
     });
+
     const controller = new AbortController();
     controller.abort();
     await expect(
@@ -1649,6 +1764,7 @@ describe('Machine request cancellation', () => {
     const { connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
+
     const controller = new AbortController();
     controller.abort();
     await expect(
@@ -1663,6 +1779,7 @@ describe('Machine request cancellation', () => {
   it('carries the call signal on an edit', async () => {
     stubFence();
     const request = vi.spyOn(MachineConnector.prototype, 'request');
+
     const { connector } = fixture({
       answers: {
         'fs.edit': {
@@ -1680,6 +1797,7 @@ describe('Machine request cancellation', () => {
         },
       },
     });
+
     const controller = new AbortController();
     await executeMachineNative(
       context(connector, { abortSignal: controller.signal }),
@@ -1701,6 +1819,7 @@ describe('Machine request cancellation', () => {
   it('carries the call signal on a write', async () => {
     stubFence();
     const request = vi.spyOn(MachineConnector.prototype, 'request');
+
     const { connector } = fixture({
       answers: {
         'fs.write': {
@@ -1714,6 +1833,7 @@ describe('Machine request cancellation', () => {
         },
       },
     });
+
     const controller = new AbortController();
     await executeMachineNative(
       context(connector, { abortSignal: controller.signal }),
@@ -1736,6 +1856,7 @@ describe('Machine request cancellation', () => {
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
       Buffer.alloc(32, 7),
     ]);
+
     const { peer, connector } = fixture({
       answers: {
         'fs.read': {
@@ -1744,8 +1865,10 @@ describe('Machine request cancellation', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const openChannel = vi.spyOn(MachineConnector.prototype, 'openChannel');
     const controller = new AbortController();
+
     const call = executeMachineNative(
       context(connector, {
         media: mediaStore().store,
@@ -1754,6 +1877,7 @@ describe('Machine request cancellation', () => {
       { operation: 'read', input: { path: 'machine://devl/srv/shot.png' } },
       'machine://devl/srv/shot.png',
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -1792,6 +1916,7 @@ describe('Machine media stream hygiene', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeReadTool,
@@ -1817,15 +1942,18 @@ describe('Machine media stream hygiene', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const store: ToolMediaStore = {
       readMedia: () => () => Promise.reject(new Error('boom')),
       findMedia: () => Promise.resolve(undefined),
     };
+
     const call = executeMachineNative(
       context(connector, { media: store }),
       { operation: 'read', input: { path: 'machine://devl/srv/shot.png' } },
       'machine://devl/srv/shot.png',
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -1846,13 +1974,16 @@ describe('Machine media stream hygiene', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const { store, handed } = mediaStore();
+
     const call = runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/shot.png' },
       context(connector, { media: store }),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -1878,12 +2009,15 @@ describe('Machine media stream hygiene', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const openChannel = vi.spyOn(MachineConnector.prototype, 'openChannel');
+
     const call = executeMachineNative(
       context(connector, { media: mediaStore().store }),
       { operation: 'read', input: { path: 'machine://devl/srv/shot.png' } },
       'machine://devl/srv/shot.png',
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();
@@ -1921,6 +2055,7 @@ describe('Machine mutation addressing and results', () => {
 
   it('sends no replace flag unless the call replaces', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: {
         'fs.write': {
@@ -1934,6 +2069,7 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     await runTool(
       nativeWriteTool,
       { path: 'machine://devl/srv/app/new.txt', content: 'x' },
@@ -1957,6 +2093,7 @@ describe('Machine mutation addressing and results', () => {
 
   it('sends the replace flag when the call replaces', async () => {
     stubFence();
+
     const { peer, connector } = fixture({
       answers: {
         'fs.write': {
@@ -1970,6 +2107,7 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeWriteTool,
@@ -1991,6 +2129,7 @@ describe('Machine mutation addressing and results', () => {
 
   it('reports neither created nor replaced for an edit', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.edit': {
@@ -2008,12 +2147,14 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeEditTool,
       { path: 'machine://devl/srv/app/a.ts', oldText: 'a', newText: 'b' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({ status: 'success' });
     expect('created' in result).toBe(false);
     expect('replaced' in result).toBe(false);
@@ -2021,6 +2162,7 @@ describe('Machine mutation addressing and results', () => {
 
   it('stores an edit answer whose display names only the start line with the call text', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.edit': {
@@ -2039,6 +2181,7 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeEditTool,
       {
@@ -2049,6 +2192,7 @@ describe('Machine mutation addressing and results', () => {
       context(connector),
       5,
     );
+
     expect(result).toEqual({
       status: 'success',
       operation: 'edit',
@@ -2067,6 +2211,7 @@ describe('Machine mutation addressing and results', () => {
 
   it("takes an edit's display text from the call, not a daemon's echo", async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.edit': {
@@ -2084,12 +2229,14 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeEditTool,
       { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
       context(connector),
       5,
     );
+
     expect(result).toMatchObject({
       status: 'success',
       display: { startLine: 3, oldText: 'old', newText: 'new' },
@@ -2098,6 +2245,7 @@ describe('Machine mutation addressing and results', () => {
 
   it("forwards an old daemon's edit content, shownRange, and diff", async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.edit': {
@@ -2113,12 +2261,14 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeEditTool,
       { path: 'machine://devl/srv/app/a.ts', oldText: 'old', newText: 'new' },
       context(connector),
       5,
     );
+
     expect(result).toEqual({
       status: 'success',
       operation: 'edit',
@@ -2133,6 +2283,7 @@ describe('Machine mutation addressing and results', () => {
 
   it("forwards an old daemon's write status only and drops its content and diff", async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.write': {
@@ -2149,12 +2300,14 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     const result = await runTool(
       nativeWriteTool,
       { path: 'machine://devl/srv/app/new.txt', content: 'x\n' },
       context(connector),
       5,
     );
+
     expect(result).toEqual({
       status: 'success',
       operation: 'write',
@@ -2171,6 +2324,7 @@ describe('Machine mutation addressing and results', () => {
 
   it('passes a mutation refusal through unchanged', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.write': {
@@ -2182,6 +2336,7 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeWriteTool,
@@ -2198,6 +2353,7 @@ describe('Machine mutation addressing and results', () => {
 
   it('refuses a mutation answer whose status is not a success', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.write': {
@@ -2210,6 +2366,7 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeWriteTool,
@@ -2226,6 +2383,7 @@ describe('Machine mutation addressing and results', () => {
 
   it('drops a malformed optional mutation field instead of failing the answer', async () => {
     stubFence();
+
     const { connector } = fixture({
       answers: {
         'fs.edit': {
@@ -2241,6 +2399,7 @@ describe('Machine mutation addressing and results', () => {
         },
       },
     });
+
     await expect(
       runTool(
         nativeEditTool,
@@ -2347,9 +2506,11 @@ describe('Machine bash working directories', () => {
   it('sends the declared env and the call signal to the Machine', async () => {
     stubFence();
     const request = vi.spyOn(MachineConnector.prototype, 'request');
+
     const { connector } = fixture({
       answers: { 'proc.bash': { value: BASH_OK } },
     });
+
     const controller = new AbortController();
 
     await expect(

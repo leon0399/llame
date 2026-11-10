@@ -34,10 +34,13 @@ import { resolveWorkspacePath } from '../tools/workspace-path';
 
 /** Distinct markers considered per prompt; later ones stay prose, unprobed. */
 export const MAX_PROMPT_IMPORT_MARKERS = 64;
+
 /** Probe survivors and no-probe targets read per prompt. */
 export const MAX_PROMPT_IMPORT_READS = 8;
+
 /** Aggregate UTF-8 bytes of imported bodies. */
 export const MAX_PROMPT_IMPORT_BYTES = 128 * 1024;
+
 /** Work budget, probes included. */
 export const PROMPT_IMPORT_WORK_MS = 30_000;
 
@@ -159,19 +162,23 @@ export async function resolvePromptImports(
     outputFull: false,
     knowledgeProbeCancelled: false,
   };
+
   const targets = importTargets(request.text).slice(
     0,
     MAX_PROMPT_IMPORT_MARKERS,
   );
+
   for (const [ordinal, target] of targets.entries()) {
     try {
       const plan = planTarget(request, target);
+
       if (plan !== undefined) await handleTarget(run, target, ordinal, plan);
     } catch (error) {
       if (!isKnowledgeCancellation(error)) throw error;
       run.knowledgeProbeCancelled = true;
     }
   }
+
   return { outcomes: run.outcomes, omitted: run.omitted };
 }
 
@@ -181,23 +188,33 @@ function planTarget(
   target: string,
 ): ImportPlan | undefined {
   if (target.startsWith('~/')) return undefined;
+
   if (isFileAlias(target)) return planFileAlias(request, target);
+
   if (isMachineLocator(target)) return planMachineTarget(request, target);
   const scheme = parsePathScheme(target);
+
   if (scheme !== undefined) return planScheme(request, scheme.scheme, target);
+
   // A bare absolute marker is never re-mapped here: while a Chat is bound to a
   // Machine Workspace the caller projects it, and otherwise it is a host path.
   if (target.startsWith('/')) {
     if (!request.hostAvailable) return undefined;
+
     return { kind: 'host', readPath: target, hostPath: target };
   }
+
   const root = request.workspaceRoot;
+
   if (root === undefined) return undefined;
+
   // A Machine Workspace root resolves without the local native executor: the
   // relative marker becomes a Machine locator, not a host path.
   if (!request.hostAvailable && !isMachineLocator(root)) return undefined;
   const projected = resolveWorkspacePath(root, target);
+
   if (isMachineLocator(projected)) return planMachineTarget(request, projected);
+
   return { kind: 'host', readPath: projected, hostPath: projected };
 }
 
@@ -214,10 +231,13 @@ function planMachineTarget(
 ): ImportPlan | undefined {
   if (!request.machineAvailable) return undefined;
   const parsed = parseMachineLocator(locator);
+
   if (parsed.kind === 'list' || parsed.kind === 'roots') {
     return { kind: 'direct', readPath: locator };
   }
+
   if (parsed.kind !== 'path') return undefined;
+
   return {
     kind: 'machine',
     name: parsed.name,
@@ -234,6 +254,7 @@ function planFileAlias(
 ): ImportPlan | undefined {
   if (!request.hostAvailable) return undefined;
   const alias = decodeFileAlias(target);
+
   return alias.ok
     ? { kind: 'host', readPath: target, hostPath: alias.hostPath }
     : undefined;
@@ -254,15 +275,19 @@ function planScheme(
       ? { kind: 'knowledge', readPath: target }
       : undefined;
   }
+
   if (scheme === MEDIA_LOCATOR_SCHEME) {
     return { kind: 'media', readPath: target };
   }
+
   // An artifact belongs to the current Chat, not to the prompt's author, so an
   // `@artifact://` marker stays prose (tool-result-artifacts D12).
   if (scheme === ARTIFACT_SCHEME) return undefined;
+
   // A probe would cost a connection and admission resolves asynchronously, so
   // `ssh://` reads directly like web: `read` itself admits it (ssh-locator D6a).
   if (scheme === SSH_SCHEME && !request.sshAvailable) return undefined;
+
   return readAcceptsScheme(scheme)
     ? { kind: 'direct', readPath: target }
     : undefined;
@@ -277,21 +302,29 @@ async function handleTarget(
   if (plan.kind === 'direct') {
     return attemptRead(run, { target, ordinal, readPath: plan.readPath });
   }
+
   // A target behind a probe may be prose, so an expired work bound drops it
   // without a trace.
   if (workExpired(run)) return;
+
   if (!run.request.admitsRead(plan.readPath)) {
     // The audited denial runs without a probe, so existence never shows.
     await run.request.readImport(plan.readPath, ordinal, target);
     run.outcomes.push({ locator: target, outcome: 'denied' });
+
     return;
   }
+
   const resolved = await probePlan(run.request, plan);
+
   if (resolved === PROMPT_IMPORT_KNOWLEDGE_CANCELLED) {
     run.knowledgeProbeCancelled = true;
+
     return;
   }
+
   if (resolved === undefined) return;
+
   return attemptRead(run, {
     target,
     ordinal,
@@ -314,11 +347,13 @@ async function probePlan(
   if (plan.kind === 'machine') {
     return request.probeMachine(plan.name, plan.machinePath);
   }
+
   if (plan.kind === 'media') {
     return request.probeMedia(
       withoutSelector(plan.readPath, `${MEDIA_LOCATOR_SCHEME}://`),
     );
   }
+
   if (plan.kind === 'knowledge') {
     try {
       return await request.probeKnowledge(
@@ -326,18 +361,23 @@ async function probePlan(
       );
     } catch (error) {
       if (!isKnowledgeCancellation(error)) throw error;
+
       return PROMPT_IMPORT_KNOWLEDGE_CANCELLED;
     }
   }
+
   if (await request.probeHost(plan.hostPath)) return plan.hostPath;
   const { path, selector } = splitSelectorSuffix(plan.hostPath);
+
   if (selector === undefined) return undefined;
+
   return (await request.probeHost(path)) ? path : undefined;
 }
 
 /** `path` up to the first colon after its scheme's `prefix`. */
 function withoutSelector(path: string, prefix: string): string {
   const colon = path.indexOf(':', prefix.length);
+
   return colon < 0 ? path : path.slice(0, colon);
 }
 
@@ -388,27 +428,37 @@ async function attemptRead(
     workExpired(run)
   ) {
     run.omitted.push(attempt.target);
+
     return;
   }
+
   run.reads += 1;
+
   const read = await run.request.readImport(
     attempt.readPath,
     attempt.ordinal,
     attempt.target,
   );
+
   const base = outcomeBase(attempt);
+
   if (read.result.status !== 'success') {
     recordUnsuccessfulRead(run, attempt, read.admission);
+
     return;
   }
+
   // The bound counts the body as the notice renders it, after neutralization;
   // measuring the raw text would let escaping push the item past the bound.
   const size = Buffer.byteLength(neutralizeImportBody(read.text), 'utf8');
+
   if (run.bytes + size > MAX_PROMPT_IMPORT_BYTES) {
     run.outputFull = true;
     run.omitted.push(attempt.target);
+
     return;
   }
+
   run.bytes += size;
   const attachment = promptImportMedia(read.result);
   run.outcomes.push({

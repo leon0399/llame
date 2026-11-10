@@ -40,12 +40,14 @@ async function workingDirectory(
   requested: string | undefined,
 ): Promise<string> {
   const literal = requested ?? context.roots.at(0);
+
   if (literal === undefined)
     throw new MachineRequestError(
       "invalid_params",
       `${PROC_BASH_METHOD}: this Machine has no registered root to run in`,
     );
   const guarded = await context.guard.resolvePath(literal);
+
   // Checked here so the refusal never quotes the address back: the managed
   // executor's own message names the literal it was given.
   if (guarded.kind !== "directory")
@@ -53,6 +55,7 @@ async function workingDirectory(
       "invalid_params",
       `${PROC_BASH_METHOD}: the working directory is not a directory`,
     );
+
   return guarded.path;
 }
 
@@ -67,10 +70,12 @@ export async function bashOperation(
   context: OperationContext,
 ): Promise<ProcBashResult> {
   const source = paramRecord(params, PROC_BASH_METHOD);
+
   const cwd = await workingDirectory(
     context,
     optionalString(source, "cwd", PROC_BASH_METHOD),
   );
+
   const input: BashCommandInput = {
     // Always wrap in bash -c: the managed allowlist admits the shell, not the
     // ordinary commands a model writes.
@@ -79,6 +84,7 @@ export async function bashOperation(
     cwd,
     env: optionalEnvironment(source, PROC_BASH_METHOD),
   };
+
   return context.processes.track(
     executeManagedBash(input, managedContext(cwd), runOptions(context)),
   );

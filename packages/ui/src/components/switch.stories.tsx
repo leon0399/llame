@@ -138,6 +138,7 @@ export const Description: Story = {
     const switchElement = canvas.getByRole("switch", {
       name: /share across devices/i,
     });
+
     const description = canvas.getByText(/focus is shared across devices/i);
 
     await expect(switchElement).toBeInTheDocument();

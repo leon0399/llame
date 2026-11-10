@@ -17,33 +17,41 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 type FixtureResult = {
   readonly title?: string | number;
   readonly url?: string | number;
   readonly snippet?: string | number;
   readonly date?: string | null;
 };
+
 type FixtureBody =
   | string
   | { readonly results: Array<FixtureResult> }
   | { readonly results: string };
+
 const PerplexityRequestBodySchema = z.object({
   query: z.string(),
   max_results: z.number(),
   search_recency_filter: z.string().optional(),
   search_domain_filter: z.array(z.string()).optional(),
 });
+
 type PerplexityRequestBody = z.infer<typeof PerplexityRequestBodySchema>;
+
 async function parseBody(
   init: RequestInit | undefined,
 ): Promise<PerplexityRequestBody> {
   const text = await new Response(init?.body ?? null).text();
+
   // SAFETY: The schema validates JSON parsed from the captured vendor request.
   return PerplexityRequestBodySchema.parse(JSON.parse(text) as unknown);
 }
+
 function captureFixture(body: FixtureBody, status = 200) {
   return captureFetch(JSON.stringify(body), status);
 }
+
 const success = (results: Array<FixtureResult> = []): FixtureBody => ({
   results,
 });
@@ -72,10 +80,12 @@ describe('Perplexity adapter', () => {
         { title: 'Malformed', url: 'bad', snippet: 4 },
       ]),
     );
+
     const result = await createPerplexityEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request());
+
     expect(recorded.seen().url).toBe(PERPLEXITY_SEARCH_URL);
     expect(recorded.seen().init?.method).toBe('POST');
     const headers = new Headers(recorded.seen().init?.headers);
@@ -119,10 +129,12 @@ describe('Perplexity adapter', () => {
         { title: 'Result', url: 'https://example.test/a', snippet: 'Snippet' },
       ]),
     );
+
     const result = await createPerplexityEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
     )(request({ query: 'site:example.test latest', recency: undefined }));
+
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: 'latest',
       max_results: 7,
@@ -170,6 +182,7 @@ describe('Perplexity adapter', () => {
       { length: 21 },
       (_, index) => `-site:deny${index + 1}.test`,
     ).join(' ');
+
     const recorded = captureFixture(success());
     await createPerplexityEngine(
       { key: 'secret' },
@@ -187,6 +200,7 @@ describe('Perplexity adapter', () => {
       { length: 21 },
       (_, index) => `site:allow${index + 1}.test`,
     ).join(' ');
+
     const recorded = captureFixture(success());
     await createPerplexityEngine(
       { key: 'secret' },
@@ -227,6 +241,7 @@ describe('Perplexity adapter', () => {
 
   it('clamps the count and ignores the objective without a note', async () => {
     const recorded = captureFixture(success());
+
     const result = await createPerplexityEngine(
       { key: 'secret' },
       { fetch: recorded.fetch },
@@ -238,6 +253,7 @@ describe('Perplexity adapter', () => {
         objective: 'compare pgvector benchmarks',
       }),
     );
+
     expect(await parseBody(recorded.seen().init)).toStrictEqual({
       query: 'plain',
       max_results: 20,
@@ -250,10 +266,12 @@ describe('Perplexity adapter', () => {
       { length: 21 },
       (_, index) => `-site:deny${index}.test`,
     ).join(' ');
+
     const engine = createPerplexityEngine(
       { key: 'secret' },
       { fetch: captureFixture(success()).fetch },
     );
+
     await expect(engine(request({ query: overCap }))).resolves.toStrictEqual({
       kind: 'empty',
       notes: ['Some site filters remained in the query.'],
@@ -265,13 +283,16 @@ describe('Perplexity adapter', () => {
       { key: 'secret' },
       { fetch: captureFixture(success([{ title: 'bad' }])).fetch },
     );
+
     await expect(empty(request({ query: 'plain' }))).resolves.toStrictEqual({
       kind: 'empty',
     });
+
     const malformed = createPerplexityEngine(
       { key: 'secret' },
       { fetch: captureFixture({ results: 'bad' }).fetch },
     );
+
     await expect(malformed(request())).rejects.toMatchObject({
       failureClass: 'upstream_error',
     });
@@ -284,10 +305,12 @@ describe('Perplexity adapter', () => {
     [503, 'upstream_error'],
   ] as const)('classifies HTTP %s as %s', async (status, failureClass) => {
     const key = 'secret-key';
+
     const engine = createPerplexityEngine(
       { key },
       { fetch: captureFixture(`body ${key}`, status).fetch },
     );
+
     await expect(engine(request())).rejects.toMatchObject({ failureClass });
     await expect(engine(request())).rejects.not.toThrow(key);
   });

@@ -27,6 +27,7 @@ let reducedMotion = true;
 const { usePathnameMock } = vi.hoisted(() => ({
   usePathnameMock: vi.fn<() => string>(),
 }));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => usePathnameMock(),
 }));
@@ -75,26 +76,32 @@ function renderHeader(
       if (searchParams.get("pinned") === "only") {
         return jsonResponse(handlers.pinned ?? []);
       }
+
       if (searchParams.get("pinned") === "exclude") {
         return jsonResponse(handlers.all ?? []);
       }
     }
+
     const detailMatch = /^\/api\/v1\/chats\/([^/]+)$/.exec(pathname);
+
     if (detailMatch?.[1] && handlers.detail) {
       return handlers.detail(detailMatch[1]);
     }
+
     throw new Error(`unrouted fetch in test: ${request.method} ${pathname}`);
   });
 
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+
   if (seedAllCache) {
     queryClient.setQueryData(chatQueryKeys.infinite({ pinned: "exclude" }), {
       pages: [handlers.all ?? []],
       pageParams: [undefined],
     });
   }
+
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SidebarProvider>
@@ -104,6 +111,7 @@ function renderHeader(
       </SidebarProvider>
     </QueryClientProvider>,
   );
+
   return { fetchMock, queryClient, ...view };
 }
 
@@ -152,6 +160,7 @@ describe("ChatHeader", () => {
 
   it("resolves the title from a warm sidebar list cache, without a detail fetch", async () => {
     usePathnameMock.mockReturnValue("/chat/chat-1");
+
     const { fetchMock } = renderHeader(
       {
         all: [chatRow({ id: "chat-1", title: "Existing chat" })],
@@ -161,9 +170,11 @@ describe("ChatHeader", () => {
 
     await waitFor(() => expect(screen.getByText("Existing chat")).toBeTruthy());
     expect(document.title).toBe("Existing chat");
+
     const requestedPaths = fetchMock.mock.calls.map(
       (_, index) => new URL(requestFromCall(fetchMock, index).url).pathname,
     );
+
     expect(requestedPaths).not.toContain("/api/v1/chats/chat-1");
   });
 
@@ -188,6 +199,7 @@ describe("ChatHeader", () => {
 
   it("restores the default document title when the header unmounts", async () => {
     usePathnameMock.mockReturnValue("/chat/chat-1");
+
     const { unmount } = renderHeader(
       { all: [chatRow({ id: "chat-1", title: "Existing chat" })] },
       { seedAllCache: true },
@@ -206,6 +218,7 @@ describe("ChatHeader", () => {
     // title while the replacement animation starts.
     reducedMotion = false;
     usePathnameMock.mockReturnValue("/chat/chat-1");
+
     const { rerender, queryClient } = renderHeader(
       {
         all: [

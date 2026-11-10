@@ -55,8 +55,10 @@ export function toGithubDirectoryEntries(
 ): ReadonlyArray<DirectoryListingEntry> {
   const roots = new Map<string, DirectoryListingEntry>();
   const children = new Map<string, Array<DirectoryListingEntry>>();
+
   for (const entry of entries) {
     const segments = entry.path.split('/');
+
     if (segments.length === 1) {
       roots.set(segments[0], {
         name: segments[0],
@@ -64,6 +66,7 @@ export function toGithubDirectoryEntries(
       });
       continue;
     }
+
     if (segments.length !== 2) continue;
     const siblings = children.get(segments[0]) ?? [];
     siblings.push({
@@ -72,6 +75,7 @@ export function toGithubDirectoryEntries(
     });
     children.set(segments[0], siblings);
   }
+
   return [...roots.values()].map((entry) =>
     entry.kind === 'directory'
       ? { ...entry, children: children.get(entry.name) ?? [] }
@@ -83,8 +87,11 @@ function githubEntryKind(
   entry: GithubTreeEntry,
 ): DirectoryListingEntry['kind'] {
   if (entry.mode === '120000') return 'symlink';
+
   if (entry.type === 'tree') return 'directory';
+
   if (entry.type === 'commit' || entry.mode === '160000') return 'special';
+
   return 'file';
 }
 
@@ -96,15 +103,19 @@ function renderRepository(document: GithubRepositoryDocument): string {
     `Language: ${document.language ?? 'none'}`,
     '',
   ];
+
   const listing =
     document.entries === undefined
       ? undefined
       : renderGithubListing(document.displayPath, document.entries);
+
   if (listing !== undefined) lines.push(listing);
+
   if (document.readme !== undefined) {
     if (listing !== undefined) lines.push('');
     lines.push('## README', '', document.readme);
   }
+
   return lines.join('\n').trim();
 }
 
@@ -116,6 +127,7 @@ function renderGithubListing(
     displayPath,
     toGithubDirectoryEntries(entries),
   );
+
   return result.status === 'success' ? result.content.trimEnd() : '';
 }
 
@@ -128,7 +140,9 @@ function renderCommit(document: GithubCommitDocument): string {
     `Author: ${document.author}`,
     `Date: ${document.authoredAt}`,
   ];
+
   appendFiles(lines, document.files);
   lines.push('', `Diff: ${document.diffUrl}`);
+
   return lines.join('\n').trim();
 }

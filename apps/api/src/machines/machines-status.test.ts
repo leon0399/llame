@@ -114,6 +114,7 @@ describe('boundMachineRoots', () => {
       { length: MACHINE_ROOTS_LIMIT + 5 },
       (_, i) => `/r/${i}`,
     );
+
     expect(boundMachineRoots(many)).toHaveLength(MACHINE_ROOTS_LIMIT);
     const long = `/${'x'.repeat(MACHINE_ROOT_MAX_LENGTH * 2)}`;
     expect(boundMachineRoots([long])).toEqual([
@@ -175,6 +176,7 @@ describe('machineStatusView', () => {
       }),
       NOW,
     );
+
     expect(view.status).toBe('offline');
     expect(view.failureReason).toBe('host_key_mismatch');
   });

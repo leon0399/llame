@@ -85,18 +85,22 @@ export function executeMachineNative(
   if (machineConnector(context) === undefined)
     return Promise.resolve(unknownSchemeResult());
   const locator = parseMachineLocator(call.input.path);
+
   if (locator.kind === 'invalid')
     return Promise.resolve({
       status: 'error',
       type: 'invalid_path',
       message: locator.message,
     });
+
   if (locator.kind !== 'path')
     return call.operation === 'read'
       ? machineListing(context, locator)
       : Promise.resolve(listingMutationResult());
+
   if (call.operation !== 'read' && locator.selector !== undefined)
     return Promise.resolve(selectorOnMutationResult());
+
   return call.operation === 'read'
     ? readMachinePath(context, locator, submitted)
     : mutateMachinePath(context, call, locator);
@@ -127,7 +131,9 @@ function canonicalReportedPath(
 ): string | undefined {
   if (!isString(value)) return undefined;
   const prefix = machinePrefix(name);
+
   if (!value.startsWith(prefix)) return undefined;
+
   return formatMachineLocator(name, value.slice(prefix.length)) ?? undefined;
 }
 
@@ -144,13 +150,16 @@ function canonicalizeMachineResult(
   if (result.status !== 'success') return result;
   const path = canonicalReportedPath(machine.name, result['path']);
   const realPath = canonicalReportedPath(machine.name, result['realPath']);
+
   const canonical: ToolResult = {
     ...result,
     path: path ?? machinePathLocator(machine),
     ...(realPath !== undefined && { realPath }),
   };
+
   const content = result['content'];
   const reportedPath = canonical['path'];
+
   if (
     result['kind'] !== 'directory' ||
     !isString(content) ||
@@ -158,6 +167,7 @@ function canonicalizeMachineResult(
   )
     return canonical;
   const header = `${machinePrefix(machine.name)}${machine.path}`;
+
   return {
     ...canonical,
     content: content.split(header).join(reportedPath),
@@ -198,11 +208,15 @@ function machineListing(
   locator: Extract<MachineLocator, { kind: 'list' | 'roots' }>,
 ): Promise<ToolResult> {
   const connector = machineConnector(context);
+
   if (connector === undefined) return Promise.resolve(unknownSchemeResult());
+
   if (locator.kind === 'list') return configuredMachines(context);
+
   if (!connector.isConfigured(locator.name))
     return Promise.resolve(machineNotFoundResult(locator.name));
   const name = locator.name;
+
   return machineReadResult(name, async () => {
     const raw = await connector.request(
       name,
@@ -215,14 +229,19 @@ function machineListing(
       },
       { signal: context.abortSignal },
     );
+
     const result = readRootsListResult(raw);
+
     if (result === undefined) return machineUnusableResult(name);
     const roots = boundMachineRoots(result.roots);
+
     const lines = roots.map((root) => {
       const location =
         formatMachineLocator(name, root) ?? `${machinePrefix(name)}${root}`;
+
       return `- ${location}${root.endsWith('/') ? '' : '/'}`;
     });
+
     return listingResult(
       machinePrefix(name),
       lines.length === 0 ? ['(no registered roots)'] : lines,
@@ -237,23 +256,30 @@ function machineListing(
  */
 async function configuredMachines(context: ToolContext): Promise<ToolResult> {
   const connector = machineConnector(context);
+
   if (connector === undefined) return unknownSchemeResult();
   const names = connector.names();
   const statuses = await context.machineStatus?.list(context.userId);
+
   const byName = new Map(
     (statuses ?? []).map((status) => [status.name, status]),
   );
+
   const lines = names.map((name) => {
     const status = byName.get(name);
+
     if (status === undefined) return `- ${machinePrefix(name)}`;
+
     const detail =
       status.status === 'online'
         ? 'online'
         : status.failureReason === null
           ? 'offline'
           : `offline, ${status.failureReason}`;
+
     return `- ${machinePrefix(name)} (${detail})`;
   });
+
   return listingResult(
     `${MACHINE_SCHEME}://`,
     lines.length === 0 ? ['(no Machines configured)'] : lines,
@@ -276,13 +302,17 @@ async function readMachinePath(
   submitted: string,
 ): Promise<ToolResult> {
   const connector = machineConnector(context);
+
   if (connector === undefined) return unknownSchemeResult();
+
   if (!connector.isConfigured(machine.name))
     return machineNotFoundResult(machine.name);
+
   const envelope = machineCallEnvelope(
     context,
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
+
   return machineReadResult(machine.name, async () => {
     const raw = await connector.request(
       machine.name,
@@ -299,15 +329,20 @@ async function readMachinePath(
       },
       { signal: context.abortSignal },
     );
+
     const result = readFsReadResult(raw);
+
     if (result === undefined) return machineUnusableResult(machine.name);
+
     if (result.status === 'success')
       return canonicalizeMachineResult(machine, { ...result });
+
     // The daemon reads text only; bytes of an image or PDF are not valid UTF-8
     // here, and the media path streams them instead. Any other refusal is the
     // read's own result.
     if (result.type !== 'invalid_utf8' || context.media === undefined)
       return result;
+
     return (
       (await readMachineMedia(context, machine, submitted, envelope)) ?? result
     );
@@ -328,20 +363,28 @@ async function readMachineMedia(
 ): Promise<ToolResult | undefined> {
   const connector = machineConnector(context);
   const store = context.media;
+
   if (connector === undefined || store === undefined) return undefined;
+
   const { raw, bytes } = await readMachineBytes(
     context,
     connector,
     machine,
     envelope,
   );
+
   const meta = readFsBytesResult(raw);
+
   if (meta === undefined) return machineUnusableResult(machine.name);
+
   if ('status' in meta) return meta;
+
   if (bytes.byteLength !== meta.size)
     return machineUnusableResult(machine.name);
   const locator = formatMachineLocator(machine.name, machine.path);
+
   if (locator === undefined) return machineUnusableResult(machine.name);
+
   return handMachineBytes(context, store, {
     bytes,
     locator,
@@ -404,18 +447,22 @@ async function readMachineBytes(
     { envelope, path: machine.path },
     { signal: context.abortSignal },
   );
+
   const chunks: Array<Buffer> = [];
   handle.channel.onNotification((message) => {
     if (message.method !== BYTES_NOTIFICATION) return;
     const chunk = readBytesChunk(message.params);
+
     if (chunk !== undefined) chunks.push(chunk);
   });
   let raw: JsonValue;
+
   try {
     raw = await handle.result;
   } finally {
     handle.channel.close();
   }
+
   return { raw, bytes: Buffer.concat(chunks) };
 }
 
@@ -425,13 +472,17 @@ async function mutateMachinePath(
   machine: MachinePath,
 ): Promise<ToolResult> {
   const connector = machineConnector(context);
+
   if (connector === undefined) return unknownSchemeResult();
+
   if (!connector.isConfigured(machine.name))
     return machineNotFoundResult(machine.name);
+
   const envelope = machineCallEnvelope(
     context,
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
+
   return runMachineMutation(
     context,
     {
@@ -444,7 +495,9 @@ async function mutateMachinePath(
         machine,
         envelope,
       });
+
       const result = readFsMutateResult(raw, call);
+
       return result === undefined
         ? machineUnusableResult(machine.name)
         : canonicalizeMachineResult(machine, result);
@@ -467,6 +520,7 @@ function requestMachineMutation(
 ): Promise<JsonValue> {
   const { machine, envelope } = request;
   const options = { displayPrefix: machinePrefix(machine.name) };
+
   return call.operation === 'edit'
     ? connector.request(
         machine.name,
@@ -498,6 +552,7 @@ function requestMachineMutation(
 function readMutationRange(value: unknown): NativeLineRange | undefined {
   if (!isRecord(value)) return undefined;
   const { startLine, endLine } = value;
+
   return isNumber(startLine) && isNumber(endLine)
     ? { startLine, endLine }
     : undefined;
@@ -521,6 +576,7 @@ function readMutationDisplay(
 ): NativeMutationDisplay | undefined {
   if (!isRecord(value)) return undefined;
   const { startLine } = value;
+
   return isNumber(startLine)
     ? { startLine, oldText: input.oldText, newText: input.newText }
     : undefined;
@@ -535,6 +591,7 @@ function readFsWriteResult(
   path: string,
 ): NativeMutationResult {
   const { created, replaced, lineCount } = value;
+
   return {
     status: 'success',
     operation: 'write',
@@ -557,16 +614,20 @@ function readFsEditResult(
 ): NativeMutationResult {
   const { content, truncated, cut, replacements, lineCount } = value;
   const storedRange = value['shownRange'];
+
   const shownRange =
     storedRange === null ? null : readMutationRange(storedRange);
+
   const display =
     input === undefined
       ? undefined
       : readMutationDisplay(value['display'], input);
+
   const legacyDiff =
     display === undefined && isString(value['diff'])
       ? value['diff']
       : undefined;
+
   return {
     status: 'success',
     operation: 'edit',
@@ -592,11 +653,15 @@ function readFsMutateResult(
   call: Exclude<MachineFileCall, { operation: 'read' }>,
 ): ToolResult | undefined {
   const failure = readNativeFailure(value);
+
   if (failure !== undefined) return failure;
+
   if (!isRecord(value) || value['status'] !== 'success') return undefined;
   const { operation, path } = value;
+
   if ((operation !== 'edit' && operation !== 'write') || !isString(path))
     return undefined;
+
   return operation === 'write'
     ? readFsWriteResult(value, path)
     : readFsEditResult(

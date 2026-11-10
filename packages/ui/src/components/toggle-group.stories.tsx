@@ -265,6 +265,7 @@ export const Custom: Story = {
   parameters: contrastKnownIssue232,
   render: function ToggleGroupFontWeightSelector() {
     const [fontWeight, setFontWeight] = useState("normal");
+
     return (
       <Field>
         <FieldLabel>Font Weight</FieldLabel>

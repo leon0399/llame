@@ -11,6 +11,7 @@ import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const d = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = ReturnType<typeof postgres>;
 
 d('Knowledge Space RLS and tenant repository', () => {
@@ -48,6 +49,7 @@ d('Knowledge Space RLS and tenant repository', () => {
       FROM pg_roles
       WHERE rolname = current_user
     `;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
@@ -57,6 +59,7 @@ d('Knowledge Space RLS and tenant repository', () => {
       FROM pg_class c
       WHERE c.relname = 'knowledge_spaces'
     `;
+
     expect(table.relrowsecurity).toBe(true);
     expect(table.relforcerowsecurity).toBe(true);
     expect(table.owner).toBe(role.current_user);
@@ -83,9 +86,11 @@ d('Knowledge Space RLS and tenant repository', () => {
     expect(results[0].knowledgeSpaceId).not.toBe(results[1].knowledgeSpaceId);
     expect(results[0].name).toBe('Personal');
     expect(results[1].name).toBe('Personal');
+
     const page = await tenantDb.runAs(userAId, (tx) =>
       new KnowledgeSpaceRepository(tx).listForOwnerPage(userAId, 1),
     );
+
     expect(page).toHaveLength(2);
   });
 
@@ -115,6 +120,7 @@ d('Knowledge Space RLS and tenant repository', () => {
     const firstPage = await tenantDb.runAs(userBId, (tx) =>
       new KnowledgeSpaceRepository(tx).listForOwnerPage(userBId, 1),
     );
+
     expect(firstPage.map((row) => row.knowledgeSpaceId)).toEqual([
       firstId,
       secondId,
@@ -126,6 +132,7 @@ d('Knowledge Space RLS and tenant repository', () => {
         id: firstId,
       }),
     );
+
     expect(secondPage.map((row) => row.knowledgeSpaceId)).toEqual([secondId]);
   });
 
@@ -163,6 +170,7 @@ d('Knowledge Space RLS and tenant repository', () => {
         .where(eq(knowledgeSpaces.knowledgeSpaceId, created.knowledgeSpaceId))
         .returning(),
     );
+
     expect(crossOwnerUpdate).toHaveLength(0);
   });
 
@@ -170,9 +178,11 @@ d('Knowledge Space RLS and tenant repository', () => {
     let releaseLock!: () => void;
     let reportLocked!: () => void;
     let bindingSpaceId = '';
+
     const holdLock = new Promise<void>((resolve) => {
       releaseLock = resolve;
     });
+
     const locked = new Promise<void>((resolve) => {
       reportLocked = resolve;
     });
@@ -181,25 +191,32 @@ d('Knowledge Space RLS and tenant repository', () => {
       const row = await new KnowledgeSpaceRepository(tx).findForOwnerForBinding(
         userAId,
       );
+
       expect(row).toBeDefined();
+
       if (row === undefined) {
         throw new Error('Expected an existing Knowledge Space');
       }
+
       bindingSpaceId = row.knowledgeSpaceId;
       reportLocked();
       await holdLock;
+
       return row;
     });
+
     await locked;
 
     const updateWhileLocked = tenantDb.runAs(userAId, async (tx) => {
       await tx.execute(drizzleSql`SET LOCAL lock_timeout = '100ms'`);
+
       return tx
         .update(knowledgeSpaces)
         .set({ name: 'Blocked' })
         .where(eq(knowledgeSpaces.knowledgeSpaceId, bindingSpaceId))
         .returning();
     });
+
     try {
       await expect(updateWhileLocked).rejects.toMatchObject({
         cause: { code: '55P03' },

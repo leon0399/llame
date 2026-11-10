@@ -37,6 +37,7 @@ import {
 export const READ_ERROR = Symbol('read_error');
 
 const DECISION_BACKOFF_BASE_MS = 500;
+
 /** Backoff and a provider's `retry-after` never wait longer than this. */
 const DECISION_WAIT_CAP_MS = 5000;
 
@@ -76,6 +77,7 @@ export function createDecisionClient(
     attemptTimeoutMs:
       dependencies.attemptTimeoutMs ?? DECISION_ATTEMPT_TIMEOUT_MS,
   };
+
   return { decide: (request) => decide(wire, request) };
 }
 
@@ -119,11 +121,13 @@ async function decide(
 ): Promise<DecisionOutcome> {
   const startedAt = wire.now();
   const latencyMs = () => Math.max(0, Math.round(wire.now() - startedAt));
+
   const result = await runAttempts({
     signal: request.signal,
     sleep: wire.sleep,
     attempt: (number) => attempt(wire, request, number),
   });
+
   if (result.kind === 'failed') {
     return {
       status: 'unavailable',
@@ -131,6 +135,7 @@ async function decide(
       latencyMs: latencyMs(),
     };
   }
+
   return { status: 'answered', ...result.accepted, latencyMs: latencyMs() };
 }
 
@@ -146,15 +151,19 @@ export async function runAttempts<T>(options: {
 }): Promise<{ readonly kind: 'answered'; readonly accepted: T } | Failed> {
   const { signal, sleep } = options;
   let lastReason: DecisionFailureReason = 'upstream_error';
+
   for (let number = 1; number <= DECISION_MAX_ATTEMPTS; number += 1) {
     signal?.throwIfAborted();
     const result = await options.attempt(number);
     signal?.throwIfAborted();
+
     if (result.kind !== 'retry') return result;
     lastReason = result.reason;
+
     if (number === DECISION_MAX_ATTEMPTS) break;
     await sleep(result.delayMs, signal);
   }
+
   return { kind: 'failed', reason: lastReason };
 }
 
@@ -169,6 +178,7 @@ async function attempt(
   );
 
   let response: Response;
+
   try {
     response = await wire.fetch(wire.endpoint, {
       method: 'POST',
@@ -188,7 +198,9 @@ async function attempt(
 
   if (response.ok) {
     const accepted = await readAccepted(wire, response, request);
+
     if (accepted === READ_ERROR) return transportFailure(timeout, number);
+
     return accepted === undefined
       ? { kind: 'failed', reason: 'invalid_response' }
       : { kind: 'answered', accepted };
@@ -206,9 +218,12 @@ async function statusFailure(
     response.headers.get('retry-after'),
     wire.now,
   );
+
   await response.body?.cancel().catch(() => undefined);
   const reason = classifyStatus(response.status);
+
   if (reason === 'rejected') return { kind: 'failed', reason };
+
   return { kind: 'retry', reason, delayMs: retryAfter ?? backoffMs(number) };
 }
 
@@ -224,26 +239,35 @@ async function readAccepted(
   request: DecisionRequest,
 ): Promise<Accepted | typeof READ_ERROR | undefined> {
   const text = await readBoundedText(response);
+
   if (text === READ_ERROR) return READ_ERROR;
+
   if (text === undefined) return undefined;
   let body: unknown;
+
   try {
     // SAFETY: JSON.parse returns any; the Zod schema below validates it.
     body = JSON.parse(text) as unknown;
   } catch {
     return undefined;
   }
+
   const envelope = DecisionResponseSchema.safeParse(body);
+
   if (!envelope.success) return undefined;
   const { model, answers: wireAnswers, usage } = envelope.data;
+
   if (wire.key.length > 0 && model.includes(wire.key)) return undefined;
 
   const answers: Record<string, DecisionAnswer> = {};
+
   for (const id of Object.keys(request.questions)) {
     const answer = DecisionAnswerSchema.safeParse(wireAnswers[id]);
+
     if (!answer.success) return undefined;
     answers[id] = answer.data;
   }
+
   return { model, answers, usage };
 }
 
@@ -256,23 +280,30 @@ export async function readBoundedText(
   response: Response,
 ): Promise<string | typeof READ_ERROR | undefined> {
   const reader = response.body?.getReader();
+
   if (reader === undefined) return undefined;
   const chunks: Array<Uint8Array> = [];
   let total = 0;
+
   try {
     for (;;) {
       const { done, value } = await reader.read();
+
       if (done) break;
       total += value.byteLength;
+
       if (total > DECISION_RESPONSE_MAX_BYTES) {
         await reader.cancel().catch(() => undefined);
+
         return undefined;
       }
+
       chunks.push(value);
     }
   } catch {
     return READ_ERROR;
   }
+
   return new TextDecoder().decode(Buffer.concat(chunks));
 }
 
@@ -284,11 +315,13 @@ export async function readBoundedText(
 function requestHeaders(provider: SystemOneProviderConfig): RequestHeaders {
   const operator = operatorHeaderEntries(provider.headers);
   const overridden = new Set(operator.map(([name]) => name.toLowerCase()));
+
   const base: RequestHeaders = {
     'content-type': 'application/json',
     accept: 'application/json',
     authorization: `Bearer ${provider.key}`,
   };
+
   return Object.fromEntries([
     ...Object.entries(base).filter(([name]) => !overridden.has(name)),
     ...operator,
@@ -310,6 +343,7 @@ export function attemptSignal(
   caller: AbortSignal | undefined,
 ) {
   const timeout = AbortSignal.timeout(timeoutMs);
+
   return {
     timeout,
     signal: caller === undefined ? timeout : AbortSignal.any([caller, timeout]),
@@ -329,8 +363,11 @@ export function transportFailure(
 
 export function classifyStatus(status: number): DecisionFailureReason {
   if (status === 408) return 'timeout';
+
   if (status === 429) return 'rate_limited';
+
   if (status >= 500) return 'upstream_error';
+
   // 400/401/402/403/404/413/422: a bad key, no credit, or a bad request.
   return 'rejected';
 }
@@ -349,11 +386,15 @@ export function retryAfterMs(
 ): number | undefined {
   if (value === null || value.trim() === '') return undefined;
   const seconds = Number(value);
+
   if (Number.isFinite(seconds) && seconds >= 0) {
     return Math.min(seconds * 1000, DECISION_WAIT_CAP_MS);
   }
+
   const date = Date.parse(value);
+
   if (Number.isNaN(date)) return undefined;
+
   return Math.min(Math.max(date - now(), 0), DECISION_WAIT_CAP_MS);
 }
 

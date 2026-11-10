@@ -24,10 +24,12 @@ test("rejects a Bash call, continues with an allowed read, and persists the deci
   await page.getByRole("button", { name: "Send message" }).click();
 
   const log = page.getByRole("log");
+
   const bashCard = log
     .getByRole("button")
     .filter({ hasText: /^bash/u })
     .first();
+
   await expect(bashCard).toContainText("Error", { timeout: 30_000 });
   await bashCard.click();
   await expect(bashCard.locator("..")).toContainText(
@@ -39,17 +41,20 @@ test("rejects a Bash call, continues with an allowed read, and persists the deci
     .getByRole("button")
     .filter({ hasText: /^read/u })
     .first();
+
   await expect(readCard).toBeVisible({ timeout: 30_000 });
   await expect(log).toContainText("read continued.", { timeout: 30_000 });
 
   // Reopening the Chat reconstructs the tool activity from persisted parts,
   // with the rejection still present.
   await page.reload({ waitUntil: "domcontentloaded" });
+
   const reloadedBash = page
     .getByRole("log")
     .getByRole("button")
     .filter({ hasText: /^bash/u })
     .first();
+
   await expect(reloadedBash).toContainText("Error", { timeout: 30_000 });
   await reloadedBash.click();
   await expect(reloadedBash.locator("..")).toContainText(

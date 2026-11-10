@@ -29,13 +29,17 @@ function reasoningPartId(index: number): string {
 function toolEvents(part: UnknownRecord): Array<RunEventLike> {
   const type = part['type'];
   const toolCallId = part['toolCallId'];
+
   if (!isString(type) || !type.startsWith(TOOL_PART_PREFIX)) return [];
+
   if (!isString(toolCallId)) return [];
   const toolName = type.slice(TOOL_PART_PREFIX.length);
+
   const requested: RunEventLike = {
     eventType: 'tool.requested',
     payload: { toolCallId, toolName, input: part['input'] },
   };
+
   // The completion carries the result shape the live event carried, so the
   // bridge's own handler renders the kept outcome exactly as it rendered the
   // live one.
@@ -51,6 +55,7 @@ function toolEvents(part: UnknownRecord): Array<RunEventLike> {
             : 'The tool failed.',
         }
       : part['output'];
+
   const completed: RunEventLike = {
     eventType: 'tool.completed',
     payload: {
@@ -60,6 +65,7 @@ function toolEvents(part: UnknownRecord): Array<RunEventLike> {
       output,
     },
   };
+
   return [requested, completed];
 }
 
@@ -68,9 +74,11 @@ function partEvents(part: unknown, index: number): Array<RunEventLike> {
   if (!isRecord(part)) return [];
   const type = part['type'];
   const text = part['text'];
+
   if (type === 'text' && isString(text)) {
     return [{ eventType: 'model.delta', payload: { text } }];
   }
+
   if (type === 'reasoning' && isString(text)) {
     return [
       {
@@ -79,10 +87,12 @@ function partEvents(part: unknown, index: number): Array<RunEventLike> {
       },
     ];
   }
+
   if (type === 'data-cap-notice') {
     const data = part['data'];
     const stepsUsed = isRecord(data) ? data['stepsUsed'] : undefined;
     const maxSteps = isRecord(data) ? data['maxSteps'] : undefined;
+
     return isNumber(stepsUsed) && isNumber(maxSteps)
       ? [
           {
@@ -92,6 +102,7 @@ function partEvents(part: unknown, index: number): Array<RunEventLike> {
         ]
       : [];
   }
+
   return toolEvents(part);
 }
 

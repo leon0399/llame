@@ -59,6 +59,7 @@ const meta = {
 } satisfies Meta<typeof SearchConversationsTool>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**

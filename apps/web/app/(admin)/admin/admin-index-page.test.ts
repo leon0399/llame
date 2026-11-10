@@ -6,6 +6,7 @@ import AdminIndexPage from "./page";
 describe("AdminIndexPage", () => {
   it("redirects to /admin/organizations — the only built admin section", () => {
     let caught: unknown;
+
     try {
       AdminIndexPage();
     } catch (error) {

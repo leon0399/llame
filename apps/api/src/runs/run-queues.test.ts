@@ -25,9 +25,12 @@ function issuePaths(parse: () => void): Array<string> {
     } catch (error) {
       return error;
     }
+
     return undefined;
   })();
+
   if (!(result instanceof ZodError)) throw new Error('expected a ZodError');
+
   return result.issues.map((issue) => issue.path.join('.'));
 }
 

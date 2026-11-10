@@ -68,5 +68,6 @@ export async function retryFailedDocuments(
           AND embed_input_version = ${inputVersion}
       `),
   );
+
   return { clearedDocuments, affectedOwners, failures };
 }

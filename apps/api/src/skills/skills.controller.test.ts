@@ -49,11 +49,13 @@ describe('SkillsController', () => {
   });
   it('keeps the HTTP catalog limited to operator entries', () => {
     const operator = entry('operator-only');
+
     const workspace: SkillCatalogEntry = {
       ...entry('workspace-only'),
       sourceDirectory: '/work/project/.llame/skills',
       skillDirectory: '/work/project/.llame/skills/workspace-only',
     };
+
     const catalog: SkillCatalogPort = {
       getSnapshot: (extraSources) =>
         extraSources === undefined
@@ -115,6 +117,7 @@ describe('SkillsController', () => {
       ...entry('review'),
       proactive: false,
     };
+
     const broken: SkillCatalogEntry = {
       name: 'broken',
       description: null,

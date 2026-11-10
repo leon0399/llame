@@ -26,6 +26,7 @@ export type ArtifactLocator = {
 
 /** A registered tool name and a stream name share the tool-id token shape. */
 const NAME_SOURCE = TOOL_ID_PATTERN.source.slice(1, -1);
+
 const LOCATOR = new RegExp(
   `^(${NAME_SOURCE})-([1-9]\\d*)(?:/(${NAME_SOURCE}))?$`,
   'u',
@@ -37,6 +38,7 @@ export function formatArtifactLocator(
   part?: string,
 ): string {
   const locator = `${ARTIFACT_SCHEME}://${toolName}-${seq}`;
+
   return part === undefined || part === '' ? locator : `${locator}/${part}`;
 }
 
@@ -48,11 +50,15 @@ export function parseArtifactLocatorText(
   text: string,
 ): ArtifactLocator | undefined {
   const scheme = parsePathScheme(text);
+
   if (scheme?.scheme !== ARTIFACT_SCHEME) return undefined;
   const match = LOCATOR.exec(scheme.rest);
+
   if (match === null) return undefined;
   const seq = Number(match[2]);
+
   if (!Number.isSafeInteger(seq) || seq > ARTIFACT_SEQ_MAX) return undefined;
+
   return { toolName: match[1], seq, part: match[3] };
 }
 
@@ -64,6 +70,7 @@ export function parseArtifactLocatorText(
 export function isArtifactLocator(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const parsed = parseArtifactLocatorText(value);
+
   return (
     parsed !== undefined &&
     formatArtifactLocator(parsed.toolName, parsed.seq, parsed.part) === value

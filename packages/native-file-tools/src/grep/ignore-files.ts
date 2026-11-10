@@ -16,13 +16,17 @@ export function ignoreAncestorDirectories(
   if (prefix === root) return [];
   const directories: Array<string> = [];
   let current = dirname(prefix);
+
   for (;;) {
     directories.push(current);
+
     if (current === root) break;
     const parent = dirname(current);
+
     if (parent === current) break;
     current = parent;
   }
+
   return directories.reverse();
 }
 
@@ -42,6 +46,7 @@ export function isAtOrBelow(directory: string, ancestor: string): boolean {
 async function holdsGitEntry(directory: string): Promise<boolean> {
   try {
     const stats = await stat(`${directory}/.git`);
+
     return stats.isDirectory() || stats.isFile();
   } catch {
     return false;
@@ -59,10 +64,13 @@ export async function repositoryDirectory(
   fallback: string | undefined,
 ): Promise<string | undefined> {
   let current = prefix;
+
   for (;;) {
     if (await holdsGitEntry(current)) return current;
+
     if (current === root) return fallback;
     const parent = dirname(current);
+
     if (parent === current) return fallback;
     current = parent;
   }
@@ -97,16 +105,23 @@ export async function collectAncestorIgnoreFiles(
     input.root,
     input.fallbackRepository,
   );
+
   const files: Array<GrepIgnoreFile> = [];
+
   for (const directory of ignoreAncestorDirectories(input.prefix, input.root)) {
     input.signal?.throwIfAborted();
     const above = ignoreAbovePath(directory, input.prefix);
+
     if (repository !== undefined && isAtOrBelow(directory, repository)) {
       const gitignore = await read(directory, ".gitignore");
+
       if (gitignore !== undefined) files.push({ above, text: gitignore });
     }
+
     const ignore = await read(directory, ".ignore");
+
     if (ignore !== undefined) files.push({ above, text: ignore });
   }
+
   return files;
 }

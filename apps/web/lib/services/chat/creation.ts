@@ -52,6 +52,7 @@ export function buildCreateChatRequest(
   draft: CreateChatDraft,
 ): CreateChatRequest {
   const { effort, permissionMode } = draft.message;
+
   return {
     id: draft.chatId,
     ...(draft.projectId !== undefined && { projectId: draft.projectId }),
@@ -94,6 +95,7 @@ const failureEnvelope = z.object({ message: z.string().trim().min(1) });
 /** The server's refusal sentence, or a fallback for a transport failure. */
 export function createChatFailureMessage(error: unknown): string {
   const parsed = failureEnvelope.safeParse(getApiErrorInfo(error));
+
   return parsed.success
     ? parsed.data.message
     : "The chat could not be created. Try again.";
@@ -108,6 +110,7 @@ export function createChatFailureMessage(error: unknown): string {
  */
 export function chatAlreadyHoldsMessage(error: unknown): boolean {
   const info = failureEnvelope.partial().safeParse(getApiErrorInfo(error));
+
   return (
     getApiErrorStatus(error) === 409 &&
     info.success &&
@@ -117,6 +120,7 @@ export function chatAlreadyHoldsMessage(error: unknown): boolean {
 
 export function useCreateChat() {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (request: CreateChatRequest) =>
       createChatEndpoint(

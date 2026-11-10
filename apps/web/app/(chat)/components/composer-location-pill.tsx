@@ -146,6 +146,7 @@ function selectMachine(location: ComposerLocation, executorId: string) {
         row.repositoryId === location.location.repositoryId,
     )
     .sort((left, right) => left.path.localeCompare(right.path));
+
   if (first !== undefined) location.selectWorkingDirectory(first);
 }
 
@@ -153,6 +154,7 @@ function selectMachine(location: ComposerLocation, executorId: string) {
  *  an unusable one disabled with its reason. */
 function PillMachineCell({ location }: { location: ComposerLocation }) {
   const machine = location.location.executor?.label ?? "No checkout";
+
   return (
     <PillMenuCell
       tooltip="Machine"
@@ -188,6 +190,7 @@ function PillFolderCell({
 }) {
   const folder = folderName(path);
   const shown = machinePathFromRoot(path) ?? path;
+
   return (
     <PillMenuCell
       tooltip={shown}
@@ -212,6 +215,7 @@ function PillModeCell({ location }: { location: ComposerLocation }) {
   const branch = location.location.checkout?.branch ?? "detached HEAD";
   const worktree = location.isolation === "worktree";
   const label = worktree ? "Worktree" : branch;
+
   return (
     <PillMenuCell
       tooltip={
@@ -243,7 +247,9 @@ function PillModeCell({ location }: { location: ComposerLocation }) {
  *  failed preview retries from here. */
 function PillWarningCell({ location }: { location: ComposerLocation }) {
   const warning = location.location.warning;
+
   if (warning === null) return null;
+
   return (
     <ComposerTooltip
       label={warning.message}
@@ -272,7 +278,9 @@ export function ComposerLocationPill({
   onOtherFolder: () => void;
 }) {
   const checkout = location.location.checkout;
+
   if (checkout === null) return null;
+
   return (
     <ButtonGroup>
       <PillMachineCell location={location} />

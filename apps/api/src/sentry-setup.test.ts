@@ -11,18 +11,22 @@ const DSN = 'https://public@o0.ingest.sentry.io/1';
 
 function integrationsOf(options: NodeOptions | undefined) {
   const integrations = options?.integrations;
+
   if (integrations === undefined || Array.isArray(integrations)) {
     throw new TypeError('expected an integrations filter');
   }
+
   return integrations;
 }
 
 describe('setUpSentry', () => {
   it('loads .env.local quietly before reading the DSN it may define', () => {
     const env: NodeJS.ProcessEnv = {};
+
     const loadEnvFile = vi.fn(() => {
       env.SENTRY_DSN = DSN;
     });
+
     const init = vi.fn();
 
     setUpSentry({ env, entrypoint: 'dist/main', loadEnvFile, init });
@@ -157,20 +161,26 @@ async function runPoolProbe(preset?: string): Promise<PoolProbe> {
   delete env.UV_THREADPOOL_SIZE;
   // The setup starts the SDK (and its own first pool use) only with a DSN.
   env.SENTRY_DSN = 'https://public@o0.ingest.sentry.io/1';
+
   if (preset !== undefined) env.UV_THREADPOOL_SIZE = preset;
+
   const script = [
     `const { setUpSentry } = await import(${JSON.stringify(path.join(__dirname, 'sentry-setup.ts'))});`,
     `let atInit;`,
     `setUpSentry({ env: process.env, entrypoint: 'dist/main', loadEnvFile: () => {}, init: () => { atInit = process.env.UV_THREADPOOL_SIZE; } });`,
     `process.stdout.write(JSON.stringify({ atInit, after: process.env.UV_THREADPOOL_SIZE }));`,
   ].join('\n');
+
   const { stdout } = await promisify(execFile)(
     process.execPath,
     ['--experimental-strip-types', '--input-type=module', '-e', script],
     { env },
   );
+
   const parsed: unknown = JSON.parse(stdout);
+
   if (!isRecord(parsed)) throw new Error('the probe reported no width');
+
   return {
     ...(isString(parsed['atInit']) && { atInit: parsed['atInit'] }),
     ...(isString(parsed['after']) && { after: parsed['after'] }),

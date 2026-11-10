@@ -41,12 +41,15 @@ function fakeChild(options?: { pid?: number }) {
     exitCode: null,
     kill: vi.fn(),
   };
+
   const child = Object.assign(new EventEmitter(), state);
   child.kill.mockImplementation(() => {
     child.exitCode = 1;
     child.emit('close');
+
     return true;
   });
+
   return child;
 }
 
@@ -68,6 +71,7 @@ afterEach(() => {
 describe('DiagnosticBuffer', () => {
   it('redacts whole secrets and substantial multiline fragments, not short lines', () => {
     const emitted: Array<string> = [];
+
     const buffer = new DiagnosticBuffer(
       [
         'supersecret-token',
@@ -89,6 +93,7 @@ describe('DiagnosticBuffer', () => {
 
   it('holds a line until its terminator and flushes the remainder on close', () => {
     const emitted: Array<string> = [];
+
     const buffer = new DiagnosticBuffer(['unused-secret'], (text) =>
       emitted.push(text),
     );
@@ -191,6 +196,7 @@ describe('BoundedStdioTransport', () => {
   it('starts once, merges env, and refuses a second start', async () => {
     const child = fakeChild();
     spawned.mockReturnValue(asChildProcess(child));
+
     const transport = createStdioTransport({
       command: '/bin/mcp',
       args: ['--stdio'],
@@ -233,6 +239,7 @@ describe('BoundedStdioTransport', () => {
       const platformSpy = vi
         .spyOn(process, 'platform', 'get')
         .mockReturnValue(platform);
+
       try {
         const child = fakeChild();
         spawned.mockReturnValue(asChildProcess(child));
@@ -268,6 +275,7 @@ describe('BoundedStdioTransport', () => {
       method: 'ping',
       params: {},
     };
+
     child.stdout.emit('data', Buffer.from(`${JSON.stringify(ping)}\n`));
     expect(messages).toEqual([ping]);
 
@@ -283,6 +291,7 @@ describe('BoundedStdioTransport', () => {
     const child = fakeChild();
     spawned.mockReturnValue(asChildProcess(child));
     const transport = new BoundedStdioTransport({ command: '/bin/mcp' });
+
     const ping: JSONRPCMessage = {
       jsonrpc: '2.0',
       id: 3,
@@ -301,6 +310,7 @@ describe('BoundedStdioTransport', () => {
     const written: Array<string> = [];
     child.stdin.write = (chunk: string) => {
       written.push(chunk);
+
       return true;
     };
 
@@ -317,12 +327,14 @@ describe('BoundedStdioTransport', () => {
     await started;
 
     child.stdin.write = () => false;
+
     const ping: JSONRPCMessage = {
       jsonrpc: '2.0',
       id: 4,
       method: 'ping',
       params: {},
     };
+
     const sent = transport.send(ping);
     let settled = false;
     void sent.then(() => {

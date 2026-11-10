@@ -84,12 +84,15 @@ class UnknownMessagePartDto {
  */
 function toMessagePartDto(part: unknown) {
   if (!isRecord(part)) return part;
+
   if (part.type === 'text') {
     return plainToInstance(CreateTextMessagePartDto, part);
   }
+
   if (part.type === 'file') {
     return plainToInstance(CreateFileMessagePartDto, part);
   }
+
   return plainToInstance(UnknownMessagePartDto, part);
 }
 
@@ -101,8 +104,10 @@ class MessagePartCountsConstraint implements ValidatorConstraintInterface {
   validate(parts: unknown): boolean {
     // A non-array is IsArray's to report.
     if (!Array.isArray(parts)) return true;
+
     const count = (type: string) =>
       parts.filter((part) => isRecord(part) && part.type === type).length;
+
     return count('text') <= MAX_TEXT_PARTS && count('file') <= MAX_FILE_PARTS;
   }
 

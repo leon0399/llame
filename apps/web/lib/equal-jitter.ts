@@ -16,5 +16,6 @@ export function equalJitterDelayMs(
   random: () => number = Math.random,
 ): number {
   const ceiling = Math.min(ceilingMs, 1000 * 2 ** attempt);
+
   return Math.round(ceiling / 2 + (random() * ceiling) / 2);
 }

@@ -10,11 +10,13 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'TEST_DATABASE_URL is required for Knowledge Space compatibility tests',
   );
 }
+
 type SqlClient = ReturnType<typeof postgres>;
 
 describe('Knowledge Space legacy-writer compatibility', () => {
@@ -50,6 +52,7 @@ describe('Knowledge Space legacy-writer compatibility', () => {
 
   afterAll(async () => {
     await compatSql?.end();
+
     if (adminSql) {
       await adminSql`DROP SCHEMA IF EXISTS ${adminSql(schemaName)} CASCADE`;
       await adminSql.end();

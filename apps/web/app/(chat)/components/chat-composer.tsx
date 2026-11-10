@@ -117,6 +117,7 @@ function ChatComposerSendButton({
   if (!runActive && !pendingStop) {
     return <SendButton modelReadyForSend={modelReadyForSend} />;
   }
+
   return (
     <div className="flex items-center gap-1">
       {pendingStop ? <StoppingButton /> : <StopButton onStop={onStop} />}
@@ -173,8 +174,10 @@ function preventWhenDisabled(
   return (event: React.FormEvent<HTMLFormElement>) => {
     if (disabled) {
       event.preventDefault();
+
       return;
     }
+
     onSubmit(event);
   };
 }
@@ -231,6 +234,7 @@ function ComposerToolbarStart({
   "attachments" | "project" | "location" | "locked"
 >) {
   const [otherFolder, setOtherFolder] = useState(false);
+
   return (
     <div className="flex items-center gap-1">
       <ComposerAddMenu

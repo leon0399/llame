@@ -83,37 +83,49 @@ function installHarnessModule() {
   const queue = { enqueue: vi.fn() };
   const dispatch = { dispatch: vi.fn() };
   const configs: Array<LlameConfig> = [];
+
   const get = vi.fn((token: InjectionToken, opts?: { strict?: boolean }) => {
     if (opts?.strict !== false) {
       throw new Error(`expected strict: false for ${String(token)}`);
     }
+
     if (token === TenantDbService) return tenantDb;
+
     if (token === 'DB_DEV') return db;
+
     if (token === QUEUE) return queue;
+
     if (token === RunDispatchService) return dispatch;
     throw new Error(`unexpected token ${String(token)}`);
   });
+
   const moduleRef = { init, get, close };
+
   const overrideProvider = vi.fn((token: InjectionToken) => ({
     useValue: (value: OverrideValue) => {
       if (token === InstanceConfigService && 'config' in value) {
         configs.push(value.config);
       }
+
       return builder;
     },
   }));
+
   const builder = {
     overrideProvider,
     compile: vi.fn(() => Promise.resolve(moduleRef)),
   };
+
   // SAFETY: TestingModuleBuilder and TestingModule carry private state no
   // structural double can satisfy; this one implements exactly the
   // overrideProvider/useValue/compile chain bootWorkerHarness walks.
   // eslint-disable-next-line typescript/no-unsafe-type-assertion
   const asBuilder = builder as never;
+
   const createTestingModule = vi
     .spyOn(Test, 'createTestingModule')
     .mockReturnValue(asBuilder);
+
   return {
     init,
     close,
@@ -249,6 +261,7 @@ describe('bootWorkerHarness', () => {
 describe('createUser', () => {
   it('inserts a named users row tagged in the email', async () => {
     const queries: Array<{ sql: string; params: Array<unknown> }> = [];
+
     const db: Db = drizzle.mock({
       schema,
       logger: {
@@ -282,15 +295,18 @@ describe('createUser', () => {
  */
 function fakeTenantDb() {
   const db: Db = drizzle.mock({ schema });
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
+
   const runAs = vi
     .spyOn(tenantDb, 'runAs')
     .mockImplementation(
       async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
     );
+
   return { tenantDb, runAs };
 }
 
@@ -335,9 +351,11 @@ describe('seedRun', () => {
         workspaceToldAvailable: null,
         workspaceDetachReason: null,
       });
+
     const createMessage = vi
       .spyOn(MessagesRepository.prototype, 'create')
       .mockResolvedValue(message);
+
     const createRun = vi
       .spyOn(RunsRepository.prototype, 'create')
       .mockImplementation((input) =>
@@ -349,6 +367,7 @@ describe('seedRun', () => {
           effort: input.effort ?? null,
         }),
       );
+
     return { createIfAbsent, createMessage, createRun };
   }
 
@@ -399,6 +418,7 @@ describe('seedRun', () => {
 describe('dispatchRun and seedAndDispatchRun', () => {
   it('enqueues the run job onto RUNS_QUEUE with optional enqueue options', async () => {
     const enqueue = vi.fn(() => Promise.resolve('job-1'));
+
     const userMessage = {
       id: message.id,
       seq: 1,
@@ -456,9 +476,11 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       workspaceDetachReason: null,
     });
     vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(message);
+
     const createRun = vi
       .spyOn(RunsRepository.prototype, 'create')
       .mockResolvedValue(run);
+
     const enqueue = vi.fn(() => Promise.resolve('job-1'));
     const { tenantDb, runAs } = fakeTenantDb();
     const harness = { tenantDb, queue: fakeQueue(enqueue) };

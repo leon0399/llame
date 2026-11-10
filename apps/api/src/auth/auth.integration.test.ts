@@ -49,6 +49,7 @@ d('auth e2e — real HTTP + Postgres', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = mod.createNestApplication();
     configureApp(app);
     await app.listen(0);
@@ -64,6 +65,7 @@ d('auth e2e — real HTTP + Postgres', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email: emailA, password, name: 'Alice' });
+
     expect(res.status).toBe(201);
     tokenA = res.body.token;
     userAId = res.body.user?.id;
@@ -106,12 +108,14 @@ d('auth e2e — real HTTP + Postgres', () => {
     const seeded = await tenantDb.runAs(userAId, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: userAId, title: 'A chat' }),
     );
+
     chatA = seeded.id;
     expect(chatA).toBeTruthy();
 
     const list = await request(http)
       .get('/api/v1/chats')
       .set('Cookie', cookieA);
+
     expect(list.status).toBe(200);
     const arr = Array.isArray(list.body) ? list.body : (list.body.data ?? []);
     expect(arr.some((c: { id: string }) => c.id === chatA)).toBe(true);
@@ -121,11 +125,14 @@ d('auth e2e — real HTTP + Postgres', () => {
     const reg = await request(http)
       .post('/auth/v1/register')
       .send({ email: emailB, password, name: 'Bob' });
+
     expect(reg.status).toBe(201);
     cookieB = cookieOf(reg);
+
     const res = await request(http)
       .get(`/api/v1/chats/${chatA}`)
       .set('Cookie', cookieB);
+
     expect(res.status).toBe(404);
   });
 
@@ -133,6 +140,7 @@ d('auth e2e — real HTTP + Postgres', () => {
     const res = await request(http)
       .delete('/auth/v1/sessions/not-a-uuid')
       .set('Cookie', cookieA);
+
     expect(res.status).toBe(400);
   });
 
@@ -140,6 +148,7 @@ d('auth e2e — real HTTP + Postgres', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email: emailA, password, name: 'Alice' });
+
     expect(res.status).toBe(409);
   });
 
@@ -147,6 +156,7 @@ d('auth e2e — real HTTP + Postgres', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email: 'not-an-email', password: '' });
+
     expect(res.status).toBe(400);
   });
 
@@ -154,17 +164,20 @@ d('auth e2e — real HTTP + Postgres', () => {
     const list = await request(http)
       .get('/auth/v1/sessions')
       .set('Cookie', cookieA);
+
     expect(list.status).toBe(200);
 
     const logout = await request(http)
       .delete('/auth/v1/sessions/current')
       .set('Cookie', cookieA);
+
     expect(logout.status).toBe(200);
 
     // the Bearer token for that same session must now be dead — the property JWT can't give
     const after = await request(http)
       .get('/auth/v1/me')
       .set('Authorization', `Bearer ${tokenA}`);
+
     expect(after.status).toBe(401);
   });
 
@@ -173,16 +186,19 @@ d('auth e2e — real HTTP + Postgres', () => {
   // login rate budget for this app instance.
   it('THROTTLE: rapid-fire login attempts are rejected with 429', async () => {
     let tooMany = 0;
+
     for (let i = 0; i < 12; i += 1) {
       const res = await request(http)
         .post('/auth/v1/login')
         .send({ email: 'nobody@example.com', password: 'wrong-password' });
+
       if (res.status === 429) {
         tooMany += 1;
       } else {
         expect(res.status).toBe(401);
       }
     }
+
     expect(tooMany).toBeGreaterThan(0);
   });
 });

@@ -8,6 +8,7 @@ import {
 } from "./draft-route";
 
 const CHAT_ID = "chat-123";
+
 const draftPhaseCases: Array<
   [string | Array<string> | undefined, DraftPhase | null]
 > = [

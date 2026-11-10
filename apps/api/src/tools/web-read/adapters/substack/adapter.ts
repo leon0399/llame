@@ -18,6 +18,7 @@ const POST_PATH = /^\/p\/([\w-]+)\/?$/u;
  *  stays. */
 const IMAGE_LINK =
   /<a\b(?=[^>]*\sclass="[^"]*\bimage-link\b)(?=[^>]*\shref="https:\/\/substackcdn\.com\/image\/)[^>]*>([\s\S]*?)<\/a>/gu;
+
 /** A root-relative `href` or `src` on a tag. Only markup matches, since body
  *  text escapes `<`, so a code sample showing one is left alone. */
 const ROOT_RELATIVE = /(<[a-z][^>]*?\s(?:href|src)=")\/(?!\/)/gu;
@@ -38,6 +39,7 @@ const POST = z.object({
     .array(z.object({ name: z.string(), hidden: z.boolean().nullish() }))
     .default([]),
 });
+
 type Post = z.infer<typeof POST>;
 
 /** Matches `{publication}.substack.com/p/{slug}`, also with a trailing `/`. */
@@ -45,6 +47,7 @@ export function parseSubstackUrl(source: URL): string | undefined {
   if (source.protocol !== 'https:' || !PUBLICATION_HOST.test(source.host)) {
     return undefined;
   }
+
   return POST_PATH.exec(source.pathname)?.[1];
 }
 
@@ -61,11 +64,15 @@ export function createSubstackAdapter(
         `${source.origin}/api/v1/posts/${parseSubstackUrl(source)!}`,
         JSON_INIT,
       );
+
       if ('type' in fetched) return primaryFailure(fetched);
       const post = parseJsonBody(fetched.body, POST);
+
       if (post === undefined) return { kind: 'failed', failure: 'parse' };
       const body = bodyMarkdown(post.body_html ?? '', source.origin);
+
       if (!body) return { kind: 'failed', failure: 'empty' };
+
       return {
         kind: 'rendered',
         content: renderPost(post, body),
@@ -85,21 +92,28 @@ function renderPost(post: Post, body: string): string {
   const authors = post.publishedBylines.flatMap(({ name }) =>
     name ? [name] : [],
   );
+
   const tags = post.postTags.flatMap((tag) =>
     tag.hidden === true ? [] : [tag.name],
   );
+
   const fields: Array<[string, string | null | undefined]> = [
     ['Author', authors.join(', ')],
     ['Published', post.post_date],
     ['Tags', tags.join(', ')],
     ['URL', post.canonical_url],
   ];
+
   const lines = [`# ${post.title}`, ''];
+
   if (post.subtitle) lines.push(post.subtitle, '');
+
   for (const [label, value] of fields) {
     if (value) lines.push(`${label}: ${value}`);
   }
+
   lines.push('', body);
+
   return lines.join('\n');
 }
 

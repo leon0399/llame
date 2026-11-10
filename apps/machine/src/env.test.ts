@@ -14,6 +14,7 @@ afterEach(() => {
   if (original.override === undefined)
     delete process.env["LLAME_MACHINE_CONFIG_DIR"];
   else process.env["LLAME_MACHINE_CONFIG_DIR"] = original.override;
+
   if (original.xdg === undefined) delete process.env["XDG_CONFIG_HOME"];
   else process.env["XDG_CONFIG_HOME"] = original.xdg;
 });
@@ -53,16 +54,19 @@ describe("machine configuration directory", () => {
     const env: NodeJS.ProcessEnv = { ...process.env, SENTRY_DSN: "" };
     delete env["UV_THREADPOOL_SIZE"];
     const instrument = join(__dirname, "instrument.ts");
+
     const script = [
       `import(${JSON.stringify(instrument)}).then(() => {`,
       `  process.stdout.write(process.env['UV_THREADPOOL_SIZE'] ?? 'unset');`,
       `});`,
     ].join("\n");
+
     const { stdout } = await promisify(execFile)(
       join(resolve(__dirname, "../../.."), "node_modules/.bin/tsx"),
       ["-e", script],
       { env },
     );
+
     expect(stdout).toBe("16");
   }, 30_000);
 });

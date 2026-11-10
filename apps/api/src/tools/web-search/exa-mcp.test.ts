@@ -48,6 +48,7 @@ type TextToolResult = {
   }>;
   readonly isError?: true;
 };
+
 type JsonResult =
   | { readonly tools: ReadonlyArray<typeof exaTool> }
   | TextToolResult
@@ -117,6 +118,7 @@ let activeFixture: McpTestFixture | undefined;
 
 function currentFixture(): McpTestFixture {
   if (activeFixture === undefined) throw new Error('fixture is not active');
+
   return activeFixture;
 }
 
@@ -138,6 +140,7 @@ describe('Exa MCP engine', () => {
       ]),
     );
     const seen: Array<CapturedRequest> = [];
+
     const engine = createExaMcpEngine(
       { key: 'exa-secret' },
       { fetch: routedFetch(currentFixture(), seen) },
@@ -191,6 +194,7 @@ describe('Exa MCP engine', () => {
         ),
       ]),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -259,6 +263,7 @@ describe('Exa MCP engine', () => {
         ),
       ]),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -305,10 +310,12 @@ describe('Exa MCP engine', () => {
         ],
       ),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
     );
+
     const controller = new AbortController();
     const first = engine(request({ signal: controller.signal }));
     await vi.waitFor(() => {
@@ -343,10 +350,12 @@ describe('Exa MCP engine', () => {
         delayMs: 200,
       })),
     });
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
     );
+
     const controller = new AbortController();
     const pending = engine(request({ signal: controller.signal }));
     await vi.waitFor(() => {
@@ -374,6 +383,7 @@ describe('Exa MCP engine', () => {
         rpcResult(3, toolResult('Title: Two\nURL: https://example.test/two')),
       ]),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -414,6 +424,7 @@ describe('Exa MCP engine', () => {
         ),
       ]),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -451,6 +462,7 @@ describe('Exa MCP engine', () => {
           ),
         ]),
       );
+
       const engine = createExaMcpEngine(
         { key: undefined },
         { fetch: routedFetch(currentFixture(), []) },
@@ -481,6 +493,7 @@ describe('Exa MCP engine', () => {
       activeFixture = await createMcpTestFixture(
         fixtureScripts([], [{ kind: 'raw', status, body: 'denied' }]),
       );
+
       const engine = createExaMcpEngine(
         { key: 'exa-secret' },
         { fetch: routedFetch(currentFixture(), []) },
@@ -506,6 +519,7 @@ describe('Exa MCP engine', () => {
         },
       ]),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -533,6 +547,7 @@ describe('Exa MCP engine', () => {
         [[], [exaTool]],
       ),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -572,6 +587,7 @@ describe('Exa MCP engine', () => {
         ],
       ),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -610,6 +626,7 @@ describe('Exa MCP engine', () => {
         ],
       ),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -640,6 +657,7 @@ describe('Exa MCP engine', () => {
     const reason = new Error('cancelled by caller');
     const controller = new AbortController();
     controller.abort(reason);
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
@@ -669,10 +687,12 @@ describe('Exa MCP engine', () => {
     );
     const controller = new AbortController();
     const reason = 'cancelled by caller';
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },
     );
+
     const pending = engine(request({ signal: controller.signal }));
     await vi.waitFor(() => {
       expect(currentFixture().requestSummaries()).toContainEqual(
@@ -699,6 +719,7 @@ describe('Exa MCP engine', () => {
         rpcResult(2, { content: [{ type: 'image', data: 'secret' }] }),
       ]),
     );
+
     const engine = createExaMcpEngine(
       { key: undefined },
       { fetch: routedFetch(currentFixture(), []) },

@@ -37,8 +37,11 @@ export async function requestJson(
   if (context.halted !== undefined) {
     return { kind: 'failed', failure: context.halted };
   }
+
   const fetched = await context.io.fetch(url, context.init);
+
   if ('type' in fetched) return { kind: 'failed', failure: fetched };
+
   return { kind: 'ok', body: fetched.body };
 }
 
@@ -48,6 +51,7 @@ export function recordSecondaryFailure(
   context: GithubRequestContext,
 ): void {
   context.notes.push(omissionNote(section, failure));
+
   if (isFatalAdapterFailure(failure)) context.halted = failure;
 }
 
@@ -58,6 +62,7 @@ export function finishRendered(
   if (context.halted !== undefined && context.halted.type !== 'call_timeout') {
     return primaryFailure(context.halted);
   }
+
   return {
     kind: 'rendered',
     content,

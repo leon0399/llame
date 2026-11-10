@@ -30,6 +30,7 @@ function ProjectPinToggle({
   onToggle: () => void;
 }) {
   const label = isPinned ? "Unpin" : "Pin";
+
   return (
     <IconButtonTooltip label={label} onClick={onToggle} aria-pressed={isPinned}>
       <PinIcon className={cn(isPinned && "fill-current")} />

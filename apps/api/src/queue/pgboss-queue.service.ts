@@ -110,6 +110,7 @@ export class PgBossQueueService implements Queue {
       await this.boss.createQueue(dead, deadPolicy);
       await this.boss.updateQueue(dead, deadPolicy);
     }
+
     // Mutable, per-boot-idempotent fields (updateQueue COALESCEs each).
     const updatable: NonNullable<Parameters<typeof this.boss.updateQueue>[1]> =
       {
@@ -117,23 +118,27 @@ export class PgBossQueueService implements Queue {
         retryDelay: opts.retryDelay,
         retryBackoff: opts.retryBackoff,
       };
+
     // Native liveness (design D7): omitted unless the definition sets it —
     // DEFAULT_QUEUE_OPTIONS deliberately carries no value here, so an
     // unset field stays NULL/disabled instead of opting every queue in.
     if (opts.heartbeatSeconds !== undefined) {
       updatable.heartbeatSeconds = opts.heartbeatSeconds;
     }
+
     // Declared job duration: same discipline as heartbeatSeconds — absent
     // leaves the queue's own default rather than opting every queue in.
     if (opts.expireInSeconds !== undefined) {
       updatable.expireInSeconds = opts.expireInSeconds;
     }
+
     // With deadLetter disabled the field is omitted, which leaves any
     // previously-configured dead-letter target in place — detaching a live
     // queue's DLQ is an explicit migration, not a boot-time default.
     if (opts.deadLetter) {
       updatable.deadLetter = deadLetterQueueName(queue.name);
     }
+
     // The admission policy (dedup/throttle by state, default `standard`) is
     // IMMUTABLE in pg-boss v12 — updateQueue rejects a `policy` field ("queue
     // policy cannot be changed after creation"). So it is set ONLY at createQueue;
@@ -151,29 +156,37 @@ export class PgBossQueueService implements Queue {
     options?: EnqueueOptions,
   ): Promise<string | null> {
     const sendOptions: EnqueueOptions = {};
+
     if (options?.id !== undefined) {
       sendOptions.id = options.id;
     }
+
     if (options?.priority !== undefined) {
       sendOptions.priority = options.priority;
     }
+
     if (options?.startAfter !== undefined) {
       sendOptions.startAfter = options.startAfter;
     }
+
     if (options?.retryLimit !== undefined) {
       sendOptions.retryLimit = options.retryLimit;
     }
+
     if (options?.retryDelay !== undefined) {
       sendOptions.retryDelay = options.retryDelay;
     }
+
     if (options?.retryBackoff !== undefined) {
       sendOptions.retryBackoff = options.retryBackoff;
     }
+
     // Coalescing key — meaningful only under a de-duplicating queue policy
     // (QueueOptions.policy); a no-op for dedup on a standard queue.
     if (options?.singletonKey !== undefined) {
       sendOptions.singletonKey = options.singletonKey;
     }
+
     return publishTraced(queue.name, data, (payload) =>
       this.boss.send(queue.name, payload, sendOptions),
     );
@@ -184,6 +197,7 @@ export class PgBossQueueService implements Queue {
     id: string,
   ): Promise<JobState> {
     const job = await this.boss.getJobById(queue.name, id);
+
     return job === null ? 'absent' : PG_BOSS_JOB_STATES[job.state];
   }
 
@@ -215,6 +229,7 @@ export class PgBossQueueService implements Queue {
       },
       async (jobs: Array<PgBossJob<PayloadOf<Q>>>) => {
         const definition: QueueDefinition<PayloadOf<Q>> = queue;
+
         for (const job of jobs) {
           await processTraced(queue.name, job, async () => {
             // The definition's guard runs BEFORE domain code: a payload
@@ -224,6 +239,7 @@ export class PgBossQueueService implements Queue {
             const data: PayloadOf<Q> = definition.parse
               ? definition.parse(job.data)
               : job.data;
+
             await handler(data, { id: job.id, queue: queue.name });
           });
         }

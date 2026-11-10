@@ -182,6 +182,7 @@ describe('createInRunContextItems', () => {
         ],
       },
     ];
+
     items.beginStep(secondStep);
     items.stage(contextItem('after second'));
 
@@ -219,6 +220,7 @@ describe('createInRunContextItems', () => {
       { role: 'assistant', content: 'earlier answer' },
       { role: 'user', content: 'current question' },
     ];
+
     const items = createInRunContextItems();
     items.beginStep(history);
     items.stage(contextItem('project rule'));
@@ -234,11 +236,14 @@ describe('createInRunContextItems', () => {
 
   it('removes its own earlier copy only past the Run boundary', () => {
     const duplicated = 'project rule';
+
     const history: Array<ModelMessage> = [
       { role: 'user', content: [{ type: 'text', text: duplicated }] },
     ];
+
     const items = createInRunContextItems();
     items.beginStep(history);
+
     const step: Array<ModelMessage> = [
       ...history,
       {
@@ -264,6 +269,7 @@ describe('createInRunContextItems', () => {
         ],
       },
     ];
+
     items.beginStep(step);
     items.stage(contextItem(duplicated));
 
@@ -292,6 +298,7 @@ describe('createInRunContextItems', () => {
 function isItemCopy(message: ModelMessage, text: string): boolean {
   if (message.role !== 'user' || !Array.isArray(message.content)) return false;
   const [part] = message.content;
+
   return (
     message.content.length === 1 && part?.type === 'text' && part.text === text
   );
@@ -317,11 +324,13 @@ describe('composeAttemptProducers', () => {
 
   it('runs every producer in order, finishing one before the next starts', async () => {
     const log: Array<string> = [];
+
     const composed = composeAttemptProducers([
       recording('git', log),
       undefined,
       recording('instructions', log),
     ]);
+
     const staged: Array<string> = [];
 
     composed?.observeToolCall?.({

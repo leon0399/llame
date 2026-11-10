@@ -60,6 +60,7 @@ export function LiveUpdatesProvider({
 
   const subscribeRunMessages = useCallback((listener: RunMessageListener) => {
     listeners.current.add(listener);
+
     return () => {
       listeners.current.delete(listener);
     };
@@ -84,10 +85,13 @@ export function dispatchLiveMessage(
   listeners: ReadonlySet<RunMessageListener>,
 ): void {
   if (!message) return;
+
   if (message.type === "run.updated" || message.type === "run.progress") {
     for (const listener of listeners) listener(message);
+
     return;
   }
+
   applyLiveMessage(queryClient, message);
 }
 
@@ -117,16 +121,21 @@ function connectLiveSocket(handlers: LiveSocketHandlers): () => void {
       attempt = 0;
       handlers.onOpen();
     };
+
     socket.onmessage = (event: MessageEvent<unknown>) =>
       handlers.onMessage(parseLiveMessage(event.data));
     socket.onclose = (event: CloseEvent) => {
       handlers.onClose();
+
       if (stopped) return;
+
       if (event.code === CLOSE_SESSION_ENDED) {
         stopped = true;
         handlers.onSessionEnded();
+
         return;
       }
+
       retry = setTimeout(
         open,
         equalJitterDelayMs(attempt, SOCKET_RECONNECT_CEILING_MS),
@@ -136,8 +145,10 @@ function connectLiveSocket(handlers: LiveSocketHandlers): () => void {
   };
 
   open();
+
   return () => {
     stopped = true;
+
     if (retry) clearTimeout(retry);
     socket?.close();
   };

@@ -85,6 +85,7 @@ function usePersonalizationDerived(
   const dirty = useMemo(() => {
     if (!data || !draft) return false;
     const stored = toDraft(data);
+
     return typedKeys(stored).some(
       (key) => (stored[key] ?? "") !== (draft[key] ?? ""),
     );

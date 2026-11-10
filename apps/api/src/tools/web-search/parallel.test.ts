@@ -17,6 +17,7 @@ const request = (overrides: Partial<EngineRequest> = {}): EngineRequest => ({
   removal: removalFor(undefined),
   ...overrides,
 });
+
 const ParallelRequestSchema = z.object({
   search_queries: z.array(z.string()),
   objective: z.string().optional(),
@@ -34,11 +35,14 @@ const ParallelRequestSchema = z.object({
       .optional(),
   }),
 });
+
 type ParallelRequest = z.infer<typeof ParallelRequestSchema>;
+
 async function parseBody(
   init: RequestInit | undefined,
 ): Promise<ParallelRequest> {
   const text = await new Response(init?.body ?? null).text();
+
   // SAFETY: The schema validates JSON parsed from the captured vendor request.
   return ParallelRequestSchema.parse(JSON.parse(text) as unknown);
 }
@@ -55,6 +59,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-27T12:00:00.000Z'));
 });
+
 afterEach(() => vi.useRealTimers());
 
 describe('Parallel adapter', () => {
@@ -62,10 +67,12 @@ describe('Parallel adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ search_id: 'search_1', results: [recordedResult] }),
     );
+
     const result = await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: recorded.fetch },
     )(request({ recency: 'week' }));
+
     expect(recorded.seen().url).toBe(PARALLEL_SEARCH_URL);
     expect(recorded.seen().init?.method).toBe('POST');
     const headers = new Headers(recorded.seen().init?.headers);
@@ -100,10 +107,12 @@ describe('Parallel adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     const result = await createParallelEngine(
       { key: 'secret', mode: 'advanced' },
       { fetch: recorded.fetch },
     )(request({ query: 'rerank site:arxiv.org' }));
+
     expect(result).not.toHaveProperty('notes');
     const body = await parseBody(recorded.seen().init);
     expect(body.search_queries).toStrictEqual(['rerank']);
@@ -120,6 +129,7 @@ describe('Parallel adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: recorded.fetch },
@@ -140,6 +150,7 @@ describe('Parallel adapter', () => {
     const excluded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: excluded.fetch },
@@ -149,10 +160,12 @@ describe('Parallel adapter', () => {
     ).toStrictEqual({ exclude_domains: ['spam.test'] });
 
     const mixed = captureFetch(JSON.stringify({ results: [recordedResult] }));
+
     const result = await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: mixed.fetch },
     )(request({ query: 'rerank site:arxiv.org -site:spam.test' }));
+
     expect(
       (await parseBody(mixed.seen().init)).advanced_settings.source_policy,
     ).toStrictEqual({ include_domains: ['arxiv.org'] });
@@ -165,6 +178,7 @@ describe('Parallel adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: recorded.fetch },
@@ -184,6 +198,7 @@ describe('Parallel adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: recorded.fetch },
@@ -230,10 +245,12 @@ describe('Parallel adapter', () => {
         ],
       }),
     );
+
     const result = await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: recorded.fetch },
     )(request());
+
     expect(result).toStrictEqual({
       kind: 'results',
       results: [
@@ -266,6 +283,7 @@ describe('Parallel adapter', () => {
     const recorded = captureFetch(
       JSON.stringify({ results: [recordedResult] }),
     );
+
     await createParallelEngine(
       { key: 'secret', mode: 'fast' },
       { fetch: recorded.fetch },
@@ -310,6 +328,7 @@ describe('Parallel adapter', () => {
             ),
         },
       );
+
       // The fixed message is the whole text: the body never reaches it.
       await expect(engine(request())).rejects.toMatchObject({
         failureClass,

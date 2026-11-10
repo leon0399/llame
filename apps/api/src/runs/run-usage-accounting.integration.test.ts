@@ -46,6 +46,7 @@ import {
 } from '../testing/fake-streaming-model-client';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
+
 if (!TEST_DB_URL) {
   throw new Error(
     'run-usage-accounting.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
@@ -74,11 +75,14 @@ const openTool: Tool = {
     openToolSawRequestUsage = requestUsageReported;
     markOpenToolStarted();
     const signal = context.abortSignal;
+
     if (!signal) {
       return Promise.reject(new Error('Expected the Run abort signal.'));
     }
+
     return new Promise<{ status: 'success' }>((_resolve, reject) => {
       const rejectForAbort = () => reject(new Error('Tool observed abort.'));
+
       if (signal.aborted) {
         rejectForAbort();
       } else {
@@ -100,7 +104,9 @@ type ProviderResponse = {
     wait: Promise<void>;
   };
 };
+
 type ProviderRequest = ProviderResponse | { error: string };
+
 type ModelScript = {
   requests: ReadonlyArray<ProviderRequest>;
   billing: BillingMode;
@@ -173,18 +179,23 @@ function providerStream(
   return new ReadableStream({
     async start(controller) {
       controller.enqueue({ type: 'stream-start', warnings: [] });
+
       // A held-open stream, so a test can measure the time to the first
       // content part and the generation window that follows it (#155).
       if (request.leadInMs !== undefined) {
         await holdOpen(request.leadInMs);
       }
+
       const hasToolCall = request.parts.some(
         (part) => part.type === 'tool-call',
       );
+
       for (const part of request.parts) controller.enqueue(part);
+
       if (request.tailMs !== undefined) {
         await holdOpen(request.tailMs);
       }
+
       controller.enqueue({
         type: 'finish',
         finishReason:
@@ -207,6 +218,7 @@ function providerStream(
  */
 async function holdOpen(ms: number): Promise<void> {
   const until = Date.now() + ms;
+
   for (let left = ms; left > 0; left = until - Date.now()) {
     await new Promise((resolve) => {
       setTimeout(resolve, left);
@@ -232,25 +244,32 @@ class UsageScriptedModelClient implements ModelClient {
 
   streamText(input: ModelStreamInput): ModelStreamResult {
     let requestIndex = 0;
+
     const model = new MockLanguageModelV3({
       provider: this.provider,
       modelId: this.model,
       doStream: async () => {
         const request = this.script.requests[requestIndex++];
+
         if (request === undefined) {
           throw new Error(
             `No scripted provider request remains for ${this.model}.`,
           );
         }
+
         if ('error' in request) throw new Error(request.error);
+
         if (request.beforeFinish !== undefined) {
           request.beforeFinish.signalStarted();
           await request.beforeFinish.wait;
         }
+
         return { stream: providerStream(request) };
       },
     });
+
     const settlement = trackAbortSettlement(input);
+
     const streamOptions = {
       model,
       messages: input.messages,
@@ -264,6 +283,7 @@ class UsageScriptedModelClient implements ModelClient {
       }),
       ...scriptedStreamHandlers(input, settlement),
     };
+
     const receiptInput: ModelStreamInput =
       input.onRequestUsage === undefined
         ? input
@@ -274,7 +294,9 @@ class UsageScriptedModelClient implements ModelClient {
               input.onRequestUsage?.(usage, generationMs);
             },
           };
+
     applyRequestUsageCallback(streamOptions, receiptInput);
+
     return awaitSettlementAfter(sdkStreamText(streamOptions), settlement);
   }
 }
@@ -284,10 +306,13 @@ function numericUsageField(usage: unknown, field: string): number {
   if (!isRecord(usage)) {
     throw new Error('Expected the reply usage to be a record.');
   }
+
   const value = usage[field];
+
   if (!isNumber(value)) {
     throw new Error(`Expected usage.${field} to be a number.`);
   }
+
   return value;
 }
 
@@ -301,6 +326,7 @@ function metadataUsages(stream: string): Array<unknown> {
     )
     .map((chunk) => {
       if (!isRecord(chunk.messageMetadata)) return undefined;
+
       return chunk.messageMetadata['usage'];
     });
 }
@@ -325,15 +351,18 @@ describe('Run usage accounting through the worker and Postgres', () => {
       const attempt = attemptsByModel.get(modelId) ?? 0;
       attemptsByModel.set(modelId, attempt + 1);
       const attemptScripts = scriptsByAttempt.get(modelId);
+
       const script =
         attemptScripts === undefined
           ? scripts.get(modelId)
           : attemptScripts[Math.min(attempt, attemptScripts.length - 1)];
+
       if (script === undefined) {
         throw new Error(
           `No usage-accounting script registered for ${modelId}.`,
         );
       }
+
       return new UsageScriptedModelClient(modelId, script);
     };
   });
@@ -369,6 +398,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
     return waitFor(
       async () => {
         const run = await runStatus(runId, userId);
+
         return run?.status === status ? run : undefined;
       },
       15_000,
@@ -384,6 +414,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
     return waitFor(
       async () => {
         const messages = await history(chatId, userId);
+
         return messages.find(
           (message) =>
             message.role === 'assistant' && message.inReplyTo === userMessageId,
@@ -430,9 +461,11 @@ describe('Run usage accounting through the worker and Postgres', () => {
     const marker = `cancelledassistant${crypto.randomUUID().replaceAll('-', '')}`;
     const modelId = `test:run-usage:cancel:${crypto.randomUUID()}`;
     let resolveToolStarted: () => void = () => {};
+
     const toolStarted = new Promise<void>((resolve) => {
       resolveToolStarted = resolve;
     });
+
     markOpenToolStarted = resolveToolStarted;
     requestUsageReported = false;
     openToolSawRequestUsage = false;
@@ -450,6 +483,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
         requestUsageReported = true;
       },
     });
+
     const seed = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
@@ -467,11 +501,13 @@ describe('Run usage accounting through the worker and Postgres', () => {
       await waitForStatus(seed.runId, 'cancelled');
 
       const messages = await history(seed.chatId);
+
       const reply = messages.find(
         (message) =>
           message.role === 'assistant' &&
           message.inReplyTo === seed.userMessage.id,
       );
+
       expect(reply?.usage).toMatchObject({
         inputTokens: 17,
         outputTokens: 5,
@@ -482,12 +518,14 @@ describe('Run usage accounting through the worker and Postgres', () => {
         billing: 'usage',
         modelId,
       });
+
       const control = await seedRun({
         tenantDb: harness!.tenantDb,
         userId: ownerId,
         modelId: `test:run-usage:search-control:${crypto.randomUUID()}`,
         text: 'search control question',
       });
+
       const controlReply = await harness!.tenantDb.runAs(ownerId, (tx) =>
         new MessagesRepository(tx).create({
           chatId: control.chatId,
@@ -502,15 +540,18 @@ describe('Run usage accounting through the worker and Postgres', () => {
       const searchIndex = new SearchIndexService(harness!.tenantDb);
       await searchIndex.reindexChat(seed.chatId, ownerId);
       await searchIndex.reindexChat(control.chatId, ownerId);
+
       const searchResults = await harness!.tenantDb.runAs(ownerId, (tx) =>
         new ChatsRepository(tx).searchByOwner(ownerId, marker, { limit: 10 }),
       );
+
       expect(searchResults.map((result) => result.id)).toContain(
         control.chatId,
       );
       expect(searchResults.map((result) => result.id)).not.toContain(
         seed.chatId,
       );
+
       if (reply === undefined)
         throw new Error('Expected the aborted assistant reply.');
       await expect(
@@ -548,17 +589,21 @@ describe('Run usage accounting through the worker and Postgres', () => {
       billing: 'usage',
       requests: [textRequest('reclaimed answer', providerUsage(31, 8, 2))],
     });
+
     const seed = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
       modelId,
     });
+
     const earlierAttempt = await harness!.tenantDb.runAs(ownerId, (tx) =>
       new RunsRepository(tx).markStarted(seed.runId, ownerId),
     );
+
     if (!earlierAttempt?.activeAttemptId) {
       throw new Error('Expected a prompt-preparation attempt to be claimable.');
     }
+
     await insertReceipt(ownerId, seed.runId, earlierAttempt.activeAttemptId);
 
     await enqueue(seed, modelId);
@@ -575,21 +620,26 @@ describe('Run usage accounting through the worker and Postgres', () => {
       billing: 'usage',
       modelId,
     });
+
     const receipts = await harness!.tenantDb.runAs(ownerId, (tx) =>
       new SystemPromptReceiptsRepository(tx).findByOwnedRun(
         seed.runId,
         ownerId,
       ),
     );
+
     expect(new Set(receipts.map((receipt) => receipt.attemptId)).size).toBe(2);
 
     const events = await runEvents(seed.runId);
+
     const modelCompleted = events.find(
       (event) => event.eventType === 'model.completed',
     );
+
     const terminal = events.find(
       (event) => event.eventType === 'run.completed',
     );
+
     expect(modelCompleted?.payload).toEqual(
       expect.objectContaining({ telemetry: reply.usage }),
     );
@@ -599,13 +649,17 @@ describe('Run usage accounting through the worker and Postgres', () => {
   it('persists late usage after expiry as incomplete (1.5)', async () => {
     const modelId = `test:run-usage:late-expiry:${crypto.randomUUID()}`;
     let releaseProvider: () => void = () => {};
+
     const providerReleased = new Promise<void>((resolve) => {
       releaseProvider = resolve;
     });
+
     let signalProviderStarted: () => void = () => {};
+
     const providerStarted = new Promise<void>((resolve) => {
       signalProviderStarted = resolve;
     });
+
     scripts.set(modelId, {
       billing: 'subscription',
       requests: [
@@ -618,6 +672,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
         },
       ],
     });
+
     const seed = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
@@ -629,9 +684,11 @@ describe('Run usage accounting through the worker and Postgres', () => {
       await providerStarted;
       const active = await runStatus(seed.runId);
       const activeAttemptId = active?.activeAttemptId;
+
       if (activeAttemptId === null || activeAttemptId === undefined) {
         throw new Error('Expected an active attempt.');
       }
+
       await harness!.tenantDb.runAs(ownerId, async (tx) => {
         const expired = await new RunsRepository(tx).markFinished(
           seed.runId,
@@ -639,6 +696,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
           'expired',
           { attemptId: activeAttemptId },
         );
+
         if (!expired) throw new Error('Expected to expire the active Run.');
         await new RunEventsRepository(tx).append(seed.runId, 'run.expired', {
           status: 'expired',
@@ -665,13 +723,17 @@ describe('Run usage accounting through the worker and Postgres', () => {
   it('retries a salvaged failed reply and marks the replacement incomplete (1.5)', async () => {
     const modelId = `test:run-usage:salvage:${crypto.randomUUID()}`;
     let releaseRetryProvider: () => void = () => {};
+
     const retryProviderReleased = new Promise<void>((resolve) => {
       releaseRetryProvider = resolve;
     });
+
     let signalRetryProviderStarted: () => void = () => {};
+
     const retryProviderStarted = new Promise<void>((resolve) => {
       signalRetryProviderStarted = resolve;
     });
+
     scriptsByAttempt.set(modelId, [
       {
         billing: 'subscription',
@@ -698,14 +760,17 @@ describe('Run usage accounting through the worker and Postgres', () => {
         ],
       },
     ]);
+
     const seed = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
       modelId,
     });
+
     const triggerSuffix = crypto.randomUUID().replaceAll('-', '');
     const triggerName = `test_usage_rollback_${triggerSuffix}`;
     const functionName = `test_usage_rollback_fn_${triggerSuffix}`;
+
     const removeFailureTrigger = async () => {
       await harness!.db.execute(
         sql.raw(`DROP TRIGGER IF EXISTS ${triggerName} ON run_events`),
@@ -772,6 +837,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
       // attempt; history hides it until it is final.
       await retryProviderStarted;
       const retryAttemptId = (await runStatus(seed.runId))?.activeAttemptId;
+
       const reset = await harness!.tenantDb.runAs(ownerId, (tx) =>
         new MessagesRepository(tx).findTurnState(
           seed.chatId,
@@ -779,6 +845,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
           seed.userMessage.id,
         ),
       );
+
       expect(reset.assistantMessage).toMatchObject({
         id: salvaged.id,
         parts: [],
@@ -793,12 +860,14 @@ describe('Run usage accounting through the worker and Postgres', () => {
       expect(
         (await history(seed.chatId)).some(({ id }) => id === salvaged.id),
       ).toBe(false);
+
       const receipts = await harness!.tenantDb.runAs(ownerId, (tx) =>
         new SystemPromptReceiptsRepository(tx).findByOwnedRun(
           seed.runId,
           ownerId,
         ),
       );
+
       expect(new Set(receipts.map((receipt) => receipt.attemptId)).size).toBe(
         2,
       );
@@ -830,27 +899,33 @@ describe('Run usage accounting through the worker and Postgres', () => {
       billing: 'usage',
       requests: [textRequest('isolated answer', providerUsage(29, 4))],
     });
+
     const seed = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
       modelId,
     });
+
     const sameOwnerOtherRun = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
       modelId: `${modelId}:other-run`,
     });
+
     await insertReceipt(ownerId, sameOwnerOtherRun.runId);
     await insertReceipt(ownerId, sameOwnerOtherRun.runId);
+
     const otherOwnerId = await createUser(
       harness!.db,
       `run-usage-isolation-${crypto.randomUUID()}`,
     );
+
     const otherOwnerRun = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: otherOwnerId,
       modelId: `${modelId}:other-owner-run`,
     });
+
     await insertReceipt(otherOwnerId, otherOwnerRun.runId);
     await insertReceipt(otherOwnerId, otherOwnerRun.runId);
 
@@ -882,17 +957,21 @@ describe('Run usage accounting through the worker and Postgres', () => {
         },
       ],
     });
+
     const seed = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
       modelId,
     });
+
     const bridge = harness!.moduleRef.get(RunStreamBridgeService, {
       strict: false,
     });
+
     const liveStream = bridge
       .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
       .text();
+
     await enqueue(seed, modelId);
     await waitForStatus(seed.runId, 'failed');
 
@@ -907,12 +986,15 @@ describe('Run usage accounting through the worker and Postgres', () => {
       modelId,
     });
     const events = await runEvents(seed.runId);
+
     const completedIndex = events.findIndex(
       (event) => event.eventType === 'model.completed',
     );
+
     const failedIndex = events.findIndex(
       (event) => event.eventType === 'run.failed',
     );
+
     expect(completedIndex).toBeGreaterThanOrEqual(0);
     expect(failedIndex).toBeGreaterThan(completedIndex);
     expect(events[completedIndex]?.payload).toEqual(
@@ -932,6 +1014,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
         .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
         .text(),
     );
+
     expect(replayUsages).toHaveLength(1);
     expect(replayUsages[0]).toEqual(liveUsages[0]);
     expect(replayUsages[0]).toEqual(reply.usage);
@@ -956,17 +1039,21 @@ describe('Run usage accounting through the worker and Postgres', () => {
         },
       ],
     });
+
     const seed = await seedRun({
       tenantDb: harness!.tenantDb,
       userId: ownerId,
       modelId,
     });
+
     const bridge = harness!.moduleRef.get(RunStreamBridgeService, {
       strict: false,
     });
+
     const liveStream = bridge
       .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
       .text();
+
     await enqueue(seed, modelId);
     await waitForStatus(seed.runId, 'completed');
 
@@ -1009,6 +1096,7 @@ describe('Run usage accounting through the worker and Postgres', () => {
         .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
         .text(),
     );
+
     expect(replayUsages).toHaveLength(1);
     expect(replayUsages[0]).toEqual(liveUsages[0]);
   });

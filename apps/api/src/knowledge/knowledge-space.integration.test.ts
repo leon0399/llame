@@ -37,6 +37,7 @@ function readSpaceResponse(value: UnknownRecord): SpaceResponse {
   if (!isString(value.id) || !isString(value.name)) {
     throw new Error('Expected a Knowledge Space response');
   }
+
   return { id: value.id, name: value.name };
 }
 
@@ -44,15 +45,19 @@ function readSpaceListResponse(value: UnknownRecord): SpaceListResponse {
   if (!Array.isArray(value.items)) {
     throw new Error('Expected a Knowledge Space list response');
   }
+
   const nextCursor = value.nextCursor;
+
   if (nextCursor !== null && !isString(nextCursor)) {
     throw new Error('Expected a nullable Knowledge Space cursor');
   }
+
   return {
     items: value.items.map((item) => {
       if (!isRecord(item)) {
         throw new Error('Expected a Knowledge Space item');
       }
+
       return readSpaceResponse(item);
     }),
     nextCursor,
@@ -77,13 +82,16 @@ d('Knowledge Spaces REST API', () => {
       .post('/auth/v1/register')
       .send({ email, password, name })
       .expect(201);
+
     const body: unknown = response.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(response), userId: body.user.id };
   }
 
   beforeAll(async () => {
     root = mkdtempSync(path.join(tmpdir(), 'llame-knowledge-http-'));
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
@@ -127,6 +135,7 @@ d('Knowledge Spaces REST API', () => {
       .set('Cookie', cookieA)
       .send({ name: '  Personal  ' })
       .expect(201);
+
     const second = await request(http)
       .post('/api/v1/knowledge-spaces')
       .set('Cookie', cookieA)
@@ -135,9 +144,11 @@ d('Knowledge Spaces REST API', () => {
 
     const firstBody: unknown = first.body;
     const secondBody: unknown = second.body;
+
     if (!isRecord(firstBody) || !isRecord(secondBody)) {
       throw new Error('Expected Knowledge Space response objects');
     }
+
     const firstSpace = readSpaceResponse(firstBody);
     const secondSpace = readSpaceResponse(secondBody);
     expect(firstSpace.name).toBe('Personal');
@@ -161,6 +172,7 @@ d('Knowledge Spaces REST API', () => {
     const paginationCookie = (
       await register(`knowledge-page-${tag}@test.com`, 'Knowledge Pages')
     ).cookie;
+
     await request(http)
       .post('/api/v1/knowledge-spaces')
       .set('Cookie', paginationCookie)
@@ -177,13 +189,17 @@ d('Knowledge Spaces REST API', () => {
       .query({ limit: 1 })
       .set('Cookie', paginationCookie)
       .expect(200);
+
     const firstPageRaw: unknown = firstPage.body;
+
     if (!isRecord(firstPageRaw)) {
       throw new Error('Expected a Knowledge Space list object');
     }
+
     const firstPageBody = readSpaceListResponse(firstPageRaw);
     expect(firstPageBody.items).toHaveLength(1);
     expect(firstPageBody.nextCursor).not.toBeNull();
+
     if (firstPageBody.nextCursor === null) {
       throw new Error('Expected a next cursor for the first page');
     }
@@ -193,10 +209,13 @@ d('Knowledge Spaces REST API', () => {
       .query({ limit: 1, after: firstPageBody.nextCursor })
       .set('Cookie', paginationCookie)
       .expect(200);
+
     const secondPageRaw: unknown = secondPage.body;
+
     if (!isRecord(secondPageRaw)) {
       throw new Error('Expected a Knowledge Space list object');
     }
+
     const secondPageBody = readSpaceListResponse(secondPageRaw);
     expect(secondPageBody.items).toHaveLength(1);
     expect(secondPageBody.nextCursor).toBeNull();
@@ -207,9 +226,11 @@ d('Knowledge Spaces REST API', () => {
       .expect(200)
       .expect((response) => {
         const body: unknown = response.body;
+
         if (!isRecord(body)) {
           throw new Error('Expected a Knowledge Space response object');
         }
+
         expect(readSpaceResponse(body).id).toBe(firstId);
         expect(Object.keys(body).sort()).toEqual([
           'createdAt',
@@ -226,10 +247,13 @@ d('Knowledge Spaces REST API', () => {
       .set('Cookie', cookieA)
       .send({ name: '  Archive  ' })
       .expect(200);
+
     const renamedBody: unknown = renamed.body;
+
     if (!isRecord(renamedBody)) {
       throw new Error('Expected a Knowledge Space response object');
     }
+
     expect(readSpaceResponse(renamedBody).name).toBe('Archive');
 
     await request(http)
@@ -249,10 +273,12 @@ d('Knowledge Spaces REST API', () => {
       .get(`/api/v1/knowledge-spaces/${crypto.randomUUID()}`)
       .set('Cookie', cookieB)
       .expect(404);
+
     const otherOwner = await request(http)
       .get(`/api/v1/knowledge-spaces/${firstId}`)
       .set('Cookie', cookieB)
       .expect(404);
+
     expect(otherOwner.body).toEqual(missing.body);
 
     await request(http)
@@ -282,6 +308,7 @@ d('Knowledge Spaces REST API', () => {
       .set('Cookie', cookieA)
       .send({ name: 'Unavailable' })
       .expect(503);
+
     expect(response.body).toEqual({
       statusCode: 503,
       error: 'Service Unavailable',

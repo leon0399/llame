@@ -29,6 +29,7 @@ function fakeInstanceConfig(embeddingModelId: string | null) {
       chats: { ...BUILT_IN_DEFAULTS.search.chats, embeddingModelId },
     },
   };
+
   return { config } satisfies InstanceConfigReader;
 }
 
@@ -53,6 +54,7 @@ describe('failIfAnyOwnerFailed', () => {
 
   it('throws naming the command and failure count, logging each failure', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
     try {
       expect(() =>
         failIfAnyOwnerFailed('prune', [

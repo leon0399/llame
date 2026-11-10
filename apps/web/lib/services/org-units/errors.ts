@@ -43,9 +43,11 @@ function isString(value: unknown): value is string {
 
 function readApiError(error: unknown) {
   const info = getApiErrorInfo(error);
+
   if (!isRecord(info)) return { message: undefined, code: undefined };
 
   const message = info.message;
+
   const messageText = isString(message)
     ? message
     : Array.isArray(message)
@@ -78,6 +80,7 @@ function classifyConflict(
       "You’re the last owner here — transfer ownership first. Use the role control next to another member to make them owner, then try again.",
     );
   }
+
   if (code === "DUPLICATE_MEMBERSHIP") {
     return new OrgUnitsApiError(
       409,
@@ -85,6 +88,7 @@ function classifyConflict(
       "Already a member.",
     );
   }
+
   // Not a race: the unit genuinely has children — retrying can't succeed.
   if (code === "HAS_CHILDREN") {
     return new OrgUnitsApiError(
@@ -93,6 +97,7 @@ function classifyConflict(
       apiMessage ?? "This unit has child units — delete them first.",
     );
   }
+
   return new OrgUnitsApiError(
     409,
     "concurrent-change",
@@ -120,6 +125,7 @@ export async function classifyOrgUnitsError(
   }
 
   const status = getApiErrorStatus(error);
+
   if (status === undefined) {
     return new OrgUnitsApiError(0, "unknown", UNKNOWN_MESSAGE);
   }
@@ -133,12 +139,15 @@ export async function classifyOrgUnitsError(
       "You need admin or owner access on this unit (or an ancestor) to do that.",
     );
   }
+
   if (status === 404) {
     return new OrgUnitsApiError(404, "not-found", "Not found.");
   }
+
   if (status === 409) {
     return classifyConflict(code, apiMessage);
   }
+
   if (status === 422) {
     return new OrgUnitsApiError(
       422,
@@ -146,6 +155,7 @@ export async function classifyOrgUnitsError(
       apiMessage ?? "That move isn’t allowed.",
     );
   }
+
   return new OrgUnitsApiError(status, "unknown", UNKNOWN_MESSAGE);
 }
 

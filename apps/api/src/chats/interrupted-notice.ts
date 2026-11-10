@@ -41,6 +41,7 @@ function isStoppedCall(value: unknown): value is StoppedCall {
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- the raw `run_events.payload` JSONB value; the `isRecord` and `isStoppedCall` guards are its validation.
 export function stoppedCallsOf(payload: unknown): ReadonlyArray<StoppedCall> {
   const calls = isRecord(payload) ? payload['stoppedCalls'] : undefined;
+
   return Array.isArray(calls) ? calls.filter(isStoppedCall) : [];
 }
 
@@ -49,6 +50,7 @@ export function isInterruptedPayload(
 ): value is InterruptedPayload {
   if (!isExactRecord(value, ['stoppedCalls'])) return false;
   const calls = value['stoppedCalls'];
+
   return Array.isArray(calls) && calls.every(isStoppedCall);
 }
 
@@ -80,10 +82,12 @@ export function createInterruptedItem(input: {
       toolCallId,
     })),
   };
+
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty-name invariant this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isInterruptedPayload(payload)) {
     throw new TypeError('Invalid server-authored interrupted notice metadata');
   }
+
   return createRenderedContextItem({
     producer: 'interrupted',
     form: 'notice',

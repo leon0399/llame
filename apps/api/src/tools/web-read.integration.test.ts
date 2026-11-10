@@ -35,6 +35,7 @@ const USER_AGENT = 'llame/0.0.0-test';
 
 const MARKDOWN_BODY =
   '# Adapter pipelines\n\nServed by the publisher for agents.\n';
+
 const MOVED_BODY = '# Moved\n\nServed at the redirect target.\n';
 const PLAIN_BODY = 'Adapter pipelines\n\nServed as plain text for agents.\n';
 const JSON_BODY = '{"adapter":"markdown","requests":1}';
@@ -238,8 +239,10 @@ function serveNegotiated(
 ): void {
   if ((request.headers.accept ?? '').includes('text/markdown')) {
     send(response, 200, 'text/markdown; charset=utf-8', MARKDOWN_BODY);
+
     return;
   }
+
   send(response, 200, 'text/html; charset=utf-8', NEGOTIATION_FALLBACK_HTML);
 }
 
@@ -253,16 +256,21 @@ function serveOversizedBody(
   response.writeHead(200, { 'content-type': contentType });
   const chunk = Buffer.alloc(OVERSIZED_CHUNK_BYTES, 'a');
   let written = 0;
+
   const writeNext = (): void => {
     while (written < totalBytes && !response.destroyed) {
       written += chunk.byteLength;
+
       if (!response.write(chunk)) {
         response.once('drain', writeNext);
+
         return;
       }
     }
+
     response.end();
   };
+
   writeNext();
 }
 
@@ -273,18 +281,23 @@ function routeRequest(
   switch (request.url ?? '') {
     case '/negotiated':
       serveNegotiated(request, response);
+
       return;
     case '/plain':
       send(response, 200, 'text/plain; charset=utf-8', PLAIN_BODY);
+
       return;
     case '/data.json':
       send(response, 200, 'application/json; charset=utf-8', JSON_BODY);
+
       return;
     case '/article':
       send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+
       return;
     case '/nav-only':
       send(response, 200, 'text/html; charset=utf-8', NAV_ONLY_HTML);
+
       return;
     case '/announced':
       sendWithHeaders(
@@ -297,26 +310,33 @@ function routeRequest(
         },
         ANNOUNCED_PAGE_HTML,
       );
+
       return;
     case '/announced.md':
       send(response, 200, 'text/markdown; charset=utf-8', ALTERNATE_BODY);
+
       return;
     case '/suffix':
       send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+
       return;
     case '/suffix.md':
       send(response, 200, 'text/markdown; charset=utf-8', SUFFIX_BODY);
+
       return;
     case '/guides/adapter-pipelines':
       // A gated page under two scopes: its failed render walks the page's own
       // scope first, then this one, where the index lives.
       send(response, 200, 'text/html; charset=utf-8', NAV_ONLY_HTML);
+
       return;
     case '/guides/llms.txt':
       send(response, 200, 'text/plain; charset=utf-8', LLMS_TXT_BODY);
+
       return;
     case '/oversized':
       serveOversizedBody(response);
+
       return;
     case '/document.pdf':
       sendWithHeaders(
@@ -325,9 +345,11 @@ function routeRequest(
         { 'content-type': 'application/pdf' },
         PDF_BODY,
       );
+
       return;
     case '/redirect':
       sendWithHeaders(response, 302, { location: REDIRECT_LOCATION }, 'Moved');
+
       return;
     case '/redirect-signed':
       sendWithHeaders(
@@ -336,9 +358,11 @@ function routeRequest(
         { location: `${REDIRECT_LOCATION}?token=secret#part` },
         'Moved',
       );
+
       return;
     case REDIRECT_LOCATION:
       send(response, 200, 'text/markdown; charset=utf-8', MOVED_BODY);
+
       return;
     case '/rate-limited':
       sendWithHeaders(
@@ -347,6 +371,7 @@ function routeRequest(
         { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '120' },
         RATE_LIMIT_BODY,
       );
+
       return;
     default:
       send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
@@ -363,9 +388,11 @@ async function listenOnLoopbackPort(server: Server): Promise<number> {
     });
   });
   const address = server.address();
+
   if (address === null || isString(address)) {
     throw new TypeError('The web fixture server did not start listening.');
   }
+
   return address.port;
 }
 
@@ -377,6 +404,7 @@ async function listenOnLoopbackPort(server: Server): Promise<number> {
  */
 async function startWebFixture(): Promise<WebFixture> {
   const requests: Array<FixtureRequest> = [];
+
   const server = createServer((request, response) => {
     requests.push({
       method: request.method ?? '',
@@ -390,6 +418,7 @@ async function startWebFixture(): Promise<WebFixture> {
     response.on('error', () => undefined);
     routeRequest(request, response);
   });
+
   server.on('clientError', (_error, socket) => {
     socket.destroy();
   });
@@ -415,10 +444,12 @@ async function startAddressFixture(
   route: AddressFixtureRoute,
 ): Promise<AddressFixture> {
   const requests: Array<AddressFixtureRequest> = [];
+
   const sockets: Record<LoopbackAddress, Array<Socket>> = {
     '127.0.0.1': [],
     '127.0.0.2': [],
   };
+
   const makeServer = (address: LoopbackAddress): Server => {
     const server = createServer((request, response) => {
       requests.push({
@@ -430,10 +461,13 @@ async function startAddressFixture(
       response.on('error', () => undefined);
       route(address, request, response);
     });
+
     server.on('connection', (socket) => sockets[address].push(socket));
     server.on('clientError', (_error, socket) => socket.destroy());
+
     return server;
   };
+
   const first = makeServer('127.0.0.1');
   const second = makeServer('127.0.0.2');
 
@@ -472,9 +506,11 @@ async function listenOnAddress(
     server.listen(port, address, () => resolve());
   });
   const listeningAddress = server.address();
+
   if (listeningAddress === null || isString(listeningAddress)) {
     throw new TypeError('The address fixture server did not start listening.');
   }
+
   return listeningAddress.port;
 }
 
@@ -484,10 +520,13 @@ function contentOf(result: ToolResult): string {
   if (result.status !== 'success') {
     throw new TypeError('The read failed instead of rendering a document.');
   }
+
   const { content } = result;
+
   if (!isString(content)) {
     throw new TypeError('The read returned no rendered content.');
   }
+
   return content;
 }
 
@@ -502,11 +541,13 @@ function errorOf(result: ToolResult): {
   if (result.status !== 'error') {
     throw new TypeError('The read succeeded where the case expects a refusal.');
   }
+
   expect(Object.keys(result).sort()).toEqual(
     result.type === 'permission_denied'
       ? ['message', 'rejectedUrl', 'status', 'type']
       : ['message', 'status', 'type'],
   );
+
   return result;
 }
 
@@ -521,6 +562,7 @@ function addressRejectPolicy(regex: string): CompiledPolicy {
     'address-test-policy',
   );
 }
+
 function readWithAddressPolicy(
   execute: WebReadExecutor,
   permissionPolicy: CompiledPolicy,
@@ -547,8 +589,10 @@ function markdownRedirectRoute(
   return (_address, request, response) => {
     if (request.url === redirectPath) {
       sendWithHeaders(response, 302, { location }, 'Moved');
+
       return;
     }
+
     send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
   };
 }
@@ -565,12 +609,16 @@ function announcedAlternatePageRoute(port: number): AddressFixtureRoute {
         },
         ANNOUNCED_PAGE_HTML,
       );
+
       return;
     }
+
     if (request.url === '/page.md') {
       send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+
       return;
     }
+
     send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
   };
 }
@@ -795,6 +843,7 @@ describe('web read over a fixture server', () => {
       urlOf('/guides/adapter-pipelines'),
       ADMIT_PAGE_ONLY,
     );
+
     expect(walked).toMatchObject({ status: 'success', method: 'raw' });
     expect(contentOf(walked)).toContain('Sign in');
 
@@ -982,12 +1031,15 @@ describe('web read over a fixture server', () => {
     ]);
   });
 });
+
 describe('web adapters', () => {
   type AdapterConfig = NonNullable<ToolContext['webAdapters']>[number];
 
   const SOURCE_RAW_BODY = 'Source body that must bypass the rewrite origin.\n';
+
   const CHALLENGE_BODY =
     '<!doctype html><html><body><p>ADAPTER_CHALLENGE_SECRET</p></body></html>';
+
   const STATUS_BODY = 'ADAPTER_STATUS_SECRET';
   const SOURCE_FAILURE_BODY = 'SOURCE_403_SECRET';
   const DELIMITER_QUERY = 'value=%2F%3F%23%40';
@@ -997,18 +1049,25 @@ describe('web adapters', () => {
 
   const defaultRoute: AddressFixtureRoute = (address, request, response) => {
     const requestUrl = request.url ?? '';
+
     if (address === '127.0.0.1') {
       if (requestUrl === '/raw') {
         send(response, 200, 'text/plain; charset=utf-8', SOURCE_RAW_BODY);
+
         return;
       }
+
       if (requestUrl.endsWith('.md') || requestUrl.includes('/llms.txt')) {
         send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+
         return;
       }
+
       send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+
       return;
     }
+
     send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
   };
 
@@ -1032,6 +1091,7 @@ describe('web adapters', () => {
 
   const sourceUrl = (path: string): string =>
     `http://source.test:${fixture.port}${path}`;
+
   const rewriteOrigin = (): string => `http://rewrite.test:${fixture.port}`;
 
   const resolve: ResolveHost = (hostname) => {
@@ -1040,11 +1100,13 @@ describe('web adapters', () => {
         { address: '127.0.0.1', family: 4 },
       ]);
     }
+
     if (hostname === 'rewrite.test') {
       return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         { address: '127.0.0.2', family: 4 },
       ]);
     }
+
     return Promise.reject(
       new Error(`The adapter fixture received an unexpected host: ${hostname}`),
     );
@@ -1063,6 +1125,7 @@ describe('web adapters', () => {
       hosts: ['source.test'],
       target,
     };
+
     return pathPattern === undefined ? config : { ...config, pathPattern };
   };
 
@@ -1102,8 +1165,10 @@ describe('web adapters', () => {
     route = (address, request, response) => {
       if (address === '127.0.0.2' && request.url === '/claimed') {
         send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+
         return;
       }
+
       defaultRoute(address, request, response);
     };
 
@@ -1135,12 +1200,16 @@ describe('web adapters', () => {
     route = (address, request, response) => {
       if (address === '127.0.0.1' && request.url === '/source-fails') {
         send(response, 403, 'text/plain; charset=utf-8', SOURCE_FAILURE_BODY);
+
         return;
       }
+
       if (address === '127.0.0.2' && request.url === '/source-fails') {
         send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+
         return;
       }
+
       defaultRoute(address, request, response);
     };
 
@@ -1187,8 +1256,10 @@ describe('web adapters', () => {
     route = (address, request, response) => {
       if (address === '127.0.0.2' && request.url === '/status') {
         send(response, 500, 'text/plain; charset=utf-8', STATUS_BODY);
+
         return;
       }
+
       defaultRoute(address, request, response);
     };
 
@@ -1218,8 +1289,10 @@ describe('web adapters', () => {
     route = (address, request, response) => {
       if (address === '127.0.0.2' && request.url === '/parse') {
         send(response, 200, 'text/html; charset=utf-8', CHALLENGE_BODY);
+
         return;
       }
+
       defaultRoute(address, request, response);
     };
 
@@ -1253,6 +1326,7 @@ describe('web adapters', () => {
         readonly reason: string;
       };
     }> = [];
+
     const policy = compileToolPermissionMap(
       {
         read: {
@@ -1285,9 +1359,11 @@ describe('web adapters', () => {
       'Adapter pipelines for agent web reads',
     );
     const adapterDecision = decisions.find(({ kind }) => kind === 'adapter');
+
     if (adapterDecision === undefined) {
       throw new Error('The adapter permission decision was not recorded.');
     }
+
     expect(adapterDecision.decision.decision).toBe('reject');
     expect(adapterDecision.decision.reason).toBe('no_allow');
     expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
@@ -1304,6 +1380,7 @@ describe('web adapters', () => {
         readonly reason: string;
       };
     }> = [];
+
     const policy = addressRejectPolicy(
       String.raw`^http://127\.0\.0\.2:${fixture.port}/address$`,
     );
@@ -1326,9 +1403,11 @@ describe('web adapters', () => {
       'Adapter pipelines for agent web reads',
     );
     const addressDecision = decisions.find(({ kind }) => kind === 'address');
+
     if (addressDecision === undefined) {
       throw new Error('The adapter address decision was not recorded.');
     }
+
     expect(addressDecision.decision.decision).toBe('reject');
     expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
     expect(
@@ -1343,16 +1422,20 @@ describe('web adapters', () => {
         (request.url ?? '').startsWith('/a&admin=1?q=')
       ) {
         send(response, 200, 'text/markdown; charset=utf-8', MARKDOWN_BODY);
+
         return;
       }
+
       defaultRoute(address, request, response);
     };
 
     const source = `${sourceUrl('/a&admin=1')}?${DELIMITER_QUERY}`;
     const target = `${rewriteOrigin()}{path}?q={query}`;
+
     const expectedTargetPath = `/a&admin=1?q=${encodeURIComponent(
       new URL(source).search.slice(1),
     )}`;
+
     const result = await read(source, [
       rewrite('delimiters', '^/a&admin=1$', target),
     ]);
@@ -1375,6 +1458,7 @@ describe('web adapters', () => {
 
 describe('web read address admission over loopback fixtures', () => {
   let fixture: AddressFixture;
+
   let route: AddressFixtureRoute = (_address, _request, response) =>
     send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
 
@@ -1402,7 +1486,9 @@ describe('web read address admission over loopback fixtures', () => {
         { address: '127.0.0.2', family: 4 },
         { address: '127.0.0.1', family: 4 },
       ]);
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await execute(
       webContext({
         permissionPolicy: addressRejectPolicy(
@@ -1423,8 +1509,10 @@ describe('web read address admission over loopback fixtures', () => {
 
   it('The checked answer is the one dialed', async () => {
     const resolvedHosts: Array<string> = [];
+
     const resolve: ResolveHost = (hostname) => {
       resolvedHosts.push(hostname);
+
       return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         {
           address: resolvedHosts.length === 1 ? '127.0.0.1' : '127.0.0.2',
@@ -1432,14 +1520,19 @@ describe('web read address admission over loopback fixtures', () => {
         },
       ]);
     };
+
     route = (_address, request, response) => {
       if (request.url === '/start') {
         sendWithHeaders(response, 302, { location: '/next' }, 'Moved');
+
         return;
       }
+
       send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
     };
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await execute(
       webContext({
         permissionPolicy: addressRejectPolicy(
@@ -1468,25 +1561,34 @@ describe('web read address admission over loopback fixtures', () => {
 
   it('A connection is not reused across paths', async () => {
     const resolvedHosts: Array<string> = [];
+
     const resolve: ResolveHost = (hostname) => {
       resolvedHosts.push(hostname);
+
       return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         { address: '127.0.0.1', family: 4 },
         { address: '127.0.0.2', family: 4 },
       ]);
     };
+
     route = (_address, request, response) => {
       if (request.url === '/page') {
         send(response, 200, 'text/html; charset=utf-8', ARTICLE_HTML);
+
         return;
       }
+
       if (request.url === '/page.md') {
         send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+
         return;
       }
+
       send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
     };
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await execute(
       webContext({
         permissionPolicy: addressRejectPolicy(
@@ -1517,22 +1619,27 @@ describe('web read address admission over loopback fixtures', () => {
 
   it('A hop is judged by the address it resolves to', async () => {
     const resolvedHosts: Array<string> = [];
+
     const resolve: ResolveHost = (hostname) => {
       resolvedHosts.push(hostname);
+
       if (hostname === 'pub.test') {
         return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
           { address: '127.0.0.1', family: 4 },
         ]);
       }
+
       if (hostname === 'files.test') {
         return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
           { address: '127.0.0.2', family: 4 },
         ]);
       }
+
       return Promise.reject(
         new Error('The address fixture received an unexpected hostname.'),
       );
     };
+
     route = (_address, request, response) => {
       if (request.url === '/start') {
         sendWithHeaders(
@@ -1543,11 +1650,15 @@ describe('web read address admission over loopback fixtures', () => {
           },
           'Moved',
         );
+
         return;
       }
+
       send(response, 200, 'text/markdown; charset=utf-8', ADDRESS_BODY);
     };
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await execute(
       webContext({
         permissionPolicy: addressRejectPolicy(
@@ -1579,11 +1690,14 @@ describe('web read address admission over loopback fixtures', () => {
     const publicUrl = `http://public.test:${fixture.port}/`;
     const fetchUrls: Array<string> = [];
     const realFetch = realWebReadDeps.fetch;
+
     if (realFetch === undefined) {
       throw new TypeError('The real web fetch dependency is unavailable.');
     }
+
     const fetch: typeof realFetch = (input, init) => {
       let url: string;
+
       if (input instanceof URL) {
         url = input.href;
       } else if (input instanceof Request) {
@@ -1593,38 +1707,47 @@ describe('web read address admission over loopback fixtures', () => {
       } else {
         throw new TypeError('The web fetch input is invalid.');
       }
+
       fetchUrls.push(url);
+
       if (url === publicUrl) {
         return Promise.reject(
           new Error('A refused public address reached the transport.'),
         );
       }
+
       return realFetch(input, init);
     };
+
     const resolve: ResolveHost = (hostname) => {
       if (hostname === 'loop.test') {
         return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
           { address: '127.0.0.1', family: 4 },
         ]);
       }
+
       if (hostname === 'public.test') {
         return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
           { address: '93.184.216.34', family: 4 },
         ]);
       }
+
       return Promise.reject(
         new Error('The address fixture received an unexpected hostname.'),
       );
     };
+
     const execute = createWebReadExecutor({
       ...realWebReadDeps,
       fetch,
       resolve,
     });
+
     const internal = await execute(
       webContext({ permissionPolicy: PORTABLE_READ_POLICY }),
       { operation: 'read', input: { path: loopUrl } },
     );
+
     const publicResult = await execute(
       webContext({ permissionPolicy: PORTABLE_READ_POLICY }),
       { operation: 'read', input: { path: publicUrl } },
@@ -1652,14 +1775,18 @@ describe('web read address admission over loopback fixtures', () => {
           family: 4,
         },
       ]);
+
     route = markdownRedirectRoute(
       '/redirect',
       `http://export.test:${fixture.port}/private`,
     );
+
     const policy = addressRejectPolicy(
       String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
     );
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const denied = await Promise.all(
       [
         `http://export.test:${fixture.port}/private`,
@@ -1667,8 +1794,10 @@ describe('web read address admission over loopback fixtures', () => {
         `http://admitted.test:${fixture.port}/redirect`,
       ].map((path) => readWithAddressPolicy(execute, policy, path)),
     );
+
     for (const result of denied) expectAddressRefused(result);
     expect(fixture.sockets['127.0.0.2']).toHaveLength(0);
+
     const data = await readWithAddressPolicy(
       execute,
       policy,
@@ -1690,10 +1819,13 @@ describe('web read address admission over loopback fixtures', () => {
       Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         { address: '127.0.0.2', family: 4 },
       ]);
+
     const policy = addressRejectPolicy(
       String.raw`^https?://127\.0\.0\.2:${fixture.port}/private$`,
     );
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await readWithAddressPolicy(
       execute,
       policy,
@@ -1710,14 +1842,18 @@ describe('web read address admission over loopback fixtures', () => {
       Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         { address: '127.0.0.1', family: 4 },
       ]);
+
     route = markdownRedirectRoute(
       '/redirect',
       `http://127.0.0.1:${fixture.port}/admin`,
     );
+
     const policy = addressRejectPolicy(
       String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
     );
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await readWithAddressPolicy(
       execute,
       policy,
@@ -1742,10 +1878,13 @@ describe('web read address admission over loopback fixtures', () => {
       Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         { address: '::ffff:127.0.0.2', family: 6 },
       ]);
+
     const policy = addressRejectPolicy(
       String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
     );
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await readWithAddressPolicy(
       execute,
       policy,
@@ -1759,8 +1898,10 @@ describe('web read address admission over loopback fixtures', () => {
 
   it('No resolved address reaches the model', async () => {
     const resolvedHosts: Array<string> = [];
+
     const resolve: ResolveHost = (hostname) => {
       resolvedHosts.push(hostname);
+
       return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         {
           address: hostname === 'alternate.test' ? '127.0.0.2' : '127.0.0.1',
@@ -1768,11 +1909,15 @@ describe('web read address admission over loopback fixtures', () => {
         },
       ]);
     };
+
     route = announcedAlternatePageRoute(fixture.port);
+
     const policy = addressRejectPolicy(
       String.raw`^https?://127\.0\.0\.2:${fixture.port}/private`,
     );
+
     const execute = createWebReadExecutor({ ...realWebReadDeps, resolve });
+
     const result = await readWithAddressPolicy(
       execute,
       policy,
@@ -1796,8 +1941,10 @@ describe('web read address admission over loopback fixtures', () => {
 
 describe('web image reads over loopback fixtures', () => {
   const CALL_ID = 'call-web-image';
+
   const HTML_AS_IMAGE =
     '<!doctype html><html><body><p>HTML_UNDER_AN_IMAGE_TYPE</p></body></html>';
+
   const SVG_BODY =
     '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>\n';
 
@@ -1825,52 +1972,68 @@ describe('web image reads over loopback fixtures', () => {
     const { display, ...rest } = z
       .looseObject({ display: z.object({ thumbnail: z.string() }) })
       .parse(result);
+
     expect(display.thumbnail).toMatch(/^data:image\/webp;base64,/u);
+
     return rest;
   };
 
   const route: AddressFixtureRoute = (address, request, response) => {
     const path = request.url ?? '';
+
     if (address === '127.0.0.2') {
       // The CDN a page redirects to, and the rewrite origin of the adapter
       // case: both answer with a PNG.
       send(response, 200, 'image/png', images.png);
+
       return;
     }
+
     // Every probe a page can derive — its announced alternate, its `.md`
     // sibling, and each `llms.txt` candidate — answers with an image.
     if (path.endsWith('.md') || path.endsWith('/llms.txt')) {
       send(response, 200, 'image/png', images.png);
+
       return;
     }
+
     switch (path) {
       case '/shot.png':
       case '/claimed.png':
         send(response, 200, 'image/png', images.png);
+
         return;
       case '/jpeg-as-png':
         send(response, 200, 'image/png', images.jpeg);
+
         return;
       case '/html-as-png':
         send(response, 200, 'image/png', Buffer.from(HTML_AS_IMAGE));
+
         return;
       case '/shot.gif':
         send(response, 200, 'image/gif', images.gif);
+
         return;
       case '/shot.webp':
         send(response, 200, 'image/webp', images.webp);
+
         return;
       case '/logo.svg':
         send(response, 200, 'image/svg+xml', SVG_BODY);
+
         return;
       case '/huge.png':
         serveOversizedBody(response, 'image/png');
+
         return;
       case '/document.pdf':
         send(response, 200, 'application/pdf', PDF_BODY);
+
         return;
       case '/blob':
         send(response, 200, 'application/octet-stream', PDF_BODY);
+
         return;
       case '/shot':
         sendWithHeaders(
@@ -1879,6 +2042,7 @@ describe('web image reads over loopback fixtures', () => {
           { location: `http://cdn.example.test:${fixture.port}/shot.png` },
           'Moved',
         );
+
         return;
       case '/article':
         sendWithHeaders(
@@ -1890,9 +2054,11 @@ describe('web image reads over loopback fixtures', () => {
           },
           ARTICLE_HTML,
         );
+
         return;
       case '/guides/gated':
         send(response, 200, 'text/html; charset=utf-8', NAV_ONLY_HTML);
+
         return;
       default:
         send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
@@ -1905,11 +2071,13 @@ describe('web image reads over loopback fixtures', () => {
         { address: '127.0.0.1', family: 4 },
       ]);
     }
+
     if (hostname === 'cdn.example.test' || hostname === 'rewrite.test') {
       return Promise.resolve<ReadonlyArray<ResolvedAddress>>([
         { address: '127.0.0.2', family: 4 },
       ]);
     }
+
     return Promise.reject(
       new Error(`The image fixture received an unexpected host: ${hostname}`),
     );
@@ -1946,6 +2114,7 @@ describe('web image reads over loopback fixtures', () => {
       sharp({
         create: { width, height, channels: 3, background: '#336699' },
       });
+
     images = {
       png: await solid(1600, 900).png().toBuffer(),
       jpeg: await solid(64, 48).jpeg().toBuffer(),
@@ -1982,6 +2151,7 @@ describe('web image reads over loopback fixtures', () => {
     // The attempt keeps the model variant under the call id; nothing else
     // holds the image.
     const entry = memory.get(CALL_ID);
+
     if (entry === undefined || 'pages' in entry || 'exceeded' in entry)
       throw new Error('Expected a retained image');
     const { model, ...held } = entry;
@@ -2166,16 +2336,20 @@ describe('web PDF reads over loopback fixtures', () => {
   let encrypted: Buffer;
   let tooManyPages: Buffer;
   let memory: Map<string, RetainedMedia>;
+
   const mediaService: Pick<MediaService, 'findOwned'> = {
     findOwned: () =>
       Promise.reject(new Error('An unstored PDF looked up the media store.')),
   };
+
   const execute = createWebReadExecutor({
     ...realWebReadDeps,
     resolve: () => Promise.resolve([{ address: '127.0.0.1', family: 4 }]),
   });
+
   const urlOf = (path: string): string =>
     `http://example.test:${fixture.port}${path}`;
+
   const read = (
     path: string,
     overrides: Partial<ToolContext> = {},
@@ -2213,16 +2387,20 @@ describe('web PDF reads over loopback fixtures', () => {
           sendWithHeaders(response, 302, {
             location: `http://cdn.example.test:${fixture.port}/paper.pdf`,
           });
+
           return;
         case '/large.pdf':
           send(response, 200, 'application/pdf', largePdf);
+
           return;
         case '/declared-large.pdf':
           response.setHeader('content-length', String(21 * 1024 * 1024));
           serveOversizedBody(response, 'application/pdf', 21 * 1024 * 1024);
+
           return;
         case '/streamed-large.pdf':
           serveOversizedBody(response, 'application/pdf', 21 * 1024 * 1024);
+
           return;
         case '/prefixed.pdf':
           send(
@@ -2231,15 +2409,19 @@ describe('web PDF reads over loopback fixtures', () => {
             'application/pdf',
             Buffer.concat([Buffer.from('<html>'), pdf]),
           );
+
           return;
         case '/encrypted.pdf':
           send(response, 200, 'application/pdf', encrypted);
+
           return;
         case '/too-many-pages.pdf':
           send(response, 200, 'application/pdf', tooManyPages);
+
           return;
         case '/archive.zip':
           send(response, 200, 'application/zip', 'PK fixture');
+
           return;
         case '/article':
           sendWithHeaders(
@@ -2251,9 +2433,11 @@ describe('web PDF reads over loopback fixtures', () => {
             },
             ARTICLE_HTML,
           );
+
           return;
         case '/guides/gated':
           send(response, 200, 'text/html', NAV_ONLY_HTML);
+
           return;
         default:
           send(response, 200, 'application/pdf', pdf);

@@ -88,6 +88,7 @@ const textOf = (message: Message) =>
 /** A read-only tool that ignores its abort signal, so a result can arrive late. */
 const lookupGate = { current: Promise.withResolvers<void>() };
 const lookupReturned = { current: Promise.withResolvers<void>() };
+
 /** An MCP-named tool that records its `native.attempt` like the runtime does, then hangs. */
 const mcpSent = { current: Promise.withResolvers<void>() };
 
@@ -100,6 +101,7 @@ const mcpTool: Tool = {
   inputSchema: z.strictObject({}),
   execute: async (context) => {
     const { runId } = context;
+
     if (runId === undefined) throw new Error('The call has no Run.');
     await context.tenantDb.runAs(context.userId, (tx) =>
       new NativeFilesRepository(tx).begin({
@@ -115,6 +117,7 @@ const mcpTool: Tool = {
     );
     context.onMcpDispatchRecorded?.();
     mcpSent.current.resolve();
+
     return new Promise(() => {});
   },
 };
@@ -128,13 +131,16 @@ async function offerMcpTool(runtime: McpRuntimeService) {
       tool: mcpTool,
     },
   ];
+
   const { declarations } = await composeAttemptToolCatalog({
     allowedToolRules: [MCP_TOOL_ID],
     callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
     candidates: [],
     dynamicCandidates: candidates,
   });
+
   const [declaration] = declarations;
+
   if (!declaration) throw new Error('The MCP fixture tool did not resolve.');
   vi.spyOn(runtime, 'snapshotCandidates').mockReturnValue(candidates);
   vi.spyOn(runtime, 'resolveDynamicTool').mockImplementation((id) =>
@@ -158,6 +164,7 @@ describe('run steering interrupts', () => {
       execute: async () => {
         await lookupGate.current.promise;
         lookupReturned.current.resolve();
+
         return { status: 'success', value: 'the late value' };
       },
     });
@@ -179,6 +186,7 @@ describe('run steering interrupts', () => {
     ],
     nativeExecutorId: 'run-interrupt-host',
   });
+
   const { db, storeItems, events, types, terminal, messages, seed, launch } =
     fx;
 
@@ -189,6 +197,7 @@ describe('run steering interrupts', () => {
       'interrupt',
       seeded.runId,
     );
+
     return id ?? '';
   };
 
@@ -209,12 +218,14 @@ describe('run steering interrupts', () => {
       ownerUserId: string,
     ): Promise<Array<ChatDelivery>> {
       await hook();
+
       // eslint-disable-next-line typescript/no-unsafe-assignment -- the spied method's own result, passed through.
       const items: Array<ChatDelivery> = await original.call(
         this,
         chatId,
         ownerUserId,
       );
+
       return items;
     });
   }
@@ -268,12 +279,15 @@ describe('run steering interrupts', () => {
   async function holdRunLock(runId: string): Promise<RunLockHold> {
     const locked = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
+
     const finished = db(async (tx) => {
       await tx.execute(sql`select id from runs where id = ${runId} for update`);
       locked.resolve();
       await release.promise;
     });
+
     await locked.promise;
+
     return {
       release: async () => {
         release.resolve();
@@ -290,6 +304,7 @@ describe('run steering interrupts', () => {
           sql`select count(*)::int as waiting from pg_stat_activity
               where wait_event_type = 'Lock' and datname = current_database()`,
         );
+
         return Number(rows[0]?.['waiting']) > 0 ? true : undefined;
       },
       20_000,
@@ -300,6 +315,7 @@ describe('run steering interrupts', () => {
     it('An interrupt during a model response', async () => {
       const held = Promise.withResolvers<void>();
       const seeded = await seed();
+
       const started = await launch(seeded, [
         [
           {
@@ -319,6 +335,7 @@ describe('run steering interrupts', () => {
         ],
         answer('redirected'),
       ]);
+
       await held.promise;
 
       await interrupt(seeded, 'change course');
@@ -327,9 +344,11 @@ describe('run steering interrupts', () => {
       // The Run never became terminal at the stop: it went on to answer.
       expect(finished.status).toBe('completed');
       const log = await events(seeded.runId);
+
       const delivered = log.find(
         (event) => event.eventType === 'run.delivered',
       );
+
       expect(delivered?.payload).toMatchObject({
         cause: 'interrupt',
         stoppedCalls: [],
@@ -406,6 +425,7 @@ describe('run steering interrupts', () => {
         (message) =>
           message.role === 'user' && textOf(message) === 'a steer|an interrupt',
       );
+
       // One delivered message holds both, in order, behind one notice.
       expect(delivered).toHaveLength(1);
       expect(partKinds(delivered[0])).toEqual([
@@ -477,6 +497,7 @@ describe('run steering interrupts', () => {
     it('A withdrawn interrupt after the stop continues the same reply without a notice', async () => {
       const held = Promise.withResolvers<void>();
       const seeded = await seed();
+
       const started = await launch(seeded, [
         [
           {
@@ -491,6 +512,7 @@ describe('run steering interrupts', () => {
         ],
         answer('rest'),
       ]);
+
       await held.promise;
 
       // The owner withdraws the item after the stop, before the delivery.
@@ -520,10 +542,12 @@ describe('run steering interrupts', () => {
     it('An interrupt kills a long command', async () => {
       const pidFile = join(fx.directory, `pid-${randomUUID()}`);
       const seeded = await seed();
+
       const started = await launch(seeded, [
         call('slow', 'bash', slowBash(pidFile)),
         answer('after the kill'),
       ]);
+
       await bashStarted(seeded, pidFile);
       const begun = Date.now();
 
@@ -539,6 +563,7 @@ describe('run steering interrupts', () => {
       const completed = (await events(seeded.runId)).filter(
         (event) => event.eventType === 'tool.completed',
       );
+
       expect(completed).toHaveLength(1);
       expect(completed[0]?.payload).toMatchObject({
         toolCallId: 'slow',
@@ -604,11 +629,13 @@ describe('run steering interrupts', () => {
       const completed = (await events(seeded.runId)).filter(
         (event) => event.eventType === 'tool.completed',
       );
+
       const byId = (id: string) =>
         completed.find(
           (event) =>
             isRecord(event.payload) && event.payload['toolCallId'] === id,
         )?.payload;
+
       expect(completed).toHaveLength(2);
       expect(byId('r1')).toMatchObject({ status: 'success' });
       expect(byId('r1')).not.toHaveProperty('interrupted');
@@ -632,12 +659,14 @@ describe('run steering interrupts', () => {
       await terminal(seeded.runId);
 
       const log = await events(seeded.runId);
+
       const result = log.find(
         (event) =>
           event.eventType === 'native.result' &&
           isRecord(event.payload) &&
           event.payload['toolCallId'] === 'send',
       );
+
       expect(result?.payload).toMatchObject({
         result: { status: 'error', type: 'outcome_unknown' },
       });
@@ -674,6 +703,7 @@ describe('run steering interrupts', () => {
       const completed = (await events(seeded.runId)).filter(
         (event) => event.eventType === 'tool.completed',
       );
+
       expect(completed).toHaveLength(1);
       expect(completed[0]?.payload).toMatchObject({
         toolCallId: 'lookup',
@@ -721,12 +751,15 @@ describe('run steering interrupts', () => {
       expect(finished.status).toBe('completed');
       expect(await readFile(target, 'utf8')).toBe('whole file');
       const log = await events(seeded.runId);
+
       const completed = log.findIndex(
         (event) => event.eventType === 'tool.completed',
       );
+
       const delivered = log.findIndex(
         (event) => event.eventType === 'run.delivered',
       );
+
       // The write's own result is stored, unmarked, before the delivery.
       expect(log[completed]?.payload).toMatchObject({
         toolCallId: 'w',
@@ -783,6 +816,7 @@ describe('run steering interrupts', () => {
       await launch(first, [answer('earlier answer')]);
       await terminal(first.runId);
       const modelId = `run-interrupt-${randomUUID()}`;
+
       const second = {
         ...(await seedRun({
           tenantDb: fx.harness.tenantDb,
@@ -793,6 +827,7 @@ describe('run steering interrupts', () => {
         })),
         modelId,
       };
+
       fx.harness.models.register(modelId, {
         kind: 'step-script',
         compactionThresholdTokens: 1,
@@ -809,6 +844,7 @@ describe('run steering interrupts', () => {
       ).mockImplementation(async (input) => {
         entered.resolve();
         await release.promise;
+
         return {
           uptoSeq: input.triggeringUserSeq - 1,
           summary: 'earlier turns',
@@ -828,12 +864,15 @@ describe('run steering interrupts', () => {
 
       expect(finished.status).toBe('completed');
       const log = await events(second.runId);
+
       const completed = log.findIndex(
         (event) => event.eventType === 'tool.completed',
       );
+
       const delivered = log.findIndex(
         (event) => event.eventType === 'run.delivered',
       );
+
       // The compaction completed, the first step ran to its end, and the item
       // was delivered after it.
       expect(
@@ -866,21 +905,27 @@ describe('run steering interrupts', () => {
       await terminal(seeded.runId);
 
       const log = await events(seeded.runId);
+
       const interruptedAttempt = log.find(
         (event) => event.eventType === 'model.requested',
       )?.payload;
+
       const first = isRecord(interruptedAttempt)
         ? interruptedAttempt['attemptId']
         : undefined;
+
       const run = await db((tx) =>
         new RunsRepository(tx).findById(seeded.runId, fx.userId),
       );
+
       const deliverySequence = log.findLast(
         (event) => event.eventType === 'run.started',
       )?.sequence;
+
       if (!isString(first) || deliverySequence === undefined) {
         throw new Error('the Run recorded no first attempt');
       }
+
       expect(run?.activeAttemptId).not.toBe(first);
 
       const admit = (attemptId: string, toolCallId: string) =>
@@ -896,6 +941,7 @@ describe('run steering interrupts', () => {
             path: '/tmp/late',
           }),
         );
+
       const attempts = async () =>
         (await events(seeded.runId)).filter(
           (event) => event.eventType === 'native.attempt',
@@ -937,11 +983,13 @@ describe('an interrupt across processes', () => {
   it('An interrupt reaches a dedicated worker', async () => {
     const held = Promise.withResolvers<void>();
     const modelId = `run-interrupt-${randomUUID()}`;
+
     const seeded = await seedRun({
       tenantDb: worker.tenantDb,
       userId,
       modelId,
     });
+
     worker.models.register(modelId, {
       kind: 'step-script',
       steps: [
@@ -975,15 +1023,19 @@ describe('an interrupt across processes', () => {
         const found = await worker.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(seeded.runId, userId),
         );
+
         return found && isTerminalRunStatus(found.status) ? found : undefined;
       },
       40_000,
       'the Run to settle',
     );
+
     expect(finished.status).toBe('completed');
+
     const log = await worker.tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
     );
+
     expect(
       log.find((event) => event.eventType === 'run.delivered')?.payload,
     ).toMatchObject({ cause: 'interrupt' });
@@ -993,16 +1045,19 @@ describe('an interrupt across processes', () => {
     const other = await createUser(worker.db, 'run-interrupt-other');
     const held = Promise.withResolvers<void>();
     const modelId = `run-interrupt-${randomUUID()}`;
+
     const seeded = await seedRun({
       tenantDb: worker.tenantDb,
       userId,
       modelId,
     });
+
     const foreign = await seedRun({
       tenantDb: worker.tenantDb,
       userId: other,
       modelId: 'unused',
     });
+
     worker.models.register(modelId, {
       kind: 'step-script',
       steps: [
@@ -1027,10 +1082,12 @@ describe('an interrupt across processes', () => {
         settings: { modelId: 'ignored', permissionMode: 'default' },
       }),
     );
+
     const check = vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'hasPendingInterrupt',
     );
+
     await worker.tenantDb.runAs(userId, (tx) =>
       notifyRunControl(tx, { runId: seeded.runId, kind: 'interrupt' }),
     );
@@ -1048,6 +1105,7 @@ describe('an interrupt across processes', () => {
       worker.tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(seeded.runId, userId),
       );
+
     expect((await events()).map((event) => event.eventType)).not.toContain(
       'run.delivered',
     );

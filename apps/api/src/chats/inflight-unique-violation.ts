@@ -24,9 +24,11 @@ export function isInflightUniqueViolation(error: unknown): boolean {
         current['constraint_name'].includes('runs_chat_inflight_unique')) ||
       (isString(current['message']) &&
         current['message'].includes('runs_chat_inflight_unique'));
+
     if (current['code'] === '23505' && mentionsIndex) {
       return true;
     }
   }
+
   return false;
 }

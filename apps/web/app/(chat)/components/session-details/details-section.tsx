@@ -85,6 +85,7 @@ function SectionTitle({
  */
 function useFoldAnimation(onOpenChange: (open: boolean) => void) {
   const [animating, setAnimating] = useState(false);
+
   return {
     animating,
     onOpenChange: (next: boolean) => {

@@ -22,6 +22,7 @@ import { isRecord } from '@workspace/runtime-safety';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 // Matches the sibling integration suites: `postgres` is required lazily so the
 // unit project never loads the driver at runtime, but a type-only import of
 // its client type is erased and carries no runtime cost.
@@ -40,11 +41,14 @@ function cutoverUpdate(): string {
     ),
     'utf8',
   );
+
   const update = file
     .split('--> statement-breakpoint')
     .map((statement) => statement.trim())
     .find((statement) => statement.startsWith('UPDATE'));
+
   if (!update) throw new Error('cutover migration has no UPDATE statement');
+
   return update
     .replaceAll(
       'jsonb_array_elements("parts")',
@@ -81,7 +85,9 @@ describeIfDb('context-item cutover migration', () => {
         ownerUserId: userId,
         title: 'Pre-cutover chat',
       });
+
       const messages = new MessagesRepository(tx);
+
       const legacy = await messages.create({
         chatId: chat.id,
         role: 'user',
@@ -101,12 +107,14 @@ describeIfDb('context-item cutover migration', () => {
           { type: 'text', text: 'the human text must survive' },
         ],
       });
+
       const untouched = await messages.create({
         chatId: chat.id,
         role: 'assistant',
         inReplyTo: legacy.id,
         parts: [{ type: 'text', text: 'ordinary answer' }],
       });
+
       return { chat, legacy, untouched };
     });
 
@@ -114,6 +122,7 @@ describeIfDb('context-item cutover migration', () => {
     // it needs the same NO FORCE window the migration file carries — without
     // it every policy denies and the update silently no-ops.
     await sql`ALTER TABLE messages NO FORCE ROW LEVEL SECURITY`;
+
     try {
       await sql.unsafe(cutoverUpdate());
     } finally {
@@ -128,6 +137,7 @@ describeIfDb('context-item cutover migration', () => {
       .flatMap((message) => message.parts)
       .filter(isRecord)
       .map((part) => part['type']);
+
     expect(types).not.toContain('data-model-context');
     expect(types).not.toContain('data-tool-availability');
     expect(types).not.toContain('data-recency-digest');
@@ -146,6 +156,7 @@ describeIfDb('context-item cutover migration', () => {
         ownerUserId: userId,
         title: 'Post-cutover chat',
       });
+
       const message = await new MessagesRepository(tx).create({
         chatId: chat.id,
         role: 'user',
@@ -164,10 +175,12 @@ describeIfDb('context-item cutover migration', () => {
           { type: 'text', text: 'unified part stays' },
         ],
       });
+
       return { chat, message };
     });
 
     await sql`ALTER TABLE messages NO FORCE ROW LEVEL SECURITY`;
+
     try {
       await sql.unsafe(cutoverUpdate());
     } finally {
@@ -177,6 +190,7 @@ describeIfDb('context-item cutover migration', () => {
     const [after] = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(seeded.chat.id, userId),
     );
+
     expect(after?.parts).toEqual(seeded.message.parts);
 
     await sql`DELETE FROM chats WHERE id = ${seeded.chat.id}`;

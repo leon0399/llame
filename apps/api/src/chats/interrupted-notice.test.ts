@@ -16,6 +16,7 @@ const RUN_ID = '11111111-1111-4111-8111-111111111111';
 
 const OPENING =
   'The owner interrupted your previous step. Your response stopped before it was complete.';
+
 const CAUTION =
   'These calls started and were stopped. Their effects are unknown. Inspect the current state before you repeat one.';
 
@@ -97,11 +98,13 @@ describe('the interrupted notice in a delivered message', () => {
 
   it('An interrupted item comes before the owner text, and before the other items', () => {
     const owner = { type: 'text', text: 'change course' };
+
     const temporal = createTemporalItem({
       runId: RUN_ID,
       instant: new Date('2026-11-08T10:00:00Z'),
       timeZone: 'UTC',
     });
+
     const interrupted = createInterruptedItem({
       runId: RUN_ID,
       stoppedCalls: [],

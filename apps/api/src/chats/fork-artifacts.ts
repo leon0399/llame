@@ -20,19 +20,24 @@ export function citedArtifacts(
   parts: ReadonlyArray<unknown>,
 ): Array<ArtifactCitation> {
   const cited = new Map<string, ArtifactCitation>();
+
   for (const part of parts) {
     if (!isRecord(part)) continue;
     const type = part['type'];
+
     if (!isString(type) || !type.startsWith('tool-')) continue;
     const locator = part['artifact'];
+
     if (!isString(locator)) continue;
     const parsed = parseArtifactLocatorText(locator);
+
     if (parsed === undefined) continue;
     cited.set(`${parsed.toolName}-${parsed.seq}`, {
       toolName: parsed.toolName,
       seq: parsed.seq,
     });
   }
+
   return [...cited.values()];
 }
 
@@ -51,12 +56,14 @@ export async function copyCitedArtifacts(
   },
 ): Promise<void> {
   if (input.citations.length === 0) return;
+
   const pairs = sql.join(
     input.citations.map(
       (citation) => sql`(${citation.toolName}::text, ${citation.seq}::integer)`,
     ),
     sql`, `,
   );
+
   await tx.execute(sql`
     INSERT INTO tool_artifacts
       (chat_id, seq, tool_name, tool_call_id, run_id, complete, created_at)

@@ -69,20 +69,24 @@ describe('chat deliveries — the queue mode', () => {
     const res = await request(http)
       .post('/auth/v1/register')
       .send({ email, password: 'password123', name });
+
     expect(res.status).toBe(201);
     const body: unknown = res.body;
     expectRegisteredUserId(body);
+
     return { cookie: cookieOf(res), userId: body.user.id };
   }
 
   beforeAll(async () => {
     models = new FakeModelsService();
+
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(ModelsService)
       .useValue(models)
       .compile();
+
     app = mod.createNestApplication();
     configureApp(app);
     await app.listen(0);
@@ -117,6 +121,7 @@ describe('chat deliveries — the queue mode', () => {
     const chat = await tenantDb.runAs(userId, (tx) =>
       new ChatsRepository(tx).create({ ownerUserId: userId, title: 'Queue' }),
     );
+
     return chat.id;
   }
 
@@ -125,8 +130,10 @@ describe('chat deliveries — the queue mode', () => {
     options: { followUp?: boolean } = {},
   ): Promise<{ chatId: string; runId: string }> {
     const chatId = await createChat();
+
     return tenantDb.runAs(userAId, async (tx) => {
       const runs = new RunsRepository(tx);
+
       const message = await new MessagesRepository(
         tx,
       ).createUserMessageIfAbsent({
@@ -135,8 +142,10 @@ describe('chat deliveries — the queue mode', () => {
         senderUserId: userAId,
         parts: [{ type: 'text', text: 'seed' }],
       });
+
       if (!message) throw new Error('seed message not stored');
       let source: { id: string } | undefined;
+
       if (options.followUp) {
         source = await runs.create({
           chatId,
@@ -148,6 +157,7 @@ describe('chat deliveries — the queue mode', () => {
           error: { message: 'seeded failure' },
         });
       }
+
       const run = await runs.create({
         chatId,
         messageId: message.id,
@@ -155,7 +165,9 @@ describe('chat deliveries — the queue mode', () => {
         modelId: MODEL,
         ...(source && { followUpAction: 'continue', sourceRunId: source.id }),
       });
+
       await runs.markStarted(run.id, userAId);
+
       return { chatId, runId: run.id };
     });
   }
@@ -201,14 +213,17 @@ describe('chat deliveries — the queue mode', () => {
     tenantDb.runAs(userAId, (tx) =>
       tx.select().from(chatDeliveries).where(eq(chatDeliveries.chatId, chatId)),
     );
+
   const runsOf = (chatId: string) =>
     tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findByChatId(chatId, userAId),
     );
+
   const messagesOf = (chatId: string) =>
     tenantDb.runAs(userAId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userAId),
     );
+
   const settle = (runId: string, status: TerminalRunStatus) =>
     executor.settleTerminalRun({ userId: userAId, runId, status });
 
@@ -396,6 +411,7 @@ describe('chat deliveries — the queue mode', () => {
     it('A stored item id is never stored twice', async () => {
       const { chatId } = await chatWithLiveRun();
       const id = crypto.randomUUID();
+
       const insert = () =>
         tenantDb.runAs(userAId, (tx) =>
           new ChatDeliveriesRepository(tx).insertPending({
@@ -420,11 +436,13 @@ describe('chat deliveries — the queue mode', () => {
   describe('the owner list and withdrawal', () => {
     it('lists the pending items in order and omits a withdrawn one', async () => {
       const { chatId } = await chatWithLiveRun();
+
       const ids = [
         crypto.randomUUID(),
         crypto.randomUUID(),
         crypto.randomUUID(),
       ];
+
       for (const id of ids) await queue(chatId, { id });
       await request(http)
         .delete(`/api/v1/chats/${chatId}/deliveries/${ids[1]}`)
@@ -435,9 +453,11 @@ describe('chat deliveries — the queue mode', () => {
         .set('Cookie', cookieA);
 
       expect(res.status).toBe(200);
+
       const listed = z
         .object({ items: z.array(z.object({ id: z.string() })) })
         .parse(res.body);
+
       expect(listed.items.map((item) => item.id)).toEqual([ids[0], ids[2]]);
     });
 
@@ -494,9 +514,11 @@ describe('chat deliveries — the queue mode', () => {
       const list = await request(http)
         .get(`/api/v1/chats/${chatId}/deliveries`)
         .set('Cookie', cookieB);
+
       const withdraw = await request(http)
         .delete(`/api/v1/chats/${chatId}/deliveries/${id}`)
         .set('Cookie', cookieB);
+
       const inScopeOfB = await tenantDb.runAs(userBId, async (tx) => ({
         seen: await tx
           .select()
@@ -527,6 +549,7 @@ describe('chat deliveries — the queue mode', () => {
 
     it('The datastore refuses a mismatched owner', async () => {
       const { chatId } = await chatWithLiveRun();
+
       const item = (ownerUserId: string) => ({
         id: crypto.randomUUID(),
         chatId,
@@ -544,6 +567,7 @@ describe('chat deliveries — the queue mode', () => {
           )
           .catch((error: unknown) => error),
       );
+
       // Owner A written from the scope of B: row-level security refuses it.
       const wrongScope = pgErrorCode(
         await tenantDb
@@ -563,11 +587,13 @@ describe('chat deliveries — the queue mode', () => {
     it('Three queue items run in order', async () => {
       const { chatId, runId } = await chatWithLiveRun();
       models.client.responses = ['one', 'two', 'three'];
+
       const ids = [
         crypto.randomUUID(),
         crypto.randomUUID(),
         crypto.randomUUID(),
       ];
+
       await queue(chatId, {
         id: ids[0],
         modelId: SECOND_MODEL,
@@ -678,11 +704,13 @@ describe('chat deliveries — the queue mode', () => {
       const id = crypto.randomUUID();
       await queue(chatId, { id });
       let withdrawal: Promise<{ status: number }> | undefined;
+
       // The promotion has read the item and holds it; the withdrawal comes now.
       const markDelivered = vi.spyOn(
         ChatDeliveriesRepository.prototype,
         'markDelivered',
       );
+
       markDelivered.mockImplementationOnce(async function (
         this: ChatDeliveriesRepository,
         ...args: Parameters<ChatDeliveriesRepository['markDelivered']>
@@ -693,6 +721,7 @@ describe('chat deliveries — the queue mode', () => {
           .then((res) => res);
         await new Promise((resolve) => setTimeout(resolve, 500));
         markDelivered.mockRestore();
+
         return this.markDelivered(...args);
       });
 

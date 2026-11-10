@@ -33,18 +33,24 @@ export function createToolCallGate(): ToolCallGate {
   let closed = false;
   const reachedIds = new Set<string>();
   const pending = new Map<string, Array<() => void>>();
+
   const settle = (toolCallId: string): void => {
     const tasks = pending.get(toolCallId) ?? [];
     pending.delete(toolCallId);
+
     for (const task of tasks) task();
   };
+
   const whenReached = (toolCallId: string, task: () => void): void => {
     if (!attached || closed || reachedIds.has(toolCallId)) {
       task();
+
       return;
     }
+
     pending.set(toolCallId, [...(pending.get(toolCallId) ?? []), task]);
   };
+
   return {
     attach: () => {
       attached = true;
@@ -55,6 +61,7 @@ export function createToolCallGate(): ToolCallGate {
     },
     close: () => {
       closed = true;
+
       for (const toolCallId of pending.keys()) settle(toolCallId);
     },
     // The api lib target predates `Promise.withResolvers`.
@@ -72,24 +79,31 @@ export function createToolCallGate(): ToolCallGate {
  */
 export function gateToolExecution(tools: ToolSet, gate: ToolCallGate): ToolSet {
   const gated = new WeakMap<object, ToolSet[string]>();
+
   return new Proxy(tools, {
     get(target, key) {
       // A tool record is keyed by tool name; it carries no symbol members.
       if (!isString(key)) return undefined;
       const definition = target[key];
+
       if (!isExecutableTool(definition)) return definition;
       const existing = gated.get(definition);
+
       if (existing !== undefined) return existing;
       const execute = definition.execute;
+
       const wrapped: ToolSet[string] = {
         ...definition,
         execute: async (input, options) => {
           await gate.reached(options.toolCallId);
           const output: unknown = await execute(input, options);
+
           return output;
         },
       };
+
       gated.set(definition, wrapped);
+
       return wrapped;
     },
   });
@@ -121,11 +135,13 @@ function parseToolCallInput(raw: string) {
  */
 function sdkRefusal(error: unknown, rawInput: string): SdkRefusal {
   let input: unknown;
+
   try {
     input = secureJsonParse(rawInput);
   } catch {
     return { errorText: getErrorMessage(error), input: {} };
   }
+
   return {
     errorText: getErrorMessage(error),
     // eslint-disable-next-line anti-slop/no-runtime-typeof -- the model's JSON has no domain type before this rule; `typeof` is the SDK's own test, and keeping it exact (`null` included) is what makes replay equal the live step.
@@ -163,6 +179,7 @@ export function refuseUnavailableToolCalls(
         sdkRefusal: refused,
       }),
     );
+
     return Promise.resolve(null);
   };
 }

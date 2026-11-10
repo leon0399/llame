@@ -47,6 +47,7 @@ import {
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const MACHINE = 'devl';
+
 /** The one directory `devl` registers in most of these tests. */
 const ROOT = '/home/me/shop';
 
@@ -101,6 +102,7 @@ type RecordedRequest = {
 function requestPath(params: unknown): string | undefined {
   if (!isRecord(params)) return undefined;
   const path = params['path'];
+
   return isString(path) ? path : undefined;
 }
 
@@ -108,11 +110,14 @@ function requestPath(params: unknown): string | undefined {
 function requestEnvelope(params: unknown): RecordedEnvelope | undefined {
   if (!isRecord(params)) return undefined;
   const envelope = params['envelope'];
+
   if (!isRecord(envelope)) return undefined;
   const budgetMs = envelope['budgetMs'];
+
   if (!isNumber(budgetMs)) return undefined;
   const runId = envelope['runId'];
   const deliverySeq = envelope['deliverySeq'];
+
   return {
     ...(isString(runId) && { runId }),
     ...(isNumber(deliverySeq) && { deliverySeq }),
@@ -138,6 +143,7 @@ class MachinePeer extends MachineConnector {
 
   override reachable(_name: string, attemptKey: string): Promise<boolean> {
     this.attemptKeys.push(attemptKey);
+
     return Promise.resolve(this.tree.answers ?? true);
   }
 
@@ -156,6 +162,7 @@ class MachinePeer extends MachineConnector {
       envelope,
       signal: options.signal,
     });
+
     return Promise.resolve(this.answer(name, method, path));
   }
 
@@ -172,6 +179,7 @@ class MachinePeer extends MachineConnector {
         'The Machine session was lost.',
       );
     }
+
     if (!(this.tree.answers ?? true)) {
       throw new MachineUnavailableError(
         name,
@@ -180,23 +188,28 @@ class MachinePeer extends MachineConnector {
         'The Machine is unreachable.',
       );
     }
+
     if (path !== undefined && (this.tree.refused ?? []).includes(path)) {
       throw new MachineProtocolError(
         'path_not_registered',
         'The path is outside the Machine roots.',
       );
     }
+
     if (method === ROOTS_LIST_METHOD) {
       return this.tree.rawRoots ?? { roots: [...(this.tree.roots ?? [])] };
     }
+
     if (method === FS_STAT_METHOD) {
       return this.tree.rawStat ?? this.statOf(path);
     }
+
     if (method === FS_LIST_METHOD) {
       return path !== undefined && this.isDirectory(path)
         ? { entries: this.entriesOf(path), totalCount: 0, truncated: false }
         : { status: 'error', type: 'not_found', message: 'No such directory.' };
     }
+
     throw new Error(`The Machine has no method ${method}.`);
   }
 
@@ -204,6 +217,7 @@ class MachinePeer extends MachineConnector {
     if (path === undefined) return { kind: 'missing', isLink: false };
     const canonical = this.tree.realPaths?.[path] ?? path;
     const body = this.tree.files?.[path];
+
     if (body !== undefined) {
       return {
         kind: 'file',
@@ -212,6 +226,7 @@ class MachinePeer extends MachineConnector {
         realPath: canonical,
       };
     }
+
     if (this.isDirectory(path)) {
       return {
         kind: 'directory',
@@ -219,9 +234,11 @@ class MachinePeer extends MachineConnector {
         realPath: canonical,
       };
     }
+
     if ((this.tree.others ?? []).includes(path)) {
       return { kind: 'other', isLink: false };
     }
+
     return { kind: 'missing', isLink: false };
   }
 
@@ -234,18 +251,22 @@ class MachinePeer extends MachineConnector {
 
   private kindOf(path: string): string {
     const stat = this.statOf(path);
+
     return isRecord(stat) && isString(stat['kind']) ? stat['kind'] : 'other';
   }
 
   private isDirectory(path: string | undefined): boolean {
     if (path === undefined) return false;
+
     if ((this.tree.directories ?? []).includes(path)) return true;
+
     return this.children(path).length > 0;
   }
 
   private children(path: string): Array<string> {
     const prefix = path === '/' ? '/' : `${path}/`;
     const names = new Set<string>();
+
     for (const declared of [
       ...Object.keys(this.tree.files ?? {}),
       ...(this.tree.directories ?? []),
@@ -253,6 +274,7 @@ class MachinePeer extends MachineConnector {
       if (!declared.startsWith(prefix) || declared === path) continue;
       names.add(declared.slice(prefix.length).split('/')[0]);
     }
+
     return [...names];
   }
 }
@@ -265,26 +287,33 @@ class MachinePeer extends MachineConnector {
  */
 function machineWorld(tree: MachineTree = {}) {
   const connector = new MachinePeer(tree);
+
   const probe = createMachineInstructionProbe({
     connector,
     envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
   });
+
   const probed: Array<{ readonly name: string; readonly path: string }> = [];
   const reads: Array<string> = [];
+
   const readPage: ReadPage = (selectorPath) => {
     reads.push(selectorPath);
     const marker = selectorPath.lastIndexOf(':raw:');
+
     const parsed = parseMachineLocator(
       marker < 0 ? selectorPath : selectorPath.slice(0, marker),
     );
+
     const content =
       parsed.kind === 'path' ? tree.files?.[parsed.path] : undefined;
+
     return Promise.resolve(
       content === undefined
         ? { status: 'error', type: 'not_found', message: 'No such file.' }
         : { status: 'success', kind: 'file', content, truncated: false },
     );
   };
+
   const world = {
     connector,
     readPage,
@@ -296,9 +325,11 @@ function machineWorld(tree: MachineTree = {}) {
       readonly path: string;
     }): Promise<InstructionScope | undefined> => {
       probed.push(input);
+
       return probe(input);
     },
   };
+
   return world;
 }
 
@@ -343,18 +374,21 @@ function attemptOf(
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
   const hostReads: Array<string> = [];
+
   const hostReadPage =
     input.hostReadPage === null
       ? undefined
       : (input.hostReadPage ??
         ((selectorPath: string) => {
           hostReads.push(selectorPath);
+
           return Promise.resolve({
             status: 'error' as const,
             type: 'not_found' as const,
             message: 'No such file.',
           });
         }));
+
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
@@ -363,6 +397,7 @@ function attemptOf(
     ...(hostReadPage !== undefined && { readPage: hostReadPage }),
     ...(input.machines !== undefined && { machines: input.machines }),
   });
+
   return {
     producer,
     staged,
@@ -382,18 +417,22 @@ function attemptOf(
 /** The selected locators an item discloses, in block order. */
 function blockPaths(part: AuthoredContextItemPart): Array<string> {
   const payload = part.data.payload;
+
   if (!isInstructionsPayload(payload)) {
     throw new Error('the staged part is not an instructions payload');
   }
+
   return payload.files.map((file) => file.path);
 }
 
 /** The imported-by link of every loaded file, in block order. */
 function importedBy(part: AuthoredContextItemPart): Array<string | undefined> {
   const payload = part.data.payload;
+
   if (!isInstructionsPayload(payload)) {
     throw new Error('the staged part is not an instructions payload');
   }
+
   return payload.files.map((file) => file.importedBy);
 }
 
@@ -407,7 +446,9 @@ function lastStaged(
   staged: ReadonlyArray<AuthoredContextItemPart>,
 ): AuthoredContextItemPart {
   const part = staged.at(-1);
+
   if (part === undefined) throw new Error('the step staged no item');
+
   return part;
 }
 
@@ -419,10 +460,12 @@ function locator(path: string, name = MACHINE): string {
 /** One Machine scope's own `readPage` for a target, over a declared tree. */
 function scopeOf(tree: MachineTree, path: string, name = MACHINE) {
   const connector = new MachinePeer(tree);
+
   const probe = createMachineInstructionProbe({
     connector,
     envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
   });
+
   return probe({ name, path }).then((scope) => ({ connector, scope }));
 }
 
@@ -525,6 +568,7 @@ describe('Machine instruction scope', () => {
 
   it('starts at the longest registered root that contains the target', async () => {
     const nested = `${ROOT}/packages`;
+
     const { scope } = await scopeOf(
       {
         roots: [ROOT, nested],
@@ -546,6 +590,7 @@ describe('Machine instruction scope', () => {
 
   it('keeps the narrowest root whatever order the Machine lists them in', async () => {
     const nested = `${ROOT}/packages`;
+
     const { scope } = await scopeOf(
       {
         // The narrow root first: the broad one that follows contains the same
@@ -566,6 +611,7 @@ describe('Machine instruction scope', () => {
 
     expect(above.scope).toBeUndefined();
     expect(beside.scope).toBeUndefined();
+
     // A target outside every root is decided from `roots.list` alone: no
     // stat, no listing, and therefore nothing revealed about the Machine.
     for (const { connector } of [above, beside]) {
@@ -584,6 +630,7 @@ describe('Machine instruction scope', () => {
 
     expect(bare.scope).toBeUndefined();
     expect(trailing.scope).toBeUndefined();
+
     for (const { connector } of [bare, trailing]) {
       expect(connector.recorded.map((request) => request.method)).toEqual([
         ROOTS_LIST_METHOD,
@@ -626,6 +673,7 @@ describe('Machine instruction scope', () => {
 
   it('answers no scope for an unknown, an unreachable, or a non-answering Machine', async () => {
     const unknown = await scopeOf(tree, `${ROOT}/src/app.ts`, 'gpu');
+
     const unreachable = await scopeOf(
       { ...tree, answers: false },
       `${ROOT}/src/app.ts`,
@@ -670,6 +718,7 @@ describe('Machine instruction scope', () => {
 
   it('loads nothing, and asks nothing twice, when the listing itself fails', async () => {
     const connector = new MachinePeer({ ...tree, failsRequests: true });
+
     const probe = createMachineInstructionProbe({
       connector,
       envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
@@ -690,6 +739,7 @@ describe('Machine instruction scope', () => {
 
   it('keeps an answer it could not use, and asks that Machine once', async () => {
     const connector = new MachinePeer({ ...tree, rawRoots: { roots: 3 } });
+
     const probe = createMachineInstructionProbe({
       connector,
       envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
@@ -744,6 +794,7 @@ describe('Machine instruction scope', () => {
   it("carries the caller's own cancellation into every request it makes", async () => {
     const controller = new AbortController();
     const connector = new MachinePeer(tree);
+
     const probe = createMachineInstructionProbe({
       connector,
       envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
@@ -783,6 +834,7 @@ describe('instructions producer Machine world', () => {
         '/home/me/AGENTS.md': 'above the root\n',
       },
     });
+
     const { producer, staged, hostReads, prepare } = attemptOf({
       machines: world,
     });
@@ -819,6 +871,7 @@ describe('instructions producer Machine world', () => {
         [`${ROOT}/home/me/shop/AGENTS.md`]: 'a root spelled twice\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(`${locator(ROOT)}/`));
@@ -833,6 +886,7 @@ describe('instructions producer Machine world', () => {
 
   it('walks each registered root from its own bound', async () => {
     const other = '/srv/app';
+
     const world = machineWorld({
       roots: [ROOT, other],
       files: {
@@ -841,6 +895,7 @@ describe('instructions producer Machine world', () => {
         [`${other}/x.ts`]: 'x\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(locator(`${other}/x.ts`)));
@@ -854,6 +909,7 @@ describe('instructions producer Machine world', () => {
 
   it("groups one Machine's touches by the root each was resolved in", async () => {
     const other = '/srv/app';
+
     const world = machineWorld({
       roots: [ROOT, other],
       files: {
@@ -863,6 +919,7 @@ describe('instructions producer Machine world', () => {
         [`${other}/x.ts`]: 'x\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(locator(`${ROOT}/src/app.ts`)));
@@ -893,6 +950,7 @@ describe('instructions producer Machine world', () => {
         [`${ROOT}/test/app.test.ts`]: 'test\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(locator(`${ROOT}/src/app.ts`)));
@@ -924,6 +982,7 @@ describe('instructions producer Machine world', () => {
       roots: [ROOT],
       files: { [`${ROOT}/AGENTS.md`]: 'shop rules\n' },
     });
+
     const without = attemptOf();
 
     without.producer.observeToolCall?.(machineCall(locator(`${ROOT}/x.ts`)));
@@ -952,6 +1011,7 @@ describe('instructions producer Machine world', () => {
         '/etc/hostname': 'box\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(locator('/etc/hostname')));
@@ -973,6 +1033,7 @@ describe('instructions producer Machine world', () => {
         [`${ROOT}/src/app.ts`]: 'app\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(locator(`${ROOT}/src/AGENTS.md`)));
@@ -990,6 +1051,7 @@ describe('instructions producer Machine world', () => {
       roots: [ROOT],
       files: { [`${ROOT}/AGENTS.md`]: 'shop rules\n' },
     });
+
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: locator(ROOT),
@@ -1010,6 +1072,7 @@ describe('instructions producer Machine world', () => {
       roots: [ROOT],
       files: { [`${ROOT}/AGENTS.md`]: 'shop rules\n' },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.({
@@ -1035,6 +1098,7 @@ describe('instructions producer Machine world', () => {
         [`${ROOT}/src/app.ts`]: 'app\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(
@@ -1061,6 +1125,7 @@ describe('instructions producer Machine world', () => {
         [`${ROOT}/src/app.ts`]: 'app\n',
       },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(locator(`${ROOT}/src/app.ts`)));
@@ -1087,6 +1152,7 @@ describe('instructions producer Machine world', () => {
       roots: [ROOT],
       files: { [`${ROOT}/AGENTS.md`]: 'shop rules\n' },
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     for (const path of [
@@ -1096,6 +1162,7 @@ describe('instructions producer Machine world', () => {
     ]) {
       producer.observeToolCall?.(machineCall(path));
     }
+
     await prepare();
 
     expect(staged).toEqual([]);
@@ -1109,6 +1176,7 @@ describe('instructions producer Machine world', () => {
       files: { [`${ROOT}/AGENTS.md`]: 'shop rules\n' },
       answers: false,
     });
+
     const { producer, staged, prepare } = attemptOf({ machines: world });
 
     producer.observeToolCall?.(machineCall(locator(`${ROOT}/x.ts`)));

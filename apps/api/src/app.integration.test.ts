@@ -17,6 +17,7 @@ describe('AppController — liveness probe', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = mod.createNestApplication();
     configureApp(app);
     await app.listen(0);

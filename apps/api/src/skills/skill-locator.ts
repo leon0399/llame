@@ -68,12 +68,15 @@ export function parseSkillLocator(
 ): ParsedSkillLocator | LocatorParseFailure {
   // `skill://` and `skill://:raw` address the catalog itself.
   if (rest.length === 0) return { catalog: true };
+
   if (rest.startsWith(':')) {
     const selector = rest.slice(1);
+
     return isSelectorSuffix(selector)
       ? { catalog: true, selector }
       : NO_RESOURCE_REFUSAL;
   }
+
   return parsePackageLocator(rest);
 }
 
@@ -85,22 +88,27 @@ function parsePackageLocator(
   // Split before decoding so an encoded colon remains part of a filename.
   const nameColon = nameField.indexOf(':');
   const name = nameColon < 0 ? nameField : nameField.slice(0, nameColon);
+
   if (!isValidSkillName(name)) return invalidPathFailure();
 
   if (separator < 0) {
     if (nameColon < 0) return { name };
     const selector = nameField.slice(nameColon + 1);
+
     return isSelectorSuffix(selector)
       ? { name, selector }
       : NO_RESOURCE_REFUSAL;
   }
+
   // A selector may not sit on the name when a resource path follows it.
   if (nameColon >= 0) return invalidPathFailure();
 
   const remainder = rest.slice(separator + 1);
+
   if (remainder.length === 0) {
     return { name, trailingSeparator: true };
   }
+
   return resourceLocator(name, remainder);
 }
 
@@ -117,17 +125,22 @@ function resourceLocator(
   const selector = colon < 0 ? undefined : remainder.slice(colon + 1);
   const rawPath = colon < 0 ? remainder : remainder.slice(0, colon);
   const trailing = rawPath.endsWith('/');
+
   if (rawPath === '/') return invalidPathFailure();
+
   const relativePath = decodeRelativePath(
     trailing ? rawPath.slice(0, -1) : rawPath,
   );
+
   if (relativePath === undefined) return invalidPathFailure();
+
   if (
     relativePath.length > 0 &&
     validateSkillResourcePath(relativePath) === undefined
   ) {
     return invalidPathFailure();
   }
+
   if (selector !== undefined && !isSelectorSuffix(selector)) {
     return {
       type: 'invalid_selector',
@@ -136,15 +149,18 @@ function resourceLocator(
       ),
     };
   }
+
   if (relativePath.length === 0) {
     return selector === undefined
       ? { name, trailingSeparator: true }
       : { name, selector, trailingSeparator: true };
   }
+
   const base =
     selector === undefined
       ? { name, relativePath }
       : { name, relativePath, selector };
+
   return trailing ? { ...base, trailingSeparator: true } : base;
 }
 
@@ -159,6 +175,7 @@ function skillSelectorSpelling(
   selector: string,
 ): string | undefined {
   if (relativePath.length === 0) return undefined;
+
   return `${formatSkillLocator({
     name,
     relativePath,
@@ -182,7 +199,9 @@ export function validateSkillResourcePath(
   ) {
     return undefined;
   }
+
   const components = relativePath.split('/');
+
   if (
     components.some(
       (component) =>
@@ -191,12 +210,14 @@ export function validateSkillResourcePath(
   ) {
     return undefined;
   }
+
   if (
     Buffer.byteLength(relativePath, 'utf8') > SKILL_MAX_PATH_BYTES ||
     components.length > SKILL_MAX_PATH_COMPONENTS
   ) {
     return undefined;
   }
+
   return components;
 }
 
@@ -215,10 +236,13 @@ export function formatSkillLocator(parsed: ParsedSkillLocator): string {
   if (parsed.catalog === true) return `${SKILL_LOCATOR_SCHEME}://`;
   const base = `${SKILL_LOCATOR_SCHEME}://${parsed.name}`;
   const relativePath = parsed.relativePath;
+
   if (relativePath === undefined || relativePath.length === 0) {
     return parsed.trailingSeparator === true ? `${base}/` : base;
   }
+
   const encoded = encodeRelativePath(relativePath);
+
   return parsed.trailingSeparator === true
     ? `${base}/${encoded}/`
     : `${base}/${encoded}`;

@@ -56,6 +56,7 @@ function project(id: string, name: string): ProjectResponse {
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
   const url = new URL(request.url);
+
   return `${request.method} ${url.pathname}${url.search}`;
 }
 
@@ -67,6 +68,7 @@ function sentRoutes() {
 /** A list now, or — while a story holds the lists — once released. */
 function answer(body: Array<ProjectResponse>) {
   if (!holdLists) return Promise.resolve(jsonResponse(body));
+
   return new Promise<Response>((resolve) => {
     releaseLists.push(() => resolve(jsonResponse(body)));
   });
@@ -76,12 +78,17 @@ function routeFetch() {
   fetchMock = stubFetch();
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
+
     if (key === PINNED_ROUTE) return answer(pinnedProjects);
+
     if (key === ARCHIVED_ROUTE) return answer(archivedProjects);
+
     if (key === WITH_ARCHIVED_ROUTE) {
       return answer([...unpinnedProjects, ...archivedProjects]);
     }
+
     if (key === UNPINNED_ROUTE) return answer(unpinnedProjects);
+
     if (key === PINS_ROUTE) {
       return Promise.resolve(
         jsonResponse(
@@ -95,6 +102,7 @@ function routeFetch() {
         ),
       );
     }
+
     throw new Error(`unrouted fetch in story: ${key}`);
   });
 }
@@ -118,6 +126,7 @@ const meta = {
     pinMutate.mockClear();
     unpinMutate.mockClear();
     routeFetch();
+
     return () => {
       vi.unstubAllGlobals();
     };
@@ -130,6 +139,7 @@ const meta = {
 } satisfies Meta<typeof ProjectListSidebar>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -150,6 +160,7 @@ export const PinnedAndAllProjects: Story = {
     const pinnedRow = await canvas.findByRole("link", {
       name: "Pinned project",
     });
+
     const plainRow = await canvas.findByRole("link", { name: "Plain project" });
     const pinnedLabel = canvas.getByText("Pinned");
     const allLabel = canvas.getByText("All projects");
@@ -160,6 +171,7 @@ export const PinnedAndAllProjects: Story = {
     const tops = [pinnedLabel, pinnedRow, allLabel, plainRow].map(
       (element) => element.getBoundingClientRect().top,
     );
+
     await expect(tops).toEqual([...tops].sort((a, b) => a - b));
     await expect(new Set(tops).size).toBe(4);
 

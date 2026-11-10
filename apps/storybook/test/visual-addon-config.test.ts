@@ -20,6 +20,7 @@ describe("storyproof addon configuration", () => {
       cwd: storybookRoot,
       skipCache: true,
     });
+
     expect(effectiveConfig.addons).toContainEqual({
       name: "storyproof/preset",
       options: { storyRoots },

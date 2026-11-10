@@ -48,6 +48,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   const asUser = <T>(userId: string, fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', ${userId}, true)`;
+
       return fn(tx);
     });
 
@@ -56,6 +57,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   const asPublic = <T>(fn: (tx: SqlClient) => Promise<T>) =>
     sql.begin(async (tx: SqlClient) => {
       await tx`SELECT set_config('app.current_user_id', '', true)`;
+
       return fn(tx);
     });
 
@@ -115,12 +117,14 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
   it('the harness is meaningful: non-superuser role, RLS ENABLED + FORCED on pins', async () => {
     const [role] =
       await sql`SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+
     expect(role.rolsuper).toBe(false);
     expect(role.rolbypassrls).toBe(false);
 
     const [row] = await sql`
       SELECT relrowsecurity, relforcerowsecurity
       FROM pg_class WHERE relname = 'pins'`;
+
     expect(row.relrowsecurity).toBe(true); // ENABLE
     expect(row.relforcerowsecurity).toBe(true); // FORCE — the load-bearing bit
   });
@@ -131,6 +135,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       (tx) =>
         tx`SELECT item_type, item_id FROM pins WHERE user_id = ${userAId}`,
     );
+
     expect(aRows.length).toBe(2);
 
     // B sees none of A's pins.
@@ -139,6 +144,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       (tx) =>
         tx`SELECT item_id FROM pins WHERE item_id IN (${chatAId}, ${projectAId})`,
     );
+
     expect(bRows.length).toBe(0);
   });
 
@@ -147,6 +153,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       userBId,
       (tx) => tx`DELETE FROM pins WHERE item_id = ${chatAId} RETURNING item_id`,
     );
+
     expect(bDelete.length).toBe(0);
 
     // A's pin is untouched.
@@ -155,6 +162,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       (tx) =>
         tx`SELECT item_id FROM pins WHERE user_id = ${userAId} AND item_id = ${chatAId}`,
     );
+
     expect(stillA?.item_id).toBe(chatAId);
   });
 
@@ -163,6 +171,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       (tx) =>
         tx`SELECT item_id FROM pins WHERE item_id IN (${chatAId}, ${projectAId})`,
     );
+
     expect(rows.length).toBe(0);
   });
 
@@ -189,6 +198,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
 
   it('write gate: A CAN pin their own chat, and re-pinning is idempotent (ON CONFLICT DO NOTHING)', async () => {
     const chat2 = crypto.randomUUID();
+
     try {
       await asUser(
         userAId,
@@ -207,11 +217,13 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
         (tx) =>
           tx`INSERT INTO pins (user_id, item_type, item_id, position) VALUES (${userAId}, 'chat', ${chat2}, -100) ON CONFLICT DO NOTHING`,
       );
+
       const rows = await asUser(
         userAId,
         (tx) =>
           tx`SELECT item_id, position FROM pins WHERE user_id = ${userAId} AND item_id = ${chat2}`,
       );
+
       expect(rows).toEqual([{ item_id: chat2, position: 2 }]);
     } finally {
       await asUser(userAId, async (tx) => {
@@ -250,6 +262,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
         (tx) =>
           tx`SELECT item_id FROM pins WHERE user_id = ${userAId} AND item_type = ${itemType}::pin_item_type`,
       );
+
       expect(rows).toEqual([{ item_id: ownId() }]);
     },
   );
@@ -266,19 +279,24 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
 
   it('update gate: A CAN re-point a pin at another item they own', async () => {
     const chat2 = crypto.randomUUID();
+
     try {
       await asUser(
         userAId,
         (tx) =>
           tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chat2}, ${userAId}, 'A chat 2')`,
       );
+
       // Repoint and restore in one tx so later tests see the seeded pin set.
       const repointed = await asUser(userAId, async (tx) => {
         const rows =
           await tx`UPDATE pins SET item_id = ${chat2} WHERE user_id = ${userAId} AND item_type = 'chat' AND item_id = ${chatAId} RETURNING item_id`;
+
         await tx`UPDATE pins SET item_id = ${chatAId} WHERE user_id = ${userAId} AND item_type = 'chat' AND item_id = ${chat2}`;
+
         return rows;
       });
+
       expect(repointed).toEqual([{ item_id: chat2 }]);
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chat2}`);
@@ -287,6 +305,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
 
   it('owner reorder sticks and densifies a mixed set with a negative head position', async () => {
     const newChatId = crypto.randomUUID();
+
     try {
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${newChatId}, ${userAId}, 'Reorder head')`;
@@ -298,6 +317,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
         { itemType: 'chat', itemId: chatAId },
         { itemType: 'chat', itemId: newChatId },
       ]);
+
       expect(reordered.map(({ itemId }) => itemId)).toEqual([
         projectAId,
         chatAId,
@@ -310,11 +330,13 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
         chatAId,
         newChatId,
       ]);
+
       const positions = await asUser(
         userAId,
         (tx) =>
           tx`SELECT item_id, position FROM pins WHERE user_id = ${userAId} ORDER BY position`,
       );
+
       expect(positions).toEqual([
         { item_id: projectAId, position: 0 },
         { item_id: chatAId, position: 1 },
@@ -350,6 +372,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       (tx) =>
         tx`UPDATE pins SET position = 999 WHERE user_id = ${userAId} RETURNING item_id`,
     );
+
     expect(updated).toHaveLength(0);
 
     const after = await asUser(
@@ -357,6 +380,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
       (tx) =>
         tx`SELECT item_type, item_id, position FROM pins WHERE user_id = ${userAId} ORDER BY position`,
     );
+
     expect(after).toEqual(before);
   });
 });

@@ -36,6 +36,9 @@ export function isGrantableRole(role: OrgRole): role is GrantableRole {
 
 // Component-facing aliases keep generated models behind the feature service.
 export type OrgUnitType = OrgUnitResponseType;
+
 export type OrgUnitResponse = GeneratedOrgUnitResponse;
+
 export type MembershipResponse = GeneratedMembershipResponse;
+
 export type EffectiveRoleResponse = GeneratedEffectiveRoleResponse;

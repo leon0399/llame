@@ -54,7 +54,9 @@ const RANGE_SUFFIX = /^(\d+)-(\d+)$/u;
  */
 export function grepFileLocator(locator: string): string {
   const separator = locator.lastIndexOf(":");
+
   if (separator === -1) return locator;
+
   return RANGE_SUFFIX.test(locator.slice(separator + 1))
     ? locator.slice(0, separator)
     : locator;
@@ -64,8 +66,10 @@ export function grepFileLocator(locator: string): string {
 function passageOf(value: unknown): PassageView | undefined {
   if (!isRecord(value)) return undefined;
   const { locator, content, matches, cut, truncated } = value;
+
   if (!isNonEmptyString(locator) || !isString(content)) return undefined;
   const startLine = passageStartLine(locator);
+
   return {
     file: grepFileLocator(locator),
     // A locator with no readable start line opens its own run, as a malformed
@@ -84,10 +88,13 @@ function passageOf(value: unknown): PassageView | undefined {
 function passagesOf(value: unknown): Array<PassageView> {
   if (!Array.isArray(value)) return [];
   const passages: Array<PassageView> = [];
+
   for (const entry of value) {
     const passage = passageOf(entry);
+
     if (passage !== undefined) passages.push(passage);
   }
+
   return passages;
 }
 
@@ -100,13 +107,19 @@ function passageLines(passage: PassageView, markCut: boolean): Array<string> {
   const matched = new Set(passage.matches);
   const stored = passage.content.replace(/\n$/u, "");
   const lines = stored === "" ? [] : stored.split("\n");
+
   const marked = lines.map((line) => {
     const match = NUMBERED_LINE.exec(line);
+
     if (match === null) return line;
+
     return matched.has(Number(match[1])) ? `*${line}` : line;
   });
+
   if (markCut && passage.cut) marked.push(CUT_PASSAGE_MARKER);
+
   if (passage.truncated) marked.push(CAPPED_PASSAGE_MARKER);
+
   return marked;
 }
 
@@ -133,6 +146,7 @@ export function grepPassageContinues(
 ): boolean {
   const view = passageOf(passage);
   const before = previous === undefined ? undefined : passageOf(previous);
+
   return view !== undefined && sharesRun(before, view);
 }
 
@@ -150,6 +164,7 @@ function passageBlock(
   opens: boolean = !sharesRun(previous, passage),
 ): Array<string> {
   const head = opens ? `## ${oneLine(passage.file)}` : "";
+
   return [head, ...passageLines(passage, markCut)];
 }
 
@@ -166,8 +181,10 @@ export function grepPassageBlockLines(
   opens?: boolean,
 ): Array<string> {
   const view = passageOf(passage);
+
   if (view === undefined) return [];
   const before = previous === undefined ? undefined : passageOf(previous);
+
   return passageBlock(before, view, markCut, opens);
 }
 
@@ -184,10 +201,12 @@ function runOpeners(
 ): Array<boolean> {
   const explicit = new Set<number>();
   let covered = 0;
+
   for (const length of runLengths) {
     explicit.add(covered);
     covered += length;
   }
+
   return passages.map((passage, index) =>
     index < covered
       ? explicit.has(index)
@@ -201,14 +220,18 @@ function runOpeners(
  */
 function storedRunLengths(result: UnknownRecord): ReadonlyArray<number> {
   const { display } = result;
+
   if (!isRecord(display)) return [];
   const { rerank } = display;
+
   if (!isRecord(rerank) || !Array.isArray(rerank.runLengths)) return [];
   const lengths: Array<number> = [];
+
   for (const length of rerank.runLengths) {
     if (!isNumber(length) || !Number.isInteger(length) || length < 1) return [];
     lengths.push(length);
   }
+
   return lengths;
 }
 
@@ -216,12 +239,15 @@ function storedRunLengths(result: UnknownRecord): ReadonlyArray<number> {
 function warningsLine(value: unknown): string | undefined {
   if (!Array.isArray(value)) return undefined;
   const warnings: Array<string> = [];
+
   for (const warning of value) {
     if (!isRecord(warning)) continue;
     const { kind, count } = warning;
+
     if (!isNonEmptyString(kind) || !isNumber(count) || count < 1) continue;
     warnings.push(`${String(count)} ${kind}`);
   }
+
   return warnings.length === 0
     ? undefined
     : `[warnings: ${warnings.join(", ")}]`;
@@ -238,6 +264,7 @@ export function grepWarningsUnits(
   const line = warningsLine(
     [...warnings].map(([kind, count]) => ({ kind, count })),
   );
+
   return line === undefined ? 0 : line.length + 1;
 }
 
@@ -260,13 +287,17 @@ interface IgnoredView {
 function ignoredOf(value: unknown): IgnoredView | undefined {
   if (!isRecord(value)) return undefined;
   const { count, locators, atLeast } = value;
+
   if (!isNumber(count) || count < 1 || !Array.isArray(locators))
     return undefined;
   const kept: Array<string> = [];
+
   for (const locator of locators) {
     if (!isNonEmptyString(locator)) return undefined;
+
     if (kept.length < GREP_LIMITS.ignoredLocators) kept.push(locator);
   }
+
   return { count, locators: kept, atLeast: atLeast === true };
 }
 
@@ -280,25 +311,31 @@ function grepIgnoredLine(ignored: IgnoredView): string {
   const count = ignored.atLeast
     ? `${String(ignored.count)} or more`
     : String(ignored.count);
+
   const noun = ignored.count === 1 ? "directory" : "directories";
   const head = `[ignored ${count} ${noun}: `;
   const tail = "; a scope that names one searches it]";
   const chosen: Array<string> = [];
   let line: string | undefined;
+
   for (const locator of ignored.locators) {
     const folded = oneLine(locator);
     const next = [...chosen, folded];
     const rest = ignored.count - next.length;
+
     const candidate = `${head}${next.join(", ")}${
       rest > 0
         ? ` (+${String(rest)}${ignored.atLeast ? " or more" : " more"})`
         : ""
     }${tail}`;
+
     if (candidate.length > IGNORED_LINE_UNITS) break;
     chosen.push(folded);
     line = candidate;
   }
+
   if (line !== undefined) return line;
+
   // Not one locator fits: the remainder follows the colon.
   return `${head}(+${String(ignored.count)}${
     ignored.atLeast ? " or more" : " more"
@@ -367,19 +404,25 @@ export function grepLeftOutUnits(count: number, of: string): number {
 function remainderOf(value: unknown): GrepRemainder | undefined {
   if (!isRecord(value)) return undefined;
   const { files, passages, next } = value;
+
   if (!isNumber(files) || files < 1) return undefined;
+
   if (!isNumber(passages) || passages < 1) return undefined;
   const entries: Array<GrepRemainder["next"][number]> = [];
+
   if (Array.isArray(next)) {
     for (const entry of next) {
       if (!isRecord(entry)) return undefined;
       const { locator, start, end } = entry;
+
       if (!isNonEmptyString(locator)) return undefined;
+
       if (!isNumber(start) || !isNumber(end) || start < 1 || end < start)
         continue;
       entries.push({ locator, start, end });
     }
   }
+
   return { files, passages, next: entries };
 }
 
@@ -401,16 +444,20 @@ function grepRemainderLine(
     remainder.passages,
     "passage",
   )}`;
+
   if (remainder.next.length === 0) return `${head}]`;
   const chosen: Array<string> = [];
   let line: string | undefined;
+
   for (const entry of remainder.next.slice(0, 10)) {
     const rendered = remainderEntry(entry, artifact);
     const candidate = `${head}; next: ${[...chosen, rendered].join(", ")}]`;
+
     if (candidate.length > REMAINDER_LINE_UNITS) break;
     chosen.push(rendered);
     line = candidate;
   }
+
   return line ?? `${head}]`;
 }
 
@@ -419,7 +466,9 @@ function remainderEntry(
   artifact: string | undefined,
 ): string {
   const locator = oneLine(entry.locator);
+
   if (artifact === undefined) return locator;
+
   return `${locator} (${artifact}:${String(entry.start)}-${String(entry.end)})`;
 }
 
@@ -433,8 +482,11 @@ interface LeftOutView {
 function leftOutOf(value: unknown): LeftOutView | undefined {
   if (!isRecord(value)) return undefined;
   const { count, of } = value;
+
   if (!isNumber(count) || count < 1) return undefined;
+
   if (of !== "lines" && of !== "files" && of !== "results") return undefined;
+
   return { count, of };
 }
 
@@ -448,14 +500,17 @@ function passageLinesOf(
 ): Array<string> {
   const lines: Array<string> = [];
   const { notice } = result;
+
   if (isNonEmptyString(notice)) lines.push(`notice: ${notice}`);
   const passages = passagesOf(result.results);
   const opens = runOpeners(passages, storedRunLengths(result));
   let previous: PassageView | undefined;
+
   for (const [index, passage] of passages.entries()) {
     lines.push(...passageBlock(previous, passage, markCut, opens[index]));
     previous = passage;
   }
+
   return lines;
 }
 
@@ -481,15 +536,20 @@ export function grepArtifactLines(result: UnknownRecord): Array<string> {
 export function renderGrepText(result: UnknownRecord): string {
   const lines = passageLinesOf(result, true);
   const warnings = warningsLine(result.warnings);
+
   if (warnings !== undefined) lines.push(warnings);
+
   if (result.ranking === "unavailable")
     lines.push(GREP_RANKING_UNAVAILABLE_LINE);
   const ignored = ignoredOf(result.ignored);
+
   if (ignored !== undefined) lines.push(grepIgnoredLine(ignored));
   const { unfinishedFile } = result;
+
   if (isNonEmptyString(unfinishedFile))
     lines.push(grepUnfinishedLine(unfinishedFile));
   const remainder = remainderOf(result.remainder);
+
   if (remainder !== undefined)
     lines.push(
       grepRemainderLine(
@@ -498,12 +558,15 @@ export function renderGrepText(result: UnknownRecord): string {
       ),
     );
   const { truncationNotice } = result;
+
   if (isNonEmptyString(truncationNotice)) lines.push(`[${truncationNotice}]`);
   const leftOut = leftOutOf(result.leftOut);
+
   if (leftOut !== undefined)
     lines.push(
       `[left out: ${String(leftOut.count)} ${leftOut.of}; full result not stored]`,
     );
+
   return lines.join("\n");
 }
 
@@ -528,8 +591,10 @@ export function grepPassageUnits(
   opens?: boolean,
 ): number {
   const page = previous === undefined ? [passage] : [previous, passage];
+
   const bounds = (runLengths: ReadonlyArray<number>) =>
     opens === undefined ? {} : { display: { rerank: { runLengths } } };
+
   return (
     measureGrepRendering({
       results: page,

@@ -93,6 +93,7 @@ export class CheckoutRegistrationService {
           : error;
       },
     );
+
     return this.tenantDb.runAs(ownerUserId, (tx) =>
       this.store(new RepositoriesRepository(tx), ownerUserId, input, plan),
     );
@@ -102,12 +103,14 @@ export class CheckoutRegistrationService {
     submittedPath: string,
   ): Promise<RegistrationPlan> {
     const target = this.executors.locate(submittedPath);
+
     if (!this.config.config.tools.allowed.includes(WORKSPACE_TOOL_ID)) {
       throw repositoryFailure(
         'tool_not_allowed',
         `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this path may not be inspected.`,
       );
     }
+
     // The address form is what policy matches: a Machine locator is never
     // admitted by a rule written against the local filesystem.
     const submitted = this.executors.address(target, target.path);
@@ -119,6 +122,7 @@ export class CheckoutRegistrationService {
     // and the daemon's own `fs.stat` real path on a Machine, as
     // `enter_workspace` decides a root before it binds one.
     const canonicalPath = await this.executors.canonical(target, submitted);
+
     if (canonicalPath !== submitted) this.requirePathAllowed(canonicalPath);
 
     const inspection = await this.inspect(target, canonicalPath);
@@ -131,6 +135,7 @@ export class CheckoutRegistrationService {
     this.requirePathAllowed(inspection.toplevel);
     const mainClone = inspection.mainWorktree ?? inspection.toplevel;
     this.requirePathAllowed(mainClone);
+
     return {
       executorId: target.executorId,
       inspection,
@@ -153,6 +158,7 @@ export class CheckoutRegistrationService {
         args: { path: projectNativeFilePath(value) },
       }),
     );
+
     if (decision.decision === 'reject') {
       throw repositoryFailure(
         'permission_denied',
@@ -166,7 +172,9 @@ export class CheckoutRegistrationService {
     address: string,
   ): Promise<GitInspectSuccess> {
     const result = await this.executors.inspect(target, address);
+
     if (result.status === 'error') throw gitInspectionFailure(result);
+
     return result;
   }
 
@@ -182,6 +190,7 @@ export class CheckoutRegistrationService {
       input,
       plan,
     );
+
     return this.createCheckout(db, ownerUserId, plan, repository);
   }
 
@@ -197,6 +206,7 @@ export class CheckoutRegistrationService {
     repository: Repository,
   ): Promise<Checkout> {
     const kind: CheckoutKind = plan.inspection.linked ? 'worktree' : 'main';
+
     const created = await db.createCheckout({
       ownerUserId,
       repositoryId: repository.id,
@@ -210,12 +220,14 @@ export class CheckoutRegistrationService {
       branch: plan.inspection.branch,
       origin: 'registered',
     });
+
     if (created === undefined) {
       throw repositoryFailure(
         'path_taken',
         'This executor path is already one of your checkouts.',
       );
     }
+
     return created;
   }
 
@@ -232,6 +244,7 @@ export class CheckoutRegistrationService {
     const selected =
       (input.repositoryId ?? null) !== null ||
       normalizeRemote(input.remote ?? '') !== '';
+
     return selected
       ? this.selectedRepository(db, ownerUserId, input, plan)
       : this.adoptedRepository(db, ownerUserId, plan);
@@ -246,18 +259,22 @@ export class CheckoutRegistrationService {
   ): Promise<Repository> {
     const selector = normalizeRemote(input.remote ?? '');
     const declaredId = input.repositoryId ?? null;
+
     if (declaredId !== null && selector !== '') {
       throw repositoryFailure(
         'invalid_selector',
         'Submit repositoryId or remote as the selector, not both.',
       );
     }
+
     const selected =
       declaredId !== null
         ? await db.findRepository(ownerUserId, declaredId)
         : ((await db.findRepositoryByRemote(ownerUserId, selector)) ??
           (await db.findRepositoryByAlias(ownerUserId, selector)));
+
     if (selected === undefined) throw notFound();
+
     return this.requireOriginMatches(db, ownerUserId, selected, plan);
   }
 
@@ -276,12 +293,16 @@ export class CheckoutRegistrationService {
       plan.executorId,
       plan.mainClone,
     );
+
     if (parentRow === undefined) return this.adopt(db, ownerUserId, plan);
+
     const parentRepository = await db.findRepository(
       ownerUserId,
       parentRow.repositoryId,
     );
+
     if (parentRepository === undefined) throw notFound();
+
     return this.requireOriginMatches(db, ownerUserId, parentRepository, plan);
   }
 
@@ -298,13 +319,17 @@ export class CheckoutRegistrationService {
     plan: RegistrationPlan,
   ): Promise<Repository> {
     const canonicalRemote = plan.canonicalRemote;
+
     if (canonicalRemote !== null) {
       await db.lockRemoteClaim(ownerUserId, canonicalRemote);
+
       const existing =
         (await db.findRepositoryByRemote(ownerUserId, canonicalRemote)) ??
         (await db.findRepositoryByAlias(ownerUserId, canonicalRemote));
+
       if (existing !== undefined) return existing;
     }
+
     const created = await db.createRepository({
       ownerUserId,
       displayName: derivedDisplayName(
@@ -313,16 +338,21 @@ export class CheckoutRegistrationService {
       ),
       canonicalRemote,
     });
+
     if (created !== undefined) return created;
+
     if (canonicalRemote === null) {
       // A NULL remote never conflicts on the unique key.
       throw new Error('A remote-less repository cannot lose an insert race.');
     }
+
     const winner = await db.findRepositoryByRemote(
       ownerUserId,
       canonicalRemote,
     );
+
     if (winner === undefined) throw notFound();
+
     return winner;
   }
 
@@ -333,16 +363,20 @@ export class CheckoutRegistrationService {
     plan: RegistrationPlan,
   ): Promise<Repository> {
     const canonicalRemote = plan.canonicalRemote;
+
     if (
       canonicalRemote === null ||
       repository.canonicalRemote === canonicalRemote
     ) {
       return repository;
     }
+
     const aliases = await db.listAliases(ownerUserId, repository.id);
+
     if (aliases.some((alias) => alias.canonicalAlias === canonicalRemote)) {
       return repository;
     }
+
     throw repositoryFailure(
       'origin_mismatch',
       'The inspected origin does not match the declared repository.',
@@ -362,6 +396,7 @@ export class CheckoutRegistrationService {
   ): Promise<Checkout> {
     const findByPath = () =>
       db.findCheckoutByPath(ownerUserId, plan.executorId, plan.mainClone);
+
     const parent =
       (await findByPath()) ??
       (await db.createCheckout({
@@ -379,13 +414,16 @@ export class CheckoutRegistrationService {
       // A concurrent registration adopted the parent first; its committed row
       // is visible to this statement.
       (await findByPath());
+
     if (parent === undefined) throw notFound();
+
     if (parent.repositoryId !== repository.id || parent.kind !== 'main') {
       throw repositoryFailure(
         'invalid_path',
         'The main clone of this worktree belongs to another repository, or is recorded as a worktree.',
       );
     }
+
     return parent;
   }
 }

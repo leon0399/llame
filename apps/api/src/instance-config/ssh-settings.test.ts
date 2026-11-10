@@ -34,8 +34,10 @@ function loadError(env: NodeJS.ProcessEnv = {}): string {
     load(env);
   } catch (error) {
     if (!(error instanceof Error)) throw error;
+
     return error.message;
   }
+
   throw new Error('expected loadInstanceConfig to throw');
 }
 

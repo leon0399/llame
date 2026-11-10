@@ -59,6 +59,7 @@ function changeLines(change: ChangeObject<string>): Array<string> {
   const value = change.value.endsWith("\n")
     ? change.value.slice(0, -1)
     : change.value;
+
   return value.split("\n");
 }
 
@@ -101,6 +102,7 @@ function replacementRows(
   numbers: { old: number | null; new: number | null },
 ): Array<DiffRow> {
   const paired = removed.length === added.length;
+
   return [
     ...removed.map((text, index): DiffRow => ({
       kind: "removed",
@@ -135,16 +137,21 @@ function diffRows(
   const changes = diffLines(oldText, newText, {
     ignoreNewlineAtEof: oldText.endsWith("\n") === newText.endsWith("\n"),
   });
+
   const rows: Array<DiffRow> = [];
   const numbers = { old: start, new: start };
+
   for (let index = 0; index < changes.length; index += 1) {
     const change = changes[index];
+
     if (change === undefined) continue;
     const lines = changeLines(change);
     const next = changes[index + 1];
     // A removal followed by an addition is one replacement.
     const replacedBy = change.removed && next?.added ? next : undefined;
+
     if (replacedBy) index += 1;
+
     const block =
       change.added || change.removed
         ? replacementRows(
@@ -153,6 +160,7 @@ function diffRows(
             numbers,
           )
         : contextRows(lines, numbers);
+
     rows.push(...block);
     numbers.old = lineNumber(
       numbers.old,
@@ -163,6 +171,7 @@ function diffRows(
       block.filter((row) => row.kind !== "removed").length,
     );
   }
+
   return rows;
 }
 
@@ -194,10 +203,12 @@ function DiffLine({ row }: { row: DiffRow }) {
   // Slate fails contrast on the tinted rows, so their gutters use a darker
   // ink and their markers full ink.
   const tinted = row.kind !== "context";
+
   const gutter = cn(
     "w-(--gutter) shrink-0 select-none pl-3 text-right tabular-nums",
     tinted ? "text-foreground/70" : "text-muted-foreground",
   );
+
   return (
     <div
       className={cn(
@@ -242,6 +253,7 @@ function DiffView({ rows }: { rows: ReadonlyArray<DiffRow> }) {
       ),
     ),
   );
+
   return (
     <ScrollRegion label="Diff" className="rounded-md bg-muted/50">
       <div
@@ -275,19 +287,23 @@ function EditDiff({
   const display = output?.display;
   const before = display?.oldText ?? oldText;
   const after = display?.newText ?? newText;
+
   const header = display
     ? undefined
     : replacementHeaderPattern.exec(output?.diff ?? "");
+
   const start = display?.startLine ?? (header ? Number(header[1]) : null);
   const rows = diffRows(before, after, start);
   const removed = rows.filter((row) => row.kind === "removed").length;
   const added = rows.filter((row) => row.kind === "added").length;
   let trailingBreak: string | undefined;
+
   if (!before.endsWith("\n") && after.endsWith("\n")) {
     trailingBreak = "Adds a trailing line break.";
   } else if (before.endsWith("\n") && !after.endsWith("\n")) {
     trailingBreak = "Removes the trailing line break.";
   }
+
   return (
     <ToolSection label="Diff" aside={`+${added} −${removed}`}>
       {before === after ? (
@@ -332,6 +348,7 @@ export function EditTool({
 }: EditToolProps): ReactElement {
   const edit = inputSchema.safeParse(input).data;
   const result = outputSchema.safeParse(output).data;
+
   return (
     <ToolRow
       name="edit"

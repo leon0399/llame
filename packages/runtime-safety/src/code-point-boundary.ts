@@ -28,6 +28,7 @@ export function codePointSafeCutIndex(text: string, index: number): number {
   const splitsPair =
     isHighSurrogate(text.charCodeAt(index - 1)) &&
     isLowSurrogate(text.charCodeAt(index));
+
   return splitsPair ? index - 1 : index;
 }
 
@@ -41,5 +42,6 @@ export function cutStringAtCodePointBoundary(
   limit: number,
 ): string {
   if (value.length <= limit) return value;
+
   return value.slice(0, codePointSafeCutIndex(value, limit));
 }

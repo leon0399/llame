@@ -8,7 +8,9 @@ export type RewriteTarget = {
 };
 
 type RewriteTargetError = { readonly error: string };
+
 type TemplateValidation = { readonly pathPrefix: string } | RewriteTargetError;
+
 type ParsedTargetOrigin =
   | { readonly origin: URL; readonly template: string }
   | RewriteTargetError;
@@ -22,6 +24,7 @@ function invalidTarget(error: string) {
 
 function findAuthorityEnd(target: string, schemeEnd: number): number {
   const relative = target.slice(schemeEnd).search(/[/?{]/u);
+
   return relative === -1 ? target.length : schemeEnd + relative;
 }
 
@@ -31,16 +34,21 @@ function authorityPlaceholderError(
   authority: string,
 ): RewriteTargetError | undefined {
   if (target[authorityEnd] !== '{') return undefined;
+
   if (authority.length === 0 || authority.endsWith(':')) {
     return invalidTarget(
       'placeholders are not allowed in scheme, host, or port',
     );
   }
+
   const pathEnd = authorityEnd + '{path}'.length;
+
   if (!target.startsWith('{path}', authorityEnd)) {
     return invalidTarget('authority placeholder must be {path}');
   }
+
   const following = target[pathEnd];
+
   if (
     following !== undefined &&
     following !== '/' &&
@@ -51,15 +59,18 @@ function authorityPlaceholderError(
       'authority {path} placeholder must be followed by a path delimiter',
     );
   }
+
   return undefined;
 }
 
 function pathPrefixForTemplate(origin: URL, pathTemplate: string): string {
   const firstPlaceholder = pathTemplate.indexOf('{');
+
   const literalPrefix =
     firstPlaceholder === -1
       ? pathTemplate
       : pathTemplate.slice(0, firstPlaceholder);
+
   return new URL(`${origin.origin}${literalPrefix || '/'}`).pathname;
 }
 
@@ -70,11 +81,14 @@ function validatePlaceholderSegment(
   if (!allowPath && segment.includes('{path}')) {
     return invalidTarget('{path} is allowed only in the path portion');
   }
+
   const allowed = allowPath
     ? segment.replaceAll(/\{path\}|\{query\}/gu, '')
     : segment.replaceAll('{query}', '');
+
   if (!/[{}]/u.test(allowed)) return undefined;
   const unknown = UNKNOWN_PLACEHOLDER.exec(allowed);
+
   return unknown === null
     ? invalidTarget('unbalanced placeholder brace')
     : invalidTarget(`unknown placeholder "${unknown[0]}"`);
@@ -86,11 +100,15 @@ function validateTemplate(
   origin: URL,
 ): TemplateValidation {
   const pathError = validatePlaceholderSegment(pathTemplate, true);
+
   if (pathError !== undefined) return pathError;
+
   if (queryTemplate !== undefined) {
     const queryError = validatePlaceholderSegment(queryTemplate, false);
+
     if (queryError !== undefined) return queryError;
   }
+
   return { pathPrefix: pathPrefixForTemplate(origin, pathTemplate) };
 }
 
@@ -98,33 +116,42 @@ function parseTargetOrigin(target: string): ParsedTargetOrigin {
   if (target.includes('\\')) {
     return invalidTarget('target must not contain backslashes');
   }
+
   if (target.includes('#')) {
     return invalidTarget('target must not contain a fragment');
   }
+
   const schemeMatch = SCHEME.exec(target);
+
   if (schemeMatch === null) {
     return invalidTarget('target must be an absolute http or https URL');
   }
+
   const schemeEnd = schemeMatch[0].length;
   const authorityEnd = findAuthorityEnd(target, schemeEnd);
   const authority = target.slice(schemeEnd, authorityEnd);
+
   const placeholderError = authorityPlaceholderError(
     target,
     authorityEnd,
     authority,
   );
+
   if (placeholderError !== undefined) return placeholderError;
+
   if (authority.includes('@')) {
     return invalidTarget('target must not contain userinfo');
   }
 
   const originText = target.slice(0, authorityEnd);
   let origin: URL;
+
   try {
     origin = new URL(originText);
   } catch {
     return invalidTarget('target has an invalid URL origin');
   }
+
   return { origin, template: target.slice(authorityEnd) };
 }
 
@@ -137,17 +164,22 @@ export function parseRewriteTarget(
   target: string,
 ): RewriteTarget | { readonly error: string } {
   const parsedOrigin = parseTargetOrigin(target);
+
   if ('error' in parsedOrigin) return parsedOrigin;
   const queryIndex = parsedOrigin.template.indexOf('?');
   const pathTemplate = parsedOrigin.template;
+
   const queryTemplate =
     queryIndex === -1 ? undefined : parsedOrigin.template.slice(queryIndex + 1);
+
   const validation = validateTemplate(
     pathTemplate,
     queryTemplate,
     parsedOrigin.origin,
   );
+
   if ('error' in validation) return validation;
+
   return {
     origin: parsedOrigin.origin.origin,
     pathPrefix: validation.pathPrefix,
@@ -174,16 +206,19 @@ export function expandRewriteTarget(
 ): string | undefined {
   const expanded = `${target.origin}${replacePlaceholders(target.template, source)}`;
   let url: URL;
+
   try {
     url = new URL(expanded);
   } catch {
     return undefined;
   }
+
   if (
     url.origin !== target.origin ||
     !url.pathname.startsWith(target.pathPrefix)
   ) {
     return undefined;
   }
+
   return url.href;
 }

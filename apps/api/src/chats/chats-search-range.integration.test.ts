@@ -45,12 +45,15 @@ describeIfDb(
       await tenantDb.runAs(owner, async (tx) => {
         const chats = new ChatsRepository(tx);
         const messages = new MessagesRepository(tx);
+
         const createInput: Parameters<typeof chats.createIfAbsent>[0] = {
           id,
           ownerUserId: owner,
         };
+
         if (title !== null) createInput.title = title;
         await chats.createIfAbsent(createInput);
+
         for (const m of msgs) {
           const msg = await messages.create({
             chatId: id,
@@ -59,6 +62,7 @@ describeIfDb(
             parts: text(m.text),
             usage: m.usage,
           });
+
           // Backdate the message to the specified timestamp.
           await tx.execute(
             sql`UPDATE messages SET created_at = ${m.createdAt.toISOString()}::timestamptz WHERE id = ${msg.id}`,
@@ -66,6 +70,7 @@ describeIfDb(
         }
       });
       owned.push({ id, owner });
+
       return id;
     }
 
@@ -93,6 +98,7 @@ describeIfDb(
       indexService = new SearchIndexService(tenantDb);
       userA = crypto.randomUUID();
       userB = crypto.randomUUID();
+
       for (const id of [userA, userB]) {
         await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'S', ${`s-${id}@t.com`})`;
       }
@@ -210,6 +216,7 @@ describeIfDb(
         for (const id of [userA, userB]) {
           await sqlClient`DELETE FROM users WHERE id = ${id}`;
         }
+
         await sqlClient.end();
       }
     });
@@ -227,6 +234,7 @@ describeIfDb(
           },
         }),
       );
+
       const ids = results.map((r) => r.id);
       expect(ids).toContain(inRangeChat);
       expect(ids).not.toContain(outOfRangeChat);
@@ -243,6 +251,7 @@ describeIfDb(
           },
         }),
       );
+
       const ids = results.map((r) => r.id);
       expect(ids).toContain(titleOnlyWithEligibleInRange);
       expect(ids).not.toContain(titleOnlyNoEligibleInRange);
@@ -258,6 +267,7 @@ describeIfDb(
           },
         }),
       );
+
       const ids = results.map((r) => r.id);
       expect(ids).toContain(inRangeChat);
       expect(ids).not.toContain(outOfRangeChat);
@@ -273,6 +283,7 @@ describeIfDb(
           },
         }),
       );
+
       const ids = results.map((r) => r.id);
       expect(ids).toContain(outOfRangeChat);
       expect(ids).not.toContain(inRangeChat);
@@ -291,6 +302,7 @@ describeIfDb(
           },
         }),
       );
+
       const ids = results.map((r) => r.id);
       expect(ids).toContain(outOfRangeChat);
       expect(ids).toContain(inRangeChat);
@@ -307,6 +319,7 @@ describeIfDb(
           },
         }),
       );
+
       const inRangeIdx = results.findIndex((r) => r.id === inRangeChat);
       const outOfRangeIdx = results.findIndex((r) => r.id === outOfRangeChat);
       expect(inRangeIdx).toBeLessThan(outOfRangeIdx);
@@ -322,6 +335,7 @@ describeIfDb(
           limit: 50,
         }),
       );
+
       const chatIds = regions.map((r) => r.chatId);
       expect(chatIds).toContain(inRangeChat);
       expect(chatIds).toContain(titleOnlyWithEligibleInRange);
@@ -336,6 +350,7 @@ describeIfDb(
           limit: 50,
         }),
       );
+
       const chatIds = regions.map((r) => r.chatId);
       expect(chatIds).not.toContain(systemOnlyInRange);
       expect(chatIds).not.toContain(retryableAssistantOnly);
@@ -349,6 +364,7 @@ describeIfDb(
           limit: 50,
         }),
       );
+
       const inRangeRegion = regions.find((r) => r.chatId === inRangeChat);
       expect(inRangeRegion).toBeDefined();
       expect(inRangeRegion!.messageCount).toBe(2);
@@ -370,6 +386,7 @@ describeIfDb(
           createdAt: JAN_15,
         },
       ]);
+
       // Update title (bumps updatedAt into Feb).
       await tenantDb.runAs(userA, async (tx) => {
         await tx.execute(
@@ -384,6 +401,7 @@ describeIfDb(
           limit: 50,
         }),
       );
+
       expect(regions.map((r) => r.chatId)).not.toContain(retitledChat);
     });
 
@@ -400,6 +418,7 @@ describeIfDb(
           },
         }),
       );
+
       expect(results).toEqual([]);
     });
 
@@ -411,6 +430,7 @@ describeIfDb(
           limit: 50,
         }),
       );
+
       expect(regions).toEqual([]);
     });
 
@@ -422,6 +442,7 @@ describeIfDb(
           limit: 50,
         }),
       );
+
       expect(regions).toEqual([]);
     });
 
@@ -436,6 +457,7 @@ describeIfDb(
           },
         }),
       );
+
       expect(results).toEqual([]);
     });
   },

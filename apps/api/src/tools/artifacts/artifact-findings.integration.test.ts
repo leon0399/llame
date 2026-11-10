@@ -123,6 +123,7 @@ d('artifact finding re-check', () => {
 
   it('withholds a new rejected grep finding and keeps the line numbers', async () => {
     const artifact = await write(grepFindings);
+
     const text = await read(
       artifact.locator,
       contextWith({
@@ -139,6 +140,7 @@ d('artifact finding re-check', () => {
 
   it('leaves a withheld file out of the outline', async () => {
     const artifact = await write(grepFindings);
+
     const text = await read(
       `${artifact.locator}:outline`,
       contextWith({
@@ -188,6 +190,7 @@ d('artifact finding re-check', () => {
       WEB_TEXT,
       'web_search',
     );
+
     const rejected = await read(
       artifact.locator,
       contextWith({
@@ -196,6 +199,7 @@ d('artifact finding re-check', () => {
         },
       }),
     );
+
     expect(rejected).not.toContain(WEB_URL);
     expect(rejected).toContain('[withheld]');
 
@@ -205,12 +209,14 @@ d('artifact finding re-check', () => {
         policy: { read: { allow: [{ field: 'path', regex: '^/home/' }] } },
       }),
     );
+
     expect(visible).toContain(WEB_URL);
     expect(visible).not.toContain('[withheld]');
   });
 
   it('sees every finding on a bypassed attempt', async () => {
     const artifact = await write(grepFindings);
+
     const text = await read(
       artifact.locator,
       contextWith({
@@ -241,6 +247,7 @@ d('artifact finding re-check', () => {
 
   it('reaches only the Chat of an allowed artifact locator', async () => {
     const artifact = await write(grepFindings);
+
     const result = await readArtifact(
       contextWith({
         chat: otherChatId,
@@ -280,6 +287,7 @@ function contentOf(result: ToolResult): string {
   if (result.status !== 'success' || !isString(result['content'])) {
     throw new Error(`Expected a read success, got ${JSON.stringify(result)}`);
   }
+
   return result['content'];
 }
 
@@ -291,5 +299,6 @@ async function createChat(
   const chat = await tenantDb.runAs(ownerUserId, (tx) =>
     new ChatsRepository(tx).create({ ownerUserId, title }),
   );
+
   return chat.id;
 }

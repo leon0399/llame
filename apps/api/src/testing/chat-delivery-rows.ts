@@ -5,6 +5,7 @@ export function chatDeliveryRow(
   overrides: Partial<ChatDelivery> = {},
 ): ChatDelivery {
   const at = new Date('2026-11-08T00:00:00.000Z');
+
   return {
     id: '44444444-4444-4444-8444-444444444444',
     chatId: '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10',

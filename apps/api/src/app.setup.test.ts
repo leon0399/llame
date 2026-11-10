@@ -13,6 +13,7 @@ describe('configureApp', () => {
   it('installs the NUL and body-shape checks before a fail-closed global ValidationPipe', () => {
     const useGlobalPipes = vi.fn();
     const enableCors = vi.fn();
+
     const app: AppSetupApplication = {
       useGlobalPipes,
       enableCors,
@@ -46,6 +47,7 @@ describe('configureApp', () => {
 
     const useGlobalPipes = vi.fn();
     const enableCors = vi.fn();
+
     const app: AppSetupApplication = {
       useGlobalPipes,
       enableCors,
@@ -88,6 +90,7 @@ describe('configureApp', () => {
       } else {
         process.env.NODE_ENV = originalNodeEnv;
       }
+
       if (originalWebOrigin === undefined) {
         delete process.env.WEB_ORIGIN;
       } else {
@@ -98,6 +101,7 @@ describe('configureApp', () => {
 
   it('fails closed when a web origin carries a path or trailing slash', () => {
     const originalWebOrigin = process.env.WEB_ORIGIN;
+
     const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
@@ -160,6 +164,7 @@ describe('configureApp', () => {
 
   it('does not touch the Express trust-proxy setting when no trustProxy value is resolved', () => {
     const getHttpAdapter = vi.fn();
+
     const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
@@ -173,9 +178,11 @@ describe('configureApp', () => {
 
   it('applies the resolved trustProxy value to the Express instance', () => {
     const set = vi.fn();
+
     const getHttpAdapter = vi.fn(() => ({
       getInstance: () => ({ set }),
     }));
+
     const app: AppSetupApplication = {
       useGlobalPipes: vi.fn(),
       enableCors: vi.fn(),
@@ -221,6 +228,7 @@ describe('configureApp', () => {
       forbidNonWhitelisted: true,
       transform: true,
     });
+
     const metadata: ArgumentMetadata = {
       type: 'body',
       metatype: RegisterDto,

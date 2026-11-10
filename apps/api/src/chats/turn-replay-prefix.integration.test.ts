@@ -233,6 +233,7 @@ describeIfDb('turn replay prefix equality', () => {
         const run = await harness.tenantDb.runAs(userId, (tx) =>
           new RunsRepository(tx).findById(runId, userId),
         );
+
         return run &&
           ['completed', 'failed', 'cancelled', 'expired'].includes(run.status)
           ? run
@@ -250,12 +251,15 @@ describeIfDb('turn replay prefix equality', () => {
   }): Promise<{ chatId: string; runId: string; status: string }> => {
     harness.models.register(input.modelId, input.behavior);
     harness.models.registerInput(input.modelId, ['text', 'image']);
+
     const seeded = await seedAndDispatchRun(harness, {
       userId,
       modelId: input.modelId,
       ...(input.chatId !== undefined && { chatId: input.chatId }),
     });
+
     const run = await terminal(seeded.runId);
+
     return { chatId: seeded.chatId, runId: seeded.runId, status: run.status };
   };
 
@@ -267,6 +271,7 @@ describeIfDb('turn replay prefix equality', () => {
     const messages = await harness.tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),
     );
+
     return messages
       .filter((message) => message.role === 'assistant')
       .flatMap((message) =>
@@ -277,6 +282,7 @@ describeIfDb('turn replay prefix equality', () => {
   /** The whole scripted turn 1, with its recorded prompts. */
   const turnOne = async (modelId: string) => {
     const start = harness.models.prompts.length;
+
     const first = await runTurn({
       modelId,
       behavior: {
@@ -284,11 +290,14 @@ describeIfDb('turn replay prefix equality', () => {
         steps: wholeTurn(draftPath, imagePath, notesPath),
       },
     });
+
     expect(first.status).toBe('completed');
     const turnOnePrompts = promptsOf(start);
     const turnOneLast = turnOnePrompts.at(-1);
+
     if (turnOneLast === undefined)
       throw new Error('Turn 1 made no provider request.');
+
     return { chatId: first.chatId, start, turnOnePrompts, turnOneLast };
   };
 
@@ -299,14 +308,17 @@ describeIfDb('turn replay prefix equality', () => {
   ): UnknownRecord | undefined => {
     for (const message of prompt) {
       if (message.role !== 'assistant') continue;
+
       const call = message.content.find(
         (part) =>
           isRecord(part) &&
           part['type'] === 'tool-call' &&
           part['toolCallId'] === toolCallId,
       );
+
       if (isRecord(call)) return call;
     }
+
     return undefined;
   };
 
@@ -317,13 +329,16 @@ describeIfDb('turn replay prefix equality', () => {
   ): UnknownRecord | undefined => {
     for (const message of prompt) {
       if (message.role !== 'tool') continue;
+
       const result = message.content.find(
         (part) => isRecord(part) && part['toolCallId'] === toolCallId,
       );
+
       if (isRecord(result) && isRecord(result['output'])) {
         return result['output'];
       }
     }
+
     return undefined;
   };
 
@@ -334,14 +349,18 @@ describeIfDb('turn replay prefix equality', () => {
     (prompt as ReadonlyArray<unknown>).map((message) => {
       if (!isRecord(message)) return message;
       const content = message['content'];
+
       if (!Array.isArray(content)) return message;
       const parts: Array<unknown> = content;
+
       return {
         ...message,
         content: parts.flatMap((part) => {
           if (!isRecord(part)) return [part];
+
           if (part['type'] === 'reasoning') return [];
           const { providerOptions: _opaque, ...rest } = part;
+
           return [rest];
         }),
       };
@@ -349,15 +368,18 @@ describeIfDb('turn replay prefix equality', () => {
 
   it('turn 2 on the same model starts with turn 1’s last request and its response', async () => {
     const modelId = `prefix-${randomUUID()}`;
+
     const { chatId, start, turnOnePrompts, turnOneLast } =
       await turnOne(modelId);
 
     // Turn 1's stored shape: steps, provider metadata, the spill artifact, the
     // JSON result, the image, and the refusal.
     const parts = await assistantParts(chatId);
+
     const toolParts = parts.filter((part) =>
       String(part['type']).startsWith('tool-'),
     );
+
     expect(toolParts.map((part) => part['step'])).toEqual([0, 0, 1, 2, 2, 3]);
     expect(parts.filter((part) => part['type'] === 'text')).toHaveLength(5);
     expect(parts.filter((part) => part['type'] === 'reasoning')).toHaveLength(
@@ -367,6 +389,7 @@ describeIfDb('turn replay prefix equality', () => {
     const searchPart = toolParts.find(
       (part) => part['toolCallId'] === 'call-search',
     );
+
     expect(searchPart).toMatchObject({
       state: 'output-available',
       step: 2,
@@ -390,6 +413,7 @@ describeIfDb('turn replay prefix equality', () => {
     const imagePart = toolParts.find(
       (part) => part['toolCallId'] === 'call-image',
     );
+
     expect(imagePart).toMatchObject({
       state: 'output-available',
       providerMetadata: IMAGE_CALL_METADATA,
@@ -402,15 +426,18 @@ describeIfDb('turn replay prefix equality', () => {
     const spilled = toolParts.find(
       (part) => part['toolCallId'] === 'call-spill',
     );
+
     expect(spilled?.['state']).toBe('output-available');
     const artifact = spilled?.['artifact'];
     expect(artifact).toMatch(/^artifact:\/\/replay_spill-\d+$/u);
     const spilledOutput = spilled?.['output'];
+
     if (!isRecord(spilledOutput))
       throw new Error('Expected the spilled result object');
     expect(spilledOutput['artifact']).toBe(artifact);
     const notice = spilledOutput['truncationNotice'];
     expect(isString(notice)).toBe(true);
+
     if (!isString(notice)) throw new Error('Expected a cap notice');
     expect(notice).toContain(String(artifact));
     expect(notice.match(/\[full result: /gu)).toHaveLength(1);
@@ -431,8 +458,10 @@ describeIfDb('turn replay prefix equality', () => {
       modelId,
       behavior: turnTwo('Turn two done.'),
     });
+
     expect(second.status).toBe('completed');
     const turnTwoFirst = promptsOf(start + turnOnePrompts.length)[0];
+
     if (turnTwoFirst === undefined)
       throw new Error('Turn 2 made no provider request.');
 
@@ -461,6 +490,7 @@ describeIfDb('turn replay prefix equality', () => {
   it('a model switch keeps the previous request less the omitted parts', async () => {
     const firstModel = `prefix-a-${randomUUID()}`;
     const secondModel = `prefix-b-${randomUUID()}`;
+
     const { chatId, start, turnOnePrompts, turnOneLast } =
       await turnOne(firstModel);
 
@@ -469,8 +499,10 @@ describeIfDb('turn replay prefix equality', () => {
       modelId: secondModel,
       behavior: turnTwo('Switched.'),
     });
+
     expect(second.status).toBe('completed');
     const turnTwoFirst = promptsOf(start + turnOnePrompts.length)[0];
+
     if (turnTwoFirst === undefined)
       throw new Error('Turn 2 made no provider request.');
 
@@ -502,6 +534,7 @@ describeIfDb('turn replay prefix equality', () => {
   it('a failed reply keeps the previous request less the omitted parts', async () => {
     const modelId = `prefix-fail-${randomUUID()}`;
     const start = harness.models.prompts.length;
+
     const first = await runTurn({
       modelId,
       behavior: {
@@ -540,9 +573,11 @@ describeIfDb('turn replay prefix equality', () => {
         ],
       },
     });
+
     expect(first.status).toBe('failed');
     const turnOnePrompts = promptsOf(start);
     const turnOneLast = turnOnePrompts.at(-1);
+
     if (turnOneLast === undefined)
       throw new Error('Turn 1 made no provider request.');
 
@@ -558,6 +593,7 @@ describeIfDb('turn replay prefix equality', () => {
       parts.find((part) => part['toolCallId'] === 'call-notes')?.['step'],
     ).toBe(0);
     expect(turnOneLast.some((message) => message.role === 'tool')).toBe(true);
+
     const grouped = turnOneLast.find(
       (message) =>
         message.role === 'assistant' &&
@@ -566,6 +602,7 @@ describeIfDb('turn replay prefix equality', () => {
           (part) => isRecord(part) && part['text'] === 'Reading notes.',
         ),
     );
+
     if (grouped === undefined || !Array.isArray(grouped.content))
       throw new Error('Expected the step-0 assistant message');
     expect(grouped.content).toEqual([
@@ -591,8 +628,10 @@ describeIfDb('turn replay prefix equality', () => {
       modelId,
       behavior: turnTwo('Recovered.'),
     });
+
     expect(second.status).toBe('completed');
     const turnTwoFirst = promptsOf(start + turnOnePrompts.length)[0];
+
     if (turnTwoFirst === undefined)
       throw new Error('Turn 2 made no provider request.');
 
@@ -654,6 +693,7 @@ describeIfDb('turn replay prefix equality', () => {
     expect(source.status).toBe('failed');
     const sourcePrompts = promptsOf(start);
     const sourceLast = sourcePrompts.at(-1);
+
     if (sourceLast === undefined)
       throw new Error('The source Run made no provider request.');
     // The failed step's request carried the kept step: one assistant message
@@ -670,19 +710,23 @@ describeIfDb('turn replay prefix equality', () => {
         userId,
         seeded.userMessage.id,
       );
+
       if (turn.userMessage === undefined || turn.assistantMessage === undefined)
         throw new Error('The failed turn left no reply to continue.');
+
       // SAFETY: the reply's parts are stored UI parts, and admission
       // re-validates every part it reads.
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
       const kept = continueKeptParts(
         turn.assistantMessage.parts,
       ) as ReadonlyArray<MessagePart>;
+
       const sourceEvents = await new RunEventsRepository(tx).listByRunId(
         seeded.runId,
         userId,
         { eventTypes: ['tool.requested'] },
       );
+
       const { run } = await createRunForMessage(
         tx,
         {
@@ -704,8 +748,10 @@ describeIfDb('turn replay prefix equality', () => {
         },
         turn.userMessage,
       );
+
       return run.id;
     });
+
     harness.models.register(modelId, turnTwo('Continued.'));
     await dispatchRun({
       queue: harness.queue,
@@ -719,6 +765,7 @@ describeIfDb('turn replay prefix equality', () => {
     expect(continued.status).toBe('completed');
 
     const continueFirst = promptsOf(start + sourcePrompts.length)[0];
+
     if (continueFirst === undefined)
       throw new Error('The Continue Run made no provider request.');
     // The Continue Run sends the kept step exactly as the source Run's live

@@ -68,24 +68,30 @@ describe('ssh operations stay in their owner scope', () => {
         ownerUserId: userId,
         title,
       });
+
       const message = await new MessagesRepository(tx).create({
         chatId,
         senderUserId: userId,
         role: 'user',
         parts: [{ type: 'text', text: 'Run the remote command.' }],
       });
+
       const runs = new RunsRepository(tx);
+
       const run = await runs.create({
         chatId,
         userId,
         messageId: message.id,
         modelId: 'ssh-isolation',
       });
+
       await runs.markStarted(run.id, userId);
+
       const started = await new RunEventsRepository(tx).append(
         run.id,
         'run.started',
       );
+
       return { chatId, runId: run.id, deliverySequence: started.sequence };
     });
   }
@@ -106,6 +112,7 @@ describe('ssh operations stay in their owner scope', () => {
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL;
+
     if (!url) throw new Error('Integration database was not provisioned.');
     sql = postgres(url, { max: 2 });
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
@@ -125,6 +132,7 @@ describe('ssh operations stay in their owner scope', () => {
   afterAll(async () => {
     client?.dispose();
     await fixture?.dispose();
+
     if (sql) {
       await sql`DELETE FROM users WHERE id IN (${userA}, ${userB})`;
       await sql.end();
@@ -143,6 +151,7 @@ describe('ssh operations stay in their owner scope', () => {
       context(userA, runA),
       CALL_TIMEOUT_SECONDS,
     );
+
     // The submitted text is what ran: `id -un` prints the fixture's login
     // user (`User box` in the included configuration), so a script that
     // evaluated anything else would not produce this output.
@@ -157,16 +166,19 @@ describe('ssh operations stay in their owner scope', () => {
     const ownEvents = await tenantDb.runAs(userA, (tx) =>
       new RunEventsRepository(tx).listByRunId(runA.runId, userA),
     );
+
     expect(ownEvents.map((event) => event.eventType)).toEqual([
       'run.started',
       'native.attempt',
       'native.result',
     ]);
+
     // The attempt carries the canonical locator the permission decided on, so
     // it is not the submitted spelling: the resolved user and port appear.
     const attempt = ownEvents.find(
       (event) => event.eventType === 'native.attempt',
     );
+
     expect(attempt?.payload).toMatchObject({
       toolCallId: toolCallA,
       operation: 'bash',
@@ -220,6 +232,7 @@ describe('ssh operations stay in their owner scope', () => {
     const foreignEvents = await tenantDb.runAs(userB, (tx) =>
       new RunEventsRepository(tx).listByRunId(runB.runId, userB),
     );
+
     expect(foreignEvents.map((event) => event.eventType)).toEqual([
       'run.started',
     ]);

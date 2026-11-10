@@ -34,6 +34,7 @@ export function placeRailPart(
   const rank = CONTEXT_ITEM_PRODUCERS.findIndex(
     (known) => known === part.data.producer,
   );
+
   const index = parts.findLastIndex(
     (staged) =>
       isContextItemPart(staged) &&
@@ -41,6 +42,7 @@ export function placeRailPart(
         (known) => known === staged.data.producer,
       ) < rank,
   );
+
   parts.splice(index + 1, 0, part);
 }
 
@@ -59,24 +61,33 @@ export function refreshTurnGit(input: {
   readonly runId: string;
 }): void {
   const { turn, stagedParts } = input;
+
   if (turn.observation === undefined) return;
   let state = input.history;
+
   for (const staged of stagedParts) {
     if (isContextItemPart(staged) && staged.data.producer === 'workspace') {
       state = advanceGitTold(state, staged);
     }
   }
+
   turn.toldText = state.text;
+
   const item = createGitItem({
     runId: input.runId,
     observation: turn.observation,
   });
+
   const part = item.data.text === turn.toldText ? undefined : item;
   const previous = turn.part;
+
   if (previous !== undefined) {
     const index = stagedParts.indexOf(previous);
+
     if (index >= 0) stagedParts.splice(index, 1);
   }
+
   turn.part = part;
+
   if (part !== undefined) placeRailPart(stagedParts, part);
 }

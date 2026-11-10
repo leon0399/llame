@@ -30,6 +30,7 @@ import { createCompactionCheckpointPart } from './context-item-producers';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
 type SqlClient = Sql;
 
 const text = (t: string) => [{ type: 'text', text: t }];
@@ -63,12 +64,15 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     await tenantDb.runAs(owner, async (tx) => {
       const chats = new ChatsRepository(tx);
       const messages = new MessagesRepository(tx);
+
       const createInput: Parameters<typeof chats.createIfAbsent>[0] = {
         id,
         ownerUserId: owner,
       };
+
       if (title !== null) createInput.title = title;
       await chats.createIfAbsent(createInput);
+
       for (const m of msgs) {
         await messages.create({
           chatId: id,
@@ -79,6 +83,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       }
     });
     owned.push({ id, owner });
+
     return id;
   }
 
@@ -92,6 +97,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     indexService = new SearchIndexService(tenantDb);
     a = crypto.randomUUID();
     b = crypto.randomUUID();
+
     for (const id of [a, b]) {
       await sqlClient`INSERT INTO users (id, name, email) VALUES (${id}, 'S', ${`s-${id}@t.com`})`;
     }
@@ -118,10 +124,12 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     await seedChat(b, 'TypeScript secrets', [
       { role: 'user', text: 'zorptangle generics' },
     ]);
+
     // B: a PUBLIC chat with distinctive content — must never surface for A.
     const pub = await seedChat(b, 'Public thing', [
       { role: 'user', text: 'zzpublicsecretterm unique marker' },
     ]);
+
     await tenantDb.runAs(b, (tx) =>
       tx.execute(sql`UPDATE chats SET visibility = 'public' WHERE id = ${pub}`),
     );
@@ -250,6 +258,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     if (!c) {
       throw new Error('expected a content search result');
     }
+
     const [document] = await tenantDb.runAs(a, (tx) =>
       tx
         .select({ id: schema.searchChatDocuments.id })
@@ -263,6 +272,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
         .orderBy(schema.searchChatDocuments.id)
         .limit(1),
     );
+
     expect(c).toHaveProperty('bestDocumentId', document?.id);
   });
 
@@ -338,6 +348,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const visible = (await search(a, 'zzhumanoriginalgreen')).find(
       (result) => result.id === controlProjectionChat,
     );
+
     expect(visible?.snippet).toContain('zzhumanoriginalgreen');
     expect(JSON.stringify(visible)).not.toMatch(
       /zz(prevmodel|currentmodel|reminderprose|removedtool|unavailabletool|availabilityreminder|systemprompt|toolschema|compaction|checkpoint|privatelocator|privateresolved|privateomitted|importedbody)/,
@@ -349,7 +360,9 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
       { role: 'user', text: 'quartz nebula' },
       { role: 'assistant', text: 'velvet comet' },
     ]);
+
     await indexService.reindexChat(id, a);
+
     for (const query of [
       'user',
       'use',
@@ -366,6 +379,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const id = await seedChat(a, 'Literal role word', [
       { role: 'user', text: 'The assistant should remember this.' },
     ]);
+
     await indexService.reindexChat(id, a);
     const result = (await search(a, 'assistant')).find((r) => r.id === id);
     expect(result?.snippet).toContain('user]');
@@ -376,6 +390,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const id = await seedChat(a, 'User research', [
       { role: 'user', text: 'unrelated content' },
     ]);
+
     await indexService.reindexChat(id, a);
     expect((await search(a, 'user')).some((r) => r.id === id)).toBe(true);
   });
@@ -384,6 +399,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
   // beside the file part is indexed, the part's name and locator are not.
   it('indexes nothing from an owner file part', async () => {
     const mediaId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+
     const id = await seedChat(a, null, [
       {
         role: 'user',
@@ -409,11 +425,13 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
         ],
       },
     ]);
+
     await indexService.reindexChat(id, a);
 
     expect((await search(a, 'zzattachmenttext')).some((r) => r.id === id)).toBe(
       true,
     );
+
     for (const query of ['zzquarterly', mediaId]) {
       expect((await search(a, query)).some((r) => r.id === id)).toBe(false);
     }
@@ -454,6 +472,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const rows = await sqlClient`
       SELECT relname, relforcerowsecurity FROM pg_class
       WHERE relname IN ('search_chat_documents','search_chat_state') ORDER BY relname`;
+
     // ORDER BY relname is alphabetical: search_chat_documents < search_chat_state.
     expect(rows.map((r) => [r.relname, r.relforcerowsecurity])).toEqual([
       ['search_chat_documents', true],

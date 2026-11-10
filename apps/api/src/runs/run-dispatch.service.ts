@@ -84,6 +84,7 @@ export class RunDispatchService {
         this.queueReady = undefined;
         throw error;
       });
+
     return this.queueReady;
   }
 }

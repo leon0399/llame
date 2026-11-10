@@ -38,20 +38,25 @@ function scriptedResolver(
       queries.push(sql);
       statements.push(params);
       const answer = answers.shift() ?? [];
+
       const rows =
         answer instanceof Error
           ? Promise.reject(answer)
           : Promise.resolve(answer);
+
       return Object.assign(rows, { values: () => rows });
     },
   });
   const owners: Array<string> = [];
+
   const tenantDb: TenantRunner = {
     runAs: (ownerUserId, work) => {
       owners.push(ownerUserId);
+
       return work(db);
     },
   };
+
   return {
     resolver: createRunMediaResolver(tenantDb, OWNER),
     statements,
@@ -195,6 +200,7 @@ describe('createRunMediaResolver describe', () => {
 describe('createRunMediaResolver loadModelBytes', () => {
   it('reads the attached blobs of canonical ids as the owner in one statement', async () => {
     const bytes = Buffer.from('model-bytes');
+
     const { resolver, statements, queries, owners } = scriptedResolver([
       [[ID, bytes]],
     ]);
@@ -212,6 +218,7 @@ describe('createRunMediaResolver loadModelBytes', () => {
 
   it('reads each attached blob once across a four-step loop', async () => {
     const other = { ...descriptor, id: OTHER, name: 'plan.png' };
+
     const { resolver, statements } = scriptedResolver([
       [descriptorRow(descriptor), descriptorRow(other)],
       [
@@ -219,6 +226,7 @@ describe('createRunMediaResolver loadModelBytes', () => {
         [OTHER, Buffer.from('b')],
       ],
     ]);
+
     const messages: Array<ModelMessage> = [
       {
         role: 'user',
@@ -239,6 +247,7 @@ describe('createRunMediaResolver loadModelBytes', () => {
           reservedOutputTokens: null,
         },
       });
+
       expect(composed[0]?.content).toEqual([
         { type: 'text', text: `Image 1 (media://${ID}):` },
         { type: 'image', image: Buffer.from('a'), mediaType: 'image/png' },
@@ -246,6 +255,7 @@ describe('createRunMediaResolver loadModelBytes', () => {
         { type: 'image', image: Buffer.from('b'), mediaType: 'image/png' },
       ]);
     }
+
     // One descriptor read and one byte read for the whole loop.
     expect(statements).toEqual([
       [ID, OTHER, OWNER],

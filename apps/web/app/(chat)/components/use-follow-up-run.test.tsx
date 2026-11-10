@@ -19,6 +19,7 @@ describe("useFollowUpRun", () => {
   it("marks the send before it starts the follow-up Run", async () => {
     const regenerate = vi.fn(async (_options?: RegenerateOptions) => {});
     const onSendStarted = vi.fn();
+
     const { result } = renderHook(() =>
       useFollowUpRun(regenerate, onSendStarted),
     );

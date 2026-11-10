@@ -13,6 +13,7 @@ import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
 const MODEL_PORT = process.env.E2E_MODEL_PORT ?? "4303";
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
@@ -27,9 +28,11 @@ function isHoldStatus(value: unknown): value is HoldStatus {
   if (value === null || typeof value !== "object") {
     return false;
   }
+
   if (!("arrived" in value) || !("closed" in value)) {
     return false;
   }
+
   return (
     typeof value.arrived === "boolean" && typeof value.closed === "boolean"
   );
@@ -37,13 +40,17 @@ function isHoldStatus(value: unknown): value is HoldStatus {
 
 async function fetchHoldStatus(token: string): Promise<HoldStatus> {
   const response = await fetch(holdBaseUrl(token));
+
   if (!response.ok) {
     throw new Error(`hold status HTTP ${response.status}`);
   }
+
   const body: unknown = await response.json();
+
   if (!isHoldStatus(body)) {
     throw new Error(`hold status malformed: ${JSON.stringify(body)}`);
   }
+
   return body;
 }
 
@@ -51,6 +58,7 @@ async function releaseHold(token: string): Promise<void> {
   const response = await fetch(`${holdBaseUrl(token)}/release`, {
     method: "POST",
   });
+
   if (!response.ok) {
     throw new Error(`hold release HTTP ${response.status}`);
   }
@@ -77,9 +85,11 @@ function isRunStatusResponse(value: unknown): value is RunStatusResponse {
   if (value === null || typeof value !== "object") {
     return false;
   }
+
   if (!("status" in value)) {
     return false;
   }
+
   return typeof value.status === "string";
 }
 
@@ -92,6 +102,7 @@ test.describe("stop from submission", () => {
     if (activeHoldToken === undefined) {
       return;
     }
+
     const token = activeHoldToken;
     activeHoldToken = undefined;
     await releaseHold(token);
@@ -121,6 +132,7 @@ test.describe("stop from submission", () => {
     });
     const chatPath = new URL(page.url()).pathname;
     const chatId = chatPath.split("/").pop();
+
     if (chatId === undefined) {
       throw new Error(`Could not extract chat id from ${page.url()}`);
     }
@@ -135,18 +147,22 @@ test.describe("stop from submission", () => {
       `${API_URL}/api/v1/me/runs?status=active`,
       { headers: { Authorization: `Bearer ${account.token}` } },
     );
+
     expect(
       activeResponse.ok(),
       `list active runs failed with ${activeResponse.status()}`,
     ).toBe(true);
     const activeBody: unknown = await activeResponse.json();
+
     if (!Array.isArray(activeBody)) {
       throw new Error("active runs response is not an array");
     }
+
     const run = activeBody.find(
       (entry): entry is ActiveRun =>
         isActiveRun(entry) && entry.chatId === chatId,
     );
+
     if (run === undefined) {
       throw new Error(`no active run for chat ${chatId}`);
     }
@@ -167,13 +183,17 @@ test.describe("stop from submission", () => {
             `${API_URL}/api/v1/runs/${run.runId}`,
             { headers: { Authorization: `Bearer ${account.token}` } },
           );
+
           if (!response.ok()) {
             return `http-${response.status()}`;
           }
+
           const body: unknown = await response.json();
+
           if (!isRunStatusResponse(body)) {
             return "malformed";
           }
+
           return body.status;
         },
         { timeout: 30_000 },

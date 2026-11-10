@@ -81,6 +81,7 @@ describe('finalizeUsageCompleteness', () => {
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue((state.receipts ?? []).map(receipt));
+
     const findFirst = vi
       .spyOn(RunEventsRepository.prototype, 'findFirstByType')
       .mockImplementation((_runId, _userId, eventType) =>
@@ -92,13 +93,16 @@ describe('finalizeUsageCompleteness', () => {
               }),
         ),
       );
+
     const list = vi
       .spyOn(RunEventsRepository.prototype, 'listByRunId')
       .mockResolvedValue(state.started ?? []);
+
     const findTurnState = vi.spyOn(
       MessagesRepository.prototype,
       'findTurnState',
     );
+
     return { findFirst, list, findTurnState };
   }
 
@@ -117,6 +121,7 @@ describe('finalizeUsageCompleteness', () => {
       status: 'completed',
       complete: true,
     };
+
     await finalizeUsageCompleteness(tx, {
       userId,
       runId,
@@ -129,6 +134,7 @@ describe('finalizeUsageCompleteness', () => {
         closedBySteer: overrides.closedBySteer,
       }),
     });
+
     return telemetry;
   }
 

@@ -53,6 +53,7 @@ const meta = {
 } satisfies Meta<typeof ProjectItem>;
 
 export default meta;
+
 type Story = StoryObj<typeof meta>;
 
 /**
@@ -168,6 +169,7 @@ export const RowMenuEditDetails: Story = {
     const dialog = within(
       await screen.findByRole("dialog", { name: "Edit details" }),
     );
+
     await expect(dialog.getByLabelText("Name")).toHaveValue("Acme relaunch");
     await expect(dialog.getByLabelText("Description")).toHaveValue(
       "Everything about the relaunch",

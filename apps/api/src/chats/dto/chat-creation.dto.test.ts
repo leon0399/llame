@@ -255,6 +255,7 @@ describe('toWorkspaceResponse', () => {
     if (result.status === 'conflict') {
       throw new Error('A conflict never reaches the response projection.');
     }
+
     return toWorkspaceResponse(result);
   }
 
@@ -297,6 +298,7 @@ describe('toWorkspaceResponse', () => {
       'executor_unavailable',
       'not_found',
     ];
+
     for (const code of codes) {
       expect(
         project({ status: 'bind_failed', code, message: 'refused' }),

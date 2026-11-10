@@ -80,6 +80,7 @@ describe("tag token scanning", () => {
 
   it("matches what the pattern it replaced matched", () => {
     const pattern = /<[^<>]*>?/gu;
+
     for (const text of [
       "<a><b>x</b></a>",
       'unterminated <skill foo="x',

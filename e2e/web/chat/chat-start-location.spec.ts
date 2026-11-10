@@ -40,12 +40,14 @@ import { runSeedSql } from "../../support/seed-sql";
 const apiUrl =
   process.env.NEXT_PUBLIC_API_URL ??
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
+
 const OFFICE_MACHINE = "e2e-offline";
 const MACHINE_OFFLINE = `machine:${OFFICE_MACHINE}`;
 const PROJECT_TITLE = "E2E start location";
 const ANSWER = "Mocked answer from the e2e model server.";
 
 type ProjectRow = { id: string; name: string };
+
 type CheckoutRow = {
   id: string;
   repositoryId: string;
@@ -55,6 +57,7 @@ type CheckoutRow = {
   branch: string | null;
   chatIds: Array<string>;
 };
+
 type ChatRow = {
   id: string;
   projectId: string | null;
@@ -76,6 +79,7 @@ async function body<T>(response: APIResponse, label: string): Promise<T> {
   if (!response.ok()) {
     throw new Error(`${label}: ${response.status()} ${await response.text()}`);
   }
+
   // SAFETY: T is the api's own documented body for the route the caller named
   // in `label`, and the status check above admitted only a success response.
   return (await response.json()) as T;
@@ -90,8 +94,10 @@ function createClone(label: string): string {
   const directory = fs.mkdtempSync(
     path.join(os.tmpdir(), `llame-e2e-${label}-`),
   );
+
   const git = (...args: Array<string>) =>
     execFileSync("git", args, { cwd: directory, stdio: "ignore" });
+
   git("init", "-b", "main");
   git("config", "user.email", "e2e@llame.test");
   git("config", "user.name", "llame e2e");
@@ -99,6 +105,7 @@ function createClone(label: string): string {
   git("add", "README.md");
   git("commit", "-m", "Initial commit");
   git("remote", "add", "origin", `https://example.test/llame/${label}.git`);
+
   return directory;
 }
 
@@ -115,6 +122,7 @@ async function startProject(
     }),
     "create project",
   );
+
   const checkout = await body<CheckoutRow>(
     await request.post(`${apiUrl}/api/v1/checkouts`, {
       headers: ownerHeaders(account),
@@ -122,6 +130,7 @@ async function startProject(
     }),
     "register checkout",
   );
+
   await body(
     await request.post(`${apiUrl}/api/v1/projects/${project.id}/repositories`, {
       headers: ownerHeaders(account),
@@ -133,6 +142,7 @@ async function startProject(
     }),
     "link repository",
   );
+
   return { project, checkout };
 }
 
@@ -244,6 +254,7 @@ test.describe("chat start location (browser, full stack)", () => {
       ),
       "list checkouts",
     );
+
     // The server names the worktree; the chat binds it and owns its lease.
     const worktree = worktrees.find((row) => row.chatIds.includes(chatId));
     expect(worktree?.kind).toBe("worktree");
@@ -321,15 +332,19 @@ test.describe("chat start location (browser, full stack)", () => {
       `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${MACHINE_OFFLINE}', '${MACHINE_OFFLINE}/srv/src/llame-e2e-outdated', 'main', 'main', 'registered');`,
       account.id,
     );
+
     const daemonWarning =
       "Update the llame-machine daemon on that Machine to use git operations.";
+
     // No local double can answer an outdated protocol, so the create answers
     // the status the hub produces for a daemon without the typed git methods.
     await page.route("**/api/v1/chats", async (route) => {
       if (route.request().method() !== "POST") {
         await route.fallback();
+
         return;
       }
+
       // SAFETY: this is the create request the composer just sent, whose `id`
       // is required by the request DTO.
       const sent = route.request().postDataJSON() as { id: string };
@@ -378,9 +393,11 @@ test.describe("chat start location (browser, full stack)", () => {
     // "New chat here" copies the source chat's project, repository, executor,
     // and checkout, and turns isolation on because that chat holds the tree.
     await page.goto(`/chat/${chat.id}`);
+
     const chatRow = page
       .locator("li")
       .filter({ has: page.locator(`a[href="/chat/${chat.id}"]`) });
+
     await chatRow.getByRole("button", { name: "More" }).click();
     await page.getByRole("menuitem", { name: "New chat here" }).click();
 
@@ -398,9 +415,11 @@ test.describe("chat start location (browser, full stack)", () => {
     // "New chat in project" is the project's own entry point: the deep link
     // names only the project, so the pill follows its primary link.
     await page.goto("/projects");
+
     const projectRow = page
       .locator("li")
       .filter({ hasText: started.project.name });
+
     // The row's actions live in a hover-revealed track: while it is collapsed
     // the button is clipped, so a pointer click has to reveal it first, exactly
     // as the reader does.

@@ -38,8 +38,10 @@ describe('skills catalog e2e — real HTTP + Postgres', () => {
           'Run via `pnpm --filter api test:integration` (globalSetup provisions it).',
       );
     }
+
     workingDirectory = mkdtempSync(path.join(tmpdir(), 'llame-skills-e2e-'));
     source = path.join(workingDirectory, 'source');
+
     for (const name of ['pdf', 'review']) {
       const directory = path.join(source, name);
       mkdirSync(directory, { recursive: true });
@@ -48,6 +50,7 @@ describe('skills catalog e2e — real HTTP + Postgres', () => {
         `---\nname: ${name}\ndescription: The ${name} skill.\n---\n# Instructions\n`,
       );
     }
+
     const reviewAgents = path.join(source, 'review', 'agents');
     mkdirSync(reviewAgents, { recursive: true });
     writeFileSync(
@@ -73,6 +76,7 @@ describe('skills catalog e2e — real HTTP + Postgres', () => {
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .compile();
+
     app = mod.createNestApplication();
     configureApp(app);
     await app.listen(0);
@@ -85,12 +89,14 @@ describe('skills catalog e2e — real HTTP + Postgres', () => {
           .send({ email, password: 'password123', name: email }),
       ),
     );
+
     cookieA = cookieOf(registered[0]);
     cookieB = cookieOf(registered[1]);
   });
 
   afterAll(async () => {
     await app?.close();
+
     if (previousConfigPath === undefined) delete process.env.LLAME_CONFIG_PATH;
     else process.env.LLAME_CONFIG_PATH = previousConfigPath;
     rmSync(workingDirectory, { recursive: true, force: true });
@@ -104,6 +110,7 @@ describe('skills catalog e2e — real HTTP + Postgres', () => {
     const response = await request(http)
       .get('/api/v1/skills')
       .set('Cookie', cookieA);
+
     const body = response.body;
 
     expect(response.status).toBe(200);
@@ -118,12 +125,15 @@ describe('skills catalog e2e — real HTTP + Postgres', () => {
     const pdf = body.items.find(
       (item: { name: string }) => item.name === 'pdf',
     );
+
     const review = body.items.find(
       (item: { name: string }) => item.name === 'review',
     );
+
     const broken = body.items.find(
       (item: { name: string }) => item.name === 'broken',
     );
+
     expect(pdf.proactive).toBe(true);
     expect(pdf.available).toBe(true);
     expect(pdf.skillDirectory).toBe(path.join(source, 'pdf'));
