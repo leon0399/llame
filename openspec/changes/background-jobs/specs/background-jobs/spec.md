@@ -240,8 +240,10 @@ MUST NOT scan the jobs of more than one owner.
 The settlement of a job MUST be one transaction with its notice and any wake. A failed
 transaction MUST roll back and leave the job `running`. The worker MUST keep the immutable facts
 of the settlement and MUST retry it at each heartbeat until it commits or the worker ends. A
-worker that ends is dead, and the touch rule settles its job as `lost`. The retry MUST NOT stop
-a running command.
+worker that crashes or loses its heartbeat is dead, and the touch rule settles its job as `lost`.
+An orderly shutdown MUST keep and retry the known natural settlement of a job that already
+exited, and MUST stop a job that still runs and settle it `cancelled` by `worker`. The retry MUST
+NOT stop a running command.
 
 #### Scenario: A queue insert fails during a settlement
 
@@ -250,7 +252,7 @@ a running command.
 
 #### Scenario: The worker ends before the retry commits
 
-- **WHEN** a settlement keeps failing and its worker then stops
+- **WHEN** a settlement keeps failing and its worker then crashes or loses its heartbeat
 - **THEN** the job settles as `lost` at its next touch
 
 ### Requirement: A deleted Chat ends its jobs
@@ -598,7 +600,18 @@ get 404.
 
 Each item of the chat list MUST hold `runningJobs`. That number counts the jobs of the Chat in
 state `running` on a worker that is not dead. The live record of a Chat MUST hold the same
-number. A change of that number MUST reach each device of the owner live.
+number. A change of that number MUST reach each device of the owner live, including a change that only
+the end of a worker lease causes.
+
+#### Scenario: An open socket sees a lease expire
+
+- **WHEN** a job runs on a worker whose lease expires, the owner has an open socket, and no job row is written
+- **THEN** the owner receives `chat.upserted` with the lower `runningJobs` at the expiry, and the job state does not change
+
+#### Scenario: Another owner gets no projection
+
+- **WHEN** a lease of a job of owner A expires
+- **THEN** a socket of owner B receives nothing
 
 #### Scenario: A job on a dead worker is not counted
 

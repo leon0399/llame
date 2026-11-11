@@ -257,7 +257,8 @@ otherwise. `unlimited: true` stores no deadline and arms no timer.
 
 A worker takes a random UUID at each process start and upserts `worker_instances` every
 `runs.heartbeatSeconds`. In the same tick it re-reads its own jobs, each in the tenant scope of
-its owner. A missing row or a recorded stop request stops the command.
+its owner. A missing row, a recorded stop request, or a stored row that is already not `running`, including
+`lost`, stops the hosted command. The stop never overwrites the settled row.
 
 `lost` is decided on touch, by a query that joins the job to its `worker_instances` row. The
 touch points are the Run claim, the step-end check of a Run in the Chat, every computation of a
@@ -481,6 +482,15 @@ answer delivers them.
 producer kind and, for a `job` item, the job locator and state. `llame_notify_change()` is
 restated with a branch for `chat_jobs` that emits the pointer of the owning Chat, so the
 shipped `chat.upserted` message carries the new count.
+
+A lease expiry writes no row, so `ChangeHub` also refreshes the projection. While an authenticated
+owner has subscribers, it seeds the lease deadlines of that owner's live jobs, at the first
+subscription and at each reconnect. It arms one timer for the nearest known expiry. At the expiry
+it re-reads the owner-scoped count, pushes an ordinary `chat.upserted`, and arms again when the
+worker renewed its lease. It stops the timers at the last unsubscribe and at module shutdown. It
+processes one queue per owner and guards an unsubscribe that is in flight. The refresh changes only
+the projection. It adds no worker fan-out, no global reaper, no cross-tenant scan, no Run polling,
+no job mutation, and no protocol field. Job-row notifications stay the ordinary invalidation.
 
 ### D18: Web
 

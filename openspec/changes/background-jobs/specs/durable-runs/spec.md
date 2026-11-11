@@ -287,9 +287,9 @@ wake generation, the job MUST resume the Run. A job that is not the current job 
 
 ### Requirement: A redelivered deadline job recovers its Run
 
-A deadline job that is the current job of the Run and starts again after its own wake, for
-example when the queue redelivers it, MUST proceed as a normal claim or recovery of the Run
-under the rules for a retried job.
+A deadline job can start again after its own wake, for example when the queue redelivers it.
+Such a job is still the current job of the Run. It MUST proceed as a normal claim of the Run.
+It MUST follow the rules for a retried job.
 
 #### Scenario: The deadline job is redelivered after its wake
 
