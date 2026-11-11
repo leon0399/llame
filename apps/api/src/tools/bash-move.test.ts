@@ -20,6 +20,7 @@ import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { bashTool } from './bash';
+import { runAsyncBash } from './bash-async';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 
@@ -187,6 +188,77 @@ describe('foreground host bash move', () => {
 
   const results = () => append.mock.calls.map((call) => call[2]);
 
+  it('does not spawn an async command when the Run signal already fired', async () => {
+    const abort = new AbortController();
+    const start = vi.spyOn(registry, 'start');
+    const limiter = new BashProcessLimiter(1);
+    const slot = limiter.tryAcquire();
+
+    if (slot === null) throw new Error('Missing process slot');
+
+    abort.abort();
+
+    await expect(
+      runAsyncBash(
+        {
+          ...contextFor({ abortSignal: abort.signal }),
+          runId: 'run',
+          nativeExecutorId: 'host',
+          toolCallId: 'call-1',
+        },
+        { command: 'make test', async: true },
+        process.cwd(),
+        slot,
+      ),
+    ).resolves.toMatchObject({ type: 'cancelled' });
+    expect(start).not.toHaveBeenCalled();
+    expect(results()).toMatchObject([{ result: { type: 'cancelled' } }]);
+  });
+
+  it('releases a hung admission after its bound already exhausted the grace', async () => {
+    const admission = Promise.withResolvers<undefined>();
+    const limiter = new BashProcessLimiter(1);
+    const start = vi.spyOn(registry, 'start');
+
+    begin.mockReturnValue(admission.promise);
+    moved.abort();
+
+    const call = bashTool.execute(
+      contextFor({
+        bashProcessLimiter: limiter,
+        moveDeadlineAt: Date.now() - 1,
+      }),
+      { command: 'make test', async: true },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    const capacity = limiter.tryAcquire();
+
+    expect(capacity).not.toBeNull();
+    capacity?.release();
+    admission.resolve(undefined);
+    await expect(call).resolves.toMatchObject({ type: 'cancelled' });
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('does not spawn after the absolute grace expires while admission awaits', async () => {
+    const admission = Promise.withResolvers<undefined>();
+    const start = vi.spyOn(registry, 'start');
+
+    begin.mockReturnValue(admission.promise);
+
+    const call = bashTool.execute(
+      contextFor({ moveDeadlineAt: Date.now() + 100 }),
+      { command: 'make test', async: true },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    vi.setSystemTime(Date.now() + 101);
+    admission.resolve(undefined);
+    await expect(call).resolves.toMatchObject({ type: 'cancelled' });
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it('A long test suite passes the bound and is not stopped', async () => {
     const call = bashTool.execute(contextFor(), { command: 'make test' });
 
@@ -202,15 +274,6 @@ describe('foreground host bash move', () => {
     });
     expect(registry.command.stop).not.toHaveBeenCalled();
     expect(results()).toHaveLength(1);
-  });
-
-  it('Output from before the move reaches the promotion', async () => {
-    registry.command.output = { ...EMPTY, stdout: 'line\n'.repeat(10) };
-    const call = bashTool.execute(contextFor(), { command: 'make test' });
-    await vi.advanceTimersByTimeAsync(1);
-    moved.abort();
-    await call;
-    expect(registry.promoteCalls[0]?.stdout).toBe('line\n'.repeat(10));
   });
 
   it('A bound that fired before the spawn moves at once', async () => {

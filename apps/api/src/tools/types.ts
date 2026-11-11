@@ -211,6 +211,8 @@ export interface ToolContext {
    * of the call. It moves the command; it never stops it.
    */
   readonly moveSignal?: AbortSignal;
+  /** Absolute time after which a host call cannot spawn, in milliseconds. */
+  readonly moveDeadlineAt?: number;
   /** `tools.bash.backgroundAfterSeconds`; absent means the built-in 120. */
   readonly bashBackgroundAfterSeconds?: number;
   /**
