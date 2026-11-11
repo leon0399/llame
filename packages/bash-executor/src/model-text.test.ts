@@ -9,6 +9,29 @@ describe("bash text rendering", () => {
     truncated: false,
   };
 
+  it("A backgrounded result has no exit line and uses the fixed text", () => {
+    expect(
+      renderBashText({
+        status: "success",
+        backgrounded: true,
+        job: "job://bash-7",
+        cause: "async",
+        wallTimeMs: 12,
+      }),
+    ).toBe(
+      "The command continues in the background as job://bash-7. You get a notice when it settles. Do not poll it.",
+    );
+    expect(
+      renderBashText({
+        backgrounded: true,
+        job: "job://bash-7",
+        cause: "message",
+      }),
+    ).toBe(
+      "Moved to the background to handle an incoming message. The command continues in the background as job://bash-7. You get a notice when it settles. Do not poll it.",
+    );
+  });
+
   it("renders a silent command as its status header and no output", () => {
     // `true` exits 0 after 12 ms: one decimal, so 0.0 s.
     expect(renderBashText({ ...success, wallTimeMs: 12 })).toBe(

@@ -4,6 +4,8 @@ export type {
   BashExecutorContext,
   BashKnownResult,
   BashResult,
+  BashBackgroundedResult,
+  BashToolResult,
   BashTimedOutResult,
   BashUnavailableResult,
   ManagedBashHandle,

@@ -108,6 +108,13 @@ async function boot(
     aborts,
   );
 
+  Object.assign(service, {
+    jobs: {
+      recheckJob: () => Promise.resolve(),
+      recheckJobs: () => Promise.resolve(),
+    },
+  });
+
   await service.onApplicationBootstrap();
   const { onNotify, onListen } = listener;
 

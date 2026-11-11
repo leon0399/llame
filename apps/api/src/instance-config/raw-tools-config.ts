@@ -6,7 +6,10 @@ export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
   artifacts?: { readonly maxBytes?: unknown } | null;
   bash?: { readonly maxProcesses?: unknown } | null;
-  jobs?: { readonly maxSeconds?: unknown } | null;
+  jobs?: {
+    readonly maxSeconds?: unknown;
+    readonly allowUnlimited?: unknown;
+  } | null;
   /** An absent or null object bounds nothing; the resolver narrows each leaf. */
   grep?: {
     readonly maxFilesExamined?: unknown;

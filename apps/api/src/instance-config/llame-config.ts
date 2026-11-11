@@ -747,7 +747,7 @@ export type LlameConfig = {
     /** Operator bounds on host `bash` (background-jobs D7): worker process bound. */
     bash: { readonly maxProcesses: number };
     /** Maximum command lifetime, measured from spawn (background-jobs D8). */
-    jobs: { readonly maxSeconds: number };
+    jobs: { readonly maxSeconds: number; readonly allowUnlimited: boolean };
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
     promptFiles?: Readonly<Record<string, string | null>>;
     /** Ordered operator-configured web adapters. Absent means no adapters. */
@@ -871,7 +871,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     },
     artifacts: { maxBytes: 8_388_608 },
     bash: { maxProcesses: 64 },
-    jobs: { maxSeconds: 7200 },
+    jobs: { maxSeconds: 7200, allowUnlimited: false },
     promptFiles: {},
     webAdapters: [],
   },

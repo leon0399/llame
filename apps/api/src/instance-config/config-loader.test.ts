@@ -1100,7 +1100,10 @@ describe('loadInstanceConfig — tools.jobs.maxSeconds', () => {
     'defaults to 7200 for %s',
     (text) => {
       writeConfig(text);
-      expect(loadInstanceConfig().tools.jobs).toEqual({ maxSeconds: 7200 });
+      expect(loadInstanceConfig().tools.jobs).toEqual({
+        maxSeconds: 7200,
+        allowUnlimited: false,
+      });
     },
   );
   it('accepts the floor and an interpolation token', () => {
@@ -1140,6 +1143,16 @@ describe('loadInstanceConfig — tools.jobs.maxSeconds', () => {
     writeConfig('{"tools":{"jobs":{"timeoutSeconds":60}}}');
     expect(() => loadInstanceConfig()).toThrow(
       /tools[./]jobs[./]timeoutSeconds/,
+    );
+  });
+  it('accepts an explicit allowUnlimited and refuses other representations', () => {
+    writeConfig('{"tools":{"jobs":{"allowUnlimited":true}}}');
+    expect(loadInstanceConfig().tools.jobs.allowUnlimited).toBe(true);
+    writeConfig('{"tools":{"jobs":{"allowUnlimited":false}}}');
+    expect(loadInstanceConfig().tools.jobs.allowUnlimited).toBe(false);
+    writeConfig('{"tools":{"jobs":{"allowUnlimited":"true"}}}');
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]jobs[./]allowUnlimited/,
     );
   });
 });

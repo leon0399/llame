@@ -10,6 +10,7 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { RunsRepository } from '../runs/runs-repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 
 describe('ChatsService.searchChats', () => {
   it('maps internal ranked candidates to the public web result shape', async () => {
@@ -898,6 +899,14 @@ describe('ChatsService message windows, updates and forks', () => {
       followUpAction: null,
       sourceRunId: null,
     };
+
+    beforeEach(() => {
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'requestStopInChat',
+      ).mockResolvedValue([]);
+    });
 
     it('cancels the in-flight run before deleting the chat', async () => {
       vi.spyOn(

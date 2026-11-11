@@ -484,6 +484,26 @@ describe('BashJobRegistry', () => {
     },
   );
 
+  it('A stop that is not proved keeps output and settles lost rather than cancelled', async () => {
+    const command = new Command();
+    command.proved = false;
+    const job = await registry.promote(command, facts);
+    command.print('before owner stop');
+    await tenant.runAs(owner, (db) =>
+      new ChatJobsRepository(db).requestStop(
+        facts.chatId,
+        owner,
+        job.id,
+        'owner',
+      ),
+    );
+    await registry.recheckJob(job.id);
+    expect(await row(job.id)).toMatchObject({
+      state: 'lost',
+      result: { outcomeUnknown: true },
+    });
+    expect((await output(job.id)).toString()).toBe('before owner stop');
+  });
   it('A deploy ends a job and refuses later commands and promotions', async () => {
     const command = new Command();
     const job = await registry.promote(command, facts);
