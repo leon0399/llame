@@ -54,11 +54,20 @@ async function startHostCommand(
   let timer: NodeJS.Timeout | undefined;
 
   const onMove = () => {
-    timer = setTimeout(closeGate, BASH_SETTLEMENT_GRACE_MS);
+    const remaining =
+      context.moveDeadlineAt === undefined
+        ? BASH_SETTLEMENT_GRACE_MS
+        : context.moveDeadlineAt - Date.now();
+
+    if (remaining <= 0) closeGate();
+    else timer = setTimeout(closeGate, remaining);
   };
 
   context.abortSignal?.addEventListener('abort', closeGate, { once: true });
   context.moveSignal?.addEventListener('abort', onMove, { once: true });
+
+  if (context.abortSignal?.aborted) closeGate();
+  else if (context.moveSignal?.aborted) onMove();
 
   try {
     started = await fenceAndSpawn(context, input, cwd, gate.signal);
@@ -97,20 +106,25 @@ async function fenceAndSpawn(
   if (prior) return { result: prior };
   const startedAt = new Date();
 
-  const started = gate.aborted
-    ? ({
-        status: 'error',
-        type: 'cancelled',
-        message: 'Command was cancelled before start.',
-      } as const)
-    : bashJobs.start(
-        { command: 'bash', args: ['-c', input.command], cwd, env: input.env },
-        managedBashContext(context),
-        {
-          toolCallId: context.toolCallId,
-          protectedValues: context.configuredCredentials,
-        },
-      );
+  const expired =
+    context.moveDeadlineAt !== undefined &&
+    Date.now() >= context.moveDeadlineAt;
+
+  const started =
+    gate.aborted || expired
+      ? ({
+          status: 'error',
+          type: 'cancelled',
+          message: 'Command was cancelled before start.',
+        } as const)
+      : bashJobs.start(
+          { command: 'bash', args: ['-c', input.command], cwd, env: input.env },
+          managedBashContext(context),
+          {
+            toolCallId: context.toolCallId,
+            protectedValues: context.configuredCredentials,
+          },
+        );
 
   if ('pid' in started) return { handle: started, startedAt };
 

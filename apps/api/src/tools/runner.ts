@@ -1,6 +1,6 @@
 import { isBashTool } from './bash';
 import { isHostBashCall } from './bash-target';
-import { BASH_SETTLEMENT_GRACE_MS, foregroundBoundSignal } from './bash-limits';
+import { BASH_SETTLEMENT_GRACE_MS } from './bash-limits';
 import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
@@ -45,6 +45,10 @@ import {
   type EvaluatePermissionOptions,
   type PermissionDecision,
 } from './permissions/types';
+import {
+  prepareToolExecution,
+  type PreparedToolExecution,
+} from './tool-execution-signals';
 
 const logger = new Logger('ToolRunner');
 
@@ -52,12 +56,6 @@ class ToolAbortError extends Error {}
 
 /** The admission of a call that names no `ssh://` destination. */
 const NO_SSH: SshAdmission = { kind: 'none' };
-
-type PreparedToolExecution = {
-  readonly context: ToolContext;
-  readonly timeoutSignal: AbortSignal;
-  readonly composedSignal: AbortSignal;
-};
 
 /**
  * Race an execution against the exact signal passed to the tool. Cooperative
@@ -112,38 +110,6 @@ function withAbort<T>(
     if (signal.aborted) onAbort();
     else signal.addEventListener('abort', onAbort, { once: true });
   });
-}
-
-function prepareToolExecution(
-  tool: Tool,
-  context: ToolContext,
-  callTimeoutSeconds: number,
-  separateTimeout: boolean,
-): PreparedToolExecution {
-  const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
-
-  const moveSignal = separateTimeout
-    ? foregroundBoundSignal(context.bashBackgroundAfterSeconds, timeoutMs)
-    : undefined;
-
-  const deadline = moveSignal ?? timeoutSignal;
-
-  const composedSignal = context.abortSignal
-    ? AbortSignal.any([context.abortSignal, deadline])
-    : deadline;
-
-  return {
-    context: {
-      ...context,
-      ...(moveSignal
-        ? { moveSignal, timeoutSignal: undefined }
-        : { abortSignal: composedSignal, timeoutSignal }),
-      timeoutMs,
-    },
-    timeoutSignal,
-    composedSignal,
-  };
 }
 
 /** Structured refusal for a tool the model requested but is unavailable (D3/D6). */

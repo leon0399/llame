@@ -37,16 +37,6 @@ export function foregroundBoundMs(
   return Math.min(operator, callTimeoutMs);
 }
 
-/** The host foreground bound as a signal, counted from the call's start. */
-export function foregroundBoundSignal(
-  backgroundAfterSeconds: number | undefined,
-  callTimeoutMs: number,
-): AbortSignal {
-  return AbortSignal.timeout(
-    foregroundBoundMs(backgroundAfterSeconds, callTimeoutMs),
-  );
-}
-
 export function managedBashContext(context: ToolContext): BashExecutorContext {
   const workingDirectory =
     context.workspaceRoot?.current() ?? bashWorkingDirectory();
