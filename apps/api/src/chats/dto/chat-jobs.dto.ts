@@ -8,7 +8,7 @@ import {
   type ChatJobState,
   type ChatJobStopper,
 } from '../../db/schema';
-import { jobArtifactLocatorOf, jobLocatorOf } from '../../jobs/job-locator';
+import { formatJobLocator, jobArtifactLocatorOf } from '../../jobs/job-locator';
 
 /** The one state a `PATCH` may set: a stop request. */
 export const CHANGEABLE_JOB_STATES = ['cancelled'] as const;
@@ -96,7 +96,7 @@ export function toChatJobResponse(job: ChatJob): ChatJobResponse {
   return {
     id: job.id,
     chatId: job.chatId,
-    locator: jobLocatorOf(job),
+    locator: formatJobLocator(job.executor, job.seq),
     executor: job.executor,
     state: job.state,
     stoppedBy: job.stoppedBy,

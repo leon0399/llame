@@ -16,6 +16,7 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+import { heartbeatSeconds } from '../runs/run-queues';
 import {
   WorkerProfileService,
   type WorkerConcurrencyResolver,
@@ -56,8 +57,12 @@ export class WorkerHeartbeatService implements OnModuleInit, OnModuleDestroy {
     await this.beat();
 
     this.timer = setInterval(
-      () => void this.beat().catch(() => undefined),
-      this.instanceConfig.config.runs.heartbeatSeconds * 1000,
+      // A missed beat is not fatal: dead needs four of them.
+      () =>
+        void this.beat().catch((error: unknown) =>
+          this.logger.warn(`Worker heartbeat failed: ${String(error)}`),
+        ),
+      heartbeatSeconds(this.instanceConfig.config) * 1000,
     );
 
     this.timer.unref();
@@ -70,18 +75,12 @@ export class WorkerHeartbeatService implements OnModuleInit, OnModuleDestroy {
 
   /** Upsert the row with the database clock, which the dead test also reads. */
   async beat(): Promise<void> {
-    try {
-      await this.db
-        .insert(workerInstances)
-        .values({ id: this.instanceId })
-        .onConflictDoUpdate({
-          target: workerInstances.id,
-          set: { lastSeenAt: sql`now()` },
-        });
-    } catch (error) {
-      // A missed beat is not fatal: dead needs four of them.
-      this.logger.warn(`Worker heartbeat failed: ${String(error)}`);
-      throw error;
-    }
+    await this.db
+      .insert(workerInstances)
+      .values({ id: this.instanceId })
+      .onConflictDoUpdate({
+        target: workerInstances.id,
+        set: { lastSeenAt: sql`now()` },
+      });
   }
 }

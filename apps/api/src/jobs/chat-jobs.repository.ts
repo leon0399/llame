@@ -49,11 +49,8 @@ export type JobSettlement =
       readonly artifactId?: string;
     };
 
-/** The state of a job that has not settled. */
-const RUNNING = 'running';
-
 /** The record of a job whose worker died, which states that nothing is known. */
-export const LOST_RESULT: ChatJobResult = { outcomeUnknown: true };
+const LOST_RESULT: ChatJobResult = { outcomeUnknown: true };
 
 export class ChatJobsRepository {
   constructor(private readonly db: Db) {}
@@ -76,13 +73,7 @@ export class ChatJobsRepository {
     const [row] = await this.db
       .select()
       .from(chatJobs)
-      .where(
-        and(
-          eq(chatJobs.id, jobId),
-          eq(chatJobs.chatId, chatId),
-          eq(chatJobs.ownerUserId, ownerUserId),
-        ),
-      );
+      .where(jobInChat(chatId, ownerUserId, jobId));
 
     return row;
   }
@@ -99,8 +90,7 @@ export class ChatJobsRepository {
       .from(chatJobs)
       .where(
         and(
-          eq(chatJobs.chatId, chatId),
-          eq(chatJobs.ownerUserId, ownerUserId),
+          inChat(chatId, ownerUserId),
           eq(chatJobs.executor, executor),
           eq(chatJobs.seq, seq),
         ),
@@ -114,9 +104,7 @@ export class ChatJobsRepository {
     return this.db
       .select()
       .from(chatJobs)
-      .where(
-        and(eq(chatJobs.chatId, chatId), eq(chatJobs.ownerUserId, ownerUserId)),
-      )
+      .where(inChat(chatId, ownerUserId))
       .orderBy(asc(chatJobs.startedAt), asc(chatJobs.seq));
   }
 
@@ -143,10 +131,8 @@ export class ChatJobsRepository {
       })
       .where(
         and(
-          eq(chatJobs.id, jobId),
-          eq(chatJobs.chatId, chatId),
-          eq(chatJobs.ownerUserId, ownerUserId),
-          eq(chatJobs.state, RUNNING),
+          jobInChat(chatId, ownerUserId, jobId),
+          eq(chatJobs.state, 'running'),
         ),
       )
       .returning();
@@ -172,10 +158,8 @@ export class ChatJobsRepository {
       })
       .where(
         and(
-          eq(chatJobs.id, jobId),
-          eq(chatJobs.chatId, chatId),
-          eq(chatJobs.ownerUserId, ownerUserId),
-          eq(chatJobs.state, RUNNING),
+          jobInChat(chatId, ownerUserId, jobId),
+          eq(chatJobs.state, 'running'),
         ),
       )
       .returning();
@@ -199,9 +183,8 @@ export class ChatJobsRepository {
       .set({ state: 'lost', result: LOST_RESULT, settledAt: sql`now()` })
       .where(
         and(
-          eq(chatJobs.chatId, chatId),
-          eq(chatJobs.ownerUserId, ownerUserId),
-          eq(chatJobs.state, RUNNING),
+          inChat(chatId, ownerUserId),
+          eq(chatJobs.state, 'running'),
           notExists(
             this.db
               .select({ one: sql`1` })
@@ -241,7 +224,7 @@ export class ChatJobsRepository {
       .where(
         and(
           eq(chatJobs.ownerUserId, ownerUserId),
-          eq(chatJobs.state, RUNNING),
+          eq(chatJobs.state, 'running'),
           chatId === undefined ? undefined : eq(chatJobs.chatId, chatId),
         ),
       )
@@ -270,6 +253,23 @@ export class ChatJobsRepository {
 
     return Buffer.concat(rows.map((row) => row.content));
   }
+}
+
+/** The Chat's jobs of one owner. */
+function inChat(chatId: string, ownerUserId: string): SQL | undefined {
+  return and(
+    eq(chatJobs.chatId, chatId),
+    eq(chatJobs.ownerUserId, ownerUserId),
+  );
+}
+
+/** One job of the Chat, of one owner. */
+function jobInChat(
+  chatId: string,
+  ownerUserId: string,
+  jobId: string,
+): SQL | undefined {
+  return and(eq(chatJobs.id, jobId), inChat(chatId, ownerUserId));
 }
 
 /** The worker row's last heartbeat is inside the window (database time). */

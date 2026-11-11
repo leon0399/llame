@@ -1,8 +1,5 @@
 import {
   applySelectorSuffix,
-  boundFlatResult,
-  directoryResult,
-  MAX_RESULT_CODE_UNITS,
   parsePathScheme,
   resolveEndRelativeSelector,
   splitSelectorSuffix,
@@ -13,7 +10,7 @@ import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { artifactLineCount, artifactText } from '../tools/artifacts/lines';
-import { placeListingSelector } from '../tools/listing-window';
+import { renderListing } from '../tools/listing-window';
 import { nativeErrorResult, selectInMemoryText } from '../tools/text-selection';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { ChatJobsRepository } from './chat-jobs.repository';
@@ -21,7 +18,6 @@ import {
   formatJobLocator,
   JOB_SCHEME,
   jobArtifactLocatorOf,
-  jobLocatorOf,
   parseJobLocatorText,
   type JobLocator,
 } from './job-locator';
@@ -84,21 +80,13 @@ async function listJobs(
 
   const entries = rows.map(
     (job) =>
-      `${jobLocatorOf(job)} (${job.state}, ${job.startedAt.toISOString()})`,
+      `${formatJobLocator(job.executor, job.seq)} (${job.state}, ${job.startedAt.toISOString()})`,
   );
 
-  if (entries.length === 0) {
-    return boundFlatResult(
-      directoryResult(BARE_LOCATOR, 0, {
-        content: `${BARE_LOCATOR}: empty\n`,
-        truncated: false,
-      }),
-      0,
-      MAX_RESULT_CODE_UNITS,
-    );
-  }
-
-  return renderLines(BARE_LOCATOR, entries, selector);
+  return renderListing(BARE_LOCATOR, entries, selector, {
+    emptyContent: `${BARE_LOCATOR}: empty\n`,
+    refuse: listingRefusal,
+  });
 }
 
 /** The owner-scoped handles of one read transaction. */
@@ -122,7 +110,10 @@ async function readLocator(
   const path = formatJobLocator(locator.executor, locator.seq, locator.output);
 
   if (locator.output === undefined) {
-    return renderLines(path, recordLines(job), selector);
+    return renderListing(path, recordLines(job), selector, {
+      emptyContent: '',
+      refuse: listingRefusal,
+    });
   }
 
   if (!job.outputs.includes(locator.output)) return notFoundResult();
@@ -232,34 +223,12 @@ async function readText(
   }
 }
 
-/** A flat listing in the directory-list shape: the locator, then one line each. */
-function renderLines(
-  path: string,
-  entries: ReadonlyArray<string>,
-  selector: string | undefined,
-): ToolResult {
-  const placed = placeListingSelector(path, selector, entries.length);
-
-  if ('refusal' in placed) {
-    return {
-      status: 'error',
-      type: 'invalid_selector',
-      message:
-        'A job listing or record accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges, :raw, and :outline are not supported.',
-    };
-  }
-
-  const { offset, limit } = placed.window;
-  const end = Math.min(offset + (limit ?? entries.length), entries.length);
-
-  const result = directoryResult(path, entries.length, {
-    content: [path, ...entries.slice(offset, end)].join('\n') + '\n',
-    truncated: end < entries.length,
-    ...(end < entries.length && { nextOffset: end }),
-  });
-
-  return boundFlatResult(result, offset, MAX_RESULT_CODE_UNITS);
-}
+const listingRefusal = (): ToolResult => ({
+  status: 'error',
+  type: 'invalid_selector',
+  message:
+    'A job listing or record accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges, :raw, and :outline are not supported.',
+});
 
 function invalidLocatorResult(): ToolResult {
   return {

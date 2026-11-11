@@ -409,6 +409,7 @@ import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import { promoteNextQueueItem } from './queue-promotion';
 import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
 import { type RunJob } from './run-queues';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import {
   formatTemporalAnchor,
@@ -1252,6 +1253,14 @@ export class RunExecutionService {
           ),
         };
       }
+
+      // The claim is a touch (background-jobs D9): a job of this Chat whose
+      // worker died is `lost` before any model request of this Run.
+      await new ChatJobsRepository(tx).settleOnDeadWorkers(
+        input.chatId,
+        input.userId,
+        workerDeadAfterSeconds(this.instanceConfig.config),
+      );
 
       if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
         return {

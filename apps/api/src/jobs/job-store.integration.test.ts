@@ -14,6 +14,7 @@ import { type ToolResult } from '@workspace/runtime-safety';
 import { renderReadText } from '@workspace/native-file-tools';
 
 import { ChatsRepository } from '../chats/chats-repository';
+import { ChatsService } from '../chats/chats.service';
 import * as schema from '../db/schema';
 import {
   chatJobChunks,
@@ -24,6 +25,9 @@ import {
 } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
+import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
+import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { newChatJob } from '../testing/chat-job-rows';
 import { readArtifact } from '../tools/artifacts/artifact-reader';
 import {
@@ -34,7 +38,7 @@ import { nativeReadTool, nativeWriteTool } from '../tools/native-files';
 import { type ToolContext } from '../tools/types';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { ChatJobsRepository, type NewChatJob } from './chat-jobs.repository';
-import { jobArtifactLocatorOf, jobLocatorOf } from './job-locator';
+import { formatJobLocator, jobArtifactLocatorOf } from './job-locator';
 import { readJob } from './job-reader';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { type WorkerConcurrencyResolver } from '../instance-config/worker-profile.service';
@@ -516,7 +520,9 @@ d('job store', () => {
       });
 
       expect(settled).toBeDefined();
-      expect(jobLocatorOf(settled!)).toBe(`job://bash-${seq}`);
+      expect(formatJobLocator(settled!.executor, settled!.seq)).toBe(
+        `job://bash-${seq}`,
+      );
       expect(jobArtifactLocatorOf(settled!)).toBe(`artifact://bash-${seq}`);
 
       const read = await readArtifact(
@@ -726,9 +732,7 @@ d('job store', () => {
 
       // The shared text read grows the window by a context line, so the header
       // names the shown range of the same locator.
-      expect(text.split('\n')[0]).toMatch(
-        /^job:\/\/bash-4\/stdout:1-\d+ of 40 lines$/u,
-      );
+      expect(text.split('\n')[0]).toBe('job://bash-4/stdout:1-4 of 40 lines');
       expect(text).toContain('1: l1\n');
     });
 
@@ -819,15 +823,26 @@ d('job store', () => {
     });
 
     // Scenario: A fork during a live job
-    it('lists no job in a Chat that holds none', async () => {
+    it('lists no job in a fork of a Chat with a live job', async () => {
       const live = await freshChat();
 
       await startJob(live, 4);
 
-      const fork = await freshChat();
+      const fork = await new ChatsService(
+        tenantDb,
+        noopReindexDispatch(),
+        noopEmbedDispatch(),
+        noopQueryEmbedder(),
+      ).forkChat(live, owner);
 
-      expect(textOf(await readJob(context(fork), 'read', 'job://'))).toBe(
+      expect(fork.id).not.toBe(live);
+
+      expect(textOf(await readJob(context(fork.id), 'read', 'job://'))).toBe(
         'job://: empty',
+      );
+
+      expect(textOf(await readJob(context(live), 'read', 'job://'))).toContain(
+        'job://bash-4 (running',
       );
     });
 
@@ -921,20 +936,23 @@ d('job store', () => {
     it('hides a job, its output, and its stop from another owner', async () => {
       const chat = await freshChat();
       const job = await startJob(chat, 1);
+      const crashed = await startJob(chat, 2, { workerInstanceId: deadWorker });
 
       await storeOutput(job.id, 'stdout', 'private\n');
 
+      // The stranger names the owner and the owner's ids, so only the policy
+      // can hide the rows.
       const seen = await withJobs(stranger, async (jobs) => ({
-        byLocator: await jobs.findByLocator(chat, stranger, 'bash', 1),
-        byId: await jobs.findById(chat, stranger, job.id),
-        list: await jobs.listByChat(chat, stranger),
-        output: await jobs.readOutput(stranger, job.id, 'stdout'),
-        stop: await jobs.requestStop(chat, stranger, job.id, 'owner'),
-        settle: await jobs.settle(chat, stranger, job.id, {
+        byLocator: await jobs.findByLocator(chat, owner, 'bash', 1),
+        byId: await jobs.findById(chat, owner, job.id),
+        list: await jobs.listByChat(chat, owner),
+        output: await jobs.readOutput(owner, job.id, 'stdout'),
+        stop: await jobs.requestStop(chat, owner, job.id, 'owner'),
+        settle: await jobs.settle(chat, owner, job.id, {
           state: 'succeeded',
         }),
-        lost: await jobs.settleOnDeadWorkers(chat, stranger, DEAD_AFTER),
-        counts: await jobs.countRunning(stranger, DEAD_AFTER),
+        lost: await jobs.settleOnDeadWorkers(chat, owner, DEAD_AFTER),
+        counts: await jobs.countRunning(owner, DEAD_AFTER),
       }));
 
       expect(seen.byLocator).toBeUndefined();
@@ -946,11 +964,16 @@ d('job store', () => {
       expect(seen.lost).toEqual([]);
       expect(seen.counts.size).toBe(0);
 
-      const [after] = await withJobs(owner, (jobs) =>
+      const after = await withJobs(owner, (jobs) =>
         jobs.listByChat(chat, owner),
       );
 
-      expect(after).toMatchObject({ state: 'running', stopRequestedAt: null });
+      expect(after.map((row) => [row.id, row.state])).toEqual([
+        [job.id, 'running'],
+        [crashed.id, 'running'],
+      ]);
+
+      expect(after[0].stopRequestedAt).toBeNull();
     });
 
     it('refuses to store a job or a chunk under the wrong owner', async () => {
@@ -1043,22 +1066,30 @@ d('job store', () => {
       const job = await startJob(chat, 1);
 
       await storeOutput(job.id, 'stdout', 'gone\n');
+
+      // Forced RLS hides every row from the unscoped client, so the owner's
+      // own identity reads both tables.
+      const count = () =>
+        tenantDb.runAs(owner, async (tx) => ({
+          jobs: (
+            await tx.execute(
+              drizzleSql`SELECT 1 FROM chat_jobs WHERE id = ${job.id}`,
+            )
+          ).length,
+          chunks: (
+            await tx.execute(
+              drizzleSql`SELECT 1 FROM chat_job_chunks WHERE job_id = ${job.id}`,
+            )
+          ).length,
+        }));
+
+      expect(await count()).toEqual({ jobs: 1, chunks: 1 });
+
       await tenantDb.runAs(owner, (tx) =>
         tx.delete(chats).where(eq(chats.id, chat)),
       );
 
-      const left = await sql`SELECT count(*)::int AS n FROM (
-        SELECT 1 FROM chat_jobs WHERE id = ${job.id}
-        UNION ALL SELECT 1 FROM chat_job_chunks WHERE job_id = ${job.id}) t`;
-
-      // The unscoped client sees none either way; check through the owner too.
-      expect(left[0].n).toBe(0);
-
-      const owned = await tenantDb.runAs(owner, (tx) =>
-        tx.execute(drizzleSql`SELECT 1 FROM chat_jobs WHERE id = ${job.id}`),
-      );
-
-      expect(owned).toHaveLength(0);
+      expect(await count()).toEqual({ jobs: 0, chunks: 0 });
     });
   });
 });
