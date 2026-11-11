@@ -46,11 +46,10 @@ import { WorkerHeartbeatService } from './worker-heartbeat.service';
 import { workerDeadAfterSeconds } from './worker-liveness';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const d = TEST_DB_URL ? describe : describe.skip;
 const MAX_BYTES = 1_048_576;
 const DEAD_AFTER = workerDeadAfterSeconds(BUILT_IN_DEFAULTS);
 
-d('job store', () => {
+describe('job store', () => {
   let sql: Sql;
   let tenantDb: TenantDbService;
   let owner: string;
@@ -62,8 +61,10 @@ d('job store', () => {
   let deadWorker: string;
 
   beforeAll(async () => {
-    sql = postgres(TEST_DB_URL!, {
-      ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
+    if (!TEST_DB_URL)
+      throw new Error('Integration database was not provisioned.');
+    sql = postgres(TEST_DB_URL, {
+      ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
       max: 6,
     });
     tenantDb = new TenantDbService(drizzle(sql, { schema }));
