@@ -34,9 +34,16 @@ Then the Run MUST complete with no checkpoint and no model request.
 ### Requirement: A cancelled compaction Run publishes nothing
 
 The owner MUST be able to cancel a live compaction Run as a turn Run. A cancelled or failed
-compaction Run MUST NOT publish a checkpoint, and it MUST NOT start a pending queue item.
+compaction Run MUST NOT publish a checkpoint, and it MUST NOT start a pending queue item. The
+checkpoint and the completion of the Run MUST commit together, after a check for a recorded
+cancellation.
 
 #### Scenario: Stop during a compaction
 
 - **WHEN** the owner cancels a compaction Run before its summary request returns
+- **THEN** the Run is `cancelled`, and the Chat has no new checkpoint
+
+#### Scenario: A cancellation after the summary returns
+
+- **WHEN** the summary request of a compaction Run returns, and a cancellation is recorded before the checkpoint commits
 - **THEN** the Run is `cancelled`, and the Chat has no new checkpoint

@@ -3,8 +3,8 @@
 ### Requirement: An owner compaction uses the model of its own Run
 
 A compaction Run MUST send its summary request with the model id and the effort stored on that Run.
-A prepared request can be too large for the window of that model. Then the Run MUST use the window
-variant of automatic compaction, with its source Run. Without such a source Run, the Run MUST fail.
+The absorbed rows can be too large for the window of that model. Then the Run MUST use the window
+variant of automatic compaction, with its source Run. Without a source Run, the Run MUST fail.
 
 #### Scenario: Compact with the composer model
 

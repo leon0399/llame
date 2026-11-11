@@ -63,11 +63,12 @@ archived. The answer MUST be the same UI message stream that a chat send returns
 
 ### Requirement: The latest turn shows Continue and Regenerate actions
 
-The web MUST show Regenerate on the latest turn when `latestRun` is a terminal turn Run. It MUST show Continue
-only when `latestRun` produced the reply and is `failed`, `cancelled`, or `expired`. The reply
-usage status MUST NOT be `completed`, and the reply MUST hold a settled tool part. A latest turn
-with no visible reply MUST show a failed-turn row with the error of `latestRun` and Regenerate.
-Older turns MUST NOT show either action. Continue MUST send the composer's permission mode.
+For a terminal turn `latestRun`, the web MUST show Regenerate on the latest turn. It MUST show
+Continue only when `latestRun` produced the reply and is `failed`, `cancelled`, or `expired`. The
+reply usage status MUST NOT be `completed`, and the reply MUST hold a settled tool part. A latest
+turn with no visible reply MUST then show a failed-turn row with the error of `latestRun` and
+Regenerate. Older turns MUST NOT show either action. Continue MUST send the composer's permission
+mode.
 
 #### Scenario: A failed agentic turn shows both actions
 
@@ -111,12 +112,17 @@ Older turns MUST NOT show either action. Continue MUST send the composer's permi
 
 When `latestRun` is a compaction Run, the web MUST NOT show Continue or Regenerate. When that Run
 is `failed` or `expired`, the transcript MUST show its error after the last turn. The web MUST NOT
-show an assistant message for a compaction Run.
+show an assistant message or a reply notice for a compaction Run.
 
 #### Scenario: A failed compaction shows its error
 
 - **WHEN** the latest Run is a compaction Run that failed
 - **THEN** the transcript shows the error of that Run and no Continue or Regenerate
+
+#### Scenario: A compaction Run in a hidden tab raises no reply notice
+
+- **WHEN** a compaction Run completes while the owner views another Chat
+- **THEN** the web shows no reply notice and no unseen mark for it
 
 #### Scenario: A reload during a compaction Run
 

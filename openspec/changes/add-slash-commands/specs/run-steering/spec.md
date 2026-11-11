@@ -1,5 +1,41 @@
 ## MODIFIED Requirements
 
+### Requirement: A send with a delivery mode becomes a pending item during a live Run
+
+A chat send can name `delivery` with the value `steer`, `interrupt`, or `queue`. When the Chat has
+a live Run, as `durable-runs` defines live, the API MUST store the message as a pending item. It
+MUST NOT create a Run or a message row. It MUST answer 202 with the item. The send MUST pass the
+validation of a chat send, with text neutralization and the media ownership check. A command send MUST
+run as `chat-commands` defines.
+
+#### Scenario: A steer during a Run is accepted as a pending item
+
+- **WHEN** the owner sends a message with `delivery: "steer"` while a turn Run of the Chat is `running_model`
+- **THEN** the API answers 202 with a pending item in mode `steer`
+- **AND** the Chat gets no new Run and no new message row
+
+#### Scenario: A send without a delivery mode still gets 409
+
+- **WHEN** the owner sends a message without `delivery` while a Run of the Chat is live
+- **THEN** the API answers 409, as `durable-runs` requires
+
+#### Scenario: An invalid pending item writes nothing
+
+- **WHEN** a send with `delivery: "queue"` names a model that the catalog does not offer
+- **THEN** the API answers with the error of a chat send with that model
+- **AND** it stores no pending item
+
+#### Scenario: A delivery send to a Chat with a stuck Run
+
+- **WHEN** the only non-terminal Run of the Chat is stuck, and the owner sends a message with `delivery: "queue"`
+- **THEN** admission expires the stuck Run, as `durable-runs` requires
+- **AND** the message starts a Run, and no pending item is stored
+
+#### Scenario: A rename with a delivery mode during a Run
+
+- **WHEN** a turn Run is live and the owner sends `/rename Foo` with `delivery: "steer"`
+- **THEN** the API sets the title and stores no pending item
+
 ### Requirement: A send to an idle Chat starts a Run for every delivery mode
 
 When the Chat has no non-terminal Run, a chat send MUST start a Run as a chat send without
@@ -38,7 +74,7 @@ a change to `steer` or `interrupt` MUST get 400.
 
 #### Scenario: Steer now changes a queue item
 
-- **WHEN** the owner changes a pending queue item to `steer` during a Run
+- **WHEN** the owner changes a pending queue item to `steer` during a turn Run
 - **THEN** the item is delivered at the next step boundary of that Run
 
 #### Scenario: A command item refuses Steer now
@@ -118,7 +154,8 @@ send `/compact`, or change an item to `steer` or `interrupt`.
 ### Requirement: The web shows pending items above the composer
 
 The web MUST show each pending item above the composer in its order. A queue item MUST offer Steer
-now, Interrupt now, delete, and edit. A command item MUST offer only delete and edit. A steer item MUST offer Interrupt now, delete, and edit. Edit
+now, Interrupt now, delete, and edit. A command item, and every item during a compaction Run, MUST
+offer only delete and edit. A steer item MUST offer Interrupt now, delete, and edit. Edit
 MUST withdraw the item and put its text and attachments into the composer.
 
 #### Scenario: Edit puts the text back
@@ -136,12 +173,18 @@ MUST withdraw the item and put its text and attachments into the composer.
 - **WHEN** a `/compact` item is pending
 - **THEN** its row offers delete and edit, and no Steer now or Interrupt now
 
+#### Scenario: A queue item during a compaction Run offers no Steer now
+
+- **WHEN** a compaction Run is live and a message item is pending
+- **THEN** its row offers delete and edit, and no Steer now or Interrupt now
+
 ## ADDED Requirements
 
 ### Requirement: A command or a compaction Run makes a pending item a queue item
 
-A command item is a pending item whose text is a `/compact` command. The API MUST store a command
-item as `queue`, whatever `delivery` the send names. During a compaction Run, the API MUST store
+A command item is a pending `queue` item whose text is a `/compact` command. The API MUST store a
+`/compact` send as `queue`, whatever `delivery` the send names. A command item that admission would
+refuse MUST stay pending at promotion, as an item that a send cannot use. During a compaction Run, the API MUST store
 every pending item as `queue`. A compaction Run MUST NOT deliver a steer or an interrupt.
 
 #### Scenario: A compact command during a Run is a queue item

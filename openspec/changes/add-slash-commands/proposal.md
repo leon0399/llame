@@ -89,12 +89,18 @@ Decisions that the grilling did not ask, made in review round 1. Leo, please con
   sends a mode while a Run is active, so this changes nothing for the composer.
 - **A compaction Run blocks Continue and Regenerate**, also when it failed. The existing follow-up
   check already refuses when the newest Run is not the message's Run.
-- **The summary request of a compaction Run has no tool declarations.** It holds the Run's own
-  system prompt, the absorbed rows, and the instruction. Building the tool set of a turn without a
-  user turn is a large refactor, and on the Messages wire the adapter drops the tools of a
-  compaction request anyway (design D12). The cost is no cache read of the turn's tool prefix.
-- **A bare `/rename` reuses the existing packaged title prompts** and puts the role-tagged excerpt
-  where the first message goes today. No new template.
+- **The summary request of a compaction Run reuses a stored system prompt.** It sends the receipt
+  prompt of the Run of the newest completed reply, the absorbed rows, and the instruction, with the
+  compaction Run's own model and effort, no tool declarations, and no receipt of its own. Rendering
+  a fresh prompt needs the Workspace and tool preparation of a turn, and the next turn would see
+  its skills frozen without the Workspace. The cost: no prompt-cache read of the turn's prefix, and
+  a prompt written for the source model when the composer model differs.
+- **A bare `/rename` reuses the existing packaged title prompts** and puts the role-tagged,
+  neutralized excerpt where the first message goes today. No new template. A Chat with no turn gets
+  `Nothing to name.`
+- **The compaction work and the command work are split into more layers** (`commands`,
+  `commands-web`, `run-kind`, `compact-run`, `compact-window`, `compact-focus`, `compact-web`,
+  `queued-commands`) to stay inside the review budget.
 
 Assumptions that follow from those decisions:
 
@@ -117,7 +123,10 @@ Assumptions that follow from those decisions:
 
 ### Modified Capabilities
 
-- `run-steering`: MODIFIED "A send to an idle Chat starts a Run for every delivery mode", "The owner
+- `chat-creation`: MODIFIED "The first-message creation path is unchanged" (a command to a stored
+  chat is its third exception).
+- `run-steering`: MODIFIED "A send with a delivery mode becomes a pending item during a live Run",
+  "A send to an idle Chat starts a Run for every delivery mode", "The owner
   lists and changes pending items", "Queue items start one Run each after a completed Run", "A mode
   change on a paused item starts a Run", "The queue pauses after a Run that does not complete", and
   "The web shows pending items above the composer". ADDED: a command item and every item sent
@@ -125,12 +134,12 @@ Assumptions that follow from those decisions:
 - `turn-actions`: MODIFIED "The chat history read reports the latest Run" (adds `kind`), "An owner
   starts a follow-up Run on the latest turn" (the newest Run must be a turn Run of the message),
   and "The latest turn shows Continue and Regenerate actions" (a terminal turn Run). ADDED: a
-  compaction Run offers no follow-up action and shows no assistant message.
+  compaction Run offers no follow-up action and shows no assistant message or reply notice.
 - `durable-runs`: ADDED: a compaction Run is a durable Run with no user message; one with nothing
   left to absorb completes; a cancelled one publishes nothing.
-- `model-system-prompts`: ADDED: an owner compaction absorbs every committed row, sends no tool
-  declarations, takes a bounded focus that shows on the checkpoint but is not replayed, and fails
-  its Run when the summary fails.
+- `model-system-prompts`: ADDED: an owner compaction absorbs every committed row, reuses the stored
+  prompt of its source Run with no tool declarations and no receipt, takes a bounded focus that
+  shows on the checkpoint but is not replayed, and fails its Run when the summary fails.
 - `available-models`: ADDED: an owner compaction uses the model and effort of its Run, with the
   existing window variant as the only fallback.
 
@@ -151,8 +160,6 @@ Deliberately unchanged, with the reading under which each holds:
   already does; "no inline (request-thread) execution path" applies to message execution.
 - `durable-runs` "One in-flight run per chat (single-flight)": a compaction Run is a Run, so it
   holds the slot, and a send without `delivery` during any live Run, `/compact` included, gets 409.
-- `run-steering` "A send with a delivery mode becomes a pending item during a live Run": a pending
-  item still answers 202 with no Run and no message; the ADDED requirement fixes its mode.
 - `run-steering` "The composer offers delivery modes while a Run is active": Enter still sends a
   steer; the server stores it as a queue item when the ADDED requirement says so.
 - `run-steering` "A delivered message gets its id from the system or the item": a promoted command
@@ -177,7 +184,9 @@ Deliberately unchanged, with the reading under which each holds:
   the automatic trigger; an owner compaction evaluates no trigger. "Compaction and title spend stay
   separate categories": owner compaction usage stays on its checkpoint row, and a bare `/rename`
   records no usage.
-- `chat-creation`: unchanged, because a send that creates a Chat is never a command.
+- `model-system-prompts` "Every execution attempt resolves its effective context in the worker":
+  it governs the attempts of a turn Run, which has a user message and admits tools. A compaction Run
+  makes no turn attempt; it sends a stored receipt prompt and admits no tool.
 - `context-injection` "Compaction is the rail's re-baseline boundary" and `chat-recency-digest`
   "Committed digest baselines remain stable until compaction": an owner checkpoint is a published
   checkpoint, so both re-baseline as they do today.
@@ -211,6 +220,8 @@ Deliberately unchanged, with the reading under which each holds:
   the next turn replays only the checkpoint and later rows.
 - `/compact` with a delivery mode during a Run is queued, runs after the Run completes, and then lets
   the queue promote its next item. A steer during a compaction Run runs after it.
-- A first message and ordinary messages that start with `/` behave as today.
+- A first message that starts with `/` behaves as today. On an existing Chat, an ordinary message
+  that starts with `/` starts its Run as today, without an optimistic bubble before the Run
+  attaches.
 - Negative tests: commands against another owner's Chat reveal nothing; a command item and a
   compaction Run refuse steer and interrupt; a follow-up after a compaction Run is refused.

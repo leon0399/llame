@@ -19,17 +19,24 @@ other text of the summary instruction MUST stay the same.
 - **THEN** the instruction does not tell the model that a newer user message follows the absorbed rows
 - **AND** it still tells the model to fold an earlier checkpoint
 
-### Requirement: An owner compaction request has no tool declarations
+### Requirement: An owner compaction request reuses a stored system prompt
 
-The summary request of a compaction Run MUST hold the system prompt of its Run and the absorbed
-rows. The summary instruction MUST be its last user message. It MUST hold no
-tool declarations. The Run MUST bind the system prompt as its receipt.
+This requirement applies when the absorbed rows fit the model of a compaction Run. Its summary
+request MUST hold the stored receipt prompt of its source Run, the absorbed rows, and the
+instruction last. The source Run is the Run of the
+newest completed reply. With no source Run, it MUST send no system prompt. It MUST send no tool
+declarations, and it MUST bind no receipt.
 
 #### Scenario: The summary request of a compaction Run
 
-- **WHEN** a compaction Run sends its summary request
-- **THEN** the request holds no tool declarations
-- **AND** the Run has a system-prompt receipt with the system prompt of that request
+- **WHEN** a compaction Run with model `B` sends its summary request, and its source Run used model `A`
+- **THEN** the request holds the receipt prompt of the source Run and no tool declarations
+- **AND** the compaction Run has no system-prompt receipt
+
+#### Scenario: A compaction Run with no source Run
+
+- **WHEN** every earlier turn Run of the Chat failed, and the owner compacts
+- **THEN** the summary request holds no system prompt
 
 ### Requirement: An owner focus is a bounded paragraph after the summary instruction
 
