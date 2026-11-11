@@ -107,7 +107,3 @@ export const PORTABLE_TOOL_PERMISSIONS: ToolPermissionMap = {
   exit_workspace: { allow: true },
   stop: { allow: true },
 };
-
-export const PORTABLE_PERMISSION_TOOL_IDS: ReadonlyArray<string> = Object.keys(
-  PORTABLE_TOOL_PERMISSIONS,
-);
