@@ -1127,6 +1127,15 @@ describe('loadInstanceConfig — tools.jobs.maxSeconds', () => {
       );
     },
   );
+  it('refuses a token that resolves to an empty value as a user error', () => {
+    writeConfig('{"tools":{"jobs":{"maxSeconds":"{env:IC_LIFETIME}"}}}');
+    expect(() => loadInstanceConfig({ IC_LIFETIME: '' })).toThrow(
+      /tools[./]jobs[./]maxSeconds/,
+    );
+    expect(() => loadInstanceConfig({ IC_LIFETIME: '' })).not.toThrow(
+      /internal error/,
+    );
+  });
   it('refuses unknown keys', () => {
     writeConfig('{"tools":{"jobs":{"timeoutSeconds":60}}}');
     expect(() => loadInstanceConfig()).toThrow(
