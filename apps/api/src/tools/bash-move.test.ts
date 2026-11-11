@@ -49,6 +49,13 @@ class Command implements ManagedBashHandle {
 
     return Promise.resolve({ ...this.output, proved: this.proved });
   });
+  exit(exitCode: number): void {
+    this.result.resolve({
+      status: exitCode === 0 ? 'success' : 'error',
+      exitCode,
+      ...this.output,
+    });
+  }
   settle(): void {
     this.result.resolve({
       status: 'error',
@@ -353,6 +360,24 @@ describe('foreground host bash move', () => {
 
     await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
     expect(append).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the job when the command exits during a timely promotion', async () => {
+    const commit = Promise.withResolvers<ChatJob>();
+    registry.promotion = () => commit.promise;
+    moved.abort();
+
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(1);
+    registry.command.exit(0);
+    commit.resolve(jobRow(7));
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      job: 'job://bash-7',
+    });
+    expect(registry.command.stop).not.toHaveBeenCalled();
   });
 
   it('A Run abort during a pending promotion leaves the job and the command alone', async () => {
