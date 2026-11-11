@@ -1,9 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import {
-  resetManagedExecutorForTests,
-  reserveManagedProcessSlot,
-} from '@workspace/bash-executor';
+import { BashProcessLimiter } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -15,7 +12,6 @@ import {
   type SshRunOutcome,
   type SshRunRequest,
 } from '../ssh/ssh-client';
-import { managedBashContext } from './bash-limits';
 import { decodeUtf8, executeSshBash } from './ssh-bash';
 import { type ToolContext } from './types';
 
@@ -108,6 +104,7 @@ function context(
     runId: 'run',
     toolCallId: 'call',
     nativeDeliverySequence: 1,
+    bashProcessLimiter: new BashProcessLimiter(64),
     tenantDb: {
       runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
@@ -176,7 +173,6 @@ describe('the ssh utf-8 decode', () => {
 describe('ssh bash execution', () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    resetManagedExecutorForTests();
   });
 
   it('runs the command through one bash -s script over the resolved binding', async () => {
@@ -405,23 +401,27 @@ describe('ssh bash execution', () => {
     expect(begin).not.toHaveBeenCalled();
   });
 
-  it('shares the managed process slot with local bash', async () => {
+  it('takes its slot from the limiter of the worker and refuses past the bound', async () => {
     const remoteClient = remote();
-    const toolContext = context(remoteClient);
-    stubFence();
-    const slot = reserveManagedProcessSlot(managedBashContext(toolContext));
+    const limiter = new BashProcessLimiter(1);
+    const toolContext = context(remoteClient, { bashProcessLimiter: limiter });
+    const { begin } = stubFence();
+    const slot = limiter.tryAcquire();
 
-    if ('type' in slot) throw new Error('Expected a slot');
+    if (slot === null) throw new Error('Expected a slot');
 
     try {
-      await expect(
-        executeSshBash(toolContext, { command: 'true', cwd: CWD }),
-      ).resolves.toEqual({
-        status: 'error',
-        type: 'unavailable',
-        message: 'Managed process limit reached.',
+      const result = await executeSshBash(toolContext, {
+        command: 'true',
+        cwd: CWD,
       });
+
+      if (result.status !== 'error') throw new Error('Expected a refusal');
+
+      expect(result.type).toBe('limit_reached');
+      expect(result.message).toContain('1 managed commands');
       expect(remoteClient.runs).toHaveLength(0);
+      expect(begin).not.toHaveBeenCalled();
     } finally {
       slot.release();
     }

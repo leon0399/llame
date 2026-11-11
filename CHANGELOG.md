@@ -25,6 +25,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-11
 
+- **Bound the commands of a worker with `tools.bash.maxProcesses` (#1657).**
+  A worker process used to run one managed `bash` command at a time, and the
+  refusal for a second one was `unavailable`. One limiter now counts the host
+  commands and the `ssh://` commands of a worker, and `tools.bash.maxProcesses`
+  sets its bound (an integer of at least 1, default 64). A call past the bound
+  returns `limit_reached`, which names the bound and says that a later call can
+  succeed; the call records no attempt and starts no process. Two commands that
+  the model calls in one step now run together. The Machine daemon keeps its own
+  bound of one and its `unavailable` refusal. The executor package also gains
+  `startManagedBash`, a handle with no deadline that a later change uses for
+  background jobs; no tool calls it yet. See
+  [bash](docs/product/reference/tools/bash.md#errors).
 - **Add the job store for background jobs (#1657).** New tables `chat_jobs`,
   `chat_job_chunks`, and `worker_instances` hold one record for each job of a
   Chat, its stored output increments, and the heartbeat of each worker process.

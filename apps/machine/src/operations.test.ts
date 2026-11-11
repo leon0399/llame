@@ -546,6 +546,32 @@ describe("proc.bash", () => {
     ).resolves.toMatchObject({ status: "success", stderr: "problem" });
   });
 
+  it("still answers unavailable for a second command while one runs", async () => {
+    const first = daemon.call("proc.bash", {
+      envelope: envelope(),
+      command: "sleep 0.5; printf first",
+      cwd: fixture.root,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    await expect(
+      daemon.call("proc.bash", {
+        envelope: envelope(),
+        command: "printf second",
+        cwd: fixture.root,
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      type: "unavailable",
+      message: "Managed process limit reached.",
+    });
+    await expect(first).resolves.toMatchObject({
+      status: "success",
+      stdout: "first",
+    });
+  });
+
   it("does not leak a host path through a refused working directory", async () => {
     const outcome = await daemon.attempt("proc.bash", {
       envelope: envelope(),

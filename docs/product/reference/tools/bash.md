@@ -144,10 +144,10 @@ bytes, and is marked incomplete when the byte bound cut it; a stream that parses
 as JSON is stored with the JSON content type.
 
 A call is a fresh process with no state carried into the next one. A Machine
-call shares the managed base, input, time, and process bounds but keeps its own
-32,000-unit stream bound. An `ssh://` command shares the host bounds: one
-`bash -s` process per call, the same stream bound, and the call's remaining
-time.
+call shares the managed base, input, and time bounds but keeps its own
+32,000-unit stream bound and its own process bound of one. An `ssh://` command
+shares the host bounds: one `bash -s` process per call, the same stream bound,
+the same process bound as a host command, and the call's remaining time.
 
 ## Errors
 
@@ -155,6 +155,14 @@ An unproven stop leaves the attempt `outcome_unknown` as a tool observation
 while the Run continues; inspect the workspace before retrying. See
 [mutation recovery](../mutation-recovery.md) for the durable attempt fence and
 crash-recovery termination.
+
+A call past the process bound is `limit_reached`. One worker process runs at
+most `tools.bash.maxProcesses` managed commands at one time (default 64); the
+count holds foreground host commands and `ssh://` commands. The refusal names
+the bound, says that a later call can succeed, and comes before any attempt is
+recorded, so the command did not run. A Machine command is not counted: the
+Machine daemon runs one command at a time and answers `unavailable` for a
+second.
 
 A Machine command fails with `machine_not_found` for an unconfigured Machine and
 `machine_unavailable` before anything was sent; a command whose session is lost

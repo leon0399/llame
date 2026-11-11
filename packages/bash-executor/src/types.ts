@@ -69,3 +69,30 @@ export type BashResult =
   | BashTimedOutResult
   | BashUnknownResult
   | BashUnavailableResult;
+
+/** Why the caller stops a managed command: the registry maps each to a state. */
+export type ManagedStopCause = "lifetime" | "owner" | "assistant" | "worker";
+
+/** The output a command has produced so far, bounded and redacted. */
+export type ManagedOutput = {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly truncated: boolean;
+};
+
+/**
+ * What `stop` returns: whether the process group was proved empty, and the
+ * captured streams. It is a type of the handle, not a member of `BashResult`.
+ */
+export type ManagedStopResult = ManagedOutput & {
+  readonly proved: boolean;
+};
+
+/** A started command whose deadline and cancellation the caller owns. */
+export type ManagedBashHandle = {
+  readonly pid: number;
+  /** Settles when the command ends, by itself or through `stop`. */
+  readonly settled: Promise<BashResult>;
+  snapshot(): ManagedOutput;
+  stop(cause: ManagedStopCause): Promise<ManagedStopResult>;
+};

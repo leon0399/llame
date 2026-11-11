@@ -1044,6 +1044,57 @@ describe('loadInstanceConfig — tools.artifacts bound (tool-result-artifacts D1
   });
 });
 
+describe('loadInstanceConfig — tools.bash.maxProcesses (background-jobs D7)', () => {
+  it('defaults to 64 when the object or the key is absent', () => {
+    writeConfig('{ "tools": { "allowed": [] } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 64 });
+    writeConfig('{ "tools": { "bash": null } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 64 });
+    writeConfig('{ "tools": { "bash": {} } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 64 });
+  });
+
+  it('takes the bound from the file and from an interpolation token', () => {
+    writeConfig('{ "tools": { "bash": { "maxProcesses": 1 } } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 1 });
+
+    writeConfig(
+      '{ "tools": { "bash": { "maxProcesses": "{env:IC_PROCS}" } } }',
+    );
+    expect(loadInstanceConfig({ IC_PROCS: '8' }).tools.bash).toEqual({
+      maxProcesses: 8,
+    });
+  });
+
+  it.each([0, -3, 1.5, 9_007_199_254_740_992])(
+    'refuses %s, naming the path',
+    (value) => {
+      writeConfig(`{ "tools": { "bash": { "maxProcesses": ${value} } } }`);
+      expect(() => loadInstanceConfig()).toThrow(
+        /tools[./]bash[./]maxProcesses/,
+      );
+    },
+  );
+
+  it('refuses a token that resolves to an unusable value', () => {
+    writeConfig(
+      '{ "tools": { "bash": { "maxProcesses": "{env:IC_PROCS}" } } }',
+    );
+
+    for (const value of ['0', '2.5', '9007199254740993'])
+      expect(() => loadInstanceConfig({ IC_PROCS: value })).toThrow(
+        'tools.bash.maxProcesses',
+      );
+  });
+
+  it('refuses an unknown key, naming the path', () => {
+    writeConfig('{ "tools": { "bash": { "timeoutSeconds": 5 } } }');
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]bash[./]timeoutSeconds/,
+    );
+  });
+});
+
 describe('loadInstanceConfig — tools.webAdapters', () => {
   type RewriteEntryOverrides = Partial<{
     readonly id: string;

@@ -1,3 +1,4 @@
+import { type BashProcessLimiter } from '@workspace/bash-executor';
 import { type ToolResult, type UnknownRecord } from '@workspace/runtime-safety';
 import { type z } from 'zod';
 
@@ -194,6 +195,12 @@ export interface ToolContext {
    * file is written.
    */
   readonly artifactHostFiles?: boolean;
+  /**
+   * The one limiter of this worker process, built from `tools.bash.maxProcesses`
+   * (background-jobs D7). A host or `ssh://` `bash` call takes a slot from it
+   * before it calls the executor. Absent means this context cannot run `bash`.
+   */
+  readonly bashProcessLimiter?: BashProcessLimiter;
   /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.

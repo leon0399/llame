@@ -1006,6 +1006,14 @@
     // "artifacts": {
     //   "maxBytes": 8388608
     // },
+    // The most managed commands one worker process runs at one time. It counts
+    // foreground host commands and `ssh://` commands. Unset (as here) means 64.
+    // An integer of at least 1, or a {env:...}/{path:...} token; a smaller
+    // value, a fraction, an unsafe integer, or an unknown key fails boot. A
+    // call past the bound gets `limit_reached`.
+    // "bash": {
+    //   "maxProcesses": 64
+    // },
   },
 
   // Optional remote Machines (experimental). Declaring one makes

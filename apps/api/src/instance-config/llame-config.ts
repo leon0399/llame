@@ -528,6 +528,8 @@ export type RawToolsConfig = {
   artifacts?: {
     readonly maxBytes?: unknown;
   } | null;
+  /** The raw `tools.bash` object; absent means the built-in bound. */
+  bash?: { readonly maxProcesses?: unknown } | null;
   /** The raw `tools.grep` object; an absent or null object bounds nothing,
    *  and each leaf stays unknown until its resolver narrows it. */
   grep?: {
@@ -764,6 +766,8 @@ export type LlameConfig = {
     grep: GrepBoundsConfig;
     /** The one byte bound on every stored tool-result artifact part. */
     artifacts: ArtifactBoundsConfig;
+    /** Operator bounds on host `bash` (background-jobs D7): worker process bound. */
+    bash: { readonly maxProcesses: number };
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
     promptFiles?: Readonly<Record<string, string | null>>;
     /** Ordered operator-configured web adapters. Absent means no adapters. */
@@ -886,6 +890,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
       maxFileBytes: null,
     },
     artifacts: { maxBytes: 8_388_608 },
+    bash: { maxProcesses: 64 },
     promptFiles: {},
     webAdapters: [],
   },

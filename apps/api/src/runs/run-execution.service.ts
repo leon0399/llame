@@ -1,5 +1,6 @@
 import { realpath, stat } from 'node:fs/promises';
 
+import { BashProcessLimiter } from '@workspace/bash-executor';
 import { isRecord } from '@workspace/runtime-safety';
 
 import {
@@ -989,6 +990,9 @@ export class RunExecutionService {
    */
   private readonly machineSkillCatalogs = new Map<string, SkillCatalogPort>();
 
+  /** Built on first use: every Run of this worker shares it. */
+  private bashProcessLimiter: BashProcessLimiter | undefined;
+
   constructor(
     private readonly tenantDb: TenantDbService,
     @Inject(CompactionService)
@@ -1874,6 +1878,7 @@ export class RunExecutionService {
       webSearch: this.instanceConfig.config.webSearch,
       grepBounds: this.instanceConfig.config.tools.grep,
       ...this.artifactReadContext(),
+      bashProcessLimiter: this.hostBashLimiter(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       workerDeadAfterSeconds: workerDeadAfterSeconds(
         this.instanceConfig.config,
@@ -4297,6 +4302,15 @@ export class RunExecutionService {
       sshClient: this.sshClient,
       executorGit: this.executorGit,
     };
+  }
+
+  /** The one process limiter of this worker, built from `tools.bash.maxProcesses`. */
+  private hostBashLimiter(): BashProcessLimiter {
+    this.bashProcessLimiter ??= new BashProcessLimiter(
+      this.instanceConfig.config.tools.bash.maxProcesses,
+    );
+
+    return this.bashProcessLimiter;
   }
 
   /**
