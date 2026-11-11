@@ -181,7 +181,12 @@ and the Run abort.
 - A promotion that fails stops the command with `stop('run')`. A proved stop returns
   `timed_out` with the captured output and a message that names the failed move.
   An unproved stop returns `outcome_unknown`. The promotion failure retains the stop proof.
-- Abort first: the registry calls `stop('run')`, and the call settles as today.
+- Abort first, before a promotion starts: the registry calls `stop('run')`, and the call settles
+  as today. A Run abort that arrives while a promotion is pending does not stop the command: the
+  pending promotion wins, and a commit leaves a normal job that outlives its Run.
+- A command that exits while a timely promotion commits does not prevent it. The job row is
+  created, the call returns `backgrounded`, and the registry then settles the job at once with
+  the exit status and the notice.
 
 The yield signal is level-triggered for the segment. A `host` call that starts while a steer or
 a notice is pending promotes at once.
@@ -226,8 +231,8 @@ In `tenantDb.runAs(owner)`. The transaction is retried on `40P01` and `40001`.
 
 The settlement and admission wakers (D13) lock the Chat row, then the Run row through the
 wake update. Chat deletion, suspension, and worker terminal writes can take the Run row first.
-The settlement, suspension, Chat deletion, and admission transaction therefore use one bounded
-retry on `40P01` and `40001`. The deadline job retries through its queue job. A retried
+The settlement, suspension, Chat deletion, admission, and worker terminal-write transactions
+therefore use one bounded retry on `40P01` and `40001`. The deadline job retries through its queue job. A retried
 suspension re-reads the jobs and returns a settlement when the job settled meanwhile.
 
 ### D7: A limiter object replaces the module counter on the host
@@ -265,10 +270,17 @@ commands and promotions, then stops every job and settles it `cancelled` / `work
 a non-global module. Nest destroys non-global modules before the global `PgBossModule`, whose
 destroy hook stops the queue. A test pins that order.
 
-Chat deletion selects the live job ids after it took the Run row and the Chat row.
-It sends each stop pointer in the deletion transaction. The committed cascade is the durable
-stop fact: the worker stops a job whose row is absent. A stop stamp erased by that cascade adds
-no authority.
+Chat deletion takes the Run row, then takes the Chat row lock explicitly, and only then
+selects the live job ids. Layer `bash-async` (task 5.7) carries the lock. It sends each stop
+pointer in the deletion transaction. Chat deletion is the one stop that stamps no request field:
+the committed cascade removes the row, so a stamp would be erased at once and carry no authority.
+The durable stop fact is the absence of the record, and the worker stops a job whose row is
+absent. The stop of the owner through the API and the stop of the model record their fields.
+
+A settlement that fails to commit, for example on a failed queue insert, rolls back and leaves
+the job `running`. The worker keeps the immutable facts of the settlement (state, exit detail,
+output) and the heartbeat tick retries it through `settlePending` until it commits or the worker
+dies, which the touch rule then settles as `lost`. The retry never stops a running command.
 
 Rejected: a queue job per background job. A queue job cannot be pinned to the process that owns
 the child, and the queue refuses an expiry above 24 h.
@@ -340,6 +352,9 @@ payload gains `wake?: { generation, jobId }`.
   first job of a Run has no `wake` field and is current only while `current_job_id` is null.
 - Current and `awaiting_jobs`: it marks listed jobs on a dead worker `lost`, wakes with the
   cause `settled` or `timeout`, and executes.
+- Current and no longer `awaiting_jobs` (a redelivery after its own wake): it proceeds as a
+  normal claim or recovery of the Run under the rules for a retried job. Only a job that is not
+  current does nothing.
 - The dead-letter job carries the same payload. `expireDeadLetteredRun` applies the same
   comparison and ignores a job that is not current.
 
@@ -362,7 +377,9 @@ segment from its first step, with no seed.
 
 The seeded attempt:
 
-1. In one transaction fenced by `activeAttemptId`, compute the `wait` result, withdraw the
+1. The text "You get a notice when one of them settles" in the result names only jobs that are
+   still `running`; a settled job in the result has no notice, because the result takes its place.
+   In one transaction fenced by `activeAttemptId`, compute the `wait` result, withdraw the
    pending notices that it reports as settled, and set their `run_id` to this Run. Build the
    settled `wait` tool part and append it to the parts of `run.suspended`, and append
    `tool.completed` for the call.

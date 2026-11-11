@@ -231,8 +231,7 @@ that background work is available only on the llame host.
 
 A foreground host `bash` call MUST start a move when it reaches the bound of `instance-config`,
 or when a steer, interrupt, or job notice signals the Run. A successful timely move MUST return
-`backgrounded`, keep the earlier output, and leave the command running as a job.
-A failed or late move MUST follow `A move that fails stops the command`.
+`backgrounded`, keep the earlier output, and leave the command running as a job. A failed or late move MUST follow `A move that fails stops the command`.
 
 #### Scenario: A long test suite passes the bound
 
@@ -243,6 +242,17 @@ A failed or late move MUST follow `A move that fails stops the command`.
 
 - **WHEN** a command prints 10 lines and then moves to the background
 - **THEN** a `read` of the `stdout` of its job returns those 10 lines
+
+### Requirement: A command that exits during a move still gets its job
+
+A command that exits while a timely move commits MUST NOT prevent the move. The call MUST return
+`backgrounded`, the job MUST be created, and the job MUST then settle at once with its exit status
+and its notice.
+
+#### Scenario: A command exits during the move
+
+- **WHEN** a command exits while its timely move commits
+- **THEN** the call returns `backgrounded`, and the job settles at once with the exit status and a notice
 
 ### Requirement: A move that fails stops the command
 
@@ -301,12 +311,24 @@ text MUST start with: "Moved to the background to handle an incoming message."
 
 A Run can be cancelled, expire, or fail while a host `bash` call runs in the foreground. The
 host MUST then stop that command under the cancellation rules of this capability. The host MUST
-NOT stop a command that already moved to the background.
+NOT stop a command that already moved to the background. A cancellation that arrives while a
+move is pending MUST NOT stop the command: the pending move wins, and a move that commits leaves
+a normal job. A cancellation that arrives before the move starts MUST stop the foreground command.
 
 #### Scenario: Stop during a foreground command
 
 - **WHEN** the owner cancels a Run while its host `bash` call has run for 20 seconds
 - **THEN** the command stops, and the call settles as this capability requires for a cancellation
+
+#### Scenario: A cancellation during a pending move
+
+- **WHEN** the owner cancels a Run while the move of its host `bash` command is pending
+- **THEN** the command is not stopped, and a move that commits leaves a normal job
+
+#### Scenario: A cancellation before the move starts
+
+- **WHEN** the owner cancels a Run before its host `bash` command reaches the bound
+- **THEN** the command stops
 
 #### Scenario: Stop after the move
 

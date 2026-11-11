@@ -235,11 +235,29 @@ MUST NOT scan the jobs of more than one owner.
 - **WHEN** a job settles as `lost` after it stored 40 lines of `stdout`
 - **THEN** a `read` of that output returns the 40 lines
 
+### Requirement: A settlement that fails to commit is retried
+
+The settlement of a job MUST be one transaction with its notice and any wake. A failed
+transaction MUST roll back and leave the job `running`. The worker MUST keep the immutable facts
+of the settlement and MUST retry it at each heartbeat until it commits or the worker ends. A
+worker that ends is dead, and the touch rule settles its job as `lost`. The retry MUST NOT stop
+a running command.
+
+#### Scenario: A queue insert fails during a settlement
+
+- **WHEN** a job exits, and the transaction of its settlement rolls back because the queue insert of a wake fails
+- **THEN** the job stays `running`, and the worker commits the same settlement at a later heartbeat
+
+#### Scenario: The worker ends before the retry commits
+
+- **WHEN** a settlement keeps failing and its worker then stops
+- **THEN** the job settles as `lost` at its next touch
+
 ### Requirement: A deleted Chat ends its jobs
 
-The deletion of a Chat MUST request a stop of each job of that Chat in state `running`. A worker
-MUST stop a job that it hosts when the record of the job no longer exists. It MUST do so at its
-next heartbeat at the latest.
+The deletion of a Chat MUST end each job of that Chat in state `running`. The committed absence
+of the job record MUST be the stop fact, and the deletion records no request field. A worker MUST
+stop a job that it hosts when its record no longer exists, at its next heartbeat at the latest.
 
 #### Scenario: A deleted Chat leaves no process
 
@@ -297,9 +315,9 @@ settled MUST return at once.
 
 A `wait` MUST end with `ended: "timeout"` when its timeout passes. It MUST end with
 `ended: "interrupted"` when a steer, an interrupt, or a notice for a job outside its list
-arrives. In both cases the result MUST list each job with its state. It MUST hold the text: "The
-jobs continue in the background. You get a notice when one of them settles." The jobs MUST NOT
-stop.
+arrives. The result MUST list each job with its state, and the jobs MUST NOT stop. For a job that
+is still `running`, it MUST say: "The jobs continue in the background. You get a notice when one
+of them settles." It MUST NOT promise a notice for a settled job.
 
 #### Scenario: A steer ends a wait
 
@@ -411,7 +429,9 @@ job as `lost`.
 
 ### Requirement: A stop request reaches the worker of the job
 
-A stop request MUST be recorded on the job before it is sent. The request MUST reach the worker
+A stop request of the owner through the API and a stop request of the model MUST be recorded on
+the job before it is sent. The deletion of a Chat is the exception that `A deleted Chat ends its
+jobs` defines. The request MUST reach the worker
 that hosts the job, also in another process. The recorded request MUST stay the source of truth.
 When the signal is lost, the worker MUST find the request at its next heartbeat at the latest.
 

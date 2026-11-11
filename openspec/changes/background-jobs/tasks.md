@@ -49,11 +49,18 @@ one changes no behavior that the model or the owner can see.
 | `finalize`       | `web`            | Spec synchronization, task records, and archive movement.                                         | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
-deltas hold 18 MODIFIED requirements that must restate their canonical blocks, about 1,110 lines:
-302 in `context-injection`, 207 in `bash-execution`, 193 in `durable-runs`, 172 in
-`run-steering`, 102 in `tool-calling`, 65 in `tool-result-rendering`, 47 in `owner-chat-forks`,
-and 19 in `ssh-locator`. Leo approves or declines the exception with the proposal. The measured
-size is in the PR body.
+deltas hold MODIFIED requirements in nine capabilities, and each must restate its canonical block
+in full. Their size is recomputed at each revision: it was 21 requirements and about 1,200 lines
+at the latest count, and `context-injection`, `durable-runs`, and `bash-execution` are the
+largest. Leo approves or declines the exception with the proposal. The PR body holds the measured
+size, and this text keeps no per-file figures that a later revision would make wrong.
+
+**Delivery gate.** No layer is released or merged on its own. The layers `bash-async` through
+`yield` promise a notice in the text of a `backgrounded` result, and the notices arrive in
+`notices` (tasks 9.2 to 9.4) and `host-runs` (task 10). Those layers stay draft and not mergeable
+until tasks 9.2 to 9.4 and task 10 are complete. The whole feature merges only with the explicit
+merge permission of Leo. Native feature acceptance does not change, and no false promise reaches
+released code.
 
 **Estimates are first values.** The two closest shipped layers measured 4,390 authored lines
 (segment delivery, #1641) and 5,503 (interrupt, #1646). The split above is finer than those
@@ -111,7 +118,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 
 - [ ] 4.1 Add `BashJobRegistry` with promotion of a handle to a job; a test covers the facts that it keeps and a promotion that fails and stops the command.
 - [ ] 4.2 Store output increments with the safe cut of design D5; tests cover "A quiet job writes nothing", "A stored line is readable two seconds later", and "A credential across two increments" with the cut inside the value.
-- [ ] 4.3 Settle a job in one retried transaction, Chat first; tests cover "A failing build settles as failed", "A survivor makes the outcome unknown", a command that a signal ends, and "A resumed Run on another worker reads a job".
+- [ ] 4.3 Settle a job in one retried transaction, Chat first; tests cover "A failing build settles as failed", "A survivor makes the outcome unknown", a command that a signal ends, and "A resumed Run on another worker reads a job". Also cover both scenarios of "A settlement that fails to commit is retried".
 - [ ] 4.4 Write the job artifact in a savepoint, with the host-file decision of the starting Run; tests cover "A job artifact after the Run ended", "A short output creates no artifact", "A failed write keeps the stored increments", and "A record of a failed job".
 - [ ] 4.5 Add `tools.jobs.maxSeconds` and end a job at its lifetime; tests with a fake clock cover "A hung build ends at the lifetime", "A host command ends at the job lifetime", and the `maxSeconds` half of `Operator configuration bounds background jobs`.
 - [ ] 4.6 Add `WorkerShutdownService` in a non-global module; tests cover "A deploy ends a job", a command that arrives after the shutdown began, and the destroy order before the queue.
@@ -127,8 +134,8 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 - [ ] 5.4 Update `apps/api/src/prompts/tools/bash.md` and its exact-output tests for "Description has the background instructions" and "An absent tool is not recommended".
 - [ ] 5.5 Update `docs/product/reference/tools/bash.md`, a new `docs/product/operator/background-jobs.md` with its link in `operator/index.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 5.6 Add the `job-stop` signal and the heartbeat re-check; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", and a lost signal that the heartbeat finds.
-- [ ] 5.7 Request a stop for each live job when a Chat is deleted; a test covers "A deleted Chat leaves no process".
-- [ ] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [ ] 5.7 End each live job when a Chat is deleted: take the Chat row lock explicitly before the select of the live job ids, send the stop pointers in the deletion transaction, and stamp no request field, because the cascade removes the record; a test covers "A deleted Chat leaves no process".
+- [ ] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
 - [ ] 5.9 Run the GitHub review and CI loop on the published head.
 
 ## 6. Foreground move (`background-jobs/bash-move`)
@@ -138,9 +145,9 @@ No tool starts a job in this layer. Its tests drive the registry directly.
       Also cover "A failed move with an unproved stop" and "A move that is recorded late".
       Assert exactly one `native.result` for a late move and that the command keeps running.
 - [ ] 6.3 Keep the remote paths: tests cover "A remote command still ends at its deadline", "Proven-stopped timeout is known", and "Unproven stop after timeout is unknown and the Run continues" on a `machine://` directory.
-- [ ] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command".
+- [ ] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command". Also cover "A cancellation during a pending move", "A cancellation before the move starts", and "A command exits during the move".
 - [ ] 6.5 Update `docs/product/reference/tools/bash.md`, `docs/product/operator/native-files.md`, `docs/product/operator/background-jobs.md`, `docs/product/operator/scaling.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 6.6 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [ ] 6.6 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
 - [ ] 6.7 Run the GitHub review and CI loop on the published head.
 
 ## 7. Stop (`background-jobs/job-stop`)
@@ -190,12 +197,12 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the servic
 - [ ] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
 - [ ] 11.2 Add the suspension transaction with its retry, the `suspend` stop cause, and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
       Insert the deadline job in the suspension transaction and cover "A worker crashes right after a wait starts".
-- [ ] 11.3 Add the wake update, transactional `enqueueInTransaction`, and the `wake` field of `RunJob`; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry.
+- [ ] 11.3 Add the wake update, transactional `enqueueInTransaction`, and the `wake` field of `RunJob`; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake".
       Add `EnqueueOptions.tx` and a postgres.js-compatible pg-boss adapter.
       Prove rollback leaves no job, commit keeps the delay, and "A waker crashes after its commit".
       Cover "A failed wake insert leaves the Run waiting"; retry Chat deletion and admission as well as settlement.
       A `null` enqueue result throws and retries with a fresh id; the deadline waker reuses its existing job.
-- [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits".
+- [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits". Also cover "A recorded job that is absent is stuck at once".
       An absent recorded job is stuck at once; the first-job enqueue retains its existing grace.
 - [ ] 11.5 Anchor the budget at the first claim; a test covers "A Run passes its budget while it waits".
 - [ ] 11.6 Update `docs/product/operator/scaling.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.

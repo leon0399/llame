@@ -68,6 +68,11 @@ another owner.
 - **THEN** the admission path expires the stuck Run with a terminal `run.expired` and admits the new message
 - **AND** the Chat does not get 409 answers without end
 
+#### Scenario: A recorded job that is absent is stuck at once
+
+- **WHEN** a Run records a job, that job is absent, and a different message arrives less than one liveness window after the Run recorded it
+- **THEN** the admission path expires the stuck Run with a terminal `run.expired` and admits the new message
+
 #### Scenario: An unreadable job state never expires a run
 
 - **WHEN** a Run of a Chat is old enough to be stuck, and admission cannot read its job state in time or at all
@@ -195,7 +200,11 @@ timeout.
 
 ### Requirement: Enqueue is fail-fast and self-healing
 
-Enqueuing a run SHALL NOT be assumed transactional with the run row. An enqueue failure SHALL immediately fail the run (freeing the chat's single-flight slot); any residual `queued`-but-orphaned state SHALL self-heal — a same-message retry supersedes it, and a different message expires it through single-flight admission once the run has no job and is older than one liveness window — with no manual cleanup.
+The system MUST NOT assume that the enqueue of a Run is transactional with the run row. An
+enqueue failure MUST fail the run at once and free the single-flight slot of the Chat. A residual
+`queued` Run with no job MUST heal without manual cleanup: a same-message retry supersedes it, and
+a different message expires it through single-flight admission once the Run has no job and is older
+than one liveness window.
 
 This rule applies to the first job of a Run. A new deadline or wake job MUST be inserted in
 the transaction that records it. A deadline job that wakes the Run uses its existing id and
@@ -264,7 +273,7 @@ transaction, unless the winner is the existing deadline job. Each wait MUST have
 
 The Run MUST insert one deadline job, delayed by the timeout of the `wait`, in the transaction
 in which it enters `awaiting_jobs`. When that job starts and the Run still waits with the same
-wake generation, the job MUST resume the Run. In every other case it MUST do nothing.
+wake generation, the job MUST resume the Run. A job that is not the current job MUST do nothing.
 
 #### Scenario: A worker crashes right after a wait starts
 
@@ -275,6 +284,17 @@ wake generation, the job MUST resume the Run. In every other case it MUST do not
 
 - **WHEN** a waker moves a Run to `queued`, and its process stops at once
 - **THEN** the next queue job of the Run exists, and a worker executes the Run
+
+### Requirement: A redelivered deadline job recovers its Run
+
+A deadline job that is the current job of the Run and starts again after its own wake, for
+example when the queue redelivers it, MUST proceed as a normal claim or recovery of the Run
+under the rules for a retried job.
+
+#### Scenario: The deadline job is redelivered after its wake
+
+- **WHEN** the deadline job woke its Run, its worker stopped, and the queue delivers the same job again
+- **THEN** the job is the current job of the Run, and the Run is recovered under the rules for a retried job
 
 ### Requirement: A wait and a wake are Run events
 
