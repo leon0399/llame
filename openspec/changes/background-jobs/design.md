@@ -232,8 +232,9 @@ In `tenantDb.runAs(owner)`. The transaction is retried on `40P01` and `40001`.
 The settlement and admission wakers (D13) lock the Chat row, then the Run row through the
 wake update. Chat deletion, suspension, and worker terminal writes can take the Run row first.
 The settlement, suspension, Chat deletion, admission, and worker terminal-write transactions
-therefore use one bounded retry on `40P01` and `40001`. The deadline job retries through its queue job. A retried
-suspension re-reads the jobs and returns a settlement when the job settled meanwhile.
+therefore use bounded transaction retry on `40P01` and `40001`. Job settlement allows at most
+five attempts. The deadline job retries through its queue job. A retried suspension re-reads
+the jobs and returns a settlement when the job settled meanwhile.
 
 ### D7: A limiter object replaces the module counter on the host
 
@@ -266,10 +267,14 @@ touch points are the Run claim, the step-end check of a Run in the Chat, every c
 the scope of one owner. The chat list count uses
 the same join and settles nothing.
 
-A `WorkerShutdownService` owns the order at shutdown. It first makes the registry refuse new
-commands and promotions, then stops every job and settles it `cancelled` / `worker`. It lives in
-a non-global module. Nest destroys non-global modules before the global `PgBossModule`, whose
-destroy hook stops the queue. A test pins that order.
+A `WorkerShutdownService` owns shutdown order. It refuses new commands and promotions, then
+stops commands that still run and settles those jobs `cancelled` / `worker` under the proof rule.
+For an already-ended command it awaits an in-flight settlement or retries the pending natural
+settlement once. Each pass allows at most five transaction attempts for `40P01` or `40001`.
+If persistence still fails, it leaves the row unchanged and continues closing; the later
+dead-worker touch rule applies. It never replaces known natural facts with cancellation.
+The service lives in a non-global module. Nest destroys it before the global `PgBossModule`
+closes the queue. A test proves that order.
 
 Chat deletion takes the Run row, then takes the Chat row lock explicitly, and only then
 selects the live job ids. Layer `bash-async` (task 5.7) carries the lock. It sends each stop

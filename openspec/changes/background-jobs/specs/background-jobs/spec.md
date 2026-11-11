@@ -203,13 +203,13 @@ worker stops, its jobs end.
 
 ### Requirement: A worker that shuts down ends its jobs
 
-A worker that shuts down in an orderly way MUST stop each job that it hosts. It MUST settle each
-of them as `cancelled` with the stopper `worker`, under the proof rule of this capability. It MUST
-do so in the tenant scope of the owner of the job, and it MUST store the output that it captured.
+A worker that shuts down in an orderly way MUST stop each hosted command that still runs.
+It MUST settle that job as `cancelled` with the stopper `worker`, under the proof rule of this
+capability. It MUST act in the owner's tenant scope and store the captured output.
 
 #### Scenario: A deploy ends a job
 
-- **WHEN** a worker that hosts `job://bash-4` gets a shutdown signal
+- **WHEN** a worker gets a shutdown signal while the command of `job://bash-4` still runs, and it proves the process group empty
 - **THEN** the job is `cancelled`, its record names `worker`, and its captured output is stored
 
 ### Requirement: A job on a dead worker settles as lost
@@ -265,13 +265,21 @@ of its worker. The stop MUST NOT change the state or the result of the settled r
 
 ### Requirement: An orderly shutdown keeps known settlements
 
-An orderly shutdown MUST keep and retry the known natural settlement of a job that already
-exited. It MUST stop a job that still runs and settle it `cancelled` by `worker`.
+An orderly shutdown MUST keep known natural settlement facts. It MUST await an in-flight pass
+or retry a pending pass once before the queue closes. Each pass MUST allow at most five attempts
+for deadlock or serialization failure. If it still fails, shutdown MUST leave the row unchanged
+and continue closing. It MUST NOT replace these facts with cancellation; later dead-worker touches apply.
 
 #### Scenario: A shutdown with a pending settlement
 
 - **WHEN** a job exited, its settlement failed to commit, and its worker then shuts down in order
 - **THEN** the worker retries the same settlement, and it does not replace it with `lost`
+
+#### Scenario: Shutdown cannot commit the known settlement
+
+- **WHEN** a command exited, its settlement remains unavailable, and its worker shuts down in order
+- **THEN** shutdown makes one bounded settlement pass, leaves the row `running`, and does not stop the already-ended command
+- **AND** a later touch settles the row `lost` after the worker is dead
 
 ### Requirement: A deleted Chat ends its jobs
 

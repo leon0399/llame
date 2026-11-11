@@ -135,7 +135,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 - [ ] 4.3 Map command exits and stop proof to settlement facts and call the persistence API; tests cover "A failing build settles as failed", "A survivor makes the outcome unknown", a command that a signal ends, and "A resumed Run on another worker reads a job". Keep failed settlement facts for later retry and preserve a row already settled lost.
 - [ ] 4.4 Integrate the persistence layer's artifact policy with registry settlement; verify that captured output and the starting host-file decision reach the atomic settlement.
 - [ ] 4.5 Add `tools.jobs.maxSeconds` and end a job at its lifetime; tests with a fake clock cover "A hung build ends at the lifetime", "A host command ends at the job lifetime", and the `maxSeconds` half of `Operator configuration bounds background jobs`.
-- [ ] 4.6 Add `WorkerShutdownService` in a non-global module; tests cover "A deploy ends a job", a command that arrives after the shutdown began, and the destroy order before the queue.
+- [ ] 4.6 Add `WorkerShutdownService` in a non-global module; tests cover "A deploy ends a job", "A shutdown with a pending settlement", "Shutdown cannot commit the known settlement", a command that arrives after shutdown began, and destroy order before the queue.
 - [ ] 4.7 Update `SPEC.md`, `docs/product/reference/mutation-recovery.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 4.8 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 4.9 Run the GitHub review and CI loop on the published head.
