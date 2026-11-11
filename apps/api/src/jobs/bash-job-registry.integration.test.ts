@@ -15,7 +15,12 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { readJob } from './job-reader';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
+import {
+  BashJobRegistry,
+  JobPromotionError,
+  type BashJobFacts,
+} from './bash-job-registry';
+import { type TenantRunner } from '../db/tenant-db.service';
 import { ChatJobsRepository } from './chat-jobs.repository';
 import { retryJobTransaction } from './bash-job-store';
 import {
@@ -30,7 +35,12 @@ class Command implements ManagedBashHandle {
   private readonly result = Promise.withResolvers<BashResult>();
   readonly settled = this.result.promise;
   private listeners = new Set<(bytes: number) => void>();
-  private output: ManagedOutput = { stdout: '', stderr: '', truncated: false };
+  private output: ManagedOutput = {
+    stdout: '',
+    stderr: '',
+    truncated: false,
+    truncatedStreams: { stdout: false, stderr: false },
+  };
   readonly stop = vi.fn((cause: string): Promise<ManagedStopResult> => {
     this.result.resolve({ status: 'error', type: 'cancelled', message: cause });
 
@@ -45,6 +55,13 @@ class Command implements ManagedBashHandle {
 
     return () => {
       this.listeners.delete(listener);
+    };
+  }
+  cut(stream: 'stdout' | 'stderr'): void {
+    this.output = {
+      ...this.output,
+      truncated: true,
+      truncatedStreams: { ...this.output.truncatedStreams, [stream]: true },
     };
   }
   print(text: string): void {
@@ -159,10 +176,60 @@ d('BashJobRegistry', () => {
 
   it('stops a command when its promotion fails', async () => {
     const command = new Command();
-    await expect(
-      registry.promote(command, { ...facts, chatId: crypto.randomUUID() }),
-    ).rejects.toThrow('The Chat cannot store an artifact.');
+    command.print('seen before the failure');
+
+    const failure = await registry
+      .promote(command, { ...facts, chatId: crypto.randomUUID() })
+      .catch((error: unknown) => error);
+
+    if (!(failure instanceof JobPromotionError))
+      throw new Error('Expected a promotion error');
+
+    expect(failure.stopped).toMatchObject({
+      proved: true,
+      stdout: 'seen before the failure',
+    });
+    expect(failure.cause).toMatchObject({
+      message: 'The Chat cannot store an artifact.',
+    });
     expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
+  it('marks only the stream that passed the bound as truncated', async () => {
+    const command = new Command();
+    const job = await registry.promote(command, facts);
+    command.print('x');
+    command.cut('stdout');
+    command.exit(0);
+    await ended(job.id, 'succeeded');
+    expect((await row(job.id))?.result?.truncated).toEqual({
+      stdout: true,
+      stderr: false,
+    });
+  });
+
+  it('keeps stopping other jobs and settles the rest when one settlement fails', async () => {
+    let down = false;
+
+    const flaky: TenantRunner = {
+      runAs: (userId, callback) =>
+        down
+          ? Promise.reject(new Error('db down'))
+          : tenant.runAs(userId, callback),
+    };
+
+    const flakyRegistry = new BashJobRegistry(flaky, worker, config);
+    const failing = new Command();
+    const job = await flakyRegistry.promote(failing, facts);
+    down = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const done = flakyRegistry.shutdown();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(done).resolves.toBeUndefined();
+    vi.useRealTimers();
+    expect(failing.stop).toHaveBeenCalledWith('worker');
+    // The row stays running; the lost-on-touch join settles it when this worker ends.
+    expect((await row(job.id))?.state).toBe('running');
   });
 
   it('A quiet job writes nothing', async () => {
@@ -275,7 +342,10 @@ d('BashJobRegistry', () => {
     const job = await registry.promote(command, facts);
     command.exit(1, 'SIGTERM');
     await ended(job.id, 'failed');
-    expect((await row(job.id))?.result?.signal).toBe('SIGTERM');
+    expect((await row(job.id))?.result).toMatchObject({
+      signal: 'SIGTERM',
+      exitCode: null,
+    });
   });
 
   it('A survivor makes the outcome unknown', async () => {
@@ -439,9 +509,9 @@ d('BashJobRegistry', () => {
     });
     expect((await output(job.id)).toString()).toBe('before deploy');
     const late = new Command();
-    await expect(registry.promote(late, facts)).rejects.toThrow(
-      'shutting down',
-    );
+    await expect(registry.promote(late, facts)).rejects.toMatchObject({
+      cause: { message: 'The worker is shutting down.' },
+    });
     expect(late.stop).toHaveBeenCalledWith('run');
     expect(
       registry.start(

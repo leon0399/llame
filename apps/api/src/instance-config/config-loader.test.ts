@@ -1111,7 +1111,7 @@ describe('loadInstanceConfig — tools.jobs.maxSeconds', () => {
       loadInstanceConfig({ IC_LIFETIME: '9000' }).tools.jobs.maxSeconds,
     ).toBe(9000);
   });
-  it.each([0, 10, 59, -1, 60.5, 9_007_199_254_740_992])(
+  it.each([0, 10, 59, -1, 60.5, 8_000_000_001, 9_007_199_254_740_992])(
     'refuses %s naming the path',
     (value) => {
       writeConfig(`{"tools":{"jobs":{"maxSeconds":${value}}}}`);

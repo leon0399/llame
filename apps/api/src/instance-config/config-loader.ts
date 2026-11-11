@@ -460,6 +460,9 @@ function resolveBashBounds(
   };
 }
 
+/** About 253 years: `startedAt + maxSeconds` stays a valid JS Date (8.64e15 ms). */
+const JOB_MAX_SECONDS_CEILING = 8_000_000_000;
+
 function resolveJobBounds(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -478,7 +481,7 @@ function resolveJobBounds(
         nullable: false,
         env,
         min: 60,
-        max: Number.MAX_SAFE_INTEGER,
+        max: JOB_MAX_SECONDS_CEILING,
       }),
       'tools.jobs.maxSeconds',
     ),

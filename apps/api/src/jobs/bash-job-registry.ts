@@ -3,6 +3,7 @@ import {
   startManagedBash,
   type BashCommandInput,
   type BashExecutorContext,
+  type BashKnownResult,
   type BashResult,
   type BashUnavailableResult,
   type BashTimedOutResult,
@@ -11,6 +12,7 @@ import {
   type ManagedStopCause,
   type ManagedStopResult,
   type StartManagedBashOptions,
+  type StreamFlags,
 } from '@workspace/bash-executor';
 
 import { type ChatDeliverySettings, type ChatJob } from '../db/schema';
@@ -23,6 +25,25 @@ import { reserveArtifactSeq } from '../tools/artifacts/artifact-writer';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { appendJobOutput, settleBashJob } from './bash-job-store';
 import { WorkerHeartbeatService } from './worker-heartbeat.service';
+
+/**
+ * A promotion that failed after the command was stopped. It carries the stop
+ * proof and the captured streams, so the caller can build the failed-move
+ * result of D4 without a second read of the handle.
+ */
+export class JobPromotionError extends Error {
+  constructor(
+    readonly stopped: ManagedStopResult,
+    options: { cause: unknown },
+  ) {
+    super('The command could not be moved to the background.', options);
+    this.name = 'JobPromotionError';
+  }
+}
+
+type JobStopCause = Exclude<ManagedStopCause, 'run'>;
+
+type OutputOffsets = Record<'stdout' | 'stderr', number>;
 
 export type BashJobFacts = {
   readonly ownerUserId: string;
@@ -42,7 +63,7 @@ type LiveJob = {
   readonly handle: ManagedBashHandle;
   readonly row: ChatJob;
   readonly facts: BashJobFacts;
-  offsets: Record<'stdout' | 'stderr', number>;
+  offsets: OutputOffsets;
   pendingBytes: number;
   flushTimer?: NodeJS.Timeout;
   lifetimeTimer?: NodeJS.Timeout;
@@ -141,8 +162,7 @@ export class BashJobRegistry {
 
       return row;
     } catch (error) {
-      await handle.stop('run');
-      throw error;
+      throw new JobPromotionError(await handle.stop('run'), { cause: error });
     }
   }
 
@@ -198,6 +218,7 @@ export class BashJobRegistry {
     };
 
     this.jobs.set(row.id, live);
+    this.commands.delete(handle);
     live.unsubscribe = handle.onOutput((bytes) =>
       this.outputArrived(live, bytes),
     );
@@ -212,14 +233,14 @@ export class BashJobRegistry {
     if (row.deadlineAt !== null)
       this.armLifetime(live, row.deadlineAt.getTime());
     void handle.settled.then((result) => {
-      if (live.completion === undefined)
-        this.observe(
-          this.finish(
-            live,
-            naturalSettlement(result),
-            'stdout' in result ? result : handle.snapshot(),
-          ),
+      if (live.completion === undefined) {
+        live.completion = this.persistCompletion(
+          live,
+          naturalSettlement(result),
+          'stdout' in result ? outputOfResult(result) : handle.snapshot(),
         );
+        this.observe(live.completion);
+      }
     });
   }
 
@@ -267,10 +288,7 @@ export class BashJobRegistry {
     live.lifetimeTimer.unref();
   }
 
-  async stop(
-    jobId: string,
-    cause: Exclude<ManagedStopCause, 'run'>,
-  ): Promise<void> {
+  async stop(jobId: string, cause: JobStopCause): Promise<void> {
     const live = this.jobs.get(jobId);
 
     if (live === undefined) return;
@@ -284,7 +302,7 @@ export class BashJobRegistry {
 
   private async stopAndSettle(
     live: LiveJob,
-    cause: Exclude<ManagedStopCause, 'run'>,
+    cause: JobStopCause,
   ): Promise<void> {
     const output = await live.handle.stop(cause);
     await this.persistCompletion(
@@ -292,16 +310,6 @@ export class BashJobRegistry {
       stoppedSettlement(cause, output),
       output,
     );
-  }
-
-  private finish(
-    live: LiveJob,
-    settlement: JobSettlement,
-    output: ManagedOutput,
-  ): Promise<void> {
-    live.completion = this.persistCompletion(live, settlement, output);
-
-    return live.completion;
   }
 
   private async persistCompletion(
@@ -314,33 +322,60 @@ export class BashJobRegistry {
     live.unsubscribe();
     // A failed periodic flush leaves offsets unchanged; settlement still stores it.
     await live.writes.catch(() => undefined);
-    await settleBashJob(
-      this.tenantDb,
-      live.row,
-      { output, settlement, offsets: live.offsets },
-      live.facts,
-    );
-    this.jobs.delete(live.row.id);
+
+    try {
+      await retrySettlement(() =>
+        settleBashJob(
+          this.tenantDb,
+          live.row,
+          { output, settlement, offsets: live.offsets },
+          live.facts,
+        ),
+      );
+    } finally {
+      // The process is gone. A row that could not be settled stays `running`
+      // while this worker lives, and the lost-on-touch join settles it once the
+      // worker stops heartbeating (D9); the error still reaches the caller.
+      this.jobs.delete(live.row.id);
+    }
   }
 
   async shutdown(): Promise<void> {
     this.accepting = false;
     await Promise.allSettled(this.promotions);
-    await Promise.all([
+
+    const stopped = await Promise.allSettled([
       ...[...this.jobs.keys()].map((id) => this.stop(id, 'worker')),
-      ...[...this.commands].flatMap((handle) =>
-        [...this.jobs.values()].some((job) => job.handle === handle)
-          ? []
-          : [handle.stop('worker')],
-      ),
+      ...[...this.commands].map((handle) => handle.stop('worker')),
     ]);
+
+    for (const outcome of stopped)
+      if (outcome.status === 'rejected')
+        this.logger.error(
+          `Stopping a command at shutdown failed: ${String(outcome.reason)}`,
+        );
   }
 
   private observe(work: Promise<void>): void {
-    void work.catch(() =>
-      this.logger.error('Background job persistence failed.'),
+    void work.catch((error: unknown) =>
+      this.logger.error(`Background job persistence failed: ${String(error)}`),
     );
   }
+}
+
+const SETTLEMENT_RETRY_DELAYS_MS = [500, 1000, 2000, 4000];
+
+/** Retry a failed settlement with backoff; a permanent failure surfaces. */
+async function retrySettlement(work: () => Promise<void>): Promise<void> {
+  for (const delay of SETTLEMENT_RETRY_DELAYS_MS) {
+    try {
+      return await work();
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  return work();
 }
 
 function naturalSettlement(result: BashResult): JobSettlement {
@@ -349,22 +384,36 @@ function naturalSettlement(result: BashResult): JobSettlement {
       state:
         result.exitCode === 0 && result.signal == null ? 'succeeded' : 'failed',
       result: {
-        exitCode: result.exitCode,
+        // A signal ends the child with no exit code; the executor's 1 is a stand-in.
+        exitCode: result.signal == null ? result.exitCode : null,
         signal: result.signal,
-        truncated: { stdout: result.truncated, stderr: result.truncated },
+        truncated: result.truncatedStreams ?? bothStreams(result.truncated),
       },
     };
 
   return { state: 'lost', result: { outcomeUnknown: true } };
 }
 
+function outputOfResult(
+  result: BashKnownResult | BashTimedOutResult,
+): ManagedOutput {
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    truncated: result.truncated,
+    truncatedStreams: result.truncatedStreams ?? bothStreams(result.truncated),
+  };
+}
+
+function bothStreams(flag: boolean): StreamFlags {
+  return { stdout: flag, stderr: flag };
+}
+
 function stoppedSettlement(
-  cause: Exclude<ManagedStopCause, 'run'>,
+  cause: JobStopCause,
   output: ManagedStopResult,
 ): JobSettlement {
-  const result = {
-    truncated: { stdout: output.truncated, stderr: output.truncated },
-  };
+  const result = { truncated: output.truncatedStreams };
 
   if (!output.proved)
     return { state: 'lost', result: { ...result, outcomeUnknown: true } };
