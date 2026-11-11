@@ -14,7 +14,9 @@ master
   <- background-jobs/job-store
   <- background-jobs/bash-executor
   <- background-jobs/output-capture
+  <- background-jobs/job-persistence
   <- background-jobs/job-runtime
+  <- background-jobs/job-recovery
   <- background-jobs/bash-async
   <- background-jobs/bash-move
   <- background-jobs/job-stop
@@ -30,23 +32,25 @@ master
 Each layer leaves `master` in a state that works. A layer that only prepares code for a later
 one changes no behavior that the model or the owner can see.
 
-| Layer            | Parent           | Owns                                                                                              | Visible change                                   | Estimate   | Issue             |
-| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------- | ----------------- |
-| `proposal`       | `master`         | The planning artifacts of this change.                                                            | none                                             | 3,250      | refs #1657        |
-| `job-store`      | `proposal`       | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats.        | `read job://`, the jobs API                      | 2,000      | refs #1657        |
-| `bash-executor`  | `job-store`      | An executor handle that outlives its call, and the host process limiter.                          | 64 commands for each worker, `limit_reached`     | 1,500      | refs #1657, #1050 |
-| `output-capture` | `bash-executor`  | Redacted incremental handle snapshots, output subscriptions, and per-stream truncation.           | none                                             | 650        | refs #1657        |
-| `job-runtime`    | `output-capture` | The registry, stored output, the settlement of a job, its lifetime, and the end of a worker.      | none                                             | 1,900      | refs #1657        |
-| `bash-async`     | `job-runtime`    | `async`, `unlimited`, background results, job settings, owner stop enforcement and Chat deletion. | `bash` with `async: true`, effective owner stops | 2,000      | refs #1657, #1051 |
-| `bash-move`      | `bash-async`     | The move of a foreground command at its bound.                                                    | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
-| `job-stop`       | `bash-move`      | The model-facing `stop` tool and its result/notice coordination.                                  | `stop`                                           | 1,300      | refs #1657        |
-| `yield`          | `job-stop`       | Calls that yield to a steer, and the interrupt fate for each call.                                | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
-| `notices`        | `yield`          | Job notices in the delivery queue, their context item, and host messages.                         | notices in a live Run                            | 2,000      | refs #1657        |
-| `host-runs`      | `notices`        | Runs that the host starts, and held notices.                                                      | a notice starts a Run                            | 1,800      | refs #1657        |
-| `wait-suspend`   | `host-runs`      | `awaiting_jobs`, the wakers, the deadline job, and admission.                                     | none                                             | 2,000      | refs #1657        |
-| `wait-resume`    | `wait-suspend`   | The `wait` tool and the attempt after a wake.                                                     | `wait`                                           | 2,000      | refs #1657        |
-| `web`            | `wait-resume`    | The sidebar state, the Jobs section, and the transcript rows.                                     | the owner controls                               | 1,800      | Closes #1657      |
-| `finalize`       | `web`            | Spec synchronization, task records, and archive movement.                                         | none                                             | 0 authored | refs #1657        |
+| Layer             | Parent            | Owns                                                                                       | Visible change                                   | Estimate   | Issue             |
+| ----------------- | ----------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------ | ---------- | ----------------- |
+| `proposal`        | `master`          | The planning artifacts of this change.                                                     | none                                             | 3,250      | refs #1657        |
+| `job-store`       | `proposal`        | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats. | `read job://`, the jobs API                      | 2,000      | refs #1657        |
+| `bash-executor`   | `job-store`       | An executor handle that outlives its call, and the host process limiter.                   | 64 commands for each worker, `limit_reached`     | 1,500      | refs #1657, #1050 |
+| `output-capture`  | `bash-executor`   | Redacted incremental handle snapshots, output subscriptions, and per-stream truncation.    | none                                             | 650        | refs #1657        |
+| `job-persistence` | `output-capture`  | Atomic job settlement, output increments, artifacts, and database failure proof.           | none                                             | 850        | refs #1657        |
+| `job-runtime`     | `job-persistence` | The registry, output capture, lifetime, and orderly worker shutdown.                       | none                                             | 1,950      | refs #1657        |
+| `job-recovery`    | `job-runtime`     | Owner-scoped heartbeat stop checks and failed-settlement recovery.                         | none                                             | 350        | refs #1657        |
+| `bash-async`      | `job-recovery`    | `async`, `unlimited`, background results, job settings, stop signals and Chat deletion.    | `bash` with `async: true`, effective owner stops | 1,900      | refs #1657, #1051 |
+| `bash-move`       | `bash-async`      | The move of a foreground command at its bound.                                             | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
+| `job-stop`        | `bash-move`       | The model-facing `stop` tool and its result/notice coordination.                           | `stop`                                           | 1,300      | refs #1657        |
+| `yield`           | `job-stop`        | Calls that yield to a steer, and the interrupt fate for each call.                         | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
+| `notices`         | `yield`           | Job notices in the delivery queue, their context item, and host messages.                  | notices in a live Run                            | 2,000      | refs #1657        |
+| `host-runs`       | `notices`         | Runs that the host starts, and held notices.                                               | a notice starts a Run                            | 1,800      | refs #1657        |
+| `wait-suspend`    | `host-runs`       | `awaiting_jobs`, the wakers, the deadline job, and admission.                              | none                                             | 2,000      | refs #1657        |
+| `wait-resume`     | `wait-suspend`    | The `wait` tool and the attempt after a wake.                                              | `wait`                                           | 2,000      | refs #1657        |
+| `web`             | `wait-resume`     | The sidebar state, the Jobs section, and the transcript rows.                              | the owner controls                               | 1,800      | Closes #1657      |
+| `finalize`        | `web`             | Spec synchronization, task records, and archive movement.                                  | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
 deltas hold MODIFIED requirements in nine capabilities, and each must restate its canonical block
@@ -112,19 +116,38 @@ The split preserves the approved behavior and keeps runtime plus its unit proof 
 - [ ] 3a.2 Run the executor lint, typecheck, build, and focused suites, including a real child whose snapshot grows while it runs; self-review before ready.
 - [ ] 3a.3 Run the GitHub review and CI loop on the published head.
 
+## 3b. Job persistence (`background-jobs/job-persistence`)
+
+This layer owns the atomic database invariant, independently of the handle registry.
+No tool starts a job here.
+
+- [ ] 3b.1 Add `appendJobOutput`, `settleBashJob`, and bounded transaction retry; direct unit tests prove suffix offsets, first-writer-wins, Chat deletion, both retry classes, and exhaustion.
+- [ ] 3b.2 Write the reserved job artifact in a savepoint and host files only after commit; direct real-database tests cover "A job artifact after the Run ended", "A short output creates no artifact", "A failed write keeps the stored increments", and "A record of a failed job".
+- [ ] 3b.3 Run focused persistence unit and integration tests, API lint and typecheck; update `CHANGELOG.md`, then self-review the draft diff before ready.
+- [ ] 3b.4 Run the GitHub review and CI loop on the published head.
+
 ## 4. Job runtime (`background-jobs/job-runtime`)
 
 No tool starts a job in this layer. Its tests drive the registry directly.
 
 - [ ] 4.1 Add `BashJobRegistry` with promotion of a handle to a job; a test covers the facts that it keeps and a promotion that fails and stops the command.
 - [ ] 4.2 Store output increments with the safe cut of design D5; tests cover "A quiet job writes nothing", "A stored line is readable two seconds later", and "A credential across two increments" with the cut inside the value.
-- [ ] 4.3 Settle a job in one retried transaction, Chat first; tests cover "A failing build settles as failed", "A survivor makes the outcome unknown", a command that a signal ends, and "A resumed Run on another worker reads a job". Also cover a failed commit that a later heartbeat retries, plus "The worker ends before the retry commits".
-- [ ] 4.4 Write the job artifact in a savepoint, with the host-file decision of the starting Run; tests cover "A job artifact after the Run ended", "A short output creates no artifact", "A failed write keeps the stored increments", and "A record of a failed job".
+- [ ] 4.3 Map command exits and stop proof to settlement facts and call the persistence API; tests cover "A failing build settles as failed", "A survivor makes the outcome unknown", a command that a signal ends, and "A resumed Run on another worker reads a job". Keep failed settlement facts for later retry and preserve a row already settled lost.
+- [ ] 4.4 Integrate the persistence layer's artifact policy with registry settlement; verify that captured output and the starting host-file decision reach the atomic settlement.
 - [ ] 4.5 Add `tools.jobs.maxSeconds` and end a job at its lifetime; tests with a fake clock cover "A hung build ends at the lifetime", "A host command ends at the job lifetime", and the `maxSeconds` half of `Operator configuration bounds background jobs`.
 - [ ] 4.6 Add `WorkerShutdownService` in a non-global module; tests cover "A deploy ends a job", a command that arrives after the shutdown began, and the destroy order before the queue.
 - [ ] 4.7 Update `SPEC.md`, `docs/product/reference/mutation-recovery.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 4.8 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 4.9 Run the GitHub review and CI loop on the published head.
+
+## 4a. Worker recovery (`background-jobs/job-recovery`)
+
+This layer wires the existing registry to heartbeat recovery without exposing a start tool.
+
+- [ ] 4a.1 Install and detach the registry's heartbeat hook; retry pending immutable settlements before owner-scoped job checks, and keep checking other jobs after one read fails.
+- [ ] 4a.2 Stop hosted work when its row is missing, has a recorded request, or is already settled; preserve an authoritative lost result. Unit tests cover healthy jobs, absent local handles, each stop cause, pending retries, and shutdown.
+- [ ] 4a.3 Run focused recovery tests, API lint and typecheck; document the heartbeat behavior and self-review the draft diff before ready.
+- [ ] 4a.4 Run the GitHub review and CI loop on the published head.
 
 ## 5. Async start (`background-jobs/bash-async`)
 
@@ -133,7 +156,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 - [ ] 5.3 Keep a job across the end of its Run; tests cover "A job continues after its Run completes", "A job continues after its Run fails", and "Stop after the move" for an `async` job.
 - [ ] 5.4 Update `apps/api/src/prompts/tools/bash.md` and its exact-output tests for "Description has the background instructions" and "An absent tool is not recommended".
 - [ ] 5.5 Update `docs/product/reference/tools/bash.md`, a new `docs/product/operator/background-jobs.md` with its link in `operator/index.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 5.6 Add the `job-stop` signal and the heartbeat re-check; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", and a lost signal that the heartbeat finds. Also cover "A worker resumes after its row was settled lost".
+- [ ] 5.6 Add the `job-stop` signal on top of heartbeat recovery; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", a lost signal that the heartbeat finds, and "A worker resumes after its row was settled lost".
 - [ ] 5.7 End each live job when a Chat is deleted: take the Chat row lock explicitly before the select of the live job ids, send the stop pointers in the deletion transaction, and stamp no request field, because the cascade removes the record; a test covers "A deleted Chat leaves no process".
 - [ ] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
 - [ ] 5.9 Run the GitHub review and CI loop on the published head.
