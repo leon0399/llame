@@ -100,7 +100,7 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 
 ## 2. Job store (`background-jobs/job-store`)
 
-- [x] 2.1 Add `chat_jobs`, `chat_job_chunks`, and `worker_instances` with `pnpm db:generate` and hand-appended `FORCE ROW LEVEL SECURITY`; `pnpm --filter api db:check` passes and `pnpm db:provision-rls` succeeds. (`db:provision-rls` needs the compose `postgres` service, which this worktree lacks; the integration global setup applies the same `rls-function-owner.sql` to its container.)
+- [ ] 2.1 Add `chat_jobs`, `chat_job_chunks`, and `worker_instances` with `pnpm db:generate` and hand-appended `FORCE ROW LEVEL SECURITY`; `pnpm --filter api db:check` passes and `pnpm db:provision-rls` succeeds. Schema generation and `db:check` passed; the integration setup provisioned RLS in its disposable container. The standalone provisioning command remains unexercised.
 - [x] 2.2 Add the job repository with first-writer-wins settlement; integration tests cover "A late stop does not change a settled job" and the single settled state of "A settlement is recorded twice".
 - [x] 2.3 Add the worker heartbeat with an identity that is new at each start, and the dead-worker join; integration tests cover "A crash is found at the next message" (with a stale heartbeat row), "A lost job keeps its stored output", and "A job on a dead worker is not counted".
 - [x] 2.4 Reserve an artifact number for a job and add the transaction-scoped artifact commit that takes a reserved number; a test covers "The job and its artifact share a number" with rows that a fixture inserts.
