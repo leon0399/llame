@@ -260,6 +260,26 @@ describe('real host async jobs', () => {
     expect(() => process.kill(-job.pid!, 0)).toThrow('ESRCH');
   });
 
+  it('a resumed worker stops work already settled as lost without rewriting its result', async () => {
+    const job = await start();
+    await sql`
+      UPDATE worker_instances
+      SET last_seen_at = now() - interval '1 hour'
+      WHERE id = ${heartbeat.instanceId}
+    `;
+    await tenant.runAs(owner, (db) =>
+      new ChatJobsRepository(db).settleOnDeadWorkers(context.chatId, owner, 60),
+    );
+    const lost = (await jobs())[0];
+    expect(lost?.state).toBe('lost');
+    expect(() => process.kill(-job.pid!, 0)).not.toThrow();
+
+    await heartbeat.beat();
+
+    expect(() => process.kill(-job.pid!, 0)).toThrow('ESRCH');
+    expect((await jobs())[0]).toEqual(lost);
+  });
+
   it('the heartbeat commits a natural exit after a transient settlement failure', async () => {
     const settle = vi
       .spyOn(ChatJobsRepository.prototype, 'settle')
