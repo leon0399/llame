@@ -241,9 +241,7 @@ The settlement of a job MUST be one transaction with its notice and any wake. A 
 transaction MUST roll back and leave the job `running`. The worker MUST keep the immutable facts
 of the settlement and MUST retry it at each heartbeat until it commits or the worker ends. A
 worker that crashes or loses its heartbeat is dead, and the touch rule settles its job as `lost`.
-An orderly shutdown MUST keep and retry the known natural settlement of a job that already
-exited, and MUST stop a job that still runs and settle it `cancelled` by `worker`. The retry MUST
-NOT stop a running command.
+The retry MUST NOT stop a running command.
 
 #### Scenario: A queue insert fails during a settlement
 
@@ -254,6 +252,16 @@ NOT stop a running command.
 
 - **WHEN** a settlement keeps failing and its worker then crashes or loses its heartbeat
 - **THEN** the job settles as `lost` at its next touch
+
+### Requirement: An orderly shutdown keeps known settlements
+
+An orderly shutdown MUST keep and retry the known natural settlement of a job that already
+exited. It MUST stop a job that still runs and settle it `cancelled` by `worker`.
+
+#### Scenario: A shutdown with a pending settlement
+
+- **WHEN** a job exited, its settlement failed to commit, and its worker then shuts down in order
+- **THEN** the worker retries the same settlement, and it does not replace it with `lost`
 
 ### Requirement: A deleted Chat ends its jobs
 

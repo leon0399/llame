@@ -311,9 +311,8 @@ text MUST start with: "Moved to the background to handle an incoming message."
 A Run can be cancelled, expire, or fail while a host `bash` call runs in the foreground. The
 host MUST then stop that command under the cancellation rules of this capability. The host MUST
 NOT stop a command that already moved to the background. A Run abort of any
-kind (cancellation, expiry, or failure) that arrives while a move is pending MUST NOT stop the
-command. The pending move wins, and a move that commits leaves a normal job. A Run abort that
-arrives before the move starts MUST stop the foreground command. Remote commands do not change.
+kind MUST NOT stop a command whose move is pending, and a move that commits leaves a normal job.
+A Run abort before the move starts MUST stop the foreground command. Remote commands do not change.
 
 #### Scenario: Stop during a foreground command
 
