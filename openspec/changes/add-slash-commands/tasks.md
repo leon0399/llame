@@ -56,8 +56,10 @@ into `compact-window`.
 
 ## 1. proposal
 
-- [ ] 1.1 Validate the change: `pnpm exec openspec validate add-slash-commands --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/add-slash-commands/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
-- [ ] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
+- [x] 1.1 Validate the change: `pnpm exec openspec validate add-slash-commands --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/add-slash-commands/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
+  - Evidence: on `7c5b3fb3`, `openspec validate add-slash-commands --strict` reports the change valid; markdownlint reports no issue in the change; the link check, `oxfmt --check`, and `git diff --check` are clean. The commit hooks could not run in the authoring shell (its `pnpm` is broken), so these ran directly.
+- [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
+  - Evidence: round 1 (spec consistency 9 P1, 10 P2; feasibility 1 P0, 6 P1, 8 P2; fixes in `e4d8b71a`) and round 2 (spec consistency 4 P1, 8 P2; feasibility 2 P1, 9 P2; fixes in `7c5b3fb3`). design.md "Revision history" records each round. Round 2 still changed substance, so the review has not converged; the GitHub review loop is the next round.
 - [ ] 1.3 Self-review the published proposal PR diff (SR), mark it ready, and run the GitHub review loop (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
 - [ ] 1.4 Obtain Leo's approval of the published revision, including the decisions that the proposal lists as made in review.
 
