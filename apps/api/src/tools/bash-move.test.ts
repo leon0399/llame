@@ -228,6 +228,7 @@ describe('foreground host bash move', () => {
     const admission = Promise.withResolvers<undefined>();
     const limiter = new BashProcessLimiter(1);
     const start = vi.spyOn(registry, 'start');
+    await vi.advanceTimersByTimeAsync(100);
 
     begin.mockReturnValue(admission.promise);
     moved.abort();
@@ -266,6 +267,32 @@ describe('foreground host bash move', () => {
     admission.resolve(undefined);
     await expect(call).resolves.toMatchObject({ type: 'cancelled' });
     expect(start).not.toHaveBeenCalled();
+  });
+
+  it.each(['bashJobs', 'jobSettings'] as const)(
+    'refuses a host command without %s before recording a native attempt',
+    async (missing) => {
+      await expect(
+        bashTool.execute(contextFor({ [missing]: undefined }), {
+          command: 'make test',
+        }),
+      ).resolves.toMatchObject({ type: 'executor_unavailable' });
+      expect(begin).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns a natural foreground exit without stopping the command', async () => {
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(0);
+    registry.command.exit(0);
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      stdout: '',
+      stderr: '',
+    });
+    expect(registry.command.stop).not.toHaveBeenCalled();
+    expect(results()).toMatchObject([{ result: { status: 'success' } }]);
   });
 
   it('A long test suite passes the bound and is not stopped', async () => {
@@ -323,11 +350,12 @@ describe('foreground host bash move', () => {
     registry.promotion = () => commit.promise;
     moved.abort();
     const call = bashTool.execute(contextFor(), { command: 'x' });
-    await vi.advanceTimersByTimeAsync(750);
-
-    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    await vi.advanceTimersByTimeAsync(0);
+    // The commit completes after the deadline but before its continuations run.
+    vi.advanceTimersByTime(750);
     commit.resolve(jobRow(7));
-    await vi.advanceTimersByTimeAsync(10);
+    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    await vi.advanceTimersByTimeAsync(0);
     expect(results()).toHaveLength(1);
     expect(results()[0]).toMatchObject({ result: { type: 'outcome_unknown' } });
     expect(registry.command.stop).not.toHaveBeenCalled();
