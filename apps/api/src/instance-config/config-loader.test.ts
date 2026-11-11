@@ -1066,7 +1066,7 @@ describe('loadInstanceConfig — tools.bash.maxProcesses (background-jobs D7)', 
     });
   });
 
-  it.each([0, -3, 1.5, 9_007_199_254_740_992])(
+  it.each([null, 0, -3, 1.5, 9_007_199_254_740_992])(
     'refuses %s, naming the path',
     (value) => {
       writeConfig(`{ "tools": { "bash": { "maxProcesses": ${value} } } }`);
