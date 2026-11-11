@@ -125,6 +125,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 - [ ] 6.1 Add `tools.bash.backgroundAfterSeconds` and give a `host` call separate Run-abort and timeout signals in the runner; tests cover the rest of `Operator configuration bounds host commands`, every scenario of `The call timeout caps the foreground bound of host bash`, and a per-call timeout that never rejects a host call as `outcome_unknown`.
 - [ ] 6.2 Move a foreground command at the bound; tests with a fake clock cover "A long test suite passes the bound", "Output from before the move is kept", "A host command is not stopped at the foreground bound", and "The job record cannot be written".
       Also cover "A failed move with an unproved stop" and "A move that is recorded late".
+      Assert exactly one `native.result` for a late move and that the command keeps running.
 - [ ] 6.3 Keep the remote paths: tests cover "A remote command still ends at its deadline", "Proven-stopped timeout is known", and "Unproven stop after timeout is unknown and the Run continues" on a `machine://` directory.
 - [ ] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command".
 - [ ] 6.5 Update `docs/product/reference/tools/bash.md`, `docs/product/operator/native-files.md`, `docs/product/operator/background-jobs.md`, `docs/product/operator/scaling.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
@@ -134,7 +135,6 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 ## 7. Stop (`background-jobs/job-stop`)
 
 - [ ] 7.1 Add the `stop` tool, its prompt file, its reference page, and its permission group in the example and the fixtures, and admit it as a host-capability tool; update the tests that count the code-owned tools. Tests cover "The model stops a monitor" (the `cancelled` entry), "A settled job keeps its state", "A stop that settles late", "Stop is advertised with bash", "Stop without host authority is not advertised", "A stop needs its own group", and a `stop` call in a Run whose mode is `read-only`.
-      Cover "A late stop gets a notice" and the atomic decision between a settled result and a running stop request.
 - [ ] 7.4 Add the isolation test "A tool call cannot name a job of another owner" for `stop`.
 - [ ] 7.5 Update `docs/product/reference/tools/index.md`, `stop.md`, `permission-modes.md`, `tool-call-permissions.md`, `tool-prompts.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready.
@@ -143,6 +143,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 ## 8. Yield (`background-jobs/yield`)
 
 - [ ] 8.1 Add the `steer` kind on the control channel and the level-triggered yield signal of a segment; integration tests cover "A steer during a host command returns the call", "A steer during a tool call waits for the result" (`grep`), "A read does not yield", "Two commands yield at one signal", "A steer reaches a dedicated worker", "A lost signal delays the steer", "A steer names its cause", and a command that starts while a steer is pending.
+      Cover a message-triggered promotion that exceeds its own 750 ms window without blocking delivery.
 - [ ] 8.2 Decide the interrupt fate for each call from `bashTarget` and await `background` calls in `settleOnInterrupt`; update `registry.test.ts` and `tool-settlement.test.ts`. Integration tests cover "A host command continues after an interrupt", "An interrupt kills a long command" (`ssh://`), "A call that yields carries no interrupt marker", and an interrupt during a Machine Workspace call with no `cwd`.
 - [ ] 8.3 Update `docs/product/reference` for steering during a command and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready.
@@ -151,7 +152,9 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 ## 9. Notices (`background-jobs/notices`)
 
 - [ ] 9.1 Admit the producer `job` and the mode `notice`, with the unique index (`pnpm db:generate`, `db:check`), the delivery read, and the exclusions in `pauseBehind`, `firstPendingQueueItem`, and `changePendingMode`. Add the producer kind and the job fields to `ChatDeliveryResponse`, and regenerate `openapi.json`, the web client, and both live-protocol copies. Tests cover "A job item names its job", "The owner cannot make a notice an interrupt", "A send cannot forge a notice", "The owner drops a result", and a failed Run that leaves a notice a `notice`.
-- [ ] 9.2 Insert the notice in the settlement transaction and signal a Run that executes; integration tests cover "A job that nobody waits on", the single notice of "A settlement is recorded twice", the absent notice of "The model stops a monitor", "A steer and a notice at one boundary", "A notice alone at one boundary", "A job item between two steps gets a host message", "A delivery of one notice names its cause", "A notice from a job of another model", "A job settles during the final answer", "A job settles during a model response", "A read keeps the notice", and "A live Run learns of a crash at its next step".
+- [ ] 9.2 Insert the notice in the settlement transaction and signal a Run that executes; integration tests cover "A job that nobody waits on", the single notice of "A settlement is recorded twice", the withdrawn notice of "The model stops a monitor", "A steer and a notice at one boundary", "A notice alone at one boundary", "A job item between two steps gets a host message", "A delivery of one notice names its cause", "A notice from a job of another model", "A job settles during the final answer", "A job settles during a model response", "A read keeps the notice", and "A live Run learns of a crash at its next step".
+      Cover "A late stop gets a notice", "A cancelled stop keeps the notice", and "A discarded stop result restores its notice".
+      Persist exactly the consumed delivery ids as server-only tool-event metadata.
 - [ ] 9.3 Add the `job` context producer, its packaged template, and the trigger row with no stored content; tests cover "A notice for a failed build", "A notice for a job that the owner stopped", "Output that copies an envelope", "A long output is cut", and "A job notice follows the interrupted item", a notice that names the host directory, and a provider request in which the earlier reply is still present.
 - [ ] 9.4 Store host messages and skip them in the title, the list preview, the recency digest, the public projection, and the shared fork; tests cover "A host message in the history", "A host message is not search evidence", "A shared Chat shows no job output", "A host message is not copied into a shared fork", and "A fork during a live job".
 - [ ] 9.5 Restate `llame_notify_change()` for `chat_jobs` in a manual migration with its header comment; an integration test receives `chat.upserted` with the new `runningJobs` and proves that another owner receives nothing.
@@ -175,10 +178,11 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the servic
 - [ ] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
 - [ ] 11.2 Add the suspension transaction with its retry, the `suspend` stop cause, and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
       Insert the deadline job in the suspension transaction and cover "A worker crashes right after a wait starts".
-- [ ] 11.3 Add the wake update, the dispatch variant with a job id, and the `wake` field of `RunJob`; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a deadlock retry of a settlement against a suspension.
-      Add transactional enqueue (`EnqueueOptions.tx`, a postgres.js-compatible pg-boss adapter, and `enqueueInTransaction`).
+- [ ] 11.3 Add the wake update, transactional `enqueueInTransaction`, and the `wake` field of `RunJob`; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry.
+      Add `EnqueueOptions.tx` and a postgres.js-compatible pg-boss adapter.
       Prove rollback leaves no job, commit keeps the delay, and "A waker crashes after its commit".
       Cover "A failed wake insert leaves the Run waiting"; retry Chat deletion and admission as well as settlement.
+      A `null` enqueue result throws and retries with a fresh id; the deadline waker reuses its existing job.
 - [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits".
       An absent recorded job is stuck at once; the first-job enqueue retains its existing grace.
 - [ ] 11.5 Anchor the budget at the first claim; a test covers "A Run passes its budget while it waits".
@@ -192,7 +196,8 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the servic
 - [ ] 12.2 Seed the first attempt after a wake with the `wait` tool part, in the collector, the request builder, the finalizer, and the step offset; integration tests cover "A wake does not restart the segment", "A build fails while the Run waits", the resumed step of "A settlement and a steer arrive together", a provider request that holds the `wait` call and its result, and a reload that shows the earlier steps once.
 - [ ] 12.3 Compute the `wait` result and withdraw consumed notices in the transaction that records its tool result; integration tests cover "One of three jobs fails", "A steer ends a wait", "Another job ends a wait", "A waited job gives no notice", "The worker of a waited job crashes", "A Run that waits ends its wait at the deadline", and "A cancellation after a waited job settled keeps the notice".
 - [ ] 12.4 Apply the retry rules after a wake; integration tests cover "A retry after a wake restarts a read-only segment", "A worker stops after the wake", "A worker stops after the wake of a segment with a command", and "A worker stops after a wait returned".
-      Restore the existing withdrawn row only for this Run's consumed result; an owner-deleted notice stays withdrawn.
+      Restore exactly the recorded consumed delivery ids; an owner-deleted notice stays withdrawn.
+      Cover "A kept result does not restore its notice", plus budget, model-unavailable and dead-letter endings before wake pickup.
 - [ ] 12.5 Pin the usage of a woken reply; a test proves that it sums the requests of the seeded attempt and is `complete: false`, and that the segment budget counts the earlier steps.
 - [ ] 12.6 Update `docs/product/reference/tools/wait.md`, `tools/index.md`, `SPEC.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 12.7 Run the API lint, typecheck, and the focused suites; self-review before ready.

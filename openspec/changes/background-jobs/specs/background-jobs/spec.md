@@ -322,17 +322,27 @@ entry of that job, and it MUST NOT return `ended: "timeout"`.
 - **WHEN** the model waits on `job://bash-4` with the default timeout, and the worker of that job crashes
 - **THEN** the `wait` returns at its deadline at the latest, with `ended: "settled"` and the job as `lost`
 
-### Requirement: A discarded wait result restores the notice
+### Requirement: A discarded tool result restores consumed notices
 
-A retry of a Run can discard the result of a `wait` that reported a settled job. The system
-MUST then make the notice of that job pending again, so the settlement reaches the model. A
-settlement MUST NOT be lost because a worker stopped. The system MUST NOT restore a notice that
-the owner deleted.
+A retry can discard a `wait` or `stop` result that reported a settled job. The system MUST
+restore exactly the notice ids consumed by that result, recorded as server-only event metadata.
+It MUST update existing rows. It MUST NOT restore notices consumed by a kept result or deleted
+by the owner. A settlement MUST NOT be lost because a worker stopped.
 
 #### Scenario: A worker stops after a wait returned
 
 - **WHEN** a `wait` reports `job://bash-4` as `failed`, the worker stops, and the retry restarts the segment
 - **THEN** the Chat has a pending notice for `job://bash-4`, and the retry delivers it at its first step boundary
+
+#### Scenario: A kept result does not restore its notice
+
+- **WHEN** a kept result consumed a notice, and a later discarded result reports the same job but consumed nothing
+- **THEN** the notice stays withdrawn
+
+#### Scenario: A discarded stop result restores its notice
+
+- **WHEN** a recorded `stop` result consumed a notice and a retry discards that result
+- **THEN** the existing notice becomes pending again
 
 ### Requirement: A wait takes the place of the notice
 
@@ -359,13 +369,13 @@ that transaction and record the consuming Run. A `read` MUST NOT withdraw a noti
 
 `stop` MUST accept 1 to 16 job locators, stop each running job, and return each state. Settled
 jobs MUST keep their states. A stopped job MUST name the stopper `assistant`. A settled state
-reported by `stop` MUST get no notice. After 5 seconds without settlement, `stop` MUST report
-`running` with the stop request; the later settlement MUST create a notice.
+reported by `stop` MUST consume its notice in the transaction that records the result. After
+5 seconds without settlement, `stop` MUST report `running` and consume no notice.
 
 #### Scenario: The model stops a monitor
 
 - **WHEN** the model calls `stop` with `job://bash-4`, and that job is `running`
-- **THEN** the result names the job as `cancelled`, and no notice is created
+- **THEN** the result names the job as `cancelled`, and its recording transaction withdraws the notice
 
 #### Scenario: A settled job keeps its state
 
@@ -381,6 +391,11 @@ reported by `stop` MUST get no notice. After 5 seconds without settlement, `stop
 
 - **WHEN** `stop` reports a job as `running`, and it settles later as `cancelled`
 - **THEN** the Chat has one pending notice for that job, naming the stopper `assistant`
+
+#### Scenario: A cancelled stop keeps the notice
+
+- **WHEN** a job settles during `stop`, and the Run is cancelled before its result is recorded
+- **THEN** the Chat keeps the pending notice for that job
 
 ### Requirement: A stop is known only after proof
 
@@ -409,8 +424,8 @@ When the signal is lost, the worker MUST find the request at its next heartbeat 
 
 A settlement MUST create one pending item of `run-steering` with the producer kind `job`, the
 mode `notice`, and the job as sender reference. This MUST occur in the transaction that settles
-the job. A job MUST get at most one notice. The exception is a job whose settled state a
-`stop` result reports. A `wait` consumes a notice in the transaction that records its result.
+the job. A job MUST get at most one notice. A `wait` or `stop` consumes notices only in the
+transaction that records its result, and only for the settled states that result reports.
 
 #### Scenario: A job that nobody waits on
 

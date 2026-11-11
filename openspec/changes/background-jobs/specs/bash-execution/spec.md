@@ -124,8 +124,8 @@ A live `outcome_unknown` result that is recorded while the Run still executes MU
 observation. The Run MUST continue. A later approved bash call on that worker MUST be admitted
 when the process bound has a free slot. The model-facing message MUST tell the model to inspect
 the current workspace state before a new attempt. The host MUST still signal the process group
-at settlement, as a best effort. The host MUST NOT refuse a later bash admission because of an
-earlier unknown on that worker.
+at settlement as a best effort, except when a background promotion remains in progress.
+The host MUST NOT refuse a later bash admission because of an earlier unknown on that worker.
 
 The durable `native.attempt` MUST still prevent a second execution of the command by recovery.
 When a Run is resumed on any host after an attempt without a recorded result, recovery MUST fail
@@ -139,8 +139,9 @@ result with the observed exit status. A group that cannot be proven empty MUST r
 `outcome_unknown`.
 
 A command on the llame host has no per-call deadline. At its foreground bound the call MUST
-start the move and record `backgrounded` as its attempt result. The deadline of the command is
-the job lifetime of `background-jobs`. For a command on
+start the move. A successful move within the settlement window MUST record `backgrounded`;
+a failed or late move MUST follow the rules of `A move that fails stops the command`.
+The command deadline is the job lifetime of `background-jobs`. For a command on
 an `ssh://` or `machine://` directory, the runner MUST pass bash a separate timeout signal and
 duration. The effective deadline of that command MUST be the lesser of the per-call timeout of
 the runner and the 300-second cap of the managed executor. Caller cancellation stays separate.
@@ -228,11 +229,10 @@ that background work is available only on the llame host.
 
 ### Requirement: A foreground host command moves to the background
 
-A foreground `bash` call on the llame host MUST return `backgrounded` when the command reaches
-the foreground bound of `instance-config`. It MUST also return `backgrounded` when a steer, an
-interrupt, or a job notice signals the Run. In each case the command MUST become a job of
-`background-jobs`, and the host MUST NOT stop it. The call MUST NOT settle as `timeout` or
-`timed_out`. The job MUST keep the output from before the move.
+A foreground host `bash` call MUST start a move when it reaches the bound of `instance-config`,
+or when a steer, interrupt, or job notice signals the Run. A successful timely move MUST return
+`backgrounded`, keep the earlier output, and leave the command running as a job.
+A failed or late move MUST follow `A move that fails stops the command`.
 
 #### Scenario: A long test suite passes the bound
 
@@ -246,11 +246,11 @@ interrupt, or a job notice signals the Run. In each case the command MUST become
 
 ### Requirement: A move that fails stops the command
 
-When the host cannot record the job of a move, it MUST stop the command under the cancellation
-rules of this capability. A proved stop MUST return `timed_out` with the captured output and a
-message that names the failed move. An unproved stop MUST return `outcome_unknown`. The call
-MUST settle within 750 ms after its foreground bound. A promotion that commits after this
-window MUST leave a job that settles and reports normally.
+A failed move MUST stop the command under the cancellation rules. A proved stop MUST return
+`timed_out` with its output and a failed-move message; an unproved stop MUST return
+`outcome_unknown`. The call MUST settle within 750 ms of starting the move. A late commit MUST
+leave a normal job. A late failure MUST stop the command but keep its recorded
+`outcome_unknown` result.
 
 #### Scenario: The job record cannot be written
 

@@ -14,8 +14,9 @@ request MUST pass the same admission as a new message. When a worker stops durin
 `job-queue` substrate MUST recover or expire its Run (worker-death recovery or dead-letter).
 
 The first queue job of a Run MUST have the Run's own id (per `job-queue`'s named-job
-requirement). A Run that enters or leaves `awaiting_jobs` MUST record the id of its next queue
-job and insert that job in the same transaction. The current job of a Run is the job that the Run records, or the job with the Run's own id
+requirement). A Run that enters or leaves `awaiting_jobs` MUST record its next queue job id.
+That job MUST exist at commit: inserted in the transaction, or the current deadline job that
+wakes the Run. The current job is that recorded job, or the job with the Run's own id
 when it records none. Thus the single-flight admission path judges a blocker Run from the state
 of its current job, not from the age of the Run. A blocker Run whose current job is `queued`,
 `retrying`, or `active` is live. Admission MUST reject the new message or follow-up request with
@@ -196,9 +197,9 @@ timeout.
 
 Enqueuing a run SHALL NOT be assumed transactional with the run row. An enqueue failure SHALL immediately fail the run (freeing the chat's single-flight slot); any residual `queued`-but-orphaned state SHALL self-heal — a same-message retry supersedes it, and a different message expires it through single-flight admission once the run has no job and is older than one liveness window — with no manual cleanup.
 
-This rule applies to the first job of a Run. The deadline job of a `wait` and the job of a wake
-MUST be inserted in the transaction that records them. A failed insert MUST roll that
-transaction back, and the Run MUST stay as it was.
+This rule applies to the first job of a Run. A new deadline or wake job MUST be inserted in
+the transaction that records it. A deadline job that wakes the Run uses its existing id and
+inserts no job. A failed insert MUST roll the transaction back, leaving the Run as it was.
 
 #### Scenario: Enqueue failure frees the slot and self-heals
 
@@ -231,10 +232,10 @@ Chat.
 
 ### Requirement: A Run starts to wait only when nothing is pending
 
-The move to `awaiting_jobs` MUST be one transaction, fenced by the attempt of the Run. That
-transaction MUST check that each listed job is `running` and that no cancellation is recorded.
-It MUST also check that the Chat has no pending `steer`, `interrupt`, or `notice` item. When a
-check fails, the Run MUST NOT wait, and the `wait` MUST return in the same attempt.
+The move to `awaiting_jobs` MUST be one attempt-fenced transaction. Its checks MUST serialize
+with settlement through the Chat row lock. Each listed job MUST still be `running`, with no
+cancellation or pending `steer`, `interrupt`, or `notice`. A failed check MUST return `wait`
+in the same attempt without suspension.
 
 #### Scenario: A job settles just before the wait
 
@@ -243,12 +244,10 @@ check fails, the Run MUST NOT wait, and the `wait` MUST return in the same attem
 
 ### Requirement: One waker resumes a Run that waits
 
-A waker is a settlement of a job of the Chat, an admitted `steer` or `interrupt` item, a
-recorded cancellation, or the deadline job. A pending `queue` item is not a waker. Each waker
-MUST move the Run from
-`awaiting_jobs` to `queued` with one conditional update on the wake generation of the Run. Only
-the waker whose update changes the Run MUST enqueue the next queue job. Each wait MUST have a new
-wake generation.
+A waker is a job settlement, an admitted `steer` or `interrupt`, cancellation, or the deadline
+job. A pending `queue` item is not a waker. One conditional update of the wake generation MUST
+move the Run from `awaiting_jobs` to `queued`. Only its winner MUST insert the next job in that
+transaction, unless the winner is the existing deadline job. Each wait MUST have a new generation.
 
 #### Scenario: A settlement and a steer arrive together
 

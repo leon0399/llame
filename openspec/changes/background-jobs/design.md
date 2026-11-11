@@ -108,8 +108,7 @@ change to the Machine protocol or to the behavior of the Machine daemon; a new p
 
 - `chat_jobs`: `id`, `chat_id` and `owner_user_id` (composite FK to `chats`, cascade),
   `executor`, `seq`, `state`, `stopped_by`, `run_id`, `tool_call_id`, `worker_instance_id`, `pid`,
-  `started_at`, `settled_at`, `deadline_at`, `stop_requested_at`, `stop_requested_by`,
-  `stop_reported_running`, `result`
+  `started_at`, `settled_at`, `deadline_at`, `stop_requested_at`, `stop_requested_by`, `result`
   (jsonb: exit code, truncation flags), `outputs` (text array), `artifact_id`,
   `artifact_readable`, and the settings of the starting Run. Unique on
   `(chat_id, executor, seq)`. Policy as `chat_deliveries_owner`, with
@@ -165,8 +164,10 @@ composed signal.
 The runner changes for a `host` call:
 
 - The call gets the Run abort and the per-call timeout as **separate** signals. The timeout is a
-  move trigger and never an abort. The 750 ms rejection of `withAbort` applies to the Run abort
-  only.
+  move trigger and never an abort. Run abort keeps its existing 750 ms settlement grace.
+  Every foreground promotion (bound or yield) starts a separate 750 ms result/persistence
+  window. Expiry records exactly one `outcome_unknown` result without signalling a command
+  whose promotion is pending. A later failure stops the command but cannot replace that result.
 - The foreground bound is `min(tools.bash.backgroundAfterSeconds, tools.callTimeoutSeconds)`.
 
 The foreground call races four things: `settled`, the bound, the yield signal of the segment,
@@ -174,8 +175,9 @@ and the Run abort.
 
 - `settled` first: the call returns the ordinary result, as today.
 - Bound or yield first: the registry promotes the command. It reserves the number, inserts the
-  `chat_jobs` row, and stores the output captured up to that point. The call then returns
-  `backgrounded` and appends `native.result` with that result.
+  `chat_jobs` row, and stores the output captured up to that point. If the move and its result
+  persist within the window, the call returns `backgrounded` and appends one `native.result`.
+  A late promotion remains a normal job and MUST NOT append a second `native.result`.
 - A promotion that fails stops the command with `stop('run')`. A proved stop returns
   `timed_out` with the captured output and a message that names the failed move.
   An unproved stop returns `outcome_unknown`. The promotion failure retains the stop proof.
@@ -214,9 +216,9 @@ In `tenantDb.runAs(owner)`. The transaction is retried on `40P01` and `40001`.
    transaction.
 3. When an output does not fit 2,000 characters and `artifact_readable` holds, write the artifact
    in a savepoint and delete the chunks. A failed write rolls back the savepoint only.
-4. Insert the `notice` item unless an assistant stop has already reported the settled state.
-   A `wait` that reports the job withdraws it in the transaction that records its result
-   (D11, D12). Read the Chat's non-terminal Run without a row lock.
+4. Insert one `notice` item for the settlement. The transaction that records a `wait` or `stop`
+   result withdraws notices for the settled states that result reports and records its Run id.
+   Read the Chat's non-terminal Run without a row lock.
 5. When the Run is in `awaiting_jobs`, run the waker update (D11), which is the only write to
    the Run row. When the Run executes, call `notifyRunControl(tx, { runId, kind: 'steer' })`,
    so a foreground command yields.
@@ -282,26 +284,28 @@ The `stop` tool then waits for the settlement: on the promise of the registry wh
 hosts the job, and otherwise by a read of the job row every 250 ms. After 5 s it reports the job
 as `running` with the recorded stop request.
 
-When `stop` is about to report `running`, it locks the Chat and then the job. If the job is
-still running, it sets `stop_reported_running`. Otherwise it reports the settlement. Settlement
-creates a notice for an assistant stop only when that flag is set. The result path that
-reports a settled state consumes its notice atomically. The `job-stop` layer adds the flag.
+The transaction that persists the `stop` result consumes notices only for settled states that
+the result reports, using the same Run-correlated withdrawal as `wait`. A result that reports
+`running` consumes no notice. A cancellation before result persistence leaves the notice
+pending. Discarding a stored `stop` result restores only that Run's consumed notices.
 
 ### D11: `awaiting_jobs`, the wake generation, and the current job
 
 New on `runs`: `wake_generation integer`, `current_job_id uuid`, and `awaiting jsonb` (the open
 `wait` call id, the listed job ids, the deadline). `awaiting_jobs` joins the `run_status` enum.
 
-**Suspend.** `wait.execute` answers at once from the job rows when a listed job is settled or
-lost, and it withdraws a pending notice of each job that it reports as settled. A second `wait`
-call in one step returns an error. Otherwise `wait.execute` returns a suspension sentinel. The
+**Suspend.** `wait.execute` answers at once when a listed job is settled or lost. It does not
+consume any notice itself: the transaction that records `tool.completed` consumes notices and
+records the exact consumed delivery ids as server-only event metadata. A second `wait` call in
+one step returns an error. Otherwise `wait.execute` returns a suspension sentinel. The
 executor does not record the sentinel as a result. When every other call of the step has
 settled, the executor ends the stream with the stop cause `suspend` and runs one transaction,
 fenced by `activeAttemptId`:
 
-1. Re-check the listed jobs, the pending `steer`, `interrupt`, and `notice` items, and the
-   cancellation. A failed check ends the transaction. The attempt then computes the real `wait`
-   result, replaces the sentinel in the messages of the loop with it, records it, and continues.
+1. After the attempt fence, lock the Chat row `FOR UPDATE`. Re-check listed jobs, pending
+   `steer`, `interrupt`, and `notice` items, and cancellation under that lock. A failed check
+   ends the transaction. The attempt computes the real `wait` result, replaces the sentinel,
+   and persists it through the same atomic result/notice transaction as a direct answer.
 2. Set `status = 'awaiting_jobs'`, increment `wake_generation`, and set `awaiting` and
    `current_job_id` to a fresh UUID.
 3. Append `run.suspended { toolCallId, toolInput, jobIds, generation, parts, steps }`. `parts`
@@ -313,6 +317,9 @@ The suspension inserts the deadline job with `startAfter` in that same transacti
 Drizzle transaction. The packaged `fromDrizzle` adapter assumes a different result shape from
 postgres.js and must not be used without a compatible row projection. The suspension and its
 deadline job commit together or not at all. `executeJob` accepts `awaiting_jobs` as a normal end.
+`enqueueInTransaction` MUST throw when `send` returns `null`; a fresh job id must not collide.
+Generate fresh ids inside the retried function. Settlement holds the same Chat lock as
+suspension, so it either precedes the check or observes the committed suspension and wakes it.
 
 **Wake.** `UPDATE runs SET status = 'queued', current_job_id = $new WHERE id = $id AND status =
 'awaiting_jobs' AND wake_generation = $gen RETURNING ...`, with `run.resumed { generation,
@@ -368,10 +375,10 @@ The seeded attempt:
 The stream bridge does not translate `run.suspended`. It already replays the events of the
 attempt before the wait, and it translates the appended `tool.completed`.
 
-A retry that discards the seeded attempt returns its consumed notices to `pending` and clears
-their `run_id`. It updates the existing rows; it does not insert duplicates. Only notices
-withdrawn by this Run for the discarded result qualify. An owner-deleted notice has no
-`run_id` and stays withdrawn.
+A retry that discards a stored `wait` or `stop` result restores exactly the delivery ids that
+its `tool.completed` metadata says it consumed. Clear their `run_id` while returning them to
+`pending`. A result that consumed nothing records an empty list. Earlier kept results and
+owner-deleted notices MUST NOT be restored. These ids never enter model-facing tool results.
 
 Usage follows the shipped rules. The reply usage sums the requests of the seeded attempt, and
 it is `complete: false`, because another attempt of the message reached prompt preparation
