@@ -401,11 +401,18 @@ snapshots while its child runs. Incremental snapshots reuse only a safe prefix:
 credential occurrences and Unicode surrogate pairs cannot cross the cached
 boundary. Each stream keeps its own truncation flag, including a timeout result.
 The worker's `BashJobRegistry` can promote a managed handle to a durable job.
-No tool starts jobs yet. Promotion reserves the Chat's artifact number and
+Host `bash` with `async: true` starts a job immediately. Promotion reserves the Chat's artifact number and
 stores the starting owner, Chat, Run, tool call, worker identity, pid, settings,
 deadline, artifact permission, and captured output. The registry retains the
 starting credential set and host-file decision after the tool context ends.
 An unsuccessful promotion stops the command.
+The projected working directory decides the target, so SSH and Machine calls
+refuse background fields, including a Machine Workspace's omitted `cwd`.
+An unlimited job needs `tools.jobs.allowUnlimited` (default false). Jobs keep
+the starting model, effort, and permission mode and survive a terminal Run.
+Owner API stops and Chat deletion record requests and notify the hosting worker;
+its control listener and heartbeat confirm each request in the owner's scope
+before stopping work. See [background jobs](docs/product/operator/background-jobs.md).
 
 Output uses the executor's bounded, safely redacted snapshots: a trailing
 credential prefix stays withheld until a later capture resolves it. New bytes

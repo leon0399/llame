@@ -19,6 +19,8 @@ below state additional ordering where a change needs it.
 
 - [Native files](native-files.md): host executor identity, `read`, `edit`,
   `write`, `bash`, Workspace entry, and permission modes.
+- [Background jobs](background-jobs.md): host async commands, lifetime and
+  concurrency bounds, owner stop controls, and worker shutdown.
 - [Repositories](repositories.md): the owner's repository catalog, checkout
   registration, worktree entry and its guarded removal, the host access
   policy it obeys, and row-only deletion.

@@ -1094,6 +1094,10 @@
             "maxSeconds": {
               "$ref": "#/$defs/jobsMaxSecondsOrToken",
               "description": "Maximum job lifetime from command start, in seconds. Default: 7200."
+            },
+            "allowUnlimited": {
+              "type": "boolean",
+              "description": "Allow unlimited host jobs without a lifetime timer. Default: false."
             }
           }
         },

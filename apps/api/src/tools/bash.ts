@@ -11,7 +11,6 @@ import {
   type ManagedProcessSlot,
   type StreamBound,
 } from '@workspace/bash-executor';
-import { parsePathScheme } from '@workspace/native-file-tools';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
 import { isWorkspaceTool } from './workspace';
@@ -22,13 +21,6 @@ import { spillBashResult } from './bash-spill';
 import { executeSshBash } from './ssh-bash';
 import { isSshLocator } from '../ssh/ssh-locator';
 import {
-  isWorkspaceRelative,
-  machineWorkspaceRoot,
-  mapToWorkspaceHost,
-  resolveWorkspacePath,
-} from './workspace-path';
-import {
-  formatMachineLocator,
   isMachineLocator,
   parseMachineLocator,
 } from '../machines/machine-locator';
@@ -44,6 +36,13 @@ import {
 } from './machine-call';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
+import {
+  bashTarget,
+  machineWorkingDirectory,
+  type BashInput,
+  type MachineWorkingDirectory,
+} from './bash-target';
+import { runAsyncBash } from './bash-async';
 
 const bashLogger = new Logger('BashTool');
 
@@ -55,138 +54,6 @@ const MACHINE_BASH_STREAM_BOUND: StreamBound = {
 
 type AdmittedBashContext = ToolContext &
   Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
-
-type BashInput = {
-  command: string;
-  cwd?: string;
-  env?: Record<string, string>;
-};
-
-/** A working directory resolved to one Machine, and its canonical locator. */
-type MachineWorkingDirectory = {
-  readonly name: string;
-  readonly path: string;
-  readonly locator: string;
-};
-
-function machineWorkingDirectory(
-  name: string,
-  path: string,
-): MachineWorkingDirectory | undefined {
-  const locator = formatMachineLocator(name, path);
-
-  return locator === undefined ? undefined : { name, path, locator };
-}
-
-/**
- * Resolve the working directory for this call. A Machine locator runs on that
- * Machine; inside a Machine Workspace an omitted or relative `cwd` resolves on
- * the Machine, and a bare absolute one is that Machine's absolute path. A
- * `file:` alias keeps addressing the local executor, so it is not a Machine
- * cwd.
- */
-function projectBashInput(
-  context: ToolContext,
-  input: BashInput,
-): BashInput | ToolResult {
-  const root = context.workspaceRoot?.current();
-
-  // An `ssh://` cwd addresses its own host in every Workspace, including a
-  // Machine one, so projection leaves it exactly as submitted.
-  if (input.cwd !== undefined && isSshLocator(input.cwd)) return input;
-
-  if (input.cwd !== undefined && isMachineLocator(input.cwd))
-    return projectMachineCwd(input, input.cwd);
-  const machineRoot = machineWorkspaceRoot(root);
-
-  if (machineRoot !== undefined && root !== undefined)
-    return projectMachineWorkspaceCwd(input, root, machineRoot);
-
-  return projectLocalCwd(input, root);
-}
-
-/** A submitted `machine://` cwd, canonicalized to the locator the call runs in. */
-function projectMachineCwd(
-  input: BashInput,
-  cwd: string,
-): BashInput | ToolResult {
-  const target = parseMachineLocator(cwd);
-
-  const machine =
-    target.kind === 'path' && target.selector === undefined
-      ? machineWorkingDirectory(target.name, target.path)
-      : undefined;
-
-  return machine === undefined
-    ? {
-        status: 'error',
-        type: 'invalid_path',
-        message:
-          'A Machine working directory is one absolute Machine path without a selector.',
-      }
-    : { ...input, cwd: machine.locator };
-}
-
-/**
- * A cwd inside a Machine Workspace: the root itself, a path relative to it, or
- * a bare absolute one, which addresses that Machine rather than the host.
- */
-function projectMachineWorkspaceCwd(
-  input: BashInput,
-  root: string,
-  machineRoot: { readonly name: string; readonly path: string },
-): BashInput | ToolResult {
-  if (input.cwd === undefined) {
-    const machine = machineWorkingDirectory(machineRoot.name, machineRoot.path);
-
-    return machine === undefined
-      ? {
-          status: 'error',
-          type: 'invalid_path',
-          message: 'The Machine Workspace root cannot be a working directory.',
-        }
-      : { ...input, cwd: machine.locator };
-  }
-
-  if (isWorkspaceRelative(input.cwd))
-    return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
-
-  if (input.cwd.startsWith('/'))
-    return { ...input, cwd: mapToWorkspaceHost(root, input.cwd) };
-
-  return {
-    status: 'error',
-    type: 'invalid_path',
-    message:
-      'The working directory must be a local absolute path or a machine:// locator.',
-  };
-}
-
-/** A cwd with no Machine in play: an absolute host path, or the Workspace root. */
-function projectLocalCwd(
-  input: BashInput,
-  root: string | undefined,
-): BashInput | ToolResult {
-  if (
-    root !== undefined &&
-    input.cwd !== undefined &&
-    parsePathScheme(input.cwd) !== undefined
-  ) {
-    return {
-      status: 'error',
-      type: 'invalid_path',
-      message: 'The working directory must be a local path.',
-    };
-  }
-
-  if (root === undefined) return input;
-
-  if (input.cwd === undefined) return { ...input, cwd: root };
-
-  if (!isWorkspaceRelative(input.cwd)) return input;
-
-  return { ...input, cwd: resolveWorkspacePath(root, input.cwd) };
-}
 
 /**
  * Run on the Machine through its working directory: the command, the managed
@@ -352,14 +219,35 @@ export const bashTool: Tool<BashInput> = {
     command: z.string().min(1),
     cwd: z.string().optional(),
     env: z.record(z.string(), z.string()).optional(),
+    async: z.boolean().optional(),
+    unlimited: z.boolean().optional(),
   }),
   execute: async (context, input): Promise<ToolResult> => {
-    const projectedInput = projectBashInput(context, input);
+    const projected = bashTarget(context, input);
 
-    if ('status' in projectedInput) return projectedInput;
-    const routed = routedBashExecution(context, projectedInput);
+    if ('status' in projected) return projected;
 
-    return routed ?? runHostBash(context, projectedInput);
+    if (
+      projected.target !== 'host' &&
+      (input.async !== undefined || input.unlimited !== undefined)
+    )
+      return {
+        status: 'error',
+        type: 'invalid_input',
+        message:
+          'async and unlimited are supported only for bash commands on the llame host.',
+      };
+
+    if (input.unlimited === true && context.allowUnlimitedJobs !== true)
+      return {
+        status: 'error',
+        type: 'invalid_input',
+        message:
+          'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
+      };
+    const routed = routedBashExecution(context, projected.input);
+
+    return routed ?? runHostBash(context, projected.input);
   },
 };
 
@@ -444,6 +332,14 @@ async function runHostBash(
 
     return toToolResult(admitted);
   }
+
+  if (input.async === true)
+    return runAsyncBash(
+      { ...context, runId, nativeExecutorId, toolCallId },
+      input,
+      admitted.cwd,
+      slot,
+    );
 
   return runAdmittedBash(
     { ...context, runId, userId, nativeExecutorId, toolCallId },

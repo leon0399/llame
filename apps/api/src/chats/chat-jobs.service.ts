@@ -18,6 +18,7 @@ import {
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { ChatsRepository } from './chats-repository';
+import { notifyRunControl } from '../runs/run-control';
 
 /**
  * The owner's view of the jobs of a Chat (background-jobs). Every read and
@@ -50,8 +51,7 @@ export class ChatJobsService {
   /**
    * Record a stop request from the owner on a running job. A repeat for a job
    * that the owner stopped answers with that job; a job in any other settled
-   * state is a conflict, and a job of another Chat or owner is not found. In
-   * this layer no worker acts on the request yet.
+   * state is a conflict, and a job of another Chat or owner is not found.
    */
   async stop(chatId: string, jobId: string, userId: string): Promise<ChatJob> {
     // The refusals are answered after the transaction commits: a thrown error
@@ -60,7 +60,11 @@ export class ChatJobsService {
       const jobs = await this.touch(tx, chatId, userId);
       const requested = await jobs.requestStop(chatId, userId, jobId, 'owner');
 
-      if (requested) return { job: requested, stopped: true };
+      if (requested) {
+        await notifyRunControl(tx, { kind: 'job-stop', jobId });
+
+        return { job: requested, stopped: true };
+      }
 
       return {
         job: await jobs.findById(chatId, userId, jobId),

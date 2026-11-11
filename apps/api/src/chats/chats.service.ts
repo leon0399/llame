@@ -32,6 +32,8 @@ import {
 import { citedArtifacts, copyCitedArtifacts } from './fork-artifacts';
 import { RunsRepository } from '../runs/runs-repository';
 import { pgErrorCode } from '../db/pg-error';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { notifyRunControl } from '../runs/run-control';
 import {
   toSharedChatResponse,
   type ChatMessageResponseRow,
@@ -502,7 +504,18 @@ export class ChatsService {
         await runsRepo.requestCancel(active.id, userId);
       }
 
-      return new ChatsRepository(tx).deleteById(chatId, userId);
+      const chats = new ChatsRepository(tx);
+
+      if (!(await chats.lock(chatId, userId))) return false;
+
+      for (const job of await new ChatJobsRepository(tx).requestStopInChat(
+        chatId,
+        userId,
+      )) {
+        await notifyRunControl(tx, { kind: 'job-stop', jobId: job.id });
+      }
+
+      return chats.deleteById(chatId, userId);
     });
   }
 

@@ -1017,7 +1017,8 @@
     // Lifetime of a job from command start, in seconds. Default: 7200.
     // A safe integer of at least 60, or a whole-value interpolation token.
     // "jobs": {
-    //   "maxSeconds": 7200
+    //   "maxSeconds": 7200,
+    //   "allowUnlimited": false // Opt in only for jobs with no lifetime.
     // },
   },
 

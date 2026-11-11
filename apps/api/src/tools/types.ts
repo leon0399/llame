@@ -3,6 +3,8 @@ import { type ToolResult, type UnknownRecord } from '@workspace/runtime-safety';
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
+import { type BashJobRegistry } from '../jobs/bash-job-registry';
+import { type ChatDeliverySettings } from '../db/schema';
 import { type KnowledgeSpaceCursor } from '../knowledge/knowledge-space.cursor';
 import {
   type KnowledgeFilesystemAdapterPort,
@@ -201,6 +203,9 @@ export interface ToolContext {
    * before it calls the executor. Absent means this context cannot run `bash`.
    */
   readonly bashProcessLimiter?: BashProcessLimiter;
+  readonly bashJobs?: BashJobRegistry;
+  readonly jobSettings?: ChatDeliverySettings;
+  readonly allowUnlimitedJobs?: boolean;
   /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.

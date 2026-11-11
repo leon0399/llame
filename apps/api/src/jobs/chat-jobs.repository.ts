@@ -167,6 +167,20 @@ export class ChatJobsRepository {
     return row;
   }
 
+  requestStopInChat(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Array<ChatJob>> {
+    return this.db
+      .update(chatJobs)
+      .set({
+        stopRequestedAt: sql`coalesce(${chatJobs.stopRequestedAt}, now())`,
+        stopRequestedBy: sql`coalesce(${chatJobs.stopRequestedBy}, 'owner')`,
+      })
+      .where(and(inChat(chatId, ownerUserId), eq(chatJobs.state, 'running')))
+      .returning();
+  }
+
   /**
    * Settle as `lost` every running job of the Chat whose worker is dead: its
    * row has no heartbeat within `deadAfterSeconds`, or no row at all
