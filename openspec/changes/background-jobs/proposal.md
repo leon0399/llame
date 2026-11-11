@@ -25,8 +25,9 @@ cross-process signals that this change builds on.
 - **`wait` and `stop`.** Two new tools. `wait` blocks on listed jobs for at most 1 h and holds no
   worker: the Run moves to a new `awaiting_jobs` status and a queue job wakes it. `stop` ends
   listed jobs.
-- **Job notices.** A settlement that no `wait` consumed becomes a pending item with producer
-  `job`. A live Run gets it at its next step boundary. An idle Chat whose latest Run completed
+- **Job notices.** Every settlement creates a pending item with producer `job`; a stored `wait`
+  or `stop` result consumes the notices it reports. A live Run gets pending notices at its next
+  step boundary. An idle Chat whose latest Run completed
   gets a new Run that the host starts. In every other case the notice waits for the next Run.
 - **Owner controls.** The chat list reports running jobs, the sidebar shows a `background` state,
   and the Session details panel lists the jobs with stop controls.
@@ -89,8 +90,8 @@ Assumptions that follow from those decisions and were not asked:
 - A `bash` call on an `ssh://` or `machine://` directory refuses `async` and `unlimited`, and
   keeps its present timeout and interrupt behavior until #1660.
 - An archived Chat is not idle, so a notice starts no Run in it.
-- A move to the background that the host cannot record stops the command, and the call returns
-  `timed_out` with the output so far.
+- A failed move stops the command. A proved stop within the settlement window returns
+  `timed_out` with captured output; an unproved stop or late move returns `outcome_unknown`.
 - The usage of a reply that continues after a `wait` is a lower bound. It sums the requests
   after the wake and is marked `complete: false`, as `run-usage-accounting` requires when a
   second attempt serves one message. A full sum needs a change of that capability or the cost
@@ -107,8 +108,8 @@ Leo must confirm these three points.
    tool call, so [#1662](https://github.com/leon0399/llame/issues/1662) needs no schema change.
    File-backed output moves with [#1627](https://github.com/leon0399/llame/issues/1627).
 2. **Grilling G17: a job that the model stops.** The record says that such a job is reported at
-   the next Run. A settled state reported by `stop` gets no duplicate notice. A stop that
-   reports `running` gets a notice when the job settles later. A job that the owner stops
+   the next Run. A recorded `stop` result consumes the notices of the settled states it reports.
+   A result that reports `running` consumes no notice. A job that the owner stops
    still gets a notice.
 3. **Grilling G8: the call timeout.** The record says that `tools.callTimeoutSeconds` no longer
    applies to host `bash`. This change keeps it as an upper limit of the foreground bound. The
