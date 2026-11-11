@@ -181,9 +181,9 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 6.2 Move a foreground command at the bound; tests with a fake clock cover "A long test suite passes the bound", "Output from before the move is kept", "A host command is not stopped at the foreground bound", and "The job record cannot be written".
       Also cover "A failed move with an unproved stop" and "A move that is recorded late".
       Assert exactly one `native.result` for a late move and that the command keeps running.
-- [ ] 6.3 Keep the remote paths: tests cover "A remote command still ends at its deadline", "Proven-stopped timeout is known", and "Unproven stop after timeout is unknown and the Run continues" on a `machine://` directory.
-- [ ] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command". Also cover "A cancellation during a pending move", "A cancellation before the move starts", and "A command exits during the move".
-- [ ] 6.5 Update `docs/product/reference/tools/bash.md`, `docs/product/operator/native-files.md`, `docs/product/operator/background-jobs.md`, `docs/product/operator/scaling.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
+- [x] 6.3 Keep the remote paths: tests cover "A remote command still ends at its deadline", "Proven-stopped timeout is known", and "Unproven stop after timeout is unknown and the Run continues" on a `machine://` directory.
+- [x] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command". Also cover "A cancellation during a pending move", "A cancellation before the move starts", and "A command exits during the move".
+- [x] 6.5 Update `docs/product/reference/tools/bash.md`, `docs/product/operator/native-files.md`, `docs/product/operator/background-jobs.md`, `docs/product/operator/scaling.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 6.6 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
 - [ ] 6.7 Run the GitHub review and CI loop on the published head.
 
