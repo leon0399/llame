@@ -28,7 +28,6 @@ import { bashTool } from './bash';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
-import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';

@@ -10,6 +10,7 @@ import {
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
 import { isBashTool } from '../tools/bash';
+import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { isCancelledBeforeExecution } from '../tools/cancelled-before-execution';
 import { interruptFateOf } from '../tools/registry';
 import { isNativeFileTool } from '../tools/native-files';
@@ -215,7 +216,6 @@ import {
   type ToolPromptRenderer,
 } from '../instance-config/prompt-loader';
 import {
-  BASH_SETTLEMENT_GRACE_MS,
   invalidCallResult,
   previewToolPermission,
   refusalResult,

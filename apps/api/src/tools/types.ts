@@ -206,6 +206,11 @@ export interface ToolContext {
   readonly bashJobs?: BashJobRegistry;
   readonly jobSettings?: ChatDeliverySettings;
   readonly allowUnlimitedJobs?: boolean;
+  /**
+   * Host `bash` only: aborts at the foreground bound, counted from the start
+   * of the call. It moves the command; it never stops it.
+   */
+  readonly moveSignal?: AbortSignal;
   /** `tools.bash.backgroundAfterSeconds`; absent means the built-in 120. */
   readonly bashBackgroundAfterSeconds?: number;
   /**
