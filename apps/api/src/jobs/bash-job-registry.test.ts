@@ -49,6 +49,7 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
   let current = initial;
   let cut = { stdout: false, stderr: false };
   const listeners: Array<(bytes: number) => void> = [];
+  const everSubscribed: Array<(bytes: number) => void> = [];
 
   const stop = vi.fn((_cause: string) =>
     Promise.resolve({
@@ -69,6 +70,7 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
     }),
     onOutput: (listener: (bytes: number) => void) => {
       listeners.push(listener);
+      everSubscribed.push(listener);
 
       return () => void listeners.splice(listeners.indexOf(listener), 1);
     },
@@ -92,6 +94,15 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
       current = next;
 
       for (const listener of listeners.slice()) listener(bytes);
+    },
+    /** A notice already in flight when the registry unsubscribed. */
+    emitLate: (next: Output) => {
+      const bytes =
+        Buffer.byteLength(next.stdout) - Buffer.byteLength(current.stdout);
+
+      current = next;
+
+      for (const listener of everSubscribed) listener(bytes);
     },
     subscribers: () => listeners.length,
     end: (result: BashResult) => finish(result),
@@ -524,6 +535,45 @@ describe('BashJobRegistry', () => {
     });
   });
 
+  it.each([false, true])(
+    'stores no late output after settlement (retry pending: %s)',
+    async (retryPending) => {
+      const { registry, chunks, settle } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+
+      if (retryPending) settle.mockRejectedValueOnce(new Error('db down'));
+      command.exit(0);
+      await vi.advanceTimersByTimeAsync(0);
+      command.emitLate({ stdout: 'x'.repeat(20_000), stderr: '' });
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(chunks).toEqual([]);
+    },
+  );
+
+  it.each(['stdout', 'stderr'] as const)(
+    'counts promotion-window %s bytes toward the 16 KiB flush',
+    async (stream) => {
+      const { registry, chunks, inserted } = setup();
+      const command = fakeHandle({ stdout: '', stderr: '', [stream]: 'a' });
+      const suffix = 'x'.repeat(16 * 1024);
+
+      inserted.mockImplementationOnce((job) => {
+        command.write({ stdout: '', stderr: '', [stream]: 'a' + suffix });
+
+        return Promise.resolve(jobRow(job));
+      });
+      await registry.promote(command.handle, facts());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(chunks).toEqual([
+        { output: stream, content: 'a', position: 0 },
+        { output: stream, content: suffix, position: 1 },
+      ]);
+    },
+  );
+
   describe('what a settlement records', () => {
     it('settles a nonzero exit with its truncation flags', async () => {
       const { registry, settlements } = setup();
@@ -675,6 +725,18 @@ describe('BashJobRegistry', () => {
       const result = await running.settled;
 
       expect(result.status === 'success' && result.exitCode === 0).toBe(false);
+    });
+
+    it('stops a promoted command once at shutdown, through its job', async () => {
+      vi.useRealTimers();
+      const { registry } = setup();
+      const command = real(registry, 'sleep 30');
+      const stop = vi.spyOn(command, 'stop');
+
+      await registry.promote(command, facts());
+      await registry.shutdown();
+
+      expect(stop).toHaveBeenCalledTimes(1);
     });
 
     it('refuses a start after shutdown began', async () => {
