@@ -498,9 +498,9 @@ task 9.5. After each `await`, the loop checks the generation and `hasSubscribers
 or arms the next period, so refreshes never overlap and an unsubscribe in flight is safe. It stops
 when no `running` row remains, at the last unsubscribe, and at module shutdown. The read is an
 explicit periodic display read. It adds no Run polling, no global fan-out or reaper, no
-cross-tenant scan, no state write, and no wire field. The live count has no fixed latency: a
-changed count arrives within one heartbeat interval after the expiry or the revival, not at the
-exact expiry.
+cross-tenant scan, no state write, and no wire field. A changed count arrives within
+one heartbeat interval after the expiry or the revival, not at the exact expiry. A database
+outage uses the existing resync path.
 
 ### D18: Web
 

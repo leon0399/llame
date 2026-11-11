@@ -624,12 +624,12 @@ the end of a worker lease causes.
 #### Scenario: An open socket sees a lease expire
 
 - **WHEN** the owner subscribed before a job started, the worker of the job then loses its lease, and no job row is written
-- **THEN** the owner receives `chat.upserted` with the lower `runningJobs` by the next projection refresh, and the job state does not change
+- **THEN** the owner receives `chat.upserted` with the lower `runningJobs` within one heartbeat interval of the expiry, and the job state does not change
 
 #### Scenario: A late heartbeat restores the count
 
 - **WHEN** the count fell to 0 because a lease expired, and the worker then renews its lease
-- **THEN** the owner receives `chat.upserted` with the restored `runningJobs` by the next refresh
+- **THEN** the owner receives `chat.upserted` with the restored `runningJobs` within one heartbeat interval of the revival
 
 #### Scenario: Only the remaining workers count
 
