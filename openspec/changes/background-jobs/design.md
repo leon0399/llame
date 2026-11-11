@@ -487,9 +487,13 @@ A lease expiry writes no row, so `ChangeHub` also refreshes the display projecti
 While an authenticated owner has subscribers and has stored `running` jobs, including jobs whose
 worker lease expired, it re-reads the owner-scoped counts every `runs.heartbeatSeconds`. It seeds
 the refresh at the first subscription, at each reconnect, and at each job-row notification. It
-groups the counts by Chat. For each Chat whose count differs from the last sent count, it enqueues
+groups the counts by Chat. It compares each count with the last `runningJobs` that the socket SENT, not with the value of
+the previous refresh. At the first subscription and at each reconnect the baseline is unknown, so
+the first refresh pushes every Chat that has stored `running` rows, even when its count is 0
+because a lease expired. The HTTP list count can be stale before the first socket seed. For each
+Chat whose count differs from the baseline, it enqueues
 the existing full chat record load for that Chat through the owner queue. It never sends a partial
-upsert. Every chat record load, including one that a `NOTIFY` causes, updates the last sent count.
+upsert. Every full `chat.upserted` that is sent, including one that a `NOTIFY` causes, updates the last sent count.
 
 The owner loop continues while stored `running` rows exist, even when a count is 0, so a late
 worker heartbeat that restores the count arrives. Its cost is bounded by the subscribed owners
