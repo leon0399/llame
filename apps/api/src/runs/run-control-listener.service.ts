@@ -95,7 +95,8 @@ export class RunControlListenerService
   }
 
   private async recheckExecuting(): Promise<void> {
-    await this.jobs
+    // Independent of the Run checks: a slow job check must not delay them.
+    const jobs = this.jobs
       .recheckJobs()
       .catch(() => this.logger.warn('Job-control reconnect check failed.'));
 
@@ -103,6 +104,8 @@ export class RunControlListenerService
       await this.abortIfCancelled(runId, userId);
       await this.interruptIfPending(runId, userId);
     }
+
+    await jobs;
   }
 
   /**

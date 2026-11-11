@@ -5,7 +5,7 @@ import {
 } from '@workspace/bash-executor';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
-import { JobPromotionError } from '../jobs/bash-job-registry';
+import { JobPromotionError } from '../jobs/job-promotion-error';
 import { formatJobLocator } from '../jobs/job-locator';
 import { type BashInput } from './bash-target';
 import { managedBashContext } from './bash-limits';
@@ -15,6 +15,12 @@ import { type ToolContext, type ToolResult } from './types';
 
 type AsyncContext = ToolContext &
   Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
+
+const CANCELLED_BEFORE_START: ToolResult = {
+  status: 'error',
+  type: 'cancelled',
+  message: 'Command was cancelled before start.',
+};
 
 /** Fence before spawn, then transfer both command and lifetime to the worker. */
 export async function runAsyncBash(
@@ -36,7 +42,11 @@ export async function runAsyncBash(
     const prior = await beginAsyncCommand(context, cwd);
 
     if (prior) return prior;
-    context.abortSignal?.throwIfAborted();
+
+    // The attempt is durable: record the cancelled start, as the foreground
+    // path does, so a replay does not report outcome_unknown.
+    if (context.abortSignal?.aborted === true)
+      return await recordResult(context, CANCELLED_BEFORE_START);
     const startedAt = new Date();
 
     const started = context.bashJobs.start(

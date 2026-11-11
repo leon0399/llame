@@ -167,18 +167,17 @@ export class ChatJobsRepository {
     return row;
   }
 
-  requestStopInChat(
+  /** The ids of the running jobs of the Chat; the Chat delete cascades the rows. */
+  async runningIdsInChat(
     chatId: string,
     ownerUserId: string,
-  ): Promise<Array<ChatJob>> {
-    return this.db
-      .update(chatJobs)
-      .set({
-        stopRequestedAt: sql`coalesce(${chatJobs.stopRequestedAt}, now())`,
-        stopRequestedBy: sql`coalesce(${chatJobs.stopRequestedBy}, 'owner')`,
-      })
-      .where(and(inChat(chatId, ownerUserId), eq(chatJobs.state, 'running')))
-      .returning();
+  ): Promise<Array<string>> {
+    const rows = await this.db
+      .select({ id: chatJobs.id })
+      .from(chatJobs)
+      .where(and(inChat(chatId, ownerUserId), eq(chatJobs.state, 'running')));
+
+    return rows.map((row) => row.id);
   }
 
   /**

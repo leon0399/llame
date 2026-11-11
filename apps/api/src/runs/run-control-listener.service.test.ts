@@ -28,6 +28,8 @@ type BootOptions = {
   concurrency?: number | null;
   /** Rejects the owner-scope read with this reason. */
   readFailure?: unknown;
+  /** Replaces the job reconnect check, for example with one that never ends. */
+  recheckJobs?: () => Promise<void>;
 };
 
 /**
@@ -111,7 +113,7 @@ async function boot(
   Object.assign(service, {
     jobs: {
       recheckJob: () => Promise.resolve(),
-      recheckJobs: () => Promise.resolve(),
+      recheckJobs: options.recheckJobs ?? (() => Promise.resolve()),
     },
   });
 
@@ -170,6 +172,17 @@ describe('RunControlListenerService', () => {
 
   it('re-reads every registered Run on reconnect and aborts a deleted one', async () => {
     const { controller, onListen, settled } = await boot(undefined);
+
+    onListen();
+    await settled();
+
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it('aborts a deleted Run on reconnect while a job check never ends', async () => {
+    const { controller, onListen, settled } = await boot(undefined, {
+      recheckJobs: () => new Promise<void>(() => {}),
+    });
 
     onListen();
     await settled();
