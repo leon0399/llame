@@ -39,6 +39,7 @@ import {
   type BashInput,
   type MachineWorkingDirectory,
 } from './bash-target';
+import { stopTool } from './stop';
 import { runAsyncBash, runForegroundBash } from './bash-async';
 
 const bashLogger = new Logger('BashTool');
@@ -301,7 +302,12 @@ export function isBashTool(tool: Tool): boolean {
   return tool === bashTool;
 }
 
-/** Native files, alpha host bash, and Workspace binding tools. */
+/** Native files, alpha host bash, `stop`, and Workspace binding tools. */
 export function isHostCapabilityTool(tool: Tool): boolean {
-  return isNativeFileTool(tool) || isBashTool(tool) || isWorkspaceTool(tool);
+  return (
+    isNativeFileTool(tool) ||
+    isBashTool(tool) ||
+    tool === stopTool ||
+    isWorkspaceTool(tool)
+  );
 }

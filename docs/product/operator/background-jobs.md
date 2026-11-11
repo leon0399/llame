@@ -55,6 +55,11 @@ every API and worker process on the same file.
 
 ## Read and stop work
 
+The model stops jobs with the [`stop`](../reference/tools/stop.md) tool. It needs
+`stop` in `tools.allowed` beside `bash`, and its own `stop` group in
+`tools.permissions`; the recommended portable map allows it. A `read-only` Run
+refuses it.
+
 The [job locator](../reference/locators/job.md) exposes the durable record and
 bounded, redacted stdout and stderr. Increments are stored at 16 KiB or one
 second after the first unflushed byte, so another worker can read them without

@@ -18,8 +18,8 @@ admits, and nothing else.
 
 A `read-only` attempt may call a tool only when the tool is classified
 `read_only`, when it is `exit_workspace`, or when it is `enter_workspace`
-without a `worktree` argument. Every other schema-valid call — `bash`, `edit`,
-`write`, `enter_workspace` with `worktree`, and every MCP tool — is refused
+without a `worktree` argument. Every other schema-valid call — `bash`, `stop`,
+`edit`, `write`, `enter_workspace` with `worktree`, and every MCP tool — is refused
 before any SSH host resolution, grep scope check, or permission group, with
 reason `permission_mode_read_only` and the fixed message the spec names. The
 message names neither the mode nor a setting. The decision carries the process's
