@@ -206,6 +206,8 @@ export interface ToolContext {
   readonly bashJobs?: BashJobRegistry;
   readonly jobSettings?: ChatDeliverySettings;
   readonly allowUnlimitedJobs?: boolean;
+  /** `tools.bash.backgroundAfterSeconds`; absent means the built-in 120. */
+  readonly bashBackgroundAfterSeconds?: number;
   /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.

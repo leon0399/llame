@@ -5,7 +5,10 @@ import { type RawToolRerankConfig } from './tool-rerank-config';
 export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
   artifacts?: { readonly maxBytes?: unknown } | null;
-  bash?: { readonly maxProcesses?: unknown } | null;
+  bash?: {
+    readonly maxProcesses?: unknown;
+    readonly backgroundAfterSeconds?: unknown;
+  } | null;
   jobs?: {
     readonly maxSeconds?: unknown;
     readonly allowUnlimited?: unknown;

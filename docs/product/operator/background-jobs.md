@@ -25,7 +25,7 @@ an omitted working directory in a Machine Workspace.
 ```jsonc
 {
   "tools": {
-    "bash": { "maxProcesses": 64 },
+    "bash": { "maxProcesses": 64, "backgroundAfterSeconds": 120 },
     "jobs": { "maxSeconds": 7200, "allowUnlimited": false },
   },
 }
@@ -34,6 +34,13 @@ an omitted working directory in a Machine Workspace.
 `tools.bash.maxProcesses` is one worker's shared bound for foreground host
 commands, host jobs, and SSH commands. A slot stays occupied until the command
 settles, not merely until the tool returns its job locator.
+
+`tools.bash.backgroundAfterSeconds` (default 120) is how long a foreground host
+command runs before it moves to the background. The lesser of it and
+`tools.callTimeoutSeconds` applies; with a call timeout of 30 seconds a command
+moves after 30 seconds. The move never stops the command. A move that fails stops
+it, and a move that the database records more than 750 ms late leaves a normal
+job and an unknown call result. SSH and Machine commands do not move.
 
 `tools.jobs.maxSeconds` is measured from command start. It defaults to 7,200
 seconds and accepts an integer of at least 60 or a whole-value interpolation

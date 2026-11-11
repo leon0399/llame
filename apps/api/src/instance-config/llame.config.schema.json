@@ -1083,6 +1083,10 @@
             "maxProcesses": {
               "$ref": "#/$defs/bashMaxProcessesOrToken",
               "description": "The most managed commands one worker process runs at one time, counting foreground host commands, background jobs, and `ssh://` commands. An integer of at least 1, or a whole-value interpolation token. Default: 64."
+            },
+            "backgroundAfterSeconds": {
+              "$ref": "#/$defs/bashMaxProcessesOrToken",
+              "description": "How long a foreground host command runs before it moves to the background as a job, in seconds. The lesser of this value and `tools.callTimeoutSeconds` applies; the move never stops the command. An integer of at least 1, or a whole-value interpolation token. Default: 120."
             }
           }
         },

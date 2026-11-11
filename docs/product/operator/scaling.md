@@ -71,6 +71,13 @@ To isolate a job class, define a profile containing only that group and remove
 the group from general profiles. pg-boss queue subscription is the router; add
 no parallel routing layer.
 
+## Host commands
+
+A foreground host `bash` command that passes `tools.bash.backgroundAfterSeconds`
+becomes a job on the worker that runs it, and that worker keeps it until it
+ends. Count each such job in `tools.bash.maxProcesses`, and see
+[background jobs](background-jobs.md) before a deploy.
+
 ## Capacity
 
 A Run holds an application-pool connection during each `runAs` transaction.
