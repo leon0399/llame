@@ -486,18 +486,19 @@ shipped `chat.upserted` message carries the new count.
 A lease expiry writes no row, so `ChangeHub` also refreshes the display projection on a period.
 While an authenticated owner has subscribers and has stored `running` jobs, including jobs whose
 worker lease expired, it re-reads the owner-scoped counts every `runs.heartbeatSeconds`. It seeds
-the refresh at the first subscription, at each reconnect, and at each job-row notification. It
-groups the counts by Chat. It compares each count with the last `runningJobs` that the socket SENT, not with the value of
-the previous refresh. At the first subscription and at each reconnect the baseline is unknown, so
-the first refresh pushes every Chat that has stored `running` rows, even when its count is 0
-because a lease expired. The HTTP list count can be stale before the first socket seed. For each
+the refresh at each subscription, at each reconnect, and at each job-row notification. It
+groups the counts by Chat and compares each with the last `runningJobs` sent to that owner.
+At each subscription and reconnect the baseline is unknown, so the first refresh pushes every
+Chat that has stored `running` rows, even when its count is 0 because a lease expired.
+The HTTP list count can be stale before a new socket subscribes. For each
 Chat whose count differs from the baseline, it enqueues
 the existing full chat record load for that Chat through the owner queue. It never sends a partial
 upsert. Every full `chat.upserted` that is sent, including one that a `NOTIFY` causes, updates the last sent count.
 
 The owner loop continues while stored `running` rows exist, even when a count is 0, so a late
 worker heartbeat that restores the count arrives. Its cost is bounded by the subscribed owners
-and by the API instances, and it adds one touch for each refresh. The operator documents this in
+and by the API instances. Each refresh adds one owner-scoped read, which is not a touch and
+settles nothing. The operator documents this in
 task 9.5. After each `await`, the loop checks the generation and `hasSubscribers` before it pushes
 or arms the next period, so refreshes never overlap and an unsubscribe in flight is safe. It stops
 when no `running` row remains, at the last unsubscribe, and at module shutdown. The read is an
