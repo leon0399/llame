@@ -304,8 +304,7 @@ async function runAdmittedBash(
   const { runId, userId, nativeExecutorId, toolCallId } = context;
   const onAbort = () => slot.release();
 
-  if (context.abortSignal?.aborted) slot.release();
-  else context.abortSignal?.addEventListener('abort', onAbort, { once: true });
+  context.abortSignal?.addEventListener('abort', onAbort, { once: true });
 
   try {
     const prior = await context.tenantDb.runAs(userId, (db) =>

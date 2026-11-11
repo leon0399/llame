@@ -31,8 +31,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   commands and the `ssh://` commands of a worker, and `tools.bash.maxProcesses`
   sets its bound (an integer of at least 1, default 64). A call past the bound
   returns `limit_reached`, which names the bound and says that a later call can
-  succeed; the call records no attempt and starts no process. Two commands that
-  the model calls in one step now run together. The Machine daemon keeps its own
+  succeed; the call records no attempt and starts no process. Cancellation is
+  checked before admission; cancellation during a pending durable admission
+  releases its slot without starting work. Two commands that the model calls
+  in one step now run together. The Machine daemon keeps its own
   bound of one and its `unavailable` refusal. The executor package also gains
   `startManagedBash`, a handle with no deadline that a later change uses for
   background jobs; no tool calls it yet. See
