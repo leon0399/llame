@@ -162,7 +162,10 @@ function setup(maxSeconds = 7200) {
   const config = {
     config: {
       ...BUILT_IN_DEFAULTS,
-      tools: { ...BUILT_IN_DEFAULTS.tools, jobs: { maxSeconds } },
+      tools: {
+        ...BUILT_IN_DEFAULTS.tools,
+        jobs: { ...BUILT_IN_DEFAULTS.tools.jobs, maxSeconds },
+      },
     },
   };
 

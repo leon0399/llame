@@ -165,13 +165,13 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 
 ## 5. Async start (`background-jobs/bash-async`)
 
-- [ ] 5.1 Add `bashTarget(context, input)` and the `async` and `unlimited` input fields, with `tools.jobs.allowUnlimited`; tests cover "The background fields are accepted", "Model cannot widen execution", "A build starts in the background", "A remote directory refuses async" (also a Machine Workspace call with no `cwd`), "An unlimited job is refused by default", and the rest of `Operator configuration bounds background jobs`.
-- [ ] 5.2 Add the `backgrounded` member to the result union, `renderBashText`, and the stored part; tests cover "A backgrounded result has no exit line" and the fixed text.
-- [ ] 5.3 Keep a job across the end of its Run; tests cover "A job continues after its Run completes", "A job continues after its Run fails", and "Stop after the move" for an `async` job.
-- [ ] 5.4 Update `apps/api/src/prompts/tools/bash.md` and its exact-output tests for "Description has the background instructions" and "An absent tool is not recommended".
-- [ ] 5.5 Update `docs/product/reference/tools/bash.md`, a new `docs/product/operator/background-jobs.md` with its link in `operator/index.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 5.6 Add the `job-stop` signal on top of heartbeat recovery; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", a lost signal that the heartbeat finds, and "A worker resumes after its row was settled lost".
-- [ ] 5.7 End each live job when a Chat is deleted: take the Chat row lock explicitly before the select of the live job ids, send the stop pointers in the deletion transaction, and stamp no request field, because the cascade removes the record; a test covers "A deleted Chat leaves no process".
+- [x] 5.1 Add `bashTarget(context, input)` and the `async` and `unlimited` input fields, with `tools.jobs.allowUnlimited`; tests cover "The background fields are accepted", "Model cannot widen execution", "A build starts in the background", "A remote directory refuses async" (also a Machine Workspace call with no `cwd`), "An unlimited job is refused by default", and the rest of `Operator configuration bounds background jobs`.
+- [x] 5.2 Add the `backgrounded` member to the result union, `renderBashText`, and the stored part; tests cover "A backgrounded result has no exit line" and the fixed text.
+- [x] 5.3 Keep a job across the end of its Run; tests cover "A job continues after its Run completes", "A job continues after its Run fails", and "Stop after the move" for an `async` job.
+- [x] 5.4 Update `apps/api/src/prompts/tools/bash.md` and its exact-output tests for "Description has the background instructions" and "An absent tool is not recommended".
+- [x] 5.5 Update `docs/product/reference/tools/bash.md`, a new `docs/product/operator/background-jobs.md` with its link in `operator/index.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
+- [x] 5.6 Add the `job-stop` signal on top of heartbeat recovery; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", a lost signal that the heartbeat finds, and "A worker resumes after its row was settled lost".
+- [x] 5.7 End each live job when a Chat is deleted: take the Chat row lock explicitly before the select of the live job ids, send the stop pointers in the deletion transaction, and stamp no request field, because the cascade removes the record; a test covers "A deleted Chat leaves no process".
 - [ ] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
 - [ ] 5.9 Run the GitHub review and CI loop on the published head.
 

@@ -85,10 +85,10 @@ It defaults to 64 and accepts a safe integer of at least 1 or a whole-value
 interpolation token that resolves to one. An empty or invalid resolved value
 fails startup naming the field.
 
-Foreground host commands and `ssh://` commands share this capacity. A call past
-the bound returns `limit_reached` before recording an attempt or spawning a
-process. A Machine daemon has its own bound of one and keeps its `unavailable`
-refusal. See [bash bounds and errors](../reference/tools/bash.md#bounds).
+Foreground host commands, host jobs, and `ssh://` commands share this capacity.
+A call past the bound returns `limit_reached` before recording an attempt or
+spawning a process. A Machine daemon has its own bound of one and keeps its
+`unavailable` refusal. See [bash bounds and errors](../reference/tools/bash.md#bounds).
 
 ## `grep`
 
