@@ -265,8 +265,10 @@ commands and promotions, then stops every job and settles it `cancelled` / `work
 a non-global module. Nest destroys non-global modules before the global `PgBossModule`, whose
 destroy hook stops the queue. A test pins that order.
 
-Chat deletion stamps a stop request on each live job before the cascade, after it took the Run
-row and the Chat row (`chats.service.ts:486-507`).
+Chat deletion selects the live job ids after it took the Run row and the Chat row.
+It sends each stop pointer in the deletion transaction. The committed cascade is the durable
+stop fact: the worker stops a job whose row is absent. A stop stamp erased by that cascade adds
+no authority.
 
 Rejected: a queue job per background job. A queue job cannot be pinned to the process that owns
 the child, and the queue refuses an expiry above 24 h.
