@@ -186,7 +186,9 @@ describe('foreground host bash move', () => {
       payload: null,
       createdAt: new Date(),
     });
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    vi.useFakeTimers({
+      toFake: ['setTimeout', 'clearTimeout', 'Date', 'performance'],
+    });
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -233,7 +235,7 @@ describe('foreground host bash move', () => {
     const call = bashTool.execute(
       contextFor({
         bashProcessLimiter: limiter,
-        moveDeadlineAt: Date.now() - 1,
+        moveDeadlineAt: performance.now() - 1,
       }),
       { command: 'make test', async: true },
     );
@@ -255,12 +257,12 @@ describe('foreground host bash move', () => {
     begin.mockReturnValue(admission.promise);
 
     const call = bashTool.execute(
-      contextFor({ moveDeadlineAt: Date.now() + 100 }),
+      contextFor({ moveDeadlineAt: performance.now() + 100 }),
       { command: 'make test', async: true },
     );
 
     await vi.advanceTimersByTimeAsync(0);
-    vi.setSystemTime(Date.now() + 101);
+    await vi.advanceTimersByTimeAsync(101);
     admission.resolve(undefined);
     await expect(call).resolves.toMatchObject({ type: 'cancelled' });
     expect(start).not.toHaveBeenCalled();
@@ -449,6 +451,34 @@ describe('foreground host bash move', () => {
     expect(limiter.tryAcquire()).not.toBeNull();
     // The runner's backstop resolves the call; the tool itself stays pending.
     void call;
+  });
+
+  it('never spawns after the backstop when the wall clock moves backward', async () => {
+    vi.useRealTimers();
+    const admission = Promise.withResolvers<undefined>();
+    const entered = Promise.withResolvers<void>();
+    const start = vi.spyOn(registry, 'start');
+    const originalNow = Date.now;
+
+    begin.mockImplementation(() => {
+      entered.resolve();
+
+      return admission.promise;
+    });
+
+    const call = runTool(
+      bashTool,
+      { command: 'make test', async: true },
+      contextFor({ moveSignal: undefined }),
+      0.05,
+    );
+
+    await entered.promise;
+    vi.spyOn(Date, 'now').mockImplementation(() => originalNow() - 60_000);
+    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    admission.resolve(undefined);
+    await vi.waitFor(() => expect(append).toHaveBeenCalled());
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('a per-call timeout never rejects a host call as outcome_unknown', async () => {

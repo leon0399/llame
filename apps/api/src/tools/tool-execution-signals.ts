@@ -19,7 +19,10 @@ export function prepareToolExecution(
     ? foregroundBoundMs(context.bashBackgroundAfterSeconds, timeoutMs)
     : timeoutMs;
 
-  const moveDeadlineAt = Date.now() + boundMs + BASH_SETTLEMENT_GRACE_MS;
+  const moveDeadlineAt = separateTimeout
+    ? performance.now() + boundMs + BASH_SETTLEMENT_GRACE_MS
+    : undefined;
+
   const timeoutSignal = AbortSignal.timeout(boundMs);
 
   const composedSignal = context.abortSignal
