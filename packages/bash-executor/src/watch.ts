@@ -113,8 +113,6 @@ function emptyStream(): CapturedStream {
 /** What a caller of the watcher can do while the child runs. */
 export type ManagedWatch = Omit<ManagedBashHandle, "pid">;
 
-
-
 export function watchManagedChild(
   child: ChildProcess,
   request: WatchRequest,

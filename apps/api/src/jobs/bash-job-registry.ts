@@ -70,6 +70,8 @@ type LiveJob = {
   unsubscribe: () => void;
   writes: Promise<void>;
   completion?: Promise<void>;
+  /** The facts of a settlement that failed to commit; `settlePending` retries them. */
+  unsettled?: { settlement: JobSettlement; output: ManagedOutput };
 };
 
 /** Worker-local authority over handles; stored jobs are readable on any worker. */
@@ -245,7 +247,7 @@ export class BashJobRegistry {
   }
 
   private outputArrived(live: LiveJob, bytes: number): void {
-    if (bytes === 0 || live.completion !== undefined) return;
+    if (bytes === 0 || live.completion !== undefined || live.unsettled) return;
     live.pendingBytes += bytes;
 
     if (live.pendingBytes >= 16 * 1024) {
@@ -294,6 +296,8 @@ export class BashJobRegistry {
     if (live === undefined) return;
 
     if (live.completion !== undefined) return live.completion;
+
+    if (live.unsettled !== undefined) return this.retryUnsettled(live);
     // Claim before stop resolves: its settled promise fires before stop returns.
     live.completion = this.stopAndSettle(live, cause);
 
@@ -324,20 +328,56 @@ export class BashJobRegistry {
     await live.writes.catch(() => undefined);
 
     try {
-      await retrySettlement(() =>
-        settleBashJob(
-          this.tenantDb,
-          live.row,
-          { output, settlement, offsets: live.offsets },
-          live.facts,
-        ),
+      await settleBashJob(
+        this.tenantDb,
+        live.row,
+        { output, settlement, offsets: live.offsets },
+        live.facts,
       );
-    } finally {
-      // The process is gone. A row that could not be settled stays `running`
-      // while this worker lives, and the lost-on-touch join settles it once the
-      // worker stops heartbeating (D9); the error still reaches the caller.
       this.jobs.delete(live.row.id);
+    } catch (error) {
+      // The process is gone but the row is not settled. Keep the facts: the
+      // heartbeat's recheck calls `settlePending` until they commit, and the
+      // lost-on-touch join settles the row if this worker ends first (D9).
+      live.unsettled = { settlement, output };
+      live.completion = undefined;
+      throw error;
     }
+  }
+
+  private retryUnsettled(live: LiveJob): Promise<void> {
+    const pending = live.unsettled;
+
+    if (pending === undefined) return Promise.resolve();
+    live.unsettled = undefined;
+    live.completion = this.persistCompletion(
+      live,
+      pending.settlement,
+      pending.output,
+    );
+
+    return live.completion;
+  }
+
+  /**
+   * Retry every settlement that failed to commit. The worker's heartbeat check
+   * calls it; a job that settles leaves the registry, and one that fails again
+   * stays pending. It never stops a running command.
+   */
+  async settlePending(): Promise<void> {
+    const pending = [...this.jobs.values()].filter(
+      (live) => live.unsettled !== undefined && live.completion === undefined,
+    );
+
+    const outcomes = await Promise.allSettled(
+      pending.map((live) => this.retryUnsettled(live)),
+    );
+
+    for (const outcome of outcomes)
+      if (outcome.status === 'rejected')
+        this.logger.warn(
+          `Pending job settlement still failing: ${String(outcome.reason)}`,
+        );
   }
 
   async shutdown(): Promise<void> {
@@ -361,21 +401,6 @@ export class BashJobRegistry {
       this.logger.error(`Background job persistence failed: ${String(error)}`),
     );
   }
-}
-
-const SETTLEMENT_RETRY_DELAYS_MS = [500, 1000, 2000, 4000];
-
-/** Retry a failed settlement with backoff; a permanent failure surfaces. */
-async function retrySettlement(work: () => Promise<void>): Promise<void> {
-  for (const delay of SETTLEMENT_RETRY_DELAYS_MS) {
-    try {
-      return await work();
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    }
-  }
-
-  return work();
 }
 
 function naturalSettlement(result: BashResult): JobSettlement {

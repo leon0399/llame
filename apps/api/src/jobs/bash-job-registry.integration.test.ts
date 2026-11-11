@@ -208,7 +208,7 @@ d('BashJobRegistry', () => {
     });
   });
 
-  it('keeps stopping other jobs and settles the rest when one settlement fails', async () => {
+  it('keeps a failed settlement and commits it on the next recheck', async () => {
     let down = false;
 
     const flaky: TenantRunner = {
@@ -220,16 +220,26 @@ d('BashJobRegistry', () => {
 
     const flakyRegistry = new BashJobRegistry(flaky, worker, config);
     const failing = new Command();
+    const healthy = new Command();
     const job = await flakyRegistry.promote(failing, facts);
+    const other = await flakyRegistry.promote(healthy, facts);
+    failing.print('kept output');
     down = true;
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const done = flakyRegistry.shutdown();
-    await vi.advanceTimersByTimeAsync(10_000);
-    await expect(done).resolves.toBeUndefined();
-    vi.useRealTimers();
+    // Shutdown stays bounded and awaits every stop even though the database is down.
+    await expect(flakyRegistry.shutdown()).resolves.toBeUndefined();
     expect(failing.stop).toHaveBeenCalledWith('worker');
-    // The row stays running; the lost-on-touch join settles it when this worker ends.
+    expect(healthy.stop).toHaveBeenCalledWith('worker');
     expect((await row(job.id))?.state).toBe('running');
+    down = false;
+    await flakyRegistry.settlePending();
+    expect(await row(job.id)).toMatchObject({
+      state: 'cancelled',
+      stoppedBy: 'worker',
+    });
+    expect((await output(job.id)).toString()).toBe('kept output');
+    expect((await row(other.id))?.state).toBe('cancelled');
+    // Nothing is left pending after the commit.
+    await expect(flakyRegistry.settlePending()).resolves.toBeUndefined();
   });
 
   it('A quiet job writes nothing', async () => {
