@@ -22,7 +22,7 @@ import {
 } from './bash-job-registry';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { ChatJobsRepository } from './chat-jobs.repository';
-import { type WorkerHeartbeatService } from './worker-heartbeat.service';
+import { WorkerHeartbeatService } from './worker-heartbeat.service';
 
 class Command implements ManagedBashHandle {
   readonly pid = 12_345;
@@ -156,6 +156,55 @@ describe('BashJobRegistry', () => {
       expect((await row(id))?.state).toBe(state);
     });
   }
+
+  it('a worker heartbeat stops a real command from its durable owner request', async () => {
+    const heartbeat = new WorkerHeartbeatService(
+      drizzle(client, { schema }),
+      config,
+      { concurrencyFor: () => 1 },
+    );
+
+    registry = new BashJobRegistry(tenant, heartbeat, config);
+    registry.onModuleInit();
+    await heartbeat.beat();
+
+    try {
+      const handle = registry.start(
+        { command: 'bash', args: ['-c', 'sleep 30'], cwd: '/tmp', env: {} },
+        {
+          workingDirectory: '/tmp',
+          secretBoundary: true,
+          processIsolation: true,
+          outputBoundBytes: 1_000_000,
+          inputBound: 8000,
+          durationMs: 300_000,
+          maxProcesses: 4,
+        },
+      );
+
+      if (!('pid' in handle)) throw new Error('The command did not start.');
+      const job = await registry.promote(handle, facts);
+      await tenant.runAs(owner, (db) =>
+        new ChatJobsRepository(db).requestStop(
+          facts.chatId,
+          owner,
+          job.id,
+          'owner',
+        ),
+      );
+
+      await heartbeat.beat();
+
+      expect(await row(job.id)).toMatchObject({
+        state: 'cancelled',
+        stoppedBy: 'owner',
+      });
+      expect(() => process.kill(-handle.pid, 0)).toThrow('ESRCH');
+    } finally {
+      await registry.shutdown();
+      await client`DELETE FROM worker_instances WHERE id = ${heartbeat.instanceId}`;
+    }
+  });
 
   it('keeps the starting Run facts and output at promotion', async () => {
     const command = new Command();

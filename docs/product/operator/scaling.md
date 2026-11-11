@@ -172,6 +172,12 @@ Each worker process that consumes runs records a heartbeat every
 and its running jobs settle as `lost` at their next touch. The chat list and
 the live Chat record count only the jobs on a worker that is not dead.
 
+At each heartbeat the hosting worker retries pending job settlements and then
+checks each hosted job under its owner's identity. A recorded stop request,
+a deleted row, or a row already settled elsewhere ends the hosted command.
+One failed lookup does not delay the checks of other jobs. A completed job's
+stored state and result never change when its old worker resumes.
+
 The owner lists the jobs of a Chat with `GET /api/v1/chats/:chatId/jobs`, the
 running jobs first. `PATCH /api/v1/chats/:chatId/jobs/:jobId` with
 `{ "state": "cancelled" }` records a stop request from the owner. A repeat for a

@@ -31,6 +31,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-11
 
+- **Recover hosted jobs at each worker heartbeat (#1657).** The registry retries
+  failed settlements, then checks hosted work under each owner's identity.
+  Missing records, durable stop requests and already-settled records stop the
+  corresponding command without rewriting its terminal facts. One failed read
+  does not starve other jobs, and shutdown detaches the heartbeat hook.
 - **Add atomic background-job persistence (#1657).** Job settlement locks the
   Chat first and retries transaction conflicts. Output stores only uncommitted
   suffixes. Large output becomes a reserved-number artifact inside a savepoint;
