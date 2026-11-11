@@ -392,6 +392,30 @@ describe('BashJobRegistry', () => {
       expect(settle).toHaveBeenCalledTimes(3);
       expect(command.stop).not.toHaveBeenCalled();
     });
+
+    it.each([true, false])(
+      'shutdown retries the natural settlement once when persistence recovers=%s',
+      async (recovers) => {
+        const { registry, settle, settlements } = setup();
+        const command = fakeHandle();
+
+        await registry.promote(command.handle, facts());
+        settle.mockRejectedValueOnce(new Error('db down'));
+        command.exit(2);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(settlements).toEqual([]);
+
+        if (!recovers) settle.mockRejectedValue(new Error('still down'));
+
+        await registry.shutdown();
+
+        expect(settle).toHaveBeenCalledTimes(2);
+        expect(command.stop).not.toHaveBeenCalled();
+        expect(settlements).toEqual(
+          recovers ? [expect.objectContaining({ state: 'failed' })] : [],
+        );
+      },
+    );
   });
 
   describe('stored output while the job runs', () => {
