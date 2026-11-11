@@ -25,6 +25,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-11
 
+- **Add atomic background-job persistence (#1657).** Job settlement locks the
+  Chat first and retries transaction conflicts. Output stores only uncommitted
+  suffixes. Large output becomes a reserved-number artifact inside a savepoint;
+  failed artifact writes retain committed increments, and host files are written
+  only after commit. Direct database proof covers rollback, reserved numbers,
+  and the full output after a failed write. No tool starts a job in this layer.
 - **Add incremental managed-command output capture (#1657).** A managed handle
   reports output activity and returns redacted snapshots without rescanning its
   stable prefix. Credential overlaps, split credentials, and Unicode boundaries

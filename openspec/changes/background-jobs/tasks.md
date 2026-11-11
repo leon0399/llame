@@ -135,9 +135,9 @@ The split preserves the approved behavior and keeps runtime plus its unit proof 
 This layer owns the atomic database invariant, independently of the handle registry.
 No tool starts a job here.
 
-- [ ] 3b.1 Add `appendJobOutput`, `settleBashJob`, and bounded transaction retry; direct unit tests prove suffix offsets, first-writer-wins, Chat deletion, both retry classes, and exhaustion.
-- [ ] 3b.2 Write the reserved job artifact in a savepoint and host files only after commit; direct real-database tests cover "A job artifact after the Run ended", "A short output creates no artifact", "A failed write keeps the stored increments", and "A record of a failed job".
-- [ ] 3b.3 Run focused persistence unit and integration tests, API lint and typecheck; update `CHANGELOG.md`, then self-review the draft diff before ready.
+- [x] 3b.1 Add `appendJobOutput`, `settleBashJob`, and bounded transaction retry; direct unit tests prove suffix offsets, first-writer-wins, Chat deletion, both retry classes, and exhaustion.
+- [x] 3b.2 Write the reserved job artifact in a savepoint and host files only after commit; direct real-database tests cover "A job artifact after the Run ended", "A short output creates no artifact", "A failed write keeps the stored increments", and "A record of a failed job".
+- [x] 3b.3 Run focused persistence unit and integration tests, API lint and typecheck; update `CHANGELOG.md`, then self-review the draft diff before ready.
 - [ ] 3b.4 Run the GitHub review and CI loop on the published head.
 
 ## 4. Job runtime (`background-jobs/job-runtime`)
