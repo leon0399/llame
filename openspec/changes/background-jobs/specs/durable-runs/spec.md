@@ -200,19 +200,20 @@ timeout.
 
 ### Requirement: Enqueue is fail-fast and self-healing
 
-The system MUST NOT assume that the enqueue of a Run is transactional with the run row. An
+For an owner-started Run, the system MUST NOT assume transactional enqueue with the Run row. An
 enqueue failure MUST fail the run at once and free the single-flight slot of the Chat. A residual
 `queued` Run with no job MUST heal without manual cleanup: a same-message retry supersedes it, and
 a different message expires it through single-flight admission once the Run has no job and is older
 than one liveness window.
 
-This rule applies to the first job of a Run. A new deadline or wake job MUST be inserted in
-the transaction that records it. A deadline job that wakes the Run uses its existing id and
+That owner-started rule applies to the first job only. A new deadline or wake job MUST be
+inserted in the transaction that records it. A host-started Run's first job MUST be inserted
+with the Run and its job settlement. A deadline job that wakes the Run uses its existing id and
 inserts no job. A failed insert MUST roll the transaction back, leaving the Run as it was.
 
 #### Scenario: Enqueue failure frees the slot and self-heals
 
-- **WHEN** the run row is written but the enqueue then fails
+- **WHEN** an owner-started Run row is written but its enqueue then fails
 - **THEN** the run is failed (freeing the chat's single-flight slot), and no orphaned `queued` state persists beyond one liveness window once a different message arrives
 
 #### Scenario: A failed wake insert leaves the Run waiting
