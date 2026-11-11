@@ -336,7 +336,10 @@ export function startManagedBash(
   context: BashExecutorContext,
   options: StartManagedBashOptions = {},
 ): ManagedBashHandle | BashUnavailableResult | BashTimedOutResult {
-  const request = admitExecution(input, context, options);
+  const request = admitExecution(input, context, {
+    protectedValues: options.protectedValues,
+    toolCallId: options.toolCallId,
+  });
 
   if ("type" in request) return request;
   const child = spawnChild(request);

@@ -322,6 +322,7 @@ async function runAdmittedBash(
     );
 
     if (prior) return prior;
+    context.abortSignal?.removeEventListener('abort', onAbort);
     // A host command always runs on the llame host, so the notice names the
     // directory: in a Machine Workspace every spilled call is a Machine one
     // (the projection sends it there), so no host-only case is reachable here.

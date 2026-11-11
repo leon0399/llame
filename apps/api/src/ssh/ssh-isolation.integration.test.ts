@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 
 import postgres, { type Sql } from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { BashProcessLimiter } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
@@ -104,6 +105,7 @@ describe('ssh operations stay in their owner scope', () => {
       runId: run.runId,
       nativeDeliverySequence: run.deliverySequence,
       toolCallId: toolCallA,
+      bashProcessLimiter: new BashProcessLimiter(64),
       tenantDb,
       permissionPolicy: policy,
       sshClient: client,

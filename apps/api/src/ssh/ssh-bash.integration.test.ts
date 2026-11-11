@@ -13,6 +13,7 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type StartedTestContainer } from 'testcontainers';
+import { BashProcessLimiter } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -109,6 +110,7 @@ describe('ssh bash over a real sshd', () => {
       runId: 'run',
       toolCallId: 'call',
       nativeDeliverySequence: 1,
+      bashProcessLimiter: new BashProcessLimiter(64),
       tenantDb,
       permissionPolicy: policy,
       sshClient,

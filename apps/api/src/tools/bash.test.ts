@@ -731,6 +731,65 @@ describe('bash durable admission', () => {
     }
   });
 
+  it('retains the process slot after abort until execution settles', async () => {
+    const abort = new AbortController();
+    const context = { ...singleSlotContext(), abortSignal: abort.signal };
+
+    const { promise: running, resolve: started } =
+      Promise.withResolvers<void>();
+
+    const { promise: completion, resolve: settle } =
+      Promise.withResolvers<BashResult>();
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+    vi.spyOn(bashExecutor, 'admitManagedBash').mockReturnValue({
+      cwd: process.cwd(),
+      run: () => {
+        started();
+
+        return completion;
+      },
+    });
+    const first = bashTool.execute(context, { command: 'sleep 1' });
+
+    await running;
+    abort.abort();
+
+    const nextContext = {
+      ...context,
+      abortSignal: undefined,
+      toolCallId: 'call-2',
+    };
+
+    try {
+      await expect(
+        bashTool.execute(nextContext, { command: 'true' }),
+      ).resolves.toMatchObject({ type: 'limit_reached' });
+    } finally {
+      settle({
+        status: 'success',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      });
+      await first;
+    }
+
+    await expect(
+      bashTool.execute(nextContext, { command: 'true' }),
+    ).resolves.toMatchObject({ status: 'success' });
+  });
+
   it('falls back to an unknown outcome when result persistence exceeds the grace', async () => {
     const directory = await mkdtemp(
       join(tmpdir(), 'bash-persistence-timeout-'),

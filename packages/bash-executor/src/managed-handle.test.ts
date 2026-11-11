@@ -1,5 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { startManagedBash } from "./execute";
+import { startManagedBash, type ExecuteManagedBashOptions } from "./execute";
 import * as processTree from "./process-tree";
 import type {
   BashExecutorContext,
@@ -48,7 +48,23 @@ describe("startManagedBash handle", () => {
 
   it("keeps running after a call signal aborts and still snapshots later output", async () => {
     const call = new AbortController();
-    const handle = start("printf one; sleep 0.2; printf two; sleep 5");
+
+    const options: ExecuteManagedBashOptions = {
+      toolCallId: "signal-independent",
+      signal: call.signal,
+      timeoutSignal: call.signal,
+    };
+
+    const handle = startManagedBash(
+      {
+        command: "bash",
+        args: ["-c", "printf one; sleep 0.2; printf two; sleep 5"],
+      },
+      context,
+      options,
+    );
+
+    if ("type" in handle) throw new Error(`Expected a handle: ${handle.type}`);
 
     call.abort();
     await delay(400);

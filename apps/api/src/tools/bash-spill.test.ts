@@ -13,7 +13,10 @@ import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { type BashKnownResult } from '@workspace/bash-executor';
+import {
+  BashProcessLimiter,
+  type BashKnownResult,
+} from '@workspace/bash-executor';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -66,6 +69,7 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
     toolCallId: 'call-1',
     nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
+    bashProcessLimiter: new BashProcessLimiter(64),
     permissionPolicy: compileTestPermissionPolicy(),
     artifactReadable: true,
     tenantDb: {
