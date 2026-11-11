@@ -1344,6 +1344,35 @@ describe('bash process bound', () => {
     }
   });
 
+  it('refuses execution without worker process authority before creating an attempt', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-no-authority-'));
+    const begin = stubDurableRecords();
+
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf forbidden > effect' },
+        { ...testContext(), bashProcessLimiter: undefined },
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'executor_unavailable',
+      });
+      expect(begin).not.toHaveBeenCalled();
+      await expect(
+        readFile(join(directory, 'effect'), 'utf8'),
+      ).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('refuses a call past the bound before an attempt and a process', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-full-'));
     const begin = stubDurableRecords();

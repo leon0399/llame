@@ -1081,7 +1081,7 @@ describe('loadInstanceConfig — tools.bash.maxProcesses (background-jobs D7)', 
       '{ "tools": { "bash": { "maxProcesses": "{env:IC_PROCS}" } } }',
     );
 
-    for (const value of ['0', '2.5', '9007199254740993'])
+    for (const value of ['', '0', '2.5', '9007199254740993'])
       expect(() => loadInstanceConfig({ IC_PROCS: value })).toThrow(
         'tools.bash.maxProcesses',
       );
