@@ -13,6 +13,7 @@ master
   <- background-jobs/proposal
   <- background-jobs/job-store
   <- background-jobs/bash-executor
+  <- background-jobs/output-capture
   <- background-jobs/job-runtime
   <- background-jobs/bash-async
   <- background-jobs/bash-move
@@ -29,22 +30,23 @@ master
 Each layer leaves `master` in a state that works. A layer that only prepares code for a later
 one changes no behavior that the model or the owner can see.
 
-| Layer           | Parent          | Owns                                                                                              | Visible change                                   | Estimate   | Issue             |
-| --------------- | --------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------- | ----------------- |
-| `proposal`      | `master`        | The planning artifacts of this change.                                                            | none                                             | 3,250      | refs #1657        |
-| `job-store`     | `proposal`      | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats.        | `read job://`, the jobs API                      | 2,000      | refs #1657        |
-| `bash-executor` | `job-store`     | An executor handle that outlives its call, and the host process limiter.                          | 64 commands for each worker, `limit_reached`     | 1,500      | refs #1657, #1050 |
-| `job-runtime`   | `bash-executor` | The registry, stored output, the settlement of a job, its lifetime, and the end of a worker.      | none                                             | 2,000      | refs #1657        |
-| `bash-async`    | `job-runtime`   | `async`, `unlimited`, background results, job settings, owner stop enforcement and Chat deletion. | `bash` with `async: true`, effective owner stops | 2,000      | refs #1657, #1051 |
-| `bash-move`     | `bash-async`    | The move of a foreground command at its bound.                                                    | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
-| `job-stop`      | `bash-move`     | The model-facing `stop` tool and its result/notice coordination.                                  | `stop`                                           | 1,300      | refs #1657        |
-| `yield`         | `job-stop`      | Calls that yield to a steer, and the interrupt fate for each call.                                | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
-| `notices`       | `yield`         | Job notices in the delivery queue, their context item, and host messages.                         | notices in a live Run                            | 2,000      | refs #1657        |
-| `host-runs`     | `notices`       | Runs that the host starts, and held notices.                                                      | a notice starts a Run                            | 1,800      | refs #1657        |
-| `wait-suspend`  | `host-runs`     | `awaiting_jobs`, the wakers, the deadline job, and admission.                                     | none                                             | 2,000      | refs #1657        |
-| `wait-resume`   | `wait-suspend`  | The `wait` tool and the attempt after a wake.                                                     | `wait`                                           | 2,000      | refs #1657        |
-| `web`           | `wait-resume`   | The sidebar state, the Jobs section, and the transcript rows.                                     | the owner controls                               | 1,800      | Closes #1657      |
-| `finalize`      | `web`           | Spec synchronization, task records, and archive movement.                                         | none                                             | 0 authored | refs #1657        |
+| Layer            | Parent           | Owns                                                                                              | Visible change                                   | Estimate   | Issue             |
+| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------- | ----------------- |
+| `proposal`       | `master`         | The planning artifacts of this change.                                                            | none                                             | 3,250      | refs #1657        |
+| `job-store`      | `proposal`       | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats.        | `read job://`, the jobs API                      | 2,000      | refs #1657        |
+| `bash-executor`  | `job-store`      | An executor handle that outlives its call, and the host process limiter.                          | 64 commands for each worker, `limit_reached`     | 1,500      | refs #1657, #1050 |
+| `output-capture` | `bash-executor`  | Redacted incremental handle snapshots, output subscriptions, and per-stream truncation.           | none                                             | 650        | refs #1657        |
+| `job-runtime`    | `output-capture` | The registry, stored output, the settlement of a job, its lifetime, and the end of a worker.      | none                                             | 1,900      | refs #1657        |
+| `bash-async`     | `job-runtime`    | `async`, `unlimited`, background results, job settings, owner stop enforcement and Chat deletion. | `bash` with `async: true`, effective owner stops | 2,000      | refs #1657, #1051 |
+| `bash-move`      | `bash-async`     | The move of a foreground command at its bound.                                                    | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
+| `job-stop`       | `bash-move`      | The model-facing `stop` tool and its result/notice coordination.                                  | `stop`                                           | 1,300      | refs #1657        |
+| `yield`          | `job-stop`       | Calls that yield to a steer, and the interrupt fate for each call.                                | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
+| `notices`        | `yield`          | Job notices in the delivery queue, their context item, and host messages.                         | notices in a live Run                            | 2,000      | refs #1657        |
+| `host-runs`      | `notices`        | Runs that the host starts, and held notices.                                                      | a notice starts a Run                            | 1,800      | refs #1657        |
+| `wait-suspend`   | `host-runs`      | `awaiting_jobs`, the wakers, the deadline job, and admission.                                     | none                                             | 2,000      | refs #1657        |
+| `wait-resume`    | `wait-suspend`   | The `wait` tool and the attempt after a wake.                                                     | `wait`                                           | 2,000      | refs #1657        |
+| `web`            | `wait-resume`    | The sidebar state, the Jobs section, and the transcript rows.                                     | the owner controls                               | 1,800      | Closes #1657      |
+| `finalize`       | `web`            | Spec synchronization, task records, and archive movement.                                         | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
 deltas hold 18 MODIFIED requirements that must restate their canonical blocks, about 1,110 lines:
@@ -93,6 +95,15 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [ ] 3.4 Add `tools.bash.maxProcesses` to the type, the loader, the JSON Schema, and the example, and return `limit_reached` at the acquire site of the API; tests cover "Two commands in one step both run", "A call past the bound is refused", and the `maxProcesses` half of `Operator configuration bounds host commands`. Replace the pinned "Managed process limit reached." assertion. A Machine test proves that the daemon still answers `unavailable`.
 - [ ] 3.5 Update `docs/product/reference/tools/bash.md` (bounds and errors) and `CHANGELOG.md`; run the package and API lint, typecheck, and `test:coverage` for `packages/bash-executor`; self-review before ready.
 - [ ] 3.6 Run the GitHub review and CI loop on the published head.
+
+## 3a. Output capture (`background-jobs/output-capture`)
+
+This layer separates the executor's output capture from the registry that consumes it.
+The split preserves the approved behavior and keeps runtime plus its unit proof within budget.
+
+- [ ] 3a.1 Add output subscriptions, cached redacted snapshots, and per-stream truncation to the managed handle; test credential overlaps, split credentials, Unicode boundaries, and full-sanitizer equivalence.
+- [ ] 3a.2 Run the executor lint, typecheck, build, and focused suites, including a real child whose snapshot grows while it runs; self-review before ready.
+- [ ] 3a.3 Run the GitHub review and CI loop on the published head.
 
 ## 4. Job runtime (`background-jobs/job-runtime`)
 
