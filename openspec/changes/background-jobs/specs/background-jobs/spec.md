@@ -253,6 +253,16 @@ The retry MUST NOT stop a running command.
 - **WHEN** a settlement keeps failing and its worker then crashes or loses its heartbeat
 - **THEN** the job settles as `lost` at its next touch
 
+### Requirement: A stopped worker command never overwrites a lost row
+
+A hosted command whose stored row is already settled MUST be stopped at the next heartbeat check
+of its worker. The stop MUST NOT change the state or the result of the settled row.
+
+#### Scenario: A worker resumes after its row was settled lost
+
+- **WHEN** a job row is settled `lost` after a heartbeat lapse, and the original worker then resumes and rechecks the job
+- **THEN** the worker stops the process group, and the row keeps the state `lost` and its result
+
 ### Requirement: An orderly shutdown keeps known settlements
 
 An orderly shutdown MUST keep and retry the known natural settlement of a job that already
