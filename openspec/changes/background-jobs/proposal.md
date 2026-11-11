@@ -107,9 +107,9 @@ Leo must confirm these three points.
    tool call, so [#1662](https://github.com/leon0399/llame/issues/1662) needs no schema change.
    File-backed output moves with [#1627](https://github.com/leon0399/llame/issues/1627).
 2. **Grilling G17: a job that the model stops.** The record says that such a job is reported at
-   the next Run. This change reports it only in the result of the `stop` call, because that
-   result is already in the transcript of the same Run. A job that the owner stops still gets a
-   notice.
+   the next Run. A settled state reported by `stop` gets no duplicate notice. A stop that
+   reports `running` gets a notice when the job settles later. A job that the owner stops
+   still gets a notice.
 3. **Grilling G8: the call timeout.** The record says that `tools.callTimeoutSeconds` no longer
    applies to host `bash`. This change keeps it as an upper limit of the foreground bound. The
    reason is the canonical rule of `tool-calling` that the call timeout bounds every tool call
@@ -142,7 +142,8 @@ Leo must confirm these three points.
   mode.
 - `durable-runs`: MODIFIED `One in-flight run per chat (single-flight)` (the job that admission
   reads) and `A run never stays stuck, enforced without a cross-tenant reaper` (the `wait`
-  deadline job). ADDED requirements for `awaiting_jobs`.
+  deadline job) and `Enqueue is fail-fast and self-healing` (atomic wake and deadline inserts).
+  ADDED requirements for `awaiting_jobs`.
 - `context-injection`: MODIFIED `Co-occurring items have a total author-time order` (the `job`
   producer) and `Server-authored context is injected as discrete items on one rail` (a `job`
   item is never an in-Run item, and a host message can carry it).
@@ -156,16 +157,19 @@ Leo must confirm these three points.
 - `tool-call-permissions`: ADDED requirement for `job://` locators.
 - `run-cancellation`: ADDED requirement for the cancellation of a waiting Run.
 - `tool-artifacts`: ADDED requirements for the artifact of a job.
+- `prompt-imports`: MODIFIED `Prompt targets resolve as native read locators` and
+  `Prompt imports cover every native read scheme` (`job://` markers stay prose).
 - `instance-config`: ADDED requirements for `tools.bash`, `tools.jobs`, and the foreground
   bound.
 - `turn-actions`: ADDED requirement for a turn that a host message started.
+- `job-queue`: ADDED requirement for transactional enqueue of a wake or deadline job.
 
 ### Deliberately unchanged
 
 Each bullet names the reading under which the canonical text still holds.
 
 - `bash-execution` / `Command results are bounded and explicit`: "Each bash call MUST enforce
-  finite … duration" bounds the call. A host call returns at the foreground bound at the latest.
+  finite … duration" bounds the call. A host call settles within 750 ms after its foreground bound.
   The job lifetime bounds the command, except an `unlimited` job that the operator allows. The
   50 ms drain after a proven stop also applies to a lifetime end.
 - `tool-calling` / `Multi-step tool-calling run loop`: "MUST continue the same Run until the
@@ -173,12 +177,13 @@ Each bullet names the reading under which the canonical text still holds.
   continues when it wakes.
 - `tool-calling` / `Tool failure is an observation, not a crash`: "Tool execution SHALL be
   bounded by the global `tools.callTimeoutSeconds`" bounds the time in which a worker executes
-  a call. A host `bash` call returns at the foreground bound, which is never above that value.
+  a call. Its foreground bound does not exceed that value. A host call has the existing
+  750 ms bash settlement grace after the bound.
   A `wait` call executes until the Run enters `awaiting_jobs`, and again when the Run wakes. No
   worker executes it between those two points.
 - `tool-calling` / `Cooperative cancellation reaches tool execution`: the "effective per-call
-  timeout" of host `bash` is its foreground bound. At that bound the call returns
-  `backgrounded`, which is a structured result and not a rejection.
+  timeout" of host `bash` is its foreground bound. The call returns `backgrounded` within the
+  settlement grace, or `outcome_unknown` if settlement exceeds it. Neither kills a recorded job.
 - `run-usage-accounting` / `Message usage aggregates every model request of its attempt` and
   `Usage records whether it is complete`: the attempt after a wake is "the Run attempt that
   produced" the reply, and "another attempt for the same message of the Run reached prompt

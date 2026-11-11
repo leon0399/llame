@@ -15,7 +15,7 @@ request MUST pass the same admission as a new message. When a worker stops durin
 
 The first queue job of a Run MUST have the Run's own id (per `job-queue`'s named-job
 requirement). A Run that enters or leaves `awaiting_jobs` MUST record the id of its next queue
-job. The current job of a Run is the job that the Run records, or the job with the Run's own id
+job and insert that job in the same transaction. The current job of a Run is the job that the Run records, or the job with the Run's own id
 when it records none. Thus the single-flight admission path judges a blocker Run from the state
 of its current job, not from the age of the Run. A blocker Run whose current job is `queued`,
 `retrying`, or `active` is live. Admission MUST reject the new message or follow-up request with
@@ -23,9 +23,9 @@ of its current job, not from the age of the Run. A blocker Run whose current job
 or `cancelled` is **stuck**, because the queue cannot execute it. A crash before the enqueue, or
 a job that settled before its Run settled, can cause this. The admission path MUST expire a
 stuck Run on the next message or follow-up request, so a stuck Run cannot block a Chat
-permanently. A Run younger than one liveness window (`runs.heartbeatSeconds`) whose current job
-is absent MUST count as live, because its enqueue can still be in progress. For a recorded job,
-that window starts when the Run records the job. A job state that admission cannot read in a
+permanently. A Run with no recorded job, younger than one liveness window
+(`runs.heartbeatSeconds`), MUST count as live when its first job is absent, because its enqueue
+can still be in progress. A job state that admission cannot read in a
 bounded wait, or cannot read at all, MUST count as live, never as stuck. Admission MUST read only
 the current job of the blocker Run. It MUST read it only for a Run in the tenant scope of the
 owner that sends the request. It MUST NOT scan the queue. It MUST NOT read the Run or the job of
@@ -132,7 +132,7 @@ the mechanisms below. These mechanisms cover the failure modes:
 There MUST be no application-level liveness poll and no "deadman" job per Run. The native queue
 heartbeat drives the detection of a dead worker. The deadline job of an open `wait` is one
 delayed job for each `wait`, and it is not a deadman job for the Run. It ends that `wait` at its
-timeout, and it recovers a lost wake.
+timeout.
 
 #### Scenario: A progressing run has no default time limit
 
@@ -192,6 +192,24 @@ timeout, and it recovers a lost wake.
 - **WHEN** `runs.timeoutSeconds` is 1,800, and a Run wakes 2,400 seconds after it started
 - **THEN** the claim records a terminal `run.expired`, and no model request is sent
 
+### Requirement: Enqueue is fail-fast and self-healing
+
+Enqueuing a run SHALL NOT be assumed transactional with the run row. An enqueue failure SHALL immediately fail the run (freeing the chat's single-flight slot); any residual `queued`-but-orphaned state SHALL self-heal — a same-message retry supersedes it, and a different message expires it through single-flight admission once the run has no job and is older than one liveness window — with no manual cleanup.
+
+This rule applies to the first job of a Run. The deadline job of a `wait` and the job of a wake
+MUST be inserted in the transaction that records them. A failed insert MUST roll that
+transaction back, and the Run MUST stay as it was.
+
+#### Scenario: Enqueue failure frees the slot and self-heals
+
+- **WHEN** the run row is written but the enqueue then fails
+- **THEN** the run is failed (freeing the chat's single-flight slot), and no orphaned `queued` state persists beyond one liveness window once a different message arrives
+
+#### Scenario: A failed wake insert leaves the Run waiting
+
+- **WHEN** a waker's insert of the next job fails
+- **THEN** the wake rolls back, and the Run stays in `awaiting_jobs`
+
 ## ADDED Requirements
 
 ### Requirement: A Run that waits holds no worker
@@ -243,17 +261,21 @@ wake generation.
 - **WHEN** a settlement woke a Run, the Run then waits again, and the deadline job of the first wait starts
 - **THEN** that job changes nothing, because its wake generation is not the current one
 
-### Requirement: The deadline job recovers a lost wake
+### Requirement: The deadline job ends a wait
 
-The Run MUST enqueue one deadline job when it enters `awaiting_jobs`, delayed by the timeout of
-the `wait`. When that job starts and the Run still waits with the same wake generation, the job
-MUST resume the Run. When the Run left `awaiting_jobs` with that generation and its current job
-is absent, the deadline job MUST execute the Run. In every other case it MUST do nothing.
+The Run MUST insert one deadline job, delayed by the timeout of the `wait`, in the transaction
+in which it enters `awaiting_jobs`. When that job starts and the Run still waits with the same
+wake generation, the job MUST resume the Run. In every other case it MUST do nothing.
 
-#### Scenario: The wake enqueue is lost
+#### Scenario: A worker crashes right after a wait starts
 
-- **WHEN** a waker moves a Run to `queued`, and its process stops before it enqueues the next job
-- **THEN** the deadline job executes the Run at the deadline
+- **WHEN** a Run enters `awaiting_jobs`, and its worker stops before the queue job ends
+- **THEN** the deadline job is queued, and it resumes the Run at the deadline
+
+#### Scenario: A waker crashes after its commit
+
+- **WHEN** a waker moves a Run to `queued`, and its process stops at once
+- **THEN** the next queue job of the Run exists, and a worker executes the Run
 
 ### Requirement: A wait and a wake are Run events
 

@@ -326,7 +326,8 @@ entry of that job, and it MUST NOT return `ended: "timeout"`.
 
 A retry of a Run can discard the result of a `wait` that reported a settled job. The system
 MUST then make the notice of that job pending again, so the settlement reaches the model. A
-settlement MUST NOT be lost because a worker stopped.
+settlement MUST NOT be lost because a worker stopped. The system MUST NOT restore a notice that
+the owner deleted.
 
 #### Scenario: A worker stops after a wait returned
 
@@ -335,9 +336,9 @@ settlement MUST NOT be lost because a worker stopped.
 
 ### Requirement: A wait takes the place of the notice
 
-A job that settles while an open `wait` lists it MUST NOT get a job notice. A `wait` that
-returns the settled entry of a job MUST withdraw a pending notice of that job. A `read` of a job
-MUST NOT withdraw a notice.
+A settlement MUST retain its notice until the transaction that records the settled `wait`
+result withdraws it. A `wait` that returns a settled job MUST withdraw its pending notice in
+that transaction and record the consuming Run. A `read` MUST NOT withdraw a notice.
 
 #### Scenario: A waited job gives no notice
 
@@ -349,13 +350,17 @@ MUST NOT withdraw a notice.
 - **WHEN** a job settles, and the model reads its record before the next step boundary
 - **THEN** the notice is still delivered at that boundary
 
+#### Scenario: A cancellation after a waited job settled keeps the notice
+
+- **WHEN** a listed job settles while its Run waits, and the owner cancels the Run before pickup
+- **THEN** the Run is cancelled, and the Chat has a pending notice for that job
+
 ### Requirement: The stop tool ends listed jobs
 
-The `stop` tool MUST accept `jobs`, a list of 1 to 16 job locators. It MUST stop each listed job
-in state `running` and return one entry for each job with its state. A job that was already
-settled MUST keep its state. A job that `stop` ends MUST record the stopper `assistant` and MUST
-NOT get a job notice. A job that does not settle within 5 seconds MUST be reported as `running`
-with a recorded stop request.
+`stop` MUST accept 1 to 16 job locators, stop each running job, and return each state. Settled
+jobs MUST keep their states. A stopped job MUST name the stopper `assistant`. A settled state
+reported by `stop` MUST get no notice. After 5 seconds without settlement, `stop` MUST report
+`running` with the stop request; the later settlement MUST create a notice.
 
 #### Scenario: The model stops a monitor
 
@@ -371,6 +376,11 @@ with a recorded stop request.
 
 - **WHEN** the model calls `stop`, and the worker of the job does not settle it within 5 seconds
 - **THEN** the result names the job as `running` with a recorded stop request
+
+#### Scenario: A late stop gets a notice
+
+- **WHEN** `stop` reports a job as `running`, and it settles later as `cancelled`
+- **THEN** the Chat has one pending notice for that job, naming the stopper `assistant`
 
 ### Requirement: A stop is known only after proof
 
@@ -399,8 +409,8 @@ When the signal is lost, the worker MUST find the request at its next heartbeat 
 
 A settlement MUST create one pending item of `run-steering` with the producer kind `job`, the
 mode `notice`, and the job as sender reference. This MUST occur in the transaction that settles
-the job. A job MUST get at most one notice. The exceptions are a job that an open `wait` lists
-and a job that the `stop` tool ends.
+the job. A job MUST get at most one notice. The exception is a job whose settled state a
+`stop` result reports. A `wait` consumes a notice in the transaction that records its result.
 
 #### Scenario: A job that nobody waits on
 

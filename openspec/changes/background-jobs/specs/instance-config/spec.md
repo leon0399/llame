@@ -9,8 +9,8 @@ or an unknown key in `tools.bash` MUST fail startup and name the path.
 
 #### Scenario: The defaults apply
 
-- **WHEN** the configuration has no `tools.bash` object
-- **THEN** a host command moves to the background after 120 seconds, and one worker process runs at most 64 commands
+- **WHEN** the configuration has no `tools.bash` object and no `tools.callTimeoutSeconds`
+- **THEN** a host command that still runs after 120 seconds moves to the background, and one worker process runs at most 64 commands
 
 #### Scenario: An unknown key fails startup
 
@@ -35,6 +35,8 @@ The foreground bound of a host `bash` call MUST be the lesser of
 `tools.bash.backgroundAfterSeconds` and `tools.callTimeoutSeconds`. At that bound the command
 MUST move to the background, and it MUST NOT stop. `tools.callTimeoutSeconds` MUST still stop a
 `bash` call on an `ssh://` directory and a `bash` call on a `machine://` directory.
+The call timeout MUST NOT abort a host command. Its call MUST settle in the 750 ms window
+defined by `bash-execution`.
 
 #### Scenario: A higher call timeout does not delay the background move
 

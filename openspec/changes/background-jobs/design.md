@@ -108,7 +108,8 @@ change to the Machine protocol or to the behavior of the Machine daemon; a new p
 
 - `chat_jobs`: `id`, `chat_id` and `owner_user_id` (composite FK to `chats`, cascade),
   `executor`, `seq`, `state`, `stopped_by`, `run_id`, `tool_call_id`, `worker_instance_id`, `pid`,
-  `started_at`, `settled_at`, `deadline_at`, `stop_requested_at`, `stop_requested_by`, `result`
+  `started_at`, `settled_at`, `deadline_at`, `stop_requested_at`, `stop_requested_by`,
+  `stop_reported_running`, `result`
   (jsonb: exit code, truncation flags), `outputs` (text array), `artifact_id`,
   `artifact_readable`, and the settings of the starting Run. Unique on
   `(chat_id, executor, seq)`. Policy as `chat_deliveries_owner`, with
@@ -175,9 +176,9 @@ and the Run abort.
 - Bound or yield first: the registry promotes the command. It reserves the number, inserts the
   `chat_jobs` row, and stores the output captured up to that point. The call then returns
   `backgrounded` and appends `native.result` with that result.
-- A promotion that fails stops the command with `stop('run')`. The call returns `timed_out` with
-  the captured output and a message that names the failed move, so no host call stays open past
-  its bound.
+- A promotion that fails stops the command with `stop('run')`. A proved stop returns
+  `timed_out` with the captured output and a message that names the failed move.
+  An unproved stop returns `outcome_unknown`. The promotion failure retains the stop proof.
 - Abort first: the registry calls `stop('run')`, and the call settles as today.
 
 The yield signal is level-triggered for the segment. A `host` call that starts while a steer or
@@ -213,18 +214,19 @@ In `tenantDb.runAs(owner)`. The transaction is retried on `40P01` and `40001`.
    transaction.
 3. When an output does not fit 2,000 characters and `artifact_readable` holds, write the artifact
    in a savepoint and delete the chunks. A failed write rolls back the savepoint only.
-4. Read the Chat's non-terminal Run without a row lock. When it is in `awaiting_jobs` and lists
-   the job, skip the notice. Otherwise insert the `notice` item, unless
-   `stop_requested_by = 'assistant'`.
+4. Insert the `notice` item unless an assistant stop has already reported the settled state.
+   A `wait` that reports the job withdraws it in the transaction that records its result
+   (D11, D12). Read the Chat's non-terminal Run without a row lock.
 5. When the Run is in `awaiting_jobs`, run the waker update (D11), which is the only write to
    the Run row. When the Run executes, call `notifyRunControl(tx, { runId, kind: 'steer' })`,
    so a foreground command yields.
 6. When no Run is live, apply the idle rule (D15).
 
-The settlement and the admission wakers (D13) share one order: Chat row, then the Run row
-through the wake update. The suspension (D11) is fenced by the Run row and then takes the Chat
-row, as a delivery does. It can deadlock with a settlement, so it is also retried on `40P01`. A
-retried suspension re-reads the jobs and returns the settlement when the job settled meanwhile.
+The settlement and admission wakers (D13) lock the Chat row, then the Run row through the
+wake update. Chat deletion, suspension, and worker terminal writes can take the Run row first.
+The settlement, suspension, Chat deletion, and admission transaction therefore use one bounded
+retry on `40P01` and `40001`. The deadline job retries through its queue job. A retried
+suspension re-reads the jobs and returns a settlement when the job settled meanwhile.
 
 ### D7: A limiter object replaces the module counter on the host
 
@@ -280,6 +282,11 @@ The `stop` tool then waits for the settlement: on the promise of the registry wh
 hosts the job, and otherwise by a read of the job row every 250 ms. After 5 s it reports the job
 as `running` with the recorded stop request.
 
+When `stop` is about to report `running`, it locks the Chat and then the job. If the job is
+still running, it sets `stop_reported_running`. Otherwise it reports the settlement. Settlement
+creates a notice for an assistant stop only when that flag is set. The result path that
+reports a settled state consumes its notice atomically. The `job-stop` layer adds the flag.
+
 ### D11: `awaiting_jobs`, the wake generation, and the current job
 
 New on `runs`: `wake_generation integer`, `current_job_id uuid`, and `awaiting jsonb` (the open
@@ -301,17 +308,20 @@ fenced by `activeAttemptId`:
    is the reply of the current segment so far. It holds no part for the open `wait` call,
    because the collector drops a pending call (`assistant-transcript.ts:420-426`).
 
-After the commit the worker enqueues the deadline job under that UUID with `startAfter`, and
-`executeJob` accepts `awaiting_jobs` as a normal end.
+The suspension inserts the deadline job with `startAfter` in that same transaction, through
+`RunDispatchService.enqueueInTransaction`. It passes pg-boss `send` a database adapter over the
+Drizzle transaction. The packaged `fromDrizzle` adapter assumes a different result shape from
+postgres.js and must not be used without a compatible row projection. The suspension and its
+deadline job commit together or not at all. `executeJob` accepts `awaiting_jobs` as a normal end.
 
 **Wake.** `UPDATE runs SET status = 'queued', current_job_id = $new WHERE id = $id AND status =
 'awaiting_jobs' AND wake_generation = $gen RETURNING ...`, with `run.resumed { generation,
 cause }` appended in the same transaction. The cause is the `ended` value that the `wait` will
 return: `settled` for a listed job, also a lost one; `interrupted` for a steer, an interrupt, or
-a job outside the list; `timeout` for the deadline; or `cancelled`. The winner enqueues a `runs`
-job under `$new` after its commit, through a dispatch variant that takes the job id. A failed
-enqueue leaves the Run `queued`; it does not fail the Run. The `RunJob` payload gains
-`wake?: { generation, jobId }`.
+a job outside the list; `timeout` for the deadline; or `cancelled`. The winner inserts the
+`runs` job under `$new` in that transaction through `enqueueInTransaction`. A failed insert
+rolls back the wake. The deadline waker keeps its own id and inserts no job. The `RunJob`
+payload gains `wake?: { generation, jobId }`.
 
 **Deadline job.** It is a `runs` job whose id is the `current_job_id` of the suspension.
 
@@ -321,8 +331,6 @@ enqueue leaves the Run `queued`; it does not fail the Run. The `RunJob` payload 
   first job of a Run has no `wake` field and is current only while `current_job_id` is null.
 - Current and `awaiting_jobs`: it marks listed jobs on a dead worker `lost`, wakes with the
   cause `settled` or `timeout`, and executes.
-- Not current, status `queued`, same generation, and the recorded job absent past one heartbeat
-  window: it sets `current_job_id` to its own id and executes (lost wake).
 - The dead-letter job carries the same payload. `expireDeadLetteredRun` applies the same
   comparison and ignores a job that is not current.
 
@@ -330,7 +338,9 @@ enqueue leaves the Run `queued`; it does not fail the Run. The `RunJob` payload 
 after a wake expires the Run when the anchor plus the budget has passed, before `markStarted`.
 Otherwise it arms the timer with the rest. The execution ceiling counts from the new claim.
 
-**Admission** reads `current_job_id ?? run.id` (`chat-admission.ts:34-71`).
+**Admission** reads `current_job_id ?? run.id` (`chat-admission.ts:34-71`). The one-window grace
+for an absent job applies only while `current_job_id` is null. A recorded job exists from the
+commit that records it, so an absent recorded job is stuck.
 
 Rejected: a `run_waits` table. Admission and the web would join a second table to judge one Run.
 
@@ -343,23 +353,25 @@ segment from its first step, with no seed.
 
 The seeded attempt:
 
-1. Computes the `wait` result from the job rows and the cause, and withdraws the pending notice
-   of each job that the result reports as settled.
-2. Builds the settled `wait` tool part (call, input, result, step) and appends it to the parts
-   of `run.suspended`. It appends `tool.completed` for the call.
-3. Seeds from those parts: the collector, the kept messages of `requestMessages`
+1. In one transaction fenced by `activeAttemptId`, compute the `wait` result, withdraw the
+   pending notices that it reports as settled, and set their `run_id` to this Run. Build the
+   settled `wait` tool part and append it to the parts of `run.suspended`, and append
+   `tool.completed` for the call.
+2. Seed from those parts: the collector, the kept messages of `requestMessages`
    (`continueStateFromEvents`), and the step offset of the segment budget. The finalizer
    (`replyParts`, `rebuiltReplyWrite`) applies the same parts for this attempt only, keyed by
    the attempt that follows the `run.resumed`. The provider request therefore holds the `wait`
    call and its result.
-4. Runs the step-boundary delivery before its first request, so a steer or a notice that woke
+3. Run the step-boundary delivery before its first request, so a steer or a notice that woke
    the Run is delivered there.
 
 The stream bridge does not translate `run.suspended`. It already replays the events of the
 attempt before the wait, and it translates the appended `tool.completed`.
 
-A retry that discards the seeded attempt inserts the notice of each job that the discarded
-`wait` result reported as settled, when that job has no pending or delivered notice.
+A retry that discards the seeded attempt returns its consumed notices to `pending` and clears
+their `run_id`. It updates the existing rows; it does not insert duplicates. Only notices
+withdrawn by this Run for the discarded result qualify. An owner-deleted notice has no
+`run_id` and stays withdrawn.
 
 Usage follows the shipped rules. The reply usage sums the requests of the seeded attempt, and
 it is `complete: false`, because another attempt of the message reached prompt preparation
@@ -488,9 +500,8 @@ removes the selector.
   Run or step is told. #1662 tracks adoption.
 - [A crash after a wake fails a Run whose segment ran `bash`] → the shipped recovery rule
   applies, and the owner can Continue. A read-only segment restarts from its first step.
-- [The enqueue of a wake is not transactional] → the deadline job executes the Run at the
-  deadline at the latest. Until then the Run is `queued` with an absent job, and the next
-  message of the owner expires it under the shipped rule.
+- [Wake and deadline inserts use a tenant transaction] → a local database adapter keeps the
+  Run update and pg-boss insert atomic. A failed insert rolls back the wake or suspension.
 - [One row write per second for a chatty job] → bounded by the 16 KiB batch and the output
   bound. #1627 moves host output to a file.
 - [The seeded attempt touches the collector, the finalizer, and the request builder] → it
@@ -522,6 +533,13 @@ removes the selector.
 
 ## Revision history
 
+- **v4 (2026-11-11, published feedback):** atomic wake and deadline enqueue replaces the
+  post-commit gap and unreachable lost-wake recovery. Notice consumption is transactional and
+  restores existing rows only for the consuming Run. Retry covers Chat deletion and admission.
+  Added the missing prompt-import and queue deltas. A late assistant stop receives its final
+  notice; a settled stop result receives no duplicate. The foreground move retains the existing
+  750 ms bash settlement grace and stop proof. Owner stop enforcement moves before the first
+  job-starting layer. The artifact directory rule remains unchanged.
 - **v3 (2026-11-11, review round 2):** two reviewers, 0 P0, 8 P1, 29 P2. Fixed in the specs: a
   MODIFIED block for the `context-injection` rail requirement (round 1 had rejected it); a move
   that fails stops the command; tool names in the `bash` description follow tool membership; a

@@ -138,13 +138,13 @@ SIGKILL the group and settle from that proof. A group that is proven empty MUST 
 result with the observed exit status. A group that cannot be proven empty MUST record
 `outcome_unknown`.
 
-A command on the llame host has no per-call deadline. Its call returns `backgrounded` at the
-foreground bound at the latest, and the call MUST record that result as the result of its
-attempt. The deadline of the command is the job lifetime of `background-jobs`. For a command on
+A command on the llame host has no per-call deadline. At its foreground bound the call MUST
+start the move and record `backgrounded` as its attempt result. The deadline of the command is
+the job lifetime of `background-jobs`. For a command on
 an `ssh://` or `machine://` directory, the runner MUST pass bash a separate timeout signal and
 duration. The effective deadline of that command MUST be the lesser of the per-call timeout of
 the runner and the 300-second cap of the managed executor. Caller cancellation stays separate.
-After a deadline or a Run cancellation, bash MUST have at most 750 ms to settle and persist
+After a deadline, a foreground bound, or a Run cancellation, bash MUST have at most 750 ms to settle and persist
 `native.result`. If settlement or persistence takes longer, the result MUST be
 `outcome_unknown`. The host MUST NOT run an attempt again automatically, under the same or
 another tool-call ID.
@@ -247,14 +247,25 @@ interrupt, or a job notice signals the Run. In each case the command MUST become
 ### Requirement: A move that fails stops the command
 
 When the host cannot record the job of a move, it MUST stop the command under the cancellation
-rules of this capability. The call MUST then return a known `timed_out` result with the captured
-output, and its message MUST say that the move failed. A stop that is not proved MUST produce
-`outcome_unknown`. A host `bash` call MUST NOT stay open past its foreground bound.
+rules of this capability. A proved stop MUST return `timed_out` with the captured output and a
+message that names the failed move. An unproved stop MUST return `outcome_unknown`. The call
+MUST settle within 750 ms after its foreground bound. A promotion that commits after this
+window MUST leave a job that settles and reports normally.
 
 #### Scenario: The job record cannot be written
 
-- **WHEN** a command reaches the foreground bound, and the database refuses the job record
-- **THEN** the host stops the command, and the call returns `timed_out` with the output so far
+- **WHEN** the database refuses the job record of a move, and the stop proves the process group empty
+- **THEN** the call returns `timed_out` with the output so far and a message that names the failed move
+
+#### Scenario: A failed move with an unproved stop
+
+- **WHEN** the database refuses a promotion, and the process group cannot be proven empty
+- **THEN** the call returns `outcome_unknown`, and the Run continues
+
+#### Scenario: A move that is recorded late
+
+- **WHEN** a job record commits more than 750 ms after the foreground bound
+- **THEN** the call returns `outcome_unknown`, and the job settles with a notice normally
 
 ### Requirement: A job settles from the exit of its command
 

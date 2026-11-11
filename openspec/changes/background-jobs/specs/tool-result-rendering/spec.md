@@ -81,8 +81,8 @@ begin with the line `job://` and then render one line for each job. An empty lis
 
 #### Scenario: A job output read has the read header
 
-- **WHEN** the model reads `job://bash-4/stdout:1-3`
-- **THEN** the text begins with `job://bash-4/stdout:1-3`
+- **WHEN** the model reads `job://bash-4/stdout:1-3` from an output with 40 lines
+- **THEN** the text begins with `job://bash-4/stdout:1-4 of 40 lines`, including one context line
 
 ### Requirement: Wait and stop results keep the JSON rendering
 

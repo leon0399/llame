@@ -29,22 +29,22 @@ master
 Each layer leaves `master` in a state that works. A layer that only prepares code for a later
 one changes no behavior that the model or the owner can see.
 
-| Layer           | Parent          | Owns                                                                                         | Visible change                               | Estimate   | Issue             |
-| --------------- | --------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------- | ---------- | ----------------- |
-| `proposal`      | `master`        | The planning artifacts of this change.                                                       | none                                         | 3,250      | refs #1657        |
-| `job-store`     | `proposal`      | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats.   | `read job://`, the jobs API                  | 2,000      | refs #1657        |
-| `bash-executor` | `job-store`     | An executor handle that outlives its call, and the host process limiter.                     | 64 commands for each worker, `limit_reached` | 1,500      | refs #1657, #1050 |
-| `job-runtime`   | `bash-executor` | The registry, stored output, the settlement of a job, its lifetime, and the end of a worker. | none                                         | 2,000      | refs #1657        |
-| `bash-async`    | `job-runtime`   | `async` and `unlimited`, the `backgrounded` result, and the job settings.                    | `bash` with `async: true`                    | 1,800      | refs #1657, #1051 |
-| `bash-move`     | `bash-async`    | The move of a foreground command at its bound.                                               | no kill at 120 s                             | 1,500      | refs #1657, #1050 |
-| `job-stop`      | `bash-move`     | The `stop` tool, the stop signal, and the stop at Chat deletion.                             | `stop`, the stop `PATCH` takes effect        | 1,300      | refs #1657        |
-| `yield`         | `job-stop`      | Calls that yield to a steer, and the interrupt fate for each call.                           | a steer or an interrupt moves a command      | 2,000      | refs #1657        |
-| `notices`       | `yield`         | Job notices in the delivery queue, their context item, and host messages.                    | notices in a live Run                        | 2,000      | refs #1657        |
-| `host-runs`     | `notices`       | Runs that the host starts, and held notices.                                                 | a notice starts a Run                        | 1,800      | refs #1657        |
-| `wait-suspend`  | `host-runs`     | `awaiting_jobs`, the wakers, the deadline job, and admission.                                | none                                         | 2,000      | refs #1657        |
-| `wait-resume`   | `wait-suspend`  | The `wait` tool and the attempt after a wake.                                                | `wait`                                       | 2,000      | refs #1657        |
-| `web`           | `wait-resume`   | The sidebar state, the Jobs section, and the transcript rows.                                | the owner controls                           | 1,800      | Closes #1657      |
-| `finalize`      | `web`           | Spec synchronization, task records, and archive movement.                                    | none                                         | 0 authored | refs #1657        |
+| Layer           | Parent          | Owns                                                                                              | Visible change                                   | Estimate   | Issue             |
+| --------------- | --------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------- | ----------------- |
+| `proposal`      | `master`        | The planning artifacts of this change.                                                            | none                                             | 3,250      | refs #1657        |
+| `job-store`     | `proposal`      | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats.        | `read job://`, the jobs API                      | 2,000      | refs #1657        |
+| `bash-executor` | `job-store`     | An executor handle that outlives its call, and the host process limiter.                          | 64 commands for each worker, `limit_reached`     | 1,500      | refs #1657, #1050 |
+| `job-runtime`   | `bash-executor` | The registry, stored output, the settlement of a job, its lifetime, and the end of a worker.      | none                                             | 2,000      | refs #1657        |
+| `bash-async`    | `job-runtime`   | `async`, `unlimited`, background results, job settings, owner stop enforcement and Chat deletion. | `bash` with `async: true`, effective owner stops | 2,000      | refs #1657, #1051 |
+| `bash-move`     | `bash-async`    | The move of a foreground command at its bound.                                                    | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
+| `job-stop`      | `bash-move`     | The model-facing `stop` tool and its result/notice coordination.                                  | `stop`                                           | 1,300      | refs #1657        |
+| `yield`         | `job-stop`      | Calls that yield to a steer, and the interrupt fate for each call.                                | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
+| `notices`       | `yield`         | Job notices in the delivery queue, their context item, and host messages.                         | notices in a live Run                            | 2,000      | refs #1657        |
+| `host-runs`     | `notices`       | Runs that the host starts, and held notices.                                                      | a notice starts a Run                            | 1,800      | refs #1657        |
+| `wait-suspend`  | `host-runs`     | `awaiting_jobs`, the wakers, the deadline job, and admission.                                     | none                                             | 2,000      | refs #1657        |
+| `wait-resume`   | `wait-suspend`  | The `wait` tool and the attempt after a wake.                                                     | `wait`                                           | 2,000      | refs #1657        |
+| `web`           | `wait-resume`   | The sidebar state, the Jobs section, and the transcript rows.                                     | the owner controls                               | 1,800      | Closes #1657      |
+| `finalize`      | `web`           | Spec synchronization, task records, and archive movement.                                         | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
 deltas hold 18 MODIFIED requirements that must restate their canonical blocks, about 1,110 lines:
@@ -78,6 +78,7 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [ ] 2.3 Add the worker heartbeat with an identity that is new at each start, and the dead-worker join; integration tests cover "A crash is found at the next message" (with a stale heartbeat row), "A lost job keeps its stored output", and "A job on a dead worker is not counted".
 - [ ] 2.4 Reserve an artifact number for a job and add the transaction-scoped artifact commit that takes a reserved number; a test covers "The job and its artifact share a number" with rows that a fixture inserts.
 - [ ] 2.5 Add the `job://` reader to `LOCATOR_READERS`, exclude the scheme from prompt imports, and lower the scheme in the permission projection; tests cover every scenario of `The read tool returns a job record`, `The read tool returns one output of a job`, `A bare job locator lists the jobs of the Chat`, `A job read renders as text`, "A locator of another Chat does not resolve", "A read group rejects job locators", and "An upper-case scheme does not pass a reject". Update `prompt-imports.test.ts`.
+      The `prompt-imports` delta and its "A job marker stays prose" scenario preserve this exclusion.
 - [ ] 2.6 Add `GET /api/v1/chats/:chatId/jobs`, the `PATCH` that records a stop request, and `runningJobs` on the chat list item and in `live-record-loader.ts`; tests cover "A stop of a settled job", "A repeated stop of a stopped job", and the 404 answers. Regenerate `openapi.json`, the web client, and both live-protocol copies; a second generation leaves a clean diff.
 - [ ] 2.7 Add the negative isolation tests: "Another owner reads a job", "A query without an identity finds no job", "A query without an identity finds no stored output", "Another owner cannot stop a job", and a foreign `job://` read through the tool.
 - [ ] 2.8 Add `docs/product/reference/locators/job.md`, the row in `locators/index.md`, the `read.md` locator row, and a dated `CHANGELOG.md` entry; `pnpm lint:markdown` passes.
@@ -114,13 +115,16 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 - [ ] 5.3 Keep a job across the end of its Run; tests cover "A job continues after its Run completes", "A job continues after its Run fails", and "Stop after the move" for an `async` job.
 - [ ] 5.4 Update `apps/api/src/prompts/tools/bash.md` and its exact-output tests for "Description has the background instructions" and "An absent tool is not recommended".
 - [ ] 5.5 Update `docs/product/reference/tools/bash.md`, a new `docs/product/operator/background-jobs.md` with its link in `operator/index.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 5.6 Run the API lint, typecheck, and the focused suites; self-review before ready.
-- [ ] 5.7 Run the GitHub review and CI loop on the published head.
+- [ ] 5.6 Add the `job-stop` signal and the heartbeat re-check; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", and a lost signal that the heartbeat finds.
+- [ ] 5.7 Request a stop for each live job when a Chat is deleted; a test covers "A deleted Chat leaves no process".
+- [ ] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [ ] 5.9 Run the GitHub review and CI loop on the published head.
 
 ## 6. Foreground move (`background-jobs/bash-move`)
 
 - [ ] 6.1 Add `tools.bash.backgroundAfterSeconds` and give a `host` call separate Run-abort and timeout signals in the runner; tests cover the rest of `Operator configuration bounds host commands`, every scenario of `The call timeout caps the foreground bound of host bash`, and a per-call timeout that never rejects a host call as `outcome_unknown`.
 - [ ] 6.2 Move a foreground command at the bound; tests with a fake clock cover "A long test suite passes the bound", "Output from before the move is kept", "A host command is not stopped at the foreground bound", and "The job record cannot be written".
+      Also cover "A failed move with an unproved stop" and "A move that is recorded late".
 - [ ] 6.3 Keep the remote paths: tests cover "A remote command still ends at its deadline", "Proven-stopped timeout is known", and "Unproven stop after timeout is unknown and the Run continues" on a `machine://` directory.
 - [ ] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command".
 - [ ] 6.5 Update `docs/product/reference/tools/bash.md`, `docs/product/operator/native-files.md`, `docs/product/operator/background-jobs.md`, `docs/product/operator/scaling.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
@@ -130,8 +134,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 ## 7. Stop (`background-jobs/job-stop`)
 
 - [ ] 7.1 Add the `stop` tool, its prompt file, its reference page, and its permission group in the example and the fixtures, and admit it as a host-capability tool; update the tests that count the code-owned tools. Tests cover "The model stops a monitor" (the `cancelled` entry), "A settled job keeps its state", "A stop that settles late", "Stop is advertised with bash", "Stop without host authority is not advertised", "A stop needs its own group", and a `stop` call in a Run whose mode is `read-only`.
-- [ ] 7.2 Add the `job-stop` signal and the heartbeat re-check; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", and a lost signal that the heartbeat finds.
-- [ ] 7.3 Request a stop for each live job when a Chat is deleted; a test covers "A deleted Chat leaves no process".
+      Cover "A late stop gets a notice" and the atomic decision between a settled result and a running stop request.
 - [ ] 7.4 Add the isolation test "A tool call cannot name a job of another owner" for `stop`.
 - [ ] 7.5 Update `docs/product/reference/tools/index.md`, `stop.md`, `permission-modes.md`, `tool-call-permissions.md`, `tool-prompts.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready.
@@ -171,8 +174,13 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the servic
 
 - [ ] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
 - [ ] 11.2 Add the suspension transaction with its retry, the `suspend` stop cause, and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
+      Insert the deadline job in the suspension transaction and cover "A worker crashes right after a wait starts".
 - [ ] 11.3 Add the wake update, the dispatch variant with a job id, and the `wake` field of `RunJob`; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a deadlock retry of a settlement against a suspension.
+      Add transactional enqueue (`EnqueueOptions.tx`, a postgres.js-compatible pg-boss adapter, and `enqueueInTransaction`).
+      Prove rollback leaves no job, commit keeps the delay, and "A waker crashes after its commit".
+      Cover "A failed wake insert leaves the Run waiting"; retry Chat deletion and admission as well as settlement.
 - [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits".
+      An absent recorded job is stuck at once; the first-job enqueue retains its existing grace.
 - [ ] 11.5 Anchor the budget at the first claim; a test covers "A Run passes its budget while it waits".
 - [ ] 11.6 Update `docs/product/operator/scaling.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 11.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
@@ -182,8 +190,9 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the servic
 
 - [ ] 12.1 Add the `wait` tool with its sentinel, its prompt file, its reference page, and its permission group; tests cover both scenarios of `The wait tool names its jobs and a timeout`, "A settled job returns at once", "A wait result is one JSON object", "Two wait calls in one step", "A wait beside a read in one step", "A Run in read-only mode waits", and "A tool call cannot name a job of another owner" for `wait`.
 - [ ] 12.2 Seed the first attempt after a wake with the `wait` tool part, in the collector, the request builder, the finalizer, and the step offset; integration tests cover "A wake does not restart the segment", "A build fails while the Run waits", the resumed step of "A settlement and a steer arrive together", a provider request that holds the `wait` call and its result, and a reload that shows the earlier steps once.
-- [ ] 12.3 Compute the `wait` result and withdraw consumed notices; integration tests cover "One of three jobs fails", "A steer ends a wait", "Another job ends a wait", "A waited job gives no notice", "The worker of a waited job crashes", "A Run that waits ends its wait at the deadline", and "The wake enqueue is lost".
+- [ ] 12.3 Compute the `wait` result and withdraw consumed notices in the transaction that records its tool result; integration tests cover "One of three jobs fails", "A steer ends a wait", "Another job ends a wait", "A waited job gives no notice", "The worker of a waited job crashes", "A Run that waits ends its wait at the deadline", and "A cancellation after a waited job settled keeps the notice".
 - [ ] 12.4 Apply the retry rules after a wake; integration tests cover "A retry after a wake restarts a read-only segment", "A worker stops after the wake", "A worker stops after the wake of a segment with a command", and "A worker stops after a wait returned".
+      Restore the existing withdrawn row only for this Run's consumed result; an owner-deleted notice stays withdrawn.
 - [ ] 12.5 Pin the usage of a woken reply; a test proves that it sums the requests of the seeded attempt and is `complete: false`, and that the segment budget counts the earlier steps.
 - [ ] 12.6 Update `docs/product/reference/tools/wait.md`, `tools/index.md`, `SPEC.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 12.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
