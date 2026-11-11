@@ -15,9 +15,9 @@ every execution attempt. An operator can replace any description with a template
 file, instance-wide or for a single model. The same template subset that renders
 `systemPromptFile` renders these, against the same variable projection.
 
-The nine llame-owned tool ids are `bash`, `conversation_read`, `edit`,
+The ten llame-owned tool ids are `bash`, `conversation_read`, `edit`,
 `enter_workspace`, `exit_workspace`, `knowledge_search`, `read`,
-`search_conversations`, and `write`. MCP tool descriptions come from their
+`search_conversations`, `stop`, and `write`. MCP tool descriptions come from their
 server and are never templated.
 
 ## Configure overrides

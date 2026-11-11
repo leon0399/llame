@@ -55,7 +55,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
 
+- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
+  the standard timeout header, measured duration and captured output before the
+  explanation that job promotion failed.
+
 # 2026-11-11
+
+- **Add the `stop` tool for background jobs (#1657).** The model can end
+  running jobs of the current Chat with `stop({ jobs })`, 1 to 16 `job://`
+  locators. Every locator is resolved in the owner's scope first, so an unknown
+  or foreign job refuses the whole call with `not_found` and records nothing.
+  Each running job gets a stop request with the stopper `assistant`, and the call
+  waits up to 5 seconds for all of them; a job still running is reported as
+  `running` and ends once its worker proves the stop. A settled job keeps its
+  state. `stop` is a host-capability tool with the `execute_code`
+  classification: it needs a `tools.allowed` entry and its own permission group
+  (the recommended map allows it), and a `read-only` Run refuses it. See
+  [stop](docs/product/reference/tools/stop.md).
 
 - **Recover hosted jobs at each worker heartbeat (#1657).** The registry retries
   failed settlements, then checks hosted work under each owner's identity.

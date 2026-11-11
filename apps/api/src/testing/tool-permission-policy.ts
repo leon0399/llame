@@ -16,6 +16,7 @@ const PERMISSIVE_TOOL_IDS = [
   'web_search',
   'enter_workspace',
   'exit_workspace',
+  'stop',
 ] as const;
 
 /**

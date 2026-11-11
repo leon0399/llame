@@ -17,10 +17,11 @@ import {
 } from './knowledge-tool-candidate-resolver';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 import { bashTool } from '../tools/bash';
+import { stopTool } from '../tools/stop';
 import { searchConversationsTool } from '../tools/search-conversations';
 import { conversationReadTool } from '../tools/conversation-read';
 import { webSearchTool } from '../tools/web-search/tool';
-import { TOOL_REGISTRY } from '../tools/registry';
+import { TOOL_REGISTRY, resolveAdvertisedTools } from '../tools/registry';
 
 const OWNER_ID = 'owner-a';
 
@@ -205,6 +206,65 @@ describe('KnowledgeToolCandidateResolver', () => {
         tool: bashTool,
       },
     ]);
+  });
+
+  describe('stop', () => {
+    /** What the turn offers: the host gate, then the operator allowlist. */
+    const advertised = async (
+      overrides: Partial<InstanceConfigReader['config']>,
+      allowedToolRules: Array<string>,
+    ) => {
+      const candidates = await makeInput(
+        new KnowledgeToolCandidateResolver({
+          config: { ...BUILT_IN_DEFAULTS, ...overrides },
+        }),
+        { allowedToolRules, codeOwnedTools: [bashTool, stopTool] },
+      );
+
+      return resolveAdvertisedTools(
+        allowedToolRules,
+        candidates.flatMap((candidate) =>
+          candidate.state === 'available' ? [candidate.tool] : [],
+        ),
+      ).map((tool) => tool.id);
+    };
+
+    const host = {
+      tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+    };
+
+    it('is offered with a configured native host and its own allowlist entry', async () => {
+      expect(await advertised(host, ['bash', 'stop'])).toEqual([
+        'bash',
+        'stop',
+      ]);
+    });
+
+    it('needs its own allowlist entry, apart from bash', async () => {
+      expect(await advertised(host, ['bash'])).toEqual(['bash']);
+      expect(await advertised(host, ['stop'])).toEqual(['stop']);
+    });
+
+    it('is not offered without a native executor', async () => {
+      expect(await advertised({}, ['bash', 'stop'])).toEqual([]);
+    });
+
+    it('is not offered on Machines or ssh alone', async () => {
+      const machines = {
+        ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+        hosts: { devl: { destination: 'box' } },
+      };
+
+      expect(await advertised({ machines }, ['bash', 'stop'])).toEqual([
+        'bash',
+      ]);
+      expect(
+        await advertised(
+          { ssh: { knownHostsFile: '/etc/llame/ssh_known_hosts' } },
+          ['bash', 'stop'],
+        ),
+      ).toEqual(['bash']);
+    });
   });
 
   it('does not query the owner row when no Knowledge tool is allowlisted', async () => {

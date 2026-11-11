@@ -166,9 +166,9 @@ jobs.
 
 There is no built-in policy: omitting `tools.permissions` rejects every call.
 `apps/api/llame.config.jsonc.example` ships this recommended portable map — a
-whole-tool allow for the eight code-owned tools that need no field allow
-(`bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`,
-`conversation_read`, `exit_workspace`), an operator-edited `enter_workspace.path`
+whole-tool allow for the nine code-owned tools that need no field allow
+(`bash`, `stop`, `read`, `edit`, `write`, `knowledge_search`,
+`search_conversations`, `conversation_read`, `exit_workspace`), an operator-edited `enter_workspace.path`
 field allow naming trusted roots, and these rejects. The `B` rows recognize
 common destructive host operations, the
 `F` rows standard credential-locator locations and the web addresses to

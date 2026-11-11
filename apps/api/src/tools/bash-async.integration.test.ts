@@ -24,6 +24,7 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { bashTool } from './bash';
 import { runTool } from './runner';
+import { stopTool } from './stop';
 import { type ToolContext } from './types';
 
 const config = { config: BUILT_IN_DEFAULTS };
@@ -253,6 +254,176 @@ describe('real host async jobs', () => {
       expect(output.toString()).toBe('retained');
     },
   );
+
+  describe('the stop tool', () => {
+    const stop = (jobs: Array<string>, over: Partial<ToolContext> = {}) =>
+      runTool(stopTool, { jobs }, { ...context, ...over }, 30);
+
+    it('stops a running job of this worker and reports it cancelled by the assistant', async () => {
+      const job = await start('printf kept; sleep 30');
+      const result = await stop([`job://bash-${job.seq}`]);
+
+      expect(result).toEqual({
+        status: 'success',
+        jobs: [
+          {
+            job: `job://bash-${job.seq}`,
+            state: 'cancelled',
+            stopped_by: 'assistant',
+          },
+        ],
+      });
+
+      const row = (await jobs())[0];
+
+      expect(row).toMatchObject({ state: 'cancelled', stoppedBy: 'assistant' });
+      expect(row?.stopRequestedBy).toBe('assistant');
+    });
+
+    it('keeps the state of a settled job and records no request', async () => {
+      const job = await start('printf done');
+      await vi.waitFor(async () => {
+        expect((await jobs())[0]?.state).toBe('succeeded');
+      });
+
+      await expect(stop([`JOB://bash-${job.seq}`])).resolves.toEqual({
+        status: 'success',
+        jobs: [{ job: `job://bash-${job.seq}`, state: 'succeeded' }],
+      });
+      expect((await jobs())[0]?.stopRequestedAt).toBeNull();
+    });
+
+    it('stops a job another worker hosts by polling, within the shared 5 s', async () => {
+      await controlListener();
+
+      const job = await start('sleep 30');
+      // No local registry: the job is read until its own worker settles it.
+      const other = stop([`job://bash-${job.seq}`], { bashJobs: undefined });
+
+      await expect(other).resolves.toMatchObject({
+        jobs: [{ state: 'cancelled', stopped_by: 'assistant' }],
+      });
+    });
+
+    it('reports running with the recorded request once, under one shared 5 s for two jobs', async () => {
+      const other = crypto.randomUUID();
+
+      await sql`INSERT INTO worker_instances (id) VALUES (${other})`;
+
+      try {
+        const first = await start('sleep 30');
+        context = { ...context, toolCallId: crypto.randomUUID() };
+        const second = await start('sleep 30');
+
+        await sql`UPDATE chat_jobs SET worker_instance_id = ${other} WHERE id IN (${first.id}, ${second.id})`;
+
+        const started = Date.now();
+
+        const result = await stop(
+          [`job://bash-${first.seq}`, `job://bash-${second.seq}`],
+          { bashJobs: undefined },
+        );
+
+        const elapsed = Date.now() - started;
+
+        // One budget for both jobs: not 5 s each.
+        expect(elapsed).toBeGreaterThanOrEqual(4900);
+        expect(elapsed).toBeLessThan(8000);
+        expect(result).toEqual({
+          status: 'success',
+          jobs: [
+            { job: `job://bash-${first.seq}`, state: 'running' },
+            { job: `job://bash-${second.seq}`, state: 'running' },
+          ],
+        });
+        expect((await jobs()).map((job) => job.stopRequestedBy)).toEqual([
+          'assistant',
+          'assistant',
+        ]);
+      } finally {
+        await sql`UPDATE chat_jobs SET worker_instance_id = ${heartbeat.instanceId} WHERE worker_instance_id = ${other}`;
+        await sql`DELETE FROM worker_instances WHERE id = ${other}`;
+      }
+    }, 20_000);
+
+    it('keeps the stopper of the request that came first', async () => {
+      const job = await start('sleep 30');
+
+      await tenant.runAs(owner, (db) =>
+        new ChatJobsRepository(db).requestStop(
+          context.chatId,
+          owner,
+          job.id,
+          'owner',
+        ),
+      );
+
+      await expect(stop([`job://bash-${job.seq}`])).resolves.toEqual({
+        status: 'success',
+        jobs: [
+          {
+            job: `job://bash-${job.seq}`,
+            state: 'cancelled',
+            stopped_by: 'owner',
+          },
+        ],
+      });
+      expect((await jobs())[0]).toMatchObject({
+        stoppedBy: 'owner',
+        stopRequestedBy: 'owner',
+      });
+    });
+
+    it('refuses the whole call when one locator is unknown, before any request', async () => {
+      const job = await start('sleep 30');
+      const result = await stop([`job://bash-${job.seq}`, 'job://bash-9999']);
+
+      expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+      expect((await jobs())[0]).toMatchObject({
+        state: 'running',
+        stopRequestedAt: null,
+      });
+    });
+
+    it('A tool call cannot name a job of another owner', async () => {
+      const job = await start('sleep 30');
+      const intruder = crypto.randomUUID();
+
+      await sql`INSERT INTO users(id,name,email) VALUES (${intruder}, 'Other', ${`${intruder}@test.com`})`;
+
+      try {
+        const other = await tenant.runAs(intruder, (db) =>
+          new ChatsRepository(db).create({
+            ownerUserId: intruder,
+            title: 'Other chat',
+          }),
+        );
+
+        // The intruder's Run names a locator that only resolves in the first Chat.
+        const result = await stop([`job://bash-${job.seq}`], {
+          userId: intruder,
+          chatId: other.id,
+        });
+
+        expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+        expect((await jobs())[0]).toMatchObject({
+          state: 'running',
+          stopRequestedAt: null,
+        });
+      } finally {
+        await sql`DELETE FROM users WHERE id = ${intruder}`;
+      }
+    });
+
+    it.each([[['job://bash-1/stdout']], [['artifact://bash-1']], [['x']]])(
+      'refuses %j as an invalid locator',
+      async (jobsInput) => {
+        await expect(stop(jobsInput)).resolves.toMatchObject({
+          type: 'invalid_input',
+        });
+      },
+    );
+  });
 
   it('an operator-enabled unlimited job stores no deadline', async () => {
     context = { ...context, allowUnlimitedJobs: true };
