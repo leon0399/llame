@@ -9,15 +9,12 @@ import { RunEventsRepository } from '../runs/runs-repository';
 import { JobPromotionError } from '../jobs/job-promotion-error';
 import { formatJobLocator } from '../jobs/job-locator';
 import { type BashInput } from './bash-target';
-import { managedBashContext } from './bash-limits';
+import { BASH_SETTLEMENT_GRACE_MS, managedBashContext } from './bash-limits';
 import { artifactMaxBytes } from './artifacts/spill';
 import { toToolResult } from './bash-result';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { spillBashResult } from './bash-spill';
 import { type ToolContext, type ToolResult } from './types';
-
-/** A move that is still unrecorded this long after it started is a late move. */
-const MOVE_WINDOW_MS = 750;
 
 type AsyncContext = ToolContext &
   Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
@@ -45,20 +42,34 @@ async function startHostCommand(
   slot: ManagedProcessSlot,
 ): Promise<Started> {
   let started: Started | undefined;
-  const abort = context.abortSignal;
-  // An abort before the spawn frees the slot at once: the call never spawns.
-  const onAbort = () => slot.release();
+  // The call never spawns once its Run aborts, or once the fence has taken
+  // longer than the move window after the bound: the slot is freed at once.
+  const gate = new AbortController();
 
-  abort?.addEventListener('abort', onAbort, { once: true });
+  const closeGate = () => {
+    gate.abort();
+    slot.release();
+  };
+
+  let timer: NodeJS.Timeout | undefined;
+
+  const onMove = () => {
+    timer = setTimeout(closeGate, BASH_SETTLEMENT_GRACE_MS);
+  };
+
+  context.abortSignal?.addEventListener('abort', closeGate, { once: true });
+  context.moveSignal?.addEventListener('abort', onMove, { once: true });
 
   try {
-    started = await fenceAndSpawn(context, input, cwd);
+    started = await fenceAndSpawn(context, input, cwd, gate.signal);
 
     if ('handle' in started) void started.handle.settled.finally(slot.release);
 
     return started;
   } finally {
-    abort?.removeEventListener('abort', onAbort);
+    clearTimeout(timer);
+    context.abortSignal?.removeEventListener('abort', closeGate);
+    context.moveSignal?.removeEventListener('abort', onMove);
 
     if (started === undefined || 'result' in started) slot.release();
   }
@@ -68,6 +79,7 @@ async function fenceAndSpawn(
   context: AsyncContext,
   input: BashInput,
   cwd: string,
+  gate: AbortSignal,
 ): Promise<Started> {
   const { bashJobs, jobSettings } = context;
 
@@ -85,7 +97,7 @@ async function fenceAndSpawn(
   if (prior) return { result: prior };
   const startedAt = new Date();
 
-  const started = context.abortSignal?.aborted
+  const started = gate.aborted
     ? ({
         status: 'error',
         type: 'cancelled',
@@ -230,6 +242,20 @@ async function recordResult(
   return result;
 }
 
+/** One `native.result` for each call: the first writer wins. */
+function onceRecorder(
+  context: AsyncContext,
+): (result: ToolResult) => Promise<ToolResult> {
+  let claimed = false;
+
+  return (result) => {
+    if (claimed) return Promise.resolve(result);
+    claimed = true;
+
+    return recordResult(context, result);
+  };
+}
+
 /**
  * The foreground host call: the same fence and start as an async job, then a
  * race between the exit, the foreground bound, and the Run abort. The bound
@@ -244,53 +270,45 @@ export async function runForegroundBash(
   const started = await startHostCommand(context, input, cwd, slot);
 
   if ('result' in started) return started.result;
+  const record = onceRecorder(context);
 
-  return recordResult(
-    context,
-    await foregroundResult(context, started.handle, input, started.startedAt),
-  );
-}
-
-/** The foreground bound: the lesser of the operator bound and the call timeout. */
-function foregroundBoundMs(context: ToolContext): number {
-  const bound = (context.bashBackgroundAfterSeconds ?? 120) * 1000;
-
-  return Math.min(bound, context.timeoutMs ?? bound);
+  return record(await foregroundResult(context, started, input, record));
 }
 
 async function foregroundResult(
   context: AsyncContext,
-  handle: ManagedBashHandle,
+  started: { readonly handle: ManagedBashHandle; readonly startedAt: Date },
   input: BashInput,
-  startedAt: Date,
+  record: (result: ToolResult) => Promise<ToolResult>,
 ): Promise<ToolResult> {
+  const { handle } = started;
+
+  const { promise: trigger, resolve } = Promise.withResolvers<
+    'move' | 'abort'
+  >();
+
   const abort = context.abortSignal;
+  const bound = context.moveSignal;
+  const onAbort = () => resolve('abort');
+  const onMove = () => resolve('move');
 
-  const { promise: stopped, resolve: onAbort } =
-    Promise.withResolvers<undefined>();
-
-  const { promise: bound, resolve: onBound } =
-    Promise.withResolvers<undefined>();
-
-  const timer = setTimeout(
-    () => onBound(undefined),
-    foregroundBoundMs(context),
-  );
-
-  const aborted = () => onAbort(undefined);
-  abort?.addEventListener('abort', aborted, { once: true });
+  // The Run abort is registered first, so it wins when both have fired.
+  for (const [signal, fire] of [
+    [abort, onAbort],
+    [bound, onMove],
+  ] as const) {
+    if (signal?.aborted === true) fire();
+    else signal?.addEventListener('abort', fire, { once: true });
+  }
 
   try {
     const first = await Promise.race([
       handle.settled.then((result) => ({ result })),
-      bound.then(() => 'bound' as const),
-      (abort?.aborted === true ? Promise.resolve(undefined) : stopped).then(
-        () => 'abort' as const,
-      ),
+      trigger,
     ]);
 
-    if (first === 'bound')
-      return await moveInWindow(context, handle, input, startedAt);
+    if (first === 'move')
+      return await moveInWindow(context, started, input, record);
 
     if (first === 'abort') await handle.stop('run');
 
@@ -299,37 +317,44 @@ async function foregroundResult(
       first === 'abort' ? await handle.settled : first.result,
     );
   } finally {
-    clearTimeout(timer);
-    abort?.removeEventListener('abort', aborted);
+    abort?.removeEventListener('abort', onAbort);
+    bound?.removeEventListener('abort', onMove);
   }
 }
 
 /**
- * Promotion has its own window. A move that fails inside it carries its stop
- * proof; one that commits after it leaves an ordinary job and one unknown
- * result. The command is never signalled for a pending promotion.
+ * The promotion and its `native.result` share one window. A move that fails
+ * inside it carries its stop proof; one that is not recorded inside it leaves
+ * an ordinary job and one unknown result. The command is never signalled for a
+ * pending promotion, and a late settlement appends nothing more.
  */
 async function moveInWindow(
   context: AsyncContext,
-  handle: ManagedBashHandle,
+  started: { readonly handle: ManagedBashHandle; readonly startedAt: Date },
   input: BashInput,
-  startedAt: Date,
+  record: (result: ToolResult) => Promise<ToolResult>,
 ): Promise<ToolResult> {
-  const promotion = promoteCommand(context, handle, input, {
-    startedAt,
+  let expired = false;
+
+  const moved = promoteCommand(context, started.handle, input, {
+    startedAt: started.startedAt,
     cause: 'time',
-  });
+  }).then((result) => (expired ? result : record(result)));
 
   const { promise: late, resolve: onLate } = Promise.withResolvers<undefined>();
-  const timer = setTimeout(() => onLate(undefined), MOVE_WINDOW_MS);
+
+  const timer = setTimeout(() => {
+    expired = true;
+    onLate(undefined);
+  }, BASH_SETTLEMENT_GRACE_MS);
 
   try {
-    const timely = await Promise.race([promotion, late]);
+    const timely = await Promise.race([moved, late]);
 
     if (timely !== undefined) return timely;
     // A late failure stops the command inside the registry; it cannot replace
-    // the unknown result this call records now.
-    promotion.catch(() => undefined);
+    // the unknown result the caller records now.
+    moved.catch(() => undefined);
 
     return {
       status: 'error',

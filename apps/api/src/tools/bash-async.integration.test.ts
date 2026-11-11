@@ -23,6 +23,7 @@ import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { bashTool } from './bash';
+import { runTool } from './runner';
 import { type ToolContext } from './types';
 
 const config = { config: BUILT_IN_DEFAULTS };
@@ -186,9 +187,12 @@ describe('real host async jobs', () => {
   it('A real foreground command moves at the bound with its output and keeps running', async () => {
     context = { ...context, bashBackgroundAfterSeconds: 1 };
 
-    const result = await bashTool.execute(context, {
-      command: 'printf before; sleep 2; printf after',
-    });
+    const result = await runTool(
+      bashTool,
+      { command: 'printf before; sleep 2; printf after' },
+      context,
+      30,
+    );
 
     expect(result).toMatchObject({
       status: 'success',

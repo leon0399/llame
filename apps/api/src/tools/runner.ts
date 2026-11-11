@@ -1,5 +1,6 @@
 import { isBashTool } from './bash';
 import { isHostBashCall } from './bash-target';
+import { BASH_SETTLEMENT_GRACE_MS, foregroundBoundSignal } from './bash-limits';
 import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
@@ -57,14 +58,6 @@ type PreparedToolExecution = {
   readonly timeoutSignal: AbortSignal;
   readonly composedSignal: AbortSignal;
 };
-
-/**
- * The Bash watcher proves process-group quiescence within 250 ms and drains
- * its streams before resolving. Give that proof and the durable native.result
- * append a small bounded window; a hung database call must still fall back to
- * the unknown outcome.
- */
-export const BASH_SETTLEMENT_GRACE_MS = 750;
 
 /**
  * Race an execution against the exact signal passed to the tool. Cooperative
@@ -125,24 +118,27 @@ function prepareToolExecution(
   tool: Tool,
   context: ToolContext,
   callTimeoutSeconds: number,
-  // A host `bash` call keeps the Run abort and the call timeout apart: the
-  // timeout moves the command to the background and never rejects the call.
   separateTimeout: boolean,
 ): PreparedToolExecution {
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
 
-  const composedSignal = separateTimeout
-    ? (context.abortSignal ?? new AbortController().signal)
-    : context.abortSignal
-      ? AbortSignal.any([context.abortSignal, timeoutSignal])
-      : timeoutSignal;
+  const moveSignal = separateTimeout
+    ? foregroundBoundSignal(context.bashBackgroundAfterSeconds, timeoutMs)
+    : undefined;
+
+  const deadline = moveSignal ?? timeoutSignal;
+
+  const composedSignal = context.abortSignal
+    ? AbortSignal.any([context.abortSignal, deadline])
+    : deadline;
 
   return {
     context: {
       ...context,
-      abortSignal: composedSignal,
-      timeoutSignal,
+      ...(moveSignal
+        ? { moveSignal, timeoutSignal: undefined }
+        : { abortSignal: composedSignal, timeoutSignal }),
       timeoutMs,
     },
     timeoutSignal,

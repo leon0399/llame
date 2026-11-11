@@ -1180,6 +1180,8 @@ describe('Machine bash', () => {
       answers: { 'proc.bash': { hold: true } },
     });
 
+    const startedAt = Date.now();
+
     const result = await runTool(
       bashTool,
       { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
@@ -1188,53 +1190,29 @@ describe('Machine bash', () => {
     );
 
     expect(peer.sessions.length).toBeGreaterThan(0);
-    expect(result).toMatchObject({ status: 'error' });
+    expect(result).toMatchObject({ status: 'error', type: 'outcome_unknown' });
     expect(result).not.toHaveProperty('backgrounded');
+    expect(Date.now() - startedAt).toBeLessThan(2000);
   });
 
-  it('Proven-stopped timeout is known on a machine directory', async () => {
+  it('Proven-stopped timeout is known and the next call runs on a machine directory', async () => {
     stubFence();
+    let answered = 0;
 
     const { connector } = fixture({
-      answers: {
-        'proc.bash': {
-          value: {
-            status: 'error',
-            type: 'timed_out',
-            durationMs: 100,
-            stdout: 'before the stop',
-            stderr: '',
-            truncated: false,
-          },
-        },
-      },
-    });
-
-    const result = await runTool(
-      bashTool,
-      { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
-      context(connector),
-      5,
-    );
-
-    expect(result).toMatchObject({ status: 'error', type: 'timed_out' });
-    expect(JSON.stringify(result)).toContain('before the stop');
-  });
-
-  it('Unproven stop after timeout is unknown and the next call runs on a machine directory', async () => {
-    stubFence();
-
-    const { connector } = fixture({
-      answers: {
-        'proc.bash': {
-          value: {
-            status: 'error',
-            type: 'outcome_unknown',
-            attemptId: 'a',
-            message: 'The stop could not be proven.',
-          },
-        },
-      },
+      answer: () =>
+        answered++ === 0
+          ? {
+              value: {
+                status: 'error',
+                type: 'timed_out',
+                durationMs: 100,
+                stdout: 'before the stop',
+                stderr: '',
+                truncated: false,
+              },
+            }
+          : { value: BASH_OK },
     });
 
     const call = (id: string) =>
@@ -1245,14 +1223,11 @@ describe('Machine bash', () => {
         5,
       );
 
-    await expect(call('call-1')).resolves.toMatchObject({
-      status: 'error',
-      type: 'outcome_unknown',
-    });
-    await expect(call('call-2')).resolves.toMatchObject({
-      status: 'error',
-      type: 'outcome_unknown',
-    });
+    const first = await call('call-1');
+
+    expect(first).toMatchObject({ status: 'error', type: 'timed_out' });
+    expect(JSON.stringify(first)).toContain('before the stop');
+    await expect(call('call-2')).resolves.toMatchObject({ status: 'success' });
   });
 
   it('runs in the given Machine directory without a local executor', async () => {

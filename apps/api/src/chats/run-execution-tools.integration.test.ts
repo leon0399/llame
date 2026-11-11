@@ -57,6 +57,7 @@ import { type ChatEmbedDispatcher } from '../search/search-embed-dispatch.servic
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { type Sql } from 'postgres';
 import { z } from 'zod';
 
@@ -768,6 +769,20 @@ describeIfDb('executeRun tool-loop persistence', () => {
       resolved.dynamicToolResolver,
       resolved.workspaceMcp,
       resolved.inRunProducer,
+      undefined, // machineConnector
+      undefined, // machinesStatus
+      undefined, // sshClientFactory
+      undefined, // executorGit
+      undefined, // decisions
+      undefined, // gitProducer
+      undefined, // gitSnapshots
+      undefined, // runDispatch
+      undefined, // segmentAborts
+      new BashJobRegistry(
+        tenantDb,
+        { instanceId: crypto.randomUUID() },
+        resolved.instanceConfig,
+      ),
     );
   }
 

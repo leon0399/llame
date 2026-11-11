@@ -1,3 +1,4 @@
+import { type MockInstance } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import {
   BashProcessLimiter,
@@ -13,6 +14,7 @@ import { type ChatJob } from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { formatJobLocator } from '../jobs/job-locator';
+import { foregroundBoundMs } from './bash-limits';
 import { JobPromotionError } from '../jobs/job-promotion-error';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -34,11 +36,25 @@ class Command implements ManagedBashHandle {
   readonly settled = this.result.promise;
   proved = true;
   output: ManagedOutput = EMPTY;
+  /** False keeps `settled` pending after a stop, as a slow process group does. */
+  autoSettle = true;
   readonly stop = vi.fn((cause: string): Promise<ManagedStopResult> => {
-    this.result.resolve({ status: 'error', type: 'cancelled', message: cause });
+    if (this.autoSettle)
+      this.result.resolve({
+        status: 'error',
+        type: 'cancelled',
+        message: cause,
+      });
 
     return Promise.resolve({ ...this.output, proved: this.proved });
   });
+  settle(): void {
+    this.result.resolve({
+      status: 'error',
+      type: 'cancelled',
+      message: 'settled',
+    });
+  }
   snapshot(): ManagedOutput {
     return this.output;
   }
@@ -75,27 +91,45 @@ function jobRow(seq: number): ChatJob {
 
 class StubRegistry extends BashJobRegistry {
   command = new Command();
-  readonly promoteCalls: Array<ManagedBashHandle> = [];
+  readonly promoteCalls: Array<{ handle: ManagedBashHandle; stdout: string }> =
+    [];
   promotion: () => Promise<ChatJob> = () => Promise.resolve(jobRow(7));
   override start(): ManagedBashHandle {
     return this.command;
   }
   override promote(handle: ManagedBashHandle): Promise<ChatJob> {
-    this.promoteCalls.push(handle);
+    this.promoteCalls.push({ handle, stdout: handle.snapshot().stdout });
 
     return this.promotion();
   }
 }
 
-function failedMove(proved: boolean, stdout = ''): JobPromotionError {
-  return new JobPromotionError(
-    { ...EMPTY, stdout, proved },
-    { cause: new Error('database refused the job record') },
-  );
+/** A promotion that failed: the registry stops the command, then rejects. */
+function failingMove(command: Command, proved: boolean, stdout = '') {
+  return async (): Promise<ChatJob> => {
+    command.output = { ...EMPTY, stdout };
+    command.proved = proved;
+    const stopped = await command.stop('run');
+
+    throw new JobPromotionError(stopped, {
+      cause: new Error('database refused the job record'),
+    });
+  };
 }
+
+describe('foreground bound', () => {
+  it('is the lesser of the operator bound and the call timeout', () => {
+    expect(foregroundBoundMs(undefined, 600_000)).toBe(120_000);
+    expect(foregroundBoundMs(120, 30_000)).toBe(30_000);
+    expect(foregroundBoundMs(5, 600_000)).toBe(5000);
+  });
+});
 
 describe('foreground host bash move', () => {
   let registry: StubRegistry;
+  let moved: AbortController;
+  let begin: MockInstance<NativeFilesRepository['begin']>;
+  const append = vi.fn<RunEventsRepository['append']>();
 
   function contextFor(overrides: Partial<ToolContext> = {}): ToolContext {
     const db: Db = drizzle.mock({ schema });
@@ -111,6 +145,7 @@ describe('foreground host bash move', () => {
       bashProcessLimiter: new BashProcessLimiter(4),
       bashJobs: registry,
       jobSettings: { modelId: 'm', permissionMode: 'default' },
+      moveSignal: moved.signal,
       permissionPolicy: compileTestPermissionPolicy(),
       tenantDb: {
         runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
@@ -120,16 +155,18 @@ describe('foreground host bash move', () => {
     };
   }
 
-  const append = vi.fn<RunEventsRepository['append']>();
-
   beforeEach(() => {
-    const worker = { instanceId: crypto.randomUUID() };
+    moved = new AbortController();
     const tenant = contextFor().tenantDb;
-    registry = new StubRegistry(tenant, worker, { config: BUILT_IN_DEFAULTS });
-    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
-      undefined,
-    );
 
+    registry = new StubRegistry(
+      tenant,
+      { instanceId: crypto.randomUUID() },
+      { config: BUILT_IN_DEFAULTS },
+    );
+    begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
     append.mockReset();
     vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
       append,
@@ -150,12 +187,12 @@ describe('foreground host bash move', () => {
 
   const results = () => append.mock.calls.map((call) => call[2]);
 
-  it('A long test suite passes the bound; A host command is not stopped at the foreground bound', async () => {
+  it('A long test suite passes the bound and is not stopped', async () => {
     const call = bashTool.execute(contextFor(), { command: 'make test' });
 
-    await vi.advanceTimersByTimeAsync(119_999);
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(registry.promoteCalls).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1);
+    moved.abort();
 
     await expect(call).resolves.toMatchObject({
       status: 'success',
@@ -163,46 +200,31 @@ describe('foreground host bash move', () => {
       cause: 'time',
       job: formatJobLocator('bash', 7),
     });
-    expect(registry.promoteCalls).toEqual([registry.command]);
     expect(registry.command.stop).not.toHaveBeenCalled();
     expect(results()).toHaveLength(1);
   });
 
-  it('Output from before the move is handed to the job record', async () => {
+  it('Output from before the move reaches the promotion', async () => {
     registry.command.output = { ...EMPTY, stdout: 'line\n'.repeat(10) };
     const call = bashTool.execute(contextFor(), { command: 'make test' });
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(1);
+    moved.abort();
     await call;
-    expect(registry.promoteCalls[0]?.snapshot().stdout).toBe(
-      'line\n'.repeat(10),
-    );
+    expect(registry.promoteCalls[0]?.stdout).toBe('line\n'.repeat(10));
   });
 
-  it.each([
-    { timeoutMs: 600_000, after: 120, at: 120_000 },
-    { timeoutMs: 30_000, after: 120, at: 30_000 },
-    { timeoutMs: undefined, after: 5, at: 5000 },
-  ])(
-    'moves at $at ms with a call timeout of $timeoutMs',
-    async ({ timeoutMs, after, at }) => {
-      const call = bashTool.execute(
-        contextFor({ timeoutMs, bashBackgroundAfterSeconds: after }),
-        { command: 'make test' },
-      );
+  it('A bound that fired before the spawn moves at once', async () => {
+    moved.abort();
 
-      await vi.advanceTimersByTimeAsync(at - 1);
-      expect(registry.promoteCalls).toHaveLength(0);
-      await vi.advanceTimersByTimeAsync(1);
-      await expect(call).resolves.toMatchObject({ backgrounded: true });
-      expect(registry.command.stop).not.toHaveBeenCalled();
-    },
-  );
+    await expect(
+      bashTool.execute(contextFor(), { command: 'make test' }),
+    ).resolves.toMatchObject({ backgrounded: true });
+  });
 
   it('The job record cannot be written: a proved stop is a timed_out result with the output', async () => {
-    registry.promotion = () => Promise.reject(failedMove(true, 'partial'));
-    const call = bashTool.execute(contextFor(), { command: 'make test' });
-    await vi.advanceTimersByTimeAsync(120_000);
-    const result = await call;
+    registry.promotion = failingMove(registry.command, true, 'partial');
+    moved.abort();
+    const result = await bashTool.execute(contextFor(), { command: 'x' });
 
     expect(result).toMatchObject({ status: 'error', type: 'timed_out' });
     expect(result.status === 'error' ? result.message : '').toContain(
@@ -215,67 +237,130 @@ describe('foreground host bash move', () => {
   });
 
   it('A failed move with an unproved stop is unknown', async () => {
-    registry.promotion = () => Promise.reject(failedMove(false));
-    const call = bashTool.execute(contextFor(), { command: 'make test' });
-    await vi.advanceTimersByTimeAsync(120_000);
-    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    registry.promotion = failingMove(registry.command, false);
+    moved.abort();
+
+    await expect(
+      bashTool.execute(contextFor(), { command: 'x' }),
+    ).resolves.toMatchObject({ type: 'outcome_unknown' });
     expect(results()).toHaveLength(1);
   });
 
   it('A move recorded late returns one unknown result and keeps the command running', async () => {
     const commit = Promise.withResolvers<ChatJob>();
     registry.promotion = () => commit.promise;
-    const call = bashTool.execute(contextFor(), { command: 'make test' });
-    await vi.advanceTimersByTimeAsync(120_000);
+    moved.abort();
+    const call = bashTool.execute(contextFor(), { command: 'x' });
     await vi.advanceTimersByTimeAsync(750);
 
     await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
     commit.resolve(jobRow(7));
     await vi.advanceTimersByTimeAsync(10);
     expect(results()).toHaveLength(1);
+    expect(results()[0]).toMatchObject({ result: { type: 'outcome_unknown' } });
     expect(registry.command.stop).not.toHaveBeenCalled();
   });
 
-  it('A late failure does not replace the recorded unknown result', async () => {
-    const commit = Promise.withResolvers<ChatJob>();
-    registry.promotion = () => commit.promise;
-    const call = bashTool.execute(contextFor(), { command: 'make test' });
-    await vi.advanceTimersByTimeAsync(120_750);
+  it('A late failure stops the command and keeps the recorded unknown result', async () => {
+    const lateFailure = Promise.withResolvers<void>();
+    const fail = failingMove(registry.command, true, 'late');
+
+    registry.promotion = async () => {
+      await lateFailure.promise;
+
+      return fail();
+    };
+
+    moved.abort();
+    const call = bashTool.execute(contextFor(), { command: 'x' });
+    await vi.advanceTimersByTimeAsync(750);
     await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
-    commit.reject(failedMove(true, 'late'));
+    lateFailure.resolve();
     await vi.advanceTimersByTimeAsync(10);
+    expect(registry.command.stop).toHaveBeenCalledWith('run');
     expect(results()).toHaveLength(1);
-    expect(results()[0]).toMatchObject({
-      result: { type: 'outcome_unknown' },
-    });
+    expect(results()[0]).toMatchObject({ result: { type: 'outcome_unknown' } });
   });
 
-  it('Stop during a foreground command: a Run cancellation stops it', async () => {
+  it('A hung append after a timely promotion is bounded and appends once', async () => {
+    append.mockImplementation(() => new Promise(() => undefined));
+    moved.abort();
+    const call = bashTool.execute(contextFor(), { command: 'x' });
+    await vi.advanceTimersByTimeAsync(750);
+
+    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    expect(append).toHaveBeenCalledTimes(1);
+  });
+
+  it('A Run abort during a pending promotion leaves the job and the command alone', async () => {
     const abort = new AbortController();
+    const commit = Promise.withResolvers<ChatJob>();
+    registry.promotion = () => commit.promise;
+    moved.abort();
 
     const call = bashTool.execute(contextFor({ abortSignal: abort.signal }), {
-      command: 'sleep 100',
+      command: 'x',
     });
+
+    await vi.advanceTimersByTimeAsync(1);
+    abort.abort();
+    await vi.advanceTimersByTimeAsync(750);
+    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    commit.resolve(jobRow(7));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(registry.command.stop).not.toHaveBeenCalled();
+    expect(results()).toHaveLength(1);
+  });
+
+  it('Stop during a foreground command keeps the slot until the command settles', async () => {
+    const abort = new AbortController();
+    registry.command.autoSettle = false;
+    const limiter = new BashProcessLimiter(1);
+
+    const call = bashTool.execute(
+      contextFor({ abortSignal: abort.signal, bashProcessLimiter: limiter }),
+      { command: 'sleep 100' },
+    );
 
     await vi.advanceTimersByTimeAsync(20_000);
     abort.abort();
-    await expect(call).resolves.toMatchObject({ type: 'cancelled' });
+    await vi.advanceTimersByTimeAsync(1);
     expect(registry.command.stop).toHaveBeenCalledWith('run');
+    expect(limiter.tryAcquire()).toBeNull();
+    registry.command.settle();
+    await expect(call).resolves.toMatchObject({ type: 'cancelled' });
     expect(registry.promoteCalls).toHaveLength(0);
+    expect(limiter.tryAcquire()).not.toBeNull();
   });
 
   it('Stop after the move: a later Run cancellation leaves the command alone', async () => {
     const abort = new AbortController();
+    moved.abort();
 
-    const call = bashTool.execute(contextFor({ abortSignal: abort.signal }), {
+    await bashTool.execute(contextFor({ abortSignal: abort.signal }), {
       command: 'make test',
     });
-
-    await vi.advanceTimersByTimeAsync(120_000);
-    await call;
     abort.abort();
     await vi.advanceTimersByTimeAsync(10);
     expect(registry.command.stop).not.toHaveBeenCalled();
+  });
+
+  it('A hung begin falls back to unknown without a process and frees the slot', async () => {
+    begin.mockImplementation(() => new Promise(() => undefined));
+
+    const limiter = new BashProcessLimiter(1);
+
+    const call = bashTool.execute(contextFor({ bashProcessLimiter: limiter }), {
+      command: 'x',
+    });
+
+    await vi.advanceTimersByTimeAsync(1);
+    moved.abort();
+    expect(limiter.tryAcquire()).toBeNull();
+    await vi.advanceTimersByTimeAsync(750);
+    expect(limiter.tryAcquire()).not.toBeNull();
+    // The runner's backstop resolves the call; the tool itself stays pending.
+    void call;
   });
 
   it('a per-call timeout never rejects a host call as outcome_unknown', async () => {
@@ -284,11 +369,45 @@ describe('foreground host bash move', () => {
     const result = await runTool(
       bashTool,
       { command: 'make test' },
-      contextFor(),
+      contextFor({ moveSignal: undefined }),
       0.05,
     );
 
     expect(result).toMatchObject({ status: 'success', backgrounded: true });
+    expect(registry.command.stop).not.toHaveBeenCalled();
+  });
+
+  it('a hung result append and a hung begin resolve through the runner backstop', async () => {
+    vi.useRealTimers();
+    append.mockImplementation(() => new Promise(() => undefined));
+    const startedAt = Date.now();
+
+    const hungAppend = await runTool(
+      bashTool,
+      { command: 'make test' },
+      contextFor({ moveSignal: undefined }),
+      0.05,
+    );
+
+    expect(hungAppend).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+
+    begin.mockImplementation(() => new Promise(() => undefined));
+
+    const hungBegin = await runTool(
+      bashTool,
+      { command: 'make test' },
+      contextFor({ moveSignal: undefined, toolCallId: 'call-2' }),
+      0.05,
+    );
+
+    expect(hungBegin).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+    expect(Date.now() - startedAt).toBeLessThan(3000);
     expect(registry.command.stop).not.toHaveBeenCalled();
   });
 });
