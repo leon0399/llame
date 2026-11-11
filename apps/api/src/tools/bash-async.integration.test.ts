@@ -260,6 +260,32 @@ describe('real host async jobs', () => {
     expect(() => process.kill(-job.pid!, 0)).toThrow('ESRCH');
   });
 
+  it('the heartbeat commits a natural exit after a transient settlement failure', async () => {
+    const settle = vi
+      .spyOn(ChatJobsRepository.prototype, 'settle')
+      .mockRejectedValue(new Error('settlement unavailable'));
+
+    try {
+      const job = await start('sleep 0.2; printf recovered');
+
+      await vi.waitFor(() => {
+        expect(settle).toHaveBeenCalled();
+      });
+      expect((await jobs())[0]?.state).toBe('running');
+      settle.mockRestore();
+      await heartbeat.beat();
+      expect((await jobs())[0]?.state).toBe('succeeded');
+
+      const output = await tenant.runAs(owner, (db) =>
+        new ChatJobsRepository(db).readOutput(owner, job.id, 'stdout'),
+      );
+
+      expect(output.toString()).toBe('recovered');
+    } finally {
+      settle.mockRestore();
+    }
+  });
+
   it('A deleted Chat leaves no process', async () => {
     await controlListener();
     const job = await start();

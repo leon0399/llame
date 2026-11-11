@@ -1,9 +1,11 @@
 import {
   type ManagedProcessSlot,
   type ManagedBashHandle,
+  type ManagedStopResult,
 } from '@workspace/bash-executor';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
+import { JobPromotionError } from '../jobs/bash-job-registry';
 import { formatJobLocator } from '../jobs/job-locator';
 import { type BashInput } from './bash-target';
 import { managedBashContext } from './bash-limits';
@@ -92,8 +94,10 @@ async function promoteCommand(
       cause: 'async',
       wallTimeMs: Date.now() - startedAt.getTime(),
     });
-  } catch {
-    return promotionFailure(handle, startedAt);
+  } catch (error) {
+    if (!(error instanceof JobPromotionError)) throw error;
+
+    return promotionFailure(error.stopped, startedAt);
   }
 }
 
@@ -115,12 +119,10 @@ function beginAsyncCommand(
   );
 }
 
-async function promotionFailure(
-  handle: ManagedBashHandle,
+function promotionFailure(
+  stopped: ManagedStopResult,
   startedAt: Date,
-): Promise<ToolResult> {
-  const stopped = await handle.stop('run');
-
+): ToolResult {
   if (!stopped.proved)
     return {
       status: 'error',
