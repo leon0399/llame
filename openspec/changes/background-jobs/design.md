@@ -483,14 +483,18 @@ producer kind and, for a `job` item, the job locator and state. `llame_notify_ch
 restated with a branch for `chat_jobs` that emits the pointer of the owning Chat, so the
 shipped `chat.upserted` message carries the new count.
 
-A lease expiry writes no row, so `ChangeHub` also refreshes the projection. While an authenticated
-owner has subscribers, it seeds the lease deadlines of that owner's live jobs, at the first
-subscription and at each reconnect. It arms one timer for the nearest known expiry. At the expiry
-it re-reads the owner-scoped count, pushes an ordinary `chat.upserted`, and arms again when the
-worker renewed its lease. It stops the timers at the last unsubscribe and at module shutdown. It
-processes one queue per owner and guards an unsubscribe that is in flight. The refresh changes only
-the projection. It adds no worker fan-out, no global reaper, no cross-tenant scan, no Run polling,
-no job mutation, and no protocol field. Job-row notifications stay the ordinary invalidation.
+A lease expiry writes no row, so `ChangeHub` also refreshes the display projection on a period.
+While an authenticated owner has subscribers and has stored `running` jobs, including jobs whose
+worker lease expired, it re-reads the owner-scoped counts every `runs.heartbeatSeconds`. It seeds
+the refresh at the first subscription, at each reconnect, and at each job-row notification. It
+groups the counts by Chat and pushes an ordinary `chat.upserted` for each Chat whose count changed.
+It keeps refreshing while stored `running` rows exist, even when the count is 0, so a late worker
+heartbeat that restores the count arrives. It stops when no `running` row remains, at the last
+unsubscribe, and at module shutdown. It uses one queue per owner and an async generation guard,
+so refreshes never overlap and an unsubscribe in flight is safe. The read is an explicit periodic
+display read. It adds no Run polling, no global fan-out or reaper, no cross-tenant scan, no state
+write, and no wire field. The live count has no fixed latency: a lower count arrives by the next
+refresh, not at the exact expiry.
 
 ### D18: Web
 
