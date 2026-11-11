@@ -185,8 +185,8 @@ and the Run abort.
   as today. A Run abort that arrives while a promotion is pending does not stop the command: the
   pending promotion wins, and a commit leaves a normal job that outlives its Run.
 - A command that exits while a timely promotion commits does not prevent it. The job row is
-  created, the call returns `backgrounded`, and the registry then settles the job at once with
-  the exit status and the notice.
+  created, and the call returns `backgrounded`. The registry then settles the job under the
+  process-group proof rule, with its notice.
 
 The yield signal is level-triggered for the segment. A `host` call that starts while a steer or
 a notice is pending promotes at once.

@@ -118,7 +118,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 
 - [ ] 4.1 Add `BashJobRegistry` with promotion of a handle to a job; a test covers the facts that it keeps and a promotion that fails and stops the command.
 - [ ] 4.2 Store output increments with the safe cut of design D5; tests cover "A quiet job writes nothing", "A stored line is readable two seconds later", and "A credential across two increments" with the cut inside the value.
-- [ ] 4.3 Settle a job in one retried transaction, Chat first; tests cover "A failing build settles as failed", "A survivor makes the outcome unknown", a command that a signal ends, and "A resumed Run on another worker reads a job". Also cover both scenarios of "A settlement that fails to commit is retried".
+- [ ] 4.3 Settle a job in one retried transaction, Chat first; tests cover "A failing build settles as failed", "A survivor makes the outcome unknown", a command that a signal ends, and "A resumed Run on another worker reads a job". Also cover a failed commit that a later heartbeat retries, plus "The worker ends before the retry commits".
 - [ ] 4.4 Write the job artifact in a savepoint, with the host-file decision of the starting Run; tests cover "A job artifact after the Run ended", "A short output creates no artifact", "A failed write keeps the stored increments", and "A record of a failed job".
 - [ ] 4.5 Add `tools.jobs.maxSeconds` and end a job at its lifetime; tests with a fake clock cover "A hung build ends at the lifetime", "A host command ends at the job lifetime", and the `maxSeconds` half of `Operator configuration bounds background jobs`.
 - [ ] 4.6 Add `WorkerShutdownService` in a non-global module; tests cover "A deploy ends a job", a command that arrives after the shutdown began, and the destroy order before the queue.
@@ -155,7 +155,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 - [ ] 7.1 Add the `stop` tool, its prompt file, its reference page, and its permission group in the example and the fixtures, and admit it as a host-capability tool; update the tests that count the code-owned tools. Tests cover "The model stops a monitor" (the `cancelled` entry), "A settled job keeps its state", "A stop that settles late", "Stop is advertised with bash", "Stop without host authority is not advertised", "A stop needs its own group", and a `stop` call in a Run whose mode is `read-only`.
 - [ ] 7.4 Add the isolation test "A tool call cannot name a job of another owner" for `stop`.
 - [ ] 7.5 Update `docs/product/reference/tools/index.md`, `stop.md`, `permission-modes.md`, `tool-call-permissions.md`, `tool-prompts.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [ ] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
 - [ ] 7.7 Run the GitHub review and CI loop on the published head.
 
 ## 8. Yield (`background-jobs/yield`)
@@ -164,7 +164,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
       Cover a message-triggered promotion that exceeds its own 750 ms window without blocking delivery.
 - [ ] 8.2 Decide the interrupt fate for each call from `bashTarget` and await `background` calls in `settleOnInterrupt`; update `registry.test.ts` and `tool-settlement.test.ts`. Integration tests cover "A host command continues after an interrupt", "An interrupt kills a long command" (`ssh://`), "A call that yields carries no interrupt marker", and an interrupt during a Machine Workspace call with no `cwd`.
 - [ ] 8.3 Update `docs/product/reference` for steering during a command and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
 - [ ] 8.5 Run the GitHub review and CI loop on the published head.
 
 ## 9. Notices (`background-jobs/notices`)
@@ -200,7 +200,7 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the servic
 - [ ] 11.3 Add the wake update, transactional `enqueueInTransaction`, and the `wake` field of `RunJob`; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake".
       Add `EnqueueOptions.tx` and a postgres.js-compatible pg-boss adapter.
       Prove rollback leaves no job, commit keeps the delay, and "A waker crashes after its commit".
-      Cover "A failed wake insert leaves the Run waiting"; retry Chat deletion and admission as well as settlement.
+      Cover "A failed wake insert leaves the Run waiting" and "A queue insert fails during a settlement"; retry worker terminal writes, Chat deletion, and admission as well as settlement.
       A `null` enqueue result throws and retries with a fresh id; the deadline waker reuses its existing job.
 - [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits". Also cover "A recorded job that is absent is stuck at once".
       An absent recorded job is stuck at once; the first-job enqueue retains its existing grace.

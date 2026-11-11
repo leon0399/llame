@@ -246,13 +246,12 @@ or when a steer, interrupt, or job notice signals the Run. A successful timely m
 ### Requirement: A command that exits during a move still gets its job
 
 A command that exits while a timely move commits MUST NOT prevent the move. The call MUST return
-`backgrounded`, the job MUST be created, and the job MUST then settle at once with its exit status
-and its notice.
+`backgrounded`. The job MUST settle under `A job settles from the exit of its command`, with its notice.
 
 #### Scenario: A command exits during the move
 
 - **WHEN** a command exits while its timely move commits
-- **THEN** the call returns `backgrounded`, and the job settles at once with the exit status and a notice
+- **THEN** the call returns `backgrounded`, and the job settles under the process-group proof rule with a notice
 
 ### Requirement: A move that fails stops the command
 
