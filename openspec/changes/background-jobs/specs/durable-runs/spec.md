@@ -129,8 +129,9 @@ the mechanisms below. These mechanisms cover the failure modes:
   queue does this with no cross-tenant scan.
 
 There MUST be no application-level liveness poll and no "deadman" job per Run. The native queue
-heartbeat drives the detection of a dead worker. The deadline job of an open `wait` is not a
-liveness job. It is one delayed job of the `runs` queue that ends that `wait` at its timeout.
+heartbeat drives the detection of a dead worker. The deadline job of an open `wait` is one
+delayed job for each `wait`, and it is not a deadman job for the Run. It ends that `wait` at its
+timeout, and it recovers a lost wake.
 
 #### Scenario: A progressing run has no default time limit
 
@@ -185,6 +186,11 @@ liveness job. It is one delayed job of the `runs` queue that ends that `wait` at
 - **THEN** the deadline job starts after 600 seconds, and a worker claims the Run again
 - **AND** no process polls the Run in those 600 seconds
 
+#### Scenario: A Run passes its budget while it waits
+
+- **WHEN** `runs.timeoutSeconds` is 1,800, and a Run wakes 2,400 seconds after it started
+- **THEN** the claim records a terminal `run.expired`, and no model request is sent
+
 ## ADDED Requirements
 
 ### Requirement: A Run that waits holds no worker
@@ -199,10 +205,10 @@ Chat.
 - **WHEN** a Run calls `wait` on a build that takes 30 minutes, and the worker concurrency is 1
 - **THEN** the Run is in `awaiting_jobs`, and the worker executes a Run of another Chat in those 30 minutes
 
-#### Scenario: A Run that waits survives a worker restart
+#### Scenario: A Run that waits survives a worker crash
 
-- **WHEN** every worker restarts while a Run is in `awaiting_jobs`
-- **THEN** the Run stays in `awaiting_jobs`, and a later waker resumes it
+- **WHEN** every worker crashes while a Run is in `awaiting_jobs`, and new workers start
+- **THEN** the Run stays in `awaiting_jobs` until a waker resumes it
 
 ### Requirement: A Run starts to wait only when nothing is pending
 
@@ -218,8 +224,9 @@ check fails, the Run MUST NOT wait, and the `wait` MUST return in the same attem
 
 ### Requirement: One waker resumes a Run that waits
 
-A waker is a settlement of a job of the Chat, an admitted `steer`, `interrupt`, or `notice`
-item, a recorded cancellation, or the deadline job. Each waker MUST move the Run from
+A waker is a settlement of a job of the Chat, an admitted `steer` or `interrupt` item, a
+recorded cancellation, or the deadline job. A pending `queue` item is not a waker. Each waker
+MUST move the Run from
 `awaiting_jobs` to `queued` with one conditional update on the wake generation of the Run. Only
 the waker whose update changes the Run MUST enqueue the next queue job. Each wait MUST have a new
 wake generation.

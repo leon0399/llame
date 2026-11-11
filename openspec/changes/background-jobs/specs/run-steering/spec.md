@@ -112,14 +112,74 @@ cancellation rules of `bash-execution`. A sent MCP call MUST settle as `outcome_
 - **THEN** the command stops, and the call settles as `bash-execution` requires for a cancellation
 - **AND** the Run continues with the interrupt
 
+### Requirement: Interrupt settlement is at most once and distinguishable
+
+Each call MUST settle once. A tool rejection that the interrupt signal causes MUST NOT settle the
+call as `execution_failed`. The stored result of a call that an interrupt settles MUST carry a
+marker that an interrupt settled it. The live stream and a reload MUST show the same outcome. A
+stopped call with a recorded native attempt MUST get a recorded native result. A call that yields
+under `tool-calling` returns its own result. That result MUST NOT carry the marker, and the
+interrupted notice MUST NOT name the call as stopped.
+
+#### Scenario: A late tool result does not replace the settlement
+
+- **WHEN** a cancelled call returns a result after the interrupt settled it
+- **THEN** the first settlement stands in the live stream and in history
+
+#### Scenario: A call that yields carries no interrupt marker
+
+- **WHEN** an interrupt makes a foreground host `bash` call return `backgrounded`
+- **THEN** the stored result carries the cause `message` and no interrupt marker
+
+### Requirement: A delivered message is a Run event
+
+Each delivery MUST append one `run.delivered` event. The event MUST name the delivered message, its
+items, and a `cause` of `steer`, `interrupt`, or `notice`. The cause is `notice` when the
+delivery holds only `notice` items and no interrupt stopped the step. The Run stream MUST end
+its current segment at that event and name the delivered message.
+
+#### Scenario: A live client sees the delivery
+
+- **WHEN** a client watches the stream of a Run that delivers a steer
+- **THEN** the stream ends the current segment and names the delivered message
+- **AND** a resume then streams the next segment
+
+#### Scenario: A delivery of one notice names its cause
+
+- **WHEN** a Run delivers one `notice` item and no owner item at a step boundary
+- **THEN** the `run.delivered` event names the host message and the cause `notice`
+
+### Requirement: The transcript shows delivered messages and interrupts
+
+The web MUST show a delivered message of the owner as an owner message between the replies of
+its segments. It MUST show a host message as `background-jobs` requires. It MUST show the
+`interrupted` item as a muted notice. When the Chat has no live Run and one or more pending
+`owner` items, the web MUST label the queue as paused.
+
+#### Scenario: A reload shows the segments
+
+- **WHEN** the owner reloads a Chat whose Run delivered one interrupt
+- **THEN** the transcript shows the first reply, the interrupted notice, the owner message, and the second reply
+
+#### Scenario: A failed Run shows a paused queue
+
+- **WHEN** a Run fails while two queue items are pending
+- **THEN** the stack labels the queue as paused, and the Continue action stays available
+
+#### Scenario: A held notice alone does not label a paused queue
+
+- **WHEN** the Chat has no live Run and its only pending item is a `notice` item
+- **THEN** the stack shows the notice and no paused label
+
 ## ADDED Requirements
 
 ### Requirement: A notice item is delivered as a steer is
 
 At each step boundary, the Run MUST deliver every pending `notice` item with the pending `steer`
 items, in their order. A notice MUST NOT stop a model response. An interrupt MUST also deliver
-every pending `notice` item. When the model gives a final answer and a `notice` item is pending,
-the Run MUST NOT complete. It MUST deliver the item and send a further model request.
+every pending `notice` item. A pending `notice` item at the final answer MUST continue the Run
+as a pending `steer` item does. A reply that a delivery with the cause `notice` closes MUST
+record usage status `completed`.
 
 #### Scenario: A job settles during the final answer
 

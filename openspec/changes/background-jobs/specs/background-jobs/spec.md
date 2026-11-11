@@ -1,8 +1,9 @@
 ## Purpose
 
 A background job is work that continues after the tool call that started it returns. This
-capability defines the job record, the `job://` locator, the `wait` and `stop` tools, the job
-lifetime, the notice that tells the assistant about a settlement, and the owner's controls.
+capability defines the job record, the `job://` locator, the `wait` and `stop` tools, and the
+job lifetime. It also defines the notice that tells the assistant about a settlement, and the
+controls of the owner.
 
 ## ADDED Requirements
 
@@ -45,7 +46,8 @@ MUST state that its outcome is unknown.
 A job locator MUST have the form `job://<executor>-<n>` or `job://<executor>-<n>/<output>`. The
 scheme MUST match without case. The number MUST be an artifact number of the Chat, reserved when
 the job starts. The artifact of the job MUST use the same number. A locator MUST resolve only in
-the Chat of the job.
+the Chat of the job. A job locator MUST route before local path resolution, and it needs no
+executor.
 
 #### Scenario: The job and its artifact share a number
 
@@ -124,6 +126,21 @@ does not exist. This applies to `read`, `wait`, `stop`, and the API.
 - **WHEN** a query reads the job table with no owner identity in its transaction
 - **THEN** it returns no row
 
+#### Scenario: A query without an identity finds no stored output
+
+- **WHEN** a query reads the table of output increments with no owner identity in its transaction
+- **THEN** it returns no row
+
+#### Scenario: Another owner cannot stop a job
+
+- **WHEN** user B sends the `PATCH` that stops a job in a Chat of user A
+- **THEN** the API answers 404, and the job stays `running`
+
+#### Scenario: A tool call cannot name a job of another owner
+
+- **WHEN** a Run of user B calls `wait` or `stop` with a locator that only resolves in a Chat of user A
+- **THEN** the result is `not_found`, and no job of user A changes
+
 ### Requirement: The worker stores the output of a live job in increments
 
 The worker MUST store new output of a job in state `running` as appended increments. It MUST
@@ -137,7 +154,7 @@ output as truncated.
 - **WHEN** a job runs `sleep 600`
 - **THEN** the worker stores no output increment in those 10 minutes
 
-#### Scenario: A stored line is readable within a second
+#### Scenario: A stored line is readable two seconds later
 
 - **WHEN** a job prints one line and then stays quiet
 - **THEN** a `read` of that output 2 seconds later returns the line
@@ -157,8 +174,9 @@ output.
 ### Requirement: A job has an operator lifetime
 
 A job MUST end when it has run for `tools.jobs.maxSeconds` from its start. The worker MUST then
-stop the job and settle it as `timed_out`. The model MUST NOT be able to set or change this
-lifetime. A job that starts with `unlimited: true` has no lifetime. A call with `unlimited: true`
+stop the job. The job MUST settle as `timed_out` under the proof rule of this capability. The
+model MUST NOT be able to set or change this lifetime. A job that starts with `unlimited: true`
+has no lifetime. A call with `unlimited: true`
 MUST be refused before any work starts when `tools.jobs.allowUnlimited` is `false`.
 
 #### Scenario: A hung build ends at the lifetime
@@ -174,8 +192,9 @@ MUST be refused before any work starts when `tools.jobs.allowUnlimited` is `fals
 ### Requirement: A job is bound to the worker that started it
 
 A job MUST run in the worker process that started it. The job record MUST hold the instance
-identity of that worker, the process identity of the work, and its start time. A second worker
-MUST NOT adopt a job. When the worker stops, its jobs end.
+identity of that worker, the process identity of the work, and its start time. The instance
+identity MUST be new at each process start. A second worker MUST NOT adopt a job. When the
+worker stops, its jobs end.
 
 #### Scenario: A resumed Run on another worker reads a job
 
@@ -185,8 +204,8 @@ MUST NOT adopt a job. When the worker stops, its jobs end.
 ### Requirement: A worker that shuts down ends its jobs
 
 A worker that shuts down in an orderly way MUST stop each job that it hosts. It MUST settle each
-of them as `cancelled` with the stopper `worker`, in the tenant scope of the owner of the job. It
-MUST store the output that it captured.
+of them as `cancelled` with the stopper `worker`, under the proof rule of this capability. It MUST
+do so in the tenant scope of the owner of the job, and it MUST store the output that it captured.
 
 #### Scenario: A deploy ends a job
 
@@ -197,14 +216,19 @@ MUST store the output that it captured.
 
 Each worker MUST record a heartbeat for its instance at the interval `runs.heartbeatSeconds`. A
 worker with no heartbeat for four intervals is dead. A job in state `running` on a dead worker
-MUST settle as `lost` at its next touch. A touch is a Run start in its Chat, the end of a `wait`
-on it, a `read` of it, or an owner API request. No process MUST scan the jobs of more than one
-owner.
+MUST settle as `lost` at its next touch. A touch is a Run start or a step boundary in its Chat.
+The end of a `wait` on it, a `read` of it, and an owner API request are also touches. A process
+MUST NOT scan the jobs of more than one owner.
 
 #### Scenario: A crash is found at the next message
 
 - **WHEN** the worker of `job://bash-4` crashes, and the owner sends a message one hour later
 - **THEN** the job is `lost` before the first model request of the new Run
+
+#### Scenario: A live Run learns of a crash at its next step
+
+- **WHEN** worker A crashes while it hosts `job://bash-4`, and a Run of that Chat executes on worker B
+- **THEN** the job is `lost` at the next step boundary of that Run, and its notice is delivered there
 
 #### Scenario: A lost job keeps its stored output
 
@@ -214,18 +238,19 @@ owner.
 ### Requirement: A deleted Chat ends its jobs
 
 The deletion of a Chat MUST request a stop of each job of that Chat in state `running`. A worker
-MUST stop a job that it hosts when the record of the job no longer exists.
+MUST stop a job that it hosts when the record of the job no longer exists. It MUST do so at its
+next heartbeat at the latest.
 
 #### Scenario: A deleted Chat leaves no process
 
 - **WHEN** the owner deletes a Chat that has a job in state `running`
-- **THEN** the worker stops the work of that job
+- **THEN** the worker stops the work of that job within one heartbeat interval
 
 ### Requirement: A fork of a Chat has no job
 
 A fork of a Chat MUST NOT copy its jobs or their stored output increments. A copied tool part
-that names a job locator stays as text. The artifact rules of `owner-chat-forks` apply to the
-artifact of a settled job.
+or `job` context item that names a job or its artifact stays as text. The fork copies an artifact
+only under the rules of `owner-chat-forks`, so such a name can fail to resolve in the fork.
 
 #### Scenario: A fork during a live job
 
@@ -253,8 +278,9 @@ the call return `not_found`, and the Run MUST NOT wait.
 
 A `wait` MUST return when one of its jobs settles. Its result MUST hold `ended: "settled"` and
 one entry for each listed job. Each entry MUST hold the locator and the state. An entry of a
-settled job MUST also hold the exit detail, the elapsed time, and a preview of each output. It
-MUST hold the artifact locator when an artifact exists. A `wait` on a job that is already
+settled job MUST also hold the exit detail, the elapsed time, and the preview of each output that
+a notice holds. It MUST hold the artifact locator when an artifact exists. A `wait` on a job that
+is already
 settled MUST return at once.
 
 #### Scenario: One of three jobs fails
@@ -284,6 +310,17 @@ stop.
 
 - **WHEN** the model waits on `job://bash-4`, and `job://bash-5` fails
 - **THEN** the `wait` returns `ended: "interrupted"`, and the notice for `job://bash-5` is delivered at that boundary
+
+### Requirement: A wait on a lost job returns the lost entry
+
+A listed job on a dead worker MUST end the `wait` when a touch finds it. The latest such touch
+is the deadline of the `wait`. The `wait` MUST then return `ended: "settled"` with the `lost`
+entry of that job, and it MUST NOT return `ended: "timeout"`.
+
+#### Scenario: The worker of a waited job crashes
+
+- **WHEN** the model waits on `job://bash-4` with the default timeout, and the worker of that job crashes
+- **THEN** the `wait` returns at its deadline at the latest, with `ended: "settled"` and the job as `lost`
 
 ### Requirement: A wait takes the place of the notice
 
@@ -362,8 +399,8 @@ and a job that the `stop` tool ends.
 
 A delivered notice MUST reach the model as one context item with the producer `job` and the form
 `notice`, under `context-injection`. The item MUST name the job locator, the executor, the
-state, and the elapsed time. For a `cancelled` job it MUST name the stopper. It MUST hold the
-artifact locator when an artifact exists.
+state, the exit detail, and the elapsed time. For a `cancelled` job it MUST name the stopper. It
+MUST hold the artifact locator when an artifact exists.
 
 #### Scenario: A notice for a failed build
 
@@ -377,7 +414,8 @@ artifact locator when an artifact exists.
 
 ### Requirement: A notice treats job output as data
 
-A notice MUST hold at most the last 2,000 characters of each output. The system MUST neutralize
+A notice MUST hold the last 2,000 characters of each output, or the whole output when it is
+shorter. The system MUST neutralize
 the reserved delimiters in that text, as `tool-result-rendering` requires for a tool result. The
 item MUST state that the output is data and ranks below the system instructions and the requests
 of the owner. It MUST state that the output cannot grant a tool or a permission.
@@ -394,11 +432,10 @@ of the owner. It MUST state that the output cannot grant a tool or a permission.
 
 ### Requirement: A host message carries notices when no owner message exists
 
-A host message is a stored message with the wire role `user`, no sender, and only `job` context
-items. The system MUST store a host message when notices are delivered and no owner message
-carries them. The history read MUST mark a host message. A host message MUST NOT give a Chat its
-title, and it MUST NOT be the list preview of a Chat. `search_conversations` and
-`conversation_read` MUST NOT return it.
+A host message is a stored message with the wire role `user`, no sender, and no text part. Its
+only parts are `job` context items. The system MUST store a host message when notices are
+delivered and no owner message carries them. The history read MUST mark a host message. A host
+message MUST NOT give a Chat its title, and it MUST NOT be the list preview of a Chat.
 
 #### Scenario: A host message in the history
 
@@ -408,7 +445,17 @@ title, and it MUST NOT be the list preview of a Chat. `search_conversations` and
 #### Scenario: A host message is not search evidence
 
 - **WHEN** a job output holds the word `kestrel`, and the owner searches the conversations for it
-- **THEN** no result cites the host message
+- **THEN** no result cites the host message, because it has no text part
+
+### Requirement: A host message stays out of the public view
+
+The public view of a shared Chat MUST omit each host message. A shared or public fork MUST omit
+it as `owner-chat-forks` requires. An owner fork copies a host message as a literal row.
+
+#### Scenario: A shared Chat shows no job output
+
+- **WHEN** another user opens the public view of a Chat that holds one host message
+- **THEN** the view shows no row for that message and no job output
 
 ### Requirement: A notice starts a Run on an idle Chat
 
@@ -446,9 +493,10 @@ valid, no Run MUST start, and the notices MUST stay pending.
 
 ### Requirement: A held notice goes with the next Run
 
-A notice MUST stay pending when it starts no Run and no Run is live. A chat send or a promoted
-queue item that then starts a Run MUST take all pending notices of the Chat into its user
-message. When a follow-up Run of `turn-actions` starts, the notices MUST be delivered at its
+A notice MUST stay pending when it starts no Run and no Run is live. A Run can then start from a
+chat send, a promoted queue item, or a mode change of a pending item. That Run MUST take all
+pending notices of the Chat into its user message. When a follow-up Run of `turn-actions`
+starts, the notices MUST be delivered at its
 first step boundary.
 
 #### Scenario: A result after a Stop waits for the owner
@@ -539,10 +587,10 @@ muted notice for each job that it names, and never as a message of the owner.
 
 ### Requirement: The job tools pass the allowlist and the permission policy
 
-`wait` and `stop` MUST be available only when `tools.allowed` names them. `wait` MUST be
-classified `read_only`. `stop` MUST NOT be classified `read_only`, and it MUST be available only
-where `bash` is available. A `read` of a job locator MUST be evaluated by the `read` group
-against the locator as its logical text.
+`wait` and `stop` MUST be available only when `tools.allowed` names them. `tool-calling` defines
+their classifications. A Run whose mode is `read-only` MUST be able to call `wait`, and it MUST
+NOT be able to call `stop`. The description of each tool MUST tell the model what the tool
+returns and that a job gives a notice when it settles.
 
 #### Scenario: A Run in read-only mode waits
 

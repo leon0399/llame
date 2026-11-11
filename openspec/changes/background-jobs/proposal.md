@@ -68,10 +68,12 @@ The full record is on
 
 Assumptions that follow from those decisions and were not asked:
 
-- A host message is stored as a `user` row with no sender and only `job` context items. The wire
-  role stays `user`, as `context-injection` requires for every injected item.
+- A host message is stored as a `user` row with no sender and only `job` context items, and the
+  history read marks it with a `host` flag. That is the "new sender kind" of grilling GQ20. The
+  wire role stays `user`, as `context-injection` requires for every injected item.
 - The number in `job://bash-7` is the Chat's artifact number, so the stored output is
-  `artifact://bash-7`.
+  `artifact://bash-7`. An artifact is stored only when an output does not fit 2,000 characters,
+  as `tool-artifacts` requires for every result.
 - A send or a promoted queue item takes the held notices into its user message. A Continue or a
   Regenerate gets them at its first step boundary.
 - `wait` suspends the Run at once. It has no in-process grace period.
@@ -80,9 +82,10 @@ Assumptions that follow from those decisions and were not asked:
   `ssh://` commands.
 - The exemption flag is `unlimited: true`. A call that sets it is refused when
   `tools.jobs.allowUnlimited` is `false`.
-- `wait` is `read_only`, so a Run in `read-only` mode can call it. `stop` is not.
-- A dead worker is found only when something touches the Chat: a Run start, an admission, a
-  `wait` timer, a `read`, or the chat list.
+- `wait` is `read_only`, so a Run in `read-only` mode can call it. `stop` is `execute_code` and
+  a host-capability tool.
+- A dead worker is found when something touches the job: a Run start or a step boundary in its
+  Chat, the end of a `wait` on it, a `read` of it, or an owner API request.
 - A `bash` call with an `ssh://` or `machine://` `cwd` refuses `async` and `unlimited`, and keeps
   its present timeout and interrupt behavior until #1660.
 
@@ -119,22 +122,32 @@ Leo must confirm these three points.
 ### Modified Capabilities
 
 - `bash-execution`: MODIFIED `Alpha host bash uses the native executor gate` (two new input
-  fields) and `Unknown command effects are never replayed automatically` (the foreground bound
-  replaces the per-call timeout on the host). ADDED requirements for the background triggers, the
-  `backgrounded` result, the process bound, and the tool description.
+  fields) and `Unknown command effects are never replayed automatically` (no per-call deadline
+  on the host). ADDED requirements for the background triggers, the `backgrounded` result, the
+  settlement from the exit code, the process bound, and the tool description.
 - `run-steering`: MODIFIED `A pending item records a producer and a sender`,
   `Steer delivers at the next step boundary`,
   `The items delivered at one boundary form one user message`,
-  `Every tool declares an interrupt fate`, and `A cancelled call settles under its tool rules`.
-  ADDED requirements for the `notice` mode.
+  `Every tool declares an interrupt fate`, `A cancelled call settles under its tool rules`,
+  `Interrupt settlement is at most once and distinguishable`,
+  `A delivered message is a Run event`, and
+  `The transcript shows delivered messages and interrupts`. ADDED requirements for the `notice`
+  mode.
 - `durable-runs`: MODIFIED `One in-flight run per chat (single-flight)` (the job that admission
   reads) and `A run never stays stuck, enforced without a cross-tenant reaper` (the `wait`
   deadline job). ADDED requirements for `awaiting_jobs`.
 - `context-injection`: MODIFIED `Co-occurring items have a total author-time order` (the `job`
   producer).
-- `tool-calling`: ADDED requirements for the open `wait` call and for the tools that yield.
+- `tool-calling`: MODIFIED `No mid-run tool-state checkpointing` (a wake is not a retry). ADDED
+  requirements for the open `wait` call, the tools that yield, and the classification of `stop`.
+- `tool-result-rendering`: MODIFIED `A bash result renders a status header and its streams`
+  (the `backgrounded` text). ADDED requirements for job reads and for `wait` and `stop`.
+- `ssh-locator`: MODIFIED `Remote bash uses the local bounds` (the time bound differs).
+- `owner-chat-forks`: MODIFIED `A shared or public fork receives no checkpoint row` (a user row
+  with no text part is not copied).
+- `tool-call-permissions`: ADDED requirement for `job://` locators.
 - `run-cancellation`: ADDED requirement for the cancellation of a waiting Run.
-- `tool-artifacts`: ADDED requirement for the artifact of a job.
+- `tool-artifacts`: ADDED requirements for the artifact of a job.
 - `instance-config`: ADDED requirements for `tools.bash`, `tools.jobs`, and the foreground
   bound.
 - `turn-actions`: ADDED requirement for a turn that a host message started.
@@ -145,22 +158,26 @@ Each bullet names the reading under which the canonical text still holds.
 
 - `bash-execution` / `Command results are bounded and explicit`: "Each bash call MUST enforce
   finite … duration" bounds the call. A host call returns at the foreground bound at the latest.
-  The job lifetime bounds the command. The 50 ms drain after a proven stop also applies to a
-  lifetime end.
+  The job lifetime bounds the command, except an `unlimited` job that the operator allows. The
+  50 ms drain after a proven stop also applies to a lifetime end.
 - `tool-calling` / `Multi-step tool-calling run loop`: "MUST continue the same Run until the
   model gives a final answer" holds, because a Run in `awaiting_jobs` is the same Run and
   continues when it wakes.
-- `tool-calling` / `No mid-run tool-state checkpointing`: its retry rules apply to a redelivered
-  queue job. A wake is a new queue job and not a redelivery. A redelivered wake job follows the
-  same rule: a recorded `native.attempt` in the current segment fails the Run as
-  `outcome_unknown`.
 - `tool-calling` / `Tool failure is an observation, not a crash`: "Tool execution SHALL be
-  bounded by the global `tools.callTimeoutSeconds`" holds for the call. A host `bash` call
-  returns at the foreground bound, which is never above that value. A `wait` call returns
-  before it, because it suspends the Run.
+  bounded by the global `tools.callTimeoutSeconds`" bounds the time in which a worker executes
+  a call. A host `bash` call returns at the foreground bound, which is never above that value.
+  A `wait` call executes until the Run enters `awaiting_jobs`, and again when the Run wakes. No
+  worker executes it between those two points.
 - `tool-calling` / `Cooperative cancellation reaches tool execution`: the "effective per-call
   timeout" of host `bash` is its foreground bound. At that bound the call returns
-  `backgrounded`, which is a structured result.
+  `backgrounded`, which is a structured result and not a rejection.
+- `context-injection` / `Server-authored context is injected as discrete items on one rail`: a
+  `job` item is attached to the message that triggers its segment, as the `interrupted` item
+  is, and is not an in-Run item. "Items MUST NOT become separate conversation messages when a
+  message already exists to carry them" holds, because a host message is stored only when no
+  owner message triggers the segment.
+- `conversation-reads` / `Visible message text is deterministic and message-scoped`: a host
+  message has no text part, and "context-item parts … SHALL contribute no bytes".
 - `tool-calling` / `Termination settles in-flight tool activity`: a `backgrounded` call is
   settled. A job is not an open call.
 - `run-steering` / `The queue pauses after a Run that does not complete`: its conversion rule
@@ -172,7 +189,7 @@ Each bullet names the reading under which the canonical text still holds.
   `steer` item, so Stop requests cancellation.
 - `durable-runs` / `Workers drain gracefully on shutdown`: the drain finishes in-flight Runs. A
   new requirement ends the jobs of the worker.
-- `ssh-locator` and `remote-machines`: no requirement changes. #1660 owns them.
+- `remote-machines`: no requirement changes. #1660 owns the Machine target.
 
 ## Impact
 

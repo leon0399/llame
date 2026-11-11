@@ -231,8 +231,8 @@ that background work is available only on the llame host.
 A foreground `bash` call on the llame host MUST return `backgrounded` when the command reaches
 the foreground bound of `instance-config`. It MUST also return `backgrounded` when a steer, an
 interrupt, or a job notice signals the Run. In each case the command MUST become a job of
-`background-jobs`, and the host MUST NOT stop it. The job MUST keep the output from before the
-move.
+`background-jobs`, and the host MUST NOT stop it. The call MUST NOT settle as `timeout` or
+`timed_out`. The job MUST keep the output from before the move.
 
 #### Scenario: A long test suite passes the bound
 
@@ -243,6 +243,23 @@ move.
 
 - **WHEN** a command prints 10 lines and then moves to the background
 - **THEN** a `read` of the `stdout` of its job returns those 10 lines
+
+### Requirement: A job settles from the exit of its command
+
+A `bash` job whose command exits with code 0 MUST settle as `succeeded`. A command that exits
+with another code MUST settle as `failed` with that code. Both need the proof of an empty
+process group that this capability defines. A job whose group cannot be proven empty MUST
+settle as `lost`.
+
+#### Scenario: A failing build settles as failed
+
+- **WHEN** the command of a job exits with code 2 and its process group is proven empty
+- **THEN** the job is `failed` with the exit code 2
+
+#### Scenario: A survivor makes the outcome unknown
+
+- **WHEN** the command of a job exits and a member of its process group cannot be stopped
+- **THEN** the job is `lost`
 
 ### Requirement: The backgrounded result tells the model what follows
 
