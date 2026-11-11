@@ -126,8 +126,8 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 This layer separates the executor's output capture from the registry that consumes it.
 The split preserves the approved behavior and keeps runtime plus its unit proof within budget.
 
-- [ ] 3a.1 Add output subscriptions, cached redacted snapshots, and per-stream truncation to the managed handle; test credential overlaps, split credentials, Unicode boundaries, and full-sanitizer equivalence.
-- [ ] 3a.2 Run the executor lint, typecheck, build, and focused suites, including a real child whose snapshot grows while it runs; self-review before ready.
+- [x] 3a.1 Add output subscriptions, cached redacted snapshots, and per-stream truncation to the managed handle; test credential overlaps, split credentials, Unicode boundaries, and full-sanitizer equivalence.
+- [x] 3a.2 Run the executor lint, typecheck, build, and focused suites, including a real child whose snapshot grows while it runs; self-review before ready. The exact previously reviewed implementation passed 126 package tests, lint, typecheck, and build. A live child produced snapshots `first`, then `firstsecond`.
 - [ ] 3a.3 Run the GitHub review and CI loop on the published head.
 
 ## 3b. Job persistence (`background-jobs/job-persistence`)
@@ -190,7 +190,6 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 ## 7. Stop (`background-jobs/job-stop`)
 
 - [ ] 7.1 Add the `stop` tool, its prompt file, its reference page, and its permission group in the example and the fixtures, and admit it as a host-capability tool; update the tests that count the code-owned tools. Tests cover "The model stops a monitor" (the `cancelled` entry), "A settled job keeps its state", "A stop that settles late", "Stop is advertised with bash", "Stop without host authority is not advertised", "A stop needs its own group", and a `stop` call in a Run whose mode is `read-only`.
-
 - [ ] 7.4 Add the isolation test "A tool call cannot name a job of another owner" for `stop`.
 - [ ] 7.5 Update `docs/product/reference/tools/index.md`, `stop.md`, `permission-modes.md`, `tool-call-permissions.md`, `tool-prompts.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
