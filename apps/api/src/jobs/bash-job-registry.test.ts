@@ -849,3 +849,29 @@ describe('BashJobRegistry', () => {
     });
   });
 });
+
+describe('BashJobRegistry.recheckJobs', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('checks the later jobs after one job check fails', async () => {
+    const registry = new BashJobRegistry(
+      { runAs: vi.fn() },
+      { instanceId: crypto.randomUUID(), jobCheck: undefined },
+      { config: BUILT_IN_DEFAULTS },
+    );
+
+    for (const id of ['a', 'b', 'c']) {
+      // SAFETY: the loop reads only keys; recheckJob is stubbed below.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      registry['jobs'].set(id, {} as never);
+    }
+
+    const check = vi
+      .spyOn(registry, 'recheckJob')
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockResolvedValue(undefined);
+
+    await expect(registry.recheckJobs()).resolves.toBeUndefined();
+    expect(check.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c']);
+  });
+});

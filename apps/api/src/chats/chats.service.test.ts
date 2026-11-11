@@ -904,7 +904,7 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
       vi.spyOn(
         ChatJobsRepository.prototype,
-        'requestStopInChat',
+        'runningIdsInChat',
       ).mockResolvedValue([]);
     });
 

@@ -15,11 +15,8 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { readJob } from './job-reader';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import {
-  BashJobRegistry,
-  JobPromotionError,
-  type BashJobFacts,
-} from './bash-job-registry';
+import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
+import { JobPromotionError } from './job-promotion-error';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { ChatJobsRepository } from './chat-jobs.repository';
 import { WorkerHeartbeatService } from './worker-heartbeat.service';

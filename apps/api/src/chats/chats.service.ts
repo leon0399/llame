@@ -508,11 +508,13 @@ export class ChatsService {
 
       if (!(await chats.lock(chatId, userId))) return false;
 
-      for (const job of await new ChatJobsRepository(tx).requestStopInChat(
+      // The delete cascades the job rows, so a worker's recheck finds none and
+      // stops; the signal only makes that prompt.
+      for (const jobId of await new ChatJobsRepository(tx).runningIdsInChat(
         chatId,
         userId,
       )) {
-        await notifyRunControl(tx, { kind: 'job-stop', jobId: job.id });
+        await notifyRunControl(tx, { kind: 'job-stop', jobId });
       }
 
       return chats.deleteById(chatId, userId);

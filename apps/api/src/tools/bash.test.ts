@@ -27,6 +27,7 @@ import * as bashExecutor from '@workspace/bash-executor';
 import { bashTool } from './bash';
 import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -62,6 +63,56 @@ function testContext(
 function singleSlotContext(): ToolContext {
   return { ...testContext(), bashProcessLimiter: new BashProcessLimiter(1) };
 }
+
+describe('async bash cancelled during the durable begin', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('records a cancelled result and starts no job', async () => {
+    const controller = new AbortController();
+
+    const jobs = new BashJobRegistry(
+      { runAs: vi.fn() },
+      { instanceId: crypto.randomUUID(), jobCheck: undefined },
+      { config: BUILT_IN_DEFAULTS },
+    );
+
+    const start = vi.spyOn(jobs, 'start');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockImplementation(
+      () => {
+        controller.abort(new Error('aborted'));
+
+        return Promise.resolve(undefined);
+      },
+    );
+
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue({
+        runId: 'run',
+        sequence: 2,
+        eventType: 'native.result',
+        payload: null,
+        createdAt: new Date(),
+      });
+
+    const result = await bashTool.execute(
+      {
+        ...testContext(),
+        abortSignal: controller.signal,
+        jobSettings: { modelId: 'm', permissionMode: 'default' },
+        bashJobs: jobs,
+      },
+      { command: 'printf never', async: true },
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(append.mock.calls).toEqual([
+      ['run', 'native.result', { toolCallId: 'call-1', result }],
+    ]);
+    expect(start).not.toHaveBeenCalled();
+  });
+});
 
 describe('bash durable admission', () => {
   afterEach(() => {

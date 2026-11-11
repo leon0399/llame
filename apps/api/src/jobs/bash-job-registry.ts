@@ -24,22 +24,8 @@ import {
 import { reserveArtifactSeq } from '../tools/artifacts/artifact-writer';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { appendJobOutput, settleBashJob } from './bash-job-store';
+import { JobPromotionError } from './job-promotion-error';
 import { WorkerHeartbeatService } from './worker-heartbeat.service';
-
-/**
- * A promotion that failed after the command was stopped. It carries the stop
- * proof and the captured streams, so the caller can build the failed-move
- * result of D4 without a second read of the handle.
- */
-export class JobPromotionError extends Error {
-  constructor(
-    readonly stopped: ManagedStopResult,
-    options: { cause: unknown },
-  ) {
-    super('The command could not be moved to the background.', options);
-    this.name = 'JobPromotionError';
-  }
-}
 
 type JobStopCause = Exclude<ManagedStopCause, 'run'>;
 
