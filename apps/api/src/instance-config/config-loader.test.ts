@@ -1184,7 +1184,7 @@ describe('loadInstanceConfig — tools.bash.backgroundAfterSeconds', () => {
     ).toBe(45);
   });
 
-  it.each([0, -1, 1.5, 9_007_199_254_740_992])(
+  it.each([null, 0, -1, 1.5, 9_007_199_254_740_992])(
     'refuses %s, naming the path',
     (value) => {
       writeConfig(
