@@ -156,13 +156,13 @@ while the Run continues; inspect the workspace before retrying. See
 [mutation recovery](../mutation-recovery.md) for the durable attempt fence and
 crash-recovery termination.
 
-A call past the process bound is `limit_reached`. One worker process runs at
-most `tools.bash.maxProcesses` managed commands at one time (default 64); the
-count holds foreground host commands and `ssh://` commands. The refusal names
-the bound, says that a later call can succeed, and comes before any attempt is
-recorded, so the command did not run. A Machine command is not counted: the
-Machine daemon runs one command at a time and answers `unavailable` for a
-second.
+A call past the operator's worker process bound is `limit_reached`. The count
+holds foreground host commands and `ssh://` commands; see
+[managed command capacity](../../operator/native-files.md#managed-command-capacity).
+The refusal names the bound, says that a later call can succeed, and comes before
+any attempt is recorded, so the command did not run. A Machine command is not
+counted: its daemon has a separate process bound and answers `unavailable` when
+that bound is reached.
 
 A Machine command fails with `machine_not_found` for an unconfigured Machine and
 `machine_unavailable` before anything was sent; a command whose session is lost

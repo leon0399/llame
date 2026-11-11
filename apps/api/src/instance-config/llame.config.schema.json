@@ -1075,7 +1075,7 @@
           "properties": {
             "maxProcesses": {
               "$ref": "#/$defs/bashMaxProcessesOrToken",
-              "description": "The most managed commands one worker process runs at one time, counting foreground host commands, background jobs, and `ssh://` commands. An integer of at least 1, or a whole-value interpolation token. Default: 64."
+              "description": "The most managed commands one worker process runs at one time, counting foreground host commands and `ssh://` commands. An integer of at least 1, or a whole-value interpolation token. Default: 64."
             }
           }
         },
