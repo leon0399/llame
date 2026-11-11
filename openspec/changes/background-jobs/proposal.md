@@ -74,8 +74,8 @@ Assumptions that follow from those decisions and were not asked:
 - The number in `job://bash-7` is the Chat's artifact number, so the stored output is
   `artifact://bash-7`. An artifact is stored only when an output does not fit 2,000 characters,
   as `tool-artifacts` requires for every result.
-- A send or a promoted queue item takes the held notices into its user message. A Continue or a
-  Regenerate gets them at its first step boundary.
+- A send, a promoted queue item, or a mode change that starts a Run takes the held notices into
+  its user message. A Continue or a Regenerate gets them at its first step boundary.
 - `wait` suspends the Run at once. It has no in-process grace period.
 - The sidebar also shows `background` while the live Run is in `awaiting_jobs`.
 - The fuse counts every managed `bash` process of the worker: foreground commands, jobs, and
@@ -86,8 +86,15 @@ Assumptions that follow from those decisions and were not asked:
   a host-capability tool.
 - A dead worker is found when something touches the job: a Run start or a step boundary in its
   Chat, the end of a `wait` on it, a `read` of it, or an owner API request.
-- A `bash` call with an `ssh://` or `machine://` `cwd` refuses `async` and `unlimited`, and keeps
-  its present timeout and interrupt behavior until #1660.
+- A `bash` call on an `ssh://` or `machine://` directory refuses `async` and `unlimited`, and
+  keeps its present timeout and interrupt behavior until #1660.
+- An archived Chat is not idle, so a notice starts no Run in it.
+- A move to the background that the host cannot record stops the command, and the call returns
+  `timed_out` with the output so far.
+- The usage of a reply that continues after a `wait` is a lower bound. It sums the requests
+  after the wake and is marked `complete: false`, as `run-usage-accounting` requires when a
+  second attempt serves one message. A full sum needs a change of that capability or the cost
+  ledger of #1612. Leo decides whether that must come first.
 
 ## Deviation from the grilling record
 
@@ -137,7 +144,8 @@ Leo must confirm these three points.
   reads) and `A run never stays stuck, enforced without a cross-tenant reaper` (the `wait`
   deadline job). ADDED requirements for `awaiting_jobs`.
 - `context-injection`: MODIFIED `Co-occurring items have a total author-time order` (the `job`
-  producer).
+  producer) and `Server-authored context is injected as discrete items on one rail` (a `job`
+  item is never an in-Run item, and a host message can carry it).
 - `tool-calling`: MODIFIED `No mid-run tool-state checkpointing` (a wake is not a retry). ADDED
   requirements for the open `wait` call, the tools that yield, and the classification of `stop`.
 - `tool-result-rendering`: MODIFIED `A bash result renders a status header and its streams`
@@ -171,11 +179,10 @@ Each bullet names the reading under which the canonical text still holds.
 - `tool-calling` / `Cooperative cancellation reaches tool execution`: the "effective per-call
   timeout" of host `bash` is its foreground bound. At that bound the call returns
   `backgrounded`, which is a structured result and not a rejection.
-- `context-injection` / `Server-authored context is injected as discrete items on one rail`: a
-  `job` item is attached to the message that triggers its segment, as the `interrupted` item
-  is, and is not an in-Run item. "Items MUST NOT become separate conversation messages when a
-  message already exists to carry them" holds, because a host message is stored only when no
-  owner message triggers the segment.
+- `run-usage-accounting` / `Message usage aggregates every model request of its attempt` and
+  `Usage records whether it is complete`: the attempt after a wake is "the Run attempt that
+  produced" the reply, and "another attempt for the same message of the Run reached prompt
+  preparation", so the usage is `complete: false`.
 - `conversation-reads` / `Visible message text is deterministic and message-scoped`: a host
   message has no text part, and "context-item parts … SHALL contribute no bytes".
 - `tool-calling` / `Termination settles in-flight tool activity`: a `backgrounded` call is

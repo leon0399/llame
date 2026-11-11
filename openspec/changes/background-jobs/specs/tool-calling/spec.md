@@ -123,13 +123,19 @@ that yields MUST then return a known result at once. The work of that call MUST 
 ### Requirement: Only a wait call stays open while its Run waits
 
 A `wait` call MUST be the only tool call that stays open while a Run is in `awaiting_jobs`. The
-Run MUST settle every other call of the step before it enters that status. A `wait` call MUST
-NOT record a native attempt, because it has no effect on the host.
+Run MUST settle every other call of the step before it enters that status. A step MUST hold at
+most one open `wait` call, and a second `wait` call in the step MUST return an error. A `wait`
+call MUST NOT record a native attempt, because it has no effect on the host.
 
 #### Scenario: A wait beside a read in one step
 
 - **WHEN** the model calls `read` and `wait` in one step
 - **THEN** the `read` result is stored before the Run enters `awaiting_jobs`
+
+#### Scenario: Two wait calls in one step
+
+- **WHEN** the model calls `wait` twice in one step
+- **THEN** the second call returns an error that names the first call, and the Run waits on the first call only
 
 ### Requirement: A woken Run settles the wait and continues from its stored steps
 

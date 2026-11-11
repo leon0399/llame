@@ -73,7 +73,7 @@ when an artifact exists. The record MUST NOT hold the content of an output.
 
 #### Scenario: A record of a failed job
 
-- **WHEN** the model reads `job://bash-4` after the command exits with code 2
+- **WHEN** the model reads `job://bash-4` after the command printed 50,000 characters and exited with code 2
 - **THEN** the result holds the state `failed`, the exit code 2, and `artifact://bash-4`
 
 ### Requirement: The read tool returns one output of a job
@@ -322,6 +322,17 @@ entry of that job, and it MUST NOT return `ended: "timeout"`.
 - **WHEN** the model waits on `job://bash-4` with the default timeout, and the worker of that job crashes
 - **THEN** the `wait` returns at its deadline at the latest, with `ended: "settled"` and the job as `lost`
 
+### Requirement: A discarded wait result restores the notice
+
+A retry of a Run can discard the result of a `wait` that reported a settled job. The system
+MUST then make the notice of that job pending again, so the settlement reaches the model. A
+settlement MUST NOT be lost because a worker stopped.
+
+#### Scenario: A worker stops after a wait returned
+
+- **WHEN** a `wait` reports `job://bash-4` as `failed`, the worker stops, and the retry restarts the segment
+- **THEN** the Chat has a pending notice for `job://bash-4`, and the retry delivers it at its first step boundary
+
 ### Requirement: A wait takes the place of the notice
 
 A job that settles while an open `wait` lists it MUST NOT get a job notice. A `wait` that
@@ -343,7 +354,8 @@ MUST NOT withdraw a notice.
 The `stop` tool MUST accept `jobs`, a list of 1 to 16 job locators. It MUST stop each listed job
 in state `running` and return one entry for each job with its state. A job that was already
 settled MUST keep its state. A job that `stop` ends MUST record the stopper `assistant` and MUST
-NOT get a job notice.
+NOT get a job notice. A job that does not settle within 5 seconds MUST be reported as `running`
+with a recorded stop request.
 
 #### Scenario: The model stops a monitor
 
@@ -354,6 +366,11 @@ NOT get a job notice.
 
 - **WHEN** the model calls `stop` with a job in state `succeeded`
 - **THEN** the result names the job as `succeeded`
+
+#### Scenario: A stop that settles late
+
+- **WHEN** the model calls `stop`, and the worker of the job does not settle it within 5 seconds
+- **THEN** the result names the job as `running` with a recorded stop request
 
 ### Requirement: A stop is known only after proof
 
@@ -404,7 +421,7 @@ MUST hold the artifact locator when an artifact exists.
 
 #### Scenario: A notice for a failed build
 
-- **WHEN** the notice of `job://bash-4` is delivered after the command exits with code 2
+- **WHEN** the notice of `job://bash-4` is delivered after the command printed 50,000 characters and exited with code 2
 - **THEN** the item names `job://bash-4`, `bash`, `failed`, the exit code 2, and `artifact://bash-4`
 
 #### Scenario: A notice for a job that the owner stopped
@@ -513,8 +530,9 @@ first step boundary.
 
 `GET /api/v1/chats/:chatId/jobs` MUST return the jobs of the Chat with their records, the live
 jobs first. `PATCH /api/v1/chats/:chatId/jobs/:jobId` with `state: "cancelled"` MUST request a
-stop with the stopper `owner`. A repeated request MUST get 200. A request for a settled job MUST
-get 409. A Chat or a job of another owner MUST get 404.
+stop with the stopper `owner`. A request for a job that the owner already stopped MUST get 200.
+A request for a job in another settled state MUST get 409. A Chat or a job of another owner MUST
+get 404.
 
 #### Scenario: The owner stops one of two jobs
 
@@ -525,6 +543,11 @@ get 409. A Chat or a job of another owner MUST get 404.
 
 - **WHEN** the owner sends the `PATCH` for a job in state `succeeded`
 - **THEN** the API answers 409
+
+#### Scenario: A repeated stop of a stopped job
+
+- **WHEN** the owner sends the `PATCH` again for a job that the owner already stopped
+- **THEN** the API answers 200, and the job stays `cancelled`
 
 ### Requirement: The chat list reports the live jobs of each Chat
 

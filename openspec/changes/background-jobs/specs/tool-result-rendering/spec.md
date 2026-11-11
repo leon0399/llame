@@ -7,8 +7,8 @@ A `bash` success of a command that exited MUST begin with `exit <code>`. When th
 follow verbatim, and a non-empty stderr MUST follow under a `[stderr]` line.
 When both streams are empty, the text MUST be the header and `(no output)`.
 A stream that does not fit inline MUST render its head lines, one
-omitted-range line, and its tail lines. A line longer than its share MUST be
-cut by code units. The artifact notice line, when present, MUST end the text. A
+omitted-range line, and its tail lines. The function MUST cut a line longer than its share by
+code units. The artifact notice line, when present, MUST end the text. A
 `command_failed` or `timed_out` message MUST have the same shape.
 
 A result whose executor bound cut a stream MUST carry `[output cut at the
@@ -39,7 +39,7 @@ A `backgrounded` result has no exit code and no streams. Its text MUST be the fi
 
 #### Scenario: Cut output is marked
 
-- **WHEN** a command's stdout is cut at the executor bound
+- **WHEN** the executor bound cuts the stdout of a command
 - **THEN** the text ends with `[output cut at the bound]`
 
 #### Scenario: A result only the cap shortened carries no bound marker
@@ -71,7 +71,8 @@ A `backgrounded` result has no exit code and no streams. Its text MUST be the fi
 A `read` of a job output MUST render as a text read of that locator. It MUST use the read header
 and the line prefixes of this capability. A `read` of a job record MUST begin with the locator line
 and then hold one `<name>: <value>` line for each field of the record. A `read` of `job://` MUST
-render one line for each job, with no header.
+begin with the line `job://` and then render one line for each job. An empty list MUST render
+`job://: empty`.
 
 #### Scenario: A job record is plain text
 

@@ -5,7 +5,7 @@
 For `read`, a `job://` locator MUST match with its scheme in lower case and with any read
 selector removed. Policy matching MUST NOT see a host path or a process identity for it.
 Workspace projection MUST NOT change a job locator. `wait` and `stop` MUST be evaluated by their
-own groups, as each other tool is.
+own groups. Each entry of their `jobs` input MUST match with its scheme in lower case.
 
 #### Scenario: An upper-case scheme does not pass a reject
 

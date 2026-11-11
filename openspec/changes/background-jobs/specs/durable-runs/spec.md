@@ -111,8 +111,9 @@ the mechanisms below. These mechanisms cover the failure modes:
   duration of the `runs` queue (per `job-queue`). Thus the queue never fails a live Run because of
   its age, and never executes it again from its start. A delivery of `run-steering` starts a new
   attempt but does not restart the budget or the ceiling. A Run that leaves `awaiting_jobs` is
-  claimed again, and the ceiling counts from that claim. The time in `awaiting_jobs` MUST count
-  for the budget. A Run that passed its budget while it waited MUST expire when it wakes.
+  claimed again, and the ceiling counts from that claim. The budget counts from the first claim
+  of the Run, so the time in `awaiting_jobs` counts for it. A Run that passed its budget while
+  it waited MUST expire when it wakes.
 - **Model stream idle watchdog**: the worker reads the streamed response of a model. A request can
   give no streamed part for 300 seconds after it is sent, or for 300 seconds after its previous
   part. The worker MUST then abort it and record the Run as terminally failed. The error code
@@ -258,8 +259,9 @@ is absent, the deadline job MUST execute the Run. In every other case it MUST do
 
 The Run MUST append one event when it enters `awaiting_jobs`. That event MUST name the open
 `wait` call and its jobs. The Run MUST append one event when it wakes. That event MUST name the
-cause: `settled`, `timeout`, `interrupted`, or `cancelled`. A client that reads the event stream
-of the Run MUST get both events, and the stream MUST stay open between them.
+cause: `settled`, `timeout`, `interrupted`, or `cancelled`. For each cause but `cancelled`, the
+cause MUST be the `ended` value of the `wait` result. A client that reads the event stream of the
+Run MUST get both events, and the stream MUST stay open between them.
 
 #### Scenario: A reload during a wait
 

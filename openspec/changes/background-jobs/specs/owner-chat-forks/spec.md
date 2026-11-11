@@ -4,8 +4,8 @@
 
 A shared or public fork MUST copy user and assistant rows as text-only rows, and it MUST NOT copy
 a `checkpoint` row. Each copied row MUST carry only the text parts of the source row. The fork
-MUST omit owner `file` parts and their `media://` locators. A user row with no text part MUST
-NOT be copied. That rule covers a row whose only parts were `file` parts and a host message of
+MUST omit owner `file` parts and their `media://` locators. The fork MUST NOT copy a user row
+that has no text part. That rule covers a row whose only parts were `file` parts and a host message of
 `background-jobs`. A copied row whose reply target was not copied MUST carry no reply target. The
 fork MUST NOT create, copy, or reference a media object, so its owner gets no access to the
 images of the source owner. An owner fork is not affected, and it copies `file` parts and host
@@ -32,7 +32,7 @@ messages as literal rows.
 #### Scenario: A shared fork confers no access to the source owner's media
 
 - **WHEN** another user forks a public Chat whose messages reference the media of the source owner
-- **THEN** no media object is created for the fork, copied to it, or referenced by it
+- **THEN** the fork creates, copies, and references no media object
 - **AND** the media lookup of the fork owner finds nothing for each source media id
 
 #### Scenario: An owner fork keeps attachments

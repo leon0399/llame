@@ -3,8 +3,8 @@
 ### Requirement: A settled job stores output that does not fit as one artifact
 
 A settled job of `background-jobs` has an inline bound of 2,000 characters for each output. When
-an output does not fit, the system MUST store the captured output as one artifact, with one part
-for each output. It MUST do so only when the Run that started the job could read artifacts. The
+an output does not fit, the system MUST store one artifact with one part for every output of
+the job. It MUST do so only when the Run that started the job could read artifacts. The
 artifact MUST use the number that the job reserved and the tool name of the executor. It MUST
 name the Run and tool call that started the job.
 
@@ -23,7 +23,8 @@ name the Run and tool call that started the job.
 When a settled job has no artifact, a `read` of an output of the job MUST return the stored
 increments. A failed artifact write MUST leave the job settled and its increments stored. The
 host-file rules of this capability MUST apply to a job artifact as they apply to a `bash`
-artifact.
+artifact. The system MUST decide them from the Run that started the job, when the job starts.
+The notice and the `wait` entry of the job MUST name the host directory when host files exist.
 
 #### Scenario: A failed write keeps the stored increments
 

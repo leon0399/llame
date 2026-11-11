@@ -54,8 +54,10 @@ See `proposal.md` for the motivation. Code references are at `master` `048f75aa`
   finalizer, the stream bridge, and the step offset read that event
   (`run-creation.ts:98-107`, `run-execution.service.ts:5588-5603`,
   `continue-projection.ts:58-99`, `run-stream-bridge.ts:164`).
-- The lock order is the Run row, then the Chat row (`segment-delivery.ts:303-345`;
-  `chats.service.ts:488-498` calls that order "load-bearing for deadlock avoidance").
+- Two lock orders exist. A delivery and a Chat deletion take the Run row, then the Chat row
+  (`segment-delivery.ts:303-345`, `chats.service.ts:488-498`). An admission takes the Chat row
+  first and then writes the Run, which the code records as an accepted inversion
+  (`chat-loop.service.ts:363-379,526-528`, `chat-deliveries.repository.ts:218-225`).
 - No worker has an identity. `runs.worker_id` is the native executor id.
 
 ### Deliveries, messages, and context items today
@@ -132,13 +134,15 @@ Rejected: a separate job counter. The notice would name two different numbers fo
 ### D3: The executor returns a handle and arms no deadline for it
 
 `packages/bash-executor` gains `startManagedBash(input, context, options)`. It returns
-`{ pid, settled: Promise<BashResult>, snapshot(), stop(cause) }`.
+`{ pid, settled: Promise<BashResult>, snapshot(), stop(cause): Promise<ManagedStopResult> }`.
 
 - The handle arms **no** deadline and listens to no signal of the call. The caller owns both.
 - `stop(cause)` settles through the path that the deadline uses today: kill the group, prove it
-  empty, drain for 50 ms, and return the captured streams. The cause maps the result to
-  `timed_out` (`lifetime`) or to `cancelled` with output (`owner`, `assistant`, `worker`,
-  `run`). An unproven stop is `outcome_unknown`.
+  empty, drain for 50 ms, and return the captured streams.
+- `ManagedStopResult` is a type of the handle only: `{ proved, stdout, stderr, truncated }`. It
+  is not a member of `BashResult`. The registry maps it: `lifetime` to the job state
+  `timed_out`; `owner`, `assistant`, and `worker` to `cancelled`; an unproved stop to `lost`. A
+  foreground stop for a Run abort maps to today's tool results.
 - `executeManagedBash` stays, with its deadline, its signals, and a per-process limiter of
   `context.maxProcesses`. `apps/machine/src/proc.ts:88-90` and the Machine protocol do not
   change.
@@ -149,7 +153,15 @@ bound, and `RLIMIT_FSIZE` would kill a command that today only loses output.
 ### D4: A registry in the worker owns live host commands
 
 `BashJobRegistry` is a singleton of the worker process. Every host command is registered at
-spawn. The runner changes for a host `bash` call:
+spawn.
+
+A new `bashTarget(context, input)` applies `projectBashInput` and answers `host`, `ssh`, or
+`machine`. A call with no `cwd` in a Machine Workspace is a `machine` call
+(`apps/api/src/tools/bash.ts:90-106`). The runner and the interrupt fate (D13) use this
+function, never the raw `cwd` string. `ssh` and `machine` calls keep today's path, with one
+composed signal.
+
+The runner changes for a `host` call:
 
 - The call gets the Run abort and the per-call timeout as **separate** signals. The timeout is a
   move trigger and never an abort. The 750 ms rejection of `withAbort` applies to the Run abort
@@ -162,9 +174,14 @@ and the Run abort.
 - `settled` first: the call returns the ordinary result, as today.
 - Bound or yield first: the registry promotes the command. It reserves the number, inserts the
   `chat_jobs` row, and stores the output captured up to that point. The call then returns
-  `backgrounded` and appends `native.result` with that result. A promotion that fails leaves the
-  command in the foreground and the call waits for `settled`.
+  `backgrounded` and appends `native.result` with that result.
+- A promotion that fails stops the command with `stop('run')`. The call returns `timed_out` with
+  the captured output and a message that names the failed move, so no host call stays open past
+  its bound.
 - Abort first: the registry calls `stop('run')`, and the call settles as today.
+
+The yield signal is level-triggered for the segment. A `host` call that starts while a steer or
+a notice is pending promotes at once.
 
 `async: true` promotes at spawn. The registry holds the facts that a settlement needs after the
 call context is gone: owner, Chat, Run, tool call, the artifact bound, the credential set, and
@@ -172,8 +189,7 @@ the decision of `canReadArtifacts` with the host-file setting.
 
 `backgrounded` is a success object with `backgrounded: true`, the job locator, the cause, and
 the elapsed time. `renderBashText` gets a branch for it, and the web `BashTool` output schema
-gets the same member. `ssh://` and `machine://` calls keep today's path, with one composed
-signal.
+gets the same member.
 
 ### D5: Output increments are cut at safe positions
 
@@ -188,24 +204,27 @@ The per-stream bound is tracked over the whole stream, as the capture limit alre
 not per flush. One timer per job arms at the first unflushed byte and fires after 1 s; 16 KiB
 flushes at once.
 
-### D6: One settlement transaction, in the Run-then-Chat order
+### D6: One settlement transaction, Chat first
 
 In `tenantDb.runAs(owner)`. The transaction is retried on `40P01` and `40001`.
 
-1. Read the Chat's non-terminal Run. Lock that Run row, then the Chat row, then the job row.
+1. Lock the Chat row, then the job row.
 2. Settle the job with a conditional update on `state = 'running'`. A lost update ends the
    transaction.
 3. When an output does not fit 2,000 characters and `artifact_readable` holds, write the artifact
    in a savepoint and delete the chunks. A failed write rolls back the savepoint only.
-4. When the Run is in `awaiting_jobs` and lists the job, skip the notice. Otherwise insert the
-   `notice` item, unless `stop_requested_by = 'assistant'`.
-5. When the Run is in `awaiting_jobs`, run the waker update (D11). When the Run executes, call
-   `notifyRunControl(tx, { runId, kind: 'steer' })`, so a foreground command yields.
+4. Read the Chat's non-terminal Run without a row lock. When it is in `awaiting_jobs` and lists
+   the job, skip the notice. Otherwise insert the `notice` item, unless
+   `stop_requested_by = 'assistant'`.
+5. When the Run is in `awaiting_jobs`, run the waker update (D11), which is the only write to
+   the Run row. When the Run executes, call `notifyRunControl(tx, { runId, kind: 'steer' })`,
+   so a foreground command yields.
 6. When no Run is live, apply the idle rule (D15).
 
-Every new writer uses one lock order: Run row (when one is read), Chat row, `chat_jobs`,
-`chat_deliveries`. The suspension (D11), the admission wakers (D13), and the Chat deletion (D9)
-follow it.
+The settlement and the admission wakers (D13) share one order: Chat row, then the Run row
+through the wake update. The suspension (D11) is fenced by the Run row and then takes the Chat
+row, as a delivery does. It can deadlock with a settlement, so it is also retried on `40P01`. A
+retried suspension re-reads the jobs and returns the settlement when the job settled meanwhile.
 
 ### D7: A limiter object replaces the module counter on the host
 
@@ -213,9 +232,10 @@ follow it.
 from admission to the settlement of the child, in the foreground or in the background. The
 `ssh://` path takes a slot from the same object (`ssh-bash.ts:418`).
 
-The executor refusal stays `unavailable`. The API maps the refusal of the host path and of the
-`ssh://` path to the tool result `limit_reached`. The Machine daemon keeps its own limiter of 1
-inside `executeManagedBash` and its `unavailable` refusal, so no protocol type changes.
+The API acquires the slot before it calls the executor, on both paths, and returns the tool
+result `limit_reached` when no slot is free. It does not map an executor result, because other
+refusals also have the type `unavailable`. The Machine daemon keeps its own limiter of 1 inside
+`executeManagedBash` and its `unavailable` refusal, so no protocol type changes.
 `resetManagedExecutorForTests` goes; each test builds its own limiter.
 
 ### D8: The lifetime is a timer of the registry
@@ -231,14 +251,15 @@ A worker takes a random UUID at each process start and upserts `worker_instances
 its owner. A missing row or a recorded stop request stops the command.
 
 `lost` is decided on touch, by a query that joins the job to its `worker_instances` row. The
-touch points are the Run claim, the step-end check of a Run in the Chat, the deadline job, the
-`job://` reader, and the jobs API. Each runs in the scope of one owner. The chat list count uses
+touch points are the Run claim, the step-end check of a Run in the Chat, every computation of a
+`wait` result (also in the deadline job), the `job://` reader, and the jobs API. Each runs in
+the scope of one owner. The chat list count uses
 the same join and settles nothing.
 
 A `WorkerShutdownService` owns the order at shutdown. It first makes the registry refuse new
-commands and promotions, then stops every job and settles it `cancelled` / `worker`, and only
-then lets the queue wrapper stop. The registry module depends on the queue module, so Nest
-destroys it first.
+commands and promotions, then stops every job and settles it `cancelled` / `worker`. It lives in
+a non-global module. Nest destroys non-global modules before the global `PgBossModule`, whose
+destroy hook stops the queue. A test pins that order.
 
 Chat deletion stamps a stop request on each live job before the cascade, after it took the Run
 row and the Chat row (`chats.service.ts:486-507`).
@@ -255,65 +276,95 @@ heartbeat tick of D9 covers a lost signal. A request for a job on a dead worker 
 `lost` at once. `parseRunControl` returns `undefined` for a kind that an older worker does not
 know (`run-control.ts:30-48`).
 
+The `stop` tool then waits for the settlement: on the promise of the registry when this worker
+hosts the job, and otherwise by a read of the job row every 250 ms. After 5 s it reports the job
+as `running` with the recorded stop request.
+
 ### D11: `awaiting_jobs`, the wake generation, and the current job
 
 New on `runs`: `wake_generation integer`, `current_job_id uuid`, and `awaiting jsonb` (the open
 `wait` call id, the listed job ids, the deadline). `awaiting_jobs` joins the `run_status` enum.
 
 **Suspend.** `wait.execute` answers at once from the job rows when a listed job is settled or
-lost, and it withdraws a pending notice of each job that it reports as settled. Otherwise it
-returns a suspension sentinel. The executor does not record the sentinel as a result. When every
-other call of the step has settled, the executor ends the stream with the stop cause `suspend`
-and runs one transaction, fenced by `activeAttemptId`, in the D6 lock order:
+lost, and it withdraws a pending notice of each job that it reports as settled. A second `wait`
+call in one step returns an error. Otherwise `wait.execute` returns a suspension sentinel. The
+executor does not record the sentinel as a result. When every other call of the step has
+settled, the executor ends the stream with the stop cause `suspend` and runs one transaction,
+fenced by `activeAttemptId`:
 
 1. Re-check the listed jobs, the pending `steer`, `interrupt`, and `notice` items, and the
-   cancellation. A failed check ends the transaction, and the `wait` returns in the same attempt.
+   cancellation. A failed check ends the transaction. The attempt then computes the real `wait`
+   result, replaces the sentinel in the messages of the loop with it, records it, and continues.
 2. Set `status = 'awaiting_jobs'`, increment `wake_generation`, and set `awaiting` and
    `current_job_id` to a fresh UUID.
-3. Append `run.suspended { toolCallId, jobIds, generation, parts, steps, usage }`. `parts` is the
-   reply of the current segment so far, with the open `wait` call.
+3. Append `run.suspended { toolCallId, toolInput, jobIds, generation, parts, steps }`. `parts`
+   is the reply of the current segment so far. It holds no part for the open `wait` call,
+   because the collector drops a pending call (`assistant-transcript.ts:420-426`).
 
 After the commit the worker enqueues the deadline job under that UUID with `startAfter`, and
 `executeJob` accepts `awaiting_jobs` as a normal end.
 
 **Wake.** `UPDATE runs SET status = 'queued', current_job_id = $new WHERE id = $id AND status =
 'awaiting_jobs' AND wake_generation = $gen RETURNING ...`, with `run.resumed { generation,
-cause }` appended in the same transaction. The winner enqueues a `runs` job under `$new` after
-its commit, through a dispatch variant that takes the job id. A failed enqueue leaves the Run
-`queued`; it does not fail the Run. The `RunJob` payload gains `wake?: { generation }`.
+cause }` appended in the same transaction. The cause is the `ended` value that the `wait` will
+return: `settled` for a listed job, also a lost one; `interrupted` for a steer, an interrupt, or
+a job outside the list; `timeout` for the deadline; or `cancelled`. The winner enqueues a `runs`
+job under `$new` after its commit, through a dispatch variant that takes the job id. A failed
+enqueue leaves the Run `queued`; it does not fail the Run. The `RunJob` payload gains
+`wake?: { generation, jobId }`.
 
 **Deadline job.** It is a `runs` job whose id is the `current_job_id` of the suspension.
 
 - Its wake update keeps `current_job_id` as its own id, so admission reads a live job.
-- `executeJob` compares the generation and the job id with the Run **before** its pickup gate. A
-  job that is not current returns at once, and it never settles or claims the Run.
-- Same generation and `awaiting_jobs`: it wakes with the cause `timeout` and executes.
-- Same generation, status `queued`, and the recorded job absent past one heartbeat window: it
-  sets `current_job_id` to its own id and executes (lost wake).
-- `expireDeadLetteredRun` ignores a dead job that is not the current job of its Run.
+- `executeJob` compares `wake.jobId` with the `current_job_id` of the Run **before** its pickup
+  gate. A job that is not current returns at once, and it never settles or claims the Run. The
+  first job of a Run has no `wake` field and is current only while `current_job_id` is null.
+- Current and `awaiting_jobs`: it marks listed jobs on a dead worker `lost`, wakes with the
+  cause `settled` or `timeout`, and executes.
+- Not current, status `queued`, same generation, and the recorded job absent past one heartbeat
+  window: it sets `current_job_id` to its own id and executes (lost wake).
+- The dead-letter job carries the same payload. `expireDeadLetteredRun` applies the same
+  comparison and ignores a job that is not current.
+
+**Budget.** The first `run.started` of a Run is the anchor of `runs.timeoutSeconds`. A claim
+after a wake expires the Run when the anchor plus the budget has passed, before `markStarted`.
+Otherwise it arms the timer with the rest. The execution ceiling counts from the new claim.
 
 **Admission** reads `current_job_id ?? run.id` (`chat-admission.ts:34-71`).
 
 Rejected: a `run_waits` table. Admission and the web would join a second table to judge one Run.
 
-### D12: A woken attempt is seeded like a Continue
+### D12: The first attempt after a wake is seeded like a Continue
 
-`run.suspended` is a `run.continued`-shaped record. The claim of a woken Run reads the latest
-one. A claim is the first after a wake when no `run.started` follows the latest `run.resumed`;
-only that claim skips the `native.attempt` recovery check. A later claim is a retry and follows
-the shipped rules.
+A claim is the first after a wake when no `run.started` follows the latest `run.resumed`. Only
+that claim is seeded and skips the `native.attempt` recovery check. A later claim is a retry
+under the shipped rules: it fails a segment with a native attempt, and it restarts a read-only
+segment from its first step, with no seed.
 
-The first attempt after a wake:
+The seeded attempt:
 
-1. Computes the `wait` result from the job rows and the cause, withdraws the pending notice of
-   each job that the result reports as settled, and appends `tool.completed` for the open call.
-2. Seeds its state from `run.suspended`, through the readers that a Continue uses:
-   `continueStateFromEvents` (kept messages for `requestMessages`), `replyParts` in the finalizer
-   (so `upsertRunningReply` and the per-attempt window keep the earlier steps), the stream bridge
-   replay, and the step offset of the segment budget.
-3. Carries the usage of the attempt before the wait into the usage of the reply.
+1. Computes the `wait` result from the job rows and the cause, and withdraws the pending notice
+   of each job that the result reports as settled.
+2. Builds the settled `wait` tool part (call, input, result, step) and appends it to the parts
+   of `run.suspended`. It appends `tool.completed` for the call.
+3. Seeds from those parts: the collector, the kept messages of `requestMessages`
+   (`continueStateFromEvents`), and the step offset of the segment budget. The finalizer
+   (`replyParts`, `rebuiltReplyWrite`) applies the same parts for this attempt only, keyed by
+   the attempt that follows the `run.resumed`. The provider request therefore holds the `wait`
+   call and its result.
 4. Runs the step-boundary delivery before its first request, so a steer or a notice that woke
    the Run is delivered there.
+
+The stream bridge does not translate `run.suspended`. It already replays the events of the
+attempt before the wait, and it translates the appended `tool.completed`.
+
+A retry that discards the seeded attempt inserts the notice of each job that the discarded
+`wait` result reported as settled, when that job has no pending or delivered notice.
+
+Usage follows the shipped rules. The reply usage sums the requests of the seeded attempt, and
+it is `complete: false`, because another attempt of the message reached prompt preparation
+(`usage-completeness.ts:116-136`). The spend of the attempt before the wait stays in its
+`model.completed` events.
 
 ### D13: Steer, interrupt, and cancellation as wakers
 
@@ -322,14 +373,14 @@ The first attempt after a wake:
 A `queue` item does not wake. A cancelled Run then settles at pickup through the shipped
 `settleCancelledBeforeStart`, and `settleOpenToolCalls` settles the `wait` call.
 
-For a Run that executes, admission of a steer sends `{ kind: 'steer' }`. The listener raises a
-yield signal on the segment, which is not an abort.
+For a Run that executes, admission of a steer sends `{ kind: 'steer' }`. The listener raises the
+yield signal of the segment, which is not an abort.
 
-The interrupt fate is decided **per call**: a host `bash` call and a `wait` call are
-`background`; a `bash` call with an `ssh://` or `machine://` `cwd` stays `cancel` and gets the
-interrupt signal. `settleOnInterrupt` raises the yield signal and then awaits the `done` of each
-`background` call, as it does for `finish`, so the real `backgrounded` result is recorded before
-the delivery closes the reply.
+The interrupt fate is decided **per call**, from `bashTarget` (D4): a `host` call and a `wait`
+call are `background`; an `ssh` or `machine` call stays `cancel` and gets the interrupt signal.
+`settleOnInterrupt` raises the yield signal and then awaits the `done` of each `background`
+call, as it does for `finish`. A promotion always ends, by a `backgrounded` result or by the
+stop of D4, so that wait is bounded.
 
 ### D14: A notice is a delivery row that points at a job
 
@@ -345,10 +396,14 @@ on `sender_ref` for `producer = 'job'` gives one notice per job.
   `sender_user_id = NULL`, no parts. `run.delivered` names every delivered id and the cause.
 
 The `job` context items are authored at the first dispatch of the segment or Run, from the
-delivery rows whose delivered message is the trigger message. That source serves all four
-paths: a boundary, a host-started Run, a send, and a promoted item. They are stored through
-`storeAtDispatch`, as the `interrupted` item is. The body is a packaged template. Output text
-passes the delimiter neutralization of tool results.
+delivery rows whose delivered message is the trigger message. That source serves all paths: a
+boundary, a host-started Run, a send, a promoted item, and a mode change. They are stored
+through `storeAtDispatch`, as the `interrupted` item is, which is where `context-injection`
+requires every persisted item. The body is a packaged template. Output text passes the
+delimiter neutralization of tool results.
+
+A Run that ends before its first dispatch returns its delivered notices to `pending` in its
+terminal transaction, so the next Run takes them.
 
 A trigger row with no stored content is appended to the model messages and does not replace the
 last message: `appendUserMessage` keeps the position, and `requestMessages` substitutes only a
@@ -384,9 +439,10 @@ answer delivers them.
 
 `ChatJobsController` follows `ChatDeliveriesController`. `ChatListItemResponse` gains
 `runningJobs`, from one grouped query beside `findLatestPerOwnedChat`; the live loader
-(`live/live-record-loader.ts:75-78`) fills the same field. `llame_notify_change()` is restated
-with a branch for `chat_jobs` that emits the pointer of the owning Chat, so the shipped
-`chat.upserted` message carries the new count.
+(`live/live-record-loader.ts:75-78`) fills the same field. `ChatDeliveryResponse` gains the
+producer kind and, for a `job` item, the job locator and state. `llame_notify_change()` is
+restated with a branch for `chat_jobs` that emits the pointer of the owning Chat, so the
+shipped `chat.upserted` message carries the new count.
 
 ### D18: Web
 
@@ -437,8 +493,11 @@ removes the selector.
   message of the owner expires it under the shipped rule.
 - [One row write per second for a chatty job] → bounded by the 16 KiB batch and the output
   bound. #1627 moves host output to a file.
-- [The resumed attempt touches the finalizer, the bridge, and the usage path] → it reuses the
-  Continue readers and gets its own layer with its own integration suite.
+- [The seeded attempt touches the collector, the finalizer, and the request builder] → it
+  reuses the Continue readers and gets its own layer with its own integration suite.
+- [The usage of a reply that a wake continued is a lower bound] → it is marked
+  `complete: false`, as the usage of a reclaimed Run is. The cost ledger of #1612 (F2) is the
+  place for a full sum. Leo decides whether a `run-usage-accounting` change must come first.
 - [`tools.callTimeoutSeconds` below 120 moves commands earlier] → documented; see the third
   deviation in `proposal.md`.
 
@@ -463,6 +522,18 @@ removes the selector.
 
 ## Revision history
 
+- **v3 (2026-11-11, review round 2):** two reviewers, 0 P0, 8 P1, 29 P2. Fixed in the specs: a
+  MODIFIED block for the `context-injection` rail requirement (round 1 had rejected it); a move
+  that fails stops the command; tool names in the `bash` description follow tool membership; a
+  signal exit; one `wait` call for each step; the late `stop` report; the restored notice after
+  a discarded `wait` result; lower-case job locators for `wait` and `stop`. Fixed in the design:
+  Chat-first settlement with a retried suspension (D6), `bashTarget` for the host decision (D4,
+  D13), the `wait` tool part in the seeded attempt and a seed for that attempt only (D12), the
+  job id in the `RunJob` payload and the budget anchor (D11), the stop wait (D10), and notices
+  that return to `pending` when a Run never dispatched (D14). The stack was reordered so that no
+  layer ships a move without a settlement or a `wait` without its result. Not changed: the
+  usage of a woken reply stays a lower bound under the shipped rules. Round 2 still produced P1
+  findings, so the review has not converged.
 - **v2 (2026-11-11, review round 1):** two reviewers, 0 P0, 29 P1, 36 P2. Fixed in the specs:
   new MODIFIED blocks for `No mid-run tool-state checkpointing`, three more `run-steering`
   requirements, `Remote bash uses the local bounds`, the shared-fork rule, and the `bash`

@@ -132,3 +132,172 @@ rule of a retry after a dispatch.
 - **WHEN** a Run delivers an interrupt and a job notice in one user message
 - **THEN** the `interrupted` item is the first attached item, and the `job` item is the second
 - **AND** both come before the owner text
+
+### Requirement: Server-authored context is injected as discrete items on one rail
+
+Some server-authored contributions to the model-visible conversation of a Chat are not part of
+the system prompt. The system MUST inject each of them as a **context item** on one rail. The system MUST show
+an item inside one canonical `<system-reminder>` envelope. An item MUST NOT add a top-level
+delimiter name of its own.
+
+A compaction checkpoint MUST stay a rail context item with producer `compaction`, form
+`checkpoint`, and rail residency for envelope semantics. It MUST NOT be a storage exception. Its
+durable form MUST be an ordinary persisted `data-context` part on a `checkpoint` row. Replay MUST
+convert that row to one user-role text message, as it converts each other persisted rail part.
+`model-system-prompts` MUST own the coverage boundary and the replay-selection contract of the row.
+
+The wire role MUST stay `user`. The system MUST NOT invent a provider-level role for injected
+context. Items MUST NOT become separate conversation messages when a message already exists to
+carry them. Items attached to a turn MUST go inside the triggering user message of that turn.
+
+An item authored **between the model steps of one Run** is an in-Run item, and no user message
+carries it. The system MUST store it as a `data-context` part on the assistant message of that Run. It goes
+directly after the last tool part of the step whose results triggered it. The model MUST receive
+it as a user-role text message after the last tool result of that step. This applies to the step
+after the trigger and to each later step of the same Run, at the same position. In a Run, the
+system MUST compute that placement from the live model messages of the step. It removes any earlier
+copy of the item and inserts the item after the tool-result message that carries the matching tool
+call. Thus the result is the same whether or not the model client keeps the message override of an
+earlier step. The item MUST use the same envelope, frame, and vocabulary as an attached item. The
+system MUST persist an in-Run item on that assistant message in the dispatch transaction of the
+first model request that carries it. This applies whatever the outcome of the Run. Each terminal outcome
+MUST keep it after the last tool part of its triggering step.
+
+Each item MUST have its **own text content block** in that message. It MUST NOT join another item
+or the user's text in one block. Thus the separation between server-authored content and
+user-authored content is structural, not a text convention that user input can copy.
+
+A `job` item of `background-jobs` is never an in-Run item. `run-steering` delivers it at a step
+boundary in the delivered message of the owner. When that delivery has no owner item, or when
+the host starts a Run for it, a host message carries it. The host message is the message that
+the `job` producer owns, and it MUST hold no other content.
+
+#### Scenario: Two items are injected on one turn
+
+- **WHEN** the system injects two context items before a user's message
+- **THEN** each item is in its own `<system-reminder>` envelope in its own text content block
+- **AND** the visible text of the user is in a further block of the same message
+- **AND** the system creates no additional conversation message
+
+#### Scenario: A turn carries no injected item
+
+- **WHEN** a turn has no context item to inject
+- **THEN** the user message carries only the visible text of the user
+- **AND** its serialized form is the same as the form of a turn from before this capability
+
+#### Scenario: An item is not attached to a turn
+
+- **WHEN** the producer of an item has no triggering user message to attach to
+- **THEN** the message that its producer already owns carries the item
+- **AND** the item uses the same envelope, frame, and vocabulary as an attached item
+
+#### Scenario: An in-Run item follows its triggering tool result
+
+- **WHEN** a producer authors an item after a tool result inside a Run
+- **THEN** the system stores the item on the assistant message of the Run after that tool part
+- **AND** each later model step of that Run receives it as a user-role message directly after that tool result
+- **AND** the item stays on the assistant message whatever the outcome of the Run, until a dispatch replaces the reply
+- **AND** only the dispatch of a retry of the same Run, or of a follow-up Run from `turn-actions`, replaces the reply
+- **AND** that reset removes the item together with the output of that attempt
+
+#### Scenario: A compaction checkpoint replaces history
+
+- **WHEN** compaction publishes a checkpoint row for a superseded prefix
+- **THEN** the row carries one persisted `data-context` part whose text is the complete final checkpoint envelope
+- **AND** the envelope and the stored part keep producer `compaction` and form `checkpoint`, and replay uses that stored text with no rebuild from metadata
+
+#### Scenario: A failed Run keeps the items it sent
+
+- **WHEN** the worker of a Run dies after the first model request of the Run carried accepted-turn items, with an instruction bundle
+- **THEN** those items stay on the triggering user message after the Run settles as failed
+- **AND** the request of the next turn carries each stored item once and loads none of them again
+
+#### Scenario: A retry keeps its stored accepted-turn items
+
+- **WHEN** a retry of a Run starts after an earlier attempt dispatched a request that carried accepted-turn items
+- **THEN** those items stay on the triggering user message unchanged and in place, and the request of the retry carries each of them once
+- **AND** the retry derives each accepted-turn producer again and counts as told the stored items and the told, seen, and baseline state that their dispatch advanced
+- **AND** thus it authors no second `temporal` or model-switch item for the same turn and loads no stored instruction file again
+- **AND** it stores only the items that this comparison newly yields, in its own dispatch transaction
+- **AND** it stores them after the last stored context item, in producer order among its own new items
+- **AND** its preparation reads history only through the triggering user message
+- **AND** only the dispatch transaction of the retry replaces the assistant output and the in-Run items of the earlier attempt, when it resets the reply
+
+#### Scenario: A retry that fails before dispatching changes nothing
+
+- **WHEN** a retry of a Run fails before its own dispatch transaction commits, after an earlier attempt of the Run dispatched
+- **THEN** the assistant message, the output, the in-Run items, and the stored accepted-turn items of the earlier attempt stay unchanged
+- **AND** the retry stores no item and advances no told or baseline state
+
+#### Scenario: A follow-up Run keeps the turn's stored items
+
+- **WHEN** the first Run of a turn stored a `temporal` item and failed, and the owner regenerates the turn
+- **THEN** the request of the Regenerate Run carries the stored `temporal` item unchanged
+- **AND** the triggering user message holds one `temporal` item
+
+#### Scenario: A follow-up Run appends a new availability change
+
+- **WHEN** an operator enables a new tool after the first Run of a turn dispatched, and the owner continues the turn
+- **THEN** the Continue Run compares tool availability with the first Run
+- **AND** it stores one `tool-availability` item after the last stored context item of the triggering user message
+
+#### Scenario: A Regenerate replaces the model-switch item
+
+- **WHEN** the first Run of a turn stored a model-switch item from model `A` to model `B`
+- **AND** the owner regenerates the turn with model `A`, the model of the prior reply
+- **THEN** the dispatch transaction of the Regenerate Run removes that item from the triggering user message
+- **AND** the Regenerate request carries no model-switch item
+
+#### Scenario: A follow-up Run reuses prompt imports and skill activations
+
+- **WHEN** the triggering user message has an import marker and a `$skill` mention, and its first Run stored a `prompt-imports` item and a `skill-activation` item
+- **AND** the owner regenerates the turn
+- **THEN** the Regenerate Run reads no import target again and stores no second `prompt-imports` or `skill-activation` item
+- **AND** its request carries the stored items once
+
+#### Scenario: A job item between two steps gets a host message
+
+- **WHEN** a job settles between two model steps of a Run, and no owner item is pending
+- **THEN** the `job` item is stored on a new host message, and not on the assistant message of the Run
+- **AND** the next segment of the Run answers that host message
+
+The system MUST persist in conversation history each persisted-literal rail item that a model
+request carries. It MUST do this in the dispatch transaction of that request, whatever the outcome
+of the Run.
+Items that the accepted user turn triggers go on the triggering user message, before its first
+model request. Items that an assistant tool call triggers go on the assistant message of the Run,
+after the last tool part of the triggering step. The request MUST carry exactly the stored text of
+those items. An attempt whose dispatch transaction does not commit MUST dispatch nothing. A retry
+of the same Run MUST keep each item that an earlier dispatch stored on the triggering user
+message, unchanged and in place. It MUST derive each accepted-turn producer
+again, and count as told those stored items and the told, seen, and baseline state that their
+dispatch advanced. It MUST store only the items that this comparison newly yields. It stores them in its own dispatch transaction,
+after the last stored context item and before the user text. Its own new items follow producer
+order. This keep-and-append rule MUST apply only to items that the
+dispatch transaction of an earlier attempt stored. A retry of a Run whose earlier attempts never
+dispatched MUST store each item that it yields at its producer rank, as a first attempt does. The
+rank is relative to the `prompt-imports` and `skill-activation` facts persisted before dispatch.
+
+A follow-up Run from `turn-actions` MUST follow the same keep-and-append rule. The rule applies to
+each item that an earlier Run of the triggering user message stored at its dispatch. A follow-up
+Run MUST also reuse the `prompt-imports` item and the `skill-activation` items that an earlier Run
+stored on that message before its dispatch. It MUST NOT import those targets or activate those
+skills again. The model-switch item is the one exception to the keep rule. The first dispatch of a
+Regenerate Run MUST remove each model-switch item with cause `model` from the triggering user
+message. It then stores the model-switch item that its own comparison yields, if any, after the
+last stored context item. A retry of that Regenerate Run keeps the item that its first dispatch
+stored.
+
+A retry MUST create or reset the assistant message of the Run to `running` inside its own dispatch
+transaction, not before it reads history. Its preparation MUST read history only through the
+triggering user message, so its own assistant message never enters its request. That reset MUST
+remove the in-Run items of a dead attempt together with the output of that attempt. A retry that
+fails before its own dispatch MUST leave the assistant message, output, and items of the earlier
+attempt unchanged. The persisted items and the persisted output of a failed, cancelled, expired, or
+superseded attempt stay part of the record as the user saw it. They enter later model context like
+any other committed turn, until a follow-up Run replaces the reply. Real accepted-message facts
+stay persisted-literal; acceptance of a user message is not publication of the context of a failed
+attempt. Committed parts keep the exact prepared text and the current envelope and order. A
+compaction checkpoint row and the epoch state published with it are not contributions of a
+dispatch transaction. They commit in their own transaction before the model step that they
+precede, and a later failure of that attempt MUST NOT retract them.

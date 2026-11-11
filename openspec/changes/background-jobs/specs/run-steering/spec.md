@@ -225,3 +225,14 @@ the item at its next step boundary at the latest.
 
 - **WHEN** the signal for a steer is lost while a host `bash` call runs
 - **THEN** the call returns at its foreground bound, and the steer is delivered at that boundary
+
+### Requirement: A delivered notice keeps the settings of the Run
+
+A delivered `notice` item MUST NOT change the model, the effort, or the permission mode of the
+Run. The settings that the item records MUST have no effect on a Run that already exists. They
+apply only to a Run that the host starts, as `background-jobs` defines.
+
+#### Scenario: A notice from a job of another model
+
+- **WHEN** a job that a Run on model `A` started settles while a Run on model `B` executes
+- **THEN** the next segment of that Run uses model `B`

@@ -244,12 +244,25 @@ interrupt, or a job notice signals the Run. In each case the command MUST become
 - **WHEN** a command prints 10 lines and then moves to the background
 - **THEN** a `read` of the `stdout` of its job returns those 10 lines
 
+### Requirement: A move that fails stops the command
+
+When the host cannot record the job of a move, it MUST stop the command under the cancellation
+rules of this capability. The call MUST then return a known `timed_out` result with the captured
+output, and its message MUST say that the move failed. A stop that is not proved MUST produce
+`outcome_unknown`. A host `bash` call MUST NOT stay open past its foreground bound.
+
+#### Scenario: The job record cannot be written
+
+- **WHEN** a command reaches the foreground bound, and the database refuses the job record
+- **THEN** the host stops the command, and the call returns `timed_out` with the output so far
+
 ### Requirement: A job settles from the exit of its command
 
 A `bash` job whose command exits with code 0 MUST settle as `succeeded`. A command that exits
-with another code MUST settle as `failed` with that code. Both need the proof of an empty
-process group that this capability defines. A job whose group cannot be proven empty MUST
-settle as `lost`.
+with another code MUST settle as `failed` with that code. A command that a signal ends MUST
+settle as `failed`, and its exit detail MUST name the signal. Each of these needs the proof of
+an empty process group that this capability defines. A job whose group cannot be proven empty
+MUST settle as `lost`.
 
 #### Scenario: A failing build settles as failed
 
@@ -265,9 +278,8 @@ settle as `lost`.
 
 A `backgrounded` result MUST hold the job locator, the elapsed time, and the cause: `async`,
 `time`, or `message`. Its model-facing text MUST be: "The command continues in the background as
-`<locator>`. You get a notice when it settles. Do not poll it. Use `wait` to block on it, `read`
-to see its output, or `stop` to end it." For the cause `message`, the text MUST start with:
-"Moved to the background to handle an incoming message."
+`<locator>`. You get a notice when it settles. Do not poll it." For the cause `message`, the
+text MUST start with: "Moved to the background to handle an incoming message."
 
 #### Scenario: A steer names its cause
 
@@ -311,10 +323,16 @@ It MUST NOT have the type `unavailable`.
 ### Requirement: The bash description explains background work
 
 The `bash` description MUST tell the model that a long host command moves to the background and
-continues. It MUST tell the model to set `async: true` for a command that it does not wait for.
-It MUST tell the model not to poll a job, and to use `wait`, `read`, and `stop`.
+continues. It MUST tell the model to set `async: true` for a command that it does not wait for,
+and not to poll a job. It MUST name each of `wait`, `read`, and `stop` only when the Run has
+that tool, as `tool-prompt-templates` requires.
 
 #### Scenario: Description has the background instructions
 
-- **WHEN** the packaged `bash` description is rendered
+- **WHEN** the packaged `bash` description is rendered for a Run that has `wait`, `read`, and `stop`
 - **THEN** it names `async`, the move to the background, and the three job tools
+
+#### Scenario: An absent tool is not recommended
+
+- **WHEN** the description is rendered for a Run that has `bash` and no `stop`
+- **THEN** it does not name `stop`
