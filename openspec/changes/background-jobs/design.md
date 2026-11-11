@@ -108,7 +108,8 @@ change to the Machine protocol or to the behavior of the Machine daemon; a new p
 
 - `chat_jobs`: `id`, `chat_id` and `owner_user_id` (composite FK to `chats`, cascade),
   `executor`, `seq`, `state`, `stopped_by`, `run_id`, `tool_call_id`, `worker_instance_id`, `pid`,
-  `started_at`, `settled_at`, `deadline_at`, `stop_requested_at`, `stop_requested_by`, `result`
+  `started_at`, `settled_at`, `deadline_at`, `stop_requested_at`, `stop_requested_by`,
+  `stop_reported_running`, `result`
   (jsonb: exit code, truncation flags), `outputs` (text array), `artifact_id`,
   `artifact_readable`, and the settings of the starting Run. Unique on
   `(chat_id, executor, seq)`. Policy as `chat_deliveries_owner`, with

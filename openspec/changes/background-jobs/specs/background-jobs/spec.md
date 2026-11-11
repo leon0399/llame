@@ -442,7 +442,6 @@ reported by `stop` MUST consume its notice in the transaction that records the r
 
 - **WHEN** a job settles during `stop`, and the Run is cancelled before its result is recorded
 - **THEN** the Chat keeps the pending notice for that job
-
 ### Requirement: A stop is known only after proof
 
 A stopped job MUST settle as `cancelled` only when the worker proved that the work stopped. For
