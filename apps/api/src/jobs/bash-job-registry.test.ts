@@ -8,12 +8,9 @@ import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
-import {
-  BashJobRegistry,
-  JobPromotionError,
-  type BashJobFacts,
-} from './bash-job-registry';
+import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
+import { JobPromotionError } from './job-promotion-error';
 
 /** The fakes implement only the members the registry and the store call. */
 // SAFETY: see above.
