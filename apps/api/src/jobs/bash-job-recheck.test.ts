@@ -3,6 +3,7 @@ import { type BashResult } from '@workspace/bash-executor';
 import { type ChatJob } from '../db/schema';
 import { type MockInstance } from 'vitest';
 import { type Db } from '../db/tenant-db.service';
+import { type WorkerHeartbeatService } from './worker-heartbeat.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatsRepository } from '../chats/chats-repository';
@@ -68,6 +69,7 @@ describe('the heartbeat check of live jobs', () => {
   let ids: number;
   let findById: MockInstance<ChatJobsRepository['findById']>;
   let settle: MockInstance<ChatJobsRepository['settle']>;
+  let worker: Pick<WorkerHeartbeatService, 'instanceId' | 'jobCheck'>;
 
   beforeEach(() => {
     rows = new Map();
@@ -80,9 +82,11 @@ describe('the heartbeat check of live jobs', () => {
       insert: () => ({ values: () => Promise.resolve() }),
     };
 
+    worker = { instanceId: crypto.randomUUID() };
+
     registry = new BashJobRegistry(
       { runAs: <T>(_o: string, fn: (tx: Db) => Promise<T>) => fn(asDb(db)) },
-      { instanceId: crypto.randomUUID() },
+      worker,
       { config: BUILT_IN_DEFAULTS },
     );
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
@@ -189,6 +193,66 @@ describe('the heartbeat check of live jobs', () => {
     expect(a.stop).not.toHaveBeenCalled();
     expect(b.stop).not.toHaveBeenCalled();
     expect(c.stop).toHaveBeenCalledWith('owner');
+  });
+
+  it('observes an owner stop through the registered heartbeat callback', async () => {
+    const job = await live();
+
+    rows.set(job.id, { state: 'running', stopRequestedBy: 'owner' });
+    registry.onModuleInit();
+    await worker.jobCheck?.();
+
+    expect(job.stop).toHaveBeenCalledWith('owner');
+    expect(settlements).toMatchObject([
+      { state: 'cancelled', stoppedBy: 'owner' },
+    ]);
+  });
+
+  it('does not read job rows when shutdown starts during a heartbeat check', async () => {
+    const job = await live();
+    rows.set(job.id, { state: 'running', stopRequestedBy: null });
+    let release: () => void = () => {};
+    const stopping = new Promise<void>((resolve) => (release = resolve));
+
+    job.stop.mockImplementationOnce(async () => {
+      await stopping;
+
+      return {
+        proved: true,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
+      };
+    });
+    const checking = registry.recheckJobs();
+    const shutdown = registry.shutdown();
+
+    try {
+      await checking;
+      expect(lookups).toEqual([]);
+    } finally {
+      release();
+      await shutdown;
+    }
+
+    expect(settlements).toMatchObject([
+      { state: 'cancelled', stoppedBy: 'worker' },
+    ]);
+  });
+
+  it('leaves failed settlement retry to shutdown once the worker stops accepting', async () => {
+    const job = await live();
+
+    settle.mockRejectedValue(new Error('db down'));
+    await expect(registry.stop(job.id, 'owner')).rejects.toThrow('db down');
+    await registry.shutdown();
+    settle.mockClear();
+
+    await registry.recheckJobs();
+
+    expect(settle).not.toHaveBeenCalled();
+    expect(lookups).toEqual([]);
   });
 
   it('retries a settlement that failed before it looks at the jobs', async () => {
