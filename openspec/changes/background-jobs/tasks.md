@@ -109,7 +109,7 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [x] 2.6 Add `GET /api/v1/chats/:chatId/jobs`, the `PATCH` that records a stop request, and `runningJobs` on the chat list item and in `live-record-loader.ts`; tests cover "A stop of a settled job", "A repeated stop of a stopped job", and the 404 answers. Regenerate `openapi.json`, the web client, and both live-protocol copies; a second generation leaves a clean diff.
 - [x] 2.7 Add the negative isolation tests: "Another owner reads a job", "A query without an identity finds no job", "A query without an identity finds no stored output", "Another owner cannot stop a job", and a foreign `job://` read through the tool.
 - [x] 2.8 Add `docs/product/reference/locators/job.md`, the row in `locators/index.md`, the `read.md` locator row, and a dated `CHANGELOG.md` entry; `pnpm lint:markdown` passes.
-- [ ] 2.9 Run the API lint, typecheck, and the focused suites; self-review the draft PR diff and fix findings before ready.
+- [x] 2.9 Run the API lint, typecheck, and the focused suites; self-review the draft PR diff and fix findings before ready. Independent correctness and simplify reviews closed their material findings. Current ordinary CI and mutation checks passed; local changed-lines mutation scored 94.39%.
 - [ ] 2.10 Run the GitHub review and CI loop on the published head.
 
 ## 3. Executor handle (`background-jobs/bash-executor`)
