@@ -162,3 +162,17 @@ Every API process holds one dedicated LISTEN connection for live updates
 If Postgres becomes the measured limit, swap at existing seams: queue interface
 to Redis-backed queue, LISTEN/NOTIFY to pub/sub, then SSE/read paths to replicas.
 None is justified inside the current self-hosted envelope.
+
+## Background jobs
+
+Each worker process that consumes runs records a heartbeat every
+`runs.heartbeatSeconds`. A worker with no heartbeat for four intervals is dead,
+and its running jobs settle as `lost` at their next touch. The chat list and
+the live Chat record count only the jobs on a worker that is not dead.
+
+The owner lists the jobs of a Chat with `GET /api/v1/chats/:chatId/jobs`, the
+running jobs first. `PATCH /api/v1/chats/:chatId/jobs/:jobId` with
+`{ "state": "cancelled" }` records a stop request from the owner. A repeat for a
+job that the owner stopped answers 200, a job in any other settled state answers
+409, and a Chat or job of another owner answers 404. The reader behind these
+rows is documented under [job://](../reference/locators/job.md).

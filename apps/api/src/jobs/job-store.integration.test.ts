@@ -1018,6 +1018,26 @@ d('job store', () => {
           }),
         ),
       ).rejects.toMatchObject({ cause: { code: '23503' } });
+
+      // The stranger stamps the owner's identity on a chunk of the owner's valid
+      // job and owner pair: the FK holds, so only the policy refuses.
+      await expect(
+        tenantDb.runAs(stranger, (tx) =>
+          tx.insert(chatJobChunks).values({
+            jobId: job.id,
+            ownerUserId: owner,
+            output: 'stdout',
+            position: 1,
+            content: Buffer.from('forged'),
+          }),
+        ),
+      ).rejects.toMatchObject({ cause: { code: '42501' } });
+
+      // The same chunk written by its owner is accepted.
+      await storeOutput(job.id, 'stdout', 'legit\n', 2);
+      await expect(
+        withJobs(owner, (jobs) => jobs.readOutput(owner, job.id, 'stdout')),
+      ).resolves.toEqual(Buffer.from('legit\n'));
     });
 
     it('answers not_found to a foreign job:// read through the read tool', async () => {

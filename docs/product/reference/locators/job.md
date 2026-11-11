@@ -5,6 +5,8 @@ read_when:
   - you need the state or the output of a job that runs or ended
   - a read of a job failed or you need to know why
 spec: native-file-tools
+configured_by:
+  - ../../operator/scaling.md
 ---
 
 # job://
@@ -42,7 +44,9 @@ needs no native executor. The `read` permission group gates it and matches the
 locator with its scheme in lower case and without its selector, so a reject
 written against `^job://` also refuses `JOB://bash-4/stdout:1-5`.
 
-## Record
+## Behavior
+
+### Record
 
 A `read` of `job://<executor>-<n>` returns plain text. The first line is the
 locator, and one `<name>: <value>` line follows for each field:
@@ -63,12 +67,12 @@ locator, and one `<name>: <value>` line follows for each field:
 | `outcome`           | `unknown` for a `lost` job                                            |
 | `artifact`          | the `artifact://` locator, when the output is stored as one           |
 
-A job is `lost` when its worker stopped sending heartbeats for four intervals
-of `runs.heartbeatSeconds`. A read finds that and settles the job as `lost`
+A job is `lost` when its worker sent no heartbeat for four heartbeat
+intervals. A read finds that and settles the job as `lost`
 before it answers, and the output that the worker stored stays readable. The
 record never holds the content of an output.
 
-## Output
+### Output
 
 A `read` of `job://<executor>-<n>/<output>` returns the stored text of that
 output with the ordinary read selectors, so `:-50` returns its last 50 lines.
@@ -93,12 +97,7 @@ Chat holds no job of its source.
 | `not_found`        | an absent job or output, another Chat, or another owner             |
 | `invalid_selector` | a selector the read cannot serve, or one the list refuses           |
 
-## Owner view
+## Configured by
 
-The owner lists the jobs of a Chat with `GET /api/v1/chats/:chatId/jobs`, the
-running jobs first. `PATCH /api/v1/chats/:chatId/jobs/:jobId` with
-`{ "state": "cancelled" }` records a stop request from the owner. A repeat for
-a job that the owner stopped answers 200, a job in any other settled state
-answers 409, and a Chat or job of another owner answers 404. The chat list and
-the live record of a Chat carry `runningJobs`, the number of jobs that run on a
-worker that is not dead.
+The worker heartbeat interval and the owner's job API are operator topics; see
+[scaling](../../operator/scaling.md#background-jobs).
