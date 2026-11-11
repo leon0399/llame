@@ -57,7 +57,7 @@ async function startHostCommand(
     const remaining =
       context.moveDeadlineAt === undefined
         ? BASH_SETTLEMENT_GRACE_MS
-        : context.moveDeadlineAt - Date.now();
+        : context.moveDeadlineAt - performance.now();
 
     if (remaining <= 0) closeGate();
     else timer = setTimeout(closeGate, remaining);
@@ -108,7 +108,7 @@ async function fenceAndSpawn(
 
   const expired =
     context.moveDeadlineAt !== undefined &&
-    Date.now() >= context.moveDeadlineAt;
+    performance.now() >= context.moveDeadlineAt;
 
   const started =
     gate.aborted || expired
