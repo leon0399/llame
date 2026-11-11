@@ -45,6 +45,7 @@ argument: the selector in `path` carries all of that. See
 | [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process  |
 | [`media://`](../locators/media.md)             | no       | no      | the owner's stored media, read-only      |
 | [`artifact://`](../locators/artifact.md)       | no       | no      | this Chat's stored tool results          |
+| [`job://`](../locators/job.md)                 | no       | no      | this Chat's background jobs, read-only   |
 
 ### Artifact locators
 
@@ -57,6 +58,16 @@ lines count 8,000-unit pieces of a long source line, and `:outline` reads a
 Markdown part. Another Chat, another owner, and a missing part are
 `not_found`; `edit` and `write` refuse the scheme with `invalid_path`. See
 [artifact](../locators/artifact.md).
+
+### Job locators
+
+`job://<executor>-<n>` reads the record of one background job of the Chat as
+plain text, `job://<executor>-<n>/<output>` reads the stored text of one
+output with the read selectors, and a bare `job://` lists the Chat's jobs. It
+routes before local path resolution and needs no executor. A read settles the
+running jobs of a dead worker as `lost` first. Another Chat, another owner, an
+unknown output, and a missing job are `not_found`; `edit` and `write` refuse
+the scheme with `invalid_path`. See [job](../locators/job.md).
 
 ## Result
 

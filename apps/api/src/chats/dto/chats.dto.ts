@@ -299,6 +299,11 @@ export class ChatListItemResponse extends ChatResponse {
     maxLength: LAST_MESSAGE_EXCERPT_MAX_LENGTH,
   })
   lastMessage!: string | null;
+
+  // The jobs of the Chat in state `running` on a worker that is not dead
+  // (background-jobs). Counted at read time; the count settles nothing.
+  @ApiProperty({ type: Number, minimum: 0 })
+  runningJobs!: number;
 }
 
 /** Text parts only — non-text parts (tool calls, files, reasoning) are omitted. */
@@ -317,9 +322,11 @@ function partsToExcerpt(parts: Array<unknown>): string {
 export function toChatListItemResponse(
   chat: Chat,
   lastMessage: Message | undefined,
+  runningJobs: number,
 ): ChatListItemResponse {
   return Object.assign(toChatResponse(chat), {
     lastMessage: lastMessage ? partsToExcerpt(lastMessage.parts) : null,
+    runningJobs,
   });
 }
 

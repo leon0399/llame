@@ -36,6 +36,7 @@ export function liveChatRecord(
     projectId: null,
     workspaceRoot: null,
     lastMessage: 'hello',
+    runningJobs: 0,
     ...overrides,
   };
 }

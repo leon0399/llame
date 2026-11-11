@@ -12,6 +12,7 @@ import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
 import { type ContinueFollowUpRunDto } from './dto/follow-up-run.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
+import type { ChatJobsService } from './chat-jobs.service';
 import * as schema from '../db/schema';
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
@@ -135,6 +136,12 @@ describe('ChatsController', () => {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
 
+    const chatJobs = {
+      runningCounts: vi
+        .fn<ChatJobsService['runningCounts']>()
+        .mockResolvedValue(new Map([[chat.id, 2]])),
+    } satisfies Pick<ChatJobsService, 'runningCounts'>;
+
     const tx: Db = drizzle.mock({ schema });
 
     const runAs: TenantRunner['runAs'] = async <T>(
@@ -157,6 +164,7 @@ describe('ChatsController', () => {
         tenantDb,
         bridge,
         followUpAdmission,
+        chatJobs,
       ),
       chatsService,
       chatLoopService,
@@ -175,6 +183,14 @@ describe('ChatsController', () => {
       'verified-user',
       { projectId: undefined },
     );
+  });
+
+  it('reports the running jobs of each chat on its list item', async () => {
+    const { controller } = makeController();
+
+    const [item] = await controller.getChats('verified-user', {});
+
+    expect(item.runningJobs).toBe(2);
   });
 
   it('maps the latest message to a text-only excerpt on list items', async () => {
@@ -811,6 +827,12 @@ describe('ChatsController response plumbing', () => {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
 
+    const chatJobs = {
+      runningCounts: vi
+        .fn<ChatJobsService['runningCounts']>()
+        .mockResolvedValue(new Map([[chat.id, 2]])),
+    } satisfies Pick<ChatJobsService, 'runningCounts'>;
+
     const tx: Db = drizzle.mock({ schema });
 
     const tenantDb: TenantRunner = {
@@ -832,6 +854,7 @@ describe('ChatsController response plumbing', () => {
         tenantDb,
         bridge,
         followUpAdmission,
+        chatJobs,
       ),
       chatsService,
       chatLoopService,

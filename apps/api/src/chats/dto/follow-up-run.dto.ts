@@ -5,7 +5,11 @@
  * schema and the runtime agree on which body is a valid request.
  */
 
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  getSchemaPath,
+} from '@nestjs/swagger';
 import { IsIn, IsString, Matches, ValidateIf } from 'class-validator';
 
 import {
@@ -92,3 +96,26 @@ export class RegenerateFollowUpRunDto {
 export type CreateFollowUpRunDto =
   | ContinueFollowUpRunDto
   | RegenerateFollowUpRunDto;
+
+/**
+ * The follow-up request body as a discriminated union on `action`: each variant
+ * declares only the fields its action accepts, so a schema-valid `continue`
+ * never carries a model or an effort, and a schema-valid `regenerate` always
+ * names its model. A further action adds its variant to the same `oneOf` and
+ * its own `mapping` entry.
+ */
+export function followUpRunBodySchema() {
+  return {
+    oneOf: [
+      { $ref: getSchemaPath(ContinueFollowUpRunDto) },
+      { $ref: getSchemaPath(RegenerateFollowUpRunDto) },
+    ],
+    discriminator: {
+      propertyName: 'action',
+      mapping: {
+        continue: getSchemaPath(ContinueFollowUpRunDto),
+        regenerate: getSchemaPath(RegenerateFollowUpRunDto),
+      },
+    },
+  };
+}

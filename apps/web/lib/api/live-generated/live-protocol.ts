@@ -20,6 +20,7 @@ export const chatListItemResponseSchema = z.object({
       "Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding.",
     ),
   lastMessage: z.string().max(160).nullable(),
+  runningJobs: z.number().gte(0),
 });
 export type ChatListItemResponse = z.infer<typeof chatListItemResponseSchema>;
 

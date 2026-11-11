@@ -29,6 +29,7 @@ import { RunsWorkerService } from './runs-worker.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
 import { IN_RUN_CONTEXT_PRODUCER } from './in-run-context-items';
 import { createInstructionsProducer } from '../instructions/instructions-producer';
+import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 
 /**
  * RunWorkerModule (#48/#50) — the run EXECUTION side: queue consumers
@@ -76,6 +77,7 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
         new WorkspaceMcpClients(operator, { connector }),
     },
     RunsWorkerService,
+    WorkerHeartbeatService,
     RunControlListenerService,
     {
       provide: RUN_CONTROL_LISTENER,

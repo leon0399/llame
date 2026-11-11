@@ -14,6 +14,7 @@ import {
   parseSkillLocator,
   SKILL_LOCATOR_SCHEME,
 } from '../../skills/skill-locator';
+import { JOB_SCHEME } from '../../jobs/job-locator';
 import { MACHINE_SCHEME } from '../../machines/machine-locator';
 import {
   canonicalMachineLocator,
@@ -164,6 +165,11 @@ export function projectNativeFilePath(
   }
 
   if (scheme.scheme in WEB_LOCATOR_SCHEMES) return projectWebLocator(projected);
+
+  // The scheme matches in lower case, so `JOB://` cannot slip past a clause
+  // written against `job://`. The rest is the text the reader parses; a read
+  // selector is removed afterward by `withoutReadSelector`.
+  if (scheme.scheme === JOB_SCHEME) return `${JOB_SCHEME}://${scheme.rest}`;
 
   return projected;
 }

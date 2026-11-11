@@ -409,6 +409,7 @@ import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import { promoteNextQueueItem } from './queue-promotion';
 import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
 import { type RunJob } from './run-queues';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -1865,6 +1866,9 @@ export class RunExecutionService {
       grepBounds: this.instanceConfig.config.tools.grep,
       ...this.artifactReadContext(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+      workerDeadAfterSeconds: workerDeadAfterSeconds(
+        this.instanceConfig.config,
+      ),
       modelClients: this.models,
       decisions: this.decisions,
       permissionMode: effectivePermissionMode,
@@ -4272,6 +4276,9 @@ export class RunExecutionService {
       grepBounds: this.instanceConfig.config.tools.grep,
       ...this.artifactReadContext(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+      workerDeadAfterSeconds: workerDeadAfterSeconds(
+        this.instanceConfig.config,
+      ),
       modelClients: this.models,
       decisions: this.decisions,
       permissionMode: effectivePermissionMode,

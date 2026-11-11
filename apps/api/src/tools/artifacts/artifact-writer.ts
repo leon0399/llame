@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { type TenantRunner } from '../../db/tenant-db.service';
+import { type Db, type TenantRunner } from '../../db/tenant-db.service';
 import {
   ArtifactsRepository,
   type NewArtifactPart,
@@ -71,8 +71,11 @@ export async function writeToolArtifact(
   },
 ): Promise<WrittenArtifact> {
   const parts = prepareParts(request, options.maxBytes);
-  const seq = await nextSeq(tenantDb, request);
-  const written = await commitArtifact(tenantDb, request, seq, parts);
+  const seq = await reserveArtifactSeq(tenantDb, request);
+
+  const written = await tenantDb.runAs(request.userId, (db) =>
+    insertArtifact(db, request, seq, parts),
+  );
 
   const hostDirectory =
     options.hostFiles === true
@@ -97,10 +100,14 @@ export async function writeToolArtifact(
   };
 }
 
-/** The Chat's next number, or a write that the Chat cannot accept. */
-async function nextSeq(
+/**
+ * The Chat's next number, or a write that the Chat cannot accept. A background
+ * job reserves its number here when it starts (background-jobs D2); the number
+ * stays unused when the output fits inline.
+ */
+export async function reserveArtifactSeq(
   tenantDb: TenantRunner,
-  request: ArtifactWriteRequest,
+  request: Pick<ArtifactWriteRequest, 'chatId' | 'userId'>,
 ): Promise<number> {
   const seq = await tenantDb.runAs(request.userId, (db) =>
     new ArtifactsRepository(db).nextSeq(request.chatId, request.userId),
@@ -114,31 +121,43 @@ async function nextSeq(
 }
 
 /**
- * The artifact row and every part in one transaction. The caller writes host
- * files only after this resolves, so a failed insert leaves no file either.
+ * Write the artifact under a number that `reserveArtifactSeq` returned, inside
+ * the caller's transaction, so a job settlement commits its artifact with the
+ * job row (background-jobs D2). The caller writes host files only after its
+ * transaction commits.
  */
-function commitArtifact(
-  tenantDb: TenantRunner,
+export async function commitArtifactInTransaction(
+  db: Db,
+  request: ArtifactWriteRequest,
+  seq: number,
+  maxBytes: number,
+): Promise<{ id: string; createdAt: Date; parts: Array<NewArtifactPart> }> {
+  const parts = prepareParts(request, maxBytes);
+
+  return { ...(await insertArtifact(db, request, seq, parts)), parts };
+}
+
+/** The artifact row and every part, in the transaction `db` belongs to. */
+async function insertArtifact(
+  db: Db,
   request: ArtifactWriteRequest,
   seq: number,
   parts: ReadonlyArray<NewArtifactPart>,
 ): Promise<{ id: string; createdAt: Date }> {
-  return tenantDb.runAs(request.userId, async (db) => {
-    const repository = new ArtifactsRepository(db);
+  const repository = new ArtifactsRepository(db);
 
-    const artifact = await repository.insertArtifact({
-      chatId: request.chatId,
-      seq,
-      toolName: request.toolName,
-      toolCallId: request.toolCallId,
-      runId: request.runId,
-      complete: request.complete,
-    });
-
-    await repository.insertParts(artifact.id, parts);
-
-    return artifact;
+  const artifact = await repository.insertArtifact({
+    chatId: request.chatId,
+    seq,
+    toolName: request.toolName,
+    toolCallId: request.toolCallId,
+    runId: request.runId,
+    complete: request.complete,
   });
+
+  await repository.insertParts(artifact.id, parts);
+
+  return artifact;
 }
 
 /**

@@ -110,6 +110,7 @@ describe('ChangeHubService', () => {
         projectId: null,
         workspaceRoot: null,
         lastMessage: 'hello',
+        runningJobs: 0,
       },
     });
   });
