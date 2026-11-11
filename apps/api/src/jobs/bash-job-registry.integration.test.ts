@@ -22,12 +22,6 @@ import {
 } from './bash-job-registry';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { ChatJobsRepository } from './chat-jobs.repository';
-import { retryJobTransaction } from './bash-job-store';
-import {
-  commitArtifactInTransaction,
-  reserveArtifactSeq,
-} from '../tools/artifacts/artifact-writer';
-import * as hostFiles from '../tools/artifacts/host-files';
 import { type WorkerHeartbeatService } from './worker-heartbeat.service';
 
 class Command implements ManagedBashHandle {
@@ -88,9 +82,8 @@ class Command implements ManagedBashHandle {
 }
 
 const config: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
-const d = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 
-d('BashJobRegistry', () => {
+describe('BashJobRegistry', () => {
   let client: Sql;
   let tenant: TenantDbService;
   let owner: string;
@@ -99,7 +92,15 @@ d('BashJobRegistry', () => {
   let facts: BashJobFacts;
 
   beforeAll(async () => {
-    client = postgres(process.env.TEST_DATABASE_URL!, { max: 5 });
+    const url = process.env.TEST_DATABASE_URL;
+
+    if (!url) {
+      throw new Error(
+        'bash-job-registry.integration.test.ts requires TEST_DATABASE_URL; run it with `pnpm --filter api test:integration` or provide an already-provisioned database.',
+      );
+    }
+
+    client = postgres(url, { max: 5 });
     tenant = new TenantDbService(drizzle(client, { schema }));
     owner = crypto.randomUUID();
     worker = { instanceId: crypto.randomUUID() };
@@ -418,103 +419,6 @@ d('BashJobRegistry', () => {
     expect((await output(job.id)).toString()).toBe('kept');
   });
 
-  it('A job artifact after the Run ended includes every output under its reserved number', async () => {
-    const command = new Command();
-    const job = await registry.promote(command, facts);
-    command.print('a'.repeat(50_000));
-    command.exit(0);
-    await ended(job.id, 'succeeded');
-    const settled = await row(job.id);
-    expect(settled?.artifactId).not.toBeNull();
-
-    const artifacts = await tenant.runAs(owner, (db) =>
-      db
-        .select()
-        .from(schema.toolArtifacts)
-        .where(eq(schema.toolArtifacts.id, settled!.artifactId!)),
-    );
-
-    expect(artifacts[0]).toMatchObject({
-      seq: job.seq,
-      runId: facts.runId,
-      toolCallId: facts.toolCallId,
-    });
-
-    const parts = await tenant.runAs(owner, (db) =>
-      db
-        .select()
-        .from(schema.toolArtifactParts)
-        .where(eq(schema.toolArtifactParts.artifactId, settled!.artifactId!)),
-    );
-
-    expect(parts.map((part) => part.name).sort()).toEqual(['stderr', 'stdout']);
-    expect(
-      parts.find((part) => part.name === 'stdout')?.content.toString(),
-    ).toBe('a'.repeat(50_000));
-    expect((await output(job.id)).length).toBe(0);
-  });
-
-  it('A short output creates no artifact; A record of a failed job', async () => {
-    const command = new Command();
-    const job = await registry.promote(command, facts);
-    command.print('x'.repeat(300));
-    command.exit(2);
-    await ended(job.id, 'failed');
-    expect((await row(job.id))?.artifactId).toBeNull();
-
-    const read = await readJob(
-      {
-        userId: owner,
-        chatId: facts.chatId,
-        tenantDb: tenant,
-        configuredCredentials: [],
-        permissionPolicy: compileTestPermissionPolicy(),
-      },
-      'read',
-      `job://bash-${job.seq}`,
-    );
-
-    expect(JSON.stringify(read)).toContain('exit_code: 2');
-  });
-
-  it('A failed write keeps the stored increments', async () => {
-    const command = new Command();
-    const job = await registry.promote(command, facts);
-
-    const seq = await reserveArtifactSeq(tenant, {
-      chatId: facts.chatId,
-      userId: owner,
-    });
-
-    await tenant.runAs(owner, (db) =>
-      commitArtifactInTransaction(
-        db,
-        {
-          chatId: facts.chatId,
-          userId: owner,
-          runId: facts.runId,
-          toolCallId: facts.toolCallId,
-          toolName: 'bash',
-          complete: true,
-          parts: [
-            {
-              name: 'stdout',
-              contentType: 'text/plain',
-              content: Buffer.from('duplicate call'),
-            },
-          ],
-        },
-        seq,
-        facts.maxBytes,
-      ),
-    );
-    command.print('x'.repeat(3000));
-    command.exit(0);
-    await ended(job.id, 'succeeded');
-    expect((await row(job.id))?.artifactId).toBeNull();
-    expect((await output(job.id)).toString()).toBe('x'.repeat(3000));
-  });
-
   it.each([true, false])(
     'A hung build ends at the lifetime; A host command ends at the job lifetime (proof %s)',
     async (proved) => {
@@ -530,33 +434,6 @@ d('BashJobRegistry', () => {
       expect((await output(job.id)).toString()).toBe('before lifetime');
     },
   );
-
-  it('keeps the starting host-file decision and writes files only after commit', async () => {
-    const command = new Command();
-    let committed = false;
-
-    const write = vi
-      .spyOn(hostFiles, 'writeArtifactHostFiles')
-      .mockImplementation(async () => {
-        committed =
-          (
-            await tenant.runAs(owner, (db) =>
-              new ChatJobsRepository(db).listByChat(facts.chatId, owner),
-            )
-          )[0]?.artifactId != null;
-
-        return '/tmp/job-artifact';
-      });
-
-    const job = await registry.promote(command, { ...facts, hostFiles: true });
-    command.print('x'.repeat(3000));
-    command.exit(0);
-    await ended(job.id, 'succeeded');
-    await vi.waitFor(() => {
-      expect(write).toHaveBeenCalledTimes(1);
-    });
-    expect(committed).toBe(true);
-  });
 
   it('A deploy ends a job and refuses later commands and promotions', async () => {
     const command = new Command();
@@ -587,25 +464,5 @@ d('BashJobRegistry', () => {
         },
       ),
     ).toMatchObject({ type: 'unavailable' });
-  });
-});
-
-describe('settlement transaction retry', () => {
-  it.each(['40P01', '40001'])(
-    'retries %s including a Drizzle wrapped cause',
-    async (code) => {
-      const work = vi
-        .fn()
-        .mockRejectedValueOnce({ cause: { code } })
-        .mockResolvedValue('settled');
-
-      expect(await retryJobTransaction(work)).toBe('settled');
-      expect(work).toHaveBeenCalledTimes(2);
-    },
-  );
-  it('does not retry unrelated failures', async () => {
-    const work = vi.fn().mockRejectedValue(new Error('unrelated'));
-    await expect(retryJobTransaction(work)).rejects.toThrow('unrelated');
-    expect(work).toHaveBeenCalledTimes(1);
   });
 });

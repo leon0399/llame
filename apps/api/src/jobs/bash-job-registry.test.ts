@@ -8,7 +8,11 @@ import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
-import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
+import {
+  BashJobRegistry,
+  JobPromotionError,
+  type BashJobFacts,
+} from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 
 /** The fakes implement only the members the registry and the store call. */
@@ -19,6 +23,18 @@ const asDb = (fake: { insert: unknown }): Db => fake as never;
 // SAFETY: a closed registry refuses before it reads the context.
 // eslint-disable-next-line typescript/no-unsafe-type-assertion
 const executorContext = {} as BashExecutorContext;
+
+/** The row an insert echoes: the fields the registry reads. */
+function jobRow(job: Parameters<ChatJobsRepository['insert']>[0]): ChatJob {
+  // SAFETY: the registry reads only the echoed fields and the id.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return {
+    ...job,
+    id: 'job-1',
+    artifactId: null,
+    deadlineAt: job.deadlineAt ?? null,
+  } as never;
+}
 
 const OWNER = 'owner';
 const CHAT = 'chat-1';
@@ -31,13 +47,15 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
   let finish: (result: BashResult) => void = () => {};
   const settled = new Promise((resolve) => (finish = resolve));
   let current = initial;
+  let cut = { stdout: false, stderr: false };
+  const listeners: Array<(bytes: number) => void> = [];
 
   const stop = vi.fn((_cause: string) =>
     Promise.resolve({
       proved: true,
       ...current,
-      truncated: false,
-      truncatedStreams: { stdout: false, stderr: false },
+      truncated: cut.stdout || cut.stderr,
+      truncatedStreams: cut,
     }),
   );
 
@@ -46,10 +64,14 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
     settled,
     snapshot: () => ({
       ...current,
-      truncated: false,
-      truncatedStreams: { stdout: false, stderr: false },
+      truncated: cut.stdout || cut.stderr,
+      truncatedStreams: cut,
     }),
-    onOutput: () => () => undefined,
+    onOutput: (listener: (bytes: number) => void) => {
+      listeners.push(listener);
+
+      return () => void listeners.splice(listeners.indexOf(listener), 1);
+    },
     stop,
   };
 
@@ -59,29 +81,62 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
     handle: handle as never,
     stop,
     write: (next: Output) => (current = next),
+    /** Output arrives: the registry hears it through its subscription. */
+    emit: (next: Output) => {
+      const bytes =
+        Buffer.byteLength(next.stdout) +
+        Buffer.byteLength(next.stderr) -
+        Buffer.byteLength(current.stdout) -
+        Buffer.byteLength(current.stderr);
+
+      current = next;
+
+      for (const listener of listeners.slice()) listener(bytes);
+    },
+    subscribers: () => listeners.length,
+    end: (result: BashResult) => finish(result),
+    cut: (flags: { stdout: boolean; stderr: boolean }) => (cut = flags),
     exit: (exitCode: number, signal?: string) =>
       finish({
         status: 'success',
         exitCode,
         signal,
         ...current,
-        truncated: false,
+        truncated: cut.stdout || cut.stderr,
+        truncatedStreams: cut,
       }),
   };
 }
 
 function setup(maxSeconds = 7200) {
-  const chunks: Array<{ output: string; content: string }> = [];
+  const chunks: Array<{ output: string; content: string; position: number }> =
+    [];
 
+  const updates: Array<Record<string, string | null>> = [];
+  const deletes: Array<number> = [];
   const chain = { where: () => Promise.resolve() };
 
   const db = {
     transaction: <T>(fn: (tx: Db) => Promise<T>) => fn(asDb(db)),
-    update: () => ({ set: () => chain }),
-    delete: () => chain,
+    update: () => ({
+      set: (values: Record<string, string | null>) => {
+        updates.push(values);
+
+        return chain;
+      },
+    }),
+    delete: () => {
+      deletes.push(1);
+
+      return chain;
+    },
     insert: () => ({
-      values: (row: { output: string; content: Buffer }) => {
-        chunks.push({ output: row.output, content: row.content.toString() });
+      values: (row: { output: string; content: Buffer; position: number }) => {
+        chunks.push({
+          output: row.output,
+          content: row.content.toString(),
+          position: row.position,
+        });
 
         return Promise.resolve();
       },
@@ -106,7 +161,8 @@ function setup(maxSeconds = 7200) {
   );
 
   vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
-  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
+
+  const lock = vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
     // SAFETY: only presence is checked.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     {} as never,
@@ -116,16 +172,7 @@ function setup(maxSeconds = 7200) {
 
   const inserted = vi
     .spyOn(ChatJobsRepository.prototype, 'insert')
-    .mockImplementation((job) =>
-      // SAFETY: the row echoes the inserted fields the registry reads.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      Promise.resolve({
-        ...job,
-        id: 'job-1',
-        artifactId: null,
-        deadlineAt: job.deadlineAt ?? null,
-      } as never),
-    );
+    .mockImplementation((job) => Promise.resolve(jobRow(job)));
 
   const settle = vi
     .spyOn(ChatJobsRepository.prototype, 'settle')
@@ -141,9 +188,23 @@ function setup(maxSeconds = 7200) {
     .spyOn(ArtifactsRepository.prototype, 'insertArtifact')
     .mockResolvedValue({ id: 'art-1', createdAt: STARTED });
 
-  vi.spyOn(ArtifactsRepository.prototype, 'insertParts').mockResolvedValue();
+  const parts = vi
+    .spyOn(ArtifactsRepository.prototype, 'insertParts')
+    .mockResolvedValue();
 
-  return { registry, chunks, inserted, settle, settlements, artifact };
+  return {
+    registry,
+    chunks,
+    inserted,
+    settle,
+    settlements,
+    artifact,
+    parts,
+    lock,
+    tenantDb,
+    updates,
+    deletes,
+  };
 }
 
 const facts = (over: Partial<BashJobFacts> = {}): BashJobFacts => ({
@@ -181,8 +242,8 @@ describe('BashJobRegistry', () => {
       outputs: ['stdout', 'stderr'],
     });
     expect(chunks).toEqual([
-      { output: 'stdout', content: 'so far\n' },
-      { output: 'stderr', content: 'warn\n' },
+      { output: 'stdout', content: 'so far\n', position: 0 },
+      { output: 'stderr', content: 'warn\n', position: 0 },
     ]);
   });
 
@@ -256,7 +317,9 @@ describe('BashJobRegistry', () => {
     command.exit(0);
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(chunks).toEqual([{ output: 'stdout', content: 'late\n' }]);
+    expect(chunks).toEqual([
+      { output: 'stdout', content: 'late\n', position: 0 },
+    ]);
   });
 
   it('stops a job for the worker at shutdown and refuses a new command', async () => {
@@ -329,54 +392,290 @@ describe('BashJobRegistry', () => {
       expect(settle).toHaveBeenCalledTimes(3);
       expect(command.stop).not.toHaveBeenCalled();
     });
+  });
 
-    it('retries a deadlock inside one settlement attempt', async () => {
-      const { registry, settle, settlements } = setup();
+  describe('stored output while the job runs', () => {
+    const KIB16 = 16 * 1024;
+
+    it('stores nothing for a quiet job', async () => {
+      const { registry, chunks } = setup();
+
+      await registry.promote(fakeHandle().handle, facts());
+      await vi.advanceTimersByTimeAsync(600_000);
+
+      expect(chunks).toEqual([]);
+    });
+
+    it('flushes small output one second after the first unstored byte', async () => {
+      const { registry, chunks } = setup();
       const command = fakeHandle();
 
       await registry.promote(command.handle, facts());
-      settle.mockRejectedValueOnce(
-        Object.assign(new Error('x'), { code: '40P01' }),
-      );
+      command.emit({ stdout: 'hello\n', stderr: '' });
+      await vi.advanceTimersByTimeAsync(999);
+      expect(chunks).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(chunks).toEqual([
+        { output: 'stdout', content: 'hello\n', position: 0 },
+      ]);
+    });
+
+    it('flushes at once when 16 KiB of new output exist, and not one byte earlier', async () => {
+      const { registry, chunks } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+      command.emit({ stdout: 'x'.repeat(KIB16 - 1), stderr: '' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(chunks).toEqual([]);
+
+      command.emit({ stdout: 'x'.repeat(KIB16), stderr: '' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(chunks).toEqual([
+        { output: 'stdout', content: 'x'.repeat(KIB16), position: 0 },
+      ]);
+    });
+
+    it('stores only the suffix of later flushes, at its offset', async () => {
+      const { registry, chunks } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+      command.emit({ stdout: 'abc', stderr: '' });
+      await vi.advanceTimersByTimeAsync(1000);
+      command.emit({ stdout: 'abcdef', stderr: 'err' });
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(chunks).toEqual([
+        { output: 'stdout', content: 'abc', position: 0 },
+        { output: 'stdout', content: 'def', position: 3 },
+        { output: 'stderr', content: 'err', position: 0 },
+      ]);
+    });
+
+    it('ignores a notice of zero bytes', async () => {
+      const { registry, chunks } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+      command.emit({ stdout: '', stderr: '' });
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(chunks).toEqual([]);
+    });
+
+    it('stores the bytes that arrived while the promotion transaction ran', async () => {
+      const { registry, chunks, inserted } = setup();
+      const command = fakeHandle({ stdout: 'a', stderr: '' });
+
+      inserted.mockImplementationOnce((job) => {
+        command.write({ stdout: 'abc', stderr: '' });
+
+        return Promise.resolve(jobRow(job));
+      });
+      await registry.promote(command.handle, facts());
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(chunks).toEqual([
+        { output: 'stdout', content: 'a', position: 0 },
+        { output: 'stdout', content: 'bc', position: 1 },
+      ]);
+    });
+
+    it('stops listening and flushes nothing more once the job settled', async () => {
+      const { registry, chunks } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+      command.emit({ stdout: 'a', stderr: '' });
       command.exit(0);
       await vi.advanceTimersByTimeAsync(0);
+      expect(command.subscribers()).toBe(0);
 
-      expect(settle).toHaveBeenCalledTimes(2);
-      expect(settlements).toHaveLength(1);
+      const stored = chunks.length;
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(chunks).toHaveLength(stored);
     });
   });
 
-  describe('the artifact boundary', () => {
-    it.each([
-      ['2000 characters fit inline', 2000, true, 0],
-      ['2001 characters make an artifact', 2001, true, 1],
-      ['an unreadable artifact is not stored', 5000, false, 0],
-    ])('%s', async (_label, size, readable, written) => {
-      const { registry, artifact } = setup();
+  describe('what a settlement records', () => {
+    it('settles a nonzero exit with its truncation flags', async () => {
+      const { registry, settlements } = setup();
       const command = fakeHandle();
 
-      await registry.promote(
-        command.handle,
-        facts({ artifactReadable: readable }),
-      );
-      command.write({ stdout: 'x'.repeat(size), stderr: '' });
-      command.exit(0);
+      await registry.promote(command.handle, facts());
+      command.cut({ stdout: true, stderr: false });
+      command.exit(3);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(artifact).toHaveBeenCalledTimes(written);
+      expect(settlements).toEqual([
+        {
+          state: 'failed',
+          result: {
+            exitCode: 3,
+            signal: undefined,
+            truncated: { stdout: true, stderr: false },
+          },
+        },
+      ]);
     });
 
-    it('settles the job even when the artifact write fails', async () => {
-      const { registry, artifact, settlements } = setup();
+    it('settles an exit 0 that a signal reports as failed, with no exit code', async () => {
+      const { registry, settlements } = setup();
       const command = fakeHandle();
 
-      artifact.mockRejectedValue(new Error('too large'));
       await registry.promote(command.handle, facts());
-      command.write({ stdout: 'x'.repeat(3000), stderr: '' });
-      command.exit(0);
+      command.exit(0, 'SIGTERM');
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(settlements).toMatchObject([{ state: 'succeeded' }]);
+      expect(settlements).toMatchObject([
+        { state: 'failed', result: { exitCode: null, signal: 'SIGTERM' } },
+      ]);
+    });
+
+    it('records the truncation of a stopped job', async () => {
+      const { registry, settlements } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+      command.cut({ stdout: false, stderr: true });
+      await registry.stop('job-1', 'owner');
+
+      expect(settlements).toEqual([
+        {
+          state: 'cancelled',
+          stoppedBy: 'owner',
+          result: { truncated: { stdout: false, stderr: true } },
+        },
+      ]);
+    });
+
+    it('settles a result with no exit as lost with an unknown outcome', async () => {
+      const { registry, settlements } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+      command.end({ status: 'error', type: 'unavailable', message: 'gone' });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(settlements).toMatchObject([
+        { state: 'lost', result: { outcomeUnknown: true } },
+      ]);
+    });
+  });
+
+  describe('the heartbeat retry', () => {
+    it('retries nothing for a job that runs', async () => {
+      const { registry, settle } = setup();
+
+      await registry.promote(fakeHandle().handle, facts());
+      await registry.settlePending();
+
+      expect(settle).not.toHaveBeenCalled();
+    });
+
+    it('does not settle a job again while its first settlement is in flight', async () => {
+      const { registry, settle } = setup();
+      const command = fakeHandle();
+
+      await registry.promote(command.handle, facts());
+      let release: () => void = () => {};
+
+      settle.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            // SAFETY: the store checks only that a row came back.
+            // eslint-disable-next-line typescript/no-unsafe-type-assertion
+            release = () => resolve({} as never);
+          }),
+      );
+      command.exit(0);
+      await vi.advanceTimersByTimeAsync(0);
+      await registry.settlePending();
+      expect(settle).toHaveBeenCalledTimes(1);
+
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  });
+
+  describe('lifetime beyond one timer', () => {
+    it('re-arms a lifetime longer than a timer can hold and stops at the deadline', async () => {
+      const { registry } = setup(3_000_000);
+      const command = fakeHandle();
+      const limit = 2_147_483_647;
+
+      await registry.promote(command.handle, facts());
+      await vi.advanceTimersByTimeAsync(limit);
+      expect(command.stop).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(3_000_000_000 - limit - 1);
+      expect(command.stop).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(command.stop).toHaveBeenCalledWith('lifetime');
+    });
+  });
+
+  describe('commands that are not jobs', () => {
+    const real = (registry: BashJobRegistry, script: string) => {
+      const started = registry.start(
+        { command: 'bash', args: ['-c', script], cwd: '/tmp', env: {} },
+        {
+          workingDirectory: '/tmp',
+          secretBoundary: true,
+          processIsolation: true,
+          outputBoundBytes: 1_000_000,
+          inputBound: 8000,
+          durationMs: 300_000,
+          maxProcesses: 4,
+        },
+      );
+
+      if (!('pid' in started)) throw new Error('the command did not start');
+
+      return started;
+    };
+
+    it('stops a foreground command at shutdown, and not one that ended', async () => {
+      vi.useRealTimers();
+      const { registry } = setup();
+      const running = real(registry, 'sleep 30');
+      const ended = real(registry, 'true');
+
+      await ended.settled;
+      await registry.shutdown();
+
+      const result = await running.settled;
+
+      expect(result.status === 'success' && result.exitCode === 0).toBe(false);
+    });
+
+    it('refuses a start after shutdown began', async () => {
+      const { registry } = setup();
+
+      await registry.shutdown();
+
+      expect(
+        registry.start(
+          { command: 'bash', args: ['-c', 'true'], cwd: '/tmp' },
+          executorContext,
+        ),
+      ).toMatchObject({ status: 'error', type: 'unavailable' });
+    });
+
+    it('stops a command whose promotion arrives after shutdown began', async () => {
+      const { registry } = setup();
+      const command = fakeHandle();
+
+      await registry.shutdown();
+
+      await expect(
+        registry.promote(command.handle, facts()),
+      ).rejects.toBeInstanceOf(JobPromotionError);
+      expect(command.stop).toHaveBeenCalledWith('run');
     });
   });
 });
