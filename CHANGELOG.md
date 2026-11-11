@@ -64,6 +64,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   retain the full sanitizer's output. Truncation is tracked per stream, including
   timed-out commands. This prepares capture for the worker job registry without
   starting background jobs from a tool.
+- **Move a long foreground host command to the background (#1657).** A host
+  `bash` command that runs past `tools.bash.backgroundAfterSeconds` (default 120) now moves to the background: the call returns `backgrounded` with cause
+  `time`, and the command keeps running as a job with the output it had
+  captured. The lesser of that bound and `tools.callTimeoutSeconds` applies, and
+  the call timeout no longer stops or rejects a host command. A move that fails
+  stops the command (`timed_out` with its output after a proved stop, otherwise
+  `outcome_unknown`); a move recorded more than 750 ms late returns one
+  `outcome_unknown` result and leaves a normal job. A Run cancellation stops a
+  command that is still in the foreground. `ssh://` and `machine://` commands
+  keep their deadlines. See [bash](docs/product/reference/tools/bash.md).
 - **Start host bash commands as background jobs (#1657).** `async: true`
   returns a durable `job://` locator while the command continues independently
   of its Run. Backgrounded results carry their cause and elapsed time, and

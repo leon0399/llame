@@ -1890,6 +1890,8 @@ export class RunExecutionService {
         permissionMode: effectivePermissionMode,
       },
       allowUnlimitedJobs: this.instanceConfig.config.tools.jobs.allowUnlimited,
+      bashBackgroundAfterSeconds:
+        this.instanceConfig.config.tools.bash.backgroundAfterSeconds,
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       workerDeadAfterSeconds: workerDeadAfterSeconds(
         this.instanceConfig.config,

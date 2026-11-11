@@ -1011,8 +1011,13 @@
     // An integer of at least 1, or a {env:...}/{path:...} token; a smaller
     // value, a fraction, an unsafe integer, or an unknown key fails boot. A
     // call past the bound gets `limit_reached`.
+    // A foreground host command that runs longer than backgroundAfterSeconds
+    // (default 120) moves to the background as a job and keeps running. The
+    // lesser of this value and callTimeoutSeconds applies. An integer of at
+    // least 1, or a {env:...}/{path:...} token.
     // "bash": {
-    //   "maxProcesses": 64
+    //   "maxProcesses": 64,
+    //   "backgroundAfterSeconds": 120
     // },
     // Lifetime of a job from command start, in seconds. Default: 7200.
     // A safe integer of at least 60, or a whole-value interpolation token.

@@ -1,4 +1,5 @@
 import { isBashTool } from './bash';
+import { isHostBashCall } from './bash-target';
 import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
@@ -124,13 +125,18 @@ function prepareToolExecution(
   tool: Tool,
   context: ToolContext,
   callTimeoutSeconds: number,
+  // A host `bash` call keeps the Run abort and the call timeout apart: the
+  // timeout moves the command to the background and never rejects the call.
+  separateTimeout: boolean,
 ): PreparedToolExecution {
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
 
-  const composedSignal = context.abortSignal
-    ? AbortSignal.any([context.abortSignal, timeoutSignal])
-    : timeoutSignal;
+  const composedSignal = separateTimeout
+    ? (context.abortSignal ?? new AbortController().signal)
+    : context.abortSignal
+      ? AbortSignal.any([context.abortSignal, timeoutSignal])
+      : timeoutSignal;
 
   return {
     context: {
@@ -483,7 +489,13 @@ async function executeAdmittedTool(
   callTimeoutSeconds: number,
 ): Promise<ToolResult> {
   if (context.abortSignal?.aborted) return cancelledBeforeExecution(tool.id);
-  const prepared = prepareToolExecution(tool, context, callTimeoutSeconds);
+
+  const prepared = prepareToolExecution(
+    tool,
+    context,
+    callTimeoutSeconds,
+    isBashTool(tool) && isHostBashCall(validArgs, context),
+  );
 
   return settleAdmittedExecution(tool, validArgs, context, prepared);
 }

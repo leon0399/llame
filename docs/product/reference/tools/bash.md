@@ -72,6 +72,21 @@ field, even when false; a Machine Workspace's omitted working directory is a
 Machine target too. An unlimited request is refused before spawn unless the
 operator permits it. The model cannot provide a duration or override a bound.
 
+A foreground host command that runs past the foreground bound moves to the
+background. The bound is the lesser of `tools.bash.backgroundAfterSeconds`
+(default 120) and `tools.callTimeoutSeconds`. The call then returns
+`backgrounded` with cause `time`, the command keeps running as a job, and the
+output captured before the move is the start of its stored output. The call
+timeout never stops, rejects, or marks unknown a host command.
+
+The move has its own 750 ms window. A failed move stops the command: a proved
+stop is a `timed_out` result with the captured output and a message that names
+the failed move, and an unproved stop is `outcome_unknown`. A move recorded
+after the window returns one `outcome_unknown` result, and the job continues
+and settles normally. A Run cancellation stops a command that is still in the
+foreground, and never one that already moved. A command on an `ssh://` or
+`machine://` directory keeps its call deadline and does not move.
+
 A background job survives completion, failure, and cancellation of its starting
 Run. The composer's Stop leaves it running. The owner jobs API and Chat deletion
 can stop it, and its hosting worker stops it on orderly shutdown.

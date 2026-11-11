@@ -177,8 +177,8 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 
 ## 6. Foreground move (`background-jobs/bash-move`)
 
-- [ ] 6.1 Add `tools.bash.backgroundAfterSeconds` and give a `host` call separate Run-abort and timeout signals in the runner; tests cover the rest of `Operator configuration bounds host commands`, every scenario of `The call timeout caps the foreground bound of host bash`, and a per-call timeout that never rejects a host call as `outcome_unknown`.
-- [ ] 6.2 Move a foreground command at the bound; tests with a fake clock cover "A long test suite passes the bound", "Output from before the move is kept", "A host command is not stopped at the foreground bound", and "The job record cannot be written".
+- [x] 6.1 Add `tools.bash.backgroundAfterSeconds` and give a `host` call separate Run-abort and timeout signals in the runner; tests cover the rest of `Operator configuration bounds host commands`, every scenario of `The call timeout caps the foreground bound of host bash`, and a per-call timeout that never rejects a host call as `outcome_unknown`.
+- [x] 6.2 Move a foreground command at the bound; tests with a fake clock cover "A long test suite passes the bound", "Output from before the move is kept", "A host command is not stopped at the foreground bound", and "The job record cannot be written".
       Also cover "A failed move with an unproved stop" and "A move that is recorded late".
       Assert exactly one `native.result` for a late move and that the command keeps running.
 - [ ] 6.3 Keep the remote paths: tests cover "A remote command still ends at its deadline", "Proven-stopped timeout is known", and "Unproven stop after timeout is unknown and the Run continues" on a `machine://` directory.

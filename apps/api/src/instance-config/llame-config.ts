@@ -745,7 +745,10 @@ export type LlameConfig = {
     /** The one byte bound on every stored tool-result artifact part. */
     artifacts: ArtifactBoundsConfig;
     /** Operator bounds on host `bash` (background-jobs D7): worker process bound. */
-    bash: { readonly maxProcesses: number };
+    bash: {
+      readonly maxProcesses: number;
+      readonly backgroundAfterSeconds: number;
+    };
     /** Maximum command lifetime, measured from spawn (background-jobs D8). */
     jobs: { readonly maxSeconds: number; readonly allowUnlimited: boolean };
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
@@ -870,7 +873,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
       maxFileBytes: null,
     },
     artifacts: { maxBytes: 8_388_608 },
-    bash: { maxProcesses: 64 },
+    bash: { maxProcesses: 64, backgroundAfterSeconds: 120 },
     jobs: { maxSeconds: 7200, allowUnlimited: false },
     promptFiles: {},
     webAdapters: [],
