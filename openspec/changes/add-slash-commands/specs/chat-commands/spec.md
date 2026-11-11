@@ -7,10 +7,10 @@ result, and the `/rename` and `/compact` commands.
 
 ### Requirement: The API parses a command before it admits a send
 
-A send is a command when it has exactly one part, that part is text, and the text starts with `/`
-and a command name. The name ends at whitespace or at the end of the text. The API MUST parse the
-send before it validates the model, creates a Chat, or admits a pending item. This MUST apply to
-`POST /api/v1/chats/:id/messages` and to the first message of `POST /api/v1/chats`.
+A command is a send to `POST /api/v1/chats/:id/messages` for a Chat of the owner. It has exactly
+one part, a text part that starts with `/` and a command name. The name ends
+at whitespace or at the end of the text. The API MUST parse the send before it validates
+the model or admits a pending item.
 
 #### Scenario: A command on the message endpoint
 
@@ -18,11 +18,10 @@ send before it validates the model, creates a Chat, or admits a pending item. Th
 - **THEN** the API runs the `/rename` command
 - **AND** it does not check the `modelId` of the send
 
-#### Scenario: A command as the first message of a new Chat
+#### Scenario: A first message is never a command
 
-- **WHEN** the owner sends `/compact` through `POST /api/v1/chats`
-- **THEN** the API answers as `/compact` on a Chat with nothing to absorb
-- **AND** it creates no Chat
+- **WHEN** the owner sends `/rename Foo` as the first message of a Chat id that does not exist
+- **THEN** the API creates the Chat, stores the text as an ordinary message, and starts a Run
 
 #### Scenario: Text with a space before the slash is a message
 
@@ -50,11 +49,11 @@ MUST be no escape syntax.
 - **WHEN** the owner sends `/renamed files are missing`
 - **THEN** the API stores it as an ordinary message
 
-### Requirement: A command is never a message or model context
+### Requirement: A command is never a message
 
-A command MUST NOT create a message row. Its text MUST NOT enter the model context of any Run. A
-command that the API runs at once MUST answer with a JSON command result and status 200, not with a
-Run stream. An error of a command MUST NOT store a message or start a turn Run.
+A command MUST NOT create a message row. Its text MUST NOT enter the model context of a turn Run.
+Only the focus of `/compact` can reach a model, in the summary request of its compaction Run. A
+command that the API runs at once MUST answer 200 with a JSON command result, not with a Run stream.
 
 #### Scenario: A rename leaves no trace in the history
 
@@ -73,14 +72,14 @@ answer 400. It MUST NOT store a message, start a Run, or change the Chat.
 
 #### Scenario: A rename with an image
 
-- **WHEN** the owner sends `/rename Foo` with an attached image
+- **WHEN** the owner sends `/rename Foo` with an attached image to a Chat of the owner
 - **THEN** the API answers 400, and the Chat title does not change
 
 ### Requirement: A command follows the owner scope of its Chat
 
-A command MUST read and change only a Chat of the authenticated owner. A command for a Chat of
-another owner, or for a Chat that does not exist, MUST answer 404 and MUST NOT create a Chat. A
-command for an archived Chat MUST answer 409.
+A command MUST read and change only a Chat of the authenticated owner. A send to a Chat of another
+owner MUST keep the not-found answer of a chat send and MUST change nothing. A command for an
+archived Chat MUST answer 409.
 
 #### Scenario: Another owner's Chat reveals nothing
 
@@ -88,12 +87,12 @@ command for an archived Chat MUST answer 409.
 - **THEN** the API answers 404
 - **AND** the title, the checkpoints, the Runs, and the pending items of user A do not change
 
-#### Scenario: A command for an absent Chat creates nothing
+#### Scenario: A rename on an archived Chat
 
-- **WHEN** the owner sends `/rename Foo` to a Chat id that does not exist
-- **THEN** the API answers 404, and no Chat with that id exists after the request
+- **WHEN** the owner sends `/rename Foo` to an archived Chat
+- **THEN** the API answers 409, and the title does not change
 
-#### Scenario: A command on an archived Chat
+#### Scenario: A compact on an archived Chat
 
 - **WHEN** the owner sends `/compact` to an archived Chat
 - **THEN** the API answers 409 and starts no Run
@@ -117,10 +116,9 @@ title, also while a Run is live. A longer title MUST get 400.
 
 ### Requirement: A bare rename regenerates the title
 
-`/rename` with no text after the name MUST ask the configured title model for a new title. The
-input MUST be the text of the newest user and assistant rows, at most 1,000 characters. It MUST
-hold image and PDF placeholders as automatic titles do. The new title MUST replace the current title. The API
-MUST NOT record usage for this request.
+`/rename` with no text after the name MUST ask the configured title model for a new title. The new
+title MUST replace the current title. The API MUST NOT record usage for this request. The request
+MUST use the packaged title prompts that automatic titles use.
 
 #### Scenario: A regenerated title follows the recent turns
 
@@ -133,10 +131,27 @@ MUST NOT record usage for this request.
 - **WHEN** the owner sends `/rename` with `modelId` of a chat model
 - **THEN** the request goes to the model of `TITLE_GENERATION_MODEL_ID`
 
+### Requirement: A bare rename reads a bounded excerpt of recent turns
+
+The input of a bare `/rename` MUST be the text parts of the newest user and assistant rows. The API
+MUST take them newest row first, until 1,000 UTF-16 code units. A file part MUST add its placeholder line. The API MUST
+cut the last row at the limit. It MUST then put the rows in their stored order. Reasoning, tool
+parts, and checkpoints MUST NOT count.
+
+#### Scenario: A long Chat gives a bounded input
+
+- **WHEN** the owner sends `/rename` in a Chat whose newest assistant reply has 3,000 characters
+- **THEN** the title input has at most 1,000 UTF-16 code units
+
+#### Scenario: An image placeholder in the excerpt
+
+- **WHEN** the newest user row of the Chat holds an image `shot.png` and no text
+- **THEN** the title input holds the line `[image media://<id> shot.png]`
+
 ### Requirement: A bare rename without a title model fails
 
 When `TITLE_GENERATION_MODEL_ID` does not name a usable model, a bare `/rename` MUST answer 422
-with a message that says title generation is not configured. When the title model request fails or
+with a message that says title generation is not configured. When the title request fails or
 returns no usable title, the API MUST answer 502. In both cases the title MUST NOT change.
 
 #### Scenario: No title model is configured
@@ -152,20 +167,20 @@ returns no usable title, the API MUST answer 502. In both cases the title MUST N
 
 ### Requirement: Compact on an idle Chat starts a compaction Run
 
-On a Chat with no non-terminal Run, `/compact` MUST start a compaction Run with the model, effort,
-and permission mode of the send. The API MUST validate them as for a chat send. The id of the send
-message MUST become the Run id. The command result MUST name the Run id.
+On a Chat with no live Run, `/compact` MUST start a compaction Run with the model, effort, and
+permission mode of the send. The API MUST validate them as for a chat send. It MUST expire a stuck
+Run as a chat send does. The command result MUST name the new Run id.
 
 #### Scenario: Compact starts a Run
 
-- **WHEN** the owner sends `/compact` with message id `M` to an idle Chat with five turns
-- **THEN** the API answers 200 with a command result that names Run `M`
-- **AND** Run `M` is a compaction Run
+- **WHEN** the owner sends `/compact` to an idle Chat with five turns
+- **THEN** the API answers 200 with a command result that names a Run
+- **AND** that Run is a compaction Run
 
-#### Scenario: A retried compact returns the same Run
+#### Scenario: Compact after a stuck Run
 
-- **WHEN** the owner sends `/compact` with message id `M` again after Run `M` started
-- **THEN** the API answers with Run `M` and starts no second Run
+- **WHEN** the only non-terminal Run of the Chat is stuck and the owner sends `/compact`
+- **THEN** the API expires the stuck Run and starts a compaction Run
 
 #### Scenario: A compact with an unknown model
 
@@ -175,8 +190,8 @@ message MUST become the Run id. The command result MUST name the Run id.
 ### Requirement: Compact with nothing to absorb is refused
 
 A Chat can have no user or assistant row above the absorbed-through sequence of its active
-checkpoint. Then `/compact` MUST answer 409 with the message `Nothing to compact.` It MUST NOT start a
-Run. A Chat with one turn MUST compact.
+checkpoint. Then `/compact` MUST answer 409 with the message `Nothing to compact.` It MUST NOT start
+a Run. A Chat with one turn MUST compact.
 
 #### Scenario: An empty Chat
 
@@ -211,9 +226,9 @@ characters MUST get 400, and the API MUST NOT start a Run or store a pending ite
 
 ### Requirement: Compact during a live Run is queued
 
-When the Chat has a live Run, `/compact` MUST become a pending `queue` item, as `run-steering`
-defines. A compaction Run MUST start only when the queue promotes that item. The API MUST answer 202
-with the item.
+When the Chat has a live Run, `/compact` with a `delivery` mode MUST become a pending `queue` item,
+as `run-steering` defines. A compaction Run MUST start only when the queue promotes that item.
+Without `delivery`, `/compact` MUST get 409, as a chat send does.
 
 #### Scenario: Compact during a Run
 
@@ -224,4 +239,4 @@ with the item.
 #### Scenario: Compact during a Run without a delivery mode
 
 - **WHEN** a Run is live and the owner sends `/compact` with no `delivery`
-- **THEN** the API answers 202 with a pending item in mode `queue`
+- **THEN** the API answers 409 and stores no pending item

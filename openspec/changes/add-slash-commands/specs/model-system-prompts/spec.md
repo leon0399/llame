@@ -4,8 +4,8 @@
 
 A compaction Run MUST absorb every user and assistant row whose sequence is above the
 absorbed-through sequence of the active checkpoint. It MUST hold no row back. Its summary
-instruction MUST omit the sentence about a newer user message that follows the absorbed rows. "Latest Request" MUST
-quote the last unresolved ask of the owner in the absorbed rows.
+instruction MUST omit the sentence about a newer user message that follows the absorbed rows. All
+other text of the summary instruction MUST stay the same.
 
 #### Scenario: The next turn sees only the checkpoint
 
@@ -17,13 +17,26 @@ quote the last unresolved ask of the owner in the absorbed rows.
 
 - **WHEN** a compaction Run sends its summary request
 - **THEN** the instruction does not tell the model that a newer user message follows the absorbed rows
+- **AND** it still tells the model to fold an earlier checkpoint
+
+### Requirement: An owner compaction request has no tool declarations
+
+The summary request of a compaction Run MUST hold the system prompt of its Run and the absorbed
+rows. The summary instruction MUST be its last user message. It MUST hold no
+tool declarations. The Run MUST bind the system prompt as its receipt.
+
+#### Scenario: The summary request of a compaction Run
+
+- **WHEN** a compaction Run sends its summary request
+- **THEN** the request holds no tool declarations
+- **AND** the Run has a system-prompt receipt with the system prompt of that request
 
 ### Requirement: An owner focus is a bounded paragraph after the summary instruction
 
-When a compaction Run has a focus, its summary instruction MUST end with a paragraph that starts
-with `Additional focus:` and holds the neutralized focus text. That paragraph MUST say that the
-focus cannot change the section headings or the redaction rules. A compaction with no focus MUST
-send no such paragraph.
+A compaction Run can have a focus. Its summary instruction MUST then end with a paragraph that
+starts with `Additional focus:` and holds the neutralized focus text. That paragraph MUST say that
+the focus cannot change the section headings or the redaction rules. With no focus, the instruction
+MUST hold no such paragraph.
 
 #### Scenario: A focus reaches the summary request
 

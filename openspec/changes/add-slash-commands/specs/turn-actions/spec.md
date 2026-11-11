@@ -24,6 +24,43 @@ history read.
 - **WHEN** the newest Run of a Chat is a completed compaction Run
 - **THEN** the history read reports that Run with kind `compaction` and message id `null`
 
+### Requirement: An owner starts a follow-up Run on the latest turn
+
+A follow-up Run is a Run that an owner starts on a user message that already has a Run. The owner
+MUST start it through `POST /api/v1/chats/:chatId/messages/:userMessageId/runs`. The message MUST
+be the user message with the highest `seq` of the Chat's user messages. The newest Run of the Chat
+MUST be a turn Run of that message. The Chat MUST NOT be
+archived. The answer MUST be the same UI message stream that a chat send returns.
+
+#### Scenario: A follow-up request on the latest turn starts a Run
+
+- **WHEN** the owner sends a valid follow-up request for the latest user message of a Chat with no live Run
+- **THEN** the API creates a new Run for that message
+- **AND** the first frame of the stream is a `start` frame whose `messageId` is the id of the new Run
+
+#### Scenario: A follow-up request on an older turn is refused
+
+- **WHEN** the owner sends a follow-up request for a user message that has a newer user message after it
+- **THEN** the API answers 409
+- **AND** it creates no Run and changes no message
+
+#### Scenario: A follow-up request on an archived Chat is refused
+
+- **WHEN** the owner sends a follow-up request for the latest user message of an archived Chat
+- **THEN** the API answers with the error that a chat send to that Chat gets
+- **AND** it creates no Run
+
+#### Scenario: A follow-up request for another owner's Chat reveals nothing
+
+- **WHEN** user B sends a follow-up request that names a Chat or a user message of user A
+- **THEN** the API answers 404 before it reads any job state
+- **AND** it creates no Run, expires no Run, and changes no message of user A
+
+#### Scenario: A follow-up after a compaction Run is refused
+
+- **WHEN** the newest Run of a Chat is a compaction Run, and the owner sends a Regenerate request for the latest user message
+- **THEN** the API answers 409 and creates no Run
+
 ### Requirement: The latest turn shows Continue and Regenerate actions
 
 The web MUST show Regenerate on the latest turn when `latestRun` is a terminal turn Run. It MUST show Continue
@@ -70,23 +107,18 @@ Older turns MUST NOT show either action. Continue MUST send the composer's permi
 
 ## ADDED Requirements
 
-### Requirement: A follow-up on an absorbed turn is refused
-
-When the absorbed-through sequence of the active checkpoint is at or above the sequence of the
-latest user message, a follow-up request MUST get 409. The API MUST NOT create a Run or change a
-message.
-
-#### Scenario: Regenerate after a compact
-
-- **WHEN** a compaction Run absorbed the latest turn, and the owner sends a Regenerate request for that turn
-- **THEN** the API answers 409 and creates no Run
-
 ### Requirement: A compaction Run offers no follow-up action
 
 When `latestRun` is a compaction Run, the web MUST NOT show Continue or Regenerate. When that Run
-is `failed` or `expired`, the transcript MUST show its error after the last turn.
+is `failed` or `expired`, the transcript MUST show its error after the last turn. The web MUST NOT
+show an assistant message for a compaction Run.
 
 #### Scenario: A failed compaction shows its error
 
 - **WHEN** the latest Run is a compaction Run that failed
 - **THEN** the transcript shows the error of that Run and no Continue or Regenerate
+
+#### Scenario: A reload during a compaction Run
+
+- **WHEN** the owner reloads the page while a compaction Run is live
+- **THEN** the transcript shows the compaction Run as live and shows no empty assistant message

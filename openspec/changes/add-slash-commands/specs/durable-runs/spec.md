@@ -4,8 +4,7 @@
 
 A compaction Run MUST have kind `compaction` and no user message. It MUST execute in the worker
 through the job queue, as a turn Run does. It MUST hold the single-flight slot of its Chat until it
-is terminal. Its events MUST replay after a refresh. It MUST publish at most one checkpoint and MUST
-NOT write an assistant message.
+is terminal. It MUST publish at most one checkpoint and MUST NOT write a user or assistant message.
 
 #### Scenario: A send during a compaction Run
 
@@ -21,6 +20,16 @@ NOT write an assistant message.
 
 - **WHEN** a compaction Run completes
 - **THEN** the Chat has one new checkpoint and no new user or assistant message
+
+### Requirement: A compaction Run with nothing left to absorb completes
+
+A compaction Run can start when the Chat has no user or assistant row above the active checkpoint.
+Then the Run MUST complete with no checkpoint and no model request.
+
+#### Scenario: Two queued compacts in a row
+
+- **WHEN** two `/compact` items are queued, and the first compaction Run publishes a checkpoint
+- **THEN** the second compaction Run completes with no checkpoint and no model request
 
 ### Requirement: A cancelled compaction Run publishes nothing
 
