@@ -1,5 +1,7 @@
 ---
 summary: "API and worker topology around one Postgres: profiles, capacity, and limits"
+behavior:
+  - ../reference/locators/job.md
 read_when:
   - you are sizing API and worker replicas or choosing a worker profile
   - you are planning the database pool and job-group coverage
