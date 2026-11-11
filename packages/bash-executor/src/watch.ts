@@ -3,6 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
 import type {
   BashResult,
+  ManagedBashHandle,
   ManagedOutput,
   ManagedStopCause,
   ManagedStopResult,
@@ -19,7 +20,19 @@ import {
   type StreamBound,
 } from "./output-bound";
 import { sanitizeKnownResult } from "./sanitize";
+import {
+  emptySnapshotCaches,
+  snapshotOutput,
+  type SnapshotCache,
+} from "./snapshot-cache";
 import type { BashExecutorContext, BashKnownResult } from "./types";
+import {
+  subscribeOutput,
+  captureWithActivity,
+  deferred,
+  NO_OUTPUT,
+  outputOf,
+} from "./managed-output";
 
 const OUTPUT_DRAIN_BUDGET_MS = 50;
 
@@ -65,6 +78,7 @@ type WatchControls = {
 };
 
 type WatchSession = {
+  readonly snapshots: { stdout: SnapshotCache; stderr: SnapshotCache };
   readonly child: ChildProcess;
   readonly pgid: number;
   readonly request: WatchRequest;
@@ -73,6 +87,7 @@ type WatchSession = {
   readonly streams: StreamState;
   readonly controls: WatchControls;
   readonly finish: (result: BashResult) => void;
+  readonly outputListeners: Set<(bytes: number) => void>;
 };
 
 type OutputDrainState = {
@@ -96,23 +111,7 @@ function emptyStream(): CapturedStream {
 }
 
 /** What a caller of the watcher can do while the child runs. */
-export type ManagedWatch = {
-  readonly settled: Promise<BashResult>;
-  snapshot(): ManagedOutput;
-  stop(cause: ManagedStopCause): Promise<ManagedStopResult>;
-};
-
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise;
-  });
-
-  return { promise, resolve };
-}
-
-const NO_OUTPUT: ManagedOutput = { stdout: "", stderr: "", truncated: false };
+export type ManagedWatch = Omit<ManagedBashHandle, "pid">;
 
 export function watchManagedChild(
   child: ChildProcess,
@@ -142,8 +141,10 @@ export function watchManagedChild(
     request,
     startedAtMs: performance.now(),
     streams: { stdout: emptyStream(), stderr: emptyStream() },
+    snapshots: emptySnapshotCaches(),
     controls,
     finish,
+    outputListeners: new Set(),
   };
 
   armAbort(session);
@@ -154,8 +155,8 @@ export function watchManagedChild(
 
   return {
     settled,
-    snapshot: () =>
-      settledOutput ?? outputOf(knownCloseResult(0, session, true)),
+    snapshot: () => settledOutput ?? snapshotOutput(session),
+    onOutput: (listener) => subscribeOutput(session.outputListeners, listener),
     stop: (cause) => stopSession(session, cause, settled),
   };
 }
@@ -176,12 +177,9 @@ function unstartedWatch(
   return {
     settled,
     snapshot: () => NO_OUTPUT,
+    onOutput: () => () => undefined,
     stop: () => Promise.resolve({ proved: true, ...NO_OUTPUT }),
   };
-}
-
-function outputOf({ stdout, stderr, truncated }: ManagedOutput): ManagedOutput {
-  return { stdout, stderr, truncated };
 }
 
 /**
@@ -328,6 +326,7 @@ async function settleDeadline(session: WatchSession): Promise<void> {
     stdout: output.stdout,
     stderr: output.stderr,
     truncated: output.truncated,
+    truncatedStreams: output.truncatedStreams,
   });
 }
 
@@ -484,7 +483,8 @@ async function settleExit(
     }
   }
 
-  session.finish(knownCloseResult(code, session, false));
+  const result = knownCloseResult(code, session, false);
+  session.finish(signal === null ? result : { ...result, signal });
 }
 
 function once(
@@ -507,12 +507,13 @@ function attachStreams(session: WatchSession): void {
     session.request.options.protectedValues ?? [],
   );
 
-  session.child.stdout?.on("data", (chunk: Buffer) => {
-    onStreamData(session.streams.stdout, chunk, capture);
-  });
-  session.child.stderr?.on("data", (chunk: Buffer) => {
-    onStreamData(session.streams.stderr, chunk, capture);
-  });
+  const receive = (stream: CapturedStream) =>
+    captureWithActivity(session.outputListeners, stream, (chunk) =>
+      onStreamData(stream, chunk, capture),
+    );
+
+  session.child.stdout?.on("data", receive(session.streams.stdout));
+  session.child.stderr?.on("data", receive(session.streams.stderr));
 }
 
 function onStreamData(
@@ -616,6 +617,7 @@ function knownCloseResult(
     stdout: streams.stdout.text,
     stderr: streams.stderr.text,
     truncated: stdoutTruncated || stderrTruncated,
+    truncatedStreams: { stdout: stdoutTruncated, stderr: stderrTruncated },
     wallTimeMs: Math.round(performance.now() - session.startedAtMs),
   };
 

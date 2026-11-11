@@ -72,11 +72,18 @@ describe("startManagedBash handle", () => {
       stdout: "onetwo",
       stderr: "",
       truncated: false,
+      truncatedStreams: { stdout: false, stderr: false },
     });
     expect(await handle.stop("owner")).toMatchObject({ proved: true });
   });
 
-  it.each<ManagedStopCause>(["lifetime", "owner", "assistant", "worker"])(
+  it.each<ManagedStopCause>([
+    "run",
+    "lifetime",
+    "owner",
+    "assistant",
+    "worker",
+  ])(
     "stops with the %s cause and returns the captured streams",
     async (cause) => {
       const handle = start("printf out; printf err >&2; sleep 5");
@@ -89,6 +96,7 @@ describe("startManagedBash handle", () => {
         stdout: "out",
         stderr: "err",
         truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
       });
       expect(await handle.settled).toMatchObject({ type: "cancelled" });
     },
@@ -145,6 +153,36 @@ describe("startManagedBash handle", () => {
     expect(await handle.settled).toMatchObject({ type: "outcome_unknown" });
     vi.restoreAllMocks();
     process.kill(-handle.pid, "SIGKILL");
+  });
+
+  it("publishes captured-byte activity after capture and lets callers unsubscribe", async () => {
+    const handle = start(
+      "printf one; sleep 0.2; printf two; sleep 0.2; printf three",
+    );
+
+    const snapshots: Array<string> = [];
+
+    const unsubscribe = handle.onOutput((bytes) => {
+      expect(bytes).toBeGreaterThan(0);
+      snapshots.push(handle.snapshot().stdout);
+    });
+
+    await delay(300);
+    unsubscribe();
+    const observed = snapshots.length;
+    await handle.settled;
+    expect(snapshots).toContain("onetwo");
+    expect(snapshots.length).toBe(observed);
+    expect(handle.snapshot().stdout).toBe("onetwothree");
+  });
+
+  it("names a natural terminating signal", async () => {
+    const handle = start("printf before; kill -TERM $$");
+    expect(await handle.settled).toMatchObject({
+      status: "error",
+      signal: "SIGTERM",
+      stdout: "before",
+    });
   });
 
   it("refuses a command outside the managed tool set", () => {

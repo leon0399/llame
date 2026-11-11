@@ -10,6 +10,7 @@ export type {
   ManagedOutput,
   ManagedStopCause,
   ManagedStopResult,
+  StreamFlags,
   BashUnknownResult,
 } from "./types";
 

@@ -28,12 +28,22 @@ export type BashCancellation = {
   readonly signal: AbortSignal;
 };
 
+/** One flag for each captured stream. */
+export type StreamFlags = {
+  readonly stdout: boolean;
+  readonly stderr: boolean;
+};
+
 export type BashKnownResult = {
   readonly status: "success" | "error";
   readonly exitCode: number;
   readonly stdout: string;
+  /** Present when a natural signal, rather than an exit code, ended the child. */
+  readonly signal?: string;
   readonly stderr: string;
   readonly truncated: boolean;
+  /** Which streams the cut touched; `truncated` is their union. */
+  readonly truncatedStreams?: StreamFlags;
   /** Spawn to settlement, as the producer measured it (bash-execution
    *  "Command results are bounded and explicit"). */
   readonly wallTimeMs?: number;
@@ -56,6 +66,7 @@ export type BashTimedOutResult = {
   readonly stdout: string;
   readonly stderr: string;
   readonly truncated: boolean;
+  readonly truncatedStreams?: StreamFlags;
 };
 
 export type BashUnavailableResult = {
@@ -71,13 +82,19 @@ export type BashResult =
   | BashUnavailableResult;
 
 /** Why the caller stops a managed command: the registry maps each to a state. */
-export type ManagedStopCause = "lifetime" | "owner" | "assistant" | "worker";
+export type ManagedStopCause =
+  | "run"
+  | "lifetime"
+  | "owner"
+  | "assistant"
+  | "worker";
 
 /** The output a command has produced so far, bounded and redacted. */
 export type ManagedOutput = {
   readonly stdout: string;
   readonly stderr: string;
   readonly truncated: boolean;
+  readonly truncatedStreams: StreamFlags;
 };
 
 /**
@@ -94,5 +111,7 @@ export type ManagedBashHandle = {
   /** Settles when the command ends, by itself or through `stop`. */
   readonly settled: Promise<BashResult>;
   snapshot(): ManagedOutput;
+  /** Captured-byte activity; no polling or idle timer is needed by the caller. */
+  onOutput(listener: (bytes: number) => void): () => void;
   stop(cause: ManagedStopCause): Promise<ManagedStopResult>;
 };
