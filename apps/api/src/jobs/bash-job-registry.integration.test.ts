@@ -242,6 +242,56 @@ d('BashJobRegistry', () => {
     await expect(flakyRegistry.settlePending()).resolves.toBeUndefined();
   });
 
+  it('keeps a dead worker settlement lost when its old commit resumes', async () => {
+    const instanceId = crypto.randomUUID();
+    let down = false;
+    let failures = 0;
+
+    const flaky: TenantRunner = {
+      runAs: (userId, callback) => {
+        if (down) {
+          failures++;
+
+          return Promise.reject(new Error('db down'));
+        }
+
+        return tenant.runAs(userId, callback);
+      },
+    };
+
+    const oldRegistry = new BashJobRegistry(flaky, { instanceId }, config);
+    const command = new Command();
+
+    await client`INSERT INTO worker_instances (id) VALUES (${instanceId})`;
+
+    try {
+      command.print('stored before exit');
+      const job = await oldRegistry.promote(command, facts);
+      down = true;
+      command.exit(0);
+      await vi.waitFor(() => expect(failures).toBeGreaterThan(0));
+      await client`DELETE FROM worker_instances WHERE id = ${instanceId}`;
+      down = false;
+      await tenant.runAs(owner, (db) =>
+        new ChatJobsRepository(db).settleOnDeadWorkers(
+          facts.chatId,
+          owner,
+          120,
+        ),
+      );
+      await oldRegistry.settlePending();
+      expect(await row(job.id)).toMatchObject({
+        state: 'lost',
+        result: { outcomeUnknown: true },
+      });
+      expect((await output(job.id)).toString()).toBe('stored before exit');
+    } finally {
+      down = false;
+      await oldRegistry.shutdown();
+      await client`DELETE FROM worker_instances WHERE id = ${instanceId}`;
+    }
+  });
+
   it('A quiet job writes nothing', async () => {
     const command = new Command();
     const job = await registry.promote(command, facts);
