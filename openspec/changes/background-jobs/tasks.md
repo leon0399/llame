@@ -22,6 +22,7 @@ master
   <- background-jobs/job-stop
   <- background-jobs/yield
   <- background-jobs/notices
+  <- background-jobs/run-enqueue
   <- background-jobs/host-runs
   <- background-jobs/wait-suspend
   <- background-jobs/wait-resume
@@ -46,7 +47,8 @@ one changes no behavior that the model or the owner can see.
 | `job-stop`        | `bash-move`       | The model-facing `stop` tool and its result/notice coordination.                           | `stop`                                           | 1,300      | refs #1657        |
 | `yield`           | `job-stop`        | Calls that yield to a steer, and the interrupt fate for each call.                         | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
 | `notices`         | `yield`           | Job notices in the delivery queue, their context item, and host messages.                  | notices in a live Run                            | 2,000      | refs #1657        |
-| `host-runs`       | `notices`         | Runs that the host starts, and held notices.                                               | a notice starts a Run                            | 1,800      | refs #1657        |
+| `run-enqueue`     | `notices`         | Queue insertion through the caller's tenant transaction, with rollback and delay proof.    | none                                             | 750        | refs #1657        |
+| `host-runs`       | `run-enqueue`     | Runs that the host starts, and held notices.                                               | a notice starts a Run                            | 1,800      | refs #1657        |
 | `wait-suspend`    | `host-runs`       | `awaiting_jobs`, the wakers, the deadline job, and admission.                              | none                                             | 2,000      | refs #1657        |
 | `wait-resume`     | `wait-suspend`    | The `wait` tool and the attempt after a wake.                                              | `wait`                                           | 2,000      | refs #1657        |
 | `web`             | `wait-resume`     | The sidebar state, the Jobs section, and the transcript rows.                              | the owner controls                               | 1,800      | Closes #1657      |
@@ -204,9 +206,19 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [ ] 9.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 9.8 Run the GitHub review and CI loop on the published head.
 
+## 9a. Transactional Run enqueue (`background-jobs/run-enqueue`)
+
+This layer supplies the atomic queue boundary before a host can create its first Run.
+It changes no existing owner-started dispatch path.
+
+- [ ] 9a.1 Add `EnqueueOptions.tx` and `RunDispatchService.enqueueInTransaction`; reuse the installed public pg-boss adapter with a compatible postgres.js row projection. Preserve parameter binding and throw when `send` returns `null`.
+- [ ] 9a.2 Prove with real Postgres that rollback leaves no queue job, commit preserves the delayed start, and a duplicate id rejects instead of silently committing a missing enqueue.
+- [ ] 9a.3 Run focused queue tests, API lint and typecheck; update `CHANGELOG.md` and self-review the parent-relative draft diff before ready.
+- [ ] 9a.4 Run the GitHub review and CI loop on the published head.
+
 ## 10. Host-started Runs (`background-jobs/host-runs`)
 
-- [ ] 10.1 Start a Run on an idle Chat; integration tests cover "A monitor wakes the Chat at night", "Two jobs settle together", "A lost job starts no Run", "The recorded mode is no longer enabled", and an archived Chat that starts no Run.
+- [ ] 10.1 Start a Run on an idle Chat with its first queue job in the settlement transaction; integration tests cover "A monitor wakes the Chat at night", "Two jobs settle together", "A lost job starts no Run", "The recorded mode is no longer enabled", "A host enqueue failure rolls back settlement", "A host worker crashes after commit", and an archived Chat that starts no Run. A wrong-owner settlement must create no host Run and consume no notice of another owner.
 - [ ] 10.2 Take held notices into a send, a promoted item, and a mode change, deliver them to a follow-up Run, and return them to `pending` when a Run ends before its first dispatch; tests cover "A result after a Stop waits for the owner", "A result after a failed Run waits for Continue", the list of "A held notice alone does not label a paused queue", and a Run that fails before its dispatch.
 - [ ] 10.3 Accept a follow-up Run on a host message; a test covers "A Continue after a host-started Run failed" and a Continue on a host message that a boundary delivered.
 - [ ] 10.4 Update `docs/product/operator/background-jobs.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
@@ -220,9 +232,7 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the servic
 - [ ] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
 - [ ] 11.2 Add the suspension transaction with its retry, the `suspend` stop cause, and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
       Insert the deadline job in the suspension transaction and cover "A worker crashes right after a wait starts".
-- [ ] 11.3 Add the wake update, transactional `enqueueInTransaction`, and the `wake` field of `RunJob`; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake".
-      Add `EnqueueOptions.tx` and a postgres.js-compatible pg-boss adapter.
-      Prove rollback leaves no job, commit keeps the delay, and "A waker crashes after its commit".
+- [ ] 11.3 Add the wake update and the `wake` field of `RunJob`, using the existing transactional `enqueueInTransaction` from task 9a; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake" and "A waker crashes after its commit".
       Cover "A failed wake insert leaves the Run waiting" and "A queue insert fails during a settlement"; retry worker terminal writes, Chat deletion, and admission as well as settlement.
       A `null` enqueue result throws and retries with a fresh id; the deadline waker reuses its existing job.
 - [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits". Also cover "A recorded job that is absent is stuck at once".

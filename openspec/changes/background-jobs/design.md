@@ -466,11 +466,17 @@ trigger, and the web all branch on the role, and each would need a new case.
 ### D15: The host starts a Run through the promotion path
 
 The idle rule runs in the settlement transaction: no non-terminal Run, the latest Run
-`completed`, the Chat not archived, and a job state that wakes. It validates the settings of the
-first pending notice with `resolveSendSettings`, stores the host message, calls
-`createRunForMessage`, marks every pending notice delivered, and dispatches after the commit.
-This is `startItemRun` (`queue-promotion.ts:106-147`) with a host message in place of a user
-message.
+`completed`, the Chat not archived, and a job state that wakes. It validates the first pending
+notice's settings with `resolveSendSettings`, stores the host message, calls
+`createRunForMessage`, marks the pending notices delivered, and inserts the first queue job
+through `RunDispatchService.enqueueInTransaction`. These writes commit together or all roll
+back. A crash after commit needs no owner admission or after-commit dispatch to start the Run.
+
+The `run-enqueue` layer supplies that transaction boundary before `host-runs`; suspension
+later reuses it for wake and deadline jobs (D11). It uses the installed public `fromDrizzle`
+adapter with a row-normalizing execute boundary, never a native postgres.js transaction
+directly. A `null` insert result throws. Host message and Run ids are created inside bounded
+transaction retry. Existing owner-started dispatch is unchanged by this host-started path.
 
 ### D16: A send takes the held notices
 

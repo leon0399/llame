@@ -569,6 +569,22 @@ Chat and start one Run on it. A notice for a `cancelled` or `lost` job MUST NOT 
 - **WHEN** a job of an idle Chat settles as `lost`
 - **THEN** no Run starts, and the notice stays pending
 
+### Requirement: A host-started Run is queued atomically
+
+When settlement creates a host Run, it MUST commit the job, host message, Run, delivered-notice
+marks, and first queue job in one owner transaction. A failed enqueue MUST roll back all those
+writes. A process failure after commit MUST NOT leave a committed host Run without its first job.
+
+#### Scenario: A host enqueue failure rolls back settlement
+
+- **WHEN** a job settles on an idle Chat, and insertion of the host Run's first queue job fails
+- **THEN** the job stays `running`, no host message or Run commits, and earlier notices remain pending
+
+#### Scenario: A host worker crashes after commit
+
+- **WHEN** job settlement and a host Run commit, and the hosting process crashes before any later call
+- **THEN** the recorded first queue job lets another worker execute the Run without an owner admission
+
 ### Requirement: A Run that the host starts uses the settings of its notice
 
 A notice MUST record the model, the effort, and the permission mode of the Run that started its
