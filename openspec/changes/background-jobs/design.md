@@ -487,14 +487,20 @@ A lease expiry writes no row, so `ChangeHub` also refreshes the display projecti
 While an authenticated owner has subscribers and has stored `running` jobs, including jobs whose
 worker lease expired, it re-reads the owner-scoped counts every `runs.heartbeatSeconds`. It seeds
 the refresh at the first subscription, at each reconnect, and at each job-row notification. It
-groups the counts by Chat and pushes an ordinary `chat.upserted` for each Chat whose count changed.
-It keeps refreshing while stored `running` rows exist, even when the count is 0, so a late worker
-heartbeat that restores the count arrives. It stops when no `running` row remains, at the last
-unsubscribe, and at module shutdown. It uses one queue per owner and an async generation guard,
-so refreshes never overlap and an unsubscribe in flight is safe. The read is an explicit periodic
-display read. It adds no Run polling, no global fan-out or reaper, no cross-tenant scan, no state
-write, and no wire field. The live count has no fixed latency: a lower count arrives by the next
-refresh, not at the exact expiry.
+groups the counts by Chat. For each Chat whose count differs from the last sent count, it enqueues
+the existing full chat record load for that Chat through the owner queue. It never sends a partial
+upsert. Every chat record load, including one that a `NOTIFY` causes, updates the last sent count.
+
+The owner loop continues while stored `running` rows exist, even when a count is 0, so a late
+worker heartbeat that restores the count arrives. Its cost is bounded by the subscribed owners
+and by the API instances, and it adds one touch for each refresh. The operator documents this in
+task 9.5. After each `await`, the loop checks the generation and `hasSubscribers` before it pushes
+or arms the next period, so refreshes never overlap and an unsubscribe in flight is safe. It stops
+when no `running` row remains, at the last unsubscribe, and at module shutdown. The read is an
+explicit periodic display read. It adds no Run polling, no global fan-out or reaper, no
+cross-tenant scan, no state write, and no wire field. The live count has no fixed latency: a
+changed count arrives within one heartbeat interval after the expiry or the revival, not at the
+exact expiry.
 
 ### D18: Web
 
