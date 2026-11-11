@@ -286,6 +286,7 @@ function resolveToolsConfig(
     grep: resolveGrepBounds(raw, env, decisionModelIds),
     artifacts: resolveArtifactBounds(raw, env),
     bash: resolveBashBounds(raw, env),
+    jobs: resolveJobBounds(raw, env),
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, { env, credentials }),
   };
@@ -455,6 +456,31 @@ function resolveBashBounds(
         max: Number.MAX_SAFE_INTEGER,
       }),
       'tools.bash.maxProcesses',
+    ),
+  };
+}
+
+function resolveJobBounds(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+): LlameConfig['tools']['jobs'] {
+  const bounds = raw?.tools?.jobs;
+
+  if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.jobs;
+
+  return {
+    maxSeconds: requireResolvedNumber(
+      resolveNumeric({
+        configPath: 'tools.jobs.maxSeconds',
+        present: Object.hasOwn(bounds, 'maxSeconds'),
+        raw: bounds.maxSeconds,
+        builtInDefault: BUILT_IN_DEFAULTS.tools.jobs.maxSeconds,
+        nullable: false,
+        env,
+        min: 60,
+        max: Number.MAX_SAFE_INTEGER,
+      }),
+      'tools.jobs.maxSeconds',
     ),
   };
 }

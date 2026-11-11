@@ -1014,6 +1014,11 @@
     // "bash": {
     //   "maxProcesses": 64
     // },
+    // Lifetime of a job from command start, in seconds. Default: 7200.
+    // A safe integer of at least 60, or a whole-value interpolation token.
+    // "jobs": {
+    //   "maxSeconds": 7200
+    // },
   },
 
   // Optional remote Machines (experimental). Declaring one makes

@@ -37,6 +37,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   retain the full sanitizer's output. Truncation is tracked per stream, including
   timed-out commands. This prepares capture for the worker job registry without
   starting background jobs from a tool.
+- **Add the worker-owned job runtime (#1657).** A managed handle can be
+  promoted to a job with a reserved artifact number and the starting Run's
+  identity, permissions, settings, and output policy. Output flushes at 16 KiB
+  or one second after the first unflushed byte, with safe credential cuts and
+  no idle writes. Chat-first settlement retries transaction conflicts and
+  records exit codes, signals, or an unknown outcome. Long readable output
+  becomes a whole-job artifact in a savepoint; failed writes preserve output
+  increments, and host files are written only after commit. The new operator
+  setting `tools.jobs.maxSeconds` defaults to 7,200 and accepts an integer of
+  at least 60 or an interpolation token. A lifetime ends work with a proven
+  timeout, and orderly shutdown stops jobs before the queue closes. No tool
+  starts jobs or emits job notices yet.
 - **Bound the commands of a worker with `tools.bash.maxProcesses` (#1657).**
   A worker process used to run one managed `bash` command at a time, and the
   refusal for a second one was `unavailable`. One limiter now counts the host

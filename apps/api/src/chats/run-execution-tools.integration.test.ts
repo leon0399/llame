@@ -693,6 +693,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
           grep: BUILT_IN_DEFAULTS.tools.grep,
           artifacts: BUILT_IN_DEFAULTS.tools.artifacts,
           bash: BUILT_IN_DEFAULTS.tools.bash,
+          jobs: BUILT_IN_DEFAULTS.tools.jobs,
         },
       },
     };

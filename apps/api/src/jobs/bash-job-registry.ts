@@ -1,0 +1,375 @@
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  startManagedBash,
+  type BashCommandInput,
+  type BashExecutorContext,
+  type BashResult,
+  type BashUnavailableResult,
+  type BashTimedOutResult,
+  type ManagedBashHandle,
+  type ManagedOutput,
+  type ManagedStopCause,
+  type ManagedStopResult,
+  type StartManagedBashOptions,
+} from '@workspace/bash-executor';
+
+import { type ChatDeliverySettings, type ChatJob } from '../db/schema';
+import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
+import { reserveArtifactSeq } from '../tools/artifacts/artifact-writer';
+import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
+import { appendJobOutput, settleBashJob } from './bash-job-store';
+import { WorkerHeartbeatService } from './worker-heartbeat.service';
+
+export type BashJobFacts = {
+  readonly ownerUserId: string;
+  readonly chatId: string;
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly startedAt: Date;
+  readonly settings: ChatDeliverySettings;
+  readonly maxBytes: number;
+  readonly configuredCredentials: ReadonlyArray<string>;
+  readonly artifactReadable: boolean;
+  readonly hostFiles: boolean;
+  readonly unlimited?: boolean;
+};
+
+type LiveJob = {
+  readonly handle: ManagedBashHandle;
+  readonly row: ChatJob;
+  readonly facts: BashJobFacts;
+  offsets: Record<'stdout' | 'stderr', number>;
+  pendingBytes: number;
+  flushTimer?: NodeJS.Timeout;
+  lifetimeTimer?: NodeJS.Timeout;
+  unsubscribe: () => void;
+  writes: Promise<void>;
+  completion?: Promise<void>;
+};
+
+/** Worker-local authority over handles; stored jobs are readable on any worker. */
+@Injectable()
+export class BashJobRegistry {
+  private readonly logger = new Logger(BashJobRegistry.name);
+  private accepting = true;
+  private readonly commands = new Set<ManagedBashHandle>();
+  private readonly jobs = new Map<string, LiveJob>();
+  private readonly promotions = new Set<Promise<ChatJob>>();
+
+  constructor(
+    @Inject(TenantDbService)
+    private readonly tenantDb: TenantRunner,
+    @Inject(WorkerHeartbeatService)
+    private readonly worker: Pick<WorkerHeartbeatService, 'instanceId'>,
+    @Inject(InstanceConfigService)
+    private readonly config: InstanceConfigReader,
+  ) {}
+
+  /** Admission and spawn are synchronous, so shutdown cannot pass between them. */
+  start(
+    input: BashCommandInput,
+    context: BashExecutorContext,
+    options: StartManagedBashOptions = {},
+  ): ManagedBashHandle | BashUnavailableResult | BashTimedOutResult {
+    if (!this.accepting)
+      return {
+        status: 'error',
+        type: 'unavailable',
+        message: 'The worker is shutting down.',
+      };
+    const handle = startManagedBash(input, context, options);
+
+    if ('pid' in handle) {
+      this.commands.add(handle);
+      void handle.settled.finally(() => this.commands.delete(handle));
+    }
+
+    return handle;
+  }
+
+  promote(handle: ManagedBashHandle, facts: BashJobFacts): Promise<ChatJob> {
+    const pending = this.promoteHandle(handle, facts);
+    this.promotions.add(pending);
+    void pending.then(
+      () => this.promotions.delete(pending),
+      () => this.promotions.delete(pending),
+    );
+
+    return pending;
+  }
+
+  private async promoteHandle(
+    handle: ManagedBashHandle,
+    supplied: BashJobFacts,
+  ): Promise<ChatJob> {
+    try {
+      if (!this.accepting) throw new Error('The worker is shutting down.');
+
+      const facts: BashJobFacts = {
+        ...supplied,
+        settings: { ...supplied.settings },
+        startedAt: new Date(supplied.startedAt),
+        configuredCredentials: [...supplied.configuredCredentials],
+      };
+
+      const seq = await reserveArtifactSeq(this.tenantDb, {
+        chatId: facts.chatId,
+        userId: facts.ownerUserId,
+      });
+
+      const deadlineAt =
+        facts.unlimited === true
+          ? undefined
+          : new Date(
+              facts.startedAt.getTime() +
+                this.config.config.tools.jobs.maxSeconds * 1000,
+            );
+
+      const output = handle.snapshot();
+
+      const row = await this.insertPromotion(handle, facts, {
+        seq,
+        deadlineAt,
+        output,
+      });
+
+      this.trackJob(handle, row, facts, output);
+
+      return row;
+    } catch (error) {
+      await handle.stop('run');
+      throw error;
+    }
+  }
+
+  private insertPromotion(
+    handle: ManagedBashHandle,
+    facts: BashJobFacts,
+    capture: {
+      seq: number;
+      deadlineAt: Date | undefined;
+      output: ManagedOutput;
+    },
+  ): Promise<ChatJob> {
+    return this.tenantDb.runAs(facts.ownerUserId, async (db) => {
+      const inserted = await new ChatJobsRepository(db).insert({
+        chatId: facts.chatId,
+        ownerUserId: facts.ownerUserId,
+        executor: 'bash',
+        seq: capture.seq,
+        runId: facts.runId,
+        toolCallId: facts.toolCallId,
+        workerInstanceId: this.worker.instanceId,
+        pid: handle.pid,
+        startedAt: facts.startedAt,
+        deadlineAt: capture.deadlineAt,
+        outputs: ['stdout', 'stderr'],
+        artifactReadable: facts.artifactReadable,
+        settings: facts.settings,
+      });
+
+      await appendJobOutput(db, inserted, capture.output, {
+        stdout: 0,
+        stderr: 0,
+      });
+
+      return inserted;
+    });
+  }
+
+  private trackJob(
+    handle: ManagedBashHandle,
+    row: ChatJob,
+    facts: BashJobFacts,
+    output: ManagedOutput,
+  ): void {
+    const live: LiveJob = {
+      handle,
+      row,
+      facts,
+      offsets: { stdout: output.stdout.length, stderr: output.stderr.length },
+      pendingBytes: 0,
+      writes: Promise.resolve(),
+      unsubscribe: () => undefined,
+    };
+
+    this.jobs.set(row.id, live);
+    live.unsubscribe = handle.onOutput((bytes) =>
+      this.outputArrived(live, bytes),
+    );
+    // Include bytes produced while the promotion transaction was in flight.
+    const current = handle.snapshot();
+    this.outputArrived(
+      live,
+      Buffer.byteLength(current.stdout.slice(output.stdout.length)) +
+        Buffer.byteLength(current.stderr.slice(output.stderr.length)),
+    );
+
+    if (row.deadlineAt !== null)
+      this.armLifetime(live, row.deadlineAt.getTime());
+    void handle.settled.then((result) => {
+      if (live.completion === undefined)
+        this.observe(
+          this.finish(
+            live,
+            naturalSettlement(result),
+            'stdout' in result ? result : handle.snapshot(),
+          ),
+        );
+    });
+  }
+
+  private outputArrived(live: LiveJob, bytes: number): void {
+    if (bytes === 0 || live.completion !== undefined) return;
+    live.pendingBytes += bytes;
+
+    if (live.pendingBytes >= 16 * 1024) {
+      this.queueFlush(live);
+    } else if (live.flushTimer === undefined) {
+      live.flushTimer = setTimeout(() => this.queueFlush(live), 1000);
+      live.flushTimer.unref();
+    }
+  }
+
+  private queueFlush(live: LiveJob): void {
+    clearTimeout(live.flushTimer);
+    live.flushTimer = undefined;
+    live.pendingBytes = 0;
+    const snapshot = live.handle.snapshot();
+    live.writes = live.writes
+      .catch(() => undefined)
+      .then(async () => {
+        await this.tenantDb.runAs(live.facts.ownerUserId, (db) =>
+          appendJobOutput(db, live.row, snapshot, live.offsets),
+        );
+        live.offsets = {
+          stdout: snapshot.stdout.length,
+          stderr: snapshot.stderr.length,
+        };
+      });
+    this.observe(live.writes);
+  }
+
+  private armLifetime(live: LiveJob, deadline: number): void {
+    // Node clamps larger durations to 1 ms; rearm long operator lifetimes.
+    const delay = Math.max(0, deadline - Date.now());
+    live.lifetimeTimer = setTimeout(
+      () => {
+        if (Date.now() < deadline) this.armLifetime(live, deadline);
+        else this.observe(this.stop(live.row.id, 'lifetime'));
+      },
+      Math.min(delay, 2_147_483_647),
+    );
+    live.lifetimeTimer.unref();
+  }
+
+  async stop(
+    jobId: string,
+    cause: Exclude<ManagedStopCause, 'run'>,
+  ): Promise<void> {
+    const live = this.jobs.get(jobId);
+
+    if (live === undefined) return;
+
+    if (live.completion !== undefined) return live.completion;
+    // Claim before stop resolves: its settled promise fires before stop returns.
+    live.completion = this.stopAndSettle(live, cause);
+
+    return live.completion;
+  }
+
+  private async stopAndSettle(
+    live: LiveJob,
+    cause: Exclude<ManagedStopCause, 'run'>,
+  ): Promise<void> {
+    const output = await live.handle.stop(cause);
+    await this.persistCompletion(
+      live,
+      stoppedSettlement(cause, output),
+      output,
+    );
+  }
+
+  private finish(
+    live: LiveJob,
+    settlement: JobSettlement,
+    output: ManagedOutput,
+  ): Promise<void> {
+    live.completion = this.persistCompletion(live, settlement, output);
+
+    return live.completion;
+  }
+
+  private async persistCompletion(
+    live: LiveJob,
+    settlement: JobSettlement,
+    output: ManagedOutput,
+  ): Promise<void> {
+    clearTimeout(live.flushTimer);
+    clearTimeout(live.lifetimeTimer);
+    live.unsubscribe();
+    // A failed periodic flush leaves offsets unchanged; settlement still stores it.
+    await live.writes.catch(() => undefined);
+    await settleBashJob(
+      this.tenantDb,
+      live.row,
+      { output, settlement, offsets: live.offsets },
+      live.facts,
+    );
+    this.jobs.delete(live.row.id);
+  }
+
+  async shutdown(): Promise<void> {
+    this.accepting = false;
+    await Promise.allSettled(this.promotions);
+    await Promise.all([
+      ...[...this.jobs.keys()].map((id) => this.stop(id, 'worker')),
+      ...[...this.commands].flatMap((handle) =>
+        [...this.jobs.values()].some((job) => job.handle === handle)
+          ? []
+          : [handle.stop('worker')],
+      ),
+    ]);
+  }
+
+  private observe(work: Promise<void>): void {
+    void work.catch(() =>
+      this.logger.error('Background job persistence failed.'),
+    );
+  }
+}
+
+function naturalSettlement(result: BashResult): JobSettlement {
+  if ('exitCode' in result)
+    return {
+      state:
+        result.exitCode === 0 && result.signal == null ? 'succeeded' : 'failed',
+      result: {
+        exitCode: result.exitCode,
+        signal: result.signal,
+        truncated: { stdout: result.truncated, stderr: result.truncated },
+      },
+    };
+
+  return { state: 'lost', result: { outcomeUnknown: true } };
+}
+
+function stoppedSettlement(
+  cause: Exclude<ManagedStopCause, 'run'>,
+  output: ManagedStopResult,
+): JobSettlement {
+  const result = {
+    truncated: { stdout: output.truncated, stderr: output.truncated },
+  };
+
+  if (!output.proved)
+    return { state: 'lost', result: { ...result, outcomeUnknown: true } };
+
+  if (cause === 'lifetime') return { state: 'timed_out', result };
+
+  return { state: 'cancelled', stoppedBy: cause, result };
+}

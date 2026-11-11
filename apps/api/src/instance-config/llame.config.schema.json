@@ -339,6 +339,13 @@
         { "$ref": "#/$defs/interpolationToken" }
       ]
     },
+    "jobsMaxSecondsOrToken": {
+      "description": "The job lifetime in seconds: a safe integer of at least 60, or a whole-value interpolation token.",
+      "oneOf": [
+        { "type": "integer", "minimum": 60, "maximum": 9007199254740991 },
+        { "$ref": "#/$defs/interpolationToken" }
+      ]
+    },
     "heartbeatSecondsOrToken": {
       "description": "The job-queue's native worker-liveness window: a positive integer >= 10 (pg-boss's own floor for queue heartbeatSeconds), or a whole-value interpolation token that resolves to one.",
       "oneOf": [
@@ -1076,6 +1083,17 @@
             "maxProcesses": {
               "$ref": "#/$defs/bashMaxProcessesOrToken",
               "description": "The most managed commands one worker process runs at one time, counting foreground host commands and `ssh://` commands. An integer of at least 1, or a whole-value interpolation token. Default: 64."
+            }
+          }
+        },
+        "jobs": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Worker job lifetime bounds. Absent or null uses the built-in lifetime.",
+          "properties": {
+            "maxSeconds": {
+              "$ref": "#/$defs/jobsMaxSecondsOrToken",
+              "description": "Maximum job lifetime from command start, in seconds. Default: 7200."
             }
           }
         },
