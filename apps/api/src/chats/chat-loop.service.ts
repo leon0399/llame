@@ -510,11 +510,11 @@ export class ChatLoopService {
   }
 
   /**
-   * The pending item already stored under the message id of this send, in any
-   * state. A retry repeats the id, so the stored item answers it before the
-   * duplicate-id check would refuse the id and before any Run starts
-   * (run-steering D2); the same id held by an item of another Chat is a
-   * duplicate. A delivery send takes the Chat row lock first, which serializes
+   * The owner-produced pending item already stored under the message id of
+   * this send, in any state. A retry repeats the id, so the stored item answers
+   * it before the duplicate-id check would refuse the id and before any Run
+   * starts (run-steering D2); a job-produced item or an item of another Chat
+   * conflicts. A delivery send takes the Chat row lock first, which serializes
    * two sends of one id; a plain send keeps the lock for `touch`, as before.
    */
   private async findStoredItem(
@@ -532,7 +532,7 @@ export class ChatLoopService {
       input.userId,
     );
 
-    if (item && item.chatId !== input.chatId) {
+    if (item && (item.chatId !== input.chatId || item.producer !== 'owner')) {
       throw new ConflictException('Message id already exists');
     }
 

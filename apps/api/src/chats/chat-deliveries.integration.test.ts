@@ -270,6 +270,21 @@ describe('chat deliveries — the queue mode', () => {
       });
     }
 
+    it('rejects an owner send that reuses a job notice id without mutation', async () => {
+      const chatId = await createChat();
+      const { notice } = await seedNotice(chatId, chatId);
+      const itemsBefore = await itemsOf(chatId);
+      const runsBefore = await runsOf(chatId);
+      const messagesBefore = await messagesOf(chatId);
+
+      const response = await send(chatId, { id: notice.id });
+
+      expect(response.status).toBe(409);
+      expect(await itemsOf(chatId)).toEqual(itemsBefore);
+      expect(await runsOf(chatId)).toEqual(runsBefore);
+      expect(await messagesOf(chatId)).toEqual(messagesBefore);
+    });
+
     it('lists a job locator and state, permits delete only, and never starts a Run', async () => {
       const chatId = await createChat();
       const { job, notice } = await seedNotice(chatId, chatId);
