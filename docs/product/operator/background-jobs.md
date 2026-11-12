@@ -88,6 +88,11 @@ not stop the job.
 Notice storage and its pending-item view are available, but job settlements do
 not create notices yet. Settlement delivery is a separate integration.
 
+Host-history privacy and model-order handling are available for stored host
+rows. Owner-history responses identify them with `host: true`; ordinary owner,
+assistant, tool and checkpoint rows carry `host: false`. This does not yet
+activate notice-started Runs or their transcript presentation.
+
 ## Deploy workers
 
 A job belongs to its Chat but runs only on the worker that spawned it. An

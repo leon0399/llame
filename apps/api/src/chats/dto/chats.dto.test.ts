@@ -902,7 +902,7 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       seq: 1,
       absorbedThroughSeq: null,
       role: 'assistant',
-      senderUserId: null,
+      senderUserId: overrides.role === 'user' ? 'owner-id' : null,
       parts: [],
       attachments: [],
       usage: null,

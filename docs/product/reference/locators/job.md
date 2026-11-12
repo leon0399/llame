@@ -89,6 +89,15 @@ Deleting the notice does not stop its job. The
 [pending-delivery contract](../../operator/background-jobs.md#pending-delivery-contract)
 describes its API and the current settlement-integration boundary.
 
+### Host history
+
+A host-authored user turn has no owner sender and contains job context items,
+not owner text. Owner history retains that turn and identifies it as host
+authored. It supplies no title, list preview, recency excerpt or search
+evidence. A shared Chat and a shared fork omit the whole host turn; a visible
+reply to an omitted turn has no copied reply target. An owner's fork retains
+the literal context items and remaps the reply target to the copied host turn.
+
 ## Listing
 
 `read("job://")` lists the jobs of the Chat, the oldest first, one line each:

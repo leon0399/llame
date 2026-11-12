@@ -17,14 +17,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Add producer-aware pending delivery contracts (#1657).** Delivery responses
-  identify `owner` and `job` producers. A job notice carries its Chat-scoped
-  locator and state, appears above the composer with delete only, and cannot
-  change mode (HTTP 400 without mutation). An owner send that reuses a notice's
-  message ID gets HTTP 409; legitimate owner-send retries remain idempotent.
-  The datastore permits one notice per job even after withdrawal; owner and
-  Chat checks bind the pending read model to its job. This storage layer does
-  not yet create settlement notices.
+- **Preserve host history without public job context (#1657).** Owner-history
+  responses identify host-authored user turns. Public pagination and shared
+  forks omit them; owner forks retain literal context and reply relationships.
+  Recency selects the first owner-authored turn, and an empty host trigger
+  preserves the earlier assistant reply in provider history. Context-only host
+  rows supply no title, preview or search evidence. This prerequisite does not
+  yet create settlement notices or notice-started Runs.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
@@ -54,6 +53,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Add producer-aware pending delivery contracts (#1657).** Delivery responses
+  identify `owner` and `job` producers. A job notice carries its Chat-scoped
+  locator and state, appears above the composer with delete only, and cannot
+  change mode (HTTP 400 without mutation). An owner send that reuses a notice's
+  message ID gets HTTP 409; legitimate owner-send retries remain idempotent.
+  The datastore permits one notice per job even after withdrawal; owner and
+  Chat checks bind the pending read model to its job. This storage layer does
+  not yet create settlement notices.
 
 # 2026-11-11
 

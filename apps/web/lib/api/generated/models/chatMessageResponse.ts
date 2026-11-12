@@ -18,6 +18,8 @@ export interface ChatMessageResponse {
   role: ChatMessageResponseRole;
   /** @nullable */
   senderUserId: string | null;
+  /** A host-authored user row with no owner sender. */
+  host: boolean;
   parts: ChatMessageResponsePartsItem[];
   attachments: ChatMessageResponseAttachmentsItem[];
   /** @nullable */

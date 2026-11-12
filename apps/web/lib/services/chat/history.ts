@@ -25,6 +25,7 @@ export type ChatMessageResponse = {
   seq: number;
   role: UIMessage["role"] | "tool" | "checkpoint";
   senderUserId: string | null;
+  host: boolean;
   parts: UIMessage["parts"];
   attachments: Array<unknown>;
   usage: unknown;
@@ -666,8 +667,8 @@ export function toChatUiMessages(response: {
     // historical turns exactly as it does live (the run bridge emits the
     // same `{ usage }` shape as a message-metadata chunk at completion).
     const metadata = message.usage
-      ? { seq: message.seq, usage: message.usage }
-      : { seq: message.seq };
+      ? { seq: message.seq, host: message.host, usage: message.usage }
+      : { seq: message.seq, host: message.host };
 
     return {
       id: message.id,
