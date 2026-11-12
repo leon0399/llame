@@ -19,8 +19,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - **Activate background-job settlement notices at Run boundaries (#1657).**
   Each winning settlement, including a lost-on-touch settlement, creates one
-  pending notice. An executing Run receives it in ordered boundary delivery
-  with steer and interrupt items; a notice-only delivery uses a host trigger
+  pending notice. Jobless dead-worker checks take no Chat lock; actual lost
+  settlement rechecks its candidate under the Chat lock. An executing Run
+  receives notices in ordered boundary delivery with steer and interrupt
+  items; a notice-only delivery uses a host trigger
   whose job context is authored at dispatch. Successful recorded `stop` results
   consume only their settled-job notices atomically with `tool.completed`, and
   discarded results restore only the exact notices they consumed. Idle
