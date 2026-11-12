@@ -1,8 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { TenantDbService } from '../db/tenant-db.service';
+import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { QUEUE, type JobState, type Queue } from '../queue/queue';
+import {
+  QUEUE,
+  type EnqueueOptions,
+  type JobState,
+  type Queue,
+} from '../queue/queue';
 import { failRunTransactionally } from './run-reply-finalizer';
 import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
 
@@ -62,6 +67,31 @@ export class RunDispatchService {
         this.instanceConfig.config.models,
       );
       throw error;
+    }
+  }
+
+  /**
+   * Enqueue a run through the caller's transaction. Unlike dispatch(), failures
+   * propagate without changing the Run so the owning transaction can roll back.
+   */
+  async enqueueInTransaction(
+    tx: Db,
+    job: RunJob,
+    options?: Omit<EnqueueOptions, 'tx'>,
+  ): Promise<void> {
+    await this.ensureQueues();
+    const id = options?.id ?? job.runId;
+
+    const result = await this.queue.enqueue(RUNS_QUEUE, job, {
+      ...options,
+      id,
+      tx,
+    });
+
+    if (result === null) {
+      throw new Error(
+        `Could not enqueue run ${job.runId}: job id already exists`,
+      );
     }
   }
 

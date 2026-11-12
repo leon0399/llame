@@ -17,6 +17,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- **Prepare transactional Run enqueue (#1657).** Internal producers can insert
+  a Run's queue job through their existing Drizzle transaction, using the
+  public pg-boss adapter with postgres.js result normalization. Queue writes
+  roll back with the caller, preserve delayed starts and parameter binding,
+  and reject duplicate ids. Owner-started dispatch is unchanged; idle host
+  Runs and durable waits remain inactive until their owning layers.
+
+- **State the stop proof boundary (#1657).** The model-facing description and
+  tool reference promise termination of the managed process group, without
+  claiming that detached descendants are also stopped.
+
+- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
+  the standard timeout header, measured duration and captured output before the
+  explanation that job promotion failed.
+
 - **Activate background-job settlement notices at Run boundaries (#1657).**
   Each winning settlement, including a lost-on-touch settlement, creates one
   pending notice. Jobless dead-worker checks take no Chat lock; actual lost
@@ -63,7 +78,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
-
 - **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
   seeded job notices beside owner steering, preserve the earlier reply, and
   persist job context only at dispatch. Stop-result recording consumes exact

@@ -297,9 +297,9 @@ No prerequisite may insert a live settlement notice. Task 9.4 is assigned to
 This layer supplies the atomic queue boundary before a host can create its first Run.
 It changes no existing owner-started dispatch path.
 
-- [ ] 9a.1 Add `EnqueueOptions.tx` and `RunDispatchService.enqueueInTransaction`; reuse the installed public pg-boss adapter with a compatible postgres.js row projection. Preserve parameter binding and throw when `send` returns `null`.
-- [ ] 9a.2 Prove with real Postgres that rollback leaves no queue job, commit preserves the delayed start, and a duplicate id rejects instead of silently committing a missing enqueue.
-- [ ] 9a.3 Run focused queue tests, API lint and typecheck; update `CHANGELOG.md` and self-review the parent-relative draft diff before ready.
+- [x] 9a.1 Add `EnqueueOptions.tx` and `RunDispatchService.enqueueInTransaction`; reuse the installed public pg-boss adapter with a compatible postgres.js row projection. Preserve parameter binding and throw when `send` returns `null`.
+- [x] 9a.2 Prove with real Postgres that rollback leaves no queue job, commit preserves the delayed start, and a duplicate id rejects instead of silently committing a missing enqueue.
+- [x] 9a.3 Run focused queue tests, API lint and typecheck; update `CHANGELOG.md` and self-review the parent-relative draft diff before ready.
 - [ ] 9a.4 Run the GitHub review and CI loop on the published head.
 
 ## 10. Host-started Runs (`background-jobs/host-runs`)
