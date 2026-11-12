@@ -88,7 +88,10 @@ import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createJobNoticeContext } from './job-notice-context';
-import { sourceSegmentJobNoticeIds } from './job-notice-recovery';
+import {
+  discardedJobNoticeIds,
+  sourceSegmentJobNoticeIds,
+} from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
@@ -2889,10 +2892,22 @@ export class RunExecutionService {
     // and one more whenever a step end found nothing left to deliver), so the
     // abort listener and the workspace hold belong to the call.
     let endWorkspaceAttempt = noop;
-    let stopCause: 'cancel' | 'delivery' | undefined;
+    let stopCause: 'cancel' | 'delivery' | 'suspend' | undefined;
+
+    const suspendedByThisAttempt = async (tx: Db): Promise<boolean> => {
+      const events = await new RunEventsRepository(tx).listByRunId(
+        input.runId,
+        input.userId,
+        { eventTypes: ['run.suspended'], attemptId, limit: 1 },
+      );
+
+      return events.length !== 0;
+    };
 
     // The step end settles dead Chat jobs before checking delivery/cancellation,
-    // so a lost worker's notice participates in this same boundary.
+    // so a lost worker's notice participates in this same boundary. A durable
+    // suspension belongs to this attempt even if a waker already queued or
+    // claimed the Run again.
     const stopWhenExtra = async (): Promise<boolean> => {
       stopCause = await retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, async (tx) => {
@@ -2901,6 +2916,8 @@ export class RunExecutionService {
             input.userId,
             workerDeadAfterSeconds(this.instanceConfig.config),
           );
+
+          if (await suspendedByThisAttempt(tx)) return 'suspend';
 
           return new ChatDeliveriesRepository(tx).stepEndSignal({
             runId: input.runId,
@@ -3536,6 +3553,22 @@ export class RunExecutionService {
             persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
             await deltaWrites;
+            await Promise.all(lateMcpWrites);
+
+            if (
+              stopCause !== 'suspend' &&
+              (await this.tenantDb.runAs(input.userId, (tx) =>
+                suspendedByThisAttempt(tx),
+              ))
+            ) {
+              stopCause = 'suspend';
+            }
+
+            // The wait service has already committed the attempt-fenced
+            // suspension and its deadline job. Drain this stream without
+            // writing a terminal result for an attempt that may already have
+            // been woken and reclaimed by another worker.
+            if (stopCause === 'suspend') return;
 
             if (progressWriteFailed) {
               await this.settleProgressWriteFailure({
@@ -7239,11 +7272,12 @@ export class RunExecutionService {
 
     const events = new RunEventsRepository(tx);
 
-    const deliveryIds = await events.discardedJobNoticeIds(
-      run.runId,
-      run.userId,
-      input.attemptId,
-    );
+    const deliveryIds = await discardedJobNoticeIds({
+      tx,
+      runId: run.runId,
+      ownerUserId: run.userId,
+      attemptId: input.attemptId,
+    });
 
     const firstRegenerateDispatch =
       run.followUpAction === 'regenerate' &&

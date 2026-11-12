@@ -20,6 +20,20 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
     return segment;
   }
 
+  it('an earlier registration cannot unregister the resumed Run or its segment', () => {
+    const aborts = new RunAbortRegistry();
+    const earlierRun = aborts.register(RUN_ID, USER_ID);
+    const resumedRun = aborts.register(RUN_ID, USER_ID);
+    const resumedSegment = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
+    aborts.unregister(RUN_ID, earlierRun);
+
+    expect(aborts.ownerOf(RUN_ID)).toBe(USER_ID);
+    expect(aborts.interrupt(RUN_ID, segmentSnapshot(aborts))).toBe(true);
+    expect(resumedSegment?.abort.signal.aborted).toBe(true);
+    expect(resumedRun.signal.aborted).toBe(false);
+  });
+
   it('an interrupt aborts the segment of its attempt with the interrupt reason, and leaves the Run alone', () => {
     const { aborts, run } = registry();
     const segment = aborts.beginSegment(RUN_ID, ATTEMPT_ID);

@@ -345,16 +345,16 @@ over budget after duplicate test setup and mock-only forwarding tests were remov
 
 No tool suspends a Run in this layer. Its tests suspend a Run through the prepared service.
 
-- [ ] 11.2 Connect the prepared suspension transaction to the `suspend` stop cause and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
+- [x] 11.2 Connect the prepared suspension transaction to the `suspend` stop cause and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
       Insert the deadline job in the suspension transaction and cover "A worker crashes right after a wait starts".
-- [ ] 11.3 Connect the prepared wake update and `RunJob.wake` to settlement, steering, and cancellation using the transactional enqueue from task 9a. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake" and "A waker crashes after its commit".
+- [x] 11.3 Connect the prepared wake update and `RunJob.wake` to settlement, steering, and cancellation using the transactional enqueue from task 9a. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake" and "A waker crashes after its commit".
       Cover "A failed wake insert leaves the Run waiting" and "A queue insert fails during a settlement"; retry worker terminal writes, Chat deletion, and admission as well as settlement.
       A `null` enqueue result throws and retries with a fresh id; the deadline waker reuses its existing job.
-- [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits". Also cover "A recorded job that is absent is stuck at once".
+- [x] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits". Also cover "A recorded job that is absent is stuck at once".
       An absent recorded job is stuck at once; the first-job enqueue retains its existing grace.
-- [ ] 11.5 Anchor the budget at the first claim; a test covers "A Run passes its budget while it waits".
-- [ ] 11.6 Update `docs/product/operator/scaling.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 11.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [x] 11.5 Anchor the budget at the first claim; a test covers "A Run passes its budget while it waits".
+- [x] 11.6 Update `docs/product/operator/scaling.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
+- [x] 11.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 11.8 Run the GitHub review and CI loop on the published head.
 
 ## 12. Wait (`background-jobs/wait-resume`)
