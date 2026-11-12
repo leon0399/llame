@@ -661,6 +661,8 @@
     // Allowlisting search_conversations makes complete canonical projection
     // coverage a startup gate. Add conversation_read independently for exact
     // line reads; see docs/product/operator/conversation-recall.md.
+    // Add "wait" independently to wait for owner-scoped background job records.
+    // Jobs continue after a wait timeout or interruption; they are not stopped.
     // To enable Workspace entry/exit on a native host, also add
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
@@ -761,7 +763,7 @@
     // "permissionModes": ["default", "read-only", "bypass"],
     // Optional whole-file replacements for llame-owned tool descriptions,
     // keyed by registered tool id (bash, conversation_read, edit, enter_workspace,
-    // exit_workspace, knowledge_search, read, search_conversations, stop, write); MCP ids are
+    // exit_workspace, knowledge_search, read, search_conversations, stop, wait, write); MCP ids are
     // rejected. A models[].toolPromptFiles entry above wins over this one,
     // which wins over the packaged default. Paths are literal, resolve against
     // this file, and are read when an execution process starts — editing one
@@ -769,7 +771,7 @@
     // "promptFiles": { "search_conversations": "./prompts/search.md" },
     // Allow/reject rules per exact tool id. There is NO built-in policy:
     // omitting this property rejects every call. This block is the recommended
-    // portable map — nine code-owned tools, each with a whole-tool allow except
+    // portable map — ten code-owned tools, each with a whole-tool allow except
     // enter_workspace, whose operator-edited field allow names trusted roots.
     // Every admitted entry root is trusted to run code and read host secrets
     // through its Workspace MCP configuration. W1/W2 below reject text paths to
@@ -938,6 +940,9 @@
         "allow": true,
       },
       "conversation_read": {
+        "allow": true,
+      },
+      "wait": {
         "allow": true,
       },
       "enter_workspace": {
