@@ -23,6 +23,7 @@ import { configureApp } from '../app.setup';
 import { chatDeliveries } from '../db/schema';
 import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService } from '../db/tenant-db.service';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
   ModelNotAvailableError,
   ModelsService,
@@ -37,6 +38,8 @@ import {
   expectRegisteredUserId,
   waitFor,
 } from '../testing/support';
+import { newChatJob } from '../testing/chat-job-rows';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
@@ -79,12 +82,16 @@ describe('chat deliveries — the queue mode', () => {
 
   beforeAll(async () => {
     models = new FakeModelsService();
+    const instanceConfig = new InstanceConfigService();
+    instanceConfig.config.tools.permissionModes = ['default'];
 
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(ModelsService)
       .useValue(models)
+      .overrideProvider(InstanceConfigService)
+      .useValue(instanceConfig)
       .compile();
 
     app = mod.createNestApplication();
@@ -226,6 +233,217 @@ describe('chat deliveries — the queue mode', () => {
 
   const settle = (runId: string, status: TerminalRunStatus) =>
     executor.settleTerminalRun({ userId: userAId, runId, status });
+
+  describe('seeded job notices', () => {
+    async function seedNotice(chatId: string, jobChatId: string) {
+      return tenantDb.runAs(userAId, async (tx) => {
+        const jobs = new ChatJobsRepository(tx);
+
+        const job = await jobs.insert(
+          newChatJob({
+            chatId: jobChatId,
+            ownerUserId: userAId,
+            seq: 7,
+            workerInstanceId: crypto.randomUUID(),
+          }),
+        );
+
+        await jobs.settle(jobChatId, userAId, job.id, { state: 'failed' });
+
+        const [notice] = await tx
+          .insert(chatDeliveries)
+          .values({
+            id: crypto.randomUUID(),
+            chatId,
+            ownerUserId: userAId,
+            producer: 'job',
+            senderRef: job.id,
+            mode: 'notice',
+            parts: [],
+            settings: job.settings,
+          })
+          .returning();
+
+        if (!notice) throw new Error('Notice fixture was not inserted');
+
+        return { job, notice };
+      });
+    }
+
+    it('lists a job locator and state, permits delete only, and never starts a Run', async () => {
+      const chatId = await createChat();
+      const { job, notice } = await seedNotice(chatId, chatId);
+      const url = `/api/v1/chats/${chatId}/deliveries`;
+      const listed = await request(http).get(url).set('Cookie', cookieA);
+      const body: unknown = listed.body;
+
+      expect(listed.status).toBe(200);
+      expect(body).toMatchObject({
+        items: [
+          {
+            id: notice.id,
+            producer: 'job',
+            mode: 'notice',
+            job: 'job://bash-7',
+            jobState: 'failed',
+            parts: [],
+          },
+        ],
+      });
+      expect(JSON.stringify(body)).not.toContain(job.id);
+      expect(JSON.stringify(body)).not.toContain(job.workerInstanceId);
+
+      for (const mode of ['steer', 'interrupt']) {
+        const changed = await request(http)
+          .patch(`${url}/${notice.id}`)
+          .set('Cookie', cookieA)
+          .send({ mode });
+
+        expect(changed.status).toBe(409);
+      }
+
+      expect(await runsOf(chatId)).toEqual([]);
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, producer: 'job', mode: 'notice', state: 'pending' },
+      ]);
+
+      const removed = await request(http)
+        .delete(`${url}/${notice.id}`)
+        .set('Cookie', cookieA);
+
+      expect(removed.status).toBe(200);
+      expect(removed.body).toMatchObject({
+        producer: 'job',
+        job: 'job://bash-7',
+        jobState: 'failed',
+        state: 'withdrawn',
+      });
+      expect(await itemsOf(chatId)).toMatchObject([{ state: 'withdrawn' }]);
+      const after = await request(http).get(url).set('Cookie', cookieA);
+      expect(after.body).toEqual({ items: [] });
+    });
+
+    it('leaves a job notice pending when a failed Run pauses owner items', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+
+      await settle(runId, 'failed');
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, producer: 'job', mode: 'notice', state: 'pending' },
+      ]);
+      expect(await runsOf(chatId)).toMatchObject([
+        { id: runId, status: 'failed' },
+      ]);
+    });
+
+    it('does not accept a notice as an owner send', async () => {
+      const chatId = await createChat();
+      const response = await send(chatId, { delivery: 'notice' });
+      expect(response.status).toBe(400);
+      expect(await itemsOf(chatId)).toEqual([]);
+      expect(await runsOf(chatId)).toEqual([]);
+    });
+
+    it('hides job notices from other owners and a scope with no identity', async () => {
+      const chatId = await createChat();
+      const { notice } = await seedNotice(chatId, chatId);
+      const url = `/api/v1/chats/${chatId}/deliveries`;
+      const listed = await request(http).get(url).set('Cookie', cookieB);
+
+      const removed = await request(http)
+        .delete(`${url}/${notice.id}`)
+        .set('Cookie', cookieB);
+
+      const changed = await request(http)
+        .patch(`${url}/${notice.id}`)
+        .set('Cookie', cookieB)
+        .send({ mode: 'steer' });
+
+      expect([listed.status, removed.status, changed.status]).toEqual([
+        404, 404, 404,
+      ]);
+
+      const withoutIdentity = await tenantDb.runAs(userAId, async (tx) => {
+        await tx.execute(
+          sql`select set_config('app.current_user_id', '', true)`,
+        );
+
+        return {
+          visible: await new ChatDeliveriesRepository(tx).listPendingViews(
+            chatId,
+            userAId,
+          ),
+          changed: await tx
+            .update(chatDeliveries)
+            .set({ state: 'withdrawn' })
+            .where(eq(chatDeliveries.id, notice.id))
+            .returning(),
+        };
+      });
+
+      expect(withoutIdentity).toEqual({ visible: [], changed: [] });
+      expect(await itemsOf(chatId)).toMatchObject([{ state: 'pending' }]);
+    });
+
+    it('does not resolve a sender job in another Chat, even of the same owner', async () => {
+      const chatId = await createChat();
+      const jobChatId = await createChat();
+      await seedNotice(chatId, jobChatId);
+
+      const response = await request(http)
+        .get(`/api/v1/chats/${chatId}/deliveries`)
+        .set('Cookie', cookieA);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ items: [] });
+    });
+
+    it('omits a malformed job reference without aborting the pending read', async () => {
+      const chatId = await createChat();
+      const { notice } = await seedNotice(chatId, chatId);
+      await tenantDb.runAs(userAId, (tx) =>
+        tx
+          .update(chatDeliveries)
+          .set({ senderRef: 'not-a-job-id' })
+          .where(eq(chatDeliveries.id, notice.id)),
+      );
+
+      const response = await request(http)
+        .get(`/api/v1/chats/${chatId}/deliveries`)
+        .set('Cookie', cookieA);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({ items: [] });
+    });
+
+    it('keeps one notice per job after withdrawal', async () => {
+      const chatId = await createChat();
+      const { notice } = await seedNotice(chatId, chatId);
+      await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).withdrawPending(
+          chatId,
+          notice.id,
+          userAId,
+        ),
+      );
+
+      const duplicate = await tenantDb
+        .runAs(userAId, (tx) =>
+          tx.insert(chatDeliveries).values({
+            ...notice,
+            id: crypto.randomUUID(),
+            state: 'pending',
+          }),
+        )
+        .catch((error: unknown) => error);
+
+      expect(pgErrorCode(duplicate)).toBe('23505');
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, state: 'withdrawn' },
+      ]);
+    });
+  });
 
   describe('admission', () => {
     it('A send with a delivery mode becomes a pending item during a live Run', async () => {

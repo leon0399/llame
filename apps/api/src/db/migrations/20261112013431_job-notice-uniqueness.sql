@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "chat_deliveries_job_sender_unique" ON "chat_deliveries" USING btree ("sender_ref") WHERE "chat_deliveries"."producer" = 'job';

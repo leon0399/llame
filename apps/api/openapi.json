@@ -5453,15 +5453,34 @@
           "id": {
             "type": "string",
             "format": "uuid",
-            "description": "The client message id the item was sent with."
+            "description": "The delivery id; also the client message id for owner items."
           },
           "chatId": {
             "type": "string",
             "format": "uuid"
           },
+          "producer": {
+            "type": "string",
+            "enum": ["owner", "job"]
+          },
+          "job": {
+            "type": "string",
+            "description": "The job locator of a notice."
+          },
+          "jobState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out",
+              "lost"
+            ]
+          },
           "mode": {
             "type": "string",
-            "enum": ["steer", "interrupt", "queue"]
+            "enum": ["steer", "interrupt", "queue", "notice"]
           },
           "state": {
             "type": "string",
@@ -5492,6 +5511,7 @@
         "required": [
           "id",
           "chatId",
+          "producer",
           "mode",
           "state",
           "parts",

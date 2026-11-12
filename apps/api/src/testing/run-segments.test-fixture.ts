@@ -114,7 +114,7 @@ export function useSegmentsFixture(
   async function storeItems(
     chatId: string,
     texts: ReadonlyArray<string>,
-    mode: ChatDeliveryMode = 'steer',
+    mode: Exclude<ChatDeliveryMode, 'notice'> = 'steer',
     notifyRunId?: string,
   ): Promise<Array<string>> {
     const ids: Array<string> = [];

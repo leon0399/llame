@@ -409,6 +409,7 @@ describe("applyLiveMessage", () => {
     const item = {
       id: ID.b,
       chatId: ID.a,
+      producer: "owner" as const,
       mode: "queue" as const,
       state: "pending" as const,
       parts: [{ type: "text", text: "later" }],

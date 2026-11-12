@@ -56,6 +56,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   tool reference promise termination of the managed process group, without
   claiming that detached descendants are also stopped.
 
+- **Add producer-aware pending delivery contracts (#1657).** Delivery responses
+  identify `owner` and `job` producers. A job notice carries its Chat-scoped
+  locator and state, appears above the composer with delete only, and cannot
+  become an owner send or mode change. The datastore permits one notice per
+  job even after withdrawal; owner and Chat checks bind the pending read model
+  to its job. This storage layer does not yet create settlement notices.
+
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.

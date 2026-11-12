@@ -76,6 +76,18 @@ recorded requests after a lost signal. Deleting the Chat also stops its jobs.
 The composer's Stop cancels the Run, not a job that already moved to the
 background.
 
+## Pending delivery contract
+
+`GET /api/v1/chats/:chatId/deliveries` identifies each item's `producer`.
+Owner items retain their steer, interrupt and queue controls. A `job` item
+uses mode `notice`, names its `job://` locator and `jobState`, and offers delete
+only. The owner can withdraw it through the deliveries endpoint but cannot
+change its mode or submit a notice as an owner message. A withdrawn notice
+keeps its job's unique sender reference; withdrawal does not stop the job.
+
+Notice storage and its pending-item view are available, but job settlements do
+not create notices yet. Settlement delivery is a separate integration.
+
 ## Deploy workers
 
 A job belongs to its Chat but runs only on the worker that spawned it. An

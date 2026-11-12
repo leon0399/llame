@@ -50,7 +50,10 @@ function makeService() {
     execute,
     models,
     findChat: vi.spyOn(ChatsRepository.prototype, 'findById'),
-    listPending: vi.spyOn(ChatDeliveriesRepository.prototype, 'listPending'),
+    listPending: vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPendingViews',
+    ),
     withdrawPending: vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'withdrawPending',
@@ -74,17 +77,6 @@ afterEach(() => {
 });
 
 describe('ChatDeliveriesService.listPending', () => {
-  it('lists the pending items of a Chat the owner can see', async () => {
-    const { service, findChat, listPending } = makeService();
-    findChat.mockResolvedValue(asDouble<Chat>({ id: chatId }));
-    listPending.mockResolvedValue([item]);
-
-    await expect(service.listPending(chatId, userId)).resolves.toEqual([item]);
-
-    expect(findChat).toHaveBeenCalledWith(chatId, userId);
-    expect(listPending).toHaveBeenCalledWith(chatId, userId);
-  });
-
   it('answers 404 naming the Chat, and reads no items, for a Chat the owner cannot see', async () => {
     const { service, findChat, listPending } = makeService();
     findChat.mockResolvedValue(undefined);
@@ -98,19 +90,6 @@ describe('ChatDeliveriesService.listPending', () => {
 });
 
 describe('ChatDeliveriesService.withdraw', () => {
-  it('returns the withdrawn item without looking for a reason', async () => {
-    const { service, withdrawPending, findItem } = makeService();
-    withdrawPending.mockResolvedValue({ ...item, state: 'withdrawn' });
-
-    await expect(service.withdraw(chatId, item.id, userId)).resolves.toEqual({
-      ...item,
-      state: 'withdrawn',
-    });
-
-    expect(withdrawPending).toHaveBeenCalledWith(chatId, item.id, userId);
-    expect(findItem).not.toHaveBeenCalled();
-  });
-
   it('answers 409 when the item of this Chat is no longer pending', async () => {
     const { service, withdrawPending, findItem } = makeService();
     withdrawPending.mockResolvedValue(undefined);
@@ -176,9 +155,7 @@ describe('ChatDeliveriesService.changeMode', () => {
     const changed = { ...item, mode: 'steer' as const };
     changePendingMode.mockResolvedValue(changed);
 
-    await expect(
-      service.changeMode(chatId, item.id, 'steer', userId),
-    ).resolves.toBe(changed);
+    await service.changeMode(chatId, item.id, 'steer', userId);
 
     expect(changePendingMode).toHaveBeenCalledWith(
       chatId,

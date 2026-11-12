@@ -5,15 +5,17 @@
  * the table's forced RLS policy.
  */
 
-import { and, asc, eq, exists, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, eq, exists, inArray, isNotNull, or, sql } from 'drizzle-orm';
 
 import {
   chatDeliveries,
+  chatJobs,
   chats,
   messages,
   runs,
   type Run,
   type ChatDelivery,
+  type ChatJob,
   type ChatDeliveryMode,
   type ChatDeliverySettings,
 } from '../db/schema';
@@ -24,9 +26,15 @@ export type NewChatDelivery = {
   id: string;
   chatId: string;
   ownerUserId: string;
-  mode: ChatDeliveryMode;
+  mode: Exclude<ChatDeliveryMode, 'notice'>;
   parts: Array<unknown>;
   settings: ChatDeliverySettings;
+};
+
+/** Owner-facing delivery data, with only the job fields it may expose. */
+export type ChatDeliveryView = {
+  item: ChatDelivery;
+  job: Pick<ChatJob, 'executor' | 'seq' | 'state'> | null;
 };
 
 export class ChatDeliveriesRepository {
@@ -88,6 +96,32 @@ export class ChatDeliveriesRepository {
       .from(chatDeliveries)
       .where(this.pendingOf(chatId, ownerUserId))
       .orderBy(asc(chatDeliveries.position));
+  }
+
+  listPendingViews(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Array<ChatDeliveryView>> {
+    return this.selectView()
+      .where(
+        and(this.pendingOf(chatId, ownerUserId), this.resolvableProducer()),
+      )
+      .orderBy(asc(chatDeliveries.position));
+  }
+
+  async findView(
+    id: string,
+    ownerUserId: string,
+  ): Promise<ChatDeliveryView | undefined> {
+    const [view] = await this.selectView().where(
+      and(
+        eq(chatDeliveries.id, id),
+        eq(chatDeliveries.ownerUserId, ownerUserId),
+        this.resolvableProducer(),
+      ),
+    );
+
+    return view;
   }
 
   /**
@@ -177,6 +211,7 @@ export class ChatDeliveriesRepository {
       .where(
         and(
           this.pendingOf(chatId, ownerUserId),
+          eq(chatDeliveries.producer, 'owner'),
           inArray(chatDeliveries.mode, ['steer', 'interrupt']),
         ),
       )
@@ -199,6 +234,7 @@ export class ChatDeliveriesRepository {
       .where(
         and(
           this.pendingOf(chatId, ownerUserId),
+          eq(chatDeliveries.producer, 'owner'),
           eq(chatDeliveries.mode, 'queue'),
         ),
       )
@@ -282,7 +318,11 @@ export class ChatDeliveriesRepository {
       .update(chatDeliveries)
       .set({ mode, updatedAt: new Date() })
       .where(
-        and(this.pendingOf(chatId, ownerUserId), eq(chatDeliveries.id, id)),
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          eq(chatDeliveries.id, id),
+          eq(chatDeliveries.producer, 'owner'),
+        ),
       )
       .returning();
 
@@ -317,6 +357,34 @@ export class ChatDeliveriesRepository {
       .returning();
 
     return row;
+  }
+
+  private selectView() {
+    return this.db
+      .select({
+        item: chatDeliveries,
+        job: {
+          executor: chatJobs.executor,
+          seq: chatJobs.seq,
+          state: chatJobs.state,
+        },
+      })
+      .from(chatDeliveries)
+      .leftJoin(
+        chatJobs,
+        and(
+          eq(chatDeliveries.producer, 'job'),
+          sql`${chatJobs.id} = case
+            when pg_input_is_valid(${chatDeliveries.senderRef}, 'uuid')
+            then ${chatDeliveries.senderRef}::uuid end`,
+          eq(chatJobs.chatId, chatDeliveries.chatId),
+          eq(chatJobs.ownerUserId, chatDeliveries.ownerUserId),
+        ),
+      );
+  }
+
+  private resolvableProducer() {
+    return or(eq(chatDeliveries.producer, 'owner'), isNotNull(chatJobs.id));
   }
 
   private pendingOf(chatId: string, ownerUserId: string) {

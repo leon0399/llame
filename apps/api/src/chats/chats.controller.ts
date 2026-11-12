@@ -383,9 +383,9 @@ export class ChatsController {
             });
 
       if ('delivery' in result) {
-        response.status(202);
-        response.setHeader('Content-Type', 'application/json; charset=utf-8');
-        response.end(JSON.stringify(toChatDeliveryResponse(result.delivery)));
+        response
+          .status(202)
+          .json(toChatDeliveryResponse({ item: result.delivery, job: null }));
 
         return;
       }
