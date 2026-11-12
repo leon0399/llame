@@ -17,13 +17,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Refresh live background-job counts (#1657).** Job changes notify only the
-  owning Chat's subscribers. Connected API processes also refresh owner-scoped
-  counts on the worker heartbeat cadence, including lease expiry and revival
-  with no job-row write. Full Chat upserts retain the last sent count across
-  notifications; zero-count running groups remain observable until settlement.
-  Refreshes stop after the last unsubscribe or shutdown and never settle jobs,
-  deliver notices or start Runs.
+- **Prepare background-job notice transitions (#1657).** Owner-scoped
+  repository operations select ordered boundary notices, consume exact settled
+  notices, and restore only notices consumed by the matching Run. Terminal
+  recovery preparation distinguishes dispatched segments from undelivered
+  triggers. Delivered notices have an indexed receiving-message lookup.
+  Seeded database cases prove isolation and owner withdrawal; no settlement
+  producer or new owner-visible behavior is activated.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
@@ -53,6 +53,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Refresh live background-job counts (#1657).** Job changes notify only the
+  owning Chat's subscribers. Connected API processes also refresh owner-scoped
+  counts on the worker heartbeat cadence, including lease expiry and revival
+  with no job-row write. Full Chat upserts retain the last sent count across
+  notifications; zero-count running groups remain observable until settlement.
+  Refreshes stop after the last unsubscribe or shutdown and never settle jobs,
+  deliver notices or start Runs.
 
 - **Preserve host history without public job context (#1657).** Owner-history
   responses identify host-authored user turns. Public pagination and shared

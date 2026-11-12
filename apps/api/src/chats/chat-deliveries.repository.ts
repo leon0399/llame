@@ -21,6 +21,7 @@ import {
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatsRepository } from './chats-repository';
+import { returnUndispatchedJobNotices } from './job-notice-terminal-recovery';
 
 export type NewChatDelivery = {
   id: string;
@@ -98,6 +99,33 @@ export class ChatDeliveriesRepository {
       .orderBy(asc(chatDeliveries.position));
   }
 
+  /** Delivered job notices attached to one message, in delivery order. */
+  listDeliveredJobNotices(
+    chatId: string,
+    ownerUserId: string,
+    messageId: string,
+  ): Promise<Array<ChatDelivery>> {
+    return this.db
+      .select()
+      .from(chatDeliveries)
+      .where(
+        and(
+          eq(chatDeliveries.chatId, chatId),
+          eq(chatDeliveries.ownerUserId, ownerUserId),
+          eq(chatDeliveries.producer, 'job'),
+          eq(chatDeliveries.mode, 'notice'),
+          eq(chatDeliveries.state, 'delivered'),
+          eq(chatDeliveries.deliveredMessageId, messageId),
+        ),
+      )
+      .orderBy(asc(chatDeliveries.position));
+  }
+
+  /** Return notices attached to a segment that never dispatched. */
+  async returnUndispatchedJobNotices(run: Run): Promise<void> {
+    await returnUndispatchedJobNotices(this.db, run);
+  }
+
   listPendingViews(
     chatId: string,
     ownerUserId: string,
@@ -125,10 +153,123 @@ export class ChatDeliveriesRepository {
   }
 
   /**
+   * Insert the single notice for a settled job. The partial unique sender_ref
+   * index makes settlement retries idempotent.
+   */
+  async insertJobNotice(job: ChatJob): Promise<ChatDelivery | undefined> {
+    const [notice] = await this.db
+      .insert(chatDeliveries)
+      .values({
+        id: crypto.randomUUID(),
+        chatId: job.chatId,
+        ownerUserId: job.ownerUserId,
+        producer: 'job',
+        senderRef: job.id,
+        mode: 'notice',
+        parts: [],
+        settings: job.settings,
+      })
+      .onConflictDoNothing({
+        target: chatDeliveries.senderRef,
+        where: eq(chatDeliveries.producer, 'job'),
+      })
+      .returning();
+
+    return notice;
+  }
+
+  /**
+   * The pending owner steering items and job notices a boundary consumes.
+   * Queue items stay out of this set, and the lock prevents a concurrent
+   * owner withdrawal from racing the boundary.
+   */
+  lockPendingBoundary(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Array<ChatDelivery>> {
+    return this.db
+      .select()
+      .from(chatDeliveries)
+      .where(
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          or(
+            and(
+              eq(chatDeliveries.producer, 'owner'),
+              inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+            ),
+            and(
+              eq(chatDeliveries.producer, 'job'),
+              eq(chatDeliveries.mode, 'notice'),
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(chatDeliveries.position))
+      .for('update');
+  }
+
+  /**
+   * Withdraw notices for jobs this caller has independently confirmed
+   * settled. Filtering both the delivery and job rows defends owner, Chat,
+   * and state even when a caller supplies foreign or stale job ids.
+   */
+  async consumeJobNotices(input: {
+    chatId: string;
+    ownerUserId: string;
+    runId: string;
+    jobIds: Array<string>;
+  }): Promise<Array<string>> {
+    if (input.jobIds.length === 0) return [];
+
+    const rows = await this.db
+      .update(chatDeliveries)
+      .set({ state: 'withdrawn', runId: input.runId, updatedAt: new Date() })
+      .where(
+        and(
+          this.pendingOf(input.chatId, input.ownerUserId),
+          eq(chatDeliveries.producer, 'job'),
+          eq(chatDeliveries.mode, 'notice'),
+          inArray(chatDeliveries.senderRef, input.jobIds),
+          this.settledNoticeJob(input.chatId, input.ownerUserId),
+        ),
+      )
+      .returning({ id: chatDeliveries.id });
+
+    return rows.map(({ id }) => id);
+  }
+
+  /** Restore only rows this Run itself withdrew, never an owner's withdrawal. */
+  async restoreJobNotices(input: {
+    chatId: string;
+    ownerUserId: string;
+    runId: string;
+    deliveryIds: Array<string>;
+  }): Promise<void> {
+    if (input.deliveryIds.length === 0) return;
+
+    await this.db
+      .update(chatDeliveries)
+      .set({ state: 'pending', runId: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(chatDeliveries.chatId, input.chatId),
+          eq(chatDeliveries.ownerUserId, input.ownerUserId),
+          eq(chatDeliveries.producer, 'job'),
+          eq(chatDeliveries.mode, 'notice'),
+          eq(chatDeliveries.state, 'withdrawn'),
+          eq(chatDeliveries.runId, input.runId),
+          inArray(chatDeliveries.id, input.deliveryIds),
+          this.settledNoticeJob(input.chatId, input.ownerUserId),
+        ),
+      );
+  }
+
+  /**
    * The one owner-scoped query of a step end (run-steering D3): `cancel` when
    * the Run records a cancellation or no longer exists (its Chat was deleted),
    * so a signal that never reached this process is still found, else
-   * `delivery` when the Chat holds a pending `steer` or `interrupt` item.
+   * `delivery` when the Chat holds pending steering or a job notice.
    */
   async stepEndSignal(run: {
     runId: string;
@@ -145,7 +286,16 @@ export class ChatDeliveriesRepository {
             .where(
               and(
                 this.pendingOf(run.chatId, run.userId),
-                inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+                or(
+                  and(
+                    eq(chatDeliveries.producer, 'owner'),
+                    inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+                  ),
+                  and(
+                    eq(chatDeliveries.producer, 'job'),
+                    eq(chatDeliveries.mode, 'notice'),
+                  ),
+                ),
               ),
             ),
         ),
@@ -158,7 +308,7 @@ export class ChatDeliveriesRepository {
     return row.pending ? 'delivery' : undefined;
   }
 
-  /** Whether the Chat holds a pending `steer` or `interrupt` item. */
+  /** Whether the Chat holds pending steering or a job notice. */
   async hasPendingSteering(
     chatId: string,
     ownerUserId: string,
@@ -169,7 +319,16 @@ export class ChatDeliveriesRepository {
       .where(
         and(
           this.pendingOf(chatId, ownerUserId),
-          inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+          or(
+            and(
+              eq(chatDeliveries.producer, 'owner'),
+              inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+            ),
+            and(
+              eq(chatDeliveries.producer, 'job'),
+              eq(chatDeliveries.mode, 'notice'),
+            ),
+          ),
         ),
       )
       .limit(1);
@@ -392,6 +551,30 @@ export class ChatDeliveriesRepository {
       eq(chatDeliveries.chatId, chatId),
       eq(chatDeliveries.ownerUserId, ownerUserId),
       eq(chatDeliveries.state, 'pending'),
+    );
+  }
+
+  private settledNoticeJob(chatId: string, ownerUserId: string) {
+    return exists(
+      this.db
+        .select({ id: chatJobs.id })
+        .from(chatJobs)
+        .where(
+          and(
+            sql`${chatJobs.id} = case
+              when pg_input_is_valid(${chatDeliveries.senderRef}, 'uuid')
+              then ${chatDeliveries.senderRef}::uuid end`,
+            eq(chatJobs.chatId, chatId),
+            eq(chatJobs.ownerUserId, ownerUserId),
+            inArray(chatJobs.state, [
+              'succeeded',
+              'failed',
+              'cancelled',
+              'timed_out',
+              'lost',
+            ]),
+          ),
+        ),
     );
   }
 }
