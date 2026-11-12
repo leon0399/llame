@@ -17,14 +17,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
-  seeded job notices beside owner steering, preserve the earlier reply, and
-  persist job context only at dispatch. Stop-result recording consumes exact
-  notices atomically; discarded results and terminal segments that never
-  dispatched restore only their own notices. Regenerate restores exact receipts
-  from its source Run's discarded segment using the consuming Run identity;
-  owner-withdrawn notices stay withdrawn. This layer activates no settlement
-  producer and starts no idle-Chat Run.
+- **Restore Regenerate receipts through Continue checkpoints (#1696).**
+  Recovery follows only tool results retained by each Continue checkpoint and
+  restores each notice against the Run that consumed it. Unrelated ancestor
+  receipts remain excluded, and owner-withdrawn notices remain withdrawn.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
@@ -54,6 +50,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
+  seeded job notices beside owner steering, preserve the earlier reply, and
+  persist job context only at dispatch. Stop-result recording consumes exact
+  notices atomically; discarded results and terminal segments that never
+  dispatched restore only their own notices. Regenerate restores exact receipts
+  from its source Run's discarded segment using the consuming Run identity;
+  owner-withdrawn notices stay withdrawn. This layer activates no settlement
+  producer and starts no idle-Chat Run.
 
 - **Prepare bounded job notice context (#1657).** The packaged renderer frames
   settled-job facts and output suffixes as data. Owner-scoped database reads

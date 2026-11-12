@@ -7190,7 +7190,7 @@ export class RunExecutionService {
       run.followUpAction === 'regenerate' &&
       !(await events.findFirstByType(run.runId, run.userId, 'model.requested'));
 
-    const sourceDeliveryIds =
+    const sourceDeliveryGroups =
       firstRegenerateDispatch && fenced.sourceRunId !== null
         ? await sourceSegmentJobNoticeIds({
             tx,
@@ -7200,7 +7200,7 @@ export class RunExecutionService {
           })
         : [];
 
-    if (deliveryIds.length > 0 || sourceDeliveryIds.length > 0) {
+    if (deliveryIds.length > 0 || sourceDeliveryGroups.length > 0) {
       if (!(await new ChatsRepository(tx).lock(run.chatId, run.userId))) {
         throw new RunNotRunnableError(run.runId);
       }
@@ -7216,12 +7216,12 @@ export class RunExecutionService {
         });
       }
 
-      if (sourceDeliveryIds.length > 0 && fenced.sourceRunId !== null) {
+      for (const group of sourceDeliveryGroups) {
         await deliveries.restoreJobNotices({
           chatId: run.chatId,
           ownerUserId: run.userId,
-          runId: fenced.sourceRunId,
-          deliveryIds: sourceDeliveryIds,
+          runId: group.runId,
+          deliveryIds: group.deliveryIds,
         });
       }
     }
