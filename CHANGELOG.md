@@ -67,6 +67,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Preserve host history without public job context (#1657).** Owner-history
+  responses identify host-authored user turns. Public pagination and shared
+  forks omit them; owner forks retain literal context and reply relationships.
+  Recency selects the first owner-authored turn, and an empty host trigger
+  preserves the earlier assistant reply in provider history. Context-only host
+  rows supply no title, preview or search evidence. This prerequisite does not
+  yet create settlement notices or notice-started Runs.
+
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.
@@ -87,6 +95,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Rebase the active tool-search proposal's permission and replay deltas on the
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
+
 
 # 2026-11-11
 

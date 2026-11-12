@@ -5196,6 +5196,10 @@
             "type": "string",
             "nullable": true
           },
+          "host": {
+            "type": "boolean",
+            "description": "A host-authored user row with no owner sender."
+          },
           "parts": {
             "type": "array",
             "items": {
@@ -5253,6 +5257,7 @@
           "seq",
           "role",
           "senderUserId",
+          "host",
           "parts",
           "attachments",
           "usage",

@@ -7288,9 +7288,9 @@ function retainedReadRef(
 /**
  * The messages a prepared pass sends: the Chat's history, the trigger's own
  * stored parts in the position its history row takes, then — for a Continue
- * Run — the kept steps (turn-actions D5/D6). An accepted message always carries
- * text, so the trigger row's message is the last the history produced, and the
- * kept steps follow it.
+ * Run — the kept steps (turn-actions D5/D6). An empty host trigger has not
+ * produced a history message yet, so it must be appended rather than replace
+ * the preceding assistant reply.
  */
 function requestMessages(
   context: PreparedAttemptContext,
@@ -7306,7 +7306,8 @@ function requestMessages(
     : context.triggerParts;
 
   const messages = [...context.messages];
-  messages[messages.length - 1] = {
+
+  const trigger: ModelRequestContext['messages'][number] = {
     role: 'user',
     content: userPartsToModelContent(
       placeAcceptedTurnItems(
@@ -7316,6 +7317,9 @@ function requestMessages(
       ),
     ),
   };
+
+  if (context.triggerParts.length === 0) messages.push(trigger);
+  else messages[messages.length - 1] = trigger;
 
   return [...messages, ...keptMessages];
 }

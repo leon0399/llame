@@ -228,9 +228,9 @@ This prerequisite creates no notice or host-started Run. Seeded host rows prove
 the privacy/context rules; task 9.4's notice-started history acceptance belongs
 to `host-runs` after task 10.1.
 
-- [ ] 8b.1 Define the host predicate as role `user` and no sender. Keep an empty host trigger in its model-history position without replacing the earlier reply; skip host rows in title input, list preview, recency, public projection and shared fork. Preserve literal owner forks, reply-target remapping and search's text-only evidence. Add `ChatMessageResponse.host`, regenerate OpenAPI and the web client, and migrate every handwritten caller/fixture.
-- [ ] 8b.2 Add seeded-row context-order, title/recency, public paging, shared-fork and negative isolation proof. Verify owner-history host marking and absence from search evidence through real database reads. Update the relevant reference and `CHANGELOG.md`; do not mark complete the notice-started scenario of task 9.4.
-- [ ] 8b.3 Run focused API/web lint, typecheck, build and tests, prove clean regeneration, and self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
+- [x] 8b.1 Define the host predicate as role `user` and no sender. Keep an empty host trigger in its model-history position without replacing the earlier reply; skip host rows in title input, list preview, recency, public projection and shared fork. Preserve literal owner forks, reply-target remapping and search's text-only evidence. Add `ChatMessageResponse.host`, regenerate OpenAPI and the web client, and migrate every handwritten caller/fixture.
+- [x] 8b.2 Add seeded-row context-order, title/recency, public paging, shared-fork and negative isolation proof. Verify owner-history host marking and absence from search evidence through real database reads. Update the relevant reference and `CHANGELOG.md`; do not mark complete the notice-started scenario of task 9.4.
+- [x] 8b.3 Run focused API/web lint, typecheck, build and tests, prove clean regeneration, and self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
 - [ ] 8b.4 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
 
 ## 8c. Live job projection (`background-jobs/job-projection`)
