@@ -8,57 +8,61 @@ Follow [CONTRIBUTING.md](../../../CONTRIBUTING.md). Create each branch with `$gh
 current stack top, only after the proposal is approved. Implement each layer with
 `$openspec-apply-change`.
 
-```text
 master
-  <- background-jobs/proposal
-  <- background-jobs/job-store
-  <- background-jobs/bash-executor
-  <- background-jobs/output-capture
-  <- background-jobs/job-persistence
-  <- background-jobs/job-runtime
-  <- background-jobs/job-recovery
-  <- background-jobs/bash-async
-  <- background-jobs/bash-move
-  <- background-jobs/job-stop
-  <- background-jobs/yield
-  <- background-jobs/notice-store
-  <- background-jobs/host-history
-  <- background-jobs/job-projection
-  <- background-jobs/notices
-  <- background-jobs/run-enqueue
-  <- background-jobs/host-runs
-  <- background-jobs/wait-suspend
-  <- background-jobs/wait-resume
-  <- background-jobs/web
-  <- background-jobs/finalize
-```
+<- background-jobs/proposal
+<- background-jobs/job-store
+<- background-jobs/bash-executor
+<- background-jobs/output-capture
+<- background-jobs/job-persistence
+<- background-jobs/job-runtime
+<- background-jobs/job-recovery
+<- background-jobs/bash-async
+<- background-jobs/bash-move
+<- background-jobs/job-stop
+<- background-jobs/yield
+<- background-jobs/notice-store
+<- background-jobs/host-history
+<- background-jobs/job-projection
+<- background-jobs/notice-transitions
+<- background-jobs/notice-context
+<- background-jobs/notice-delivery
+<- background-jobs/notices
+<- background-jobs/run-enqueue
+<- background-jobs/host-runs
+<- background-jobs/wait-suspend
+<- background-jobs/wait-resume
+<- background-jobs/web
+<- background-jobs/finalize
 
 Each layer leaves `master` in a state that works. A layer that only prepares code for a later
 one changes no behavior that the model or the owner can see.
 
-| Layer             | Parent            | Owns                                                                                       | Visible change                                   | Estimate   | Issue             |
-| ----------------- | ----------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------ | ---------- | ----------------- |
-| `proposal`        | `master`          | The planning artifacts of this change.                                                     | none                                             | 3,250      | refs #1657        |
-| `job-store`       | `proposal`        | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats. | `read job://`, the jobs API                      | 2,000      | refs #1657        |
-| `bash-executor`   | `job-store`       | An executor handle that outlives its call, and the host process limiter.                   | 64 commands for each worker, `limit_reached`     | 1,500      | refs #1657, #1050 |
-| `output-capture`  | `bash-executor`   | Redacted incremental handle snapshots, output subscriptions, and per-stream truncation.    | none                                             | 650        | refs #1657        |
-| `job-persistence` | `output-capture`  | Atomic job settlement, output increments, artifacts, and database failure proof.           | none                                             | 850        | refs #1657        |
-| `job-runtime`     | `job-persistence` | The registry, output capture, lifetime, and orderly worker shutdown.                       | none                                             | 1,950      | refs #1657        |
-| `job-recovery`    | `job-runtime`     | Owner-scoped heartbeat stop checks and failed-settlement recovery.                         | none                                             | 350        | refs #1657        |
-| `bash-async`      | `job-recovery`    | `async`, `unlimited`, background results, job settings, stop signals and Chat deletion.    | `bash` with `async: true`, effective owner stops | 1,900      | refs #1657, #1051 |
-| `bash-move`       | `bash-async`      | The move of a foreground command at its bound.                                             | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
-| `job-stop`        | `bash-move`       | The model-facing `stop` tool and its result/notice coordination.                           | `stop`                                           | 1,300      | refs #1657        |
-| `yield`           | `job-stop`        | Calls that yield to a steer, and the interrupt fate for each call.                         | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
-| `notice-store`    | `yield`           | Notice storage, owner API restrictions, generated contracts and affected consumers.        | producer-aware pending-item contract             | 1,300      | refs #1657        |
-| `host-history`    | `notice-store`    | Host-message history, context position, privacy projections and generated consumers.       | host-message flag; no live notice producer       | 1,200      | refs #1657        |
-| `job-projection`  | `host-history`    | Job-row notifications and owner-scoped running-job display refresh.                        | live job counts across lease changes             | 1,000      | refs #1657        |
-| `notices`         | `job-projection`  | Atomic settlement notices, boundary delivery, context items and stop-result coordination.  | notices in a live Run                            | 1,900      | refs #1657        |
-| `run-enqueue`     | `notices`         | Queue insertion through the caller's tenant transaction, with rollback and delay proof.    | none                                             | 750        | refs #1657        |
-| `host-runs`       | `run-enqueue`     | Runs that the host starts, held notices and notice-started history acceptance.             | a notice starts a Run                            | 1,950      | refs #1657        |
-| `wait-suspend`    | `host-runs`       | `awaiting_jobs`, the wakers, the deadline job, and admission.                              | none                                             | 2,000      | refs #1657        |
-| `wait-resume`     | `wait-suspend`    | The `wait` tool and the attempt after a wake.                                              | `wait`                                           | 2,000      | refs #1657        |
-| `web`             | `wait-resume`     | The sidebar state, the Jobs section, and the transcript rows.                              | the owner controls                               | 1,800      | Closes #1657      |
-| `finalize`        | `web`             | Spec synchronization, task records, and archive movement.                                  | none                                             | 0 authored | refs #1657        |
+| Layer                | Parent               | Owns                                                                                                            | Visible change                                   | Estimate   | Issue             |
+| -------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------- | ----------------- |
+| `proposal`           | `master`             | The planning artifacts of this change.                                                                          | none                                             | 3,250      | refs #1657        |
+| `job-store`          | `proposal`           | The job tables, their isolation, the `job://` reader, the jobs API, and worker heartbeats.                      | `read job://`, the jobs API                      | 2,000      | refs #1657        |
+| `bash-executor`      | `job-store`          | An executor handle that outlives its call, and the host process limiter.                                        | 64 commands for each worker, `limit_reached`     | 1,500      | refs #1657, #1050 |
+| `output-capture`     | `bash-executor`      | Redacted incremental handle snapshots, output subscriptions, and per-stream truncation.                         | none                                             | 650        | refs #1657        |
+| `job-persistence`    | `output-capture`     | Atomic job settlement, output increments, artifacts, and database failure proof.                                | none                                             | 850        | refs #1657        |
+| `job-runtime`        | `job-persistence`    | The registry, output capture, lifetime, and orderly worker shutdown.                                            | none                                             | 1,950      | refs #1657        |
+| `job-recovery`       | `job-runtime`        | Owner-scoped heartbeat stop checks and failed-settlement recovery.                                              | none                                             | 350        | refs #1657        |
+| `bash-async`         | `job-recovery`       | `async`, `unlimited`, background results, job settings, stop signals and Chat deletion.                         | `bash` with `async: true`, effective owner stops | 1,900      | refs #1657, #1051 |
+| `bash-move`          | `bash-async`         | The move of a foreground command at its bound.                                                                  | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
+| `job-stop`           | `bash-move`          | The model-facing `stop` tool and its result/notice coordination.                                                | `stop`                                           | 1,300      | refs #1657        |
+| `yield`              | `job-stop`           | Calls that yield to a steer, and the interrupt fate for each call.                                              | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
+| `notice-store`       | `yield`              | Notice storage, owner API restrictions, generated contracts and affected consumers.                             | producer-aware pending-item contract             | 1,300      | refs #1657        |
+| `host-history`       | `notice-store`       | Host-message history, context position, privacy projections and generated consumers.                            | host-message flag; no live notice producer       | 1,200      | refs #1657        |
+| `job-projection`     | `host-history`       | Job-row notifications and owner-scoped running-job display refresh.                                             | live job counts across lease changes             | 1,000      | refs #1657        |
+| `notice-transitions` | `job-projection`     | Notice repository state transitions and seeded-row database proof; no live producer.                            | none                                             | 1,200      | refs #1657        |
+| `notice-context`     | `notice-transitions` | Packaged job renderer, cache probe, delivered-item loader and private event egress prep.                        | none                                             | 1,300      | refs #1657        |
+| `notice-delivery`    | `notice-context`     | Run-boundary delivery, dispatch, atomic stop consumption/restoration and seeded readiness proof.                | none                                             | 1,700      | refs #1657        |
+| `notices`            | `notice-delivery`    | Actual transactional settlement producer, lost-touch and executing-Run signals, full proof and activation docs. | notices in a live Run                            | 1,900      | refs #1657        |
+| `run-enqueue`        | `notices`            | Queue insertion through the caller's tenant transaction, with rollback and delay proof.                         | none                                             | 750        | refs #1657        |
+| `host-runs`          | `run-enqueue`        | Runs that the host starts, held notices and notice-started history acceptance.                                  | a notice starts a Run                            | 1,950      | refs #1657        |
+| `wait-suspend`       | `host-runs`          | `awaiting_jobs`, the wakers, the deadline job, and admission.                                                   | none                                             | 2,000      | refs #1657        |
+| `wait-resume`        | `wait-suspend`       | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
+| `web`                | `wait-resume`        | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
+| `finalize`           | `web`                | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
 deltas hold MODIFIED requirements in nine capabilities, and each must restate its canonical block
@@ -229,6 +233,34 @@ notice, host message or Run.
 
 - [ ] 8c.1 Verify task 9.5 with real owner-scoped database/socket proof, focused API lint/typecheck/build, Markdown and migration checks; self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
 - [ ] 8c.2 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
+
+## 8d. Notice transitions (`background-jobs/notice-transitions`)
+
+This inert preparation layer adds repository state APIs and proves them against seeded
+rows. It adds no settlement producer and does not complete task 9 acceptance.
+
+- [ ] 8d.1 Implement the notice transition repository APIs, including owner deletion, queued/held/pending transitions and atomic restrictions; prove the state rules and isolation with seeded database rows, without creating notices from job settlement.
+- [ ] 8d.2 Prepare the exact seeded-row database proof for the task 9.1 owner actions and notice-mode rules; task 9.1 stays unchecked until final activation proves the producer-dependent acceptance end to end.
+- [ ] 8d.3 Run focused repository and database verification, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; do not claim a mutation gate passed until its result is recorded.
+
+## 8e. Notice context (`background-jobs/notice-context`)
+
+This inert preparation layer supplies rendering and private delivered-item plumbing.
+It creates no live notice and does not complete task 9 acceptance.
+
+- [ ] 8e.1 Add the packaged job context renderer, cache probe, delivered-item loader, and private event egress preparation; prove each with seeded notices and ensure consumed identifiers stay outside owner-visible event projections.
+- [ ] 8e.2 Prepare the context proof for task 9.3 using seeded notice rows, including bounded output, the interrupted-item ordering and prior reply preservation; task 9.3 stays unchecked until the producer is live and end-to-end proof passes.
+- [ ] 8e.3 Run focused context/egress suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; record mutation results without treating readiness proof as activation.
+
+## 8f. Notice delivery (`background-jobs/notice-delivery`)
+
+This inert preparation layer integrates boundary delivery and atomic stop-result
+consumption/restoration. Seeded readiness proof does not activate a producer or complete
+task 9 acceptance.
+
+- [ ] 8f.1 Implement Run-boundary delivery, dispatch integration, and atomic stop-result consumption/restoration; test exact consumed ids, restoration on discarded results, and seeded notices through real database transactions.
+- [ ] 8f.2 Prepare seeded readiness proof for tasks 9.1–9.3, including boundary ordering and stop-result cases. Keep tasks 9.1–9.3 unchecked until `notices` activates the producer and its end-to-end proof succeeds; task 9.4 remains owned by `host-runs` after task 10.1.
+- [ ] 8f.3 Run focused delivery/readiness suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; readiness does not satisfy the delivery gate.
 
 ## 9. Notices (`background-jobs/notices`)
 

@@ -596,6 +596,12 @@ removes the selector.
 
 ## Revision history
 
+- **v5 (2026-11-12, inert notice preparation split):** Partitioned the existing notice delivery work
+  into `notice-transitions`, `notice-context`, and `notice-delivery` before final `notices`
+  activation. This changes layer ownership and sequencing only; it adds no capability or scope.
+  The three preparation layers prove seeded state and readiness only. Final `notices` retains
+  the live settlement producer, lost-touch and executing-Run signals, end-to-end producer proof,
+  and original tasks 9.1–9.3 acceptance. `host-runs` retains task 9.4 and task 10 acceptance.
 - **v4 (2026-11-11, published feedback):** atomic wake and deadline enqueue replaces the
   post-commit gap and unreachable lost-wake recovery. Notice consumption is transactional and
   restores existing rows only for the consuming Run. Retry covers Chat deletion and admission.
