@@ -153,6 +153,7 @@ describe("process-group settlement", () => {
     expect(await pending).toMatchObject({
       type: "timed_out",
       truncated: true,
+      truncatedStreams: { stdout: true, stderr: true },
     });
   });
 

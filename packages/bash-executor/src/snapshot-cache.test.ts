@@ -1,6 +1,12 @@
 import { sanitizeKnownResultAtBound } from "./sanitize";
 import { protectedValueIntervals } from "@workspace/runtime-safety";
-import { emptySnapshotCache, sanitizeSnapshot } from "./snapshot-cache";
+import {
+  emptySnapshotCache,
+  emptySnapshotCaches,
+  sanitizeSnapshot,
+  snapshotOutput,
+  type SnapshotOwner,
+} from "./snapshot-cache";
 import type { StreamBound } from "./output-bound";
 
 const values = ["sk-secret-value", "tok", "\u{1F511}key\u{1F511}"];
@@ -211,5 +217,124 @@ describe("sanitizeSnapshot", () => {
 
     sanitizeSnapshot(cache2, `zz${run}`, bound, ["abcd"]);
     expect(cache2.offset).toBeGreaterThan(0);
+  });
+});
+
+describe("snapshotOutput", () => {
+  const context = {
+    workingDirectory: process.cwd(),
+    secretBoundary: true,
+    processIsolation: true,
+    outputBound: 4,
+    inputBound: 256,
+    durationMs: 20,
+    maxProcesses: 1,
+  };
+
+  function owner(
+    stdout: { text: string; lost?: boolean; used?: number },
+    stderr: { text: string; lost?: boolean; used?: number },
+  ): SnapshotOwner {
+    return {
+      snapshots: emptySnapshotCaches(),
+      streams: {
+        stdout: {
+          text: stdout.text,
+          lost: stdout.lost ?? false,
+          used: stdout.used ?? stdout.text.length,
+        },
+        stderr: {
+          text: stderr.text,
+          lost: stderr.lost ?? false,
+          used: stderr.used ?? stderr.text.length,
+        },
+      },
+      request: { context, options: {} },
+    };
+  }
+
+  it.each([
+    {
+      name: "stdout-only sanitization cut",
+      stdout: "abcde",
+      stderr: "",
+      flags: { stdout: true, stderr: false },
+    },
+    {
+      name: "stderr-only sanitization cut",
+      stdout: "",
+      stderr: "abcde",
+      flags: { stdout: false, stderr: true },
+    },
+  ])("matches the full sanitizer for $name", ({ stdout, stderr, flags }) => {
+    const got = snapshotOutput(owner({ text: stdout }, { text: stderr }));
+
+    const want = sanitizeKnownResultAtBound(
+      {
+        status: "success",
+        exitCode: 0,
+        stdout,
+        stderr,
+        truncatedStreams: { stdout: false, stderr: false },
+        truncated: false,
+      },
+      { kind: "code-units", limit: context.outputBound },
+      [],
+      {
+        stdout: { endedByLlame: true },
+        stderr: { endedByLlame: true },
+      },
+    );
+
+    expect(got).toEqual({
+      stdout: want.stdout,
+      stderr: want.stderr,
+      truncated: want.truncated,
+      truncatedStreams: want.truncatedStreams,
+    });
+    expect(got.truncatedStreams).toEqual(flags);
+  });
+
+  it("marks a lost capture even when sanitization itself fits the bound", () => {
+    const got = snapshotOutput(
+      owner({ text: "ok", lost: true, used: 2 }, { text: "", used: 0 }),
+    );
+
+    const want = sanitizeKnownResultAtBound(
+      {
+        status: "success",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+        truncated: true,
+        truncatedStreams: { stdout: true, stderr: false },
+      },
+      { kind: "code-units", limit: context.outputBound },
+      [],
+      {
+        stdout: { endedByLlame: true },
+        stderr: { endedByLlame: true },
+      },
+    );
+
+    expect(got).toEqual({
+      stdout: want.stdout,
+      stderr: want.stderr,
+      truncated: want.truncated,
+      truncatedStreams: want.truncatedStreams,
+    });
+  });
+
+  it("marks discarded over-bound capture bytes independently of sanitized text", () => {
+    const got = snapshotOutput(
+      owner({ text: "ok", used: 5 }, { text: "", used: 0 }),
+    );
+
+    expect(got).toEqual({
+      stdout: "ok",
+      stderr: "",
+      truncated: true,
+      truncatedStreams: { stdout: true, stderr: false },
+    });
   });
 });
