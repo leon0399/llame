@@ -4,7 +4,7 @@
  * touch and count, the reserved artifact number, the `job://` reader, and the
  * negative isolation cases.
  *
- * TEST_DATABASE_URL-gated; run by test:integration.
+ * Requires TEST_DATABASE_URL (throws without it); run by test:integration.
  */
 
 import { eq, sql as drizzleSql } from 'drizzle-orm';
@@ -62,7 +62,9 @@ describe('job store', () => {
 
   beforeAll(async () => {
     if (!TEST_DB_URL)
-      throw new Error('Integration database was not provisioned.');
+      throw new Error(
+        'Integration database was not provisioned; run pnpm --filter api test:integration.',
+      );
     sql = postgres(TEST_DB_URL, {
       ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
       max: 6,
