@@ -1,4 +1,11 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
@@ -468,6 +475,34 @@ describe("managed executor contract", () => {
       status: "success",
       stdout: "admitted",
     });
+  });
+
+  it("refuses a consumed admission while pending and after settlement", async () => {
+    const admitted = admitManagedBash(
+      { command: "bash", args: ["-c", "printf x >> executions.txt"] },
+      context(directory),
+      { toolCallId: "one-admission" },
+    );
+
+    if ("type" in admitted) throw new Error("Expected admission");
+    const slot = limiter.tryAcquire();
+
+    if (slot === null) throw new Error("Expected a process slot");
+
+    try {
+      const first = admitted.run();
+      const second = admitted.run();
+      const [initial, duplicate] = await Promise.all([first, second]);
+
+      expect(initial).toMatchObject({ status: "success" });
+      expect(duplicate).toMatchObject({ type: "unavailable" });
+      expect(await admitted.run()).toMatchObject({ type: "unavailable" });
+      expect(await readFile(join(directory, "executions.txt"), "utf8")).toBe(
+        "x",
+      );
+    } finally {
+      slot.release();
+    }
   });
 
   it("cancels before spawn when aborted during durable recording", async () => {

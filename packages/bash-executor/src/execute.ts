@@ -237,7 +237,7 @@ export type AdmittedBashExecution = {
 
 /**
  * Validate a command before the caller commits its durable attempt. It takes
- * no process slot: the caller holds one from its own limiter.
+ * no process slot: the caller holds one from its own limiter. Its `run` is single-use.
  */
 export function admitManagedBash(
   input: BashCommandInput,
@@ -248,7 +248,22 @@ export function admitManagedBash(
 
   if ("type" in request) return request;
 
-  return { cwd: request.cwd, run: () => runAdmitted(request) };
+  let consumed = false;
+
+  return {
+    cwd: request.cwd,
+    run: async () => {
+      if (consumed)
+        return {
+          status: "error",
+          type: "unavailable",
+          message: "Command admission has already been consumed or released.",
+        };
+      consumed = true;
+
+      return runAdmitted(request);
+    },
+  };
 }
 
 async function runAdmitted(request: RunRequest): Promise<BashResult> {

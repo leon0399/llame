@@ -126,9 +126,11 @@ export function watchManagedChild(
 ): ManagedWatch {
   const controls: WatchControls = { settling: false };
   const { promise: settled, resolve: resolveSettled } = deferred<BashResult>();
+  let settledOutput: ManagedOutput | undefined;
 
   const finish = once(
     (result) => {
+      if ("stdout" in result) settledOutput = outputOf(result);
       resolve(result);
       resolveSettled(result);
     },
@@ -157,7 +159,8 @@ export function watchManagedChild(
 
   return {
     settled,
-    snapshot: () => outputOf(knownCloseResult(0, session, true)),
+    snapshot: () =>
+      settledOutput ?? outputOf(knownCloseResult(0, session, true)),
     stop: (cause) => stopSession(session, cause, settled),
   };
 }
@@ -182,12 +185,8 @@ function unstartedWatch(
   };
 }
 
-function outputOf(result: BashKnownResult): ManagedOutput {
-  return {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    truncated: result.truncated,
-  };
+function outputOf({ stdout, stderr, truncated }: ManagedOutput): ManagedOutput {
+  return { stdout, stderr, truncated };
 }
 
 /**
@@ -206,7 +205,9 @@ async function stopSession(
 
     return {
       proved,
-      ...outputOf(knownCloseResult(1, session, true)),
+      ...outputOf(
+        "stdout" in result ? result : knownCloseResult(1, session, true),
+      ),
     };
   }
 

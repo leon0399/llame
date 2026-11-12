@@ -39,6 +39,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `startManagedBash`, a handle with no deadline that a later change uses for
   background jobs; no tool calls it yet. See
   [bash](docs/product/reference/tools/bash.md#errors).
+  An admitted execution remains single-use, including concurrent calls. A
+  settled handle's snapshot and a later stop retain its final sanitized output,
+  including an incomplete protected-value prefix from a natural exit.
 - **Add the job store for background jobs (#1657).** New tables `chat_jobs`,
   `chat_job_chunks`, and `worker_instances` hold one record for each job of a
   Chat, its stored output increments, and the heartbeat of each worker process.

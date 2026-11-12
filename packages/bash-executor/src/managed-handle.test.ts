@@ -103,6 +103,36 @@ describe("startManagedBash handle", () => {
     expect(stopped).toMatchObject({ proved: true, stdout: "done" });
   });
 
+  it("keeps a natural trailing credential prefix in the final snapshot and stop", async () => {
+    const handle = startManagedBash(
+      {
+        command: "bash",
+        args: ["-c", "printf 'out SECRET'; printf 'err SECRET' >&2"],
+      },
+      context,
+      { protectedValues: ["SECRET-KEY"] },
+    );
+
+    if ("type" in handle) throw new Error("Expected a handle");
+    await expect(handle.settled).resolves.toMatchObject({
+      status: "success",
+      stdout: "out SECRET",
+      stderr: "err SECRET",
+      truncated: false,
+    });
+    expect(handle.snapshot()).toMatchObject({
+      stdout: "out SECRET",
+      stderr: "err SECRET",
+      truncated: false,
+    });
+    await expect(handle.stop("owner")).resolves.toMatchObject({
+      proved: true,
+      stdout: "out SECRET",
+      stderr: "err SECRET",
+      truncated: false,
+    });
+  });
+
   it("reports an unproved stop and settles as outcome unknown", async () => {
     vi.spyOn(processTree, "stopProcessGroup").mockResolvedValue(false);
     const handle = start("printf out; sleep 5");

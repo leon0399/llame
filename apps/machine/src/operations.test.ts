@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { chmod, readFile, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -547,25 +548,34 @@ describe("proc.bash", () => {
   });
 
   it("still answers unavailable for a second command while one runs", async () => {
+    const started = join(fixture.root, "first-started");
+    const release = join(fixture.root, "first-release");
+
     const first = daemon.call("proc.bash", {
-      envelope: envelope(),
-      command: "sleep 0.5; printf first",
+      envelope: envelope(15_000),
+      command:
+        "printf ready > first-started; for ((i=0; i<1000; i++)); do [ -e first-release ] && break; sleep 0.01; done; [ -e first-release ] || exit 1; printf first",
       cwd: fixture.root,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    try {
+      await waitFor(() => existsSync(started));
+      await expect(
+        daemon.call("proc.bash", {
+          envelope: envelope(),
+          command: "printf second",
+          cwd: fixture.root,
+        }),
+      ).resolves.toEqual({
+        status: "error",
+        type: "unavailable",
+        message: "Managed process limit reached.",
+      });
+    } finally {
+      await writeFile(release, "");
+      await first;
+    }
 
-    await expect(
-      daemon.call("proc.bash", {
-        envelope: envelope(),
-        command: "printf second",
-        cwd: fixture.root,
-      }),
-    ).resolves.toEqual({
-      status: "error",
-      type: "unavailable",
-      message: "Managed process limit reached.",
-    });
     await expect(first).resolves.toMatchObject({
       status: "success",
       stdout: "first",
