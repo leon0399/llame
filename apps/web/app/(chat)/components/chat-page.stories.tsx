@@ -2773,6 +2773,7 @@ function pendingItem(
   return {
     id,
     chatId: CHAT_ID,
+    producer: "owner",
     mode,
     state: "pending",
     parts: [{ type: "text", text }],

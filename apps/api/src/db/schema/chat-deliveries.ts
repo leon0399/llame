@@ -8,6 +8,7 @@ import {
   pgPolicy,
   pgTable,
   text,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -15,11 +16,16 @@ import { timestamptz } from '../columns';
 import { type PermissionMode } from '../../tools/permissions/permission-mode';
 import { chats } from './chats';
 
-/** The producer kinds of a pending item; `run-steering` ships only `owner`. */
-export type ChatDeliveryProducer = 'owner';
+/** Who produced a pending item. */
+export type ChatDeliveryProducer = 'owner' | 'job';
 
-/** How a pending item reaches the Chat; the API accepts a mode once its layer ships. */
-export const chatDeliveryModes = ['steer', 'interrupt', 'queue'] as const;
+/** How a pending item reaches the Chat; sends accept only owner modes. */
+export const chatDeliveryModes = [
+  'steer',
+  'interrupt',
+  'queue',
+  'notice',
+] as const;
 
 export type ChatDeliveryMode = (typeof chatDeliveryModes)[number];
 
@@ -84,6 +90,10 @@ export const chatDeliveries = pgTable(
     index('chat_deliveries_chat_pending_idx')
       .on(t.chatId, t.position)
       .where(sql`state = 'pending'`),
+    // A job produces at most one notice, including after it was consumed.
+    uniqueIndex('chat_deliveries_job_sender_unique')
+      .on(t.senderRef)
+      .where(sql`${t.producer} = 'job'`),
     pgPolicy('chat_deliveries_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
     }),

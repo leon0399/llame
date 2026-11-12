@@ -168,9 +168,14 @@ export const chatDeliveryResponseSchema = z.object({
   id: z
     .string()
     .uuid()
-    .describe('The client message id the item was sent with.'),
+    .describe('The delivery id; also the client message id for owner items.'),
   chatId: z.string().uuid(),
-  mode: z.enum(['steer', 'interrupt', 'queue']),
+  producer: z.enum(['owner', 'job']),
+  job: z.string().describe('The job locator of a notice.').optional(),
+  jobState: z
+    .enum(['running', 'succeeded', 'failed', 'cancelled', 'timed_out', 'lost'])
+    .optional(),
+  mode: z.enum(['steer', 'interrupt', 'queue', 'notice']),
   state: z.enum(['pending', 'delivered', 'withdrawn']),
   parts: z.array(z.record(z.string(), z.any())),
   modelId: z.string(),

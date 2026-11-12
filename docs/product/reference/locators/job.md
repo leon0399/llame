@@ -89,6 +89,14 @@ the locator, the state, and the start time. An empty Chat answers
 member; `:raw`, `:outline`, and comma lists are `invalid_selector`. A fork of a
 Chat holds no job of its source.
 
+## Pending notices
+
+A pending job notice above the composer names its `job://` locator and state.
+It offers delete only; it cannot be edited or changed into an owner message.
+Deleting the notice does not stop its job. The
+[pending-delivery contract](../../operator/background-jobs.md#pending-delivery-contract)
+describes its API and the current settlement-integration boundary.
+
 ## Errors
 
 | Error              | When                                                                |

@@ -2,20 +2,27 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
-- Bind pending interrupt and steering checks to the exact segment they read, so
-  a delayed database response cannot control a same-attempt replacement.
-
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
   A proved lifetime stop settles as `timed_out`; unproved termination stays
   `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
   without the ordinary tool-call cap.
 
+- Bind pending interrupt and steering checks to the exact segment they read, so
+  a delayed database response cannot control a same-attempt replacement.
+
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
   The next flush captures the latest output and preserves stored suffix offsets.
 
 # 2026-11-12
+
+- **Add producer-aware pending delivery contracts (#1657).** Delivery responses
+  identify `owner` and `job` producers. A job notice carries its Chat-scoped
+  locator and state, appears above the composer with delete only, and cannot
+  become an owner send or mode change. The datastore permits one notice per
+  job even after withdrawal; owner and Chat checks bind the pending read model
+  to its job. This storage layer does not yet create settlement notices.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
