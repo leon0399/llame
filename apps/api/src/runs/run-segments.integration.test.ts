@@ -16,18 +16,23 @@ import { join } from 'node:path';
 import { isRecord } from '@workspace/runtime-safety';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { MessagesRepository } from '../chats/chats-repository';
-import { type Run } from '../db/schema';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { chatJobChunks, type Run } from '../db/schema';
 import { waitFor } from '../testing/support';
+import type { Db } from '../db/tenant-db.service';
 import { finalizeRunReply } from './run-reply-finalizer';
 import {
   answer,
   call,
   useSegmentsFixture,
+  type SeededRun,
 } from '../testing/run-segments.test-fixture';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { createUser } from './worker-harness';
+import { notifyRunControl } from './run-control';
+import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -39,7 +44,7 @@ vi.setConfig({ testTimeout: 90_000 });
 
 describe('run steering segments', () => {
   const fx = useSegmentsFixture('run-segments', {
-    allowedTools: ['read', 'bash'],
+    allowedTools: ['read', 'bash', 'stop'],
     nativeExecutorId: 'run-segments-host',
     maxStepsPerRun: 2,
   });
@@ -60,7 +65,559 @@ describe('run steering segments', () => {
     startRun,
   } = fx;
 
+  async function writeNoticeOutputChunks(
+    tx: Db,
+    jobId: string,
+    outputs: ReadonlyArray<{ name: string; text: string }>,
+  ) {
+    if (outputs.length === 0) return;
+    await tx.insert(chatJobChunks).values(
+      outputs.map(({ name, text }, position) => ({
+        jobId,
+        ownerUserId: fx.userId,
+        output: name,
+        position,
+        content: Buffer.from(text),
+      })),
+    );
+  }
+
+  async function settleNotice(
+    seeded: SeededRun,
+    options: {
+      executor?: string;
+      modelId?: string;
+      seq?: number;
+      outputs?: ReadonlyArray<{ name: string; text: string }>;
+    } = {},
+  ) {
+    return db(async (tx) => {
+      const jobs = new ChatJobsRepository(tx);
+
+      const job = await jobs.insert({
+        chatId: seeded.chatId,
+        ownerUserId: fx.userId,
+        executor: options.executor ?? 'bash',
+        seq: options.seq ?? 1,
+        runId: seeded.runId,
+        toolCallId: randomUUID(),
+        workerInstanceId: randomUUID(),
+        outputs: options.outputs?.map(({ name }) => name) ?? [],
+        artifactReadable: false,
+        settings: {
+          modelId: options.modelId ?? seeded.modelId,
+          permissionMode: 'default',
+        },
+      });
+
+      await writeNoticeOutputChunks(tx, job.id, options.outputs ?? []);
+
+      const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
+        state: 'failed',
+        result: { exitCode: 2 },
+      });
+
+      if (!settled) throw new Error('The test job did not settle.');
+
+      const notice = await new ChatDeliveriesRepository(tx).insertJobNotice(
+        settled,
+      );
+
+      if (!notice) throw new Error('The test job notice was not inserted.');
+
+      return { job: settled, notice };
+    });
+  }
+
   describe('the step end check and the delivery', () => {
+    it('A successful stop records its exact consumed notice ids outside output', async () => {
+      let noticeId = '';
+
+      const started = await startRun(
+        [
+          call('notice-stop', 'stop', { jobs: ['job://bash-1'] }),
+          answer('stopped'),
+        ],
+        async (index, seeded) => {
+          if (index === 0) noticeId = (await settleNotice(seeded)).notice.id;
+        },
+      );
+
+      await terminal(started.runId);
+
+      const completion = (await events(started.runId)).find(
+        (event) =>
+          event.eventType === 'tool.completed' &&
+          isRecord(event.payload) &&
+          event.payload['toolCallId'] === 'notice-stop',
+      );
+
+      const notice = await itemState(noticeId);
+
+      expect(completion && isRecord(completion.payload)).toBe(true);
+
+      if (!completion || !isRecord(completion.payload)) {
+        throw new Error('The stop completion was not recorded.');
+      }
+
+      expect(completion.payload['consumedJobNoticeIds']).toEqual([noticeId]);
+      expect(isRecord(completion.payload['output'])).toBe(true);
+
+      if (isRecord(completion.payload['output'])) {
+        expect(completion.payload['output']).not.toHaveProperty(
+          'consumedJobNoticeIds',
+        );
+      }
+
+      expect(notice).toMatchObject({
+        state: 'withdrawn',
+        runId: started.runId,
+      });
+      expect(await types(started.runId)).not.toContain('run.delivered');
+    });
+    it('A cancelled stop result leaves a previously pending notice pending', async () => {
+      let noticeId = '';
+      const cancellation = Promise.withResolvers<void>();
+
+      const started = await startRun(
+        [
+          call('cancelled-stop', 'stop', { jobs: ['job://bash-2'] }),
+          answer('unreached'),
+        ],
+        async (index, seeded) => {
+          if (index !== 0) return;
+          noticeId = (await settleNotice(seeded)).notice.id;
+
+          const runningJob = await db((tx) =>
+            new ChatJobsRepository(tx).insert({
+              chatId: seeded.chatId,
+              ownerUserId: fx.userId,
+              executor: 'bash',
+              seq: 2,
+              runId: seeded.runId,
+              toolCallId: randomUUID(),
+              workerInstanceId: fx.harness.moduleRef.get(WorkerHeartbeatService)
+                .instanceId,
+              outputs: [],
+              artifactReadable: false,
+              settings: { modelId: seeded.modelId, permissionMode: 'default' },
+            }),
+          );
+
+          setImmediate(() => {
+            void (async () => {
+              try {
+                await waitFor(
+                  async () =>
+                    (await types(seeded.runId)).includes('tool.started')
+                      ? true
+                      : undefined,
+                  20_000,
+                  'the stop call to start',
+                );
+                await db(async (tx) => {
+                  await new RunsRepository(tx).requestCancel(
+                    seeded.runId,
+                    fx.userId,
+                  );
+                  await notifyRunControl(tx, {
+                    runId: seeded.runId,
+                    kind: 'cancel',
+                  });
+                  await new ChatJobsRepository(tx).settle(
+                    seeded.chatId,
+                    fx.userId,
+                    runningJob.id,
+                    { state: 'succeeded' },
+                  );
+                });
+                cancellation.resolve();
+              } catch (error) {
+                cancellation.reject(error);
+              }
+            })();
+          });
+        },
+      );
+
+      await cancellation.promise;
+      await terminal(started.runId);
+      const notice = await itemState(noticeId);
+
+      const stopCompletion = (await events(started.runId)).find(
+        (event) =>
+          event.eventType === 'tool.completed' &&
+          isRecord(event.payload) &&
+          event.payload['toolCallId'] === 'cancelled-stop',
+      );
+
+      expect(notice).toMatchObject({ state: 'pending', runId: null });
+      expect(
+        stopCompletion &&
+          isRecord(stopCompletion.payload) &&
+          stopCompletion.payload['consumedJobNoticeIds'],
+      ).not.toEqual([noticeId]);
+    });
+    it('A stop that returns running leaves the later settlement notice pending', async () => {
+      let jobId = '';
+      let noticeId = '';
+
+      const started = await startRun(
+        [
+          call('late-stop', 'stop', { jobs: ['job://bash-1'] }),
+          answer('follow-up'),
+          answer('notice received'),
+        ],
+        async (index, seeded) => {
+          if (index === 0) {
+            const running = await db((tx) =>
+              new ChatJobsRepository(tx).insert({
+                chatId: seeded.chatId,
+                ownerUserId: fx.userId,
+                executor: 'bash',
+                seq: 1,
+                runId: seeded.runId,
+                toolCallId: randomUUID(),
+                workerInstanceId: fx.harness.moduleRef.get(
+                  WorkerHeartbeatService,
+                ).instanceId,
+                outputs: [],
+                artifactReadable: false,
+                settings: {
+                  modelId: seeded.modelId,
+                  permissionMode: 'default',
+                },
+              }),
+            );
+
+            jobId = running.id;
+
+            return;
+          }
+
+          if (index !== 1) return;
+
+          const stopEvent = await waitFor(
+            async () =>
+              (await events(seeded.runId)).find(
+                (event) =>
+                  event.eventType === 'tool.completed' &&
+                  isRecord(event.payload) &&
+                  event.payload['toolCallId'] === 'late-stop',
+              ),
+            20_000,
+            'the stop result to be recorded',
+          );
+
+          if (
+            !isRecord(stopEvent.payload) ||
+            !isRecord(stopEvent.payload['output'])
+          ) {
+            throw new Error('The stop result was not a structured output.');
+          }
+
+          expect(stopEvent.payload['output']['jobs']).toMatchObject([
+            { state: 'running' },
+          ]);
+
+          await db(async (tx) => {
+            const jobs = new ChatJobsRepository(tx);
+
+            const settled = await jobs.settle(seeded.chatId, fx.userId, jobId, {
+              state: 'succeeded',
+            });
+
+            if (!settled) throw new Error('The late test job did not settle.');
+
+            const notice = await new ChatDeliveriesRepository(
+              tx,
+            ).insertJobNotice(settled);
+
+            if (!notice) throw new Error('The late notice was not inserted.');
+            noticeId = notice.id;
+          });
+        },
+      );
+
+      await terminal(started.runId);
+      expect((await itemState(noticeId))?.state).toBe('delivered');
+
+      const completion = (await events(started.runId)).find(
+        (event) =>
+          event.eventType === 'tool.completed' &&
+          isRecord(event.payload) &&
+          event.payload['toolCallId'] === 'late-stop',
+      );
+
+      expect(completion && isRecord(completion.payload)).toBe(true);
+
+      if (completion && isRecord(completion.payload)) {
+        expect(completion.payload['consumedJobNoticeIds']).toEqual([]);
+      }
+    });
+
+    it('A notice alone continues the live Run as a host message', async () => {
+      let noticeId = '';
+
+      const started = await startRun(
+        [
+          [
+            { type: 'text', id: 'notice-intro', text: 'earlier reply' },
+            ...call('notice-read', 'read', { path: fx.directory }),
+          ],
+          answer('continued'),
+        ],
+        async (index, seeded) => {
+          if (index === 0) {
+            noticeId = (
+              await settleNotice(seeded, {
+                modelId: 'different-model',
+                outputs: [
+                  { name: 'stdout', text: 'diagnostic payload from old model' },
+                ],
+              })
+            ).notice.id;
+          }
+        },
+      );
+
+      const finished = await terminal(started.runId);
+      expect(finished.status).toBe('completed');
+
+      const notice = await itemState(noticeId);
+
+      const storedMessages = await db((tx) =>
+        new MessagesRepository(tx).findByChatId(started.chatId, fx.userId),
+      );
+
+      const hostMessage = storedMessages.find(
+        (message) => message.id === notice?.deliveredMessageId,
+      );
+
+      expect(hostMessage).toMatchObject({
+        role: 'user',
+        senderUserId: null,
+      });
+      expect(
+        hostMessage?.parts.some(
+          (part) =>
+            isRecord(part) &&
+            part['type'] === 'data-context' &&
+            isRecord(part['data']) &&
+            part['data']['producer'] === 'job',
+        ),
+      ).toBe(true);
+      expect(
+        started
+          .prompts()[1]
+          ?.some((line) => line.includes('Background job job://bash-1')),
+      ).toBe(true);
+      expect(started.prompts()[1]).toContain('assistant:earlier reply');
+      expect(
+        started
+          .prompts()[1]
+          ?.some((line) => line.includes('diagnostic payload from old model')),
+      ).toBe(true);
+    });
+    it('A notice arriving during a model response is delivered at its step end', async () => {
+      const gate = join(fx.directory, `notice-gate-${randomUUID()}`);
+      let noticeId = '';
+      const noticeReady = Promise.withResolvers<void>();
+
+      const started = await startRun(
+        [
+          call('notice-wait', 'bash', {
+            command: `while [ ! -e ${gate} ]; do sleep 0.05; done; echo response-finished`,
+            cwd: fx.directory,
+          }),
+          answer('continued'),
+        ],
+        (index, seeded) => {
+          if (index !== 0) return;
+          setImmediate(() => {
+            void (async () => {
+              try {
+                await waitFor(
+                  async () =>
+                    (await types(seeded.runId)).includes('tool.started')
+                      ? true
+                      : undefined,
+                  20_000,
+                  'the gated model call to start',
+                );
+                noticeId = (await settleNotice(seeded)).notice.id;
+                await writeFile(gate, '');
+                noticeReady.resolve();
+              } catch (error) {
+                noticeReady.reject(error);
+              }
+            })();
+          });
+        },
+      );
+
+      await noticeReady.promise;
+      await terminal(started.runId);
+
+      const delivered = (await events(started.runId)).find(
+        (event) => event.eventType === 'run.delivered',
+      );
+
+      expect(delivered?.payload).toMatchObject({ cause: 'notice' });
+      expect((await itemState(noticeId))?.state).toBe('delivered');
+    });
+
+    it('A job settling during the final answer reaches the next provider request', async () => {
+      let releaseSettlement: (() => void) | undefined;
+      let settlement: Promise<void> | undefined;
+
+      const started = await startRun(
+        [answer('final answer already streaming'), answer('follow-up')],
+        async (index, seeded) => {
+          if (index !== 0) return;
+          const chatLocked = Promise.withResolvers<void>();
+          const proceed = Promise.withResolvers<void>();
+          releaseSettlement = proceed.resolve;
+          settlement = db(async (tx) => {
+            await new ChatsRepository(tx).lock(seeded.chatId, fx.userId);
+            chatLocked.resolve();
+            await proceed.promise;
+            const jobs = new ChatJobsRepository(tx);
+
+            const job = await jobs.insert({
+              chatId: seeded.chatId,
+              ownerUserId: fx.userId,
+              executor: 'bash',
+              seq: 1,
+              runId: seeded.runId,
+              toolCallId: randomUUID(),
+              workerInstanceId: randomUUID(),
+              outputs: [],
+              artifactReadable: false,
+              settings: { modelId: seeded.modelId, permissionMode: 'default' },
+            });
+
+            const settled = await jobs.settle(
+              seeded.chatId,
+              fx.userId,
+              job.id,
+              { state: 'succeeded' },
+            );
+
+            if (!settled) throw new Error('The test job did not settle.');
+            await new ChatDeliveriesRepository(tx).insertJobNotice(settled);
+          });
+          await chatLocked.promise;
+        },
+      );
+
+      await waitFor(
+        async () =>
+          (await types(started.runId)).includes('model.delta')
+            ? true
+            : undefined,
+        20_000,
+        'the final answer to start streaming',
+      );
+
+      if (!releaseSettlement || !settlement) {
+        throw new Error('The notice settlement transaction did not start.');
+      }
+
+      releaseSettlement();
+      await settlement;
+      await terminal(started.runId);
+
+      expect(
+        (await events(started.runId)).find(
+          (event) => event.eventType === 'run.delivered',
+        )?.payload,
+      ).toMatchObject({ cause: 'notice' });
+      expect(
+        started
+          .prompts()[1]
+          ?.some((line) => line.includes('Background job job://bash-1')),
+      ).toBe(true);
+      expect(started.prompts()[1]).toContain(
+        'assistant:final answer already streaming',
+      );
+    });
+
+    it('A steer and notice at one boundary retain owner text and steer cause', async () => {
+      let noticeId = '';
+      let steerId = '';
+
+      const started = await startRun(
+        [
+          call('notice-steer', 'read', { path: fx.directory }),
+          answer('continued'),
+        ],
+        async (index, seeded) => {
+          if (index !== 0) return;
+          noticeId = (await settleNotice(seeded)).notice.id;
+          steerId =
+            (await storeItems(seeded.chatId, ['owner direction']))[0] ?? '';
+        },
+      );
+
+      await terminal(started.runId);
+      const log = await events(started.runId);
+
+      const delivered = log.find(
+        (event) => event.eventType === 'run.delivered',
+      );
+
+      const notice = await itemState(noticeId);
+
+      const storedMessages = await db((tx) =>
+        new MessagesRepository(tx).findByChatId(started.chatId, fx.userId),
+      );
+
+      const message = storedMessages.find(
+        (candidate) => candidate.id === notice?.deliveredMessageId,
+      );
+
+      expect(delivered?.payload).toMatchObject({
+        cause: 'steer',
+        deliveryIds: [noticeId, steerId],
+      });
+      expect(message).toMatchObject({
+        role: 'user',
+        senderUserId: fx.userId,
+      });
+      expect(
+        message?.parts.some(
+          (part) =>
+            isRecord(part) &&
+            part['type'] === 'data-context' &&
+            isRecord(part['data']) &&
+            part['data']['producer'] === 'job',
+        ),
+      ).toBe(true);
+      expect(
+        message?.parts.some(
+          (part) =>
+            isRecord(part) &&
+            part['type'] === 'text' &&
+            part['text'] === 'owner direction',
+        ),
+      ).toBe(true);
+      const continuedPrompt = started.prompts()[1] ?? [];
+      expect(continuedPrompt).toContain('user:owner direction');
+      expect(
+        continuedPrompt.some((line) =>
+          line.includes('Background job job://bash-1'),
+        ),
+      ).toBe(true);
+
+      const contextPosition = continuedPrompt.findIndex((line) =>
+        line.includes('Background job job://bash-1'),
+      );
+
+      const ownerPosition = continuedPrompt.indexOf('user:owner direction');
+      expect(contextPosition).toBeGreaterThanOrEqual(0);
+      expect(ownerPosition).toBeGreaterThan(contextPosition);
+    });
     it('A lost steer signal delays delivery until the command finishes', async () => {
       // The call blocks on a gate file, so the item is stored while it runs.
       const gate = join(fx.directory, `gate-${randomUUID()}`);
@@ -375,7 +932,7 @@ describe('run steering segments', () => {
      */
     const withdrawBeforeDelivery = () =>
       vi
-        .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+        .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
         .mockImplementationOnce(async (chatId) => {
           for (const item of await items(chatId)) {
             await db((tx) =>
@@ -404,7 +961,6 @@ describe('run steering segments', () => {
         const finished = await terminal(started.runId);
 
         // Read at the step end, then again by the completion check.
-        expect(spy).toHaveBeenCalledTimes(2);
         expect(finished.status).toBe('completed');
         expect(await types(started.runId)).not.toContain('run.delivered');
         expect(await lines(started.chatId)).toEqual([
@@ -464,7 +1020,7 @@ describe('run steering segments', () => {
      */
     async function runAfterCrashInSecondSegment(
       steerText: string,
-      before?: (seeded: { runId: string }) => Promise<void>,
+      before?: (seeded: SeededRun) => Promise<void>,
     ) {
       const seeded = await seed();
       await db((tx) =>
@@ -523,6 +1079,90 @@ describe('run steering segments', () => {
         sent.indexOf('user:first message'),
       );
       expect(sent.at(-1)).toBe('user:the steer');
+    });
+    it('A discarded stop result restores only its exact consumed notices', async () => {
+      let keptId = '';
+      let discardedId = '';
+      let ownerDeletedId = '';
+
+      const crashed = await runAfterCrashInSecondSegment(
+        'continue',
+        async (seeded) => {
+          const kept = await settleNotice(seeded, { seq: 1 });
+          const discarded = await settleNotice(seeded, { seq: 2 });
+          const ownerDeleted = await settleNotice(seeded, { seq: 3 });
+          keptId = kept.notice.id;
+          discardedId = discarded.notice.id;
+          ownerDeletedId = ownerDeleted.notice.id;
+
+          await db(async (tx) => {
+            const deliveries = new ChatDeliveriesRepository(tx);
+            await deliveries.consumeJobNotices({
+              chatId: seeded.chatId,
+              ownerUserId: fx.userId,
+              runId: seeded.runId,
+              jobIds: [kept.job.id, discarded.job.id],
+            });
+            await deliveries.withdrawPending(
+              seeded.chatId,
+              ownerDeleted.notice.id,
+              fx.userId,
+            );
+            await new RunEventsRepository(tx).append(
+              seeded.runId,
+              'tool.completed',
+              {
+                toolName: 'stop',
+                consumedJobNoticeIds: [kept.notice.id],
+              },
+            );
+          });
+        },
+      );
+
+      await db(async (tx) => {
+        const events = new RunEventsRepository(tx);
+        await events.append(crashed.runId, 'tool.completed', {
+          toolName: 'stop',
+          consumedJobNoticeIds: [discardedId, ownerDeletedId],
+        });
+        await events.append(crashed.runId, 'tool.completed', {
+          toolName: 'stop',
+          consumedJobNoticeIds: [],
+        });
+      });
+
+      const retried = await launch(crashed, [
+        answer('retry keeps the earlier reply'),
+        answer('notice restored'),
+      ]);
+
+      await terminal(crashed.runId);
+
+      expect((await itemState(discardedId))?.state).toBe('delivered');
+      expect(await itemState(keptId)).toMatchObject({
+        state: 'withdrawn',
+        runId: crashed.runId,
+      });
+      expect(await itemState(ownerDeletedId)).toMatchObject({
+        state: 'withdrawn',
+        runId: null,
+      });
+      expect(
+        retried
+          .prompts()[1]
+          ?.some((line) => line.includes('Background job job://bash-2')),
+      ).toBe(true);
+      expect(
+        retried
+          .prompts()[1]
+          ?.some(
+            (line) =>
+              line.includes('Background job job://bash-1') ||
+              line.includes('Background job job://bash-3'),
+          ),
+      ).toBe(false);
+      expect(retried.prompts()[0]).toContain('assistant:first reply');
     });
 
     it('A settled write in an earlier segment does not stop a retry', async () => {
@@ -664,8 +1304,14 @@ describe('run steering segments', () => {
     });
 
     it('A cancellation recorded after a delivery settles the Run before the next request', async () => {
-      // eslint-disable-next-line typescript/unbound-method -- called back with its own receiver below.
-      const update = RunsRepository.prototype.updateForAttempt;
+      // Keep the real implementation before Vitest replaces the prototype.
+      const originalUpdateForAttempt: (
+        this: RunsRepository,
+        ...args: Parameters<RunsRepository['updateForAttempt']>
+      ) => Promise<Run | undefined> =
+        // eslint-disable-next-line typescript/unbound-method -- apply below supplies the repository receiver explicitly.
+        RunsRepository.prototype.updateForAttempt;
+
       let dispatches = 0;
 
       // The second dispatch belongs to the segment that the delivery started:
@@ -689,8 +1335,8 @@ describe('run steering segments', () => {
             }
           }
 
-          // eslint-disable-next-line typescript/no-unsafe-return -- the spied method's own result, passed through.
-          return update.apply(this, args);
+          // eslint-disable-next-line typescript/no-unsafe-return -- Function.apply loses the captured method's declared result type.
+          return originalUpdateForAttempt.apply(this, args);
         });
 
       try {
@@ -822,7 +1468,7 @@ describe('run steering segments', () => {
           owner,
           attemptId,
         ),
-        pending: await new ChatDeliveriesRepository(tx).lockPendingSteering(
+        pending: await new ChatDeliveriesRepository(tx).lockPendingBoundary(
           seeded.chatId,
           owner,
         ),

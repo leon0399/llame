@@ -4,13 +4,14 @@ import { z } from 'zod';
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
+import { retryJobTransaction } from '../jobs/bash-job-store';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import {
   formatJobLocator,
   parseJobLocatorText,
   type JobLocator,
 } from '../jobs/job-locator';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { notifyRunControl } from '../runs/run-control';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -55,46 +56,48 @@ function recordRequests(
   context: ToolContext,
   locators: ReadonlyArray<JobLocator>,
 ): Promise<Array<ChatJob> | undefined> {
-  return context.tenantDb.runAs(context.userId, async (tx: Db) => {
-    const jobs = new ChatJobsRepository(tx);
+  return retryJobTransaction(() =>
+    context.tenantDb.runAs(context.userId, async (tx: Db) => {
+      const jobs = new ChatJobsRepository(tx);
 
-    await jobs.settleOnDeadWorkers(
-      context.chatId,
-      context.userId,
-      context.workerDeadAfterSeconds ??
-        workerDeadAfterSeconds(BUILT_IN_DEFAULTS),
-    );
-
-    const rows: Array<ChatJob> = [];
-
-    for (const { executor, seq } of locators) {
-      const row = await jobs.findByLocator(
+      await jobs.settleOnDeadWorkers(
         context.chatId,
         context.userId,
-        executor,
-        seq,
+        context.workerDeadAfterSeconds ??
+          workerDeadAfterSeconds(BUILT_IN_DEFAULTS),
       );
 
-      if (row === undefined) return undefined;
-      rows.push(row);
-    }
+      const rows: Array<ChatJob> = [];
 
-    for (const row of rows) {
-      if (row.state !== 'running') continue;
+      for (const { executor, seq } of locators) {
+        const row = await jobs.findByLocator(
+          context.chatId,
+          context.userId,
+          executor,
+          seq,
+        );
 
-      const requested = await jobs.requestStop(
-        context.chatId,
-        context.userId,
-        row.id,
-        'assistant',
-      );
+        if (row === undefined) return undefined;
+        rows.push(row);
+      }
 
-      if (requested !== undefined)
-        await notifyRunControl(tx, { kind: 'job-stop', jobId: row.id });
-    }
+      for (const row of rows) {
+        if (row.state !== 'running') continue;
 
-    return rows;
-  });
+        const requested = await jobs.requestStop(
+          context.chatId,
+          context.userId,
+          row.id,
+          'assistant',
+        );
+
+        if (requested !== undefined)
+          await notifyRunControl(tx, { kind: 'job-stop', jobId: row.id });
+      }
+
+      return rows;
+    }),
+  );
 }
 
 /** A settled row never changes, so only a running one is read again. */

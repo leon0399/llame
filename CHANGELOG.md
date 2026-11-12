@@ -17,14 +17,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Prepare bounded job notice context (#1657).** The packaged renderer frames
-  settled-job facts and output suffixes as data. Owner-scoped database reads
-  transfer only bounded output tails; verified existing artifact caches can
-  supply a host-directory hint without putting it in semantic metadata.
-  Owner event projections omit private consumed-notice identifiers. A delivered
-  notice is authored only by its receiving Run; later dispatches reuse its
-  stored item verbatim while newly delivered notices remain eligible. This
-  prerequisite creates no live notice and activates no Run-boundary delivery.
+- **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
+  seeded job notices beside owner steering, preserve the earlier reply, and
+  persist job context only at dispatch. Stop-result recording consumes exact
+  notices atomically; discarded results and terminal segments that never
+  dispatched restore only their own notices. This layer activates no
+  settlement producer and starts no idle-Chat Run.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
@@ -54,6 +52,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Prepare bounded job notice context (#1657).** The packaged renderer frames
+  settled-job facts and output suffixes as data. Owner-scoped database reads
+  transfer only bounded output tails; verified existing artifact caches can
+  supply a host-directory hint without putting it in semantic metadata.
+  Owner event projections omit private consumed-notice identifiers. A delivered
+  notice is authored only by its receiving Run; later dispatches reuse its
+  stored item verbatim while newly delivered notices remain eligible. This
+  prerequisite creates no live notice and activates no Run-boundary delivery.
 
 - **Prepare background-job notice transitions (#1657).** Owner-scoped
   repository operations select ordered boundary notices, consume exact settled

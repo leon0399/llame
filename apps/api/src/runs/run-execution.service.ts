@@ -1,8 +1,7 @@
-import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { realpath, stat } from 'node:fs/promises';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
-import { isRecord } from '@workspace/runtime-safety';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
   hostFilesEnabled,
@@ -86,6 +85,7 @@ import { type ModelClient, type SdkRefusal } from '../models/model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { createJobNoticeContext } from './job-notice-context';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
@@ -412,7 +412,10 @@ import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import { promoteNextQueueItem } from './queue-promotion';
 import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
 import { type RunJob } from './run-queues';
+import { parseJobLocatorText } from '../jobs/job-locator';
+import { retryJobTransaction } from '../jobs/bash-job-store';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import {
   formatTemporalAnchor,
@@ -868,6 +871,8 @@ type ToolCompletedEventPayload = {
   toolName: string;
   status: ToolResult['status'];
   output: ToolResult;
+  /** Private server-side receipt; deliberately outside the model output. */
+  consumedJobNoticeIds?: Array<string>;
   /** An owner interrupt settled the call (run-steering D7). */
   interrupted?: true;
   permission?: PermissionDecision;
@@ -1215,91 +1220,98 @@ export class RunExecutionService {
     // compaction is part of this run's execution budget and cancellation
     // lifecycle, not untracked pre-work. A cancel that won the worker pickup
     // TOCTOU is settled atomically here without spending on either model.
-    const claim = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const runs = new RunsRepository(tx);
-      const events = new RunEventsRepository(tx);
+    const claim = await retryJobTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        const events = new RunEventsRepository(tx);
 
-      if (input.abortSignal?.aborted) {
-        const status = classifyAbortedRun(input.abortSignal);
-        const message = this.abortedRunMessage(status, input.abortSignal);
+        if (input.abortSignal?.aborted) {
+          const status = classifyAbortedRun(input.abortSignal);
+          const message = this.abortedRunMessage(status, input.abortSignal);
 
-        const finished = await runs.markFinished(
-          input.runId,
-          input.userId,
-          status,
-          { error: { message } },
-        );
+          const finished = await runs.markFinished(
+            input.runId,
+            input.userId,
+            status,
+            { error: { message } },
+          );
 
-        return {
-          settledReply: await this.settleAtClaim(tx, finished, status, message),
-        };
-      }
-
-      const started = await runs.markStarted(input.runId, input.userId);
-
-      if (!started) {
-        const current = await runs.findById(input.runId, input.userId);
-
-        if (
-          current?.cancelRequestedAt == null ||
-          isTerminalRunStatus(current.status)
-        ) {
-          return { settledReply: undefined };
+          return {
+            settledReply: await this.settleAtClaim(
+              tx,
+              finished,
+              status,
+              message,
+            ),
+          };
         }
 
-        const cancelled = await runs.markFinished(
-          input.runId,
+        const started = await runs.markStarted(input.runId, input.userId);
+
+        if (!started) {
+          const current = await runs.findById(input.runId, input.userId);
+
+          if (
+            current?.cancelRequestedAt == null ||
+            isTerminalRunStatus(current.status)
+          ) {
+            return { settledReply: undefined };
+          }
+
+          const cancelled = await runs.markFinished(
+            input.runId,
+            input.userId,
+            'cancelled',
+          );
+
+          return {
+            settledReply: await this.settleAtClaim(
+              tx,
+              cancelled,
+              'cancelled',
+              this.abortedRunMessage('cancelled', input.abortSignal),
+            ),
+          };
+        }
+
+        // The claim is a touch (background-jobs D9): a job of this Chat whose
+        // worker died is `lost` before any model request of this Run.
+        await new ChatJobsRepository(tx).settleOnDeadWorkers(
+          input.chatId,
           input.userId,
-          'cancelled',
+          workerDeadAfterSeconds(this.instanceConfig.config),
         );
 
-        return {
-          settledReply: await this.settleAtClaim(
-            tx,
-            cancelled,
-            'cancelled',
-            this.abortedRunMessage('cancelled', input.abortSignal),
-          ),
-        };
-      }
+        if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
+          return {
+            nativeRecovery: true as const,
+            attemptId: started.activeAttemptId!,
+          };
+        }
 
-      // The claim is a touch (background-jobs D9): a job of this Chat whose
-      // worker died is `lost` before any model request of this Run.
-      await new ChatJobsRepository(tx).settleOnDeadWorkers(
-        input.chatId,
-        input.userId,
-        workerDeadAfterSeconds(this.instanceConfig.config),
-      );
+        // The claim returns the persisted effort rather than setting an outer
+        // variable: it is read inside the transaction (the run row is the single
+        // source of truth for what this run executes at, not the queue payload)
+        // and can only be reached on the path that actually claimed the run.
+        // Deliberately never re-resolved or re-validated against current
+        // configuration — a level the operator has since withdrawn is still sent
+        // verbatim, and a run that stored none sends no provider option at all.
+        // The claim names its attempt, so the completeness check can tell the
+        // attempts of one segment from those of an earlier one by event order.
+        const startedEvent = await events.append(input.runId, 'run.started', {
+          attemptId: started.activeAttemptId,
+        });
 
-      if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
         return {
-          nativeRecovery: true as const,
+          effort: started.effort ?? undefined,
+          permissionMode: started.permissionMode,
           attemptId: started.activeAttemptId!,
+          // The Run's current message: a retry resumes the segment it names.
+          messageId: started.messageId,
+          nativeDeliverySequence: startedEvent.sequence,
         };
-      }
-
-      // The claim returns the persisted effort rather than setting an outer
-      // variable: it is read inside the transaction (the run row is the single
-      // source of truth for what this run executes at, not the queue payload)
-      // and can only be reached on the path that actually claimed the run.
-      // Deliberately never re-resolved or re-validated against current
-      // configuration — a level the operator has since withdrawn is still sent
-      // verbatim, and a run that stored none sends no provider option at all.
-      // The claim names its attempt, so the completeness check can tell the
-      // attempts of one segment from those of an earlier one by event order.
-      const startedEvent = await events.append(input.runId, 'run.started', {
-        attemptId: started.activeAttemptId,
-      });
-
-      return {
-        effort: started.effort ?? undefined,
-        permissionMode: started.permissionMode,
-        attemptId: started.activeAttemptId!,
-        // The Run's current message: a retry resumes the segment it names.
-        messageId: started.messageId,
-        nativeDeliverySequence: startedEvent.sequence,
-      };
-    });
+      }),
+    );
 
     if ('settledReply' in claim) {
       // A reply finalized in place keeps its creation time, so only the
@@ -1664,15 +1676,17 @@ export class RunExecutionService {
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
     try {
-      await this.tenantDb.runAs(input.userId, (tx) =>
-        this.dispatchAttempt(tx, {
-          run: input,
-          attemptId,
-          context: attemptContext,
-          modelId: client.model,
-          effort,
-          permissionMode: effectivePermissionMode,
-        }),
+      await retryJobTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          this.dispatchAttempt(tx, {
+            run: input,
+            attemptId,
+            context: attemptContext,
+            modelId: client.model,
+            effort,
+            permissionMode: effectivePermissionMode,
+          }),
+        ),
       );
     } catch (error) {
       if (error instanceof CancellationRecordedError) {
@@ -1744,20 +1758,46 @@ export class RunExecutionService {
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
 
-    // eslint-disable-next-line anti-slop/no-unknown-parameters -- generic run-event payload dispatcher: shape depends on `eventType` (a discriminated union `RunEventsRepository.append` accepts), and every call site below already constructs the correct literal shape (see `persistDelta`/`persistReasoning`/`recordToolRequested`); this is the single serialization chokepoint, not a validation boundary.
-    const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
+    const enqueueEvent = <Payload extends object>(
+      eventType: RunEventType,
+      payload: Payload,
+      payloadInTransaction?: (tx: Db) => Promise<Payload>,
+    ) => {
       deltaWrites = deltaWrites.then(async () => {
-        const recorded = await this.recordRunProgress(
-          input.userId,
-          input.runId,
-          async (tx) => {
-            await new RunEventsRepository(tx).append(
-              input.runId,
-              eventType,
-              payload,
+        const append = async (tx: Db) => {
+          const storedPayload = payloadInTransaction
+            ? await payloadInTransaction(tx)
+            : payload;
+
+          await new RunEventsRepository(tx).append(
+            input.runId,
+            eventType,
+            storedPayload,
+          );
+        };
+
+        let recorded: boolean;
+
+        if (payloadInTransaction) {
+          try {
+            await retryJobTransaction(() =>
+              this.tenantDb.runAs(input.userId, append),
             );
-          },
-        );
+            recorded = true;
+          } catch (error) {
+            this.logger.error(
+              `Failed to record run progress for run ${input.runId}`,
+              loggableError(error),
+            );
+            recorded = false;
+          }
+        } else {
+          recorded = await this.recordRunProgress(
+            input.userId,
+            input.runId,
+            append,
+          );
+        }
 
         if (!recorded) progressWriteFailed = true;
       });
@@ -2135,7 +2175,84 @@ export class RunExecutionService {
       }
 
       if (open?.origin !== undefined) payload.origin = open.origin;
-      enqueueEvent('tool.completed', payload);
+      enqueueEvent(
+        'tool.completed',
+        payload,
+        toolName === 'stop' && result.status === 'success'
+          ? async (tx) => {
+              const fenced = await new RunsRepository(tx).updateForAttempt(
+                input.runId,
+                input.userId,
+                attemptId,
+                { activeAttemptId: attemptId },
+              );
+
+              if (
+                !fenced ||
+                fenced.cancelRequestedAt !== null ||
+                !(await new ChatsRepository(tx).lock(
+                  input.chatId,
+                  input.userId,
+                ))
+              ) {
+                return { ...payload, consumedJobNoticeIds: [] };
+              }
+
+              const reportedJobs =
+                isRecord(result) && Array.isArray(result['jobs'])
+                  ? result['jobs']
+                  : [];
+
+              const settledJobIds: Array<string> = [];
+              const jobs = new ChatJobsRepository(tx);
+
+              for (const entry of reportedJobs) {
+                if (
+                  !isRecord(entry) ||
+                  !isString(entry['job']) ||
+                  !isString(entry['state']) ||
+                  (entry['state'] !== 'succeeded' &&
+                    entry['state'] !== 'failed' &&
+                    entry['state'] !== 'cancelled' &&
+                    entry['state'] !== 'timed_out' &&
+                    entry['state'] !== 'lost')
+                ) {
+                  continue;
+                }
+
+                const locator = parseJobLocatorText(entry['job']);
+
+                if (!locator) continue;
+
+                const job = await jobs.findByLocator(
+                  input.chatId,
+                  input.userId,
+                  locator.executor,
+                  locator.seq,
+                );
+
+                if (
+                  job &&
+                  job.state !== 'running' &&
+                  job.state === entry['state']
+                ) {
+                  settledJobIds.push(job.id);
+                }
+              }
+
+              const consumedJobNoticeIds = await new ChatDeliveriesRepository(
+                tx,
+              ).consumeJobNotices({
+                chatId: input.chatId,
+                ownerUserId: input.userId,
+                runId: input.runId,
+                jobIds: settledJobIds,
+              });
+
+              return { ...payload, consumedJobNoticeIds };
+            }
+          : undefined,
+      );
 
       // A system-origin call is durable audit, not assistant activity.
       if (open?.origin !== undefined) return;
@@ -2847,20 +2964,22 @@ export class RunExecutionService {
       ) => {
         const { telemetry } = modelCompleted;
 
-        const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.runId, userId: input.userId },
-            attemptId,
-            modelCompleted,
-            live: {
-              chatId: input.chatId,
-              inReplyTo: input.userMessage.id,
-              parts: assistantPartCollector.parts(),
-              telemetry,
-            },
-            models: this.instanceConfig.config.models,
-            ...extra,
-          }),
+        const boundary = await retryJobTransaction(() =>
+          this.tenantDb.runAs(input.userId, (tx) =>
+            deliverPendingSteering(tx, {
+              run: { runId: input.runId, userId: input.userId },
+              attemptId,
+              modelCompleted,
+              live: {
+                chatId: input.chatId,
+                inReplyTo: input.userMessage.id,
+                parts: assistantPartCollector.parts(),
+                telemetry,
+              },
+              models: this.instanceConfig.config.models,
+              ...extra,
+            }),
+          ),
         );
 
         if (boundary.kind === 'delivered') {
@@ -6702,6 +6821,20 @@ export class RunExecutionService {
       if (interrupted !== undefined) stagedParts.push(interrupted);
     }
 
+    // A boundary-delivered job notice is authored at the trigger's first
+    // dispatch so its output is present in both the measured and sent request.
+    if (baseline.ownAvailability === null) {
+      stagedParts.push(
+        ...(await createJobNoticeContext({
+          tx: input.tx,
+          chatId: input.input.chatId,
+          ownerUserId: input.input.userId,
+          messageId: input.input.userMessage.id,
+          runId: input.input.runId,
+        })),
+      );
+    }
+
     if (!priorDispatch || regenerateFirstDispatch) {
       const modelChange = this.deriveModelChangeItem(
         baseline,
@@ -7042,6 +7175,25 @@ export class RunExecutionService {
     // request goes out.
     if (fenced.cancelRequestedAt !== null) {
       throw new CancellationRecordedError(run.runId);
+    }
+
+    const deliveryIds = await new RunEventsRepository(tx).discardedJobNoticeIds(
+      run.runId,
+      run.userId,
+      input.attemptId,
+    );
+
+    if (deliveryIds.length > 0) {
+      if (!(await new ChatsRepository(tx).lock(run.chatId, run.userId))) {
+        throw new RunNotRunnableError(run.runId);
+      }
+
+      await new ChatDeliveriesRepository(tx).restoreJobNotices({
+        chatId: run.chatId,
+        ownerUserId: run.userId,
+        runId: run.runId,
+        deliveryIds,
+      });
     }
 
     const stored = await new AcceptedTurnPartsRepository(tx).storeAtDispatch({

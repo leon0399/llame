@@ -261,8 +261,8 @@ This inert preparation layer integrates boundary delivery and atomic stop-result
 consumption/restoration. Seeded readiness proof does not activate a producer or complete
 task 9 acceptance.
 
-- [ ] 8f.1 Implement Run-boundary delivery, dispatch integration, and atomic stop-result consumption/restoration; test exact consumed ids, restoration on discarded results, and seeded notices through real database transactions.
-- [ ] 8f.2 Prepare seeded readiness proof for tasks 9.1–9.3, including boundary ordering and stop-result cases. Keep tasks 9.1–9.3 unchecked until `notices` activates the producer and its end-to-end proof succeeds; task 9.4 remains owned by `host-runs` after task 10.1.
+- [x] 8f.1 Implement Run-boundary delivery, dispatch integration, and atomic stop-result consumption/restoration; test exact consumed ids, restoration on discarded results, and seeded notices through real database transactions.
+- [x] 8f.2 Prepare seeded readiness proof for tasks 9.1–9.3, including boundary ordering and stop-result cases. Keep tasks 9.1–9.3 unchecked until `notices` activates the producer and its end-to-end proof succeeds; task 9.4 remains owned by `host-runs` after task 10.1.
 - [ ] 8f.3 Run focused delivery/readiness suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; readiness does not satisfy the delivery gate.
 
 ## 9. Notices (`background-jobs/notices`)
