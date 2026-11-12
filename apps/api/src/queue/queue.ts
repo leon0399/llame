@@ -16,6 +16,8 @@
  * with a mismatched handler, is a compile error, not a runtime surprise.
  */
 
+import type { Db } from '../db/tenant-db.service';
+
 /** DI token for the Queue implementation (NestJS has no interface tokens). */
 export const QUEUE = Symbol('QUEUE');
 
@@ -75,6 +77,11 @@ export function deadLetterQueue<T extends object>(
 }
 
 export interface EnqueueOptions {
+  /**
+   * External transaction for atomic queue insertion. Supported by the pg-boss
+   * adapter; omitted options continue to use the queue engine's own connection.
+   */
+  tx?: Db;
   /**
    * The job id the producer chooses, unique within the queue. Naming a job
    * lets a later `jobState(queue, id)` read that one job's lifecycle state,
