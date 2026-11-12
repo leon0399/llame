@@ -27,7 +27,7 @@ describe('Run enqueue transaction boundary — real Postgres + pg-boss', () => {
   let queue: Queue;
   let pgBoss: PgBossService;
   let dispatch: RunDispatchService;
-  const queueSchema = `run_enqueue_${crypto.randomUUID().replaceAll('-', '')}`;
+  const queueSchema = `${process.env['LLAME_TEST_SCHEMA_PREFIX'] ?? 'llame_t'}_run_enqueue_${crypto.randomUUID().slice(0, 8)}`;
 
   const job = (runId: string): RunJob => ({
     runId,
