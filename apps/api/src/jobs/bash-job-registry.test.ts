@@ -4,6 +4,8 @@ import {
 } from '@workspace/bash-executor';
 
 import { ChatsRepository } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { RunsRepository } from '../runs/runs-repository';
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -175,6 +177,13 @@ function setup(maxSeconds = 7200) {
   );
 
   vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'insertJobNotice',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+    undefined,
+  );
 
   const lock = vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
     // SAFETY: only presence is checked.

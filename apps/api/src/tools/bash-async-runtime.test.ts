@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { BashProcessLimiter } from '@workspace/bash-executor';
 
 import { ChatsRepository } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type ChatJob } from '../db/schema';
 import { type MockInstance } from 'vitest';
 import { type Db } from '../db/tenant-db.service';
@@ -16,7 +17,7 @@ import {
 } from '../jobs/chat-jobs.repository';
 import { JobPromotionError } from '../jobs/job-promotion-error';
 import { NativeFilesRepository } from '../runs/native-files-repository';
-import { RunEventsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import * as hostFiles from './artifacts/host-files';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
@@ -118,6 +119,13 @@ describe('async host bash through the tool', () => {
       },
     );
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'insertJobNotice',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+      undefined,
+    );
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
       // SAFETY: only presence is checked.
       // eslint-disable-next-line typescript/no-unsafe-type-assertion
@@ -140,12 +148,14 @@ describe('async host bash through the tool', () => {
       },
     );
     vi.spyOn(ChatJobsRepository.prototype, 'settle').mockImplementation(
-      (_c, _o, _j, settlement) => {
+      (_c, _o, jobId, settlement) => {
         settlements.push(settlement);
 
-        // SAFETY: the store checks only that a row came back.
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        return Promise.resolve({} as ChatJob);
+        const job = inserted.find(({ id }) => id === jobId);
+
+        return Promise.resolve(
+          job === undefined ? undefined : { ...job, state: settlement.state },
+        );
       },
     );
     insertArtifact = vi
