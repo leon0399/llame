@@ -179,6 +179,24 @@ describe('writing host files after the commit', () => {
       }),
     ).toBeUndefined();
   });
+  it('reports only the directory for the exact tool sequence', async () => {
+    await write(CHAT);
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 120,
+      }),
+    ).toBeUndefined();
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'grep',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
 
   it('does not report an artifact directory reached through a symlink', async () => {
     const chat = chatRoot(CHAT);

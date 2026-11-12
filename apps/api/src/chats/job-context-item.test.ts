@@ -79,6 +79,37 @@ describe('createJobNoticeItem', () => {
     expect(item.data.text).not.toContain('Host artifact directory');
     expect(item.data.payload).toMatchObject({ stoppedBy: 'owner' });
   });
+  it('renders whole elapsed seconds and prefers exit code over signal and unknown outcome', () => {
+    const item = createJobNoticeItem({
+      runId: RUN_ID,
+      job: job({
+        settledAt: new Date('2026-11-12T12:00:02.999Z'),
+        result: { exitCode: 0, signal: 'SIGTERM', outcomeUnknown: true },
+      }),
+      outputs: [],
+    });
+
+    expect(item.data.payload).toMatchObject({
+      elapsedMs: 2999,
+      exitCode: 0,
+      signal: 'SIGTERM',
+      outcomeUnknown: true,
+    });
+    expect(item.data.text).toMatch(/\b2 seconds\b/u);
+    expect(item.data.text).toContain('exit code 0');
+    expect(item.data.text).not.toContain('signal SIGTERM');
+    expect(item.data.text).not.toContain('outcome unknown');
+  });
+
+  it('renders a singular second at exactly one second', () => {
+    const item = createJobNoticeItem({
+      runId: RUN_ID,
+      job: job({ settledAt: new Date('2026-11-12T12:00:01.000Z') }),
+      outputs: [],
+    });
+
+    expect(item.data.text).toMatch(/\b1 second\b/u);
+  });
 
   it('neutralizes an output that tries to close the reserved envelope', () => {
     const item = createJobNoticeItem({
