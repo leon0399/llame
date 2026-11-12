@@ -5,8 +5,6 @@ import {
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository } from '../chats/chats-repository';
-import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { RunsRepository } from '../runs/runs-repository';
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
