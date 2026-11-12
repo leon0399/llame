@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-12
+
+- Use GitHub high-contrast syntax themes for light and dark code blocks.
+  CodeBlock and Tool stories wait for highlighted tokens before accessibility
+  checks; CodeBlock no longer disables color-contrast checking.
+
 # 2026-11-10
 
 - Reconcile the vendored anti-slop Oxlint plugin with upstream
