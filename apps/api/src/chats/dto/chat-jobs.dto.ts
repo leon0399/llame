@@ -111,9 +111,9 @@ export function toChatJobResponse(job: ChatJob): ChatJobResponse {
     stopRequestedAt: job.stopRequestedAt,
     stopRequestedBy: job.stopRequestedBy,
     outputs: job.outputs,
-    truncated: Object.entries(job.result?.truncated ?? {})
-      .filter(([, cut]) => cut === true)
-      .map(([output]) => output),
+    truncated: job.outputs.filter(
+      (output) => job.result?.truncated?.[output] === true,
+    ),
     exitCode: job.result?.exitCode ?? null,
     signal: job.result?.signal ?? null,
     outcomeUnknown: job.result?.outcomeUnknown === true,

@@ -238,25 +238,33 @@ describe('readJob', () => {
       expect(settled).toContain('elapsed: 3.0 s');
     });
 
-    it('renders the exit detail, the cut outputs, and the artifact locator', async () => {
+    it('renders declared cut outputs in output order and omits undeclared flags', async () => {
       script().find.mockResolvedValue(
         job({
           state: 'failed',
           artifactId: 'a1',
+          outputs: ['report', 'stderr', 'stdout'],
           settledAt: START,
           result: {
             exitCode: 2,
             signal: 'SIGTERM',
-            truncated: { stdout: true, stderr: false },
+            truncated: {
+              stdout: true,
+              undeclared: true,
+              stderr: false,
+              report: true,
+            },
           },
         }),
       );
 
       const record = text(await read('job://bash-4'));
 
+      expect(record).toContain('\noutputs: report, stderr, stdout\n');
       expect(record).toContain('\nexit_code: 2\n');
       expect(record).toContain('\nsignal: SIGTERM\n');
-      expect(record).toContain('\ntruncated: stdout\n');
+      expect(record).toContain('\ntruncated: report, stdout\n');
+      expect(record).not.toContain('undeclared');
       expect(record).toContain('\nartifact: artifact://bash-4');
     });
 

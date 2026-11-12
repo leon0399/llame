@@ -182,9 +182,9 @@ function recordLines(job: ChatJob): Array<string> {
     lines.push(`signal: ${result.signal}`);
   }
 
-  const cut = Object.entries(result?.truncated ?? {})
-    .filter(([, truncated]) => truncated === true)
-    .map(([name]) => name);
+  const cut = job.outputs.filter(
+    (output) => result?.truncated?.[output] === true,
+  );
 
   if (cut.length > 0) lines.push(`truncated: ${cut.join(', ')}`);
 

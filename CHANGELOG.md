@@ -37,9 +37,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat. The owner lists the jobs with `GET /api/v1/chats/:chatId/jobs` and
   records a stop request with `PATCH /api/v1/chats/:chatId/jobs/:jobId`
   (200 for a repeat, 409 for a job that settled otherwise, 404 for another
-  owner). Owner job responses name cut outputs in `truncated`, or `[]` when none
-  were cut. The chat list and the live Chat record carry `runningJobs`. No tool
-  starts a job yet, and no worker acts on a stop request yet. See
+  owner). Owner job responses name only declared cut outputs in `truncated`,
+  in their declared order, or `[]` when none were cut. The chat list and the
+  live Chat record carry `runningJobs`. No tool starts a job yet, and no worker
+  acts on a stop request yet. See
   [job://](docs/product/reference/locators/job.md).
 
 # 2026-11-10

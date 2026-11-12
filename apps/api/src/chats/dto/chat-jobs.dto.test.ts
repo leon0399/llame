@@ -29,15 +29,25 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
 }
 
 describe('toChatJobResponse', () => {
-  it('names only the outputs whose stored truncation flags are true', () => {
+  it('orders declared truncated outputs and omits undeclared flags', () => {
     const response = toChatJobResponse(
       job({
-        outputs: ['stdout', 'stderr', 'report'],
-        result: { truncated: { stdout: true, stderr: false, report: true } },
+        outputs: ['report', 'stderr', 'stdout'],
+        result: {
+          truncated: {
+            stdout: true,
+            undeclared: true,
+            stderr: false,
+            report: true,
+          },
+        },
       }),
     );
 
-    expect(response.truncated).toEqual(['stdout', 'report']);
+    expect(response).toMatchObject({
+      outputs: ['report', 'stderr', 'stdout'],
+      truncated: ['report', 'stdout'],
+    });
   });
 
   it.each([null, {}, { truncated: { stdout: false } }])(
