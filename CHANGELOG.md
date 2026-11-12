@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-12
+
+- Make worker heartbeat and Run usage timing fixtures deterministic. Heartbeat
+  tests advance a fake clock; provider stream holds begin when the consumer
+  reaches them and use the same monotonic clock as usage accounting. Production
+  accounting and the minimum lead-in and tail-duration assertions are unchanged.
+
 # 2026-11-10
 
 - Reconcile the vendored anti-slop Oxlint plugin with upstream

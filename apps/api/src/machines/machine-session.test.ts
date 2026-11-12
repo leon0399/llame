@@ -440,31 +440,40 @@ describe('MachineSession link ends', () => {
   });
 
   it('pings once per interval, then ends the session on its own silence', async () => {
-    const link = localLink();
+    vi.useFakeTimers();
 
-    // Eight intervals of silence: on a loaded machine a late tick can only
-    // shorten the ping run, never stretch it past the deadline the session
-    // itself measured.
-    const session = pipeSession(link, {
-      heartbeatIntervalMs: 50,
-      heartbeatMisses: 8,
-    });
+    try {
+      const link = localLink();
 
-    const started = Date.now();
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'session_lost',
-      established: false,
-    });
+      const session = pipeSession(link, {
+        heartbeatIntervalMs: 50,
+        heartbeatMisses: 8,
+      });
 
-    // One ping per interval, and none once the peer stayed silent for the window.
-    const written = link.frames.filter((frame) =>
-      isNotification(PING_NOTIFICATION)(frame),
-    );
+      await vi.advanceTimersByTimeAsync(350);
 
-    expect(written.length).toBeGreaterThan(1);
-    expect(written.length).toBeLessThanOrEqual(7);
-    // The third of the window would have ended the session far sooner.
-    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+      const written = link.frames.filter((frame) =>
+        isNotification(PING_NOTIFICATION)(frame),
+      );
+
+      expect(written).toHaveLength(7);
+      expect(session.endReason).toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(within(session.ended)).resolves.toEqual({
+        reason: 'session_lost',
+        established: false,
+      });
+      expect(session.endReason).toEqual({
+        reason: 'session_lost',
+        established: false,
+      });
+      expect(
+        link.frames.filter((frame) => isNotification(PING_NOTIFICATION)(frame)),
+      ).toHaveLength(7);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('closes politely, keeps the first reason, and closes the link once', async () => {
