@@ -15,6 +15,7 @@ import type {
   LanguageModelV3,
   LanguageModelV3CallOptions,
   LanguageModelV3StreamPart,
+  LanguageModelV3Usage,
 } from '@ai-sdk/provider';
 import { streamText as sdkStreamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
@@ -112,6 +113,8 @@ export type ScriptedBehavior = {
        */
       kind: 'step-script';
       steps: ReadonlyArray<ScriptedStep>;
+      /** Usage reported by each provider request, indexed by scripted step. */
+      requestUsages?: ReadonlyArray<LanguageModelV3Usage>;
       /**
        * Runs while the model responds to step `stepIndex` (counted across the
        * Run's segments), before that step's stream opens: a test stores a
@@ -240,10 +243,10 @@ function createHangOrDelayGate(
  */
 function enqueueScriptedCompletion(
   controller: ReadableStreamDefaultController<LanguageModelV3StreamPart>,
-  prompt: LanguageModelV3CallOptions['prompt'],
-  behavior: HarnessBehavior,
-  scriptedStep: ScriptedStep | undefined,
+  options: Parameters<typeof createScriptedStream>[0],
 ): boolean {
+  const { prompt, behavior, scriptedStep, usage } = options;
+
   controller.enqueue({ type: 'stream-start', warnings: [] });
 
   if (behavior.kind === 'step-script') {
@@ -251,7 +254,11 @@ function enqueueScriptedCompletion(
       enqueueAnswerParts(controller, '');
     } else {
       for (const part of scriptedStepParts(scriptedStep)) {
-        controller.enqueue(part);
+        controller.enqueue(
+          part.type === 'finish' && usage !== undefined
+            ? { ...part, usage }
+            : part,
+        );
       }
     }
   } else if (behavior.kind === 'tool-script') {
@@ -328,8 +335,9 @@ function createScriptedStream(options: {
   behavior: HarnessBehavior;
   delayMs: number | undefined;
   scriptedStep: ScriptedStep | undefined;
+  usage: LanguageModelV3Usage | undefined;
 }): ReadableStream<LanguageModelV3StreamPart> {
-  const { abortSignal, prompt, behavior, delayMs, scriptedStep } = options;
+  const { abortSignal, behavior, delayMs } = options;
 
   return new ReadableStream<LanguageModelV3StreamPart>({
     async start(controller) {
@@ -359,12 +367,7 @@ function createScriptedStream(options: {
           return;
         }
 
-        holding = enqueueScriptedCompletion(
-          controller,
-          prompt,
-          behavior,
-          scriptedStep,
-        );
+        holding = enqueueScriptedCompletion(controller, options);
       } catch (error) {
         controller.error(error);
       } finally {
@@ -447,6 +450,10 @@ class HarnessModelClient implements ModelClient {
             behavior,
             delayMs,
             scriptedStep,
+            usage:
+              behavior.kind === 'step-script'
+                ? behavior.requestUsages?.[stepIndex]
+                : undefined,
           }),
         };
       },

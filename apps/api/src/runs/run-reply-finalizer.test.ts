@@ -458,6 +458,149 @@ describe('finalizeRunReply', () => {
     );
   });
 
+  it.each([true, false])(
+    'keeps the first claimed wait result before usage advances (explicit attempt: %s)',
+    async (explicitAttempt) => {
+      const running = runningReplyUsage({
+        runId,
+        attemptId: 'prior',
+        modelId: 'fake-model',
+        effort: undefined,
+        permissionMode: 'default',
+      });
+
+      const measured = {
+        ...telemetry('prior'),
+        inputTokens: 17,
+        outputTokens: 5,
+        totalTokens: 22,
+      };
+
+      const { update } = serve({
+        log: [
+          requested(0, 'prior'),
+          event(1, 'model.delta', { text: 'checkpoint' }),
+          event(2, 'model.completed', {
+            attemptId: 'prior',
+            telemetry: measured,
+          }),
+          event(3, 'tool.requested', {
+            toolCallId: 'wait-call',
+            toolName: 'wait',
+            input: { jobs: ['job://executor-1'] },
+            providerMetadata: { provider: { marker: 'kept' } },
+          }),
+          event(4, 'tool.started', {
+            toolCallId: 'wait-call',
+            classification: 'read_only',
+          }),
+          event(5, 'run.suspended', {
+            generation: 1,
+            toolCallId: 'wait-call',
+            parts: [{ type: 'text', text: 'checkpoint' }],
+            steps: {},
+            awaiting: {
+              toolCallId: 'wait-call',
+              toolInput: { jobs: ['job://executor-1'] },
+              jobIds: ['job://executor-1'],
+              deadline: '2026-10-10T01:00:00.000Z',
+            },
+          }),
+          event(6, 'run.resumed', { generation: 1, cause: 'settled' }),
+          event(7, 'run.started', { attemptId: 'wake' }),
+          event(8, 'tool.completed', {
+            toolCallId: 'wait-call',
+            toolName: 'wait',
+            output: { status: 'success', value: 'finished' },
+          }),
+        ],
+        reply: reply({ usage: running }),
+      });
+
+      await finalizeRunReply(tx, {
+        run: { ...run, activeAttemptId: 'wake' },
+        status: 'failed',
+        ...(explicitAttempt && { attemptId: 'wake' }),
+        models,
+      });
+
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parts: [
+            { type: 'text', text: 'checkpoint' },
+            {
+              type: 'tool-wait',
+              toolCallId: 'wait-call',
+              state: 'output-available',
+              step: 0,
+              input: { jobs: ['job://executor-1'] },
+              output: { status: 'success', value: 'finished' },
+              outcome: 'success',
+              classification: 'read_only',
+              providerMetadata: { provider: { marker: 'kept' } },
+            },
+          ],
+          usage: measured,
+        }),
+      );
+    },
+  );
+
+  it('does not seed the first claimed wait result into a retry', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(1, 'prior'),
+        event(2, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(3, 'run.suspended', {
+          generation: 1,
+          toolCallId: 'wait-call',
+          parts: [{ type: 'text', text: 'checkpoint' }],
+          steps: {},
+          awaiting: {
+            toolCallId: 'wait-call',
+            toolInput: { jobs: ['job://executor-1'] },
+            jobIds: ['job://executor-1'],
+            deadline: '2026-10-10T01:00:00.000Z',
+          },
+        }),
+        event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+        event(5, 'run.started', { attemptId: 'wake' }),
+        event(6, 'tool.completed', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          output: { status: 'success', value: 'finished' },
+        }),
+        event(7, 'run.started', { attemptId: 'retry' }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'failed',
+      attemptId: 'retry',
+      models,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [],
+      }),
+    );
+  });
+
   it("rebuilds only the current segment's output after the latest delivery", async () => {
     const { create } = serve({
       log: [

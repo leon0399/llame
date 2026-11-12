@@ -37,6 +37,7 @@ master
 <- background-jobs/wait-claim
 <- background-jobs/wake-projection
 <- background-jobs/wait-resume
+<- background-jobs/wait-tool
 <- background-jobs/web
 <- background-jobs/finalize
 ```
@@ -72,8 +73,9 @@ one changes no behavior that the model or the owner can see.
 | `wait-suspend`       | `wait-routing`       | Executing-attempt suspension, worker pickup, restart, actual wake races and budget acceptance.                  | none                                             | 1,700      | refs #1657        |
 | `wait-claim`         | `wait-suspend`       | Atomic queue-generation execution claims, stale terminal-write fencing, and absolute pickup budgets.            | none                                             | 500        | refs #1657        |
 | `wake-projection`    | `wait-claim`         | Pure checkpoint and wait-result reconstruction, attempt boundaries, and malformed-receipt proof.                | none                                             | 650        | refs #1657        |
-| `wait-resume`        | `wake-projection`    | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
-| `web`                | `wait-resume`        | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
+| `wait-resume`        | `wake-projection`    | Deferred SDK call seams, atomic wait result persistence and runtime wake wiring.                                | none                                             | 1,500      | refs #1657        |
+| `wait-tool`          | `wait-resume`        | Wait admission, owner-facing documentation and actual SDK lifecycle, recovery, usage and cold-pickup proof.     | `wait`                                           | 1,500      | refs #1657        |
+| `web`                | `wait-tool`          | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
 | `finalize`           | `web`                | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
@@ -380,7 +382,18 @@ concerns within the review budget. No tool, worker, or runtime caller is added.
 - [x] 11d.2 Prove the actual predecessor tree with API types, focused projection cases and lint; independently review correctness, simplification and unnecessary structure. Malformed receipts must retain a matching generation so the validation under test is reached.
 - [ ] 11d.3 Publish the prerequisite and drive ordinary CI green while runtime wiring and mutations continue concurrently.
 
-## 12. Wait (`background-jobs/wait-resume`)
+## 11a. Wait runtime preparation (`background-jobs/wait-resume`)
+
+The measured wait concern exceeds the review budget. This prerequisite prepares
+all runtime seams but leaves `wait` out of the registry and permission preset.
+No production caller can suspend a Run through a model tool. The actual SDK
+acceptance and model-visible activation remain together in `wait-tool`.
+
+- [x] 11a.1 Prepare deferred SDK tool-call observation, sibling draining, atomic wait completion, exact notice receipts, first-wake replay, and pre-dispatch finalization without advertising the tool.
+- [x] 11a.2 Prove the isolated preparation with runtime unit and existing worker/restart/race suites, API lint/types/build, packaged prompt checks, Markdown and strict OpenSpec validation; self-review with independent code, simplify and ponytail reviewers.
+- [ ] 11a.3 Publish the preparation and drive ordinary CI to readiness while tool activation proceeds; mutation tests and bot review remain concurrent.
+
+## 12. Wait (`background-jobs/wait-tool`)
 
 - [ ] 12.1 Add the `wait` tool with its sentinel, its prompt file, its reference page, and its permission group; tests cover both scenarios of `The wait tool names its jobs and a timeout`, "A settled job returns at once", "A wait result is one JSON object", "Two wait calls in one step", "A wait beside a read in one step", "A Run in read-only mode waits", and "A tool call cannot name a job of another owner" for `wait`.
 - [ ] 12.2 Seed the first attempt after a wake with the `wait` tool part, in the collector, the request builder, the finalizer, and the step offset; integration tests cover "A wake does not restart the segment", "A build fails while the Run waits", the resumed step of "A settlement and a steer arrive together", a provider request that holds the `wait` call and its result, and a reload that shows the earlier steps once.

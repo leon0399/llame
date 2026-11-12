@@ -26,13 +26,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Prepare durable Run suspension (#1657).** Internal suspension commits
-  `awaiting_jobs`, its open-call state, generation, and deadline queue job
-  atomically, then releases the worker slot without releasing Chat exclusivity.
-  Wake jobs carry their own identity; admission checks that recorded job and
-  the Run budget includes waiting time from the first claim. Owner cancellation
-  can wake a suspended Run for cancellation without a model request.
-  The model-facing `wait` tool remains inactive.
+- **Prepare durable wait continuation (#1657).** Deferred provider call seams
+  drain sibling tools without a synthetic wait result. Internal wake claims
+  atomically store the real result and exact notice receipts, then preserve
+  the checkpoint once in provider history and finalization. Pre-dispatch
+  failures retain the committed result. This prerequisite does not register
+  or advertise the model-facing `wait` tool.
 
 - **State the stop proof boundary (#1657).** The model-facing description and
   tool reference promise termination of the managed process group, without
@@ -41,6 +40,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Prepare durable Run suspension (#1657).** Internal suspension commits
+  `awaiting_jobs`, its open-call state, generation, and deadline queue job
+  atomically, then releases the worker slot without releasing Chat exclusivity.
+  Wake jobs carry their own identity; admission checks that recorded job and
+  the Run budget includes waiting time from the first claim. Owner cancellation
+  can wake a suspended Run for cancellation without a model request.
+  The model-facing `wait` tool remains inactive.
 
 - **Prepare wait wake routing (#1657).** Owner steering, interruption,
   cancellation and job settlement can wake an internally suspended Run through

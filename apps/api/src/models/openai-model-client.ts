@@ -196,7 +196,8 @@ export function hasStreamChannel(input: ModelStreamInput): boolean {
   return (
     input.onTextDelta !== undefined ||
     input.onReasoningDelta !== undefined ||
-    input.onToolCallMetadata !== undefined
+    input.onToolCallMetadata !== undefined ||
+    input.onToolCall !== undefined
   );
 }
 

@@ -541,6 +541,8 @@ function makeExecutionService(
   nativeExecutorId?: string,
   options: ExecutionServiceOptions = {},
 ) {
+  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+
   const db: Db = drizzle.mock({ schema });
 
   const tenantDb = new TenantDbService({
@@ -5642,7 +5644,6 @@ describe('RunExecutionService executeRun — queue promotion', () => {
       error: new Error('provider exploded'),
     });
 
-    expect(started.lock).not.toHaveBeenCalled();
     expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
   });

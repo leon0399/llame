@@ -49,6 +49,7 @@ import {
   prepareToolExecution,
   type PreparedToolExecution,
 } from './tool-execution-signals';
+import { WAIT_SUSPENSION } from './wait-suspension';
 
 const logger = new Logger('ToolRunner');
 
@@ -487,6 +488,7 @@ async function settleAdmittedExecution(
       isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
     );
 
+    if (result === WAIT_SUSPENSION) return result;
     notifyUnknownOutcome(tool, context, result);
 
     return await capToolResult(tool, context, result);
