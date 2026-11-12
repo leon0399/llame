@@ -11,6 +11,11 @@ name: Mutation testing
 
 on:
   workflow_call:
+    inputs:
+      product:
+        type: boolean
+        default: true
+        description: Run product checks; false preserves required check names without test work.
 
 permissions:
   contents: read
@@ -25,6 +30,7 @@ jobs:
   # so more shards stop paying off quickly.
   api-shard:
     name: API (${{ matrix.shard }}/${{ strategy.job-total }})
+    if: ${{ inputs.product }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -62,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [api-shard]
-    if: ${{ !cancelled() }}
+    if: ${{ inputs.product && !cancelled() }}
     steps:
       # A shard that crashed or timed out wrote no report, and an absent report
       # reads as "no mutable line", so the score alone cannot prove coverage.
@@ -87,6 +93,7 @@ jobs:
           node scripts/mutation-changed-lines.mjs gate mutation-reports/*/mutation.json
 
   workspace:
+    # Preserve the matrix's required check names without running mutation.
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -99,14 +106,17 @@ jobs:
           - name: runtime-safety
             workspace: packages/runtime-safety
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - if: ${{ inputs.product }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - uses: ./.github/actions/setup
+      - if: ${{ inputs.product }}
+        uses: ./.github/actions/setup
 
-      - env:
+      - if: ${{ inputs.product }}
+        env:
           MUTATION_WORKSPACE: ${{ matrix.workspace }}
           # A pull request measures against its base. A trusted push measures
           # against the commit it advanced from, so a merge is scored on the
@@ -117,7 +127,7 @@ jobs:
             --workspace "$MUTATION_WORKSPACE" --base "$MUTATION_BASE"
 
       - name: Upload mutation report
-        if: always()
+        if: ${{ inputs.product && always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mutation-report-${{ matrix.name }}

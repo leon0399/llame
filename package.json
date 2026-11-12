@@ -47,6 +47,7 @@
   "devDependencies": {
     "@asyncapi/openapi-schema-parser": "3.1.0",
     "@asyncapi/parser": "3.6.3",
+    "@fission-ai/openspec": "1.13.1",
     "@oxlint/plugins": "1.82.0",
     "@playwright/test": "catalog:",
     "@redocly/cli": "2.46.2",
@@ -59,8 +60,8 @@
     "knip": "6.32.2",
     "lefthook": "2.1.9",
     "markdownlint-cli2": "0.23.2",
-    "oxlint": "catalog:",
     "oxfmt": "catalog:",
+    "oxlint": "catalog:",
     "shadcn": "catalog:",
     "ts-complex": "1.0.0",
     "tsx": "catalog:",

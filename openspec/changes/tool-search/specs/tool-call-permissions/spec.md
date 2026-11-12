@@ -2,17 +2,25 @@
 
 ### Requirement: Recommended portable policy with explicit replacement
 
-When `tools.permissions` is omitted, the system SHALL create no permission groups, so every call is rejected; there is no built-in fallback policy. The shipped `llame.config.json.example` SHALL document exactly these ten groups — `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, `search_tools`, `enter_workspace`, and `exit_workspace` — as the recommended portable map for operators to copy, plus the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below. The other nine groups (`bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, `search_tools`, and `exit_workspace`) SHALL each have a whole-tool allow. The `enter_workspace` group SHALL instead use an operator-edited field allow on `path`, such as `{ "field": "path", "regex": "^/home/operator/projects/[^/]+/?$" }`; its allow is not a whole-tool allow. It SHALL include the F1-F3 and E1-E3 path rejects against its `path` field and SHALL have no additional recommended rejects. Every directory admitted by that field allow SHALL be treated as trusted to run code and read host secrets through its Workspace MCP configuration. The `edit` and `write` groups SHALL include the W1-W2 path rejects against their `path` fields. The W1 and W2 rejects are text-only: in-repository aliases such as symlinks can bypass them, and no executor-level guard is provided. F4, F5a-F5f, F6, and F7 SHALL remain read-only web-locator rejects and SHALL NOT be applied to `enter_workspace`. The `exit_workspace` group SHALL have a whole-tool allow and no recommended rejects. Future code-owned tools and all MCP tools SHALL receive no implicit group, and `tools.allowed` SHALL remain empty by default. An explicitly supplied permission map SHALL be the complete effective policy; omitted groups in that map SHALL reject calls, and `{}` SHALL reject all calls. Operator policy MAY remove any recommended reject. No mandatory policy tier or implicit merge SHALL be added. The example and
+When `tools.permissions` is omitted, the system SHALL create no permission groups, so every call is rejected; there is no built-in fallback policy. The shipped `llame.config.jsonc.example` SHALL document exactly these ten groups — `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, `search_tools`, `enter_workspace`, and `exit_workspace` — as the recommended portable map for operators to copy, plus the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below. The other nine groups (`bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, `search_tools`, and `exit_workspace`) SHALL each have a whole-tool allow. The `enter_workspace` group SHALL instead use an operator-edited field allow on `path`, such as `{ "field": "path", "regex": "^/home/operator/projects/[^/]+/?$" }`; its allow is not a whole-tool allow. It SHALL include the F1-F3 and E1-E3 path rejects against its `path` field and SHALL have no additional recommended rejects. Every directory admitted by that field allow SHALL be treated as trusted to run code and read host secrets through its Workspace MCP configuration. The `edit` and `write` groups SHALL include the W1-W2 path rejects against their `path` fields. The W1 and W2 rejects are text-only: in-repository aliases such as symlinks can bypass them, and no executor-level guard is provided. F4, F5a-F5f, F6, and F7 SHALL remain read-only web-locator rejects and SHALL NOT be applied to `enter_workspace`. The `exit_workspace` group SHALL have a whole-tool allow and no recommended rejects. Future code-owned tools and all MCP tools SHALL receive no implicit group, and `tools.allowed` SHALL remain empty by default. An explicitly supplied permission map SHALL be the complete effective policy; omitted groups in that map SHALL reject calls, and `{}` SHALL reject all calls. Operator policy MAY remove any recommended reject. No mandatory policy tier or implicit merge SHALL be added. The example and
 the shipped web-read operator runbook SHALL also document the domain-restricted
 alternative for `read`: replacing the group's whole-tool allow with field
-allows for `^/`, `^kb://`, `^skill://`, and `^https://docs\.example\.com/`
-admits only those authorities, and the runbook SHALL state that such a clause
+allows for `^/`, `^kb://`, `^skill://`, `^media://`, and
+`^https://docs\.example\.com/` admits only those authorities, and the runbook SHALL state that such a clause
 matches the canonical locator text (lowercase punycode host, no default
-port, no root dot, percent-encoded path with unreserved characters decoded)
+port, no root dot, percent-encoded path with unreserved characters decoded,
+and no read selector)
 rather than the address the host resolves to, that reject clauses additionally
 see each resolved address as an address locator while allows never do, and that a noncanonical submitted spelling is normalized to
 that text before the allow is decided, while a reject refuses the call when
-it matches either the submitted spelling or the normalized one.
+it matches either the submitted spelling or the normalized one. The runbook
+SHALL also state that a read selector is removed from the matched text on
+every source before admission, so a clause written against a selector spelling
+such as `:raw:` matches no read, and that the `:` alternative in the F1-F4
+native path terminators stays load-bearing: F1-F3 also guard `edit`, `write`,
+and `enter_workspace`, where nothing is removed, and a literal colon-bearing
+name outside the grammar, such as `/home/u/.ssh:old`, keeps its suffix in the
+matched text of a `read`.
 
 The following table is the authoritative recommended reject list, shipped in the example. Regex cells contain engine input, not JSON string escaping. The example stores these compiled-ready spellings directly; operators copy them, and configuration interpolation still applies to operator-authored values. Operator JSON examples must escape backslashes and opening interpolation braces appropriately.
 
@@ -137,3 +145,13 @@ F5a-F5f SHALL together match exactly the cleartext locators whose host is an IPv
 - **WHEN** `write` submits an in-repository symlink alias whose target is `.mcp.json` or a path beneath `.llame`, `.agents`, or `.claude`
 - **THEN** the W1 or W2 text reject may not match the submitted alias
 - **AND** no executor-level guard rejects the alias, so the remaining policy rules determine the decision
+
+#### Scenario: The domain-restricted read alternative admits owner media
+
+- **WHEN** a `read` group's allows are `^/`, `^kb://`, `^skill://`, `^media://`, and
+  `^https://docs\.example\.com/`, and read submits `media://<id>` of an image the Run owner holds
+- **THEN** the call is admitted and returns the image result
+- **AND** reading `https://other.example/guide` is still rejected as `no_allow` without a fetch
+- **WHEN** the group's only allow is `^https://docs\.example\.com/` and read submits the same
+  `media://<id>`
+- **THEN** the call is rejected as `no_allow` before any media lookup
