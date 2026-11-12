@@ -14,7 +14,7 @@ import { type ChatJob } from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { formatJobLocator } from '../jobs/job-locator';
-import { foregroundBoundMs } from './bash-limits';
+import { foregroundBoundMs, messageMoveWindow } from './bash-limits';
 import { JobPromotionError } from '../jobs/job-promotion-error';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -130,6 +130,20 @@ describe('foreground bound', () => {
     expect(foregroundBoundMs(undefined, 600_000)).toBe(120_000);
     expect(foregroundBoundMs(120, 30_000)).toBe(30_000);
     expect(foregroundBoundMs(5, 600_000)).toBe(5000);
+  });
+});
+
+describe('message move window', () => {
+  it('accepts only a finite window tagged as a message yield', () => {
+    const controller = new AbortController();
+    const reason = { cause: 'message', deadlineAt: 123 };
+    controller.abort(reason);
+
+    expect(messageMoveWindow(controller.signal)).toEqual(reason);
+
+    const unrelated = new AbortController();
+    unrelated.abort({ cause: 'cancel', deadlineAt: 123 });
+    expect(messageMoveWindow(unrelated.signal)).toBeUndefined();
   });
 });
 

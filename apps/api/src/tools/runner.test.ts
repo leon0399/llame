@@ -8,6 +8,7 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { bashTool } from './bash';
+import { BASH_SETTLEMENT_GRACE_MS, messageMoveWindow } from './bash-limits';
 import { renderToolResultText } from './model-text';
 import {
   nativeEditTool,
@@ -15,6 +16,7 @@ import {
   nativeWriteTool,
 } from './native-files';
 import { previewToolPermission, runTool } from './runner';
+import { prepareToolExecution } from './tool-execution-signals';
 import {
   type SshClient,
   type SshResolution,
@@ -598,6 +600,193 @@ describe('runTool', () => {
     expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
     expect(result).not.toMatchObject({ type: 'execution_failed' });
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('aborts the call-local move signal when its segment yields', () => {
+    const yieldController = new AbortController();
+
+    const prepared = prepareToolExecution(
+      bashTool,
+      {
+        ...fakeContext(),
+        yieldSignal: yieldController.signal,
+        bashBackgroundAfterSeconds: 5,
+      },
+      15,
+      true,
+    );
+
+    yieldController.abort();
+
+    expect(prepared.context.moveSignal?.aborted).toBe(true);
+    const window = messageMoveWindow(prepared.context.moveSignal);
+
+    expect(window?.cause).toBe('message');
+    expect(prepared.timeoutSignal.aborted).toBe(false);
+    expect(window?.deadlineAt).toBeLessThanOrEqual(
+      prepared.context.moveDeadlineAt ?? 0,
+    );
+    prepared.dispose?.();
+  });
+
+  it('stops observing segment yields after the execution is disposed', () => {
+    const yieldController = new AbortController();
+
+    const prepared = prepareToolExecution(
+      bashTool,
+      {
+        ...fakeContext(),
+        yieldSignal: yieldController.signal,
+        bashBackgroundAfterSeconds: 5,
+      },
+      15,
+      true,
+    );
+
+    prepared.dispose?.();
+    yieldController.abort();
+
+    expect(prepared.context.moveSignal?.aborted).toBe(false);
+  });
+
+  it('lets a host bash result win when it settles inside the yield grace', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const yieldController = new AbortController();
+      const startedSignal = Promise.withResolvers<void>();
+
+      vi.spyOn(bashTool, 'execute').mockImplementation(({ moveSignal }) => {
+        const execution = Promise.withResolvers<ToolResult>();
+        startedSignal.resolve();
+        moveSignal?.addEventListener(
+          'abort',
+          () => {
+            setTimeout(
+              () =>
+                execution.resolve({ status: 'success', stdout: 'finished' }),
+              100,
+            );
+          },
+          { once: true },
+        );
+
+        return execution.promise;
+      });
+
+      const resultPromise = runTool(
+        bashTool,
+        { command: 'sleep 1' },
+        {
+          ...fakeContext(),
+          permissionPolicy: compileTestPermissionPolicy(['bash']),
+          yieldSignal: yieldController.signal,
+          bashBackgroundAfterSeconds: 5,
+        },
+        15,
+      );
+
+      await startedSignal.promise;
+      yieldController.abort();
+      await vi.advanceTimersByTimeAsync(100);
+
+      await expect(resultPromise).resolves.toEqual({
+        status: 'success',
+        stdout: 'finished',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns an unknown host bash outcome only after the yield grace expires', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const yieldController = new AbortController();
+      const startedSignal = Promise.withResolvers<void>();
+
+      vi.spyOn(bashTool, 'execute').mockImplementation(() => {
+        startedSignal.resolve();
+
+        return new Promise<ToolResult>(() => {});
+      });
+
+      const resultPromise = runTool(
+        bashTool,
+        { command: 'sleep 1' },
+        {
+          ...fakeContext(),
+          permissionPolicy: compileTestPermissionPolicy(['bash']),
+          yieldSignal: yieldController.signal,
+          bashBackgroundAfterSeconds: 5,
+        },
+        15,
+      );
+
+      let settled = false;
+      void resultPromise.then(() => {
+        settled = true;
+      });
+
+      await startedSignal.promise;
+      yieldController.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS - 1);
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(resultPromise).resolves.toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not apply the bash yield grace to a non-bash cancellation', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const abort = new AbortController();
+      const startedSignal = Promise.withResolvers<void>();
+
+      const hangingTool: Tool = {
+        ...echoTool,
+        execute: () => {
+          startedSignal.resolve();
+
+          return new Promise<ToolResult>(() => {});
+        },
+      };
+
+      const resultPromise = runTool(
+        hangingTool,
+        { value: 'x' },
+        { ...fakeContext(), abortSignal: abort.signal },
+        15,
+      );
+
+      let settled = false;
+      void resultPromise.then(() => {
+        settled = true;
+      });
+
+      await startedSignal.promise;
+      abort.abort({
+        cause: 'message',
+        deadlineAt: performance.now() + BASH_SETTLEMENT_GRACE_MS,
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(true);
+      await expect(resultPromise).resolves.toMatchObject({
+        status: 'error',
+        type: 'cancelled',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not validate or execute a tool when the parent run is already aborted', async () => {
