@@ -108,6 +108,7 @@ describe('async host bash through the tool', () => {
       registryTenantDb,
       { instanceId: crypto.randomUUID() },
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
     );
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
       // SAFETY: the promotion path only checks whether the Chat is locked.

@@ -3,8 +3,8 @@ import {
   type BashResult,
 } from '@workspace/bash-executor';
 
-import { ChatsRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { ChatsRepository } from '../chats/chats-repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { type ChatJob, type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -180,6 +180,7 @@ function setup(maxSeconds = 7200) {
     tenantDb,
     { instanceId: crypto.randomUUID() },
     config,
+    { startOnSettlement: vi.fn() },
   );
 
   vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
@@ -1308,6 +1309,7 @@ describe('BashJobLifecycle.recheckJobs', () => {
     const lifecycle = new BashJobLifecycle(
       { runAs: vi.fn() },
       { warn: vi.fn(), error: vi.fn() },
+      { startOnSettlement: vi.fn() },
     );
 
     const command = fakeHandle();

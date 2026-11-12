@@ -100,6 +100,7 @@ describe('the heartbeat check of live jobs', () => {
       { runAs: <T>(_o: string, fn: (tx: Db) => Promise<T>) => fn(asDb(db)) },
       worker,
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
     );
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
     // SAFETY: only presence is checked.

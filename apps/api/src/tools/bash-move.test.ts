@@ -209,6 +209,7 @@ describe('foreground host bash move', () => {
       tenant,
       { instanceId: crypto.randomUUID() },
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: () => Promise.resolve() },
     );
     begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')

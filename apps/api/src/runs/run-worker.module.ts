@@ -32,6 +32,7 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
 import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { WorkerShutdownService } from '../jobs/worker-shutdown.service';
+import { JobNoticeRunService } from './job-notice-run.service';
 
 /**
  * RunWorkerModule (#48/#50) — the run EXECUTION side: queue consumers
@@ -80,6 +81,7 @@ import { WorkerShutdownService } from '../jobs/worker-shutdown.service';
     },
     RunsWorkerService,
     WorkerHeartbeatService,
+    JobNoticeRunService,
     BashJobRegistry,
     WorkerShutdownService,
     RunControlListenerService,

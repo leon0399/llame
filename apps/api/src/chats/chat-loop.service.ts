@@ -398,6 +398,11 @@ export class ChatLoopService {
       // record. Reusing a message id is rejected above; retries are a separate
       // feature, not implicit idempotency.
       const { run } = await createRunForMessage(tx, input, userMessage);
+      await new ChatDeliveriesRepository(tx).deliverPendingJobNotices(
+        input.chatId,
+        input.userId,
+        { messageId: userMessage.id, runId: run.id },
+      );
 
       return {
         runId: run.id,

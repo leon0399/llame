@@ -121,6 +121,57 @@ export class ChatDeliveriesRepository {
       .orderBy(asc(chatDeliveries.position));
   }
 
+  /**
+   * Pending settled-job notices held for the owner's next accepted turn.
+   * Keep the producer/job checks here as well as RLS so stale or foreign
+   * producer references can never be adopted by a caller.
+   */
+  async lockFirstPendingJobNotice(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<ChatDelivery | undefined> {
+    const [notice] = await this.db
+      .select()
+      .from(chatDeliveries)
+      .where(
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          eq(chatDeliveries.producer, 'job'),
+          eq(chatDeliveries.mode, 'notice'),
+          this.settledNoticeJob(chatId, ownerUserId),
+        ),
+      )
+      .orderBy(asc(chatDeliveries.position))
+      .limit(1)
+      .for('update');
+
+    return notice;
+  }
+
+  /** Attach held notices to the accepted user message and its new Run. */
+  async deliverPendingJobNotices(
+    chatId: string,
+    ownerUserId: string,
+    delivered: { messageId: string; runId: string },
+  ): Promise<void> {
+    await this.db
+      .update(chatDeliveries)
+      .set({
+        state: 'delivered',
+        deliveredMessageId: delivered.messageId,
+        runId: delivered.runId,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          eq(chatDeliveries.producer, 'job'),
+          eq(chatDeliveries.mode, 'notice'),
+          this.settledNoticeJob(chatId, ownerUserId),
+        ),
+      );
+  }
+
   /** Return notices attached to a segment that never dispatched. */
   async returnUndispatchedJobNotices(run: Run): Promise<void> {
     await returnUndispatchedJobNotices(this.db, run);

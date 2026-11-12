@@ -87,9 +87,17 @@ is authored at dispatch, not saved in the trigger row. See the
 [job locator](../reference/locators/job.md#pending-notices) and
 [stop tool](../reference/tools/stop.md#behavior) for the reference contract.
 
-The idle-host-Run and held-notice admission paths, and the `wait` tool, are not
-active yet. A settlement with no executing Run therefore leaves its notice
-pending for a later Run; this layer does not start one.
+An idle, unarchived Chat whose latest Run completed can start a host Run when a
+job succeeds, fails, or times out. Settlement, the empty host trigger, Run,
+notice attachment, and first queue job commit together. Pending notices share
+that Run; the first pending notice supplies its model, effort, and permission
+mode. If those settings are no longer available, the notices stay pending.
+
+A lost or cancelled job starts no Run. Notices after a stopped or failed Run
+wait for an owner send, queue promotion, mode change, or follow-up admission.
+Those paths also adopt pending lost and cancelled results. A Run that ends
+before dispatch returns its notices to pending. Continue can answer a host
+trigger after a failed host Run. The `wait` tool is not active yet.
 
 Host-history privacy and model-order handling are available for stored host
 rows. Owner-history responses identify them with `host: true`; ordinary owner,
@@ -106,5 +114,5 @@ at the next owner-scoped touch after four missed heartbeat intervals. No other
 worker replays or adopts the command.
 
 A completed, failed, or cancelled starting Run does not stop its jobs. Settlement
-is stored independently; it does not currently start a new Run. Read the job
-record or use the owner jobs API to inspect its terminal state.
+is stored independently; host startup follows the idle-Chat rules above. Read
+the job record or use the owner jobs API to inspect its terminal state.

@@ -14,6 +14,7 @@ import { type ChatJob } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { type BashJobFacts } from './bash-job-registry';
 import { appendJobOutput, settleBashJob } from './bash-job-store';
+import { type JobNoticeRunService } from '../runs/job-notice-run.service';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 
 type OutputOffsets = Record<'stdout' | 'stderr', number>;
@@ -47,6 +48,7 @@ export class BashJobLifecycle {
   constructor(
     private readonly tenantDb: TenantRunner,
     private readonly logger: Pick<Logger, 'warn' | 'error'>,
+    private readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>,
   ) {}
 
   trackCommand(handle: ManagedBashHandle): void {
@@ -246,7 +248,11 @@ export class BashJobLifecycle {
         this.tenantDb,
         live.row,
         { output, settlement, offsets: live.offsets },
-        live.facts,
+        {
+          maxBytes: live.facts.maxBytes,
+          hostFiles: live.facts.hostFiles,
+          noticeRuns: this.noticeRuns,
+        },
       );
       this.jobs.delete(live.row.id);
     } catch (error) {

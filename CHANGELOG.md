@@ -70,13 +70,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Start host Runs for background-job results (#1657).** Eligible settlements
+  on idle, unarchived Chats commit the trigger, Run, notices, and queue job
+  together. The first pending notice supplies settings; unavailable settings
+  leave results pending. Lost and cancelled results wait for owner admission,
+  which also adopts held notices after stopped or failed Runs. Continue can
+  answer a failed host Run. Produced host rows preserve owner history and stay
+  out of title, preview, recency, search evidence, public history, and shared
+  forks. Durable `wait` remains inactive.
+
 - **Prepare transactional Run enqueue (#1657).** Internal producers can insert
   a Run's queue job through their existing Drizzle transaction, using the
   public pg-boss adapter with postgres.js result normalization. Queue writes
   roll back with the caller, preserve delayed starts and parameter binding,
   and reject duplicate ids. Owner-started dispatch is unchanged; idle host
   Runs and durable waits remain inactive until their owning layers.
-
 - **Activate background-job settlement notices at Run boundaries (#1657).**
   Each winning settlement, including a lost-on-touch settlement, creates one
   pending notice. Jobless dead-worker checks take no Chat lock; actual lost
