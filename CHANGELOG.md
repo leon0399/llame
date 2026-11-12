@@ -10,6 +10,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   gates, so it observes the pending item before removing it and adopting the
   delivered history; no time-based delay chooses the event order.
 
+- Skip product CI stages for documentation, OpenSpec and harness-instruction-only
+  pull requests and pushes. Runtime prompts and unknown paths still run product
+  checks; scheduled and manual behavior is unchanged. Scope detection uses the
+  pinned Node runtime and rejects empty or malformed detector output.
+
+- Add strict OpenSpec validation inside the required `Lint` CI check for active
+  proposals and canonical specs, with the CLI pinned to the repository's
+  workflow-compatible version
+
+- Rebase the active tool-search proposal's permission and replay deltas on the
+  current canonical specs, retaining owner-media admission and the checkpoint-only
+  replay boundary so strict all-items validation passes without exclusions.
+
 # 2026-11-10
 
 - Reconcile the vendored anti-slop Oxlint plugin with upstream

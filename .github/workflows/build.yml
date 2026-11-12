@@ -7,6 +7,11 @@ name: Build
 
 on:
   workflow_call:
+    inputs:
+      product:
+        type: boolean
+        default: true
+        description: Run the product build.
 
 permissions:
   contents: read
@@ -17,6 +22,7 @@ env:
 jobs:
   build:
     name: Build
+    if: ${{ inputs.product }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

@@ -83,9 +83,9 @@ See `proposal.md` for motivation. Facts that shape the design, verified on 2026-
 - **MCP dispatch is not replayed.** The worker records each MCP dispatch before invoking it; a
   queue redelivery of a Run with a recorded native attempt or MCP dispatch fails as
   `outcome_unknown` instead of re-running the model loop.
-- **Replay.** Ordinary tool observations replay as portable, text-bearing SDK call/result pairs
-  under a per-pair and per-turn budget (`tool-calling` "Tool observations survive into later turns
-  as stored UI parts"); compaction replaces absorbed observations with replacement records.
+- **Replay.** Ordinary tool observations replay through `turn-replay` unchanged until a
+  checkpoint absorbs them (`tool-calling` "Earlier tool activity takes part in later model
+  context"); compaction carries absorbed observations only as summary text, without tool parts.
 
 ### Reference survey
 
@@ -241,12 +241,11 @@ anything.
 ### D6. The loaded set is what the model can see
 
 A discoverable tool is loaded for a request iff that request's projected context carries the
-result body of a `search_tools` observation that loaded it. A pair the replay budget omitted, a
-pair it cleared to call and outcome only, and a compaction replacement record (which is always
-cleared) are not loads: the model can no longer see which tools they named. Within the current
-Run, loads from earlier steps count. The loaded set is therefore derived at request assembly from
-the same projection that builds the request, which reports the ids of the `search_tools` pairs it
-kept with their bodies; it is never a separate record.
+result body of a `search_tools` observation that loaded it. A checkpoint summary is not a load:
+the model can no longer see the observation naming those tools. Within the current Run, loads
+from earlier steps count. The loaded set is therefore derived at request assembly from the
+same projection that builds the request, which reports the ids of the `search_tools` pairs it
+carries; it is never a separate record.
 
 Consequences, all without new state:
 
@@ -254,11 +253,11 @@ Consequences, all without new state:
   committed, so they are absent; there is nothing to fence. (A retry happens only when the failed
   attempt recorded no MCP dispatch or native attempt; otherwise the Run fails as
   `outcome_unknown` and nothing is retried.)
-- **Compaction.** An observation absorbed into a checkpoint survives only as a cleared
-  replacement record, so it is no longer a load; the epoch resets. An observation retained in the
-  kept tail with its body stays a load, because the model can still see it.
-- **Replay budget.** If the budget drops or clears the pair that loaded a tool, the tool is no
-  longer loaded. Callability never exceeds what the model was shown.
+- **Compaction.** An observation absorbed into a checkpoint survives only as summary text,
+  so it is no longer a load; the epoch resets. An observation retained in the kept tail with its
+  body stays a load, because the model can still see it.
+- **Later tool output.** Further results do not clear or drop an earlier search observation.
+  Its tools stay loaded until a checkpoint absorbs it or their admission is revoked.
 - **Model switch.** The stored observation is wire-neutral (D7), so each wire projects it in its
   own form (D9).
 - **Revocation.** Declarations always come from the current attempt's admitted catalog. A loaded
