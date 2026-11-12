@@ -165,7 +165,7 @@ describe('deliverPendingSteering', () => {
       .mockResolvedValue(has('chat') ? overrides.chat : chat);
 
     const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
       .mockResolvedValue(overrides.items ?? [first, second]);
 
     const markDelivered = vi
@@ -557,7 +557,7 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     ).mockResolvedValue(items);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
