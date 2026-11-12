@@ -8,6 +8,8 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatsRepository } from '../chats/chats-repository';
 import { BashJobPromotion } from './bash-job-promotion';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { RunsRepository } from '../runs/runs-repository';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 
@@ -85,6 +87,7 @@ describe('the heartbeat check of live jobs', () => {
     lookups = [];
     settlements = [];
     ids = 0;
+    const settledRows = new Map<string, ChatJob>();
 
     const db = {
       transaction: <T>(fn: (tx: Db) => Promise<T>) => fn(asDb(db)),
@@ -102,14 +105,29 @@ describe('the heartbeat check of live jobs', () => {
     // SAFETY: only presence is checked.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({} as never);
-    vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation((job) =>
-      // SAFETY: the row echoes the inserted fields.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      Promise.resolve({
-        ...job,
-        id: `job-${++ids}`,
-        deadlineAt: null,
-      } as never),
+    vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
+      (job) => {
+        const row = {
+          ...job,
+          id: `job-${++ids}`,
+          deadlineAt: null,
+        };
+
+        // SAFETY: the row echoes the inserted fields.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        settledRows.set(row.id, row as ChatJob);
+
+        // SAFETY: the row echoes the inserted fields.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        return Promise.resolve(row as ChatJob);
+      },
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'insertJobNotice',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+      undefined,
     );
     findById = vi
       .spyOn(ChatJobsRepository.prototype, 'findById')
@@ -122,12 +140,20 @@ describe('the heartbeat check of live jobs', () => {
       });
     settle = vi
       .spyOn(ChatJobsRepository.prototype, 'settle')
-      .mockImplementation((_c, _o, _j, settlement) => {
+      .mockImplementation((_c, _o, id, settlement) => {
         settlements.push(settlement);
+        const row = settledRows.get(id);
 
-        // SAFETY: the store checks only that a row came back.
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        return Promise.resolve({} as ChatJob);
+        if (row === undefined) return Promise.resolve(undefined);
+
+        row.state = settlement.state;
+        row.stoppedBy =
+          settlement.state === 'cancelled' ? settlement.stoppedBy : null;
+        row.result = settlement.result ?? null;
+        row.artifactId = settlement.artifactId ?? null;
+        row.settledAt = new Date();
+
+        return Promise.resolve({ ...row });
       });
   });
   afterEach(async () => {

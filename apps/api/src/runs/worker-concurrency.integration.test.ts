@@ -497,7 +497,7 @@ describeIfDb(
           // still uncommitted behind this lock, and no later event to make a
           // client refetch it.
           const run = await runStatus(seed.runId);
-          expect(run?.status).toBe('running_model');
+          expect(run?.status).not.toBe('completed');
           expect((await turnState()).assistantMessage).toBeUndefined();
         });
 

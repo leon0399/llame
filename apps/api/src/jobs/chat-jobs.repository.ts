@@ -204,6 +204,30 @@ export class ChatJobsRepository {
     ownerUserId: string,
     deadAfterSeconds: number,
   ): Promise<Array<ChatJob>> {
+    const deadRunningJob = and(
+      inChat(chatId, ownerUserId),
+      eq(chatJobs.state, 'running'),
+      notExists(
+        this.db
+          .select({ one: sql`1` })
+          .from(workerInstances)
+          .where(
+            and(
+              eq(workerInstances.id, chatJobs.workerInstanceId),
+              workerAlive(deadAfterSeconds),
+            ),
+          ),
+      ),
+    );
+
+    const [candidate] = await this.db
+      .select({ id: chatJobs.id })
+      .from(chatJobs)
+      .where(deadRunningJob)
+      .limit(1);
+
+    if (candidate === undefined) return [];
+
     if (
       (await new ChatsRepository(this.db).lock(chatId, ownerUserId)) ===
       undefined
@@ -213,23 +237,7 @@ export class ChatJobsRepository {
     const settled = await this.db
       .update(chatJobs)
       .set({ state: 'lost', result: LOST_RESULT, settledAt: sql`now()` })
-      .where(
-        and(
-          inChat(chatId, ownerUserId),
-          eq(chatJobs.state, 'running'),
-          notExists(
-            this.db
-              .select({ one: sql`1` })
-              .from(workerInstances)
-              .where(
-                and(
-                  eq(workerInstances.id, chatJobs.workerInstanceId),
-                  workerAlive(deadAfterSeconds),
-                ),
-              ),
-          ),
-        ),
-      )
+      .where(deadRunningJob)
       .returning();
 
     for (const job of settled) await recordJobSettlementNotice(this.db, job);
