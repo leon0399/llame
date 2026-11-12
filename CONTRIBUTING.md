@@ -235,11 +235,12 @@ the proposal layer, Final OpenSpec for finalize, plus Product Markdown and Any
 change as they apply.
 
 Those narrow local commands are the pre-publication proof for those rows.
-CI also runs strict OpenSpec validation over all active changes and canonical
-specs, using the version pinned in the root package manifest. CI's result on the
-published head gates a merge for the rows CI covers; a local green is not a
-substitute for that result. Run a broader row locally only where CI cannot cover
-it — an environment it does not provide, or a failure it cannot attribute.
+The required `Lint` job also runs strict OpenSpec validation over all active
+changes and canonical specs, using the version pinned in the root package
+manifest. CI's result on the published head gates a merge for the rows CI covers;
+a local green is not a substitute for that result. Run a broader row locally
+only where CI cannot cover it — an environment it does not provide, or a failure
+it cannot attribute.
 
 Narrow evidence cannot support a broader claim.
 

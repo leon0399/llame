@@ -27,21 +27,6 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
-  openspec:
-    name: OpenSpec
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - uses: ./.github/actions/setup
-
-      # Checks active proposal deltas and the canonical specs after sync or
-      # archive. Incomplete implementation tasks remain valid on proposals.
-      - run: pnpm exec openspec validate --all --strict --no-interactive
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -54,6 +39,11 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           turbo-cache: lint
+
+      # This runs inside the required Lint check so invalid proposals and
+      # canonical specs block merging, including after sync or archive.
+      - name: Validate OpenSpec
+        run: pnpm exec openspec validate --all --strict --no-interactive
 
       # Canonical static gate: root and workspace Oxlint, Markdown, OpenAPI,
       # dead code, duplication, and Halstead difficulty.

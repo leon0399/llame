@@ -9,9 +9,8 @@
 #   e2e       (e2e.yml: Playwright; builds the web app itself)
 #   dast      (dast.yml: builds the API, then Schemathesis legs and ZAP)
 #
-# Every stage starts at once; none waits for a cheaper gate. On these runners
-# a red cheap gate costs only the runners the parallel stages used, while
-# waiting costs every green run the gate's whole duration.
+# Product stages start together after the lightweight change-scope job admits
+# them. No product stage waits on another product stage.
 #
 # The nightly schedule runs only typecheck, build and API DAST, with a fresh
 # Schemathesis seed and a longer budget, so unchanged code still gets new
@@ -60,6 +59,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - id: node-version
+        run: echo "version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
+        with:
+          install: false
+          runtime: node@${{ steps.node-version.outputs.version }}
+
       - id: scope
         shell: bash
         env:
@@ -74,8 +81,12 @@ jobs:
             echo "product=true" >>"$GITHUB_OUTPUT"
             exit 0
           fi
-          git diff --name-only --no-renames -z "$base" HEAD |
-            node scripts/ci-product-scope.mjs >>"$GITHUB_OUTPUT"
+          scope=$(git diff --name-only --no-renames -z "$base" HEAD |
+            node scripts/ci-product-scope.mjs)
+          case "$scope" in
+            product=true|product=false) echo "$scope" >>"$GITHUB_OUTPUT" ;;
+            *) echo "::error::Invalid product scope output"; exit 1 ;;
+          esac
 
   typecheck:
     name: Typecheck

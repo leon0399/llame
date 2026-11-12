@@ -182,7 +182,9 @@ dast      (dast.yml)      build API -> Schemathesis legs, ZAP
 ```
 
 On pull requests and pushes, a lightweight change-scope job runs before the
-product stages. Documentation (`docs/`, root Markdown), OpenSpec, harness
+product stages. The detector uses `.node-version` without installing workspace
+dependencies, and empty or malformed output fails the scope job rather than
+disabling checks. Documentation (`docs/`, root Markdown), OpenSpec, harness
 configuration and instruction files alone skip typecheck, tests, mutation,
 build, E2E and DAST. Unknown paths, runtime prompts under
 `apps/api/src/prompts/`, dependencies and build configuration keep those gates
@@ -196,8 +198,9 @@ containers disabled; skipping a whole reusable workflow would omit those names
 and block the repository's required-check ruleset.
 
 - Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
-  jscpd, Halstead difficulty, and a separate strict OpenSpec gate using the
-  root manifest's pinned CLI. `pnpm exec openspec validate --all --strict
+  jscpd, Halstead difficulty, and strict OpenSpec validation inside the required
+  `Lint` job, using the root manifest's pinned CLI.
+  `pnpm exec openspec validate --all --strict
   --no-interactive` validates all active proposals and canonical specs after
   modification, synchronization or archive; it does not require active proposal
   tasks to be complete or revalidate historical archived deltas. These static

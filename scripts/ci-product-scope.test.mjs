@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { parse as parseYaml } from "yaml";
 
 import { needsProductChecks } from "./ci-product-scope.mjs";
 
@@ -52,4 +62,50 @@ test("CLI preserves NUL-delimited filenames and reports a job output", () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "product=false\n");
+});
+
+test("the scope step rejects empty or malformed detector output", (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "ci-product-scope-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  const workflow = parseYaml(
+    readFileSync(
+      new URL("../.github/workflows/ci.yml", import.meta.url),
+      "utf8",
+    ),
+  );
+
+  const step = workflow.jobs.changes.steps.find(({ id }) => id === "scope");
+  writeFileSync(path.join(directory, "git"), "#!/bin/sh\nexit 0\n", {
+    mode: 0o755,
+  });
+  writeFileSync(
+    path.join(directory, "node"),
+    '#!/bin/sh\nprintf "%s" "$DETECTOR_OUTPUT"\n',
+    {
+      mode: 0o755,
+    },
+  );
+
+  for (const [name, output] of [
+    ["empty", ""],
+    ["malformed", "product=unknown\n"],
+  ]) {
+    const outputFile = path.join(directory, `${name}.output`);
+
+    const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", step.run], {
+      cwd: directory,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${directory}:${process.env.PATH}`,
+        EVENT: "pull_request",
+        GITHUB_OUTPUT: outputFile,
+        DETECTOR_OUTPUT: output,
+      },
+    });
+
+    assert.equal(result.status, 1, `${name}: ${result.stderr}`);
+    assert.equal(existsSync(outputFile), false, name);
+  }
 });
