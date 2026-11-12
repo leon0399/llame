@@ -439,7 +439,16 @@ latest Run completed creates a host trigger, Run, notice attachments, and first
 queue job in the same transaction. The first pending notice supplies settings;
 invalid settings leave notices pending. Lost and cancelled jobs start no Run.
 Owner send, promotion, mode change, and follow-up admission adopt held notices;
-an ending Run returns notices it never dispatched. `wait` remains inactive. See
+an ending Run returns notices it never dispatched. The read-only `wait` tool
+returns immediately for settled jobs or commits `awaiting_jobs` with its
+checkpoint and deadline job before releasing the worker slot. Settlement,
+steering, interruption, cancellation, or the durable deadline wakes that same
+Run. The first claimed wake records its real wait result and consumes exactly
+the listed settled-job notices in one fenced transaction. It preserves prior
+steps in the collector, provider history, and stored reply; an ordinary retry
+instead restarts a read-only segment or refuses native mutation replay as
+`outcome_unknown`. Other job notices and owner items are delivered before the
+resumed request. No open wait emits a synthetic SDK tool result. See
 [job locators](docs/product/reference/locators/job.md#pending-notices),
 [stop](docs/product/reference/tools/stop.md#behavior), and the
 [operator boundary](docs/product/operator/background-jobs.md#runtime-boundary).

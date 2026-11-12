@@ -103,6 +103,7 @@ export const PORTABLE_TOOL_PERMISSIONS: ToolPermissionMap = {
   knowledge_search: { allow: true },
   search_conversations: { allow: true },
   conversation_read: { allow: true },
+  wait: { allow: true },
   enter_workspace: { allow: [ENTRY_ALLOW], reject: ENTRY_REJECTS },
   exit_workspace: { allow: true },
   stop: { allow: true },
