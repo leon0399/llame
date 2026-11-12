@@ -42,6 +42,9 @@ another worker is read every 250 ms. A job still running when the wait ends is
 reported as `running`. Its request is stored, so it ends once its worker proves
 the stop. A worker that is dead settles its jobs as `lost`.
 
+Host termination proof covers the job's managed process group. Detached
+descendants that leave that group are outside the proof.
+
 A repeated call requests the stop again. `stop` records no native attempt.
 
 The `execute_code` classification and the host-capability gate apply: the tool

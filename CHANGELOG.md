@@ -14,6 +14,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- **State the stop proof boundary (#1657).** The model-facing description and
+  tool reference promise termination of the managed process group, without
+  claiming that detached descendants are also stopped.
+
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.
