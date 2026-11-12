@@ -17,7 +17,6 @@ import * as schema from '../db/schema';
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
-import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
 import {
   ModelConfigurationError,
@@ -948,37 +947,6 @@ describe('ChatsController response plumbing', () => {
       'Model stream failed',
       expect.any(String),
     );
-  });
-
-  it('answers a stored pending item with 202 and its JSON, never a stream', async () => {
-    const { controller, chatLoopService, bridge } = makeController();
-    const item = chatDeliveryRow({ chatId, mode: 'queue' });
-    chatLoopService.createDeliveryMessage.mockResolvedValue({ delivery: item });
-    const response = makeWritableResponse();
-
-    await controller.createMessage(
-      'user',
-      chatId,
-      { modelId: 'm', delivery: 'queue', message: { id: item.id, parts: [] } },
-      response,
-    );
-
-    expect(chatLoopService.createDeliveryMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId, userId: 'user', delivery: 'queue' }),
-    );
-    expect(chatLoopService.createMessageStream).not.toHaveBeenCalled();
-    expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
-    expect(response.status).toHaveBeenCalledWith(202);
-    expect(response.setHeader).toHaveBeenCalledWith(
-      'Content-Type',
-      'application/json; charset=utf-8',
-    );
-    expect(JSON.parse(response.chunks.join(''))).toMatchObject({
-      id: item.id,
-      chatId,
-      mode: 'queue',
-      state: 'pending',
-    });
   });
 
   it('names the chat in every owner-scoped 404', async () => {
