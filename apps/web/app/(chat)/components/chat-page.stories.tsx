@@ -3516,6 +3516,12 @@ export const NextSegmentAttachesAfterDelivery: Story = {
   },
 };
 
+let releaseFirstDelivery!: () => void;
+let firstDelivery: Promise<void>;
+let releaseDeliveredHistory!: () => void;
+let deliveredHistory: Promise<void>;
+let deliveredHistoryStarted: Promise<void>;
+let currentDeliveries: Array<ChatDeliveryResponse>;
 /**
  * The steer item's id is not its delivered message's id. When the live list
  * drops the item after the stream named the message but before history is
@@ -3523,12 +3529,6 @@ export const NextSegmentAttachesAfterDelivery: Story = {
  *
  * @summary the next segment attaches when the live update comes first
  */
-let releaseFirstDelivery!: () => void;
-let firstDelivery: Promise<void>;
-let releaseDeliveredHistory!: () => void;
-let deliveredHistory: Promise<void>;
-let deliveredHistoryStarted: Promise<void>;
-let currentDeliveries: Array<ChatDeliveryResponse>;
 
 export const LiveUpdateBeforeHistoryStillAttaches: Story = {
   tags: ["ai-generated"],
@@ -3608,9 +3608,18 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
           pending ? within(pending).queryByText("steer message") : null,
         ).toBeNull();
       });
+      await expect(
+        sentRoutes().filter((route) => route === RESUME_ROUTE),
+      ).toHaveLength(1);
 
       releaseDeliveredHistory();
       await transcriptShows(canvasElement, "second segment reply");
+      await expect(
+        precedes(
+          transcriptText(canvasElement, "steer message"),
+          transcriptText(canvasElement, "second segment reply"),
+        ),
+      ).toBe(true);
       await expect(
         sentRoutes().filter((route) => route === RESUME_ROUTE),
       ).toHaveLength(2);
