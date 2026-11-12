@@ -21,6 +21,9 @@ master
   <- background-jobs/bash-move
   <- background-jobs/job-stop
   <- background-jobs/yield
+  <- background-jobs/notice-store
+  <- background-jobs/host-history
+  <- background-jobs/job-projection
   <- background-jobs/notices
   <- background-jobs/run-enqueue
   <- background-jobs/host-runs
@@ -46,9 +49,12 @@ one changes no behavior that the model or the owner can see.
 | `bash-move`       | `bash-async`      | The move of a foreground command at its bound.                                             | no kill at 120 s                                 | 1,500      | refs #1657, #1050 |
 | `job-stop`        | `bash-move`       | The model-facing `stop` tool and its result/notice coordination.                           | `stop`                                           | 1,300      | refs #1657        |
 | `yield`           | `job-stop`        | Calls that yield to a steer, and the interrupt fate for each call.                         | a steer or an interrupt moves a command          | 2,000      | refs #1657        |
-| `notices`         | `yield`           | Job notices in the delivery queue, their context item, and host messages.                  | notices in a live Run                            | 2,000      | refs #1657        |
+| `notice-store`    | `yield`           | Notice storage, owner API restrictions, generated contracts and affected consumers.        | producer-aware pending-item contract             | 1,300      | refs #1657        |
+| `host-history`    | `notice-store`    | Host-message history, context position, privacy projections and generated consumers.       | host-message flag; no live notice producer       | 1,200      | refs #1657        |
+| `job-projection`  | `host-history`    | Job-row notifications and owner-scoped running-job display refresh.                        | live job counts across lease changes             | 1,000      | refs #1657        |
+| `notices`         | `job-projection`  | Atomic settlement notices, boundary delivery, context items and stop-result coordination.  | notices in a live Run                            | 1,900      | refs #1657        |
 | `run-enqueue`     | `notices`         | Queue insertion through the caller's tenant transaction, with rollback and delay proof.    | none                                             | 750        | refs #1657        |
-| `host-runs`       | `run-enqueue`     | Runs that the host starts, and held notices.                                               | a notice starts a Run                            | 1,800      | refs #1657        |
+| `host-runs`       | `run-enqueue`     | Runs that the host starts, held notices and notice-started history acceptance.             | a notice starts a Run                            | 1,950      | refs #1657        |
 | `wait-suspend`    | `host-runs`       | `awaiting_jobs`, the wakers, the deadline job, and admission.                              | none                                             | 2,000      | refs #1657        |
 | `wait-resume`     | `wait-suspend`    | The `wait` tool and the attempt after a wake.                                              | `wait`                                           | 2,000      | refs #1657        |
 | `web`             | `wait-resume`     | The sidebar state, the Jobs section, and the transcript rows.                              | the owner controls                               | 1,800      | Closes #1657      |
@@ -63,7 +69,7 @@ size, and this text keeps no per-file figures that a later revision would make w
 
 **Delivery gate.** No layer is released or merged on its own. The layers `bash-async` through
 `yield` promise a notice in the text of a `backgrounded` result, and the notices arrive in
-`notices` (tasks 9.2 to 9.4) and `host-runs` (task 10). Those layers stay draft and not mergeable
+`notices` (tasks 9.2 and 9.3) and `host-runs` (task 9.4 and task 10). Those layers stay draft and not mergeable
 until tasks 9.2 to 9.4 and task 10 are complete. The whole feature merges only with the explicit
 merge permission of Leo. Native feature acceptance does not change, and no false promise reaches
 released code.
@@ -82,7 +88,7 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [x] 1.2 Write `proposal.md`, `design.md`, the delta specs, and this file; `pnpm exec openspec validate background-jobs --strict` passes.
 - [x] 1.3 Run two rounds of `$iterative-review-refinement` with two independent reviewers each, verify each finding, and commit each round apart; the revision history in `design.md` names each round.
 - [x] 1.4 Run `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; all pass.
-- [ ] 1.5 Self-review the draft PR diff against `REVIEW_GUIDE.md` and fix findings with new commits before the PR is marked ready. Round 2 did not converge, so run one more review round first.
+- [ ] 1.5 Self-review the draft PR diff against `REVIEW_GUIDE.md` and fix findings with new commits before the PR is marked ready. Leo waived the additional proposal review round.
 - [ ] 1.6 Run the GitHub review and CI loop on the published head until every expected reviewer completes and CI passes.
 - [ ] 1.7 Obtain Leo's approval of the published revision, of the three deviations, of the usage trade-off, and of the budget exception.
 
@@ -192,16 +198,53 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
 - [ ] 8.5 Run the GitHub review and CI loop on the published head.
 
+## 8a. Notice storage (`background-jobs/notice-store`)
+
+This prerequisite creates no notice from settlement. Task 9.1 remains open until
+the producer and delivery paths exist; seeded rows prove only this layer's
+storage, API and consumer contracts.
+
+- [ ] 8a.1 Admit producer `job` and mode `notice`, generate the partial unique index with `pnpm db:generate`, and pass `db:check`. Prepare the owner-scoped pending-item read model and the exclusions in `pauseBehind`, `firstPendingQueueItem` and `changePendingMode`. Keep owner send/change DTO modes closed. Real-DB negative tests prove foreign references stay inaccessible, owner deletion works, mode changes cannot convert a job notice and failed Runs leave notice mode unchanged.
+- [ ] 8a.2 Add producer and job locator/state fields to `ChatDeliveryResponse`; regenerate OpenAPI, web client and both live-protocol copies, and prove a clean second generation. Migrate every affected handwritten consumer, fixture and story in the same layer, including the notice label and producer-safe pending-item actions; no placeholder, shim or live notice producer.
+- [ ] 8a.3 Update the pending-item reference and `CHANGELOG.md`; run focused API/web lint, typecheck, build and unit/DB checks plus an actual pending-notice surface smoke. Self-review the parent-relative draft, including independent code, simplify and ponytail review, before ready.
+- [ ] 8a.4 Run the published-head ordinary-CI and GitHub review loop; ordinary tests gate the next layer while mutation and review processing continue concurrently under Leo's delivery instruction.
+
+## 8b. Host history (`background-jobs/host-history`)
+
+This prerequisite creates no notice or host-started Run. Seeded host rows prove
+the privacy/context rules; task 9.4's notice-started history acceptance belongs
+to `host-runs` after task 10.1.
+
+- [ ] 8b.1 Define the host predicate as role `user` and no sender. Keep an empty host trigger in its model-history position without replacing the earlier reply; skip host rows in title input, list preview, recency, public projection and shared fork. Preserve literal owner forks, reply-target remapping and search's text-only evidence. Add `ChatMessageResponse.host`, regenerate OpenAPI and the web client, and migrate every handwritten caller/fixture.
+- [ ] 8b.2 Add seeded-row context-order, title/recency, public paging, shared-fork and negative isolation proof. Verify owner-history host marking and absence from search evidence through real database reads. Update the relevant reference and `CHANGELOG.md`; do not mark complete the notice-started scenario of task 9.4.
+- [ ] 8b.3 Run focused API/web lint, typecheck, build and tests, prove clean regeneration, and self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
+- [ ] 8b.4 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
+
+## 8c. Live job projection (`background-jobs/job-projection`)
+
+Task 9.5 is owned by this layer. It reads display state only and creates no
+notice, host message or Run.
+
+- [ ] 9.5 Restate `llame_notify_change()` for `chat_jobs` in a manual migration with its header comment; an integration test receives `chat.upserted` with the new `runningJobs` and proves that another owner receives nothing. Also cover, with no job-row write, "An open socket sees a lease expire" (an explicit regression: the owner subscribes BEFORE the job starts), "A late heartbeat restores the count", "Only the remaining workers count", and "Another owner gets no projection", and a regression where a `NOTIFY` sends count 2, the lease then expires to 1, and the previous refresh value was also 1 (this fails with a wrong baseline), for the periodic projection refresh of `ChangeHub`. Add the operator note on its cost to `docs/product/operator/scaling.md`.
+
+- [ ] 8c.1 Verify task 9.5 with real owner-scoped database/socket proof, focused API lint/typecheck/build, Markdown and migration checks; self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
+- [ ] 8c.2 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
+
 ## 9. Notices (`background-jobs/notices`)
 
-- [ ] 9.1 Admit the producer `job` and the mode `notice`, with the unique index (`pnpm db:generate`, `db:check`), the delivery read, and the exclusions in `pauseBehind`, `firstPendingQueueItem`, and `changePendingMode`. Add the producer kind and the job fields to `ChatDeliveryResponse`, and regenerate `openapi.json`, the web client, and both live-protocol copies. Tests cover "A job item names its job", "The owner cannot make a notice an interrupt", "A send cannot forge a notice", "The owner drops a result", and a failed Run that leaves a notice a `notice`.
+The settlement winner, notice insertion, boundary delivery, dispatch-time job
+context and atomic stop-result consumption/restoration become live together in
+this layer. Include lost-on-touch settlement as well as registry settlement.
+No prerequisite may insert a live settlement notice. Task 9.4 is assigned to
+`host-runs`, because its history scenario requires a notice-started Run.
+
+- [ ] 9.1 Prove the producer-dependent acceptance after notice activation: "A job item names its job", "The owner cannot make a notice an interrupt", "A send cannot forge a notice", "The owner drops a result", and a failed Run that leaves a notice a `notice`. Task 8a supplies the storage/API implementation, but its seeded-row proof does not complete this task.
 - [ ] 9.2 Insert the notice in the settlement transaction and signal a Run that executes; integration tests cover "A job that nobody waits on", the single notice of "A settlement is recorded twice", the withdrawn notice of "The model stops a monitor", "A steer and a notice at one boundary", "A notice alone at one boundary", "A job item between two steps gets a host message", "A delivery of one notice names its cause", "A notice from a job of another model", "A job settles during the final answer", "A job settles during a model response", "A read keeps the notice", and "A live Run learns of a crash at its next step".
       Cover "A late stop gets a notice", "A cancelled stop keeps the notice", and "A discarded stop result restores its notice".
       Persist exactly the consumed delivery ids as server-only tool-event metadata.
       Verify consumed ids stay outside `output` and are omitted by owner event and stream projections.
 - [ ] 9.3 Add the `job` context producer, its packaged template, and the trigger row with no stored content; tests cover "A notice for a failed build", "A notice for a job that the owner stopped", "Output that copies an envelope", "A long output is cut", and "A job notice follows the interrupted item", a notice that names the host directory, and a provider request in which the earlier reply is still present.
-- [ ] 9.4 Store host messages and skip them in the title, the list preview, the recency digest, the public projection, and the shared fork; tests cover "A host message in the history", "A host message is not search evidence", "A shared Chat shows no job output", "A host message is not copied into a shared fork", and "A fork during a live job".
-- [ ] 9.5 Restate `llame_notify_change()` for `chat_jobs` in a manual migration with its header comment; an integration test receives `chat.upserted` with the new `runningJobs` and proves that another owner receives nothing. Also cover, with no job-row write, "An open socket sees a lease expire" (an explicit regression: the owner subscribes BEFORE the job starts), "A late heartbeat restores the count", "Only the remaining workers count", and "Another owner gets no projection", and a regression where a `NOTIFY` sends count 2, the lease then expires to 1, and the previous refresh value was also 1 (this fails with a wrong baseline), for the periodic projection refresh of `ChangeHub`. Add the operator note on its cost to `docs/product/operator/scaling.md`.
+- [ ] 9.4 Prove the full host-message acceptance after task 10.1, using the history/privacy implementation from task 8b and the host-message storage from task 9.2: "A host message in the history", "A host message is not search evidence", "A shared Chat shows no job output", "A host message is not copied into a shared fork", and "A fork during a live job". Verify title, preview, recency, public and shared-fork exclusions through these actual produced rows.
 - [ ] 9.6 Update `docs/product/reference`, `SPEC.md`, and `CHANGELOG.md` for notices and host messages; `pnpm lint:markdown` passes.
 - [ ] 9.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 9.8 Run the GitHub review and CI loop on the published head.
@@ -217,6 +260,9 @@ It changes no existing owner-started dispatch path.
 - [ ] 9a.4 Run the GitHub review and CI loop on the published head.
 
 ## 10. Host-started Runs (`background-jobs/host-runs`)
+
+Task 9.4 is owned by this layer and is checked only after task 10.1 supplies a
+notice-started Run. Its checkbox remains in group 9 to preserve its stable id.
 
 - [ ] 10.1 Start a Run on an idle Chat with its first queue job in the settlement transaction; integration tests cover "A monitor wakes the Chat at night", "Two jobs settle together", "A lost job starts no Run", "The recorded mode is no longer enabled", "A host enqueue failure rolls back settlement", "A host worker crashes after commit", and an archived Chat that starts no Run. A wrong-owner settlement must create no host Run and consume no notice of another owner.
 - [ ] 10.2 Take held notices into a send, a promoted item, and a mode change, deliver them to a follow-up Run, and return them to `pending` when a Run ends before its first dispatch; tests cover "A result after a Stop waits for the owner", "A result after a failed Run waits for Continue", the list of "A held notice alone does not label a paused queue", and a Run that fails before its dispatch.
