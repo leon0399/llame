@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ToolUIPart } from "ai";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { CodeBlock } from "./code-block.js";
@@ -50,6 +50,20 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof meta>;
+
+async function waitForHighlightedTokens(
+  canvasElement: HTMLElement,
+  expectedCount: number,
+) {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCount);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 const webSearchCall = {
   errorText: undefined,
@@ -279,6 +293,10 @@ export const Completed: Story = {
       </ToolContent>
     </Tool>
   ),
+  play: async ({ canvasElement }) => {
+    // Input is plain text. Only the result is a dual-theme Shiki block.
+    await waitForHighlightedTokens(canvasElement, 2);
+  },
 };
 
 /**
