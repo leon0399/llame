@@ -31,6 +31,7 @@ import { NativeFilesRepository } from './native-files-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type TerminalRunStatus } from './run-status';
 import { toolTerminationResult } from './tool-settlement';
+import { wakeStateFromEvents } from './wake-projection';
 
 /** The usage an executing attempt measured, stored on its reply. */
 export type AssistantTurnTelemetry = TurnTelemetry & {
@@ -381,8 +382,8 @@ function rebuiltReplyWrite(
   fullLog: Array<RunEvent>,
   settled: Array<RunEvent>,
 ): ReplyWrite | undefined {
-  // A rebuild covers only the Run's current segment: an earlier segment's
-  // output, and a Continue Run's kept parts, belong to replies already stored.
+  // A rebuild covers only the Run's current segment; prior output is already
+  // stored on earlier replies.
   const log = eventsAfterLatestDelivery(fullLog);
   const continued = continueStateFromEvents(log);
   const stepOffset = continueStepOffset(continued);
@@ -395,20 +396,96 @@ function rebuiltReplyWrite(
 
   if (!isRunningUsage(running)) return undefined;
 
+  const recovery = wakeReplyRecovery(input, log, running, continued);
+
+  const rebuilt = reconstructDurableAssistant(
+    [...recovery.attemptEvents, ...settled],
+    recovery.stepOffset,
+  ).collector.parts();
+
+  const telemetry =
+    input.telemetry !== undefined && input.attemptId === running.attemptId
+      ? input.telemetry
+      : (recovery.telemetry ??
+        tokenlessUsage(running, input.status, input.models));
+
   return {
-    parts: replyParts(
-      input.run,
-      reconstructDurableAssistant(
-        [...attemptWindow(log, running.attemptId), ...settled],
-        stepOffset,
-      ).collector.parts(),
-      reply.parts,
-      continued,
-    ),
-    usage:
-      input.telemetry !== undefined && input.attemptId === running.attemptId
-        ? input.telemetry
-        : tokenlessUsage(running, input.status, input.models),
+    parts: replyParts(input.run, rebuilt, reply.parts, recovery.prefix),
+    usage: telemetry,
+  };
+}
+
+type WakeReplyRecovery = {
+  readonly prefix: ContinueState | undefined;
+  readonly stepOffset: number;
+  readonly attemptEvents: Array<RunEvent>;
+  readonly telemetry: AssistantTurnTelemetry | undefined;
+};
+
+function wakeReplyRecovery(
+  input: RunReplyFinalization,
+  log: Array<RunEvent>,
+  running: RunningReplyUsage,
+  continued: ContinueState | undefined,
+): WakeReplyRecovery {
+  // Preparation may fail after the first wake claim commits. Only that
+  // claimed attempt restores the wait; retries must not replay its prefix.
+  const claimedAttemptId =
+    input.attemptId ?? input.run.activeAttemptId ?? running.attemptId;
+
+  const wake = wakeStateFromEvents(log, claimedAttemptId);
+  const prefix = wake ?? continued;
+
+  const recoveryAttemptId =
+    wake === undefined ? running.attemptId : claimedAttemptId;
+
+  const attemptEvents = attemptWindow(log, recoveryAttemptId).filter(
+    (event) =>
+      wake === undefined ||
+      event.eventType !== 'tool.completed' ||
+      !isRecord(event.payload) ||
+      event.payload['toolCallId'] !== wake.toolCallId,
+  );
+
+  return {
+    prefix,
+    stepOffset: continueStepOffset(prefix),
+    attemptEvents,
+    telemetry: wakeTelemetry(input, log, running, wake !== undefined),
+  };
+}
+
+function wakeTelemetry(
+  input: RunReplyFinalization,
+  log: Array<RunEvent>,
+  running: RunningReplyUsage,
+  hasWake: boolean,
+): AssistantTurnTelemetry | undefined {
+  if (!hasWake) return undefined;
+
+  const completed = attemptWindow(log, running.attemptId).findLast(
+    (event) => event.eventType === 'model.completed',
+  )?.payload;
+
+  const measured = isRecord(completed) ? completed['telemetry'] : undefined;
+
+  if (
+    !isRecord(measured) ||
+    measured['attemptId'] !== running.attemptId ||
+    measured['runId'] !== running.runId
+  ) {
+    return undefined;
+  }
+
+  // SAFETY: model.completed stores the typed telemetry emitted by the
+  // suspended attempt; identity checks above bind it to this reply's Run.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  const telemetry = measured as AssistantTurnTelemetry;
+
+  return {
+    ...telemetry,
+    status: turnStatusForTerminalRun(input.status),
+    complete: false,
   };
 }
 

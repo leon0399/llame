@@ -13,6 +13,7 @@ import {
   type PreparedToolExecution,
 } from './tool-execution-signals';
 import { withAbort } from './abort-promise';
+import { WAIT_SUSPENSION } from './wait-suspension';
 
 const logger = new Logger('ToolRunner');
 
@@ -147,8 +148,9 @@ async function settleAdmittedExecution(
       markers,
     });
 
-    notifyUnknownOutcome(tool, context, result);
+    if (result === WAIT_SUSPENSION) return result;
 
+    notifyUnknownOutcome(tool, context, result);
     return await capToolResult(tool, context, result);
   } catch (error) {
     const result = classifyAdmittedFailure(error, {

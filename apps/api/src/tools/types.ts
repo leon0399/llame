@@ -1,3 +1,4 @@
+import { type WaitRequest } from './wait-suspension';
 import { type BashProcessLimiter } from '@workspace/bash-executor';
 import { type ToolResult, type UnknownRecord } from '@workspace/runtime-safety';
 import { type z } from 'zod';
@@ -135,6 +136,10 @@ export interface ToolContext {
   readonly timeoutMs?: number;
   /** Trusted AI SDK call correlation, never supplied by model arguments. */
   readonly toolCallId?: string;
+  /** Reserves the one wait call allowed in this model step. */
+  readonly beginWaitCall?: () => boolean;
+  /** Publishes a validated running wait to the Run execution owner. */
+  readonly onWaitRequested?: (request: WaitRequest) => void;
   /** Trusted worker-bound Knowledge capability; never model supplied. */
   readonly knowledgeResolver?: KnowledgeToolResolver;
   /**

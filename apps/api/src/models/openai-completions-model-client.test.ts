@@ -1146,6 +1146,70 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
   });
 });
 
+describe('host-controlled wait calls on Chat Completions', () => {
+  it('executes a deferred wait once while the SDK completes its sibling read', async () => {
+    const model = scriptedModel([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'wait-1',
+            toolName: 'wait',
+            input: '{"jobs":["job://bash-1"]}',
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'read-1',
+            toolName: 'read',
+            input: '{}',
+          },
+        ],
+        'tool-calls',
+      ),
+    ]);
+
+    let waits = 0;
+    let reads = 0;
+
+    const result = buildClient(model).client.streamText({
+      chat: CHAT,
+      messages,
+      tools: {
+        wait: tool({
+          inputSchema: z.object({ jobs: z.array(z.string()) }),
+        }),
+        read: tool({
+          inputSchema: z.object({}),
+          execute: () => {
+            reads += 1;
+
+            return { status: 'success', text: 'read payload' };
+          },
+        }),
+      },
+      maxSteps: 2,
+      onToolCall: ({ toolName, input }) => {
+        if (toolName !== 'wait') return;
+        expect(input).toEqual({ jobs: ['job://bash-1'] });
+        waits += 1;
+      },
+    });
+
+    const outputs: Array<string> = [];
+
+    for await (const part of result.fullStream) {
+      if (part.type === 'error') throw part.error;
+
+      if (part.type === 'tool-result') outputs.push(part.toolName);
+    }
+
+    expect(waits).toBe(1);
+    expect(reads).toBe(1);
+    expect(outputs).toEqual(['read']);
+    expect(model.doStreamCalls).toHaveLength(1);
+  });
+});
+
 describe('createOpenAICompletionsModelClient — provider metadata on the call (A7)', () => {
   it('forwards a call’s opaque metadata before the gate releases it', async () => {
     // The adapter puts a Gemini `thought_signature` on the call's own part; a

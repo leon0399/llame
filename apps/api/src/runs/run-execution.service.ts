@@ -422,6 +422,13 @@ import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
 import { type RunJob } from './run-queues';
 import { parseJobLocatorText } from '../jobs/job-locator';
 import { retryRunTransaction } from './run-transaction';
+import { RunWaitService } from './run-wait.service';
+import {
+  completeWaitInTransaction,
+  pendingWakeInTransaction,
+} from './run-wait-completion';
+import { wakeStateFromEvents, type WakeState } from './wake-projection';
+import { WAIT_SUSPENSION, type WaitRequest } from '../tools/wait-suspension';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
@@ -1150,6 +1157,8 @@ export class RunExecutionService {
     @Optional()
     @Inject(BashJobRegistry)
     private readonly bashJobs?: BashJobRegistry,
+    @Inject(RunWaitService)
+    private readonly runWait?: RunWaitService,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1313,6 +1322,10 @@ export class RunExecutionService {
           };
         }
 
+        if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId))) {
+          return { settledReply: undefined };
+        }
+
         const started = input.expectedQueueIdentity
           ? await runs.markStarted(input.runId, input.userId, {
               expectedQueueIdentity: input.expectedQueueIdentity,
@@ -1353,7 +1366,15 @@ export class RunExecutionService {
           workerDeadAfterSeconds(this.instanceConfig.config),
         );
 
-        if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
+        const wakeCause =
+          started.awaiting === null
+            ? undefined
+            : await pendingWakeInTransaction(tx, started);
+
+        if (
+          wakeCause === undefined &&
+          (await new NativeFilesRepository(tx).hasMutation(input.runId))
+        ) {
           return {
             nativeRecovery: true as const,
             attemptId: started.activeAttemptId!,
@@ -1373,6 +1394,34 @@ export class RunExecutionService {
           attemptId: started.activeAttemptId,
         });
 
+        let wakeState: WakeState | undefined;
+
+        if (wakeCause !== undefined && started.awaiting !== null) {
+          await completeWaitInTransaction(
+            tx,
+            started,
+            started.awaiting,
+            wakeCause,
+          );
+          wakeState = wakeStateFromEvents(
+            await events.listByRunId(input.runId, input.userId, {
+              eventTypes: [
+                'run.suspended',
+                'run.resumed',
+                'run.started',
+                'run.delivered',
+                'tool.requested',
+                'tool.started',
+                'tool.completed',
+              ],
+            }),
+            started.activeAttemptId!,
+          );
+
+          if (wakeState === undefined)
+            throw new Error('The resumed Run has no complete wait checkpoint.');
+        }
+
         return {
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
@@ -1380,6 +1429,7 @@ export class RunExecutionService {
           // The Run's current message: a retry resumes the segment it names.
           messageId: started.messageId,
           nativeDeliverySequence: startedEvent.sequence,
+          wakeState,
         };
       }),
     );
@@ -1421,10 +1471,18 @@ export class RunExecutionService {
       attemptId,
       nativeDeliverySequence: claim.nativeDeliverySequence,
       firstSegment,
+      wakeState: claim.wakeState,
       createdMessage: input.userMessage,
     });
 
     return this.chainSegments(attempt);
+  }
+
+  private waitService(): RunWaitService {
+    if (this.runWait === undefined)
+      throw new Error('The worker has no durable wait service.');
+
+    return this.runWait;
   }
 
   /**
@@ -1497,6 +1555,7 @@ export class RunExecutionService {
     nativeDeliverySequence: number;
     /** False for a segment that a delivery started. */
     firstSegment: boolean;
+    wakeState?: WakeState;
     /** The message `run.created` names: the job's, whatever segment runs. */
     createdMessage: RunUserMessage;
   }): Promise<AttemptRun> {
@@ -1518,9 +1577,9 @@ export class RunExecutionService {
     // this attempt — the request, the collector, the in-Run region — reads
     // that one state, so no path can disagree about where the turn resumes.
     // Only the first segment resumes them.
-    const continued = firstSegment
-      ? await this.loadContinueState(input)
-      : undefined;
+    const continued =
+      attempt.wakeState ??
+      (firstSegment ? await this.loadContinueState(input) : undefined);
 
     const effectivePermissionMode =
       this.resolveEffectivePermissionMode(permissionMode);
@@ -1541,8 +1600,44 @@ export class RunExecutionService {
         },
         attemptId: delivery.attemptId,
         firstSegment: false,
+        wakeState: undefined,
         createdMessage,
       });
+
+    if (attempt.wakeState !== undefined) {
+      const boundary = await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          deliverPendingSteering(tx, {
+            run: { runId: input.runId, userId: input.userId },
+            attemptId,
+            models: this.instanceConfig.config.models,
+            deadWorkerAfterSeconds: workerDeadAfterSeconds(
+              this.instanceConfig.config,
+            ),
+          }),
+        ),
+      );
+
+      if (boundary.kind === 'delivered') {
+        await this.afterAssistantTurn(boundary.closedReply, input.userId);
+
+        return startDelivered(boundary);
+      }
+
+      if (boundary.kind !== 'nothing-pending') {
+        if (boundary.kind === 'cancelled') {
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            status: 'cancelled',
+            attemptId,
+            runPayload: { status: 'cancelled' },
+          });
+        }
+
+        throw new RunNotRunnableError(input.runId);
+      }
+    }
 
     // Workspace validation is the first accepted-turn preparation step. Load
     // the owner-scoped Chat row once here and derive the binding from it; pass
@@ -1756,6 +1851,7 @@ export class RunExecutionService {
             modelId: client.model,
             effort,
             permissionMode: effectivePermissionMode,
+            wakeState: attempt.wakeState,
           }),
         ),
       );
@@ -1955,6 +2051,13 @@ export class RunExecutionService {
       });
     };
 
+    let waitRequestedInStep = false;
+    let waitRequest: WaitRequest | undefined;
+    let pendingWait = false;
+    let deferredWaitStep = false;
+    let deferredWaitDeclaration: ModelToolDeclaration | undefined;
+    const deferredWaitCalls: Array<Promise<PromiseSettledResult<void>>> = [];
+
     // Trusted execution context for tools — built from the RUN's fields,
     // NEVER from model input, so a tool's data scope can't be widened by the
     // model (authorization identity from a trusted source only). Matches
@@ -2016,6 +2119,15 @@ export class RunExecutionService {
       machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
       sshClient: this.sshClient,
       executorGit: this.executorGit,
+      beginWaitCall: () => {
+        if (waitRequestedInStep) return false;
+        waitRequestedInStep = true;
+
+        return true;
+      },
+      onWaitRequested: (request) => {
+        waitRequest = request;
+      },
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =
@@ -2341,6 +2453,47 @@ export class RunExecutionService {
           classification: open?.classification ?? null,
           retainedMedia: retained.record,
           interrupted,
+        }),
+      );
+    };
+
+    const completePendingWait = async (
+      request: WaitRequest,
+      cause: 'settled' | 'interrupted' | 'timeout',
+    ): Promise<void> => {
+      const open = openToolCalls.get(request.toolCallId);
+
+      const result = await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, async (tx) => {
+          if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
+            throw new RunNotRunnableError(input.runId);
+
+          const run = await new RunsRepository(tx).findById(
+            input.runId,
+            input.userId,
+          );
+
+          if (run?.activeAttemptId !== attemptId)
+            throw new RunNotRunnableError(input.runId);
+
+          return completeWaitInTransaction(tx, run, request, cause);
+        }),
+      );
+
+      settledToolCallIds.add(request.toolCallId);
+      openToolCalls.delete(request.toolCallId);
+      const providerMetadata = pendingToolMetadata.get(request.toolCallId);
+      pendingToolMetadata.delete(request.toolCallId);
+      assistantPartCollector.tool(
+        toolActivityPart({
+          toolCallId: request.toolCallId,
+          toolName: 'wait',
+          input: open?.toolInput ?? request.toolInput,
+          result,
+          step: open?.step ?? stepOffset + currentStepNumber,
+          providerMetadata,
+          permission: open?.permission,
+          classification: 'read_only',
         }),
       );
     };
@@ -2797,6 +2950,44 @@ export class RunExecutionService {
       return result;
     };
 
+    const executeDeclaredTool = (
+      declaration: ModelToolDeclaration,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- both SDK execution and the observed-call path have passed the declaration schema.
+      args: unknown,
+      toolCallId: string,
+    ): Promise<ToolResult> => {
+      reserveToolRequest(toolCallId, declaration.id, args);
+      const completion = Promise.withResolvers<void>();
+      const open = openToolCalls.get(toolCallId);
+
+      if (open !== undefined) open.done = completion.promise;
+
+      return executeBoundTool(declaration, args, toolCallId)
+        .then(({ executor, result }) => {
+          if (
+            declaration.id === 'wait' &&
+            result === WAIT_SUSPENSION &&
+            waitRequest?.toolCallId === toolCallId &&
+            !input.abortSignal?.aborted &&
+            !open?.interruptSignal?.aborted &&
+            !settledToolCallIds.has(toolCallId)
+          ) {
+            pendingWait = true;
+
+            return WAIT_SUSPENSION;
+          }
+
+          return settleBoundTool(
+            declaration,
+            args,
+            toolCallId,
+            executor,
+            result,
+          );
+        })
+        .finally(completion.resolve);
+    };
+
     const createModelToolDefinition = (
       declaration: ModelToolDeclaration,
     ): ToolSet[string] => {
@@ -2806,33 +2997,30 @@ export class RunExecutionService {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
 
+      if (declaration.id === 'wait') {
+        deferredWaitDeclaration = declaration;
+
+        return tool({
+          description: declaration.description,
+          inputSchema: toFlexibleSchema(declaration.inputSchema)!,
+          strict: false,
+        });
+      }
+
       // Every result reaches the model through the one rendering: a native
       // file tool as its serialized text — the SDK output type its media
       // reference needs — and every other tool as its JSON value. An image
       // result adds only its reference, which the step composer projects on
       // every step (vision-media D6), so no bytes stay in the Run's response
       // messages.
-      const definition = tool({
+      const definition = tool<unknown, ToolResult>({
         description: declaration.description,
         inputSchema: toFlexibleSchema(declaration.inputSchema)!,
         execute: (
-          // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validates this input against the declaration schema before this callback runs.
+          // eslint-disable-next-line anti-slop/no-unknown-parameters -- the SDK validates this call against the declaration schema before execution.
           args: unknown,
           { toolCallId }: { toolCallId: string },
-        ) => {
-          reserveToolRequest(toolCallId, declaration.id, args);
-          const completion = Promise.withResolvers<void>();
-          const open = openToolCalls.get(toolCallId);
-
-          // Reserve completion before execution can signal an interrupt.
-          if (open !== undefined) open.done = completion.promise;
-
-          return executeBoundTool(declaration, args, toolCallId)
-            .then(({ executor, result }) =>
-              settleBoundTool(declaration, args, toolCallId, executor, result),
-            )
-            .finally(completion.resolve);
-        },
+        ) => executeDeclaredTool(declaration, args, toolCallId),
         toModelOutput: ({
           input: call,
           output,
@@ -3005,6 +3193,41 @@ export class RunExecutionService {
       return stopCause !== undefined;
     };
 
+    const suspendPendingWait = async (
+      telemetry: AssistantTurnTelemetry,
+    ): Promise<'suspended' | 'cancelled' | 'ready'> => {
+      if (
+        !pendingWait ||
+        waitRequest === undefined ||
+        settledToolCallIds.has(waitRequest.toolCallId)
+      )
+        return 'ready';
+
+      const request = waitRequest;
+      const open = openToolCalls.get(request.toolCallId);
+
+      const suspension = await this.waitService().suspend({
+        runId: input.runId,
+        chatId: input.chatId,
+        userId: input.userId,
+        attemptId,
+        ...request,
+        parts: assistantPartCollector.parts(),
+        steps: {
+          [request.toolCallId]: open?.step ?? stepOffset + currentStepNumber,
+        },
+        telemetry,
+      });
+
+      if (suspension.kind === 'suspended') return 'suspended';
+
+      if (suspension.cause === 'cancelled') return 'cancelled';
+
+      await completePendingWait(request, suspension.cause);
+
+      return 'ready';
+    };
+
     const callStream = async (
       callMessages: typeof messages,
       stepBase: number,
@@ -3108,6 +3331,44 @@ export class RunExecutionService {
         }
 
         return boundary.kind;
+      };
+
+      const continueAfterWait = async (
+        finishReason: TurnTelemetry['finishReason'],
+        segmentSteps: number,
+      ): Promise<boolean> => {
+        const boundary = await deliverAtBoundary(
+          {
+            finishReason,
+            telemetry: buildAssistantTelemetry(
+              finishReason,
+              turnStatusForTerminalRun('completed'),
+              segmentSteps,
+            ),
+          },
+          {},
+        );
+
+        if (boundary === 'delivered') return true;
+
+        if (boundary === 'cancelled') return false;
+
+        if (boundary === 'fenced') throw new RunNotRunnableError(input.runId);
+
+        const produced = projectStoredReplyParts(
+          assistantPartCollector.parts().slice(partsBefore),
+          {
+            privateParts: true,
+            mediaKey: (index) => continuedMediaKey(partsBefore + index),
+          },
+        );
+
+        mergeRetainedMedia(media.retainedMedia, produced.retainedMedia);
+        inRunItems = createInRunContextItems();
+        nextCall = () =>
+          callStream([...callMessages, ...produced.messages], segmentSteps);
+
+        return true;
       };
 
       const deliverInterrupt = async (): Promise<void> => {
@@ -3227,7 +3488,12 @@ export class RunExecutionService {
             maxSteps:
               maxStepsPerRun === null
                 ? null
-                : Math.max(0, maxStepsPerRun - stepBase),
+                : Math.max(
+                    0,
+                    maxStepsPerRun -
+                      stepBase -
+                      (attempt.wakeState === undefined ? 0 : stepOffset),
+                  ),
             stopWhenExtra,
             onStepStart: async ({ messages, stepNumber }) => {
               // Each buffered event carries the step its characters arrived in,
@@ -3236,6 +3502,8 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
+              waitRequestedInStep = false;
+              deferredWaitStep = false;
               stepsStarted += 1;
               workspaceRoot.beginStep();
               inRunItems.beginStep(messages);
@@ -3316,6 +3584,31 @@ export class RunExecutionService {
           // (design A7).
           onToolCallMetadata: (toolCallId, providerMetadata) => {
             pendingToolMetadata.set(toolCallId, providerMetadata);
+          },
+          onToolCall: (call) => {
+            if (
+              call.toolName !== 'wait' ||
+              deferredWaitDeclaration === undefined
+            )
+              return;
+
+            deferredWaitStep = true;
+            deferredWaitCalls.push(
+              executeDeclaredTool(
+                deferredWaitDeclaration,
+                call.input,
+                call.toolCallId,
+              ).then(
+                (): PromiseFulfilledResult<void> => ({
+                  status: 'fulfilled',
+                  value: undefined,
+                }),
+                (error: unknown): PromiseRejectedResult => ({
+                  status: 'rejected',
+                  reason: error,
+                }),
+              ),
+            );
           },
           onTextDelta: (text, partId, providerMetadata) => {
             // A metadata-only delivery: a text part's start or end carries the
@@ -3580,6 +3873,14 @@ export class RunExecutionService {
             );
           },
           onFinish: async ({ text, usage, finishReason, stepCount }) => {
+            const deferred = await Promise.all(deferredWaitCalls);
+            deferredWaitCalls.length = 0;
+
+            const failed = deferred.find(
+              (result) => result.status === 'rejected',
+            );
+
+            if (failed?.status === 'rejected') throw failed.reason;
             endWorkspaceAttempt();
             removeParentAbortListener();
             closeSegment();
@@ -3658,6 +3959,33 @@ export class RunExecutionService {
               });
 
               return;
+            }
+
+            if (deferredWaitStep && status === 'completed') {
+              const suspension = await suspendPendingWait(
+                buildAssistantTelemetry(
+                  finishReason,
+                  turnStatusForTerminalRun('completed'),
+                  segmentSteps,
+                ),
+              );
+
+              if (suspension === 'suspended') {
+                stopCause = 'suspend';
+
+                return;
+              }
+
+              pendingWait = false;
+              waitRequest = undefined;
+
+              if (
+                suspension !== 'cancelled' &&
+                (await continueAfterWait(finishReason, segmentSteps))
+              )
+                return;
+
+              status = 'cancelled';
             }
 
             // Persist the collected thinking as reasoning parts in occurrence
@@ -7317,6 +7645,7 @@ export class RunExecutionService {
       modelId: string;
       effort: string | undefined;
       permissionMode: PermissionMode;
+      wakeState: WakeState | undefined;
     },
   ): Promise<void> {
     const { run, context } = input;
@@ -7347,12 +7676,15 @@ export class RunExecutionService {
 
     const events = new RunEventsRepository(tx);
 
-    const deliveryIds = await discardedJobNoticeIds({
-      tx,
-      runId: run.runId,
-      ownerUserId: run.userId,
-      attemptId: input.attemptId,
-    });
+    const deliveryIds =
+      input.wakeState === undefined
+        ? await discardedJobNoticeIds({
+            tx,
+            runId: run.runId,
+            ownerUserId: run.userId,
+            attemptId: input.attemptId,
+          })
+        : [];
 
     const firstRegenerateDispatch =
       run.followUpAction === 'regenerate' &&
