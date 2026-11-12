@@ -607,13 +607,49 @@ describe('createSshClient.run', () => {
       const process = harness.processes[0];
 
       if (process === undefined) throw new Error('expected a spawned ssh');
+      await tick();
       process.close(exitCode);
 
-      const outcome = await pending;
-      await tick();
-      expect(outcome).toMatchObject({ outcome: 'ended', code: exitCode });
+      await expect(pending).resolves.toMatchObject({
+        outcome: 'ended',
+        code: exitCode,
+      });
     },
   );
+
+  it('classifies non-EPIPE stdin errors through the process failure path', async () => {
+    const { client, harness } = fakeClient(
+      () =>
+        new Writable({
+          write(_chunk, _encoding, callback) {
+            callback(
+              Object.assign(new Error('stdin write failed'), { code: 'EIO' }),
+            );
+          },
+        }),
+    );
+
+    const pending = client.run({
+      destination: 'box',
+      remoteCommand: ['sh', '-s'],
+      input: 'payload',
+      maxStdoutBytes: 1024,
+      deadlineMs: 5000,
+    });
+
+    const process = harness.processes[0];
+
+    if (process === undefined) throw new Error('expected a spawned ssh');
+    await tick();
+    process.close(0);
+
+    await expect(pending).resolves.toMatchObject({
+      outcome: 'failed',
+      reason: 'timed_out',
+      diagnostic: 'stdin write failed',
+    });
+    expect(process.kill).toHaveBeenCalledTimes(1);
+  });
 
   it('settles once when ssh closes and then reports an error', async () => {
     const { client, harness } = fakeClient();
