@@ -28,7 +28,10 @@ import {
 } from '../models/models.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { deadLetterQueue } from '../queue/queue';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
+import {
+  RunAbortRegistry,
+  type SegmentControl,
+} from '../runs/run-abort-registry';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RUNS_QUEUE, type RunJob } from '../runs/run-queues';
 import { RunsWorkerService } from '../runs/runs-worker.service';
@@ -265,7 +268,7 @@ describe('chat deliveries — the steer mode', () => {
    * A Run this process executes, with a model call in flight for an attempt it
    * names, so the run-control signal has a segment to stop.
    */
-  async function executingRun(runId: string): Promise<AbortController> {
+  async function executingRun(runId: string): Promise<SegmentControl> {
     const attemptId = crypto.randomUUID();
     await tenantDb.runAs(userAId, (tx) =>
       tx.execute(
@@ -281,9 +284,9 @@ describe('chat deliveries — the steer mode', () => {
     return segment;
   }
 
-  const stopped = (segment: AbortController) =>
+  const stopped = (segment: SegmentControl) =>
     until('the interrupt to stop the segment', () =>
-      Promise.resolve(segment.signal.aborted),
+      Promise.resolve(segment.abort.signal.aborted),
     );
 
   describe('admission', () => {

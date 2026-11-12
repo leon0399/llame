@@ -207,10 +207,16 @@ export interface ToolContext {
   readonly jobSettings?: ChatDeliverySettings;
   readonly allowUnlimitedJobs?: boolean;
   /**
-   * Host `bash` only: aborts at the foreground bound, counted from the start
-   * of the call. It moves the command; it never stops it.
+   * Host `bash` only: the runner's foreground move trigger, from the call's
+   * bound or a segment yield. It moves the command; it never stops it.
    */
   readonly moveSignal?: AbortSignal;
+  /**
+   * Segment yield source. The runner binds a call-local move window to it for
+   * host `bash`; it never becomes the command's cancellation signal. It stays
+   * raised until the segment ends, including calls that start after the steer.
+   */
+  readonly yieldSignal?: AbortSignal;
   /** Monotonic spawn deadline in `performance.now()` milliseconds. */
   readonly moveDeadlineAt?: number;
   /** `tools.bash.backgroundAfterSeconds`; absent means the built-in 120. */
@@ -306,10 +312,8 @@ export const TOOL_CLASSIFICATIONS = [
 
 export type ToolClassification = (typeof TOOL_CLASSIFICATIONS)[number];
 
-/**
- * How an owner interrupt settles an open call (run-steering D7). `background`
- * is reserved: no tool declares it yet.
- */
+/** How an owner interrupt settles one call: host bash backgrounds, remote
+ * bash and reads cancel, and native writes finish before delivery. */
 export type InterruptFate = 'cancel' | 'finish' | 'background';
 
 /** Whether a stored value names one of the classifications above. */

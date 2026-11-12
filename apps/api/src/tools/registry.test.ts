@@ -9,7 +9,8 @@ import {
   TOOL_REGISTRY,
 } from './registry';
 import { matchesAllowedToolId } from './tool-id';
-import { type Tool } from './types';
+import { type Tool, type ToolContext } from './types';
+import { createWorkspaceRootCell } from './workspace-path';
 
 describe('tool registry', () => {
   it('registers all code-owned read-only tools', () => {
@@ -218,25 +219,47 @@ describe('resolveAdvertisedTools (fail-closed source and allowlist gate)', () =>
 });
 
 describe('interrupt fate (run-steering D7)', () => {
+  const context: ToolContext = {
+    userId: 'owner',
+    chatId: 'chat',
+    configuredCredentials: [],
+    tenantDb: {
+      runAs: () => {
+        throw new Error('Fate selection must not access the database');
+      },
+    },
+  };
+
   const fateOfId = (id: string) => {
     const tool = TOOL_REGISTRY.get(id);
 
     if (tool === undefined) throw new Error(`Tool "${id}" is not registered.`);
 
-    return interruptFateOf(tool);
+    return interruptFateOf(tool, { command: 'true' }, context);
   };
 
-  it('every registered tool has a fate, and none is background', () => {
-    for (const tool of TOOL_REGISTRY.values()) {
-      expect(['cancel', 'finish']).toContain(interruptFateOf(tool));
-    }
-  });
-
-  it('cancels bash and the read-only tools', () => {
-    expect(fateOfId('bash')).toBe('cancel');
+  it('backgrounds host bash and cancels read-only tools on interrupt', () => {
+    expect(fateOfId('bash')).toBe('background');
     expect(fateOfId('read')).toBe('cancel');
     expect(fateOfId('grep')).toBe('cancel');
     expect(fateOfId('web_search')).toBe('cancel');
+  });
+
+  it.each([
+    { cwd: 'ssh://build/work', root: undefined },
+    { cwd: 'machine://build/work', root: undefined },
+    { cwd: undefined, root: 'machine://build/work' },
+  ])('cancels remote bash at $cwd with Workspace $root', ({ cwd, root }) => {
+    const bash = TOOL_REGISTRY.get('bash');
+
+    if (bash === undefined) throw new Error('Bash is not registered');
+    expect(
+      interruptFateOf(
+        bash,
+        { command: 'sleep 30', cwd },
+        { ...context, workspaceRoot: createWorkspaceRootCell(root) },
+      ),
+    ).toBe('cancel');
   });
 
   it('A write finishes before the interrupt applies', () => {
@@ -256,6 +279,6 @@ describe('interrupt fate (run-steering D7)', () => {
       classification: 'unverified',
     };
 
-    expect(interruptFateOf(binding)).toBe('cancel');
+    expect(interruptFateOf(binding, {}, context)).toBe('cancel');
   });
 });

@@ -13,6 +13,7 @@ import {
   type ManagedProcessSlot,
 } from '@workspace/bash-executor';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { isNumber, isRecord } from '@workspace/runtime-safety';
 
 import { artifactMaxBytes } from './artifacts/spill';
 import { bashWorkingDirectory } from './env';
@@ -24,6 +25,39 @@ import { type ToolContext, type ToolResult } from './types';
  * after the foreground bound. A hung database falls back to the unknown outcome.
  */
 export const BASH_SETTLEMENT_GRACE_MS = 750;
+
+type MessageMoveWindow = {
+  readonly cause: 'message';
+  readonly deadlineAt: number;
+};
+
+function isMessageMoveWindow(value: unknown): value is MessageMoveWindow {
+  return (
+    isRecord(value) &&
+    value.cause === 'message' &&
+    isNumber(value.deadlineAt) &&
+    Number.isFinite(value.deadlineAt)
+  );
+}
+
+/** A call-local yield deadline shared by the spawn gate and runner backstop. */
+export function messageMoveWindow(
+  signal: AbortSignal | undefined,
+): MessageMoveWindow | undefined {
+  const reason: unknown = signal?.reason;
+
+  return isMessageMoveWindow(reason) ? reason : undefined;
+}
+
+/** Remaining monotonic time in the shared move/receipt window. */
+export function settlementGraceMs(deadlineAt: number | undefined): number {
+  return deadlineAt === undefined
+    ? BASH_SETTLEMENT_GRACE_MS
+    : Math.max(
+        0,
+        Math.min(BASH_SETTLEMENT_GRACE_MS, deadlineAt - performance.now()),
+      );
+}
 
 /** The foreground bound: the lesser of the operator bound and the call timeout. */
 export function foregroundBoundMs(

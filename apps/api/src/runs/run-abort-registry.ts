@@ -19,7 +19,21 @@ export type RunSegmentRegistrar = Pick<
  */
 export const INTERRUPT_ABORT_REASON = 'owner-interrupt';
 
-type SegmentEntry = { controller: AbortController; attemptId: string };
+/**
+ * The control of one model call. `abort` stops the call and its `cancel` tool
+ * calls (an owner interrupt). `yield` asks a call that can continue as a job to
+ * return; it is not an abort, and it stays raised until the call ends.
+ */
+export type SegmentControl = {
+  readonly abort: AbortController;
+  readonly yield: AbortController;
+};
+
+export function newSegmentControl(): SegmentControl {
+  return { abort: new AbortController(), yield: new AbortController() };
+}
+
+type SegmentEntry = { control: SegmentControl; attemptId: string };
 
 /**
  * Registry of the in-flight runs this process executes (#48).
@@ -74,21 +88,21 @@ export class RunAbortRegistry {
    * starts from a fresh signal. Undefined when this process does not execute
    * the Run.
    */
-  beginSegment(runId: string, attemptId: string): AbortController | undefined {
+  beginSegment(runId: string, attemptId: string): SegmentControl | undefined {
     const entry = this.entries.get(runId);
 
     if (!entry) return undefined;
-    const controller = new AbortController();
-    entry.segment = { controller, attemptId };
+    const control = newSegmentControl();
+    entry.segment = { control, attemptId };
 
-    return controller;
+    return control;
   }
 
-  /** Closes the call's controller, unless a later call already replaced it. */
-  endSegment(runId: string, controller: AbortController): void {
+  /** Closes the call's control, unless a later call already replaced it. */
+  endSegment(runId: string, control: SegmentControl): void {
     const entry = this.entries.get(runId);
 
-    if (entry?.segment?.controller === controller) entry.segment = undefined;
+    if (entry?.segment?.control === control) entry.segment = undefined;
   }
 
   /** The attempt whose model call or tool calls are in flight, if any. */
@@ -106,12 +120,28 @@ export class RunAbortRegistry {
     if (
       !segment ||
       segment.attemptId !== attemptId ||
-      segment.controller.signal.aborted
+      segment.control.abort.signal.aborted
     ) {
       return false;
     }
 
-    segment.controller.abort(INTERRUPT_ABORT_REASON);
+    // The yield comes first, so a call that continues as a job returns before
+    // the interrupt settlement waits for it.
+    segment.control.yield.abort();
+    segment.control.abort.abort(INTERRUPT_ABORT_REASON);
+
+    return true;
+  }
+
+  /**
+   * Raises the yield signal of the segment run by `attemptId`. It never aborts
+   * the call. Returns whether that segment was in flight.
+   */
+  yield(runId: string, attemptId: string): boolean {
+    const segment = this.entries.get(runId)?.segment;
+
+    if (!segment || segment.attemptId !== attemptId) return false;
+    segment.control.yield.abort();
 
     return true;
   }

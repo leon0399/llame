@@ -89,6 +89,8 @@ export class RunControlListenerService
 
     if (message.kind === 'cancel') {
       await this.abortIfCancelled(message.runId, userId);
+    } else if (message.kind === 'steer') {
+      await this.yieldIfPending(message.runId, userId);
     } else {
       await this.interruptIfPending(message.runId, userId);
     }
@@ -103,6 +105,7 @@ export class RunControlListenerService
     for (const { runId, userId } of this.aborts.executing()) {
       await this.abortIfCancelled(runId, userId);
       await this.interruptIfPending(runId, userId);
+      await this.yieldIfPending(runId, userId);
     }
 
     await jobs;
@@ -139,6 +142,38 @@ export class RunControlListenerService
     } catch (error) {
       this.logger.warn(
         `Run-control interrupt check failed for run ${runId}: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
+    }
+  }
+
+  /**
+   * Raises the yield signal of the segment in flight when the owner's read
+   * shows a pending `steer` or `interrupt` item and the Run still names the
+   * attempt that segment runs. It never aborts: a call that can continue as a
+   * job returns, and the step end delivers the item.
+   */
+  private async yieldIfPending(runId: string, userId: string): Promise<void> {
+    const attemptId = this.aborts.segmentAttemptOf(runId);
+
+    if (attemptId === undefined) return;
+
+    try {
+      const pending = await this.tenantDb.runAs(userId, async (tx) => {
+        const run = await new RunsRepository(tx).findById(runId, userId);
+
+        return (
+          run?.activeAttemptId === attemptId &&
+          (await new ChatDeliveriesRepository(tx).hasPendingSteering(
+            run.chatId,
+            userId,
+          ))
+        );
+      });
+
+      if (pending) this.aborts.yield(runId, attemptId);
+    } catch (error) {
+      this.logger.warn(
+        `Run-control steer check failed for run ${runId}: ${error instanceof Error ? error.message : 'unknown'}`,
       );
     }
   }

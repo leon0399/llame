@@ -1,6 +1,6 @@
 import { isBashTool } from './bash';
 import { isHostBashCall } from './bash-target';
-import { BASH_SETTLEMENT_GRACE_MS } from './bash-limits';
+import { BASH_SETTLEMENT_GRACE_MS, messageMoveWindow } from './bash-limits';
 import { isNativeFileTool } from './native-files';
 import { Logger } from '@nestjs/common';
 
@@ -86,17 +86,19 @@ function withAbort<T>(
       settle();
     };
 
+    const abort = () =>
+      finish(() => reject(new ToolAbortError('Tool call aborted')));
+
     const onAbort = () => {
-      if (abortGraceMs === 0) {
-        finish(() => reject(new ToolAbortError('Tool call aborted')));
+      const window = abortGraceMs === 0 ? undefined : messageMoveWindow(signal);
 
-        return;
-      }
+      const graceMs =
+        window === undefined
+          ? abortGraceMs
+          : Math.max(0, window.deadlineAt - performance.now());
 
-      if (graceTimer !== undefined) return;
-      graceTimer = setTimeout(() => {
-        finish(() => reject(new ToolAbortError('Tool call aborted')));
-      }, abortGraceMs);
+      if (graceMs === 0) abort();
+      else graceTimer ??= setTimeout(abort, graceMs);
     };
 
     promise.then(
@@ -500,6 +502,8 @@ async function settleAdmittedExecution(
     notifyUnknownOutcome(tool, context, result);
 
     return await capToolResult(tool, context, result);
+  } finally {
+    prepared.dispose?.();
   }
 }
 

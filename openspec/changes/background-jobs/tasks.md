@@ -197,10 +197,10 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 
 ## 8. Yield (`background-jobs/yield`)
 
-- [ ] 8.1 Add the `steer` kind on the control channel and the level-triggered yield signal of a segment; integration tests cover "A steer during a host command returns the call", "A steer during a tool call waits for the result" (`grep`), "A read does not yield", "Two commands yield at one signal", "A steer reaches a dedicated worker", "A lost signal delays the steer", "A steer names its cause", and a command that starts while a steer is pending.
+- [x] 8.1 Add the `steer` kind on the control channel and the level-triggered yield signal of a segment; integration tests cover "A steer during a host command returns the call", "A steer during a tool call waits for the result" (`grep`), "A read does not yield", "Two commands yield at one signal", "A steer reaches a dedicated worker", "A lost signal delays the steer", "A steer names its cause", and a command that starts while a steer is pending.
       Cover a message-triggered promotion that exceeds its own 750 ms window without blocking delivery.
-- [ ] 8.2 Decide the interrupt fate for each call from `bashTarget` and await `background` calls in `settleOnInterrupt`; update `registry.test.ts` and `tool-settlement.test.ts`. Integration tests cover "A host command continues after an interrupt", "An interrupt kills a long command" (`ssh://`), "A call that yields carries no interrupt marker", and an interrupt during a Machine Workspace call with no `cwd`.
-- [ ] 8.3 Update `docs/product/reference` for steering during a command and `CHANGELOG.md`; `pnpm lint:markdown` passes.
+- [x] 8.2 Decide the interrupt fate for each call from `bashTarget` and await `background` calls in `settleOnInterrupt`; update `registry.test.ts` and `tool-settlement.test.ts`. Integration tests cover "A host command continues after an interrupt", "An interrupt kills a long command" (`ssh://`), "A call that yields carries no interrupt marker", and an interrupt during a Machine Workspace call with no `cwd`.
+- [x] 8.3 Update `docs/product/reference` for steering during a command and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
 - [ ] 8.5 Run the GitHub review and CI loop on the published head.
 

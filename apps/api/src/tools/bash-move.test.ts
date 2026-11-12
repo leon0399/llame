@@ -423,6 +423,98 @@ describe('foreground host bash move', () => {
     ).resolves.toMatchObject({ backgrounded: true });
   });
 
+  it.each([false, true])(
+    'a segment yield moves a host call with message cause (already pending=%s)',
+    async (pending) => {
+      const yielded = new AbortController();
+
+      if (pending) yielded.abort();
+
+      const call = runTool(
+        bashTool,
+        { command: 'make test' },
+        contextFor({ moveSignal: undefined, yieldSignal: yielded.signal }),
+        120,
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      yielded.abort();
+      await expect(call).resolves.toMatchObject({
+        status: 'success',
+        backgrounded: true,
+        cause: 'message',
+        job: 'job://bash-7',
+      });
+      expect(registry.command.stop).not.toHaveBeenCalled();
+      expect(results()).toMatchObject([
+        { result: { backgrounded: true, cause: 'message' } },
+      ]);
+    },
+  );
+
+  it('a message yield closes a hung admission at its own 750 ms deadline', async () => {
+    const admission = Promise.withResolvers<undefined>();
+    const entered = Promise.withResolvers<void>();
+    const yielded = new AbortController();
+    const limiter = new BashProcessLimiter(1);
+    const start = vi.spyOn(registry, 'start');
+    begin.mockImplementation(() => {
+      entered.resolve();
+
+      return admission.promise;
+    });
+
+    const call = runTool(
+      bashTool,
+      { command: 'make test' },
+      contextFor({
+        moveSignal: undefined,
+        yieldSignal: yielded.signal,
+        bashProcessLimiter: limiter,
+      }),
+      120,
+    );
+
+    await entered.promise;
+    await vi.advanceTimersByTimeAsync(10_000);
+    yielded.abort();
+    await vi.advanceTimersByTimeAsync(749);
+    expect(limiter.tryAcquire()).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    const released = limiter.tryAcquire();
+    expect(released).not.toBeNull();
+    released?.release();
+    admission.resolve(undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(start).not.toHaveBeenCalled();
+    expect(results()).toMatchObject([{ result: { type: 'cancelled' } }]);
+  });
+
+  it('a late message promotion cannot replace the unknown native receipt', async () => {
+    const committed = Promise.withResolvers<ChatJob>();
+    const yielded = new AbortController();
+    registry.promotion = () => committed.promise;
+
+    const call = runTool(
+      bashTool,
+      { command: 'make test' },
+      contextFor({ moveSignal: undefined, yieldSignal: yielded.signal }),
+      120,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    yielded.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    vi.advanceTimersByTime(750);
+    committed.resolve(jobRow(7));
+    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(results()).toMatchObject([{ result: { type: 'outcome_unknown' } }]);
+    expect(results()).toHaveLength(1);
+    expect(registry.command.stop).not.toHaveBeenCalled();
+  });
+
   it('The job record cannot be written: a proved stop is a timed_out result with the output', async () => {
     registry.promotion = failingMove(registry.command, true, 'partial');
     moved.abort();

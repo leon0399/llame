@@ -9,7 +9,11 @@ import { RunEventsRepository } from '../runs/runs-repository';
 import { JobPromotionError } from '../jobs/job-promotion-error';
 import { formatJobLocator } from '../jobs/job-locator';
 import { type BashInput } from './bash-target';
-import { BASH_SETTLEMENT_GRACE_MS, managedBashContext } from './bash-limits';
+import {
+  managedBashContext,
+  messageMoveWindow,
+  settlementGraceMs,
+} from './bash-limits';
 import { artifactMaxBytes } from './artifacts/spill';
 import { toToolResult } from './bash-result';
 import { loadPackagedTemplate } from '../prompts/template-engine';
@@ -24,7 +28,10 @@ const renderPromotionFailure = loadPackagedTemplate<{
   timedOutText: string;
 }>(__dirname, 'bash-promotion-failure');
 
-type Move = { readonly startedAt: Date; readonly cause: 'async' | 'time' };
+type Move = {
+  readonly startedAt: Date;
+  readonly cause: 'async' | 'time' | 'message';
+};
 
 type Started =
   | { readonly result: ToolResult }
@@ -64,10 +71,11 @@ async function startHostCommand(
   let timer: NodeJS.Timeout | undefined;
 
   const onMove = () => {
-    const remaining =
-      context.moveDeadlineAt === undefined
-        ? BASH_SETTLEMENT_GRACE_MS
-        : context.moveDeadlineAt - performance.now();
+    const deadline =
+      messageMoveWindow(context.moveSignal)?.deadlineAt ??
+      context.moveDeadlineAt;
+
+    const remaining = settlementGraceMs(deadline);
 
     if (remaining <= 0) closeGate();
     else timer = setTimeout(closeGate, remaining);
@@ -116,9 +124,10 @@ async function fenceAndSpawn(
   if (prior) return { result: prior };
   const startedAt = new Date();
 
-  const expired =
-    context.moveDeadlineAt !== undefined &&
-    performance.now() >= context.moveDeadlineAt;
+  const deadline =
+    messageMoveWindow(context.moveSignal)?.deadlineAt ?? context.moveDeadlineAt;
+
+  const expired = deadline !== undefined && performance.now() >= deadline;
 
   const started =
     gate.signal.aborted || expired
@@ -307,18 +316,18 @@ async function foregroundResult(
   const { handle } = started;
 
   const { promise: trigger, resolve } = Promise.withResolvers<
-    'move' | 'abort'
+    'abort' | 'move'
   >();
 
   const abort = context.abortSignal;
-  const bound = context.moveSignal;
+  const move = context.moveSignal;
   const onAbort = () => resolve('abort');
   const onMove = () => resolve('move');
 
-  // The Run abort is registered first, so it wins when both have fired.
+  // Run cancellation wins when both signals are already raised.
   for (const [signal, fire] of [
     [abort, onAbort],
-    [bound, onMove],
+    [move, onMove],
   ] as const) {
     if (signal?.aborted === true) fire();
     else signal?.addEventListener('abort', fire, { once: true });
@@ -341,7 +350,7 @@ async function foregroundResult(
     );
   } finally {
     abort?.removeEventListener('abort', onAbort);
-    bound?.removeEventListener('abort', onMove);
+    move?.removeEventListener('abort', onMove);
   }
 }
 
@@ -357,22 +366,31 @@ async function moveInWindow(
   input: BashInput,
   record: (result: ToolResult) => Promise<ToolResult>,
 ): Promise<ToolResult> {
-  let expired = false;
+  const window = messageMoveWindow(context.moveSignal);
+  const deadline = window?.deadlineAt ?? context.moveDeadlineAt;
+
+  const remaining = settlementGraceMs(deadline);
+
+  let expired = remaining === 0;
 
   const moved = promoteCommand(context, started.handle, input, {
     startedAt: started.startedAt,
-    cause: 'time',
+    cause: window?.cause ?? 'time',
   }).then((result) => (expired ? result : record(result)));
 
   const { promise: late, resolve: onLate } = Promise.withResolvers<undefined>();
 
-  const timer = setTimeout(() => {
-    expired = true;
-    onLate(undefined);
-  }, BASH_SETTLEMENT_GRACE_MS);
+  const timer =
+    remaining === 0
+      ? undefined
+      : setTimeout(() => {
+          expired = true;
+          onLate(undefined);
+        }, remaining);
 
   try {
-    const timely = await Promise.race([moved, late]);
+    const timely =
+      remaining === 0 ? undefined : await Promise.race([moved, late]);
 
     if (timely !== undefined) return timely;
     // A late failure stops the command inside the registry; it cannot replace

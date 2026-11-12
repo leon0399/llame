@@ -18,8 +18,8 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
 
     expect(aborts.interrupt(RUN_ID, ATTEMPT_ID)).toBe(true);
 
-    expect(segment?.signal.aborted).toBe(true);
-    expect(segment?.signal.reason).toBe(INTERRUPT_ABORT_REASON);
+    expect(segment?.abort.signal.aborted).toBe(true);
+    expect(segment?.abort.signal.reason).toBe(INTERRUPT_ABORT_REASON);
     expect(run.signal.aborted).toBe(false);
   });
 
@@ -28,7 +28,7 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
     const segment = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
 
     expect(aborts.interrupt(RUN_ID, 'another-attempt')).toBe(false);
-    expect(segment?.signal.aborted).toBe(false);
+    expect(segment?.abort.signal.aborted).toBe(false);
   });
 
   it('has nothing to interrupt before a segment begins or after it ends', () => {
@@ -55,7 +55,7 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
     aborts.endSegment(RUN_ID, earlier);
 
     expect(aborts.interrupt(RUN_ID, ATTEMPT_ID)).toBe(true);
-    expect(later?.signal.aborted).toBe(true);
+    expect(later?.abort.signal.aborted).toBe(true);
   });
 
   it('aborts a segment once', () => {
@@ -64,6 +64,58 @@ describe('RunAbortRegistry segments (run-steering D7)', () => {
 
     expect(aborts.interrupt(RUN_ID, ATTEMPT_ID)).toBe(true);
     expect(aborts.interrupt(RUN_ID, ATTEMPT_ID)).toBe(false);
+  });
+
+  describe('the yield signal', () => {
+    it('is raised for the segment of its attempt and never aborts the call', () => {
+      const { aborts, run } = registry();
+      const segment = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
+      expect(aborts.yield(RUN_ID, ATTEMPT_ID)).toBe(true);
+
+      expect(segment?.yield.signal.aborted).toBe(true);
+      expect(segment?.abort.signal.aborted).toBe(false);
+      expect(run.signal.aborted).toBe(false);
+    });
+
+    it('refuses another attempt and a Run with no segment', () => {
+      const { aborts } = registry();
+
+      expect(aborts.yield(RUN_ID, ATTEMPT_ID)).toBe(false);
+
+      const segment = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
+      expect(aborts.yield(RUN_ID, 'another-attempt')).toBe(false);
+      expect(segment?.yield.signal.aborted).toBe(false);
+    });
+
+    it('stays raised until the segment ends, and a later call starts clear', () => {
+      const { aborts } = registry();
+      const earlier = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
+      aborts.yield(RUN_ID, ATTEMPT_ID);
+      expect(earlier?.yield.signal.aborted).toBe(true);
+
+      const later = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
+      expect(later?.yield.signal.aborted).toBe(false);
+    });
+
+    it('is raised before an interrupt aborts the call', () => {
+      const { aborts } = registry();
+      const segment = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+      const order: Array<string> = [];
+
+      segment?.yield.signal.addEventListener('abort', () =>
+        order.push('yield'),
+      );
+      segment?.abort.signal.addEventListener('abort', () =>
+        order.push('abort'),
+      );
+      aborts.interrupt(RUN_ID, ATTEMPT_ID);
+
+      expect(order).toEqual(['yield', 'abort']);
+    });
   });
 
   it('does not begin a segment for a Run this process does not execute', () => {
