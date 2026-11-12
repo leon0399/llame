@@ -17,6 +17,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   before accepting all input. A broken input pipe no longer escapes as an
   uncaught stream error during a bounded SSH read or command.
 
+- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
+  the standard timeout header, measured duration and captured output before the
+  explanation that job promotion failed.
+
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.

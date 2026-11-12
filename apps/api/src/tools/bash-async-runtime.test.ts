@@ -349,6 +349,9 @@ describe('async host bash through the tool', () => {
       const result = await run({ command: 'printf seen; sleep 30' });
 
       expect(result).toMatchObject({ status: 'error', type: 'timed_out' });
+      expect(result.status === 'error' ? result.message : '').toMatch(
+        /^timed out, \d+\.\d s\n/u,
+      );
       expect(result.status === 'error' ? result.message : '').toContain(
         'The move to a background job failed; the command was stopped.',
       );
