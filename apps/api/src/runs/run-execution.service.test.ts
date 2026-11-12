@@ -1,4 +1,5 @@
 import { type DecisionJudge } from '../decisions/decisions.service';
+import * as jobNoticeRecovery from './job-notice-recovery';
 import type {
   LanguageModelV3Message,
   LanguageModelV3StreamPart,
@@ -794,10 +795,7 @@ function mockNormalExecutionRepositories() {
     undefined,
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
-  vi.spyOn(
-    RunEventsRepository.prototype,
-    'discardedJobNoticeIds',
-  ).mockResolvedValue([]);
+  vi.spyOn(jobNoticeRecovery, 'discardedJobNoticeIds').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
@@ -4331,13 +4329,31 @@ function durableEventsFrom(
   }));
 }
 
+/** Applies the event-type and attempt filters used by durable suspension reads. */
+function filterDurableEvents(
+  events: Array<RunEvent>,
+  options: Parameters<RunEventsRepository['listByRunId']>[2],
+): Array<RunEvent> {
+  return events.filter(
+    (event) =>
+      (options?.eventTypes === undefined ||
+        options.eventTypes.some((type) => type === event.eventType)) &&
+      (options?.attemptId === undefined ||
+        (isRecord(event.payload) &&
+          event.payload['attemptId'] === options.attemptId)),
+  );
+}
+
 /** Replays whatever `recordAppendedEvents` captured back through `listByRunId`,
  * so `finishRun`'s durable reconstruction sees the run's real event log. */
 function replayAppendedEvents(
   appended: Array<{ type: RunEventType; payload: unknown }>,
 ) {
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-    () => Promise.resolve(durableEventsFrom(appended)),
+    (_runId, _userId, options) =>
+      Promise.resolve(
+        filterDurableEvents(durableEventsFrom(appended), options),
+      ),
   );
 }
 
@@ -21543,7 +21559,10 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     // The attempt's own `running` reply, rebuilt from the log it left.
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-      () => Promise.resolve(durableEventsFrom(appended)),
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          filterDurableEvents(durableEventsFrom(appended), options),
+        ),
     );
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,

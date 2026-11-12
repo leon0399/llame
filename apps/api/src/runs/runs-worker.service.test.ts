@@ -21,6 +21,7 @@ import {
 } from '../models/models.service';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type RunAbortRegistrar } from './run-abort-registry';
+import { type RunWaitService } from './run-wait.service';
 import { ModelContextExecutionError } from './model-context-errors';
 import {
   RUN_CEILING_ABORT_REASON,
@@ -33,12 +34,18 @@ import {
   artifactDirectory,
   SWEEP_AFTER_MS,
 } from '../tools/artifacts/host-files';
-import { RunsRepository } from './runs-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
 import { type CanonicalSearchCoverageGate } from '../search/canonical-search-activation.service';
 
 import type { Mock } from 'vitest';
+
+beforeEach(() => {
+  vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
+    undefined,
+  );
+});
 
 /** Native Drizzle mock; repository behavior is mocked at its public seam. */
 function makeFakeTx(): Db {
@@ -72,6 +79,7 @@ function makeService(
     models?: ModelClientFactory;
     runExecution?: RunExecutor;
     aborts?: RunAbortRegistrar;
+    runWait?: Pick<RunWaitService, 'wakeInTransaction'>;
     canonicalSearchCoverage?: CanonicalSearchCoverageGate;
     allowedTools?: Array<string>;
     nativeExecutorId?: string;
@@ -156,6 +164,9 @@ function makeService(
     overrides.aborts ?? {
       register: unstubbed('register'),
       unregister: unstubbed('unregister'),
+    },
+    overrides.runWait ?? {
+      wakeInTransaction: vi.fn().mockResolvedValue(false),
     },
   );
 
@@ -456,12 +467,39 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await expect(handler(job)).rejects.toThrow(
-      `Run ${job.runId} stream drained without a durable terminal state.`,
+      `Run ${job.runId} stream drained without a durable terminal or suspension state.`,
     );
 
     expect(consumeStream).toHaveBeenCalledTimes(1);
     expect(runAsSpy).toHaveBeenLastCalledWith(job.userId, expect.any(Function));
-    expect(unregister).toHaveBeenCalledWith(job.runId);
+    expect(unregister).toHaveBeenCalledWith(job.runId, abort);
+  });
+  it('ignores a wake job whose generation is no longer current', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      currentJobId: 'current-job',
+      wakeGeneration: 4,
+    });
+    const createClient = vi.fn();
+    const settleTerminalRun = vi.fn();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 3, jobId: 'stale-job' },
+    });
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(settleTerminalRun).not.toHaveBeenCalled();
   });
 
   it('routes a cancellation already visible at initial pickup through central terminal settlement', async () => {
@@ -528,7 +566,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 
     await handler(job);
 
-    expect(unregister).toHaveBeenCalledWith(job.runId);
+    expect(unregister).toHaveBeenCalledWith(job.runId, abort);
     expect(settleTerminalRun).toHaveBeenCalledWith({
       runId: job.runId,
       userId: job.userId,
@@ -621,8 +659,8 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
   /** Runs one job to its in-flight point and returns the live abort spy. */
   async function armFor(timeoutSeconds: number | null): Promise<Mock> {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
-    const abort = vi.fn();
     const controller = new AbortController();
+    const abort = vi.spyOn(controller, 'abort');
 
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       timeoutSeconds,
@@ -635,10 +673,7 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
           .mockResolvedValue({ outcome: 'won' as const }),
       },
       aborts: {
-        register: vi.fn().mockReturnValue({
-          signal: controller.signal,
-          abort,
-        }),
+        register: vi.fn().mockReturnValue(controller),
         unregister: vi.fn(),
       },
     });
@@ -750,7 +785,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
 
     expect(createClient).toHaveBeenCalledTimes(1);
     expect(executeRun).toHaveBeenCalledTimes(1);
-    expect(unregister).toHaveBeenCalledWith(job.runId);
+    expect(unregister).toHaveBeenCalledWith(job.runId, abort);
   });
 
   it('rejects the queue job when model-context failure did not reach a durable terminal state', async () => {

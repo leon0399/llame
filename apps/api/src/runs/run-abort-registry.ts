@@ -66,8 +66,10 @@ export class RunAbortRegistry {
     return controller;
   }
 
-  unregister(runId: string): void {
-    this.entries.delete(runId);
+  unregister(runId: string, controller: AbortController): void {
+    if (this.entries.get(runId)?.controller === controller) {
+      this.entries.delete(runId);
+    }
   }
 
   /** The owner of a run executing in this process. */
