@@ -62,6 +62,7 @@ export type LiveRecordLoader = {
   ): Promise<ProjectResponse | undefined>;
   pins(owner: string): Promise<Array<PinnedItemResponse>>;
   run(owner: string, runId: string): Promise<RunResponse | undefined>;
+  runningJobs(owner: string): Promise<Map<string, number>>;
 };
 
 export const LIVE_RECORD_LOADER = Symbol('LIVE_RECORD_LOADER');
@@ -92,6 +93,16 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
         ? toChatListItemResponse(chat, lastMessage, running.get(chatId) ?? 0)
         : undefined;
     });
+  }
+
+  /** Zero groups retain Chats whose stored running jobs have expired leases. */
+  runningJobs(owner: string) {
+    return this.tenantDb.runAs(owner, (tx) =>
+      new ChatJobsRepository(tx).countRunning(
+        owner,
+        workerDeadAfterSeconds(this.instanceConfig.config),
+      ),
+    );
   }
 
   /** The Chat's pending items, as `GET /api/v1/chats/:chatId/deliveries` lists them. */

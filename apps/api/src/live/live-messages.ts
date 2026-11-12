@@ -60,6 +60,7 @@ export const LIVE_CHANGES_CHANNEL = 'llame_changes';
 export type ChangeNotification =
   | { k: 'chat'; owner: string; chat: string; deleted: boolean }
   | { k: 'chat_deliveries'; owner: string; chat: string }
+  | { k: 'chat_jobs'; owner: string; chat: string }
   | { k: 'machine'; machine: string; deleted: boolean }
   | { k: 'project'; owner: string; project: string; deleted: boolean }
   | { k: 'pin'; owner: string }
@@ -126,6 +127,8 @@ function parseKind(
         : undefined;
     case 'chat_deliveries':
       return chat ? { k: 'chat_deliveries', owner, chat } : undefined;
+    case 'chat_jobs':
+      return chat ? { k: 'chat_jobs', owner, chat } : undefined;
     case 'project': {
       const project = str(parsed, 'project');
 
@@ -269,6 +272,8 @@ export function recordJobFor(n: ChangeNotification): RecordJob | undefined {
       return n.deleted
         ? ready({ type: 'chat.deleted', chatId: n.chat })
         : chatJob(n.owner, n.chat);
+    case 'chat_jobs':
+      return chatJob(n.owner, n.chat);
     case 'chat_deliveries':
       return {
         key: `chat_deliveries:${n.chat}`,

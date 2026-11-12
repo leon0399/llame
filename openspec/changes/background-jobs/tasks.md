@@ -238,9 +238,9 @@ to `host-runs` after task 10.1.
 Task 9.5 is owned by this layer. It reads display state only and creates no
 notice, host message or Run.
 
-- [ ] 9.5 Restate `llame_notify_change()` for `chat_jobs` in a manual migration with its header comment; an integration test receives `chat.upserted` with the new `runningJobs` and proves that another owner receives nothing. Also cover, with no job-row write, "An open socket sees a lease expire" (an explicit regression: the owner subscribes BEFORE the job starts), "A late heartbeat restores the count", "Only the remaining workers count", and "Another owner gets no projection", and a regression where a `NOTIFY` sends count 2, the lease then expires to 1, and the previous refresh value was also 1 (this fails with a wrong baseline), for the periodic projection refresh of `ChangeHub`. Add the operator note on its cost to `docs/product/operator/scaling.md`.
+- [x] 9.5 Restate `llame_notify_change()` for `chat_jobs` in a manual migration with its header comment; an integration test receives `chat.upserted` with the new `runningJobs` and proves that another owner receives nothing. Also cover, with no job-row write, "An open socket sees a lease expire" (an explicit regression: the owner subscribes BEFORE the job starts), "A late heartbeat restores the count", "Only the remaining workers count", and "Another owner gets no projection", and a regression where a `NOTIFY` sends count 2, the lease then expires to 1, and the previous refresh value was also 1 (this fails with a wrong baseline), for the periodic projection refresh of `ChangeHub`. Add the operator note on its cost to `docs/product/operator/scaling.md`.
 
-- [ ] 8c.1 Verify task 9.5 with real owner-scoped database/socket proof, focused API lint/typecheck/build, Markdown and migration checks; self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
+- [x] 8c.1 Verify task 9.5 with real owner-scoped database/socket proof, focused API lint/typecheck/build, Markdown and migration checks; self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
 - [ ] 8c.2 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
 
 ## 8d. Notice transitions (`background-jobs/notice-transitions`)
