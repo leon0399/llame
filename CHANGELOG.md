@@ -11,14 +11,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   races with spawn. A foreground bound also releases a stalled output spill to
   return the bounded inline preview.
 
+- Select the latest API test report per shard on partial CI reruns, so an
+  earlier failed attempt cannot override a passing retry in the aggregate.
+
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
   A proved lifetime stop settles as `timed_out`; unproved termination stays
   `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
   without the ordinary tool-call cap.
-
-- Select the latest API test report per shard on partial CI reruns, so an
-  earlier failed attempt cannot override a passing retry in the aggregate.
 
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
@@ -33,6 +33,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **State the stop proof boundary (#1657).** The model-facing description and
+  tool reference promise termination of the managed process group, without
+  claiming that detached descendants are also stopped.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the

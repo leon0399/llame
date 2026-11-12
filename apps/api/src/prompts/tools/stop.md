@@ -9,5 +9,5 @@ JSON: `jobs`, one entry per locator in the input order: `job`, `state` (`running
 </output>
 
 <critical>
-A stop ends the command and every process it started. Only stop work that you or the user no longer need.
+A stop targets the job's managed process group. Detached descendants that leave that group are outside its termination proof. Only stop work that you or the user no longer need.
 </critical>
