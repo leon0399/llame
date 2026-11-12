@@ -220,7 +220,10 @@ async function readKeptResultReceipts(
   checkpoint: ContinuedCheckpoint,
 ): Promise<Array<string>> {
   const rows = await input.tx
-    .select({ payload: runEvents.payload })
+    .select({
+      toolCallId: sql<unknown>`${runEvents.payload}->'toolCallId'`,
+      receipts: sql<unknown>`${runEvents.payload}->'consumedJobNoticeIds'`,
+    })
     .from(runEvents)
     .innerJoin(runs, eq(runEvents.runId, runs.id))
     .where(
@@ -233,12 +236,11 @@ async function readKeptResultReceipts(
     )
     .orderBy(asc(runEvents.sequence));
 
-  return rows.flatMap(({ payload }) =>
-    isRecord(payload) &&
-    isString(payload['toolCallId']) &&
-    checkpoint.toolCallIds.has(payload['toolCallId']) &&
-    Array.isArray(payload['consumedJobNoticeIds'])
-      ? payload['consumedJobNoticeIds'].filter(isString)
+  return rows.flatMap(({ toolCallId, receipts }) =>
+    isString(toolCallId) &&
+    checkpoint.toolCallIds.has(toolCallId) &&
+    Array.isArray(receipts)
+      ? receipts.filter(isString)
       : [],
   );
 }
