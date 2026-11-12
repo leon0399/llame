@@ -88,6 +88,18 @@ describe('terminal job notice recovery', () => {
     const { notice } = await insertSettledNotice(seeded);
     const delivery = await deliverNotice(seeded);
 
+    const liveRun = await run(seeded.runId);
+    const foreignUserId = await createUser(fx.harness.db, 'job-notice-foreign');
+    await expect(
+      fx.harness.tenantDb.runAs(foreignUserId, (tx) =>
+        new RunsRepository(tx).markFinished(
+          seeded.runId,
+          foreignUserId,
+          'failed',
+        ),
+      ),
+    ).resolves.toBeUndefined();
+    expect(await run(seeded.runId)).toEqual(liveRun);
     expect(await itemState(notice.id)).toMatchObject({
       state: 'delivered',
       runId: seeded.runId,
@@ -105,21 +117,17 @@ describe('terminal job notice recovery', () => {
       deliveredMessageId: null,
     });
 
-    // A stale terminal callback and a different owner cannot change the return.
+    // A stale terminal callback cannot change the committed cancellation.
     await expect(
       db((tx) =>
         new RunsRepository(tx).markFinished(seeded.runId, fx.userId, 'failed'),
       ),
     ).resolves.toBeUndefined();
-    const foreignUserId = await createUser(fx.harness.db, 'job-notice-foreign');
-    await fx.harness.tenantDb.runAs(foreignUserId, (tx) =>
-      new RunsRepository(tx).markFinished(
-        seeded.runId,
-        foreignUserId,
-        'failed',
-      ),
-    );
-    expect(await itemState(notice.id)).toMatchObject({ state: 'pending' });
+    expect(await itemState(notice.id)).toMatchObject({
+      state: 'pending',
+      runId: null,
+      deliveredMessageId: null,
+    });
   });
 
   it('returns a boundary notice after preparation failure but preserves dispatched notices and withdrawals', async () => {

@@ -21,8 +21,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   seeded job notices beside owner steering, preserve the earlier reply, and
   persist job context only at dispatch. Stop-result recording consumes exact
   notices atomically; discarded results and terminal segments that never
-  dispatched restore only their own notices. This layer activates no
-  settlement producer and starts no idle-Chat Run.
+  dispatched restore only their own notices. Regenerate restores exact receipts
+  from its source Run's discarded segment using the consuming Run identity;
+  owner-withdrawn notices stay withdrawn. This layer activates no settlement
+  producer and starts no idle-Chat Run.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the

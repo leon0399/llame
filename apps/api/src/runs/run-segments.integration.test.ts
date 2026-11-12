@@ -177,86 +177,120 @@ describe('run steering segments', () => {
     });
     it('A cancelled stop result leaves a previously pending notice pending', async () => {
       let noticeId = '';
-      const cancellation = Promise.withResolvers<void>();
+      let runId = '';
 
-      const started = await startRun(
-        [
-          call('cancelled-stop', 'stop', { jobs: ['job://bash-2'] }),
-          answer('unreached'),
-        ],
-        async (index, seeded) => {
-          if (index !== 0) return;
-          noticeId = (await settleNotice(seeded)).notice.id;
+      const originalUpdateForAttempt: (
+        this: RunsRepository,
+        ...args: Parameters<RunsRepository['updateForAttempt']>
+      ) => Promise<Run | undefined> =
+        // eslint-disable-next-line typescript/unbound-method -- apply below supplies the repository receiver explicitly.
+        RunsRepository.prototype.updateForAttempt;
 
-          const runningJob = await db((tx) =>
-            new ChatJobsRepository(tx).insert({
-              chatId: seeded.chatId,
-              ownerUserId: fx.userId,
-              executor: 'bash',
-              seq: 2,
-              runId: seeded.runId,
-              toolCallId: randomUUID(),
-              workerInstanceId: fx.harness.moduleRef.get(WorkerHeartbeatService)
-                .instanceId,
-              outputs: [],
-              artifactReadable: false,
-              settings: { modelId: seeded.modelId, permissionMode: 'default' },
+      let cancellationRecorded = false;
+
+      const updateForAttempt = vi
+        .spyOn(RunsRepository.prototype, 'updateForAttempt')
+        .mockImplementation(async function (
+          this: RunsRepository,
+          ...args: Parameters<RunsRepository['updateForAttempt']>
+        ): Promise<Run | undefined> {
+          const [targetRunId, ownerUserId, attemptId, set] = args;
+
+          if (
+            !cancellationRecorded &&
+            targetRunId === runId &&
+            ownerUserId === fx.userId &&
+            Object.keys(set).length === 1 &&
+            set.activeAttemptId === attemptId
+          ) {
+            // This is the successful stop result's transactional persistence
+            // callback. Commit cancellation before its real attempt fence runs.
+            await db(async (tx) => {
+              const cancelled = await new RunsRepository(tx).requestCancel(
+                runId,
+                fx.userId,
+              );
+
+              if (!cancelled)
+                throw new Error('The live Run was not cancelled.');
+              await notifyRunControl(tx, { runId, kind: 'cancel' });
+            });
+            cancellationRecorded = true;
+          }
+
+          // eslint-disable-next-line typescript/no-unsafe-return -- Function.apply loses the captured method's declared result type.
+          return originalUpdateForAttempt.apply(this, args);
+        });
+
+      try {
+        const started = await startRun(
+          [
+            call('cancelled-stop', 'stop', {
+              jobs: ['job://bash-1', 'job://bash-2'],
             }),
-          );
+            answer('unreached'),
+          ],
+          async (index, seeded) => {
+            if (index !== 0) return;
+            runId = seeded.runId;
+            noticeId = (await settleNotice(seeded)).notice.id;
 
-          setImmediate(() => {
-            void (async () => {
-              try {
-                await waitFor(
-                  async () =>
-                    (await types(seeded.runId)).includes('tool.started')
-                      ? true
-                      : undefined,
-                  20_000,
-                  'the stop call to start',
-                );
-                await db(async (tx) => {
-                  await new RunsRepository(tx).requestCancel(
-                    seeded.runId,
-                    fx.userId,
-                  );
-                  await notifyRunControl(tx, {
-                    runId: seeded.runId,
-                    kind: 'cancel',
-                  });
-                  await new ChatJobsRepository(tx).settle(
-                    seeded.chatId,
-                    fx.userId,
-                    runningJob.id,
-                    { state: 'succeeded' },
-                  );
-                });
-                cancellation.resolve();
-              } catch (error) {
-                cancellation.reject(error);
-              }
-            })();
-          });
-        },
-      );
+            await db((tx) =>
+              new ChatJobsRepository(tx).insert({
+                chatId: seeded.chatId,
+                ownerUserId: fx.userId,
+                executor: 'bash',
+                seq: 2,
+                runId: seeded.runId,
+                toolCallId: randomUUID(),
+                workerInstanceId: fx.harness.moduleRef.get(
+                  WorkerHeartbeatService,
+                ).instanceId,
+                outputs: [],
+                artifactReadable: false,
+                settings: {
+                  modelId: seeded.modelId,
+                  permissionMode: 'default',
+                },
+              }),
+            );
+          },
+        );
 
-      await cancellation.promise;
-      await terminal(started.runId);
-      const notice = await itemState(noticeId);
+        await terminal(started.runId);
+        expect(cancellationRecorded).toBe(true);
+        const notice = await itemState(noticeId);
 
-      const stopCompletion = (await events(started.runId)).find(
-        (event) =>
-          event.eventType === 'tool.completed' &&
-          isRecord(event.payload) &&
-          event.payload['toolCallId'] === 'cancelled-stop',
-      );
+        const stopCompletion = (await events(started.runId)).find(
+          (event) =>
+            event.eventType === 'tool.completed' &&
+            isRecord(event.payload) &&
+            event.payload['toolCallId'] === 'cancelled-stop',
+        );
 
-      expect(notice).toMatchObject({ state: 'pending', runId: null });
-      expect(
-        stopCompletion &&
-          isRecord(stopCompletion.payload) &&
-          stopCompletion.payload['consumedJobNoticeIds'],
-      ).not.toEqual([noticeId]);
+        expect(notice).toMatchObject({ state: 'pending', runId: null });
+        expect(stopCompletion && isRecord(stopCompletion.payload)).toBe(true);
+
+        if (!stopCompletion || !isRecord(stopCompletion.payload)) {
+          throw new Error('The stop completion was not recorded.');
+        }
+
+        expect(stopCompletion.payload['status']).toBe('success');
+        expect(isRecord(stopCompletion.payload['output'])).toBe(true);
+
+        if (!isRecord(stopCompletion.payload['output'])) {
+          throw new Error('The successful stop output was not recorded.');
+        }
+
+        expect(stopCompletion.payload['output']['jobs']).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ job: 'job://bash-1', state: 'failed' }),
+          ]),
+        );
+        expect(stopCompletion.payload['consumedJobNoticeIds']).toEqual([]);
+      } finally {
+        updateForAttempt.mockRestore();
+      }
     });
     it('A stop that returns running leaves the later settlement notice pending', async () => {
       let jobId = '';
