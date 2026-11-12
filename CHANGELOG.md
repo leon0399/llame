@@ -17,13 +17,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Preserve host history without public job context (#1657).** Owner-history
-  responses identify host-authored user turns. Public pagination and shared
-  forks omit them; owner forks retain literal context and reply relationships.
-  Recency selects the first owner-authored turn, and an empty host trigger
-  preserves the earlier assistant reply in provider history. Context-only host
-  rows supply no title, preview or search evidence. This prerequisite does not
-  yet create settlement notices or notice-started Runs.
+- **Refresh live background-job counts (#1657).** Job changes notify only the
+  owning Chat's subscribers. Connected API processes also refresh owner-scoped
+  counts on the worker heartbeat cadence, including lease expiry and revival
+  with no job-row write. Full Chat upserts retain the last sent count across
+  notifications; zero-count running groups remain observable until settlement.
+  Refreshes stop after the last unsubscribe or shutdown and never settle jobs,
+  deliver notices or start Runs.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
@@ -53,6 +53,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Preserve host history without public job context (#1657).** Owner-history
+  responses identify host-authored user turns. Public pagination and shared
+  forks omit them; owner forks retain literal context and reply relationships.
+  Recency selects the first owner-authored turn, and an empty host trigger
+  preserves the earlier assistant reply in provider history. Context-only host
+  rows supply no title, preview or search evidence. This prerequisite does not
+  yet create settlement notices or notice-started Runs.
 
 - **Add producer-aware pending delivery contracts (#1657).** Delivery responses
   identify `owner` and `job` producers. A job notice carries its Chat-scoped
