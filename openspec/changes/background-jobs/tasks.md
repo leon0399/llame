@@ -39,6 +39,7 @@ master
 <- background-jobs/wait-resume
 <- background-jobs/wait-tool
 <- background-jobs/web
+<- background-jobs/web-controls
 <- background-jobs/finalize
 ```
 
@@ -75,8 +76,9 @@ one changes no behavior that the model or the owner can see.
 | `wake-projection`    | `wait-claim`         | Pure checkpoint and wait-result reconstruction, attempt boundaries, and malformed-receipt proof.                | none                                             | 650        | refs #1657        |
 | `wait-resume`        | `wake-projection`    | Deferred SDK call seams, atomic wait result persistence and runtime wake wiring.                                | none                                             | 1,500      | refs #1657        |
 | `wait-tool`          | `wait-resume`        | Wait admission, owner-facing documentation and actual SDK lifecycle, recovery, usage and cold-pickup proof.     | `wait`                                           | 1,500      | refs #1657        |
-| `web`                | `wait-tool`          | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
-| `finalize`           | `web`                | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
+| `web`                | `wait-tool`          | Shared backgrounded Bash, wait and stop presentation with browser stories and accessible fallbacks.             | backgrounded Bash rows                           | 750        | refs #1657        |
+| `web-controls`       | `web`                | Sidebar state, Jobs controls, host notices, tool dispatch and full browser acceptance.                          | complete owner controls                          | 1,700      | Closes #1657      |
+| `finalize`           | `web-controls`       | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
 deltas hold MODIFIED requirements in nine capabilities, and each must restate its canonical block
@@ -406,7 +408,13 @@ acceptance and model-visible activation remain together in `wait-tool`.
 - [x] 12.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 12.8 Run the GitHub review and CI loop on the published head.
 
-## 13. Web (`background-jobs/web`)
+## 13a. Tool presentation (`background-jobs/web`)
+
+- [x] 13a.1 Prepare the dedicated shared wait and stop rows and the backgrounded Bash result, including actual payload parsing and generic historical fallbacks. This layer does not connect wait or stop to Chat dispatch.
+- [x] 13a.2 Verify the shared UI types and lint, 16 focused browser stories, and actual rendered preview. Review with independent correctness, simplify and ponytail reviewers before ready; use CLI while Storybook MCP is disconnected.
+- [ ] 13a.3 Publish the tool-presentation layer and drive ordinary CI green; process mutations and bot claims concurrently without blocking owner-controls development.
+
+## 13. Web controls (`background-jobs/web-controls`)
 
 - [ ] 13.1 Add the `background` sidebar state; component tests and stories cover "A monitor with no live Run" and "A Run that waits".
 - [ ] 13.2 Add the Jobs section of the Session details panel; stories and tests cover "Stop all with no live Run" and "The composer Stop leaves jobs alone".
@@ -419,7 +427,7 @@ acceptance and model-visible activation remain together in `wait-tool`.
 
 ## 14. Finalize (`background-jobs/finalize`)
 
-- [ ] 14.1 Enter `background-jobs/finalize` with `$gh-stack` from the `web` top before `$openspec-sync-specs` writes.
+- [ ] 14.1 Enter `background-jobs/finalize` with `$gh-stack` from the `web-controls` top before `$openspec-sync-specs` writes.
 - [ ] 14.2 Run `$openspec-sync-specs`; `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
 - [ ] 14.3 Confirm archive readiness: `openspec status --change background-jobs --json` reports every artifact done, and every task above is checked.
 

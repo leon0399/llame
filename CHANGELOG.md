@@ -29,14 +29,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Wait for background jobs without holding a worker (#1657).** The read-only
-  `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
-  It returns settled results immediately, or suspends and durably resumes the
-  same Run at settlement, interruption, or its deadline. Sibling tools finish
-  before suspension; the first wake retains completed steps and records the
-  real result together with exact notice consumption. Cancellation leaves jobs
-  running, and retries never replay native mutations. See
-  [wait](docs/product/reference/tools/wait.md).
+- **Prepare background-job transcript components (#1657).** Bash rows display
+  background job locators and their promotion cause. Shared wait and stop
+  components render their actual results, with accessible fallback highlighting;
+  their Chat transcript dispatch is connected in the owner-controls layer.
 
 - **State the stop proof boundary (#1657).** The model-facing description and
   tool reference promise termination of the managed process group, without
@@ -45,6 +41,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Wait for background jobs without holding a worker (#1657).** The read-only
+  `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
+  It returns settled results immediately, or suspends and durably resumes the
+  same Run at settlement, interruption, or its deadline. Sibling tools finish
+  before suspension; the first wake retains completed steps and records the
+  real result together with exact notice consumption. Cancellation leaves jobs
+  running, and retries never replay native mutations. See
+  [wait](docs/product/reference/tools/wait.md).
 
 - **Prepare durable wait continuation (#1657).** Deferred provider call seams
   drain sibling tools without a synthetic wait result. Internal wake claims
