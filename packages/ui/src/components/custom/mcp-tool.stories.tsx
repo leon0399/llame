@@ -1,17 +1,26 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { McpTool } from "./mcp-tool.js";
 
-// The Parameters and JSON panels render syntax-colored Shiki markup; only the
-// color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
-};
+async function waitForHighlightedTokens(
+  canvasElement: HTMLElement,
+  expectedCount: number,
+) {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCount);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 const meta = {
   component: McpTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -79,10 +88,13 @@ export const StructuredAndMixedBlocks: Story = {
       },
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /docs · find_docs/iu }),
     );
+    // Parameters are plain text. The unknown block and structured content are
+    // each a dual-theme Shiki block.
+    await waitForHighlightedTokens(canvasElement, 4);
     await expect(canvas.getByText("Image (image/png)")).toBeVisible();
     await expect(canvas.queryByRole("img")).not.toBeInTheDocument();
     await expect(
@@ -115,6 +127,8 @@ export const SeparatorInToolName: Story = {
  */
 export const Failed: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "The remote tool reported an error.",

@@ -374,16 +374,6 @@ export const LiveStreaming: Story = {
   },
 };
 
-// The web_search Parameters panel renders syntax-colored markup through the
-// shared Shiki CodeBlock. Only the color-contrast rule is disabled.
-const webSearchShikiContrastKnownIssue = {
-  a11y: {
-    config: {
-      rules: [{ id: "color-contrast", enabled: false }],
-    },
-  },
-};
-
 /** Expands the two web_search rows these stories render side by side. */
 async function expandWebSearchRows(
   canvas: Pick<ReturnType<typeof within>, "getAllByRole">,
@@ -415,7 +405,6 @@ async function expandWebSearchRows(
  */
 export const LiveAndHistoricalWebSearch: Story = {
   tags: ["ai-generated"],
-  parameters: webSearchShikiContrastKnownIssue,
   args: { message: WEB_SEARCH_MESSAGES.live },
   render: (args) => (
     <div>
@@ -458,7 +447,6 @@ export const LiveAndHistoricalWebSearch: Story = {
  */
 export const LiveAndHistoricalWebSearchAnswers: Story = {
   tags: ["ai-generated"],
-  parameters: webSearchShikiContrastKnownIssue,
   args: { message: WEB_SEARCH_ANSWERS_MESSAGES.live },
   render: (args) => (
     <div>
@@ -495,7 +483,6 @@ export const LiveAndHistoricalWebSearchAnswers: Story = {
  */
 export const CancelledWebSearch: Story = {
   tags: ["ai-generated"],
-  parameters: webSearchShikiContrastKnownIssue,
   args: { message: CANCELLED_WEB_SEARCH_MESSAGE },
   play: async ({ canvas }) => {
     const header = await waitFor(

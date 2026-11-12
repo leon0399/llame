@@ -3,6 +3,7 @@ import { expect } from "storybook/test";
 
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { WebSearchTool, type WebSearchToolProps } from "./web-search.js";
 
 const markdownRenderer: WebSearchToolProps["Markdown"] = MessageResponse;
@@ -10,19 +11,9 @@ const markdownRenderer: WebSearchToolProps["Markdown"] = MessageResponse;
 /** Accessible name of an outbound result or citation link. */
 const outboundLinkName = (label: string) => `${label} opens in a new tab`;
 
-// The Parameters panel renders syntax-colored markup through the shared Shiki
-// CodeBlock. Only the color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: {
-    config: {
-      rules: [{ id: "color-contrast", enabled: false }],
-    },
-  },
-};
-
 const meta = {
   component: WebSearchTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -197,6 +188,8 @@ export const Empty: Story = {
  */
 export const Error: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "The web search engine timed out.",
