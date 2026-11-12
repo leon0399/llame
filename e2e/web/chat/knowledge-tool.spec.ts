@@ -448,6 +448,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     ).toBeVisible({ timeout: 30_000 });
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await readyComposer(page);
 
     const reloadedCard = log
       .getByRole("button")
