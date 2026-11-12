@@ -309,21 +309,25 @@ export const LiveStreaming: Story = {
   },
 };
 
-// The web_search Parameters panel renders through the shared Shiki CodeBlock,
-// whose built-in "one-light" palette ships token colors below WCAG AA
-// color-contrast (same third-party-theme defect code-block.stories.tsx
-// suppresses). Only the color-contrast rule is disabled.
-const webSearchShikiContrastKnownIssue = {
-  a11y: {
-    config: {
-      rules: [{ id: "color-contrast", enabled: false }],
-    },
-  },
-};
+async function waitForHighlightedTokens(
+  canvasElement: HTMLElement,
+  expectedCodeBlocks: number,
+): Promise<void> {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCodeBlocks);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 /** Expands the two web_search rows these stories render side by side. */
 async function expandWebSearchRows(
   canvas: Pick<ReturnType<typeof within>, "getAllByRole">,
+  canvasElement: HTMLElement,
+  expectedCodeBlocks: number,
 ): Promise<void> {
   const headers = await waitFor(
     () => {
@@ -340,6 +344,8 @@ async function expandWebSearchRows(
       await userEvent.click(header);
     }
   }
+
+  await waitForHighlightedTokens(canvasElement, expectedCodeBlocks);
 }
 
 /**
@@ -350,7 +356,6 @@ async function expandWebSearchRows(
  */
 export const LiveAndHistoricalWebSearch: Story = {
   tags: ["ai-generated"],
-  parameters: webSearchShikiContrastKnownIssue,
   args: { message: WEB_SEARCH_MESSAGES.live },
   render: (args) => (
     <div>
@@ -362,8 +367,8 @@ export const LiveAndHistoricalWebSearch: Story = {
       />
     </div>
   ),
-  play: async ({ canvas }) => {
-    await expandWebSearchRows(canvas);
+  play: async ({ canvas, canvasElement }) => {
+    await expandWebSearchRows(canvas, canvasElement, 4);
 
     for (const result of WEB_SEARCH_OUTPUT.results) {
       const found = await waitFor(() => {
@@ -393,7 +398,6 @@ export const LiveAndHistoricalWebSearch: Story = {
  */
 export const LiveAndHistoricalWebSearchAnswers: Story = {
   tags: ["ai-generated"],
-  parameters: webSearchShikiContrastKnownIssue,
   args: { message: WEB_SEARCH_ANSWERS_MESSAGES.live },
   render: (args) => (
     <div>
@@ -405,8 +409,8 @@ export const LiveAndHistoricalWebSearchAnswers: Story = {
       />
     </div>
   ),
-  play: async ({ canvas }) => {
-    await expandWebSearchRows(canvas);
+  play: async ({ canvas, canvasElement }) => {
+    await expandWebSearchRows(canvas, canvasElement, 4);
     await waitFor(
       () => {
         expect(canvas.getAllByText("Aggregate answers")).toHaveLength(2);
@@ -430,15 +434,15 @@ export const LiveAndHistoricalWebSearchAnswers: Story = {
  */
 export const CancelledWebSearch: Story = {
   tags: ["ai-generated"],
-  parameters: webSearchShikiContrastKnownIssue,
   args: { message: CANCELLED_WEB_SEARCH_MESSAGE },
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
     const header = await waitFor(
       () => canvas.getByRole("button", { name: /web_search/iu }),
       { timeout: 15_000 },
     );
 
     await userEvent.click(header);
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("Cancelled")).toBeVisible();
     expect(
       canvas.queryByText(CANCELLED_WEB_SEARCH_ERROR),

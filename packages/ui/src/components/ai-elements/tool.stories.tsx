@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ToolUIPart } from "ai";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { CodeBlock } from "./code-block.js";
@@ -51,6 +51,20 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+async function waitForHighlightedTokens(
+  canvasElement: HTMLElement,
+  expectedCount: number,
+) {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCount);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
+
 const webSearchCall = {
   errorText: undefined,
   input: {
@@ -83,7 +97,8 @@ export const Pending: Story = {
       </ToolContent>
     </Tool>
   ),
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("Pending")).toBeInTheDocument();
     await expect(canvas.getByText("Parameters")).toBeInTheDocument();
   },
@@ -149,7 +164,8 @@ export const Running: Story = {
       </ToolContent>
     </Tool>
   ),
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("Running")).toBeInTheDocument();
     await expect(canvas.getByText("Parameters")).toBeInTheDocument();
     await expect(canvas.queryByText("Result")).not.toBeInTheDocument();
@@ -195,7 +211,8 @@ export const Cancelled: Story = {
       </ToolContent>
     </Tool>
   ),
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getAllByText("Cancelled")).toHaveLength(2);
 
     const message = canvas.getByText(
@@ -292,7 +309,8 @@ export const Completed: Story = {
       </ToolContent>
     </Tool>
   ),
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
+    await waitForHighlightedTokens(canvasElement, 4);
     await expect(canvas.getByText("Completed")).toBeInTheDocument();
     await expect(canvas.getByText("Result")).toBeInTheDocument();
   },
@@ -345,7 +363,8 @@ export const Failed: Story = {
       </ToolContent>
     </Tool>
   ),
-  play: async ({ canvas }) => {
+  play: async ({ canvas, canvasElement }) => {
+    await waitForHighlightedTokens(canvasElement, 2);
     // "Error" appears twice — the status badge and the output panel heading.
     await expect(canvas.getAllByText("Error").length).toBeGreaterThan(0);
     await expect(

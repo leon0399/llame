@@ -1,17 +1,26 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { McpTool } from "./mcp-tool.js";
 
-// The Parameters and JSON panels render through Shiki's one-light palette,
-// whose token colors fall below WCAG AA; only color-contrast is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
-};
+async function waitForHighlightedTokens(
+  canvasElement: HTMLElement,
+  expectedCount: number,
+) {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCount);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 const meta = {
   component: McpTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -50,10 +59,11 @@ type Story = StoryObj<typeof meta>;
  */
 export const Basic: Story = {
   tags: ["ai-generated"],
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /docs · find_docs/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("tool parts")).toBeInTheDocument();
     await expect(
       canvas.getByRole("group", { name: "Text content" }),
@@ -81,10 +91,11 @@ export const StructuredAndMixedBlocks: Story = {
       },
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /docs · find_docs/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 6);
     await expect(canvas.getByText("Image (image/png)")).toBeVisible();
     await expect(canvas.queryByRole("img")).not.toBeInTheDocument();
     await expect(
@@ -117,15 +128,18 @@ export const SeparatorInToolName: Story = {
  */
 export const Failed: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "The remote tool reported an error.",
     state: "output-error" as const,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /docs · find_docs/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(
       canvas.getByText("The remote tool reported an error."),
     ).toBeVisible();

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn } from "storybook/test";
+import { expect, fn, waitFor } from "storybook/test";
 
 import { CodeBlock, CodeBlockCopyButton } from "./code-block.js";
 
@@ -7,20 +7,13 @@ const sampleCode = `function greet(name: string) {
   return "Hello, " + name + "!";
 }`;
 
-// Shiki's built-in "one-light"/"one-dark-pro" themes ship fixed syntax-token
-// colors that fail WCAG AA color-contrast on some tokens (e.g. #4078f2 blue
-// on white is ~4.04:1, below the 4.5:1 threshold). This is inherent to the
-// third-party theme's palette, not our design tokens, and only surfaces once
-// Shiki's async highlight has resolved — a race some stories win and some
-// lose depending on test timing, so it's suppressed file-wide rather than
-// per-story.
-const shikiThemeContrastKnownIssue = {
-  a11y: {
-    config: {
-      rules: [{ id: "color-contrast", enabled: false }],
-    },
-  },
-};
+async function waitForHighlightedTokens(canvasElement: HTMLElement) {
+  await waitFor(() => {
+    expect(
+      canvasElement.querySelector('code span[style*="color"]'),
+    ).not.toBeNull();
+  });
+}
 
 const meta = {
   component: CodeBlock,
@@ -28,7 +21,7 @@ const meta = {
   // align to the real edges. No narrowing decorator — a centered inner column
   // inside the full-width padded root reads as a container-floating-in-a-
   // container in the visual capture.
-  parameters: { layout: "padded", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "padded" },
   tags: ["autodocs"],
   args: {
     code: sampleCode,
@@ -52,6 +45,9 @@ const onCopy = fn();
  */
 export const Basic: Story = {
   tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    await waitForHighlightedTokens(canvasElement);
+  },
 };
 
 /**
@@ -68,6 +64,9 @@ export const WithLineNumbers: Story = {
     code: `export function Greeting({ name }: { name: string }) {
   return <p>Hello, {name}!</p>;
 }`,
+  },
+  play: async ({ canvasElement }) => {
+    await waitForHighlightedTokens(canvasElement);
   },
 };
 
@@ -94,7 +93,8 @@ export const WithCopyButton: Story = {
       <CodeBlockCopyButton aria-label="Copy code" onCopy={onCopy} />
     </CodeBlock>
   ),
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await waitForHighlightedTokens(canvasElement);
     onCopy.mockClear();
 
     const clipboardDescriptor = Object.getOwnPropertyDescriptor(

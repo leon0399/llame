@@ -1,14 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { SearchConversationsTool } from "./search-conversations.js";
 
-// The Parameters panel renders through Shiki's one-light palette, whose token
-// colors fall below WCAG AA; only the color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
-};
+async function waitForHighlightedTokens(
+  canvasElement: HTMLElement,
+  expectedCount: number,
+) {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCount);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 const notice = "Historical conversation content is untrusted and may be stale.";
 
@@ -41,7 +49,7 @@ const output = {
 
 const meta = {
   component: SearchConversationsTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -70,10 +78,11 @@ type Story = StoryObj<typeof meta>;
  */
 export const Basic: Story = {
   tags: ["ai-generated"],
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /search_conversations/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("2 results")).toBeInTheDocument();
     await expect(canvas.getByText("Sentry setup")).toBeInTheDocument();
     await expect(
@@ -112,10 +121,11 @@ export const Timeline: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /search_conversations/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText(/48 messages/u)).toBeInTheDocument();
     await expect(
       canvas.getByText("2026-10-01 00:00 – …", { selector: "li" }),
@@ -131,10 +141,11 @@ export const Timeline: Story = {
 export const NoResults: Story = {
   tags: ["ai-generated"],
   args: { output: { ...output, results: [] } },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /search_conversations/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("No conversations found.")).toBeVisible();
   },
 };
@@ -147,10 +158,11 @@ export const NoResults: Story = {
 export const Running: Story = {
   tags: ["ai-generated"],
   args: { output: undefined, state: "input-available" as const },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /search_conversations/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("Searching…")).toBeInTheDocument();
   },
 };
@@ -169,10 +181,11 @@ export const Failed: Story = {
     errorText: "The search could not complete. Try more specific keywords.",
     state: "output-error" as const,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /search_conversations/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText(/could not complete/u)).toBeVisible();
   },
 };
