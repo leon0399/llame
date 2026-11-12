@@ -354,10 +354,17 @@ describe('foreground host bash move', () => {
     // The commit completes after the deadline but before its continuations run.
     vi.advanceTimersByTime(750);
     commit.resolve(jobRow(7));
-    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    const result = await call;
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
     await vi.advanceTimersByTimeAsync(0);
     expect(results()).toHaveLength(1);
-    expect(results()[0]).toMatchObject({ result: { type: 'outcome_unknown' } });
+    expect(results()[0]).toMatchObject({
+      toolCallId: 'call-1',
+      result: { status: 'error', type: 'outcome_unknown' },
+    });
     expect(registry.command.stop).not.toHaveBeenCalled();
   });
 
