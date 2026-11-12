@@ -144,14 +144,14 @@ function promotionFailure(
   const result = toToolResult({
     status: 'error',
     type: 'timed_out',
-    durationMs: Date.now() - startedAt.getTime(),
+    wallTimeMs: Date.now() - startedAt.getTime(),
     ...stopped,
   });
 
   return result.status === 'error'
     ? {
         ...result,
-        message: `The move to a background job failed; the command was stopped.\n${result.message}`,
+        message: `${result.message}\nThe move to a background job failed; the command was stopped.`,
       }
     : result;
 }
