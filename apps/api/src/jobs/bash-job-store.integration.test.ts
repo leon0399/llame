@@ -12,6 +12,8 @@ import {
   reserveArtifactSeq,
 } from '../tools/artifacts/artifact-writer';
 import * as hostFiles from '../tools/artifacts/host-files';
+import { chatDeliveries, type ChatJob } from '../db/schema';
+import * as jobNotices from './job-notices';
 import {
   appendJobOutput,
   retryJobTransaction,
@@ -139,6 +141,94 @@ describe('bash-job-store on a live database', () => {
       parts.find((part) => part.name === 'stdout')?.content.toString(),
     ).toBe('a'.repeat(50_000));
     expect((await stdoutOf(job)).length).toBe(0);
+
+    const notices = await tenant.runAs(owner, (db) =>
+      db
+        .select()
+        .from(chatDeliveries)
+        .where(eq(chatDeliveries.senderRef, job.id)),
+    );
+
+    expect(notices).toHaveLength(1);
+  });
+
+  it('creates one notice when duplicate settlement attempts race', async () => {
+    const job = await runningJob();
+
+    await Promise.all([settle(job, 'first'), settle(job, 'second')]);
+
+    const notices = await tenant.runAs(owner, (db) =>
+      db
+        .select()
+        .from(chatDeliveries)
+        .where(eq(chatDeliveries.senderRef, job.id)),
+    );
+
+    const stored = await stdoutOf(job);
+
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toMatchObject({
+      chatId: job.chatId,
+      ownerUserId: owner,
+      producer: 'job',
+      senderRef: job.id,
+      mode: 'notice',
+      settings: job.settings,
+    });
+    expect(stored.toString()).toMatch(/^(first|second)$/);
+  });
+
+  it('rolls back the settlement, output, and notice together', async () => {
+    const job = await runningJob();
+    vi.spyOn(jobNotices, 'recordJobSettlementNotice').mockRejectedValue(
+      new Error('notice insert failed'),
+    );
+
+    await expect(settle(job, 'not committed')).rejects.toThrow(
+      'notice insert failed',
+    );
+
+    expect((await rowOf(job))?.state).toBe('running');
+    expect((await stdoutOf(job)).length).toBe(0);
+
+    const notices = await tenant.runAs(owner, (db) =>
+      db
+        .select()
+        .from(chatDeliveries)
+        .where(eq(chatDeliveries.senderRef, job.id)),
+    );
+
+    expect(notices).toEqual([]);
+  });
+
+  it('does not notify or settle a job through a foreign Chat id', async () => {
+    const job = await runningJob();
+
+    const foreignChat = await tenant.runAs(owner, (db) =>
+      new ChatsRepository(db).create({ ownerUserId: owner, title: 'Other' }),
+    );
+
+    const wronglyScopedJob = {
+      ...job,
+      chatId: foreignChat.id,
+    } satisfies ChatJob;
+
+    await settle(wronglyScopedJob, 'not committed');
+
+    expect(
+      await tenant.runAs(owner, (db) =>
+        new ChatJobsRepository(db).findById(job.chatId, owner, job.id),
+      ),
+    ).toMatchObject({ state: 'running' });
+
+    const notices = await tenant.runAs(owner, (db) =>
+      db
+        .select()
+        .from(chatDeliveries)
+        .where(eq(chatDeliveries.senderRef, job.id)),
+    );
+
+    expect(notices).toEqual([]);
   });
 
   it('creates no artifact for a short output, and the record shows the exit code', async () => {
@@ -150,6 +240,15 @@ describe('bash-job-store on a live database', () => {
     });
     expect((await rowOf(job))?.artifactId).toBeNull();
     expect((await stdoutOf(job)).toString()).toBe('x'.repeat(300));
+
+    const notices = await tenant.runAs(owner, (db) =>
+      db
+        .select()
+        .from(chatDeliveries)
+        .where(eq(chatDeliveries.senderRef, job.id)),
+    );
+
+    expect(notices).toHaveLength(1);
 
     const read = await readJob(
       {
@@ -209,6 +308,15 @@ describe('bash-job-store on a live database', () => {
     expect((await rowOf(job))?.state).toBe('succeeded');
     expect((await rowOf(job))?.artifactId).toBeNull();
     expect((await stdoutOf(job)).toString()).toBe(whole);
+
+    const notices = await tenant.runAs(owner, (db) =>
+      db
+        .select()
+        .from(chatDeliveries)
+        .where(eq(chatDeliveries.senderRef, job.id)),
+    );
+
+    expect(notices).toHaveLength(1);
   });
 
   it('writes host files only after the artifact commits', async () => {

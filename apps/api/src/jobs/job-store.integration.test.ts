@@ -15,14 +15,16 @@ import { renderReadText } from '@workspace/native-file-tools';
 
 import { ChatsRepository } from '../chats/chats-repository';
 import { ChatsService } from '../chats/chats.service';
-import * as schema from '../db/schema';
 import {
+  chatDeliveries,
   chatJobChunks,
   chatJobs,
   chats,
+  runs,
   toolArtifacts,
   workerInstances,
 } from '../db/schema';
+import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -226,7 +228,6 @@ describe('job store', () => {
         ),
       ).resolves.toEqual(expected);
     });
-
     it('returns short and empty outputs and hides wrong-owner or missing jobs', async () => {
       const chat = await freshChat();
       const job = await startJob(chat, 1);
@@ -486,6 +487,34 @@ describe('job store', () => {
       );
 
       expect(rows.find((job) => job.id === healthy.id)?.state).toBe('running');
+
+      expect(
+        await withJobs(owner, (jobs) =>
+          jobs.settleOnDeadWorkers(chat, owner, DEAD_AFTER),
+        ),
+      ).toEqual([]);
+
+      const notices = await tenantDb.runAs(owner, (tx) =>
+        tx
+          .select()
+          .from(chatDeliveries)
+          .where(eq(chatDeliveries.senderRef, crashed.id)),
+      );
+
+      const runsInChat = await tenantDb.runAs(owner, (tx) =>
+        tx.select().from(runs).where(eq(runs.chatId, chat)),
+      );
+
+      expect(notices).toHaveLength(1);
+      expect(notices[0]).toMatchObject({
+        chatId: chat,
+        ownerUserId: owner,
+        producer: 'job',
+        senderRef: crashed.id,
+        mode: 'notice',
+        state: 'pending',
+      });
+      expect(runsInChat).toEqual([]);
     });
 
     it('treats a worker with no row as dead', async () => {

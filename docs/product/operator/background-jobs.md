@@ -76,23 +76,25 @@ recorded requests after a lost signal. Deleting the Chat also stops its jobs.
 The composer's Stop cancels the Run, not a job that already moved to the
 background.
 
-## Pending delivery contract
+## Runtime boundary
 
-`GET /api/v1/chats/:chatId/deliveries` identifies each item's `producer`.
-Owner items retain their steer, interrupt and queue controls. A `job` item
-uses mode `notice`, names its `job://` locator and `jobState`, and offers delete
-only. The owner can withdraw it through the deliveries endpoint. Changing a
-notice's mode or sending an owner notice returns HTTP 400 without mutation.
-A withdrawn notice keeps its job's unique sender reference; withdrawal does
-not stop the job.
+Each winning job settlement creates one pending notice in the same transaction,
+including a `lost` settlement found on touch. A notice joins pending `steer` and
+`interrupt` items at the next ordered boundary of the currently executing Run;
+only that Run receives the signal. A notice-only boundary delivery creates a
+host trigger with user role, no sender, and no stored content. Its job context
+is authored at dispatch, not saved in the trigger row. See the
+[job locator](../reference/locators/job.md#pending-notices) and
+[stop tool](../reference/tools/stop.md#behavior) for the reference contract.
 
-Notice storage and its pending-item view are available, but job settlements do
-not create notices yet. Settlement delivery is a separate integration.
+The idle-host-Run and held-notice admission paths, and the `wait` tool, are not
+active yet. A settlement with no executing Run therefore leaves its notice
+pending for a later Run; this layer does not start one.
 
 Host-history privacy and model-order handling are available for stored host
 rows. Owner-history responses identify them with `host: true`; ordinary owner,
-assistant, tool and checkpoint rows carry `host: false`. This does not yet
-activate notice-started Runs or their transcript presentation.
+assistant, tool and checkpoint rows carry `host: false`. Host rows remain
+excluded from title, preview, recency, public projection, and shared forks.
 
 ## Deploy workers
 

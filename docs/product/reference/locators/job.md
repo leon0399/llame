@@ -83,11 +83,22 @@ output reads as empty.
 
 ### Pending notices
 
-A pending job notice above the composer names its `job://` locator and state.
-It offers delete only; it cannot be edited or changed into an owner message.
-Deleting the notice does not stop its job. The
-[pending-delivery contract](../../operator/background-jobs.md#pending-delivery-contract)
-describes its API and the current settlement-integration boundary.
+A settlement creates one pending `notice` item for that job. The winning
+settlement transaction inserts it, including when a touch finds the worker
+lost; a repeated settlement creates no second item. A live Run receives notices
+at its next ordered boundary delivery with pending `steer` and `interrupt`
+items. Only the Run executing at that boundary is signalled. A notice by itself
+is a host trigger, not an owner message: its delivered message has user role,
+no sender, and no stored content. The first dispatch authors the job context
+items from the triggering delivery rows. The notice has delete only and
+withdrawing it does not stop the job.
+
+The context item reports the locator, executor, state, exit detail, elapsed
+time, stopper when cancelled, artifact locator when present, and the last
+2,000 characters of each output. Output is safely neutralized as data before
+it enters the context. A host artifact directory is named only when a verified
+cache exists. Reading a job record or output does not consume its notice.
+See the [operator runtime boundary](../../operator/background-jobs.md#runtime-boundary).
 
 ### Host history
 
