@@ -29,6 +29,8 @@ export async function createJobNoticeContext(input: {
   const items: Array<AuthoredContextItemPart> = [];
 
   for (const notice of notices) {
+    if (notice.runId !== input.runId) continue;
+
     const item = await createDeliveredJobNoticeItem({
       chatId: input.chatId,
       ownerUserId: input.ownerUserId,

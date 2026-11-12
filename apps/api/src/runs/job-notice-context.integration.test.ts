@@ -201,6 +201,137 @@ describe('job notice context dispatch', () => {
     ]);
   });
 
+  it('does not reauthor a notice delivered to an earlier Run when the trigger is dispatched again', async () => {
+    const seeded = await fx.seed('trigger reused by a follow-up Run');
+    const runBId = randomUUID();
+    const triggerId = randomUUID();
+
+    const oldJob = await seedJob({
+      ownerUserId: fx.userId,
+      chatId: seeded.chatId,
+      runId: seeded.runId,
+      modelId: seeded.modelId,
+      seq: 46,
+      output: 'OLD_JOB_OUTPUT',
+      settle: true,
+    });
+
+    const newJob = await seedJob({
+      ownerUserId: fx.userId,
+      chatId: seeded.chatId,
+      runId: runBId,
+      modelId: seeded.modelId,
+      seq: 47,
+      output: 'NEW_JOB_OUTPUT',
+      settle: true,
+    });
+
+    await fx.db((tx) =>
+      new MessagesRepository(tx).create({
+        id: triggerId,
+        chatId: seeded.chatId,
+        role: 'user',
+        senderUserId: null,
+        parts: [],
+      }),
+    );
+
+    async function deliver(job: ChatJob, runId: string) {
+      await fx.harness.tenantDb.runAs(fx.userId, async (tx) => {
+        const deliveries = new ChatDeliveriesRepository(tx);
+        const notice = await deliveries.insertJobNotice(job);
+
+        if (!notice) throw new Error(`Could not insert notice for ${job.id}`);
+
+        const delivered = await deliveries.markDelivered(notice.id, fx.userId, {
+          messageId: triggerId,
+          runId,
+        });
+
+        if (!delivered)
+          throw new Error(`Could not deliver notice for ${job.id}`);
+      });
+    }
+
+    await deliver(oldJob, seeded.runId);
+
+    const firstItems = await fx.db((tx) =>
+      createJobNoticeContext({
+        tx,
+        chatId: seeded.chatId,
+        ownerUserId: fx.userId,
+        messageId: triggerId,
+        runId: seeded.runId,
+      }),
+    );
+
+    expect(firstItems).toHaveLength(1);
+
+    const storedFirst = await fx.db((tx) =>
+      new AcceptedTurnPartsRepository(tx).storeAtDispatch({
+        id: triggerId,
+        chatId: seeded.chatId,
+        items: firstItems,
+        placement: 'rank',
+        removeModelSwitch: false,
+      }),
+    );
+
+    expect(storedFirst.applied).toBe(true);
+
+    await deliver(newJob, runBId);
+
+    const secondItems = await fx.db((tx) =>
+      createJobNoticeContext({
+        tx,
+        chatId: seeded.chatId,
+        ownerUserId: fx.userId,
+        messageId: triggerId,
+        runId: runBId,
+      }),
+    );
+
+    expect(secondItems.map((item) => item.data.payload['locator'])).toEqual([
+      'job://bash-47',
+    ]);
+
+    const storedSecond = await fx.db((tx) =>
+      new AcceptedTurnPartsRepository(tx).storeAtDispatch({
+        id: triggerId,
+        chatId: seeded.chatId,
+        items: secondItems,
+        placement: 'append',
+        removeModelSwitch: false,
+      }),
+    );
+
+    expect(storedSecond.applied).toBe(true);
+
+    const hostParts = (await fx.messages(seeded.chatId)).find(
+      (message) => message.id === triggerId,
+    )?.parts;
+
+    const contextParts = (hostParts ?? []).filter(isContextItemPart);
+
+    const oldPart = contextParts.find(
+      (part) => part.data.runId === seeded.runId,
+    );
+
+    const history = buildContext(
+      toStoredMessages(await fx.messages(seeded.chatId)),
+      { systemPrompt: 'System instructions.', modelId: seeded.modelId },
+    );
+
+    const serialized = JSON.stringify(history.messages);
+
+    expect(oldPart).toEqual(firstItems[0]);
+    expect(
+      contextParts.filter((part) => part.data.producer === 'job'),
+    ).toHaveLength(2);
+    expect(serialized.split('job://bash-46')).toHaveLength(2);
+    expect(serialized.split('job://bash-47')).toHaveLength(2);
+  });
+
   it('does not read output from pending notices or delivered notices whose job is still running', async () => {
     const seeded = await fx.seed('no unread job output');
 
