@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 
 import { chats, toolArtifactParts, toolArtifacts } from '../../db/schema';
 import { type Db } from '../../db/tenant-db.service';
+import { type ArtifactLocator } from './locator';
 
 /** One artifact as the Chat list shows it. */
 export type ArtifactSummary = {
@@ -209,6 +210,42 @@ export class ArtifactsRepository {
       );
 
     return row;
+  }
+
+  /** One artifact part's last bounded bytes, without transferring its prefix. */
+  async readPartTail(
+    chatId: string,
+    locator: ArtifactLocator & { readonly part: string },
+    maxBytes: number,
+  ): Promise<Buffer | undefined> {
+    const byteLimit = Math.max(0, Math.min(maxBytes, 8000));
+
+    const [row] = await this.db
+      .select({
+        content: sql<Buffer>`substring(
+          ${toolArtifactParts.content} from
+            greatest(
+              octet_length(${toolArtifactParts.content}) - ${byteLimit} + 1,
+              1
+            )
+          for least(octet_length(${toolArtifactParts.content}), ${byteLimit})
+        )`,
+      })
+      .from(toolArtifactParts)
+      .innerJoin(
+        toolArtifacts,
+        eq(toolArtifacts.id, toolArtifactParts.artifactId),
+      )
+      .where(
+        and(
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.toolName, locator.toolName),
+          eq(toolArtifacts.seq, locator.seq),
+          eq(toolArtifactParts.name, locator.part),
+        ),
+      );
+
+    return row?.content;
   }
 
   /**

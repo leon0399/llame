@@ -386,6 +386,14 @@ function ownerEventForSse(event: RunEvent): RunEvent {
   let payload = withoutRetainedMediaPayload(event.eventType, event.payload);
   payload = withoutProviderMetadataPayload(event.eventType, payload);
 
+  if (
+    event.eventType === 'tool.completed' &&
+    'consumedJobNoticeIds' in payload
+  ) {
+    payload = { ...payload };
+    delete payload['consumedJobNoticeIds'];
+  }
+
   if (event.eventType === 'native.attempt' && payload['operation'] === 'bash') {
     payload = { ...payload };
     delete payload['path'];

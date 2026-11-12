@@ -133,6 +133,81 @@ async function isPrivateDirectory(path: string): Promise<boolean> {
   );
 }
 
+/** Find a safe cached bash artifact directory without creating any paths. */
+export async function existingArtifactHostDirectory(input: {
+  readonly chatId: string;
+  readonly toolName: string;
+  readonly seq: number;
+}): Promise<string | undefined> {
+  if (
+    input.toolName !== 'bash' ||
+    !Number.isSafeInteger(input.seq) ||
+    input.seq < 0
+  ) {
+    return undefined;
+  }
+
+  const artifactParts = await existingArtifactPartsDirectory(
+    input.chatId,
+    input.seq,
+  );
+
+  if (artifactParts === undefined) return undefined;
+
+  try {
+    for (const entry of await readdir(artifactParts)) {
+      if (
+        /^[a-z][a-z0-9_-]*\.(?:md|json|txt)$/u.test(entry) &&
+        (await isPrivateArtifactFile(join(artifactParts, entry)))
+      ) {
+        return artifactParts;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+/** Verify the existing bash cache path without following symlinks or creating it. */
+async function existingArtifactPartsDirectory(
+  chatId: string,
+  seq: number,
+): Promise<string | undefined> {
+  try {
+    const root = chatsRoot();
+    const chatDirectory = confined(root, chatId);
+    const directory = artifactDirectory(chatId);
+    const artifactParts = confined(directory, `bash-${seq}`);
+
+    if (
+      !(await isPrivateDirectory(join(tmpdir(), 'llame'))) ||
+      !(await isPrivateDirectory(root)) ||
+      !(await isPrivateDirectory(chatDirectory)) ||
+      !(await isPrivateDirectory(directory)) ||
+      !(await isPrivateDirectory(artifactParts))
+    ) {
+      return undefined;
+    }
+
+    return artifactParts;
+  } catch {
+    return undefined;
+  }
+}
+
+/** A real artifact file this worker owns, with no group or other access. */
+async function isPrivateArtifactFile(path: string): Promise<boolean> {
+  const stats = await lstat(path).catch(() => undefined);
+
+  return (
+    stats?.isFile() === true &&
+    stats.uid === process.getuid?.() &&
+    (stats.mode & 0o077) === 0
+  );
+}
+
 function refuseRoot(): undefined {
   if (rootWarned) return undefined;
   rootWarned = true;

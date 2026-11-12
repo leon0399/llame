@@ -29,6 +29,7 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { newChatJob } from '../testing/chat-job-rows';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { readArtifact } from '../tools/artifacts/artifact-reader';
 import {
   commitArtifactInTransaction,
@@ -156,6 +157,178 @@ describe('job store', () => {
       }),
     );
   }
+
+  describe('bounded output tails', () => {
+    it('reads only the last byte window from a large output chunk', async () => {
+      const chat = await freshChat();
+      const job = await startJob(chat, 1);
+      const text = `${'x'.repeat(7999)}🙂${'y'.repeat(7997)}`;
+      await storeOutput(job.id, 'stdout', text);
+
+      await expect(
+        withJobs(owner, (jobs) =>
+          jobs.readOutputTail(owner, job.id, 'stdout', 8000),
+        ),
+      ).resolves.toEqual(Buffer.from(text).subarray(-8000));
+    });
+
+    it('bounds across ordered chunks, including a multibyte boundary', async () => {
+      const chat = await freshChat();
+      const job = await startJob(chat, 1);
+      const first = 'a'.repeat(7999);
+      const second = `🙂${'b'.repeat(7997)}`;
+      await storeOutput(job.id, 'stdout', first, 0);
+      await storeOutput(job.id, 'stdout', second, 1);
+
+      await expect(
+        withJobs(owner, (jobs) =>
+          jobs.readOutputTail(owner, job.id, 'stdout', 8000),
+        ),
+      ).resolves.toEqual(
+        Buffer.concat([Buffer.from(first), Buffer.from(second)]).subarray(
+          -8000,
+        ),
+      );
+    });
+
+    it('keeps the full tail across more than 8000 one-byte chunks', async () => {
+      const chat = await freshChat();
+      const job = await startJob(chat, 1);
+
+      const chunks = Array.from({ length: 8005 }, (_unused, position) => ({
+        jobId: job.id,
+        ownerUserId: owner,
+        output: 'stdout',
+        position,
+        content: Buffer.from(String.fromCharCode(65 + (position % 26))),
+      }));
+
+      await tenantDb.runAs(owner, (tx) =>
+        tx.insert(chatJobChunks).values([
+          ...chunks,
+          {
+            jobId: job.id,
+            ownerUserId: owner,
+            output: 'stdout',
+            position: 8005,
+            content: Buffer.alloc(0),
+          },
+        ]),
+      );
+
+      const expected = Buffer.concat(
+        chunks.slice(-8000).map((chunk) => chunk.content),
+      );
+
+      await expect(
+        withJobs(owner, (jobs) =>
+          jobs.readOutputTail(owner, job.id, 'stdout', 8000),
+        ),
+      ).resolves.toEqual(expected);
+    });
+
+    it('returns short and empty outputs and hides wrong-owner or missing jobs', async () => {
+      const chat = await freshChat();
+      const job = await startJob(chat, 1);
+      await storeOutput(job.id, 'short', 'é🙂');
+      await storeOutput(job.id, 'empty', '');
+
+      await expect(
+        withJobs(owner, (jobs) =>
+          jobs.readOutputTail(owner, job.id, 'short', 8000),
+        ),
+      ).resolves.toEqual(Buffer.from('é🙂'));
+      await expect(
+        withJobs(owner, (jobs) =>
+          jobs.readOutputTail(owner, job.id, 'empty', 8000),
+        ),
+      ).resolves.toEqual(Buffer.alloc(0));
+      await expect(
+        withJobs(stranger, (jobs) =>
+          jobs.readOutputTail(owner, job.id, 'short', 8000),
+        ),
+      ).resolves.toEqual(Buffer.alloc(0));
+      await expect(
+        withJobs(owner, (jobs) =>
+          jobs.readOutputTail(owner, crypto.randomUUID(), 'short', 8000),
+        ),
+      ).resolves.toEqual(Buffer.alloc(0));
+    });
+
+    it('reads bounded artifact tails and hides other Chats and owners', async () => {
+      const chat = await freshChat();
+
+      const seq = await reserveArtifactSeq(tenantDb, {
+        chatId: chat,
+        userId: owner,
+      });
+
+      const job = await startJob(chat, seq);
+      const text = `${'z'.repeat(9000)}${'é🙂'.repeat(20)}`;
+      await tenantDb.runAs(owner, async (tx) => {
+        await commitArtifactInTransaction(
+          tx,
+          {
+            chatId: chat,
+            userId: owner,
+            runId: job.runId,
+            toolCallId: job.toolCallId,
+            toolName: job.executor,
+            complete: true,
+            parts: [
+              {
+                name: 'stdout',
+                contentType: 'text/plain',
+                content: Buffer.from(text),
+              },
+              {
+                name: 'stderr',
+                contentType: 'text/plain',
+                content: Buffer.from('é🙂'),
+              },
+            ],
+          },
+          seq,
+          MAX_BYTES,
+        );
+      });
+      const locator = { toolName: job.executor, seq, part: 'stdout' };
+
+      await expect(
+        tenantDb.runAs(owner, (tx) =>
+          new ArtifactsRepository(tx).readPartTail(chat, locator, 8000),
+        ),
+      ).resolves.toEqual(Buffer.from(text).subarray(-8000));
+      await expect(
+        tenantDb.runAs(owner, (tx) =>
+          new ArtifactsRepository(tx).readPartTail(
+            chat,
+            { ...locator, part: 'stderr' },
+            8000,
+          ),
+        ),
+      ).resolves.toEqual(Buffer.from('é🙂'));
+      await expect(
+        tenantDb.runAs(owner, (tx) =>
+          new ArtifactsRepository(tx).readPartTail(otherChatId, locator, 8000),
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        tenantDb.runAs(stranger, (tx) =>
+          new ArtifactsRepository(tx).readPartTail(chat, locator, 8000),
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        tenantDb.runAs(owner, (tx) =>
+          new ArtifactsRepository(tx).readPartTail(
+            chat,
+            { ...locator, part: 'missing' },
+            8000,
+          ),
+        ),
+      ).resolves.toBeUndefined();
+    });
+  });
 
   const textOf = (result: ToolResult): string => {
     if (result.status !== 'success') {

@@ -17,7 +17,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { chmod } from 'node:fs/promises';
+import { chmod, chown } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Logger } from '@nestjs/common';
@@ -29,6 +29,7 @@ import { ArtifactsRepository, type ChatPartFile } from './artifacts-repository';
 import { writeToolArtifact } from './artifact-writer';
 import {
   artifactDirectory,
+  existingArtifactHostDirectory,
   reconcileArtifactFiles,
   SWEEP_AFTER_MS,
   sweepArtifactDirectories,
@@ -148,6 +149,70 @@ describe('writing host files after the commit', () => {
       readFileSync(path.join(directory, 'bash-12', 'stderr.txt'), 'utf8'),
     ).toBe('warning\n');
     expect(statSync(stdout).mtimeMs).toBe(CREATED_AT.getTime());
+  });
+
+  it('reports only an existing safe host cache directory', async () => {
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+
+    await write(CHAT);
+    const directory = path.join(artifactDirectory(CHAT), 'bash-12');
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBe(directory);
+
+    await chmod(directory, 0o755);
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report an artifact directory reached through a symlink', async () => {
+    const chat = chatRoot(CHAT);
+    const artifacts = artifactDirectory(CHAT);
+    const outside = path.join(temporaryRoot, 'outside');
+    mkdirPrivate(chat);
+    mkdirPrivate(artifacts);
+    mkdirPrivate(outside);
+    writeFileSync(path.join(outside, 'stdout.txt'), 'not a cache');
+    symlinkSync(outside, path.join(artifacts, 'bash-12'));
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report a foreign-owned artifact directory when ownership can be changed', async () => {
+    if (process.getuid?.() !== 0) return;
+
+    await write(CHAT);
+    const directory = path.join(artifactDirectory(CHAT), 'bash-12');
+    await chown(directory, 1, 1);
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
   });
 
   it('writes no file without the host-files capability', async () => {
