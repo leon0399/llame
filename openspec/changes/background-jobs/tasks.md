@@ -27,6 +27,7 @@ master
 <- background-jobs/notice-transitions
 <- background-jobs/notice-context
 <- background-jobs/notice-delivery
+<- background-jobs/notice-receipts
 <- background-jobs/notices
 <- background-jobs/run-enqueue
 <- background-jobs/host-runs
@@ -62,7 +63,8 @@ receipt race until that repair lands.
 | `notice-transitions` | `job-projection`     | Notice repository state transitions and seeded-row database proof; no live producer.                            | none                                             | 1,200      | refs #1657        |
 | `notice-context`     | `notice-transitions` | Packaged job renderer, cache probe, delivered-item loader and private event egress prep.                        | none                                             | 1,300      | refs #1657        |
 | `notice-delivery`    | `notice-context`     | Run-boundary delivery, dispatch, atomic stop consumption/restoration and seeded readiness proof.                | none                                             | 1,700      | refs #1657        |
-| `notices`            | `notice-delivery`    | Actual transactional settlement producer, lost-touch and executing-Run signals, full proof and activation docs. | notices in a live Run                            | 1,900      | refs #1657        |
+| `notice-receipts`    | `notice-delivery`    | Exact original-consumer receipt recovery across retained Continue checkpoints and discarded final segments.     | none                                             | 450        | refs #1657        |
+| `notices`            | `notice-receipts`    | Actual transactional settlement producer, lost-touch and executing-Run signals, full proof and activation docs. | notices in a live Run                            | 1,900      | refs #1657        |
 | `run-enqueue`        | `notices`            | Queue insertion through the caller's tenant transaction, with rollback and delay proof.                         | none                                             | 750        | refs #1657        |
 | `host-runs`          | `run-enqueue`        | Runs that the host starts, held notices and notice-started history acceptance.                                  | a notice starts a Run                            | 1,950      | refs #1657        |
 | `wait-suspend`       | `host-runs`          | `awaiting_jobs`, the wakers, the deadline job, and admission.                                                   | none                                             | 2,000      | refs #1657        |
@@ -271,6 +273,12 @@ task 9 acceptance.
 - [x] 8f.1 Implement Run-boundary delivery, dispatch integration, and atomic stop-result consumption/restoration; test exact consumed ids, restoration on discarded results, and seeded notices through real database transactions.
 - [x] 8f.2 Prepare seeded readiness proof for tasks 9.1–9.3, including boundary ordering and stop-result cases. Keep tasks 9.1–9.3 unchecked until `notices` activates the producer and its end-to-end proof succeeds; task 9.4 remains owned by `host-runs` after task 10.1.
 - [ ] 8f.3 Run focused delivery/readiness suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; readiness does not satisfy the delivery gate.
+
+## 8g. Notice receipt inheritance (`background-jobs/notice-receipts`)
+
+- [x] 8g.1 Preserve the consuming Run identity for job notices inherited through Continue checkpoints; Regenerate restores only receipts for retained tool results in its discarded final segment.
+- [x] 8g.2 Prove exact restoration, owner withdrawal and unrelated-receipt exclusion with two database regressions, including a preserved segment boundary. Run API lint/typecheck and independent correctness and minimalism reviews before ready.
+- [ ] 8g.3 Publish the receipt-recovery layer and drive ordinary CI green; process mutation and bot feedback concurrently without blocking subsequent development.
 
 ## 9. Notices (`background-jobs/notices`)
 
