@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { WebSearchTool, type WebSearchToolProps } from "./web-search.js";
 
 const markdownRenderer: WebSearchToolProps["Markdown"] = MessageResponse;
@@ -10,23 +11,23 @@ const markdownRenderer: WebSearchToolProps["Markdown"] = MessageResponse;
 /** Accessible name of an outbound result or citation link. */
 const outboundLinkName = (label: string) => `${label} opens in a new tab`;
 
-// The Parameters panel renders through the shared Shiki CodeBlock, whose
-// built-in "one-light" palette ships token colors below WCAG AA color-contrast
-// (e.g. #e45649 and #50a14f on white). Same third-party-theme defect that
-// code-block.stories.tsx suppresses, and it only surfaces once Shiki's async
-// highlight resolves (always, here, because the play function expands the
-// panel first). Only the color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: {
-    config: {
-      rules: [{ id: "color-contrast", enabled: false }],
-    },
-  },
-};
+async function waitForHighlightedParameters(
+  canvasElement: HTMLElement,
+  expectedCodeBlocks: number,
+): Promise<void> {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCodeBlocks);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 const meta = {
   component: WebSearchTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -95,8 +96,9 @@ export const Results: Story = {
   args: {
     output: resultsOutput,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
 
     const releaseNotes = canvas.getByRole("button", {
       name: outboundLinkName("Llame release notes"),
@@ -160,8 +162,9 @@ export const Answer: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("The answer")).toBeInTheDocument();
     await expect(canvas.getByText("context")).toBeInTheDocument();
 
@@ -186,8 +189,9 @@ export const Answer: Story = {
 export const Empty: Story = {
   tags: ["ai-generated"],
   args: {},
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("No results found.")).toBeInTheDocument();
     await expect(canvas.getByText("Engine:")).toBeInTheDocument();
   },
@@ -201,13 +205,16 @@ export const Empty: Story = {
  */
 export const Error: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "The web search engine timed out.",
     state: "output-error" as const,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(
       canvas.getByText("Error", { selector: "h4" }),
     ).toBeInTheDocument();
@@ -230,8 +237,9 @@ export const Cancelled: Story = {
     errorText: "The run was cancelled before this tool finished.",
     state: "cancelled" as const,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("Cancelled")).toBeInTheDocument();
     await expect(
       canvas.queryByText("The run was cancelled before this tool finished."),
@@ -253,8 +261,9 @@ export const Running: Story = {
     errorText: undefined,
     state: "input-available" as const,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("Running")).toBeInTheDocument();
     await expect(canvas.getByText("Searching…")).toBeInTheDocument();
   },
@@ -283,8 +292,9 @@ export const UnsafeUrl: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("Suspicious [result]")).toBeInTheDocument();
     await expect(
       canvas.queryByRole("button", { name: "Suspicious [result]" }),
@@ -323,8 +333,9 @@ export const UntitledTimestampedResult: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(
       canvas.getByRole("button", {
         name: outboundLinkName("https://example.com/untitled"),
@@ -368,6 +379,7 @@ export const MarkdownTitles: Story = {
   },
   play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(
       canvas.getByRole("button", {
         name: outboundLinkName("Python (programming language) - Wikipedia"),
@@ -405,8 +417,9 @@ export const Notes: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("Engine:")).toBeInTheDocument();
     await expect(canvas.getByText(/aggregate/iu)).toBeInTheDocument();
     await expect(
@@ -444,8 +457,9 @@ export const AggregateAnswers: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
 
     const lastResult = canvas.getByRole("button", {
       name: outboundLinkName("Tool calling guide"),
@@ -500,8 +514,9 @@ export const StoredResultsWithoutAnswers: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(
       canvas.getByRole("button", {
         name: outboundLinkName("Self-hosted metasearch notes"),
@@ -543,8 +558,9 @@ export const Ranked: Story = {
       display: { rerank },
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("Ranked by jev-1.14")).toBeVisible();
     await expect(canvas.getByText("· 412 ms · $0.0007")).toBeVisible();
     await expect(canvas.getAllByText(/score/u)).toHaveLength(3);
@@ -576,8 +592,9 @@ export const RankedPartial: Story = {
       display: { rerank: { ...rerank, scores: { p2: 0.91, p0: 0.42 } } },
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getAllByText(/score/u)).toHaveLength(2);
     await expect(canvas.queryByText(/p1/u)).not.toBeInTheDocument();
   },
@@ -598,8 +615,9 @@ export const RankedOmittedRows: Story = {
       display: { rerank },
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getAllByText(/score/u)).toHaveLength(1);
     await expect(canvas.getAllByRole("listitem")).toHaveLength(1);
   },
@@ -619,8 +637,9 @@ export const RankUnavailable: Story = {
       notes: ["two engines timed out", "rerank: unavailable"],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText(/\[rerank: unavailable\]/u)).toBeVisible();
     await expect(canvas.queryByText(/Ranked by/u)).not.toBeInTheDocument();
     await expect(canvas.queryByText(/score/u)).not.toBeInTheDocument();
@@ -635,8 +654,9 @@ export const RankUnavailable: Story = {
 export const RankAbsent: Story = {
   tags: ["ai-generated"],
   args: { output: resultsOutput },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.queryByText(/Ranked by/u)).not.toBeInTheDocument();
     await expect(canvas.queryByText(/score/u)).not.toBeInTheDocument();
   },

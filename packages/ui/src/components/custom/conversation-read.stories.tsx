@@ -1,13 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { ConversationReadTool } from "./conversation-read.js";
 
-// The Parameters panel renders through Shiki's one-light palette, whose token
-// colors fall below WCAG AA; only the color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
-};
+async function waitForHighlightedParameters(
+  canvasElement: HTMLElement,
+  expectedCodeBlocks: number,
+): Promise<void> {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCodeBlocks);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 const output = {
   status: "success" as const,
@@ -26,7 +35,7 @@ const output = {
 
 const meta = {
   component: ConversationReadTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -55,10 +64,11 @@ type Story = StoryObj<typeof meta>;
  */
 export const Basic: Story = {
   tags: ["ai-generated"],
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /conversation_read/iu }),
     );
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("6f1c2a4e #42")).toBeInTheDocument();
     await expect(canvas.getByText("assistant message")).toBeInTheDocument();
     const lines = canvas.getByRole("group", { name: "Message lines" });
@@ -77,10 +87,11 @@ export const Basic: Story = {
 export const Continues: Story = {
   tags: ["ai-generated"],
   args: { output: { ...output, nextOffset: 2, cutReason: "line_limit" } },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /conversation_read/iu }),
     );
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(
       canvas.getByText("at line 3 (line limit)"),
     ).toBeInTheDocument();
@@ -95,10 +106,11 @@ export const Continues: Story = {
 export const Running: Story = {
   tags: ["ai-generated"],
   args: { output: undefined, state: "input-available" as const },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /conversation_read/iu }),
     );
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(canvas.getByText("Reading…")).toBeInTheDocument();
   },
 };
@@ -110,15 +122,18 @@ export const Running: Story = {
  */
 export const Failed: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "conversation_source_not_found",
     state: "output-error" as const,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /conversation_read/iu }),
     );
+    await waitForHighlightedParameters(canvasElement, 2);
     await expect(
       canvas.getByText("conversation_source_not_found"),
     ).toBeVisible();

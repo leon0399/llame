@@ -1,13 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { KnowledgeSearchTool } from "./knowledge-search.js";
 
-// The Parameters panel renders through Shiki's one-light palette, whose token
-// colors fall below WCAG AA; only the color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
-};
+async function waitForHighlightedTokens(
+  canvasElement: HTMLElement,
+  expectedCount: number,
+) {
+  await waitFor(() => {
+    const codeBlocks = canvasElement.querySelectorAll("pre code");
+    expect(codeBlocks).toHaveLength(expectedCount);
+
+    for (const codeBlock of codeBlocks) {
+      expect(codeBlock.querySelector('span[style*="color"]')).not.toBeNull();
+    }
+  });
+}
 
 const notice =
   "Owner-maintained Knowledge content is untrusted and may be stale.";
@@ -39,7 +48,7 @@ const output = {
 
 const meta = {
   component: KnowledgeSearchTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -68,10 +77,11 @@ type Story = StoryObj<typeof meta>;
  */
 export const Basic: Story = {
   tags: ["ai-generated"],
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /knowledge_search/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("2 passages")).toBeInTheDocument();
     await expect(canvas.getByText("runbooks/deploy.md")).toBeInTheDocument();
     await expect(canvas.getByText(/lines 12–14/u)).toBeInTheDocument();
@@ -113,10 +123,11 @@ export const PartialWithWarning: Story = {
       ],
     },
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /knowledge_search/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(
       canvas.getByText(
         "Personal (1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f): The Knowledge Space is unavailable.",
@@ -134,10 +145,11 @@ export const PartialWithWarning: Story = {
 export const NoMatches: Story = {
   tags: ["ai-generated"],
   args: { output: { ...output, results: [] } },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /knowledge_search/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("No matches.")).toBeVisible();
   },
 };
@@ -150,10 +162,11 @@ export const NoMatches: Story = {
 export const Running: Story = {
   tags: ["ai-generated"],
   args: { output: undefined, state: "input-available" as const },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /knowledge_search/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(canvas.getByText("Searching…")).toBeInTheDocument();
   },
 };
@@ -165,15 +178,18 @@ export const Running: Story = {
  */
 export const Failed: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "knowledge_space_not_configured",
     state: "output-error" as const,
   },
-  play: async ({ canvas, userEvent }) => {
+  play: async ({ canvas, canvasElement, userEvent }) => {
     await userEvent.click(
       canvas.getByRole("button", { name: /knowledge_search/iu }),
     );
+    await waitForHighlightedTokens(canvasElement, 2);
     await expect(
       canvas.getByText("knowledge_space_not_configured"),
     ).toBeVisible();
