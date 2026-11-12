@@ -5,14 +5,13 @@ import {
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository } from '../chats/chats-repository';
-import { RunsRepository } from '../runs/runs-repository';
 import { type ChatJob, type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
 import { NativeReceiptsRepository } from '../runs/native-receipts-repository';
-import { RunEventsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { BashJobLifecycle } from './bash-job-lifecycle';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
