@@ -6,6 +6,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.
   Each interaction remains a single action, with the original final assertions.
+  The live-before-history handoff story uses explicit stream and history
+  gates, so it observes the pending item before removing it and adopting the
+  delivered history; no time-based delay chooses the event order.
 
 # 2026-11-10
 
