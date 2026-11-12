@@ -5687,6 +5687,13 @@
               "type": "string"
             }
           },
+          "truncated": {
+            "description": "The names of the outputs cut by their byte bound.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "exitCode": {
             "type": "number",
             "nullable": true
@@ -5717,6 +5724,7 @@
           "stopRequestedAt",
           "stopRequestedBy",
           "outputs",
+          "truncated",
           "exitCode",
           "signal",
           "outcomeUnknown",

@@ -29,6 +29,24 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
 }
 
 describe('toChatJobResponse', () => {
+  it('names only the outputs whose stored truncation flags are true', () => {
+    const response = toChatJobResponse(
+      job({
+        outputs: ['stdout', 'stderr', 'report'],
+        result: { truncated: { stdout: true, stderr: false, report: true } },
+      }),
+    );
+
+    expect(response.truncated).toEqual(['stdout', 'report']);
+  });
+
+  it.each([null, {}, { truncated: { stdout: false } }])(
+    'reports no truncated outputs for an uncut result %j',
+    (result) => {
+      expect(toChatJobResponse(job({ result })).truncated).toEqual([]);
+    },
+  );
+
   it('maps a live job with empty exit detail', () => {
     expect(toChatJobResponse(job())).toMatchObject({
       locator: 'job://bash-4',

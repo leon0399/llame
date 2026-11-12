@@ -178,3 +178,7 @@ running jobs first. `PATCH /api/v1/chats/:chatId/jobs/:jobId` with
 job that the owner stopped answers 200, a job in any other settled state answers
 409, and a Chat or job of another owner answers 404. The reader behind these
 rows is documented under [job://](../reference/locators/job.md).
+
+Each job response includes `truncated`, the names of outputs cut by their byte
+bound. An uncut output is absent from that list;
+no cut outputs means `[]`. Both the list and stop response retain this detail.

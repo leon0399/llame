@@ -31,6 +31,8 @@ export interface ChatJobResponse {
   stopRequestedBy: ChatJobResponseStopRequestedBy;
   /** The names of the outputs. */
   outputs: string[];
+  /** The names of the outputs cut by their byte bound. */
+  truncated: string[];
   /** @nullable */
   exitCode: number | null;
   /** @nullable */

@@ -55,6 +55,7 @@ const jobBody = z.object({
   stoppedBy: z.string().nullable(),
   stopRequestedBy: z.string().nullable(),
   outcomeUnknown: z.boolean(),
+  truncated: z.array(z.string()),
 });
 
 const listBody = z.object({ items: z.array(jobBody) });
@@ -174,6 +175,7 @@ describe('chat jobs API', () => {
     await tenantDb.runAs(userAId, (tx) =>
       new ChatJobsRepository(tx).settle(chatId, userAId, done.id, {
         state: 'succeeded',
+        result: { truncated: { stdout: true, stderr: false } },
       }),
     );
     await startJob(chatId, 4);
@@ -187,6 +189,7 @@ describe('chat jobs API', () => {
       ['job://bash-4', 'running'],
       ['job://bash-2', 'succeeded'],
     ]);
+    expect(body.items.map((item) => item.truncated)).toEqual([[], ['stdout']]);
   });
 
   it('settles the job of a dead worker as lost when it lists', async () => {
@@ -255,6 +258,7 @@ describe('chat jobs API', () => {
       new ChatJobsRepository(tx).settle(chatId, userAId, job.id, {
         state: 'cancelled',
         stoppedBy: 'owner',
+        result: { truncated: { stdout: true, stderr: false } },
       }),
     );
 
@@ -264,6 +268,7 @@ describe('chat jobs API', () => {
     expect(jobBody.parse(res.body)).toMatchObject({
       state: 'cancelled',
       stoppedBy: 'owner',
+      truncated: ['stdout'],
     });
     expect(await stateOf(chatId, job.id)).toMatchObject({ state: 'cancelled' });
   });

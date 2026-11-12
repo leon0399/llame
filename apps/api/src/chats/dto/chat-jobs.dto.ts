@@ -64,6 +64,12 @@ export class ChatJobResponse {
   @ApiProperty({ type: [String], description: 'The names of the outputs.' })
   outputs!: Array<string>;
 
+  @ApiProperty({
+    type: [String],
+    description: 'The names of the outputs cut by their byte bound.',
+  })
+  truncated!: Array<string>;
+
   @ApiProperty({ type: Number, nullable: true })
   exitCode!: number | null;
 
@@ -105,6 +111,9 @@ export function toChatJobResponse(job: ChatJob): ChatJobResponse {
     stopRequestedAt: job.stopRequestedAt,
     stopRequestedBy: job.stopRequestedBy,
     outputs: job.outputs,
+    truncated: Object.entries(job.result?.truncated ?? {})
+      .filter(([, cut]) => cut === true)
+      .map(([output]) => output),
     exitCode: job.result?.exitCode ?? null,
     signal: job.result?.signal ?? null,
     outcomeUnknown: job.result?.outcomeUnknown === true,

@@ -131,6 +131,9 @@ function pinnedItemResponseSchema(
 }
 
 describe('committed OpenAPI contract', () => {
+  // The contract is intentional, unique IDs. An exhaustive API inventory
+  // duplicated unrelated endpoint changes without defining a caller invariant.
+  // Route-specific assertions below retain their own literal contracts.
   it('uses an intentional globally unique set of domain operation IDs', () => {
     const ids = operations().map(({ operation }) =>
       z.string().parse(operation.operationId),
