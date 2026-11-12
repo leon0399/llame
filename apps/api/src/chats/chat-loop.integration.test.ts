@@ -1749,13 +1749,16 @@ describeIfDb(
           chatId,
           recoveredMessageId,
           'concurrent recovery',
-        );
+        ).catch((error: unknown) => error);
 
         await secondCalled.promise;
 
         releaseFirst.release();
         await degradedTurn;
         await secondLocked.promise;
+        // The worker also locks Chat before Run; finish this admission first.
+        releaseSecond.release();
+        expect(await recoveredTurn).toBeInstanceOf(ConflictException);
 
         const degradedJob = dispatchCalls.find(
           ({ userMessage }) => userMessage.id === degradedMessageId,
@@ -1766,8 +1769,8 @@ describeIfDb(
           consume: false,
         });
         await finish(degradedJob.runId, 'completed');
-        releaseSecond.release();
-        await recoveredTurn;
+        touch.mockRestore();
+        await send(chatId, recoveredMessageId, 'recovery after completion');
 
         const recoveredJob = dispatchCalls.find(
           ({ userMessage }) => userMessage.id === recoveredMessageId,
