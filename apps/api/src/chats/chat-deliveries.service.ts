@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -111,11 +112,18 @@ export class ChatDeliveriesService {
 
       if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
       assertNotArchived(chat);
+      const items = new ChatDeliveriesRepository(tx);
+      const existing = await items.findById(deliveryId, userId);
+
+      if (existing?.chatId !== chatId)
+        throw new NotFoundException(`Delivery ${deliveryId} not found`);
+
+      if (existing.producer === 'job')
+        throw new BadRequestException('A job notice cannot change mode');
       // The slot comes before the change: expiring a stuck Run pauses the
       // queue behind it, which would move the item changed here back to
       // `queue`.
       const slot = await this.claimSlot(tx, chatId, userId);
-      const items = new ChatDeliveriesRepository(tx);
 
       const changed = await items.changePendingMode(
         chatId,
