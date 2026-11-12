@@ -1,4 +1,5 @@
 import {
+  renderBashText,
   type ManagedProcessSlot,
   type ManagedBashHandle,
   type ManagedStopResult,
@@ -141,19 +142,16 @@ function promotionFailure(
         'The move to a job failed and the process group could not be proven empty. Inspect the workspace before another attempt.',
     };
 
-  const result = toToolResult({
+  return {
     status: 'error',
     type: 'timed_out',
-    wallTimeMs: Date.now() - startedAt.getTime(),
-    ...stopped,
-  });
-
-  return result.status === 'error'
-    ? {
-        ...result,
-        message: `${result.message}\nThe move to a background job failed; the command was stopped.`,
-      }
-    : result;
+    message: `${renderBashText({
+      ...stopped,
+      type: 'timed_out',
+      wallTimeMs: Date.now() - startedAt.getTime(),
+      cut: stopped.truncated,
+    })}\nThe move to a background job failed; the command was stopped.`,
+  };
 }
 
 async function recordResult(
