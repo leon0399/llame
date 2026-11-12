@@ -578,7 +578,8 @@ removes the selector.
 
 1. `job-store` adds the three tables. No existing row changes.
 2. `wait-suspend` adds the enum value in a migration of its own, then the `runs` columns.
-3. `notices` restates `llame_notify_change()` and adds the index on `chat_deliveries`.
+3. `notice-store` adds the partial unique index on `chat_deliveries`; `job-projection`
+   restates `llame_notify_change()` for `chat_jobs`.
 4. Deploy the API and the workers together for the `RunJob` change. An old worker ignores an
    unknown `wake` field and would run a woken Run from its segment start, so the two must not
    mix.
