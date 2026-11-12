@@ -13,6 +13,8 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
+import { FakeModelsService } from '../testing/fake-streaming-model-client';
+import { JobNoticeRunService } from '../runs/job-notice-run.service';
 import { readJob } from './job-reader';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
@@ -80,6 +82,10 @@ class Command implements ManagedBashHandle {
 
 const config: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
 
+const noticeRuns = new JobNoticeRunService(new FakeModelsService(), config, {
+  enqueueInTransaction: async () => {},
+});
+
 describe('BashJobRegistry', () => {
   let client: Sql;
   let tenant: TenantDbService;
@@ -105,7 +111,7 @@ describe('BashJobRegistry', () => {
     await client`INSERT INTO worker_instances (id) VALUES (${worker.instanceId})`;
   });
   beforeEach(async () => {
-    registry = new BashJobRegistry(tenant, worker, config);
+    registry = new BashJobRegistry(tenant, worker, config, noticeRuns);
 
     const chat = await tenant.runAs(owner, (db) =>
       new ChatsRepository(db).create({
@@ -161,7 +167,7 @@ describe('BashJobRegistry', () => {
       { concurrencyFor: () => 1 },
     );
 
-    registry = new BashJobRegistry(tenant, heartbeat, config);
+    registry = new BashJobRegistry(tenant, heartbeat, config, noticeRuns);
     registry.onModuleInit();
     await heartbeat.beat();
 
@@ -265,7 +271,13 @@ describe('BashJobRegistry', () => {
           : tenant.runAs(userId, callback),
     };
 
-    const flakyRegistry = new BashJobRegistry(flaky, worker, config);
+    const flakyRegistry = new BashJobRegistry(
+      flaky,
+      worker,
+      config,
+      noticeRuns,
+    );
+
     const failing = new Command();
     const healthy = new Command();
     const job = await flakyRegistry.promote(failing, facts);
@@ -306,7 +318,13 @@ describe('BashJobRegistry', () => {
       },
     };
 
-    const oldRegistry = new BashJobRegistry(flaky, { instanceId }, config);
+    const oldRegistry = new BashJobRegistry(
+      flaky,
+      { instanceId },
+      config,
+      noticeRuns,
+    );
+
     const command = new Command();
 
     await client`INSERT INTO worker_instances (id) VALUES (${instanceId})`;

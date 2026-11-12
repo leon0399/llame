@@ -94,7 +94,11 @@ describe('bash-job-store on a live database', () => {
         settlement,
         offsets: { stdout: stdoutOffset, stderr: 0 },
       },
-      { maxBytes: MAX_BYTES, hostFiles: hostFilesOn },
+      {
+        maxBytes: MAX_BYTES,
+        hostFiles: hostFilesOn,
+        noticeRuns: { startOnSettlement: vi.fn() },
+      },
     );
 
   const rowOf = (job: Awaited<ReturnType<typeof runningJob>>) =>

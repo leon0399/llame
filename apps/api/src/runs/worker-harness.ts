@@ -89,6 +89,8 @@ type HarnessOverrides = {
    * no suite exercises today.
    */
   machineTransportFactory?: MachineTransportFactory;
+  /** Deterministic pg-boss schema for restart/recovery integration tests. */
+  queueSchema?: string;
   /** `null` boots a process that does not consume `runs`, like an API-only process. */
   runsConcurrency?: number | null;
   /** The operator's step cap per segment; absent keeps the built-in (none). */
@@ -194,7 +196,9 @@ export async function bootWorkerHarness(
     process.env.POSTGRES_URL = process.env.TEST_DATABASE_URL;
   }
 
-  process.env.PGBOSS_SCHEMA = `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_wh_${Math.random().toString(36).slice(2, 8)}`;
+  process.env.PGBOSS_SCHEMA =
+    overrides?.queueSchema ??
+    `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_wh_${Math.random().toString(36).slice(2, 8)}`;
 
   const models = new ScriptedModelsService();
   const config = resolveHarnessConfig(overrides);

@@ -101,6 +101,7 @@ describe('async host bash through the tool', () => {
       tenantDb,
       { instanceId: crypto.randomUUID() },
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
     );
     begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')

@@ -3,6 +3,7 @@ import {
   type BashResult,
 } from '@workspace/bash-executor';
 
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunsRepository } from '../runs/runs-repository';
@@ -10,6 +11,7 @@ import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import { RunsRepository } from '../runs/runs-repository';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { JobPromotionError } from './job-promotion-error';
@@ -174,6 +176,7 @@ function setup(maxSeconds = 7200) {
     tenantDb,
     { instanceId: crypto.randomUUID() },
     config,
+    { startOnSettlement: vi.fn() },
   );
 
   vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
@@ -189,6 +192,14 @@ function setup(maxSeconds = 7200) {
     // SAFETY: only presence is checked.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     {} as never,
+  );
+
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'insertJobNotice',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+    undefined,
   );
 
   const settlements: Array<JobSettlement> = [];
@@ -861,6 +872,7 @@ describe('BashJobRegistry.recheckJobs', () => {
       { runAs: vi.fn() },
       { instanceId: crypto.randomUUID(), jobCheck: undefined },
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
     );
 
     for (const id of ['a', 'b', 'c']) {

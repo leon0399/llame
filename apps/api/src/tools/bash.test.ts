@@ -59,6 +59,7 @@ function testContext(
       tenantDb,
       { instanceId: crypto.randomUUID() },
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
     ),
     jobSettings: { modelId: 'test-model', permissionMode: 'default' },
     permissionPolicy: compileTestPermissionPolicy(),
@@ -82,6 +83,7 @@ describe('async bash cancelled during the durable begin', () => {
       { runAs: vi.fn() },
       { instanceId: crypto.randomUUID(), jobCheck: undefined },
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
     );
 
     const start = vi.spyOn(jobs, 'start');

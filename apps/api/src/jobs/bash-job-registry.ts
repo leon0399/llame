@@ -26,6 +26,7 @@ import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { appendJobOutput, settleBashJob } from './bash-job-store';
 import { JobPromotionError } from './job-promotion-error';
 import { WorkerHeartbeatService } from './worker-heartbeat.service';
+import { JobNoticeRunService } from '../runs/job-notice-run.service';
 
 type JobStopCause = Exclude<ManagedStopCause, 'run' | 'lifetime'>;
 
@@ -79,6 +80,8 @@ export class BashJobRegistry implements OnModuleInit {
     >,
     @Inject(InstanceConfigService)
     private readonly config: InstanceConfigReader,
+    @Inject(JobNoticeRunService)
+    private readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>,
   ) {}
 
   onModuleInit(): void {
@@ -362,7 +365,11 @@ export class BashJobRegistry implements OnModuleInit {
         this.tenantDb,
         live.row,
         { output, settlement, offsets: live.offsets },
-        live.facts,
+        {
+          maxBytes: live.facts.maxBytes,
+          hostFiles: live.facts.hostFiles,
+          noticeRuns: this.noticeRuns,
+        },
       );
       this.jobs.delete(live.row.id);
     } catch (error) {

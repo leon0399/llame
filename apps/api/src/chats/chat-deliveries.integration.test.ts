@@ -30,6 +30,7 @@ import {
 } from '../models/models.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { JobNoticeRunService } from '../runs/job-notice-run.service';
 import { type TerminalRunStatus } from '../runs/run-status';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
@@ -62,6 +63,7 @@ describe('chat deliveries — the queue mode', () => {
   let models: FakeModelsService;
   let tenantDb: TenantDbService;
   let executor: RunExecutionService;
+  let noticeRuns: JobNoticeRunService;
 
   const tag = Date.now();
   let cookieA = '';
@@ -101,6 +103,7 @@ describe('chat deliveries — the queue mode', () => {
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
     executor = app.get(RunExecutionService, { strict: false });
+    noticeRuns = app.get(JobNoticeRunService, { strict: false });
     const userA = await register(`deliveries-a-${tag}@example.com`, 'A');
     cookieA = userA.cookie;
     userAId = userA.userId;
@@ -262,7 +265,11 @@ describe('chat deliveries — the queue mode', () => {
           settlement: { state: 'succeeded', result: { exitCode: 0 } },
           offsets: { stdout: 0, stderr: 0 },
         },
-        { maxBytes: 65_536, hostFiles: false },
+        {
+          maxBytes: 65_536,
+          hostFiles: false,
+          noticeRuns,
+        },
       );
 
       const notice = (await itemsOf(chatId)).find(

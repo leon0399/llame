@@ -33,6 +33,7 @@ import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import type { CompiledPolicy } from '../tools/permissions/types';
+import { JobNoticeRunService } from '../runs/job-notice-run.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import {
   mkdirSync,
@@ -782,6 +783,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
         tenantDb,
         { instanceId: crypto.randomUUID() },
         resolved.instanceConfig,
+        new JobNoticeRunService(resolved.models, resolved.instanceConfig, {
+          enqueueInTransaction: async () => {},
+        }),
       ),
     );
   }

@@ -287,7 +287,7 @@ No prerequisite may insert a live settlement notice. Task 9.4 is assigned to
       Persist exactly the consumed delivery ids as server-only tool-event metadata.
       Verify consumed ids stay outside `output` and are omitted by owner event and stream projections.
 - [x] 9.3 Add the `job` context producer, its packaged template, and the trigger row with no stored content; tests cover "A notice for a failed build", "A notice for a job that the owner stopped", "Output that copies an envelope", "A long output is cut", and "A job notice follows the interrupted item", a notice that names the host directory, and a provider request in which the earlier reply is still present.
-- [ ] 9.4 Prove the full host-message acceptance after task 10.1, using the history/privacy implementation from task 8b and the host-message storage from task 9.2: "A host message in the history", "A host message is not search evidence", "A shared Chat shows no job output", "A host message is not copied into a shared fork", and "A fork during a live job". Verify title, preview, recency, public and shared-fork exclusions through these actual produced rows.
+- [x] 9.4 Prove the full host-message acceptance after task 10.1, using the history/privacy implementation from task 8b and the host-message storage from task 9.2: "A host message in the history", "A host message is not search evidence", "A shared Chat shows no job output", "A host message is not copied into a shared fork", and "A fork during a live job". Verify title, preview, recency, public and shared-fork exclusions through these actual produced rows.
 - [x] 9.6 Update `docs/product/reference`, `SPEC.md`, and `CHANGELOG.md` for notices and host messages; `pnpm lint:markdown` passes.
 - [x] 9.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 9.8 Run the GitHub review and CI loop on the published head.
@@ -307,11 +307,11 @@ It changes no existing owner-started dispatch path.
 Task 9.4 is owned by this layer and is checked only after task 10.1 supplies a
 notice-started Run. Its checkbox remains in group 9 to preserve its stable id.
 
-- [ ] 10.1 Start a Run on an idle Chat with its first queue job in the settlement transaction; integration tests cover "A monitor wakes the Chat at night", "Two jobs settle together", "A lost job starts no Run", "The recorded mode is no longer enabled", "A host enqueue failure rolls back settlement", "A host worker crashes after commit", and an archived Chat that starts no Run. A wrong-owner settlement must create no host Run and consume no notice of another owner.
-- [ ] 10.2 Take held notices into a send, a promoted item, and a mode change, deliver them to a follow-up Run, and return them to `pending` when a Run ends before its first dispatch; tests cover "A result after a Stop waits for the owner", "A result after a failed Run waits for Continue", the list of "A held notice alone does not label a paused queue", and a Run that fails before its dispatch.
-- [ ] 10.3 Accept a follow-up Run on a host message; a test covers "A Continue after a host-started Run failed" and a Continue on a host message that a boundary delivered.
-- [ ] 10.4 Update `docs/product/operator/background-jobs.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 10.5 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [x] 10.1 Start a Run on an idle Chat with its first queue job in the settlement transaction; integration tests cover "A monitor wakes the Chat at night", "Two jobs settle together", "A lost job starts no Run", "The recorded mode is no longer enabled", "A host enqueue failure rolls back settlement", "A host worker crashes after commit", and an archived Chat that starts no Run. A wrong-owner settlement must create no host Run and consume no notice of another owner.
+- [x] 10.2 Take held notices into a send, a promoted item, and a mode change, deliver them to a follow-up Run, and return them to `pending` when a Run ends before its first dispatch; tests cover "A result after a Stop waits for the owner", "A result after a failed Run waits for Continue", the list of "A held notice alone does not label a paused queue", and a Run that fails before its dispatch.
+- [x] 10.3 Accept a follow-up Run on a host message; a test covers "A Continue after a host-started Run failed" and a Continue on a host message that a boundary delivered.
+- [x] 10.4 Update `docs/product/operator/background-jobs.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
+- [x] 10.5 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 10.6 Run the GitHub review and CI loop on the published head.
 
 ## 11. Suspension (`background-jobs/wait-suspend`)

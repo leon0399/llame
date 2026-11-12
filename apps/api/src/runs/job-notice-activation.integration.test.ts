@@ -16,6 +16,7 @@ import {
   useSegmentsFixture,
 } from '../testing/run-segments.test-fixture';
 import { dispatchRun, seedRun } from './worker-harness';
+import { JobNoticeRunService } from './job-notice-run.service';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -71,7 +72,11 @@ describe('job notice producer-to-live-Run activation', () => {
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
         offsets: { stdout: 0, stderr: 0 },
       },
-      { maxBytes: 65_536, hostFiles: false },
+      {
+        maxBytes: 65_536,
+        hostFiles: false,
+        noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+      },
     );
   }
 
@@ -274,8 +279,6 @@ describe('job notice producer-to-live-Run activation', () => {
       modelId: prior.modelId,
     });
 
-    await settle(job, 'output before provider failure');
-
     const failedModelId = `job-notice-provider-failure-${randomUUID()}`;
 
     const failedRun = await seedRun({
@@ -285,6 +288,8 @@ describe('job notice producer-to-live-Run activation', () => {
       modelId: failedModelId,
       text: 'continue into a provider failure',
     });
+
+    await settle(job, 'output before provider failure');
 
     fx.harness.models.register(failedModelId, {
       kind: 'provider-error',
