@@ -91,8 +91,8 @@ export type DeliveredBoundary = Extract<
   { kind: 'delivered' }
 >;
 
-/** What caused a delivery: an `interrupt` item among the items, or only steers. */
-export type DeliveryCause = 'steer' | 'interrupt';
+/** What caused a delivery: an interrupt, owner steer, or job notice. */
+export type DeliveryCause = 'steer' | 'interrupt' | 'notice';
 
 type DeliveryInput = {
   run: { runId: string; userId: string };
@@ -127,12 +127,24 @@ async function storeDeliveredMessage(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<Message> {
-  const message = await new MessagesRepository(tx).createUserMessageIfAbsent({
-    id: randomUUID(),
-    chatId: locked.chatId,
-    senderUserId: locked.userId,
-    parts: items.flatMap((item) => item.parts),
-  });
+  const parts = items.flatMap((item) => item.parts);
+  const ownerAuthored = items.some((item) => item.producer === 'owner');
+
+  const message = ownerAuthored
+    ? await new MessagesRepository(tx).createUserMessageIfAbsent({
+        id: randomUUID(),
+        chatId: locked.chatId,
+        senderUserId: locked.userId,
+        parts,
+      })
+    : await new MessagesRepository(tx).create({
+        id: randomUUID(),
+        chatId: locked.chatId,
+        role: 'user',
+        senderUserId: null,
+        parts,
+        attachments: [],
+      });
 
   if (!message) {
     throw new Error(`Run ${locked.id} could not store its delivery.`);
@@ -168,7 +180,7 @@ export function closedTelemetry(
 }
 
 function closingAs(input: DeliveryInput, cause: DeliveryCause): DeliveryInput {
-  if (cause === 'steer') return input;
+  if (cause !== 'interrupt') return input;
   const { live, modelCompleted, telemetry } = input;
 
   return {
@@ -335,7 +347,7 @@ export async function deliverPendingSteering(
     return { kind: 'fenced' };
   }
 
-  const items = await new ChatDeliveriesRepository(tx).lockPendingSteering(
+  const items = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,
     userId,
   );
@@ -352,11 +364,20 @@ async function finishDelivery(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<DeliveredBoundary> {
+  const hasOwnerSteer = items.some(
+    (item) => item.producer === 'owner' && item.mode === 'steer',
+  );
+
+  const hasInterrupt = items.some(
+    (item) => item.producer === 'owner' && item.mode === 'interrupt',
+  );
+
   const cause: DeliveryCause =
-    input.stoppedCalls !== undefined ||
-    items.some((item) => item.mode === 'interrupt')
+    input.stoppedCalls !== undefined || hasInterrupt
       ? 'interrupt'
-      : 'steer';
+      : hasOwnerSteer
+        ? 'steer'
+        : 'notice';
 
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
@@ -364,7 +385,7 @@ async function finishDelivery(
     { locked, cause, items },
   );
 
-  if (cause === 'steer') {
+  if (cause === 'steer' && items.every((item) => item.producer === 'owner')) {
     await persistFirstEpochBaselines(tx, locked, input.baselines);
   }
 

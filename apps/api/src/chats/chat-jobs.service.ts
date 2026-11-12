@@ -15,6 +15,7 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+import { retryJobTransaction } from '../jobs/bash-job-store';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { ChatsRepository } from './chats-repository';
@@ -37,15 +38,17 @@ export class ChatJobsService {
 
   /** The jobs of the Chat, the live jobs first, each group oldest first. */
   list(chatId: string, userId: string): Promise<Array<ChatJob>> {
-    return this.tenantDb.runAs(userId, async (tx) => {
-      const jobs = await this.touch(tx, chatId, userId);
-      const rows = await jobs.listByChat(chatId, userId);
+    return retryJobTransaction(() =>
+      this.tenantDb.runAs(userId, async (tx) => {
+        const jobs = await this.touch(tx, chatId, userId);
+        const rows = await jobs.listByChat(chatId, userId);
 
-      return [
-        ...rows.filter((job) => job.state === 'running'),
-        ...rows.filter((job) => job.state !== 'running'),
-      ];
-    });
+        return [
+          ...rows.filter((job) => job.state === 'running'),
+          ...rows.filter((job) => job.state !== 'running'),
+        ];
+      }),
+    );
   }
 
   /**
@@ -56,21 +59,29 @@ export class ChatJobsService {
   async stop(chatId: string, jobId: string, userId: string): Promise<ChatJob> {
     // The refusals are answered after the transaction commits: a thrown error
     // would roll back the `lost` settlement that the touch just recorded.
-    const answer = await this.tenantDb.runAs(userId, async (tx) => {
-      const jobs = await this.touch(tx, chatId, userId);
-      const requested = await jobs.requestStop(chatId, userId, jobId, 'owner');
+    const answer = await retryJobTransaction(() =>
+      this.tenantDb.runAs(userId, async (tx) => {
+        const jobs = await this.touch(tx, chatId, userId);
 
-      if (requested) {
-        await notifyRunControl(tx, { kind: 'job-stop', jobId });
+        const requested = await jobs.requestStop(
+          chatId,
+          userId,
+          jobId,
+          'owner',
+        );
 
-        return { job: requested, stopped: true };
-      }
+        if (requested) {
+          await notifyRunControl(tx, { kind: 'job-stop', jobId });
 
-      return {
-        job: await jobs.findById(chatId, userId, jobId),
-        stopped: false,
-      };
-    });
+          return { job: requested, stopped: true };
+        }
+
+        return {
+          job: await jobs.findById(chatId, userId, jobId),
+          stopped: false,
+        };
+      }),
+    );
 
     const { job } = answer;
 

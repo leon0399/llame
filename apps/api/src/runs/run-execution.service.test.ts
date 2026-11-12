@@ -787,11 +787,23 @@ function mockNormalExecutionRepositories() {
     undefined,
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
+  vi.spyOn(
+    RunEventsRepository.prototype,
+    'discardedJobNoticeIds',
+  ).mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
     'hasPendingSteering',
   ).mockResolvedValue(false);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'listDeliveredJobNotices',
+  ).mockResolvedValue([]);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'lockPendingBoundary',
+  ).mockResolvedValue([]);
 
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
@@ -19902,7 +19914,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
 
     const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
       .mockResolvedValue(items);
 
     vi.spyOn(
@@ -20972,7 +20984,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     ).mockResolvedValue(items);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
