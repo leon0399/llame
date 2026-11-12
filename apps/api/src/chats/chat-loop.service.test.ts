@@ -233,6 +233,11 @@ function makeService(options?: {
     .spyOn(ChatDeliveriesRepository.prototype, 'findById')
     .mockResolvedValue(undefined);
 
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'deliverPendingJobNotices',
+  ).mockResolvedValue(undefined);
+
   const messageIdTaken = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'messageIdTaken')
     .mockResolvedValue(false);
