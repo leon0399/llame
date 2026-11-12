@@ -579,13 +579,11 @@ function appendCapture(
   const size = boundedLength(text, capture);
 
   if (used + size <= capture.limit) {
-    const exact: CapturedChunk = {
+    return {
       text: current + text,
       used: used + size,
       overflow: false,
     };
-
-    return exact;
   }
 
   const remainder: StreamBound = {
@@ -593,13 +591,11 @@ function appendCapture(
     limit: capture.limit - used,
   };
 
-  const clipped: CapturedChunk = {
+  return {
     text: current + cutToBound(text, remainder),
     used: capture.limit,
     overflow: true,
   };
-
-  return clipped;
 }
 
 function knownCloseResult(
