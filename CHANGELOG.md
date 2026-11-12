@@ -7,6 +7,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   checks; scheduled and manual behavior is unchanged.
 - Add a strict OpenSpec CI gate for active proposals and canonical specs, with
   the CLI pinned to the repository's workflow-compatible version.
+- Rebase the active tool-search proposal's permission and replay deltas on the
+  current canonical specs, retaining owner-media admission and the checkpoint-only
+  replay boundary so strict all-items validation passes without exclusions.
 
 # 2026-11-10
 
