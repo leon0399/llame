@@ -49,6 +49,7 @@ type Choice = {
 function ChoiceItem({ choice }: { choice: Choice }) {
   return (
     <DropdownMenuRadioItem
+      closeOnClick
       value={choice.id}
       disabled={choice.disabled}
       aria-label={

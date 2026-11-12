@@ -265,14 +265,21 @@ export const ProjectDefault: Story = {
       "Work in, master",
     );
     await expect(sentRoutes()).toContain(`GET ${PREVIEW_PATH}`);
+    await userEvent.click(await cell(canvasElement, /^Folder, /));
+    await userEvent.click(
+      await screen.findByRole("menuitemradio", { name: /nas:.*llame/ }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { hidden: true })).toBeNull();
+    });
   },
 };
 
 /**
- * The mode cell's menu starts the chat in a new worktree, and the cell's label
- * names the new state.
+ * The mode cell's menu starts the chat in a new worktree and closes, then
+ * returns to this checkout and closes again.
  *
- * @summary choosing a worktree from the mode cell
+ * @summary choosing a worktree and returning to the checkout
  */
 export const WorktreeMode: Story = {
   tags: ["ai-generated"],
@@ -281,11 +288,27 @@ export const WorktreeMode: Story = {
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /^A new worktree/ }),
     );
-    await waitFor(async () =>
-      expect(await cell(canvasElement, /^Work in, /)).toHaveAccessibleName(
-        "Work in, Worktree",
-      ),
+    await waitFor(async () => {
+      await expect(
+        await cell(canvasElement, /^Work in, /),
+      ).toHaveAccessibleName("Work in, Worktree");
+      await expect(
+        screen.queryByRole("menu", { hidden: true }),
+      ).not.toBeInTheDocument();
+    });
+
+    await userEvent.click(await cell(canvasElement, /^Work in, /));
+    await userEvent.click(
+      await screen.findByRole("menuitemradio", { name: /^This checkout/ }),
     );
+    await waitFor(async () => {
+      await expect(
+        await cell(canvasElement, /^Work in, /),
+      ).toHaveAccessibleName("Work in, master");
+      await expect(
+        screen.queryByRole("menu", { hidden: true }),
+      ).not.toBeInTheDocument();
+    });
   },
 };
 
