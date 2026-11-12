@@ -11,6 +11,7 @@ import { QUEUE, type Queue } from '../queue/queue';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { RunDispatchService } from './run-dispatch.service';
 import { type RunJob } from './run-queues';
+import { RunEnqueueCollisionError } from './run-enqueue-collision-error';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 
@@ -120,7 +121,7 @@ describe('Run enqueue transaction boundary — real Postgres + pg-boss', () => {
         await dispatch.enqueueInTransaction(tx, insertedBeforeDuplicate);
         await dispatch.enqueueInTransaction(tx, job(original.runId));
       }),
-    ).rejects.toThrow('job id already exists');
+    ).rejects.toBeInstanceOf(RunEnqueueCollisionError);
 
     expect(
       await pgBoss.boss.getJobById('runs', insertedBeforeDuplicate.runId),
