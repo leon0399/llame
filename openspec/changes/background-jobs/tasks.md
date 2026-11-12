@@ -251,8 +251,8 @@ rows. It adds no settlement producer and does not complete task 9 acceptance.
 This inert preparation layer supplies rendering and private delivered-item plumbing.
 It creates no live notice and does not complete task 9 acceptance.
 
-- [ ] 8e.1 Add the packaged job context renderer, cache probe, delivered-item loader, and private event egress preparation; prove each with seeded notices and ensure consumed identifiers stay outside owner-visible event projections.
-- [ ] 8e.2 Prepare the context proof for task 9.3 using seeded notice rows, including bounded output, the interrupted-item ordering and prior reply preservation; task 9.3 stays unchecked until the producer is live and end-to-end proof passes.
+- [x] 8e.1 Add the packaged job context renderer, cache probe, delivered-item loader, and private event egress preparation; prove each with seeded notices and ensure consumed identifiers stay outside owner-visible event projections.
+- [x] 8e.2 Prepare the context proof for task 9.3 using seeded notice rows, including bounded output, the interrupted-item ordering and prior reply preservation; task 9.3 stays unchecked until the producer is live and end-to-end proof passes.
 - [ ] 8e.3 Run focused context/egress suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; record mutation results without treating readiness proof as activation.
 
 ## 8f. Notice delivery (`background-jobs/notice-delivery`)

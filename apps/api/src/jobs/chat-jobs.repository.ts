@@ -4,7 +4,18 @@
  * Chat, the Chat, as defense-in-depth beside the forced RLS policy.
  */
 
-import { and, asc, count, eq, gt, notExists, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  notExists,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
+import { type SubqueryWithSelection } from 'drizzle-orm/pg-core';
 
 import {
   chatJobChunks,
@@ -266,6 +277,103 @@ export class ChatJobsRepository {
 
     return Buffer.concat(rows.map((row) => row.content));
   }
+
+  /** The last bounded bytes of one output, read as a byte window in Postgres. */
+  async readOutputTail(
+    ownerUserId: string,
+    jobId: string,
+    output: string,
+    maxBytes: number,
+  ): Promise<Buffer> {
+    const byteLimit = Math.max(0, Math.min(maxBytes, 8000));
+
+    if (byteLimit === 0) return Buffer.alloc(0);
+
+    const chunks = outputTailChunksQuery(this.db, ownerUserId, jobId, output);
+
+    return readOutputTailBytes(this.db, chunks, byteLimit);
+  }
+}
+
+type TailChunksSelection = {
+  readonly position: typeof chatJobChunks.position;
+  readonly content: typeof chatJobChunks.content;
+  readonly bytesFromEnd: SQL.Aliased<number>;
+};
+
+type TailChunks = SubqueryWithSelection<TailChunksSelection, 'tail_chunks'>;
+
+/** Build a bounded set of newest nonempty chunks and their cumulative bytes. */
+function outputTailChunksQuery(
+  db: Db,
+  ownerUserId: string,
+  jobId: string,
+  output: string,
+): TailChunks {
+  const newestChunks = db
+    .select({
+      position: chatJobChunks.position,
+      content: chatJobChunks.content,
+    })
+    .from(chatJobChunks)
+    .where(
+      and(
+        eq(chatJobChunks.jobId, jobId),
+        eq(chatJobChunks.ownerUserId, ownerUserId),
+        eq(chatJobChunks.output, output),
+        gt(sql<number>`octet_length(${chatJobChunks.content})`, 0),
+      ),
+    )
+    .orderBy(desc(chatJobChunks.position))
+    .limit(8000)
+    .as('newest_chunks');
+
+  return db
+    .select({
+      position: newestChunks.position,
+      content: newestChunks.content,
+      bytesFromEnd:
+        sql<number>`sum(octet_length(${newestChunks.content})) over (
+          order by ${newestChunks.position} desc
+          rows between unbounded preceding and current row
+        )`.as('bytes_from_end'),
+    })
+    .from(newestChunks)
+    .as('tail_chunks');
+}
+
+/** Select only the suffix of each chunk needed to assemble the bounded tail. */
+async function readOutputTailBytes(
+  db: Db,
+  chunks: TailChunks,
+  byteLimit: number,
+): Promise<Buffer> {
+  const rows = await db
+    .select({
+      content: sql<Buffer>`substring(
+        ${chunks.content} from (
+          greatest(
+            octet_length(${chunks.content}) -
+              (${byteLimit} - (${chunks.bytesFromEnd} - octet_length(${chunks.content}))) +
+              1,
+            1
+          )::integer
+        )
+        for (
+          least(
+            octet_length(${chunks.content}),
+            ${byteLimit} - (${chunks.bytesFromEnd} - octet_length(${chunks.content}))
+          )::integer
+        )
+      )`,
+    })
+    .from(chunks)
+    .where(
+      sql`${chunks.bytesFromEnd} - octet_length(${chunks.content}) < ${byteLimit}`,
+    )
+    .orderBy(asc(chunks.position));
+
+  return Buffer.concat(rows.map((row) => row.content));
 }
 
 /** The Chat's jobs of one owner. */

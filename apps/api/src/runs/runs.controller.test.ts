@@ -624,6 +624,64 @@ describe('RunsController context receipt', () => {
     expect(events[0].payload).toHaveProperty('sdkRefusal');
   });
 
+  it('omits consumed job notice ids from replayed tool.completed events while preserving the tool output', async () => {
+    const output = {
+      status: 'success',
+      content: 'Job finished.',
+      jobId: 'job-1',
+    };
+
+    const events: Array<RunEvent> = [
+      {
+        runId: run.id,
+        sequence: 7,
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'call-1',
+          toolName: 'wait',
+          status: 'success',
+          output,
+          consumedJobNoticeIds: ['delivery-1', 'delivery-2'],
+        },
+        createdAt: new Date('2026-07-18T10:00:01.000Z'),
+      },
+    ];
+
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValueOnce(events)
+      .mockResolvedValueOnce([]);
+    const sse = response();
+
+    await controller().streamRunEvents(
+      'owner',
+      run.id,
+      {},
+      request(),
+      sse.value,
+    );
+
+    expect(sse.writes).toEqual([
+      `id: 7\ndata: ${JSON.stringify({
+        sequence: 7,
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'call-1',
+          toolName: 'wait',
+          status: 'success',
+          output,
+        },
+        createdAt: events[0].createdAt,
+      })}\n\n`,
+      'data: [DONE]\n\n',
+    ]);
+    expect(JSON.stringify(sse.writes)).not.toContain('consumedJobNoticeIds');
+    expect(events[0].payload).toHaveProperty('consumedJobNoticeIds', [
+      'delivery-1',
+      'delivery-2',
+    ]);
+  });
+
   it('strips retained read bytes from the tool.completed and run.continued frames without changing stored events', async () => {
     const retainedMedia = {
       mediaType: 'image/png',
