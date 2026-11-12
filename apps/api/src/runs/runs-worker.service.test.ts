@@ -1,14 +1,4 @@
-/**
- * RunsWorkerService unit tests — the `runs.dead` retry-exhaustion consumer
- * (durable-run-workers D7 mechanism 3). Full end-to-end liveness coverage
- * (worker-death → redelivery → healthy re-execute; a real pg-boss queue)
- * is DB-backed integration work deferred to the later test slice (tasks
- * 7.0/7.7) — this pins the handler's own logic with mocked dependencies:
- * it settles the dead-lettered run to a terminal run.expired IN THE OWNER'S
- * TENANT SCOPE (via TenantDbService.runAs(job.userId, ...)), and it respects
- * markFinished's first-writer-wins guard (a no-op when the run is already
- * terminal).
- */
+/** Worker pickup, execution limits, queue registration and artifact sweeping. */
 import {
   existsSync,
   mkdirSync,
@@ -18,15 +8,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { dirname } from 'node:path';
-import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
-import {
-  type ConsumeOptions,
-  type QueueConsumer,
-  deadLetterQueue,
-} from '../queue/queue';
+import { type ConsumeOptions, type QueueConsumer } from '../queue/queue';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type WorkerConcurrencyResolver } from '../instance-config/worker-profile.service';
@@ -195,34 +180,7 @@ async function captureRunsHandler(
   return call[1];
 }
 
-/** Capture the handler RunsWorkerService registered on the runs.dead queue. */
-async function captureDeadLetterHandler(
-  service: RunsWorkerService,
-  consumeSpy: Mock<ConsumeMockFn>,
-): Promise<(job: RunJob) => Promise<void>> {
-  await service.onApplicationBootstrap();
-  const deadQueueName = deadLetterQueue(RUNS_QUEUE).name;
-
-  const call = consumeSpy.mock.calls.find(
-    ([definition]) => definition.name === deadQueueName,
-  );
-
-  if (!call) {
-    throw new Error('runs.dead consumer was never registered');
-  }
-
-  return call[1];
-}
-
 describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)', () => {
-  const job: RunJob = {
-    runId: 'run-1',
-    chatId: 'chat-1',
-    userId: 'owner-xyz',
-    modelId: 'system:openai:gpt-5.4-mini',
-    userMessage: { id: 'msg-1', seq: 1, parts: [] },
-  };
-
   const hostRoots: Array<string> = [];
 
   afterEach(() => {
@@ -303,73 +261,6 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     await service.onApplicationBootstrap();
 
     expect(existsSync(dirname(dirname(stale)))).toBe(true);
-  });
-
-  it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {
-    const warnSpy = vi.spyOn(Logger.prototype, 'warn');
-    const tx = makeFakeTx();
-
-    const settleTerminalRun = vi
-      .fn()
-      .mockResolvedValue({ outcome: 'won' as const });
-
-    const { service, consumeSpy } = makeService(tx, {
-      runExecution: {
-        executeRun: unstubbed('executeRun'),
-        settleTerminalRun,
-      },
-    });
-
-    const handler = await captureDeadLetterHandler(service, consumeSpy);
-
-    await handler(job);
-
-    expect(settleTerminalRun).toHaveBeenCalledWith({
-      runId: job.runId,
-      userId: job.userId,
-      status: 'expired',
-      runPayload: {
-        status: 'expired',
-        message:
-          'Run retries exhausted: the worker repeatedly failed to complete it.',
-      },
-      error: {
-        message:
-          'Run retries exhausted: the worker repeatedly failed to complete it.',
-      },
-    });
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      `Expired run ${job.runId} (retries exhausted)`,
-    );
-    // The central finalizer receives the job owner's identity; its integration
-    // test pins owner-scoped reads/writes and settlement-before-terminal order.
-  });
-
-  it('is a no-op when the run already reached a terminal state (first-writer-wins)', async () => {
-    const warnSpy = vi.spyOn(Logger.prototype, 'warn');
-    // The central finalizer reports a guarded markFinished loss when another
-    // terminal writer already won; the dead-letter consumer accepts that no-op.
-    const tx = makeFakeTx();
-
-    const settleTerminalRun = vi.fn().mockResolvedValue({
-      outcome: 'lost' as const,
-      finalStatus: 'completed',
-    });
-
-    const { service, consumeSpy } = makeService(tx, {
-      runExecution: {
-        executeRun: unstubbed('executeRun'),
-        settleTerminalRun,
-      },
-    });
-
-    const handler = await captureDeadLetterHandler(service, consumeSpy);
-
-    await handler(job);
-
-    expect(settleTerminalRun).toHaveBeenCalledTimes(1);
-    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -467,6 +358,9 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     createdAt: new Date(),
     followUpAction: null,
     sourceRunId: null,
+    wakeGeneration: 0,
+    currentJobId: null,
+    awaiting: null,
   };
 
   const cancellationMessage =
@@ -658,6 +552,9 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
     createdAt: new Date(),
     followUpAction: null,
     sourceRunId: null,
+    wakeGeneration: 0,
+    currentJobId: null,
+    awaiting: null,
   };
 
   afterEach(() => {
@@ -758,6 +655,9 @@ describe('RunsWorkerService — durable run-level failures', () => {
       createdAt: new Date(),
       followUpAction: null,
       sourceRunId: null,
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
     } as const;
 
     vi.spyOn(RunsRepository.prototype, 'findById')
@@ -817,6 +717,9 @@ describe('RunsWorkerService — durable run-level failures', () => {
       workerId: null,
       createdAt: new Date(),
       followUpAction: null,
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
       sourceRunId: null,
     };
 

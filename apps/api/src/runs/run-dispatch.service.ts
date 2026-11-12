@@ -10,6 +10,7 @@ import {
 } from '../queue/queue';
 import { failRunTransactionally } from './run-reply-finalizer';
 import { RUNS_QUEUE, runsQueueDefinition, type RunJob } from './run-queues';
+import { RunEnqueueCollisionError } from './run-enqueue-collision-error';
 
 /** The chat send path's view of the publish side: enqueue a committed run and
  *  read that run's job state (#268). */
@@ -89,9 +90,7 @@ export class RunDispatchService {
     });
 
     if (result === null) {
-      throw new Error(
-        `Could not enqueue run ${job.runId}: job id already exists`,
-      );
+      throw new RunEnqueueCollisionError(job.runId, id);
     }
   }
 

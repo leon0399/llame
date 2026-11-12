@@ -58,11 +58,13 @@ import {
   type ToolSet,
 } from 'ai';
 
+import { and, eq } from 'drizzle-orm';
 import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { errorMessageWithoutParams, loggableError } from '../db/loggable-error';
 import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
+  runs,
   type Chat,
   type FollowUpAction,
   type Message,
@@ -640,6 +642,11 @@ type FinishRunInput = {
   runId: string;
   status: TerminalRunStatus;
   attemptId?: string;
+  /** Fence a queue-originated terminal write by its observed queue identity. */
+  expectedQueueIdentity?: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
   modelCompleted?: {
     usage?: unknown;
     finishReason: unknown;
@@ -1206,6 +1213,11 @@ export class RunExecutionService {
     status: TerminalRunStatus;
     /** Fence the terminal write by this attempt when one is known. */
     attemptId?: string;
+    /** Fence queue-driven expiry by the queue identity it observed. */
+    expectedQueueIdentity?: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    };
     runPayload?: unknown;
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
@@ -5344,6 +5356,37 @@ export class RunExecutionService {
     tx: Db,
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
+    if (input.expectedQueueIdentity !== undefined) {
+      const [candidate] = await tx
+        .select()
+        .from(runs)
+        .where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId)))
+        .limit(1);
+
+      if (
+        !candidate ||
+        !(await new ChatsRepository(tx).lock(candidate.chatId, input.userId))
+      ) {
+        return { outcome: 'lost', finalStatus: candidate?.status };
+      }
+
+      const [current] = await tx
+        .select()
+        .from(runs)
+        .where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId)))
+        .for('update');
+
+      if (
+        !current ||
+        isTerminalRunStatus(current.status) ||
+        current.finishedAt !== null ||
+        current.currentJobId !== input.expectedQueueIdentity.currentJobId ||
+        current.wakeGeneration !== input.expectedQueueIdentity.wakeGeneration
+      ) {
+        return { outcome: 'lost', finalStatus: current?.status };
+      }
+    }
+
     // A pending steer or interrupt keeps the Run live (run-steering D5): the
     // delivery locks the Run row, then the chat row, and so also serializes
     // with admission. With nothing to deliver it writes nothing, and the Run

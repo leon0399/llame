@@ -19,10 +19,10 @@ import { SearchModule } from '../search/search.module';
 import { SkillsModule } from '../skills/skills.module';
 import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { TitlesModule } from '../titles/titles.module';
-import { RunDispatchService } from './run-dispatch.service';
 import { RunExecutionService } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsModule } from './runs.module';
+import { RunQueueModule } from './run-queue.module';
 import { RUN_CONTROL_CHANNEL, RUN_CONTROL_LISTENER } from './run-control';
 import { RunControlListenerService } from './run-control-listener.service';
 import { RunsWorkerService } from './runs-worker.service';
@@ -52,6 +52,7 @@ import { JobNoticeRunService } from './job-notice-run.service';
 @Module({
   imports: [
     QueueModule,
+    RunQueueModule,
     ModelsModule,
     CompactionModule,
     DecisionsModule,
@@ -92,7 +93,6 @@ import { JobNoticeRunService } from './job-notice-run.service';
         new PostgresChangeListener(config, RUN_CONTROL_CHANNEL),
     },
     RunStreamBridgeService,
-    RunDispatchService,
     {
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
       useExisting: McpRuntimeService,
@@ -105,6 +105,6 @@ import { JobNoticeRunService } from './job-notice-run.service';
       useValue: createInstructionsProducer(),
     },
   ],
-  exports: [RunDispatchService, RunStreamBridgeService],
+  exports: [RunQueueModule, RunStreamBridgeService],
 })
 export class RunWorkerModule {}

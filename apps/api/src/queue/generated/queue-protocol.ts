@@ -14,6 +14,15 @@ export const runUserMessageSchema = z
   .describe('The already-persisted user message the Run executes against.');
 export type RunUserMessage = z.infer<typeof runUserMessageSchema>;
 
+export const runWakeSchema = z.object({
+  generation: z.number().int().gte(1),
+  jobId: z
+    .string()
+    .uuid()
+    .describe('The current queue job id recorded on the Run.'),
+});
+export type RunWake = z.infer<typeof runWakeSchema>;
+
 export const runJobSchema = z.object({
   runId: z.string().min(1),
   chatId: z.string().min(1),
@@ -23,6 +32,7 @@ export const runJobSchema = z.object({
     .describe('The chat owner; the worker acts under this identity.'),
   modelId: z.string().min(1),
   userMessage: runUserMessageSchema,
+  wake: runWakeSchema.optional(),
 });
 export type RunJob = z.infer<typeof runJobSchema>;
 

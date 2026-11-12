@@ -38,8 +38,10 @@ async function blockerIsLive(input: {
 }): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
 
+  const jobId = input.run.currentJobId ?? input.run.id;
+
   const state = await Promise.race([
-    input.dispatch.jobState(input.run.id),
+    input.dispatch.jobState(jobId),
     new Promise<'unreadable'>((resolve) => {
       timer = setTimeout(
         () => resolve('unreadable'),
@@ -58,6 +60,10 @@ async function blockerIsLive(input: {
       state === 'active'
     );
   }
+
+  // A recorded wake/deadline job exists from the transaction that records
+  // it. Only the initial run.id job receives the existing heartbeat grace.
+  if (input.run.currentJobId !== null) return false;
 
   const lastSignOfLife = input.run.startedAt ?? input.run.createdAt;
 

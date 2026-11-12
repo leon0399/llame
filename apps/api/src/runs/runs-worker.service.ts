@@ -40,6 +40,7 @@ import {
 } from './run-queues';
 import { RunsRepository } from './runs-repository';
 import { isTerminalRunStatus } from './run-status';
+import { retryRunTransaction } from './run-transaction';
 import {
   CanonicalSearchCoverageService,
   type CanonicalSearchCoverageGate,
@@ -145,13 +146,19 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     const message =
       'Run retries exhausted: the worker repeatedly failed to complete it.';
 
-    const settlement = await this.runExecution.settleTerminalRun({
-      runId: job.runId,
-      userId: job.userId,
-      status: 'expired',
-      runPayload: { status: 'expired', message },
-      error: { message },
-    });
+    const settlement = await retryRunTransaction(() =>
+      this.runExecution.settleTerminalRun({
+        runId: job.runId,
+        userId: job.userId,
+        status: 'expired',
+        expectedQueueIdentity: {
+          currentJobId: job.wake?.jobId ?? null,
+          wakeGeneration: job.wake?.generation ?? 0,
+        },
+        runPayload: { status: 'expired', message },
+        error: { message },
+      }),
+    );
 
     if (settlement.outcome === 'won') {
       this.logger.warn(`Expired run ${job.runId} (retries exhausted)`);
