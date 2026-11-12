@@ -26,12 +26,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Prepare durable wait continuation (#1657).** Deferred provider call seams
-  drain sibling tools without a synthetic wait result. Internal wake claims
-  atomically store the real result and exact notice receipts, then preserve
-  the checkpoint once in provider history and finalization. Pre-dispatch
-  failures retain the committed result. This prerequisite does not register
-  or advertise the model-facing `wait` tool.
+- **Wait for background jobs without holding a worker (#1657).** The read-only
+  `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
+  It returns settled results immediately, or suspends and durably resumes the
+  same Run at settlement, interruption, or its deadline. Sibling tools finish
+  before suspension; the first wake retains completed steps and records the
+  real result together with exact notice consumption. Cancellation leaves jobs
+  running, and retries never replay native mutations. See
+  [wait](docs/product/reference/tools/wait.md).
 
 - **State the stop proof boundary (#1657).** The model-facing description and
   tool reference promise termination of the managed process group, without
@@ -40,6 +42,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Prepare durable wait continuation (#1657).** Deferred provider call seams
+  drain sibling tools without a synthetic wait result. Internal wake claims
+  atomically store the real result and exact notice receipts, then preserve
+  the checkpoint once in provider history and finalization. Pre-dispatch
+  failures retain the committed result. This prerequisite does not register
+  or advertise the model-facing `wait` tool.
 
 - **Prepare durable Run suspension (#1657).** Internal suspension commits
   `awaiting_jobs`, its open-call state, generation, and deadline queue job
