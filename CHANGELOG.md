@@ -2,13 +2,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- Synchronize browser checks with the surfaces they exercise: Esc waits for
+  menus and the command palette to close, Knowledge expansion waits for the
+  reloaded composer, and action-row reveal waits for its opacity transition.
+  Each interaction remains a single action, with the original final assertions.
+  The live-before-history handoff story uses explicit stream and history
+  gates, so it observes the pending item before removing it and adopting the
+  delivered history; no time-based delay chooses the event order.
+
 - Skip product CI stages for documentation, OpenSpec and harness-instruction-only
   pull requests and pushes. Runtime prompts and unknown paths still run product
   checks; scheduled and manual behavior is unchanged. Scope detection uses the
   pinned Node runtime and rejects empty or malformed detector output.
+
 - Add strict OpenSpec validation inside the required `Lint` CI check for active
   proposals and canonical specs, with the CLI pinned to the repository's
-  workflow-compatible version.
+  workflow-compatible version
+
 - Rebase the active tool-search proposal's permission and replay deltas on the
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.

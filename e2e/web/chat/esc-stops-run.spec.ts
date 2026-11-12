@@ -91,6 +91,13 @@ test.describe("Esc during a Run", () => {
     await expect(stack.getByText("queued while the Run works")).toBeVisible();
 
     await input.fill("my unsent draft");
+    // The Escape guard also sees hidden popups during their exit animation.
+    await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole("dialog", { includeHidden: true })).toHaveCount(
+      0,
+    );
     await input.press("Escape");
 
     await expect

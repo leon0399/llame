@@ -759,7 +759,7 @@ export const ActionRowReveal: Story = {
     const row = fork.parentElement;
 
     if (!row) throw new Error("fork has no action row");
-    await expect(getComputedStyle(row).opacity).toBe("0");
+    await waitFor(() => expect(getComputedStyle(row).opacity).toBe("0"));
     await expect(row.getBoundingClientRect().height).toBeGreaterThan(0);
 
     // Synthetic pointer events never set CSS :hover, so the reveal is driven
