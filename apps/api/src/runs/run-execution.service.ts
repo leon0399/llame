@@ -2879,14 +2879,22 @@ export class RunExecutionService {
     let endWorkspaceAttempt = noop;
     let stopCause: 'cancel' | 'delivery' | undefined;
 
-    // The step end's one query: a pending item or a recorded cancellation
-    // stops the call after the step's tool results (run-steering D3).
+    // The step end settles dead Chat jobs before checking delivery/cancellation,
+    // so a lost worker's notice participates in this same boundary.
     const stopWhenExtra = async (): Promise<boolean> => {
-      stopCause = await this.tenantDb.runAs(input.userId, (tx) =>
-        new ChatDeliveriesRepository(tx).stepEndSignal({
-          runId: input.runId,
-          chatId: input.chatId,
-          userId: input.userId,
+      stopCause = await retryJobTransaction(() =>
+        this.tenantDb.runAs(input.userId, async (tx) => {
+          await new ChatJobsRepository(tx).settleOnDeadWorkers(
+            input.chatId,
+            input.userId,
+            workerDeadAfterSeconds(this.instanceConfig.config),
+          );
+
+          return new ChatDeliveriesRepository(tx).stepEndSignal({
+            runId: input.runId,
+            chatId: input.chatId,
+            userId: input.userId,
+          });
         }),
       );
 
@@ -2978,6 +2986,9 @@ export class RunExecutionService {
                 telemetry,
               },
               models: this.instanceConfig.config.models,
+              deadWorkerAfterSeconds: workerDeadAfterSeconds(
+                this.instanceConfig.config,
+              ),
               ...extra,
             }),
           ),
@@ -5241,8 +5252,10 @@ export class RunExecutionService {
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
     try {
-      return await this.tenantDb.runAs(input.userId, (tx) =>
-        this.finishRunInTransaction(tx, input),
+      return await retryJobTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          this.finishRunInTransaction(tx, input),
+        ),
       );
     } catch (error) {
       this.logger.error(
@@ -5282,6 +5295,9 @@ export class RunExecutionService {
         live: input.assistantTurn,
         telemetry: input.synthesizedTurnTelemetry,
         models: this.instanceConfig.config.models,
+        deadWorkerAfterSeconds: workerDeadAfterSeconds(
+          this.instanceConfig.config,
+        ),
         baselines: input,
       });
 

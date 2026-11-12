@@ -1080,6 +1080,7 @@ describe('run steering segments', () => {
         deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: fx.userId },
           attemptId: started?.activeAttemptId ?? '',
+          deadWorkerAfterSeconds: 60,
           models: [],
         }),
       );
@@ -1412,6 +1413,7 @@ describe('run steering segments', () => {
         deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: fx.userId },
           attemptId: first?.activeAttemptId ?? '',
+          deadWorkerAfterSeconds: 60,
           models: [],
         }),
       );
@@ -1439,6 +1441,7 @@ describe('run steering segments', () => {
           await deliverPendingSteering(tx, {
             run: { runId: seeded.runId, userId: fx.userId },
             attemptId,
+            deadWorkerAfterSeconds: 60,
             models: [],
           });
           throw new Error('worker died');
@@ -1458,6 +1461,7 @@ describe('run steering segments', () => {
         deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: fx.userId },
           attemptId,
+          deadWorkerAfterSeconds: 60,
           models: [],
         }),
       );
@@ -1468,6 +1472,7 @@ describe('run steering segments', () => {
         deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: fx.userId },
           attemptId: retried.kind === 'delivered' ? retried.attemptId : '',
+          deadWorkerAfterSeconds: 60,
           models: [],
         }),
       );
@@ -1509,6 +1514,7 @@ describe('run steering segments', () => {
         delivery: await deliverPendingSteering(tx, {
           run: { runId: seeded.runId, userId: owner },
           attemptId,
+          deadWorkerAfterSeconds: 60,
           models: [],
         }),
       }));

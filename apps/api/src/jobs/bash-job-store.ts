@@ -8,6 +8,7 @@ import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { commitArtifactInTransaction } from '../tools/artifacts/artifact-writer';
 import { writeArtifactHostFiles } from '../tools/artifacts/host-files';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
+import { recordJobSettlementNotice } from './job-notices';
 import { type NewArtifactPart } from '../tools/artifacts/artifacts-repository';
 
 type JobCompletion = {
@@ -97,20 +98,23 @@ async function settleInTransaction(
   if (settled === undefined) return undefined;
   await appendJobOutput(tx, job, completion.output, completion.offsets);
 
+  let artifact: JobArtifact | undefined;
+
   if (
-    !job.artifactReadable ||
-    !OUTPUTS.some((name) => completion.output[name].length > 2000)
-  )
-    return undefined;
-
-  try {
-    return await writeJobArtifact(tx, job, completion, policy.maxBytes);
-  } catch (error) {
-    // Deadlocks/serialization failures must retry the whole transaction.
-    if (isRetryableJobError(error)) throw error;
-
-    return undefined;
+    job.artifactReadable &&
+    OUTPUTS.some((name) => completion.output[name].length > 2000)
+  ) {
+    try {
+      artifact = await writeJobArtifact(tx, job, completion, policy.maxBytes);
+    } catch (error) {
+      // Deadlocks/serialization failures must retry the whole transaction.
+      if (isRetryableJobError(error)) throw error;
+    }
   }
+
+  await recordJobSettlementNotice(tx, settled);
+
+  return artifact;
 }
 
 function writeJobArtifact(

@@ -27,6 +27,8 @@ import {
   type ChatJobStopper,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { ChatsRepository } from '../chats/chats-repository';
+import { recordJobSettlementNotice } from './job-notices';
 
 export type NewChatJob = {
   readonly id?: string;
@@ -197,12 +199,18 @@ export class ChatJobsRepository {
    * (background-jobs D9). One owner and one Chat only, so no process scans the
    * jobs of more than one owner. Stored output stays readable.
    */
-  settleOnDeadWorkers(
+  async settleOnDeadWorkers(
     chatId: string,
     ownerUserId: string,
     deadAfterSeconds: number,
   ): Promise<Array<ChatJob>> {
-    return this.db
+    if (
+      (await new ChatsRepository(this.db).lock(chatId, ownerUserId)) ===
+      undefined
+    )
+      return [];
+
+    const settled = await this.db
       .update(chatJobs)
       .set({ state: 'lost', result: LOST_RESULT, settledAt: sql`now()` })
       .where(
@@ -223,6 +231,10 @@ export class ChatJobsRepository {
         ),
       )
       .returning();
+
+    for (const job of settled) await recordJobSettlementNotice(this.db, job);
+
+    return settled;
   }
 
   /**

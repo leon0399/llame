@@ -1,4 +1,6 @@
 import { ChatsRepository } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { RunsRepository } from '../runs/runs-repository';
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
@@ -96,14 +98,20 @@ function setup() {
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(locked);
 
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'insertJobNotice',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+    undefined,
+  );
+
   const settle = vi
     .spyOn(ChatJobsRepository.prototype, 'settle')
     .mockImplementation((_c, _o, _j, settlement) => {
       settlements.push(settlement);
 
-      // SAFETY: the store checks only that a row came back.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      return Promise.resolve({} as ChatJob);
+      return Promise.resolve(row({ state: settlement.state }));
     });
 
   const artifact = vi

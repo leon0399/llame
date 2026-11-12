@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type StoppedCall } from '../chats/interrupted-notice';
 import { type ChatDelivery, type Message, type Run } from '../db/schema';
@@ -113,6 +114,8 @@ type DeliveryInput = {
    */
   stoppedCalls?: ReadonlyArray<StoppedCall>;
   models: BillingCatalog;
+  /** The configured liveness window for Chat job workers. */
+  deadWorkerAfterSeconds: number;
   /**
    * The first-epoch baselines the closing segment's attempt derived: a steer
    * closes its reply `completed`, the successful turn that establishes them.
@@ -314,11 +317,12 @@ async function moveRunToDelivery(
 
 /**
  * One tenant transaction, in the Run-then-chat lock order. Locks the Run row
- * behind the attempt and cancel fences, then the chat row, then the Chat's
- * pending items. With none, it writes nothing. Otherwise it closes the current
- * segment's reply, stores the delivered message, marks the items delivered,
- * moves the Run onto that message under a fresh attempt, and appends
- * `run.delivered` (no `run.started`: the claim's delivery sequence stays
+ * behind the attempt and cancel fences, then the chat row. Settles jobs whose
+ * worker died before locking the Chat's pending items. With no pending item,
+ * it leaves the segment unchanged. Otherwise it closes the current segment's
+ * reply, stores the delivered message, marks the items delivered, moves the
+ * Run onto that message under a fresh attempt, and appends `run.delivered`
+ * (no `run.started`: the claim's delivery sequence stays
  * current). The cause is `interrupt` when the stop cut the step or an
  * `interrupt` item is among the locked items; an item the owner withdrew after
  * the step-end check cannot make that delivery an interrupt.
@@ -345,6 +349,12 @@ export async function deliverPendingSteering(
   if (!(await new ChatsRepository(tx).lock(chatId, userId))) {
     return { kind: 'fenced' };
   }
+
+  await new ChatJobsRepository(tx).settleOnDeadWorkers(
+    chatId,
+    userId,
+    input.deadWorkerAfterSeconds,
+  );
 
   const items = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,

@@ -430,7 +430,15 @@ termination is `lost`. Natural exits map to `succeeded` or `failed`, with a
 nonzero code or terminating signal recorded. The non-global worker shutdown
 provider refuses commands and promotions, stops hosted work, and stores its
 output as `cancelled` / `worker` (or `lost` without proof) before the global
-queue module is destroyed. No settlement notices or Run wakes ship here.
+queue module is destroyed. Winning settlements create one pending notice,
+including lost-on-touch settlement. A live Run receives pending notices at its
+next ordered boundary with steer and interrupt items; only that executing Run
+receives the signal. Stop-result consumption and exact restoration are atomic
+with persistence. Idle host-started Runs, held-notice admission, and `wait`
+remain inactive. See
+[job locators](docs/product/reference/locators/job.md#pending-notices),
+[stop](docs/product/reference/tools/stop.md#behavior), and the
+[operator boundary](docs/product/operator/background-jobs.md#runtime-boundary).
 
 ## 14. Provider and model configuration
 

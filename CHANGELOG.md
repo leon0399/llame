@@ -17,10 +17,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Restore Regenerate receipts through Continue checkpoints (#1696).**
-  Recovery follows only tool results retained by each Continue checkpoint and
-  restores each notice against the Run that consumed it. Unrelated ancestor
-  receipts remain excluded, and owner-withdrawn notices remain withdrawn.
+- **Activate background-job settlement notices at Run boundaries (#1657).**
+  Each winning settlement, including a lost-on-touch settlement, creates one
+  pending notice. An executing Run receives it in ordered boundary delivery
+  with steer and interrupt items; a notice-only delivery uses a host trigger
+  whose job context is authored at dispatch. Successful recorded `stop` results
+  consume only their settled-job notices atomically with `tool.completed`, and
+  discarded results restore only the exact notices they consumed. Idle
+  host-started Runs, held-notice admission, and `wait` remain inactive. See
+  [job://](docs/product/reference/locators/job.md#pending-notices) and
+  [stop](docs/product/reference/tools/stop.md#behavior).
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
@@ -42,6 +48,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Rebase the active tool-search proposal's permission and replay deltas on the
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
+
+- **Restore Regenerate receipts through Continue checkpoints (#1696).**
+  Recovery follows only tool results retained by each Continue checkpoint and
+  restores each notice against the Run that consumed it. Unrelated ancestor
+  receipts remain excluded, and owner-withdrawn notices remain withdrawn.
 
 - **State the stop proof boundary (#1657).** The model-facing description and
   tool reference promise termination of the managed process group, without
