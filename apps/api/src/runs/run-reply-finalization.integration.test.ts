@@ -716,7 +716,7 @@ describeIfDb(
         ),
       );
 
-      let stateAtRequest: string | undefined;
+      const statesAtRequest: Array<string | undefined> = [];
 
       const model = new MockLanguageModelV3({
         doStream: async () => {
@@ -724,7 +724,7 @@ describeIfDb(
             new ChatJobsRepository(tx).findById(chatId, userId, crashed.id),
           );
 
-          stateAtRequest = job?.state;
+          statesAtRequest.push(job?.state);
 
           return {
             stream: simulateReadableStream({ chunks: answerChunks('Done.') }),
@@ -757,7 +757,7 @@ describeIfDb(
 
         expect(settled?.state).toBe('lost');
         expect(notices).toHaveLength(1);
-        expect(stateAtRequest).toBe('lost');
+        expect(statesAtRequest[0]).toBe('lost');
       } finally {
         await sql`DELETE FROM worker_instances WHERE id = ${deadWorker}`;
       }
