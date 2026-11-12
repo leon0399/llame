@@ -20690,6 +20690,41 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     expect(delivered(appended)).toMatchObject({ stoppedCalls: [] });
   });
 
+  it('yields a host bash call without cancelling its execution signal', async () => {
+    let moveSignal: AbortSignal | undefined;
+    let abortSignal: AbortSignal | undefined;
+    vi.spyOn(bashTool, 'execute').mockImplementation(async (context) => {
+      moveSignal = context.moveSignal;
+      abortSignal = context.abortSignal;
+      await untilAborted(context.moveSignal);
+
+      return { status: 'success', stdout: 'command finished' };
+    });
+    const { appended, aborts, start } = interruptRig({ native: ['bash'] });
+    const { options } = await start();
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9' },
+      'bash-host-1',
+    );
+
+    await waitForType(appended, 'tool.started');
+    expect(moveSignal?.aborted).toBe(false);
+    expect(abortSignal?.aborted).not.toBe(true);
+
+    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    await call;
+    serveInterrupt([interruptItem]);
+    await options.onError?.({ error: new Error('aborted') });
+
+    expect(moveSignal?.aborted).toBe(true);
+    expect(abortSignal?.aborted).not.toBe(true);
+    expect(payloadOf(appended, 'tool.completed', 'bash-host-1')).toMatchObject({
+      output: { status: 'success', stdout: 'command finished' },
+    });
+  });
+
   it('cancels a remote bash call that proves its result and names it in the delivery', async () => {
     const proven: ToolResult = {
       status: 'error',
