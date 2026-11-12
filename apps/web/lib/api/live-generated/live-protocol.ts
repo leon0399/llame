@@ -219,6 +219,7 @@ export const runResponseSchema = z.object({
     "running_sandbox",
     "updating_artifact",
     "summarizing",
+    "awaiting_jobs",
     "completed",
     "failed",
     "cancelled",
