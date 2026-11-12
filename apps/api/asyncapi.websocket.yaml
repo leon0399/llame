@@ -157,7 +157,7 @@ components:
     chatUpserted:
       name: chat.upserted
       title: Chat created or updated
-      summary: The chat as `GET /api/v1/chats` lists it, after any change (rename, filing, archive, new message).
+      summary: The chat as `GET /api/v1/chats` lists it, after any change (rename, filing, archive, new message, or runningJobs count, including worker-lease expiry and revival).
       payload:
         $ref: '#/components/schemas/ChatUpsertedMessage'
       examples:
