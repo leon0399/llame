@@ -208,10 +208,10 @@ describe('run steering interrupts', () => {
    */
   function beforeNextDelivery(hook: () => Promise<void>) {
     // eslint-disable-next-line typescript/unbound-method -- re-invoked with the instance below.
-    const original = ChatDeliveriesRepository.prototype.lockPendingSteering;
+    const original = ChatDeliveriesRepository.prototype.lockPendingBoundary;
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     ).mockImplementationOnce(async function (
       this: ChatDeliveriesRepository,
       chatId: string,
