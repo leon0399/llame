@@ -479,6 +479,10 @@ describe('ChatLoopService accept/worker context binding', () => {
       ChatDeliveriesRepository.prototype,
       'listDeliveredJobNotices',
     ).mockResolvedValue([]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'deliverPendingJobNotices',
+    ).mockResolvedValue(undefined);
 
     vi.spyOn(RunsRepository.prototype, 'markStarted').mockImplementation(
       (runId) =>

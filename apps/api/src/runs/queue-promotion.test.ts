@@ -64,6 +64,11 @@ function makeSetup(
     .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
     .mockResolvedValue(item);
 
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'deliverPendingJobNotices',
+  ).mockResolvedValue(undefined);
+
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
     .mockResolvedValue(message);
