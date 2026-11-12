@@ -2,13 +2,15 @@ import { randomUUID } from 'node:crypto';
 
 import { createRunForMessage } from '../chats/run-creation';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { MessagesRepository } from '../chats/chats-repository';
+import { MessagesRepository } from '../chats/messages-repository';
+import { RunEventsRepository } from './runs-repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import {
   useSegmentsFixture,
   call,
   answer,
 } from '../testing/run-segments.test-fixture';
+import { sourceSegmentJobNoticeIds } from './job-notice-recovery';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -126,6 +128,68 @@ describe('Regenerate restores consumed job notices', () => {
     expect(completion?.payload).toMatchObject({
       consumedJobNoticeIds: [consumedNoticeId],
     });
+    await db(async (tx) => {
+      const runEvents = new RunEventsRepository(tx);
+      await runEvents.append(source.runId, 'tool.completed', {
+        toolCallId: 'not-kept-tool-result',
+        consumedJobNoticeIds: ['unrelated-receipt'],
+      });
+      await runEvents.append(source.runId, 'tool.completed', {
+        toolCallId: 'owner-deleted-stop',
+        consumedJobNoticeIds: [withdrawnNoticeId],
+      });
+    });
+
+    const continued = await db(async (tx) => {
+      const trigger = await new MessagesRepository(tx).findById(
+        source.chatId,
+        fx.userId,
+        source.userMessage.id,
+      );
+
+      if (!trigger) throw new Error('The Continue trigger was not found.');
+
+      const { run } = await createRunForMessage(
+        tx,
+        {
+          userId: fx.userId,
+          chatId: source.chatId,
+          modelId: source.modelId,
+          effort: undefined,
+          permissionMode: 'default',
+          targetRunId: randomUUID(),
+          followUp: {
+            action: 'continue',
+            sourceRunId: source.runId,
+            replacesUsage: true,
+            keptParts: [
+              {
+                type: 'tool-stop',
+                toolCallId: 'stop-settled-job',
+                state: 'output-available',
+                input: { jobs: ['job://bash-1'] },
+                output: { status: 'success', text: 'stopped job' },
+                outcome: 'success',
+              },
+              {
+                type: 'tool-stop',
+                toolCallId: 'owner-deleted-stop',
+                state: 'output-available',
+                input: { jobs: ['job://bash-3'] },
+                output: { status: 'success', text: 'stopped job' },
+                outcome: 'success',
+              },
+            ],
+          },
+        },
+        trigger,
+      );
+
+      return run;
+    });
+
+    await fx.launch({ ...source, runId: continued.id }, [answer('continued')]);
+    await terminal(continued.id);
 
     const regenerate = await db(async (tx) => {
       const trigger = await new MessagesRepository(tx).findById(
@@ -147,7 +211,7 @@ describe('Regenerate restores consumed job notices', () => {
           targetRunId: randomUUID(),
           followUp: {
             action: 'regenerate',
-            sourceRunId: source.runId,
+            sourceRunId: continued.id,
             replacesUsage: true,
             notice: true,
           },
@@ -155,15 +219,32 @@ describe('Regenerate restores consumed job notices', () => {
         trigger,
       );
 
-      return { ...source, runId: run.id };
+      return run;
     });
 
-    const launch = await fx.launch(regenerate, [
+    const receipts = await db((tx) =>
+      sourceSegmentJobNoticeIds({
+        tx,
+        sourceRunId: continued.id,
+        chatId: source.chatId,
+        ownerUserId: fx.userId,
+      }),
+    );
+
+    expect(receipts).toEqual([
+      {
+        runId: source.runId,
+        deliveryIds: [consumedNoticeId, withdrawnNoticeId],
+      },
+    ]);
+
+    const launch = await fx.launch({ ...source, runId: regenerate.id }, [
       call('regenerate-boundary', 'read', { path: fx.directory }),
       answer('regenerated answer'),
     ]);
 
-    await terminal(regenerate.runId);
+    await terminal(regenerate.id);
+
     const requests = launch.prompts();
     expect(
       requests.some(
@@ -174,11 +255,110 @@ describe('Regenerate restores consumed job notices', () => {
     ).toBe(true);
     expect(await itemState(consumedNoticeId)).toMatchObject({
       state: 'delivered',
-      runId: regenerate.runId,
+      runId: regenerate.id,
     });
     expect(await itemState(withdrawnNoticeId)).toMatchObject({
       state: 'withdrawn',
       runId: null,
+    });
+  });
+  it('does not restore an earlier Continue receipt after the source Run delivered', async () => {
+    const source = await seed('Continue after a delivered segment');
+
+    const { notice, continuedRunId } = await db(async (tx) => {
+      const jobs = new ChatJobsRepository(tx);
+
+      const job = await jobs.insert({
+        chatId: source.chatId,
+        ownerUserId: fx.userId,
+        executor: 'bash',
+        seq: 1,
+        runId: source.runId,
+        toolCallId: randomUUID(),
+        workerInstanceId: randomUUID(),
+        outputs: [],
+        artifactReadable: false,
+        settings: { modelId: source.modelId, permissionMode: 'default' },
+      });
+
+      const settled = await jobs.settle(source.chatId, fx.userId, job.id, {
+        state: 'succeeded',
+      });
+
+      if (!settled) throw new Error('The Continue fixture job did not settle.');
+
+      const deliveries = new ChatDeliveriesRepository(tx);
+      const notice = await deliveries.insertJobNotice(settled);
+
+      if (!notice)
+        throw new Error('The Continue fixture notice was not inserted.');
+      await deliveries.consumeJobNotices({
+        chatId: source.chatId,
+        ownerUserId: fx.userId,
+        runId: source.runId,
+        jobIds: [job.id],
+      });
+      await new RunEventsRepository(tx).append(source.runId, 'tool.completed', {
+        toolCallId: 'kept-before-delivery',
+        consumedJobNoticeIds: [notice.id],
+      });
+
+      const trigger = await new MessagesRepository(tx).findById(
+        source.chatId,
+        fx.userId,
+        source.userMessage.id,
+      );
+
+      if (!trigger) throw new Error('The Continue trigger was not found.');
+
+      const { run } = await createRunForMessage(
+        tx,
+        {
+          userId: fx.userId,
+          chatId: source.chatId,
+          modelId: source.modelId,
+          effort: undefined,
+          permissionMode: 'default',
+          targetRunId: randomUUID(),
+          followUp: {
+            action: 'continue',
+            sourceRunId: source.runId,
+            replacesUsage: true,
+            keptParts: [
+              {
+                type: 'tool-read',
+                toolCallId: 'kept-before-delivery',
+                state: 'output-available',
+                input: { path: '/tmp/kept-before-delivery' },
+                output: { status: 'success', text: 'kept result' },
+                outcome: 'success',
+              },
+            ],
+          },
+        },
+        trigger,
+      );
+
+      await new RunEventsRepository(tx).append(run.id, 'run.delivered', {
+        messageId: source.userMessage.id,
+      });
+
+      return { notice, continuedRunId: run.id };
+    });
+
+    const receipts = await db((tx) =>
+      sourceSegmentJobNoticeIds({
+        tx,
+        sourceRunId: continuedRunId,
+        chatId: source.chatId,
+        ownerUserId: fx.userId,
+      }),
+    );
+
+    expect(receipts).toEqual([]);
+    expect(await itemState(notice.id)).toMatchObject({
+      state: 'withdrawn',
+      runId: source.runId,
     });
   });
 });
