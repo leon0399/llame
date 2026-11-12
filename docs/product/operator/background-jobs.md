@@ -94,10 +94,12 @@ that Run; the first pending notice supplies its model, effort, and permission
 mode. If those settings are no longer available, the notices stay pending.
 
 A lost or cancelled job starts no Run. Notices after a stopped or failed Run
-wait for an owner send, queue promotion, mode change, or follow-up admission.
-Those paths also adopt pending lost and cancelled results. A Run that ends
-before dispatch returns its notices to pending. Continue can answer a host
-trigger after a failed host Run. The `wait` tool is not active yet.
+wait for an owner send, queue promotion, mode change, or follow-up Run.
+An owner send, queue promotion, or mode change adopts pending notices at
+admission, including lost and cancelled results. A follow-up receives pending
+notices at its first step boundary. A Run that ends before dispatch returns
+its notices to pending. Continue can answer a host trigger after a failed host
+Run. The `wait` tool is not active yet.
 
 Host-history privacy and model-order handling are available for stored host
 rows. Owner-history responses identify them with `host: true`; ordinary owner,
