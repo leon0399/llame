@@ -95,11 +95,6 @@ function emptyStream(): CapturedStream {
   };
 }
 
-/** One call's streams, each with its own decoder and its measure used so far. */
-function emptyStreams(): StreamState {
-  return { stdout: emptyStream(), stderr: emptyStream() };
-}
-
 /** What a caller of the watcher can do while the child runs. */
 export type ManagedWatch = {
   readonly settled: Promise<BashResult>;
@@ -146,7 +141,7 @@ export function watchManagedChild(
     pgid,
     request,
     startedAtMs: performance.now(),
-    streams: emptyStreams(),
+    streams: { stdout: emptyStream(), stderr: emptyStream() },
     controls,
     finish,
   };
