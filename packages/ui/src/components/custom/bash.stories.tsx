@@ -194,3 +194,29 @@ export const Cancelled: Story = {
     ).not.toBeInTheDocument();
   },
 };
+
+/**
+ * A promoted command reports its job locator rather than fabricated stream
+ * output.
+ *
+ * @summary for a command continuing in the background
+ */
+export const Backgrounded: Story = {
+  tags: ["ai-generated"],
+  args: {
+    input: { command: "pnpm test" },
+    output: {
+      status: "success",
+      backgrounded: true,
+      job: "job://bash-7",
+      cause: "async",
+      wallTimeMs: 120,
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
+    await expect(canvas.getByText("job://bash-7")).toBeVisible();
+    await expect(canvas.getByText("Backgrounded by request")).toBeVisible();
+    await expect(canvas.queryByText("No output.")).not.toBeInTheDocument();
+  },
+};
