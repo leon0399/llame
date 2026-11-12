@@ -15,12 +15,13 @@ import type { Server } from 'node:http';
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import request from 'supertest';
 import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
+import { chatDeliveries } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   ModelNotAvailableError,
@@ -45,6 +46,8 @@ import {
   expectRegisteredUserId,
   waitFor,
 } from '../testing/support';
+import { newChatJob } from '../testing/chat-job-rows';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
@@ -603,6 +606,52 @@ describe('chat deliveries — the steer mode', () => {
         expect(await runsOf(chatId)).toHaveLength(1);
       },
     );
+    it('keeps a pending job notice out of the paused owner queue', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+
+      const notice = await tenantDb.runAs(userAId, async (tx) => {
+        const jobs = new ChatJobsRepository(tx);
+
+        const job = await jobs.insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userAId,
+            seq: 1,
+            workerInstanceId: crypto.randomUUID(),
+          }),
+        );
+
+        const settled = await jobs.settle(chatId, userAId, job.id, {
+          state: 'failed',
+        });
+
+        if (!settled) throw new Error('Job fixture was not settled');
+
+        const delivery = await new ChatDeliveriesRepository(tx).insertJobNotice(
+          settled,
+        );
+
+        if (!delivery) throw new Error('Notice fixture was not inserted');
+
+        return delivery;
+      });
+
+      await settle(runId, 'failed', { error: { message: 'boom' } });
+
+      const [stored] = await tenantDb.runAs(userAId, (tx) =>
+        tx
+          .select()
+          .from(chatDeliveries)
+          .where(eq(chatDeliveries.id, notice.id)),
+      );
+
+      expect(stored).toMatchObject({
+        producer: 'job',
+        mode: 'notice',
+        state: 'pending',
+        runId: null,
+      });
+    });
 
     it('A dead-letter expiry pauses the queue', async () => {
       const { chatId, runId, ids } = await liveRunWithThreeItems();

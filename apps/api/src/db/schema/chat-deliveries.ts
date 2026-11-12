@@ -94,6 +94,12 @@ export const chatDeliveries = pgTable(
     uniqueIndex('chat_deliveries_job_sender_unique')
       .on(t.senderRef)
       .where(sql`${t.producer} = 'job'`),
+    // Dispatch and terminal recovery read the notices of one received message.
+    index('chat_deliveries_delivered_job_message_idx')
+      .on(t.chatId, t.deliveredMessageId, t.position)
+      .where(
+        sql`${t.producer} = 'job' and ${t.mode} = 'notice' and ${t.state} = 'delivered'`,
+      ),
     pgPolicy('chat_deliveries_owner', {
       using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
     }),

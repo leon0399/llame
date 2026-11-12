@@ -70,6 +70,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Prepare background-job notice transitions (#1657).** Owner-scoped
+  repository operations select ordered boundary notices, consume exact settled
+  notices, and restore only notices consumed by the matching Run. Terminal
+  recovery preparation distinguishes dispatched segments from undelivered
+  triggers. Delivered notices have an indexed receiving-message lookup.
+  Seeded database cases prove isolation and owner withdrawal; no settlement
+  producer or new owner-visible behavior is activated.
+
 - **Preserve host history without public job context (#1657).** Owner-history
   responses identify host-authored user turns. Public pagination and shared
   forks omit them; owner forks retain literal context and reply relationships.
@@ -107,6 +115,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Rebase the active tool-search proposal's permission and replay deltas on the
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
+
 
 # 2026-11-11
 
