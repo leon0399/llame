@@ -8,6 +8,7 @@ Follow [CONTRIBUTING.md](../../../CONTRIBUTING.md). Create each branch with `$gh
 current stack top, only after the proposal is approved. Implement each layer with
 `$openspec-apply-change`.
 
+```text
 master
 <- background-jobs/proposal
 <- background-jobs/job-store
@@ -33,6 +34,7 @@ master
 <- background-jobs/wait-resume
 <- background-jobs/web
 <- background-jobs/finalize
+```
 
 Each layer leaves `master` in a state that works. A layer that only prepares code for a later
 one changes no behavior that the model or the owner can see.
