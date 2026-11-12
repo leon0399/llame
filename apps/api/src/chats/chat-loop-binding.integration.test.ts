@@ -265,7 +265,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       },
     };
 
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+    const chat: Chat = {
       id: 'chat-id',
       ownerUserId: 'user-id',
       title: null,
@@ -288,7 +288,10 @@ describe('ChatLoopService accept/worker context binding', () => {
       workspaceToldFrom: null,
       workspaceToldAvailable: null,
       workspaceDetachReason: null,
-    });
+    };
+
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
       new Set(),
