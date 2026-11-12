@@ -896,6 +896,9 @@ describe('ChatsService message windows, updates and forks', () => {
       createdAt: new Date('2026-08-28T00:00:00.000Z'),
       startedAt: new Date('2026-08-28T00:00:00.000Z'),
       finishedAt: null,
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
       followUpAction: null,
       sourceRunId: null,
     };

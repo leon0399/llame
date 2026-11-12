@@ -17,14 +17,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Start host Runs for background-job results (#1657).** Eligible settlements
-  on idle, unarchived Chats commit the trigger, Run, notices, and queue job
-  together. The first pending notice supplies settings; unavailable settings
-  leave results pending. Lost and cancelled results wait for owner admission,
-  which also adopts held notices after stopped or failed Runs. Continue can
-  answer a failed host Run. Produced host rows preserve owner history and stay
-  out of title, preview, recency, search evidence, public history, and shared
-  forks. Durable `wait` remains inactive.
+- **Prepare durable wait state (#1657).** The schema records an open wait,
+  its generation, and its authoritative queue job. Internal transactions bind
+  suspension and wake updates to actual pg-boss inserts, retry queue-id
+  collisions with fresh ids, and refuse terminal resurrection or obsolete
+  dead-letter expiry. Recorded jobs have no first-enqueue admission grace.
+  This prerequisite connects no owner or settlement wake route and exposes
+  no `wait` tool.
 
 - **State the stop proof boundary (#1657).** The model-facing description and
   tool reference promise termination of the managed process group, without
@@ -33,6 +32,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
+
+- **Start host Runs for background-job results (#1657).** Eligible settlements
+  on idle, unarchived Chats commit the trigger, Run, notices, and queue job
+  together. The first pending notice supplies settings; unavailable settings
+  leave results pending. Lost and cancelled results wait for owner admission,
+  which also adopts held notices after stopped or failed Runs. Continue can
+  answer a failed host Run. Produced host rows preserve owner history and stay
+  out of title, preview, recency, search evidence, public history, and shared
+  forks. Durable `wait` remains inactive.
 
 - **Prepare transactional Run enqueue (#1657).** Internal producers can insert
   a Run's queue job through their existing Drizzle transaction, using the

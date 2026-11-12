@@ -386,6 +386,9 @@ const run: Run = {
   permissionMode: 'default' as const,
   followUpAction: null,
   sourceRunId: null,
+  wakeGeneration: 0,
+  currentJobId: null,
+  awaiting: null,
 };
 
 const receipt = {

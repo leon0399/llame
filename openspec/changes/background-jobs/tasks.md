@@ -31,6 +31,7 @@ master
 <- background-jobs/notices
 <- background-jobs/run-enqueue
 <- background-jobs/host-runs
+<- background-jobs/wait-state
 <- background-jobs/wait-suspend
 <- background-jobs/wait-resume
 <- background-jobs/web
@@ -63,7 +64,8 @@ one changes no behavior that the model or the owner can see.
 | `notices`            | `notice-receipts`    | Actual transactional settlement producer, lost-touch and executing-Run signals, full proof and activation docs. | notices in a live Run                            | 1,900      | refs #1657        |
 | `run-enqueue`        | `notices`            | Queue insertion through the caller's tenant transaction, with rollback and delay proof.                         | none                                             | 750        | refs #1657        |
 | `host-runs`          | `run-enqueue`        | Runs that the host starts, held notices and notice-started history acceptance.                                  | a notice starts a Run                            | 1,950      | refs #1657        |
-| `wait-suspend`       | `host-runs`          | `awaiting_jobs`, the wakers, the deadline job, and admission.                                                   | none                                             | 2,000      | refs #1657        |
+| `wait-state`         | `host-runs`          | Wait schema, transactional suspension/wake preparation, queue identity fences and seeded database proof.        | none                                             | 2,000      | refs #1657        |
+| `wait-suspend`       | `wait-state`         | Executing-attempt suspension, settlement/owner wakers, worker pickup, restart and budget acceptance.            | none                                             | 2,000      | refs #1657        |
 | `wait-resume`        | `wait-suspend`       | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
 | `web`                | `wait-resume`        | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
 | `finalize`           | `web`                | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
@@ -314,14 +316,24 @@ notice-started Run. Its checkbox remains in group 9 to preserve its stable id.
 - [x] 10.5 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 10.6 Run the GitHub review and CI loop on the published head.
 
+## 10a. Durable wait state (`background-jobs/wait-state`)
+
+This prerequisite prepares schema and transactional state only. It connects no
+owner or settlement wake route and exposes no tool that can suspend a Run.
+The measured suspension concern exceeded the review budget, so its lifecycle
+and entry-point proof remain in `wait-suspend`.
+
+- [x] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
+- [x] 10a.1 Prepare the owner-scoped suspension/wake transactions, deadline queue identity, typed enqueue collision retry, and recorded-job admission. Prove atomic rollback, fresh-id retry after an actual queue collision, listed versus unrelated settlement precedence, terminal immutability, stale dead-letter fencing, cancellation preparation, and durable wake publication through the real database.
+- [ ] 10a.2 Run focused state/database and generated-contract checks, self-review the parent-relative diff, and publish. Ordinary CI controls readiness; mutation testing and external reviews continue concurrently.
+
 ## 11. Suspension (`background-jobs/wait-suspend`)
 
-No tool suspends a Run in this layer. Its tests suspend a Run through the service.
+No tool suspends a Run in this layer. Its tests suspend a Run through the prepared service.
 
-- [ ] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
-- [ ] 11.2 Add the suspension transaction with its retry, the `suspend` stop cause, and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
+- [ ] 11.2 Connect the prepared suspension transaction to the `suspend` stop cause and the end of `executeJob` on `awaiting_jobs`; integration tests cover "A wait frees the worker", "A Run that waits survives a worker crash", "A job settles just before the wait", and "A reload during a wait".
       Insert the deadline job in the suspension transaction and cover "A worker crashes right after a wait starts".
-- [ ] 11.3 Add the wake update and the `wake` field of `RunJob`, using the existing transactional `enqueueInTransaction` from task 9a; regenerate the queue protocol. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake" and "A waker crashes after its commit".
+- [ ] 11.3 Connect the prepared wake update and `RunJob.wake` to settlement, steering, and cancellation using the transactional enqueue from task 9a. Tests cover the single winner of "A settlement and a steer arrive together", "A late deadline job does nothing", a `queue` item that does not wake, a dead-lettered job that is not current, and a settlement against Chat deletion with deadlock retry. Also cover "The deadline job is redelivered after its wake" and "A waker crashes after its commit".
       Cover "A failed wake insert leaves the Run waiting" and "A queue insert fails during a settlement"; retry worker terminal writes, Chat deletion, and admission as well as settlement.
       A `null` enqueue result throws and retries with a fresh id; the deadline waker reuses its existing job.
 - [ ] 11.4 Read the current job in admission and wake on a cancellation; tests cover "A Run that waits blocks a plain send", "A woken Run is judged by its recorded job", and "The owner cancels a Run that waits". Also cover "A recorded job that is absent is stuck at once".
