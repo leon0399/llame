@@ -1,13 +1,14 @@
 import { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
-import { eq } from 'drizzle-orm';
+import { eq, sql as query } from 'drizzle-orm';
 import { BashProcessLimiter } from '@workspace/bash-executor';
 
 import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunsRepository, RunEventsRepository } from '../runs/runs-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
@@ -37,6 +38,7 @@ describe('real host async jobs', () => {
   let heartbeat: WorkerHeartbeatService;
   let context: ToolContext;
   let listener: RunControlListenerService | undefined;
+  let runAborts: RunAbortRegistry;
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL;
@@ -48,6 +50,7 @@ describe('real host async jobs', () => {
     await sql`INSERT INTO users(id,name,email) VALUES (${owner}, 'Async', ${`${owner}@test.com`})`;
   });
   beforeEach(async () => {
+    runAborts = new RunAbortRegistry();
     heartbeat = new WorkerHeartbeatService(drizzle(sql, { schema }), config, {
       concurrencyFor: () => 1,
     });
@@ -154,11 +157,81 @@ describe('real host async jobs', () => {
       new PostgresChangeListener(configuration, RUN_CONTROL_CHANNEL),
       { concurrencyFor: () => 1 },
       tenant,
-      new RunAbortRegistry(),
+      runAborts,
     );
     Object.assign(listener, { jobs: registry });
     await listener.onApplicationBootstrap();
   }
+
+  it.each(['steer', 'interrupt'] as const)(
+    'a %s sent over Postgres yields two host commands without stopping them',
+    async (kind) => {
+      const runId = context.runId!;
+      const attemptId = crypto.randomUUID();
+      await tenant.runAs(owner, (db) =>
+        db.execute(
+          query`UPDATE runs SET active_attempt_id = ${attemptId} WHERE id = ${runId}`,
+        ),
+      );
+      runAborts.register(runId, owner);
+      const segment = runAborts.beginSegment(runId, attemptId);
+
+      if (segment === undefined) throw new Error('Missing active segment');
+      await controlListener();
+      const started = vi.spyOn(registry, 'start');
+
+      const calls = ['first', 'second'].map((toolCallId) =>
+        runTool(
+          bashTool,
+          { command: 'printf ready; sleep 30' },
+          {
+            ...context,
+            toolCallId,
+            yieldSignal: segment.yield.signal,
+          },
+          30,
+        ),
+      );
+
+      await vi.waitFor(() => expect(started).toHaveBeenCalledTimes(2));
+      await tenant.runAs(owner, async (db) => {
+        await new ChatDeliveriesRepository(db).insertPending({
+          id: crypto.randomUUID(),
+          chatId: context.chatId,
+          ownerUserId: owner,
+          mode: kind,
+          parts: [{ type: 'text', text: 'change direction' }],
+          settings: context.jobSettings!,
+        });
+        await notifyRunControl(db, { kind, runId });
+      });
+
+      const results = await Promise.all(calls);
+      expect(results).toMatchObject([
+        { status: 'success', backgrounded: true, cause: 'message' },
+        { status: 'success', backgrounded: true, cause: 'message' },
+      ]);
+      expect(segment.abort.signal.aborted).toBe(kind === 'interrupt');
+      expect((await jobs()).map((job) => job.state)).toEqual([
+        'running',
+        'running',
+      ]);
+
+      const stored = await tenant.runAs(owner, (db) =>
+        new RunEventsRepository(db).listByRunId(runId, owner),
+      );
+
+      const receipts = stored.filter(
+        (event) => event.eventType === 'native.result',
+      );
+
+      expect(receipts.map((event) => event.payload)).toMatchObject([
+        { result: { backgrounded: true, cause: 'message' } },
+        { result: { backgrounded: true, cause: 'message' } },
+      ]);
+      runAborts.unregister(runId);
+    },
+  );
 
   it('A build starts in the background with a durable result and starting settings', async () => {
     const job = await start();

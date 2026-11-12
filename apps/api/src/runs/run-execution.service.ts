@@ -17,6 +17,7 @@ import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import {
   INTERRUPT_ABORT_REASON,
+  newSegmentControl,
   RunAbortRegistry,
   type RunSegmentRegistrar,
 } from './run-abort-registry';
@@ -1961,6 +1962,8 @@ export class RunExecutionService {
         classification?: ToolClassification;
         /** The signal an owner interrupt aborts, for a call whose fate is `cancel`. */
         interruptSignal?: AbortSignal;
+        /** What an interrupt does to this call, decided from its target. */
+        fate?: InterruptFate;
         /** `tool.requested` was emitted for the call. */
         requested?: true;
         /** The call recorded its MCP `native.attempt`, so it was sent. */
@@ -2305,20 +2308,20 @@ export class RunExecutionService {
     // The controller of the model call in flight; every call that follows a
     // withdrawn interrupt gets a new one.
     let segment: AbortController | undefined;
+    // The yield signal of the same model call (background-jobs D13).
+    let segmentYield: AbortSignal | undefined;
     let interruptSettlement: Promise<void> | undefined;
     // The `bash` and MCP calls that started and that the interrupt stopped.
     const stoppedCalls: Array<StoppedCall> = [];
     // `native.result` writes of MCP calls whose attempt committed mid-interrupt.
     const lateMcpWrites: Array<Promise<void>> = [];
 
-    const fateOf = (toolName: string): InterruptFate => {
-      const executor = toolAdditions.executorFor(toolName);
-
-      return executor === undefined ? 'cancel' : interruptFateOf(executor);
-    };
-
     const settleInterrupted = (
-      shouldSettle: (call: { toolName: string; started: boolean }) => boolean,
+      shouldSettle: (call: {
+        toolName: string;
+        started: boolean;
+        fate?: InterruptFate;
+      }) => boolean,
       mcpWrites: Array<Promise<void>>,
     ) => {
       for (const [toolCallId, call] of openToolCalls) {
@@ -2326,7 +2329,10 @@ export class RunExecutionService {
         if (call.origin !== undefined) continue;
         const started = call.classification !== undefined;
 
-        if (!shouldSettle({ toolName: call.toolName, started })) continue;
+        if (
+          !shouldSettle({ toolName: call.toolName, started, fate: call.fate })
+        )
+          continue;
 
         const { result, stopped } = interruptSettlementOf({
           toolName: call.toolName,
@@ -2369,34 +2375,38 @@ export class RunExecutionService {
 
     /**
      * Settles the open calls once, by fate: a call that never started, and each
-     * started `cancel` call but bash, at once; a `finish` call after it
-     * completes; bash after its bounded grace, so a proven result can win.
+     * started `cancel` call but bash, at once; a `finish` or `background` call
+     * after it completes (a host command returns when its segment yields);
+     * bash after its bounded grace, so a proven result can win.
      */
     const settleOnInterrupt = (): Promise<void> =>
       (interruptSettlement ??= (async () => {
         const mcpWrites: Array<Promise<void>> = [];
         settleInterrupted(
-          ({ toolName, started }) =>
-            fateOf(toolName) === 'cancel' && (toolName !== 'bash' || !started),
+          (call) =>
+            (call.fate ?? 'cancel') === 'cancel' &&
+            (call.toolName !== 'bash' || !call.started),
           mcpWrites,
         );
         await Promise.all(
-          [...openToolCalls.values()].flatMap(({ toolName, done }) =>
-            done !== undefined && fateOf(toolName) === 'finish' ? [done] : [],
+          [...openToolCalls.values()].flatMap((call) =>
+            call.done !== undefined && (call.fate ?? 'cancel') !== 'cancel'
+              ? [call.done]
+              : [],
           ),
         );
 
         if (
           [...openToolCalls.values()].some(
-            ({ origin, toolName }) =>
-              origin === undefined && fateOf(toolName) === 'cancel',
+            (call) =>
+              call.origin === undefined && (call.fate ?? 'cancel') === 'cancel',
           )
         ) {
           await new Promise<void>((resolve) => {
             setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
           });
           settleInterrupted(
-            ({ toolName }) => fateOf(toolName) === 'cancel',
+            (call) => (call.fate ?? 'cancel') === 'cancel',
             mcpWrites,
           );
         }
@@ -2415,7 +2425,6 @@ export class RunExecutionService {
       // it, so drain both buffers before the call's events.
       persistReasoning(reasoningDeltas.flush());
       persistDelta(deltas.flush());
-      reserveToolRequest(toolCallId, declaration.id, args);
       const executor = toolAdditions.executorFor(declaration.id);
 
       if (executor === undefined) {
@@ -2426,8 +2435,16 @@ export class RunExecutionService {
       // separate from the Run's cancellation (run-steering D7).
       const open = openToolCalls.get(toolCallId);
 
-      const interruptSignal =
-        interruptFateOf(executor) === 'cancel' ? segment?.signal : undefined;
+      // The fate is decided from the call's own target, never from its tool
+      // name: a host command yields, and a remote one is stopped (D13).
+      const fate = interruptFateOf(executor, args, {
+        ...toolContext,
+        toolCallId,
+      });
+
+      const interruptSignal = fate === 'cancel' ? segment?.signal : undefined;
+
+      if (open !== undefined) open.fate = fate;
 
       if (open !== undefined && interruptSignal !== undefined) {
         open.interruptSignal = interruptSignal;
@@ -2439,6 +2456,7 @@ export class RunExecutionService {
         {
           ...toolContext,
           toolCallId,
+          yieldSignal: segmentYield,
           abortSignal: callAbortSignal(input.abortSignal, interruptSignal),
           onDerivedDecision: (decision) =>
             recordDerivedDecision(toolCallId, decision),
@@ -2596,18 +2614,18 @@ export class RunExecutionService {
           args: unknown,
           { toolCallId }: { toolCallId: string },
         ) => {
-          const running = executeBoundTool(declaration, args, toolCallId).then(
-            ({ executor, result }) =>
-              settleBoundTool(declaration, args, toolCallId, executor, result),
-          );
-
-          // An interrupt waits for each call whose fate is `finish`; the call's
-          // entry exists once `executeBoundTool` has reserved it.
+          reserveToolRequest(toolCallId, declaration.id, args);
+          const completion = Promise.withResolvers<void>();
           const open = openToolCalls.get(toolCallId);
 
-          if (open !== undefined) open.done = running.then(noop, noop);
+          // Reserve completion before execution can signal an interrupt.
+          if (open !== undefined) open.done = completion.promise;
 
-          return running;
+          return executeBoundTool(declaration, args, toolCallId)
+            .then(({ executor, result }) =>
+              settleBoundTool(declaration, args, toolCallId, executor, result),
+            )
+            .finally(completion.resolve);
         },
         toModelOutput: ({
           input: call,
@@ -2778,16 +2796,21 @@ export class RunExecutionService {
 
       // This call's segment controller: the run-control listener aborts it on an
       // owner interrupt while the call is in flight (run-steering D7).
-      const callSegment =
+      const callControl =
         this.segmentAborts?.beginSegment(input.runId, attemptId) ??
-        new AbortController();
+        newSegmentControl();
 
+      const callSegment = callControl.abort;
       segment = callSegment;
+      segmentYield = callControl.yield.signal;
       interruptSettlement = undefined;
       stoppedCalls.length = 0;
       const callSignal = callAbortSignal(input.abortSignal, callSegment.signal);
 
       const onInterrupt = () => {
+        // The yield comes first, so a host command returns before the
+        // settlement waits for it.
+        callControl.yield.abort();
         settleOnInterrupt().catch(noop);
       };
 
@@ -2795,7 +2818,7 @@ export class RunExecutionService {
 
       const closeSegment = () => {
         callSegment.signal.removeEventListener('abort', onInterrupt);
-        this.segmentAborts?.endSegment(input.runId, callSegment);
+        this.segmentAborts?.endSegment(input.runId, callControl);
       };
 
       const stoppedByInterrupt = (): boolean =>
@@ -2933,6 +2956,19 @@ export class RunExecutionService {
       stopCause = undefined;
 
       try {
+        // A steer that was admitted before this call began has no segment to
+        // signal, so the call reads the pending item itself (level trigger).
+        if (this.segmentAborts !== undefined) {
+          const pending = await this.tenantDb.runAs(input.userId, (tx) =>
+            new ChatDeliveriesRepository(tx).hasPendingSteering(
+              input.chatId,
+              input.userId,
+            ),
+          );
+
+          if (pending) callControl.yield.abort();
+        }
+
         const result = client.streamText({
           onRequestUsage: (usage, requestGenerationMs) => {
             requestUsageReceipts.push(usage);

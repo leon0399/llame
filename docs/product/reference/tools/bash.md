@@ -80,6 +80,16 @@ running as a job, and the output captured before the move is the start of its
 stored output. The call timeout never stops, rejects, or marks unknown a host
 command.
 
+A steer or interrupt received during a foreground host command also moves it
+to the background, with cause `message`, under the same 750 ms move window.
+The model receives that tool result before the new message is delivered. The
+command keeps running, and its result carries no interrupt marker. One message
+can move every host command in the current step. A pending message also applies
+to a host command that starts before the step delivers it. Reads and `grep`
+continue to their results on a steer; an interrupt still cancels them. SSH and
+Machine commands keep their interrupt cancellation behavior, including a
+Machine Workspace call whose `cwd` is omitted.
+
 The move has its own 750 ms window. A failed move stops the command: a proved
 stop is a `timed_out` result with the captured output and a message that names
 the failed move, and an unproved stop is `outcome_unknown`. The move and its recorded result share that window. A move not recorded

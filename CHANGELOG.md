@@ -14,10 +14,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **State the stop proof boundary (#1657).** The model-facing description and
-  tool reference promise termination of the managed process group, without
-  claiming that detached descendants are also stopped.
-
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.
@@ -39,11 +35,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
 
+- **State the stop proof boundary (#1657).** The model-facing description and
+  tool reference promise termination of the managed process group, without
+  claiming that detached descendants are also stopped.
+
 - **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
   the standard timeout header, measured duration and captured output before the
   explanation that job promotion failed.
 
 # 2026-11-11
+
+- **Yield foreground host commands on steering (#1657).** A steer or interrupt
+  moves each host command of the current step into a durable job and returns a
+  `backgrounded` result with cause `message`, without stopping its process or
+  marking its result interrupted. Pending steering is level-triggered when a
+  segment starts; reconnects re-read the owner's pending items. Promotion and
+  its result share one 750 ms window, including a command blocked on admission.
+  Normal steering leaves reads and `grep` running until their results; an
+  interrupt still cancels SSH and Machine commands. See
+  [bash](docs/product/reference/tools/bash.md).
 
 - **Add the `stop` tool for background jobs (#1657).** The model can end
   running jobs of the current Chat with `stop({ jobs })`, 1 to 16 `job://`

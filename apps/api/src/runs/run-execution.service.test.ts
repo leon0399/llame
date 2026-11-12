@@ -780,6 +780,10 @@ function mockNormalExecutionRepositories() {
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'hasPendingSteering',
+  ).mockResolvedValue(false);
 
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
@@ -20463,6 +20467,21 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
   const NOT_RUN =
     'This call did not run. The owner interrupted the step before it started. Run it again if you still need it.';
 
+  it('fails and releases the segment when its pending-steering read fails', async () => {
+    const { aborts, start, appended } = interruptRig({ native: ['read'] });
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'hasPendingSteering',
+    ).mockRejectedValueOnce(new Error('pending read unavailable'));
+
+    await expect(start()).rejects.toThrow('pending read unavailable');
+    expect(aborts.segmentAttemptOf(runId)).toBeUndefined();
+    expect(payloadOf(appended, 'run.failed')).toMatchObject({
+      status: 'failed',
+      message: 'pending read unavailable',
+    });
+  });
+
   it('settles a dispatched MCP call as unknown, records its result, and names it in the delivery', async () => {
     const { appended, aborts, start } = interruptRig({
       execute: async (context) => {
@@ -20671,7 +20690,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     expect(delivered(appended)).toMatchObject({ stoppedCalls: [] });
   });
 
-  it('kills a bash call that proves its own result and names it in the delivery', async () => {
+  it('cancels a remote bash call that proves its result and names it in the delivery', async () => {
     const proven: ToolResult = {
       status: 'error',
       type: 'cancelled',
@@ -20685,7 +20704,13 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     });
     const { appended, aborts, start } = interruptRig({ native: ['bash'] });
     const { options } = await start();
-    const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
+
     await waitForType(appended, 'tool.started');
 
     aborts.interrupt(runId, testAttemptId);
@@ -20708,7 +20733,13 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     );
     const { appended, aborts, start } = interruptRig({ native: ['bash'] });
     const { options } = await start();
-    const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
+
     await waitForType(appended, 'tool.started');
 
     aborts.interrupt(runId, testAttemptId);
@@ -20741,7 +20772,11 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       return record?.(...args) ?? Promise.reject(new Error('no append'));
     });
     const { options } = await start();
-    await executeBoundBash(options, { command: 'ls' }, 'bash-1');
+    await executeBoundBash(
+      options,
+      { command: 'ls', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
 

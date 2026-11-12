@@ -1,7 +1,7 @@
 import { interruptSettlementOf } from './tool-settlement';
 
 describe('interruptSettlementOf (run-steering D7)', () => {
-  it('Two calls of one step, one started: the call that did not start gets the not-run result', () => {
+  it('settles an unstarted read as not run and a started remote command as unknown', () => {
     const bash = interruptSettlementOf({
       toolName: 'bash',
       started: true,
@@ -23,7 +23,7 @@ describe('interruptSettlementOf (run-steering D7)', () => {
       },
       stopped: false,
     });
-    // The started call settles under its own fate: its effects are unknown.
+    // Only remote bash reaches this fallback; host calls return a job result.
     expect(bash).toMatchObject({
       result: { status: 'error', type: 'outcome_unknown' },
       stopped: true,
