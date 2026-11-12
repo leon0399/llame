@@ -1,3 +1,4 @@
+import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * Checkpoint read (surfacing) on a live DB (RLS):
  * - the owner reads the latest checkpoint by absorbed-history boundary;
@@ -175,6 +176,10 @@ describeIfDb('checkpoint surfacing — RLS + latest', () => {
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
+        { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
+          RunWaitService,
+          'wakeInTransaction'
+        >,
       );
     });
 

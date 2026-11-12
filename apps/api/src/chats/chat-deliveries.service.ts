@@ -33,6 +33,8 @@ import {
 } from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
+import { RunWaitService } from '../runs/run-wait.service';
+import { retryRunTransaction } from '../runs/run-transaction';
 
 /**
  * The owner's view of the pending items of a Chat (run-steering). Every read
@@ -50,6 +52,8 @@ export class ChatDeliveriesService {
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(RunDispatchService)
     private readonly dispatch: RunDispatcher,
+    @Inject(RunWaitService)
+    private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
 
   /** The pending items of the Chat, first to deliver first. */
@@ -107,54 +111,76 @@ export class ChatDeliveriesService {
     mode: ChangeableDeliveryMode,
     userId: string,
   ): Promise<ChatDeliveryView> {
-    const { item, job } = await this.tenantDb.runAs(userId, async (tx) => {
-      const chat = await new ChatsRepository(tx).lock(chatId, userId);
+    const { item, job } = await retryRunTransaction(() =>
+      this.tenantDb.runAs(userId, async (tx) => {
+        const chat = await new ChatsRepository(tx).lock(chatId, userId);
 
-      if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
-      assertNotArchived(chat);
-      const items = new ChatDeliveriesRepository(tx);
-      const existing = await items.findById(deliveryId, userId);
+        if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
+        assertNotArchived(chat);
+        const items = new ChatDeliveriesRepository(tx);
+        await this.requireChangeableItem(items, chatId, deliveryId, userId);
+        // The slot comes before the change: expiring a stuck Run pauses the
+        // queue behind it, which would move the item changed here back to
+        // `queue`.
+        const slot = await this.claimSlot(tx, chatId, userId);
 
-      if (existing?.chatId !== chatId)
-        throw new NotFoundException(`Delivery ${deliveryId} not found`);
+        const changed = await items.changePendingMode(
+          chatId,
+          deliveryId,
+          userId,
+          mode,
+        );
 
-      if (existing.producer === 'job')
-        throw new BadRequestException('A job notice cannot change mode');
-      // The slot comes before the change: expiring a stuck Run pauses the
-      // queue behind it, which would move the item changed here back to
-      // `queue`.
-      const slot = await this.claimSlot(tx, chatId, userId);
+        if (!changed)
+          throw await this.missOf(items, chatId, deliveryId, userId);
 
-      const changed = await items.changePendingMode(
-        chatId,
-        deliveryId,
-        userId,
-        mode,
-      );
+        if (slot === 'blocked') {
+          await notifyLiveRunSteering(
+            tx,
+            { chatId, userId },
+            mode,
+            this.runWait,
+          );
 
-      if (!changed) throw await this.missOf(items, chatId, deliveryId, userId);
+          return { item: changed, job: undefined };
+        }
 
-      if (slot === 'blocked') {
-        await notifyLiveRunSteering(tx, { chatId, userId }, mode);
-
-        return { item: changed };
-      }
-
-      resolveSendSettings(
-        this.models,
-        this.instanceConfig.config.tools.permissionModes,
-        changed.settings,
-      );
-      const started = await startItemRun(tx, changed);
-
-      if (!started) throw new ConflictException('Message id already exists');
-
-      return { item: started.delivered, job: started.job };
-    });
+        return this.startChangedItem(tx, changed);
+      }),
+    );
 
     if (job) await this.dispatch.dispatch(job);
 
     return { item, job: null };
+  }
+
+  private async requireChangeableItem(
+    items: ChatDeliveriesRepository,
+    chatId: string,
+    deliveryId: string,
+    userId: string,
+  ): Promise<void> {
+    const existing = await items.findById(deliveryId, userId);
+
+    if (existing?.chatId !== chatId)
+      throw new NotFoundException(`Delivery ${deliveryId} not found`);
+
+    if (existing.producer === 'job')
+      throw new BadRequestException('A job notice cannot change mode');
+  }
+
+  /** Validate owner-supplied settings before starting a changed pending item. */
+  private async startChangedItem(tx: Db, changed: ChatDeliveryView['item']) {
+    resolveSendSettings(
+      this.models,
+      this.instanceConfig.config.tools.permissionModes,
+      changed.settings,
+    );
+    const started = await startItemRun(tx, changed);
+
+    if (!started) throw new ConflictException('Message id already exists');
+
+    return { item: started.delivered, job: started.job };
   }
 
   private claimSlot(tx: Db, chatId: string, userId: string) {

@@ -9,6 +9,7 @@ import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { RunsRepository } from '../runs/runs-repository';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
@@ -50,6 +51,9 @@ function makeService() {
         config: { tools: { permissionModes: ['default'] }, models: [] },
       }),
       dispatcher,
+      {
+        wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+      } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     ),
     dispatcher,
     execute,

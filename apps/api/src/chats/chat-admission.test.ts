@@ -13,6 +13,7 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type JobState } from '../queue/queue';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import { type RunWaitService } from '../runs/run-wait.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { asDouble } from '../testing/support';
 import { clearActiveRunSlot, notifyLiveRunSteering } from './chat-admission';
@@ -53,6 +54,14 @@ function makeApi(state: JobState) {
     Promise.resolve(state),
   );
 
+  const runWait: Pick<
+    RunWaitService,
+    'wakeForChatInTransaction' | 'wakeInTransaction'
+  > = {
+    wakeForChatInTransaction: vi.fn(() => Promise.resolve(false)),
+    wakeInTransaction: vi.fn(() => Promise.resolve(false)),
+  };
+
   const findActiveByChatId = vi
     .spyOn(RunsRepository.prototype, 'findActiveByChatId')
     .mockResolvedValue(blockingRun);
@@ -68,9 +77,10 @@ function makeApi(state: JobState) {
     userId: blockingRun.userId,
     dispatch,
     instanceConfig,
+    runWait,
   };
 
-  return { slot, jobState, findActiveByChatId, markFinished, append };
+  return { slot, jobState, findActiveByChatId, markFinished, append, runWait };
 }
 
 afterEach(() => {
@@ -100,12 +110,68 @@ describe('clearActiveRunSlot', () => {
     );
     expect(vi.getTimerCount()).toBe(0);
   });
+  it('reads the recorded current job without initial grace', async () => {
+    const { slot, jobState, findActiveByChatId } = makeApi('active');
+    const currentJobId = 'wake-job-uuid';
+    findActiveByChatId.mockResolvedValue({
+      ...blockingRun,
+      currentJobId,
+    });
+
+    await expect(clearActiveRunSlot(slot)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(jobState).toHaveBeenCalledWith(currentJobId);
+  });
+  it('expires a recorded job immediately when queue state is absent', async () => {
+    const { slot, jobState, findActiveByChatId, markFinished } =
+      makeApi('absent');
+
+    markFinished.mockResolvedValue(undefined);
+    const currentJobId = 'missing-wake-job';
+    findActiveByChatId.mockResolvedValue({
+      ...blockingRun,
+      startedAt: new Date(),
+      currentJobId,
+    });
+
+    await clearActiveRunSlot(slot);
+
+    expect(jobState).toHaveBeenCalledWith(currentJobId);
+    expect(markFinished).toHaveBeenCalledWith(
+      blockingRun.id,
+      blockingRun.userId,
+      'expired',
+      expect.anything(),
+    );
+  });
+  it('keeps the initial run job grace when its queue state is absent', async () => {
+    const { slot, jobState, markFinished, findActiveByChatId } =
+      makeApi('absent');
+
+    findActiveByChatId.mockResolvedValue({
+      ...blockingRun,
+      startedAt: new Date(),
+      currentJobId: null,
+    });
+
+    await expect(clearActiveRunSlot(slot)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+
+    expect(jobState).toHaveBeenCalledWith(blockingRun.id);
+    expect(markFinished).not.toHaveBeenCalled();
+  });
 });
 
 describe('notifyLiveRunSteering', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  const runWait: Pick<RunWaitService, 'wakeForChatInTransaction'> = {
+    wakeForChatInTransaction: vi.fn(() => Promise.resolve(false)),
+  };
 
   it('sends the interrupt pointer for the live Run of the Chat', async () => {
     const execute = vi.fn(() => Promise.resolve([]));
@@ -119,6 +185,7 @@ describe('notifyLiveRunSteering', () => {
       tx,
       { chatId: 'chat-id', userId: 'user-id' },
       'interrupt',
+      runWait,
     );
 
     expect(find).toHaveBeenCalledWith('chat-id', 'user-id');
@@ -140,13 +207,13 @@ describe('notifyLiveRunSteering', () => {
       asDouble<Db>({ execute }),
       { chatId: 'chat-id', userId: 'user-id' },
       'steer',
+      runWait,
     );
 
     expect(JSON.stringify(execute.mock.calls)).toContain(
       JSON.stringify(JSON.stringify({ runId: blockingRun.id, kind: 'steer' })),
     );
   });
-
   it('sends nothing when the Chat holds no live Run', async () => {
     const execute = vi.fn(() => Promise.resolve([]));
     vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
@@ -157,6 +224,7 @@ describe('notifyLiveRunSteering', () => {
       asDouble<Db>({ execute }),
       { chatId: 'chat-id', userId: 'user-id' },
       'steer',
+      runWait,
     );
 
     expect(execute).not.toHaveBeenCalled();

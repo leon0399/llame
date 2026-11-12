@@ -80,7 +80,11 @@ function makeService() {
 
   const runAs: TenantRunner['runAs'] = (_user, fn) => fn(db);
 
-  return new ChatJobsService({ runAs }, { config: BUILT_IN_DEFAULTS });
+  return new ChatJobsService(
+    { runAs },
+    { config: BUILT_IN_DEFAULTS },
+    { wakeForChatInTransaction: vi.fn().mockResolvedValue(false) },
+  );
 }
 
 function script() {

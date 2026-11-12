@@ -15,11 +15,12 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
-import { retryJobTransaction } from '../jobs/bash-job-store';
+import { retryRunTransaction } from '../runs/run-transaction';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
-import { ChatsRepository } from './chats-repository';
+import { RunWaitService } from '../runs/run-wait.service';
 import { notifyRunControl } from '../runs/run-control';
+import { ChatsRepository } from './chats-repository';
 
 /**
  * The owner's view of the jobs of a Chat (background-jobs). Every read and
@@ -34,11 +35,13 @@ export class ChatJobsService {
     private readonly tenantDb: TenantRunner,
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,
+    @Inject(RunWaitService)
+    private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
 
   /** The jobs of the Chat, the live jobs first, each group oldest first. */
   list(chatId: string, userId: string): Promise<Array<ChatJob>> {
-    return retryJobTransaction(() =>
+    return retryRunTransaction(() =>
       this.tenantDb.runAs(userId, async (tx) => {
         const jobs = await this.touch(tx, chatId, userId);
         const rows = await jobs.listByChat(chatId, userId);
@@ -59,7 +62,7 @@ export class ChatJobsService {
   async stop(chatId: string, jobId: string, userId: string): Promise<ChatJob> {
     // The refusals are answered after the transaction commits: a thrown error
     // would roll back the `lost` settlement that the touch just recorded.
-    const answer = await retryJobTransaction(() =>
+    const answer = await retryRunTransaction(() =>
       this.tenantDb.runAs(userId, async (tx) => {
         const jobs = await this.touch(tx, chatId, userId);
 
@@ -121,11 +124,22 @@ export class ChatJobsService {
 
     const jobs = new ChatJobsRepository(tx);
 
-    await jobs.settleOnDeadWorkers(
+    const settled = await jobs.settleOnDeadWorkers(
       chatId,
       userId,
       workerDeadAfterSeconds(this.instanceConfig.config),
     );
+
+    const job = settled[0];
+
+    if (job) {
+      await this.runWait.wakeForChatInTransaction(tx, {
+        chatId,
+        userId,
+        jobId: job.id,
+        kind: 'settlement',
+      });
+    }
 
     return jobs;
   }

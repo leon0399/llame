@@ -32,6 +32,7 @@ import {
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
@@ -159,6 +160,9 @@ describeIfDb('follow-up admission', () => {
       bridge,
       dispatch,
       new MediaService(tenantDb),
+      {
+        wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+      } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     );
 
     const admission = new FollowUpAdmissionService(

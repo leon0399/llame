@@ -11,6 +11,7 @@ import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { recordJobSettlementNotice } from './job-notices';
 import { type NewArtifactPart } from '../tools/artifacts/artifacts-repository';
 import { type JobNoticeRunService } from '../runs/job-notice-run.service';
+import { retryRunTransaction } from '../runs/run-transaction';
 
 type JobCompletion = {
   readonly output: ManagedOutput;
@@ -60,7 +61,7 @@ export async function settleBashJob(
   completion: JobCompletion,
   context: JobSettlementContext,
 ): Promise<void> {
-  const artifact = await retryJobTransaction(() =>
+  const artifact = await retryRunTransaction(() =>
     tenantDb.runAs(job.ownerUserId, (tx) =>
       settleInTransaction(tx, job, completion, context),
     ),
@@ -159,19 +160,6 @@ function writeJobArtifact(
 
     return written;
   });
-}
-
-export async function retryJobTransaction<T>(
-  work: () => Promise<T>,
-): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await work();
-    } catch (error) {
-      if (attempt < 4 && isRetryableJobError(error)) continue;
-      throw error;
-    }
-  }
 }
 
 function isRetryableJobError(error: unknown): boolean {

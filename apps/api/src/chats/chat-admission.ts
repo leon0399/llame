@@ -7,6 +7,7 @@
 
 import { ConflictException } from '@nestjs/common';
 
+import { type RunWaitService } from '../runs/run-wait.service';
 import { type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -159,11 +160,24 @@ export async function notifyLiveRunSteering(
   tx: Db,
   chat: { chatId: string; userId: string },
   kind: 'steer' | 'interrupt',
+  runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
 ): Promise<void> {
   const live = await new RunsRepository(tx).findActiveByChatId(
     chat.chatId,
     chat.userId,
   );
 
-  if (live) await notifyRunControl(tx, { runId: live.id, kind });
+  if (!live) return;
+
+  if (live.status === 'awaiting_jobs') {
+    await runWait.wakeForChatInTransaction(tx, {
+      chatId: chat.chatId,
+      userId: chat.userId,
+      kind,
+    });
+
+    return;
+  }
+
+  await notifyRunControl(tx, { runId: live.id, kind });
 }

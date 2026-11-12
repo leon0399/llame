@@ -41,6 +41,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { type RunJob } from '../runs/run-queues';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
@@ -437,6 +438,9 @@ describeIfDb(
         bridge,
         dispatch,
         new MediaService(tenantDb),
+        {
+          wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+        } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
       );
 
       // The window variant is never exercised by this suite: every seeded turn
@@ -1262,6 +1266,9 @@ describeIfDb(
         { createUiMessageStreamResponse: vi.fn() },
         dispatch,
         new MediaService(tenantDb),
+        {
+          wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+        } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
       );
 
       const before = await tenantDb.runAs(userId, async (tx) => ({

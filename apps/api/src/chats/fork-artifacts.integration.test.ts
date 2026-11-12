@@ -1,3 +1,4 @@
+import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * The owner fork copies the artifacts its copied tool parts name
  * (tool-result-artifacts D11): the same locators resolve in the fork, a deleted
@@ -45,6 +46,10 @@ d('fork artifact copy', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
+      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
+        RunWaitService,
+        'wakeInTransaction'
+      >,
     );
     owner = crypto.randomUUID();
     stranger = crypto.randomUUID();

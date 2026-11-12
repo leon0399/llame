@@ -9,6 +9,7 @@ import { settleBashJob } from '../jobs/bash-job-store';
 import { RunsRepository } from './runs-repository';
 import { randomUUID } from 'node:crypto';
 import { ChatDeliveriesService } from '../chats/chat-deliveries.service';
+import { RunWaitService } from './run-wait.service';
 import { promoteNextQueueItem } from './queue-promotion';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -207,6 +208,7 @@ describe('held job notices', () => {
       { createUiMessageStreamResponse: () => new Response() },
       fx.harness.dispatch,
       new MediaService(fx.harness.tenantDb),
+      fx.harness.moduleRef.get(RunWaitService),
     );
 
     const ownerText = 'owner text after the completed background job';
@@ -307,6 +309,7 @@ describe('held job notices', () => {
       fx.harness.models,
       { config: BUILT_IN_DEFAULTS },
       fx.harness.dispatch,
+      fx.harness.moduleRef.get(RunWaitService),
     );
 
     const changed = await deliveries.changeMode(
@@ -352,6 +355,7 @@ describe('held job notices', () => {
         jobState: () => Promise.resolve('absent'),
       },
       new MediaService(fx.harness.tenantDb),
+      fx.harness.moduleRef.get(RunWaitService),
     );
 
     await expect(
@@ -514,6 +518,7 @@ describe('held job notices', () => {
         { createUiMessageStreamResponse: () => new Response() },
         fx.harness.dispatch,
         new MediaService(fx.harness.tenantDb),
+        fx.harness.moduleRef.get(RunWaitService),
       );
 
       const ownerText = `owner request after ${jobState} job result`;
