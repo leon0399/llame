@@ -265,6 +265,13 @@ export const ProjectDefault: Story = {
       "Work in, master",
     );
     await expect(sentRoutes()).toContain(`GET ${PREVIEW_PATH}`);
+    await userEvent.click(await cell(canvasElement, /^Folder, /));
+    await userEvent.click(
+      await screen.findByRole("menuitemradio", { name: /nas:.*llame/ }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { hidden: true })).toBeNull();
+    });
   },
 };
 

@@ -62,6 +62,7 @@ function DirectoryItem({ option }: { option: WorkingDirectoryOption }) {
   return (
     <DropdownMenuRadioItem
       value={option.checkoutId}
+      closeOnClick
       aria-label={`${option.machine}: ${option.path}`}
     >
       <span className="flex min-w-0 flex-col">
