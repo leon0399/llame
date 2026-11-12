@@ -91,6 +91,10 @@ test.describe("Esc during a Run", () => {
     await expect(stack.getByText("queued while the Run works")).toBeVisible();
 
     await input.fill("my unsent draft");
+    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(
+      page.getByRole("dialog", { name: "Command palette" }),
+    ).toBeHidden();
     await input.press("Escape");
 
     await expect

@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-12
+
+- Synchronize browser checks with the surfaces they exercise: Esc waits for
+  menus and the command palette to close, Knowledge expansion waits for the
+  reloaded composer, and action-row reveal waits for its opacity transition.
+  Each interaction remains a single action, with the original final assertions.
+
 # 2026-11-10
 
 - Reconcile the vendored anti-slop Oxlint plugin with upstream
