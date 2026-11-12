@@ -180,7 +180,11 @@ export const Empty: Story = {
   },
 };
 
-/** A job notice names its job and state, with delete as its only action. */
+/**
+ * A job notice names its job and state, with delete as its only action.
+ *
+ * @summary a job notice names its job and state, with delete as its only action
+ */
 export const JobNotice: Story = {
   args: {
     paused: true,
