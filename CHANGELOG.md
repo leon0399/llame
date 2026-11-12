@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-12
+
+- Preserve the SSH subprocess's exit classification when it closes stdin
+  before accepting all input. A broken input pipe no longer escapes as an
+  uncaught stream error during a bounded SSH read or command.
+
 # 2026-11-10
 
 - Reconcile the vendored anti-slop Oxlint plugin with upstream

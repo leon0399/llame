@@ -15,7 +15,7 @@ import {
 import { userInfo } from 'node:os';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { PassThrough } from 'node:stream';
+import { PassThrough, Writable } from 'node:stream';
 
 import {
   createSshClient,
@@ -28,7 +28,7 @@ import { type SshSpawn } from './ssh-process';
 type FakeSsh = {
   readonly stdout: PassThrough;
   readonly stderr: PassThrough;
-  readonly stdin: PassThrough;
+  readonly stdin: Writable;
   readonly kill: () => void;
   onError(handler: (error: Error) => void): void;
   onClose(handler: (code: number | null, signal: string | null) => void): void;
@@ -46,7 +46,9 @@ type Harness = {
   readonly processes: Array<FakeSsh>;
 };
 
-function fakeSpawn(): Harness {
+function fakeSpawn(
+  stdinFactory: () => Writable = () => new PassThrough(),
+): Harness {
   const calls: Harness['calls'] = [];
   const processes: Harness['processes'] = [];
 
@@ -57,7 +59,7 @@ function fakeSpawn(): Harness {
       calls.push({ command, args });
       const stdout = new PassThrough();
       const stderr = new PassThrough();
-      const stdin = new PassThrough();
+      const stdin = stdinFactory();
       let input = '';
       stdin.on('data', (chunk: Buffer | string) => {
         input += String(chunk);
@@ -90,8 +92,8 @@ function fakeSpawn(): Harness {
 
 const SSH = { knownHostsFile: '/etc/llame/known_hosts' };
 
-function fakeClient() {
-  const harness = fakeSpawn();
+function fakeClient(stdinFactory?: () => Writable) {
+  const harness = fakeSpawn(stdinFactory);
 
   const configFile = {
     path: '/run/llame/ssh_config',
@@ -579,6 +581,39 @@ describe('createSshClient.run', () => {
     if (outcome.outcome !== 'ended') throw new Error('expected an end');
     expect(outcome.stdout).toEqual(Buffer.from('ok'));
   });
+
+  it.each([0, 23])(
+    'keeps ssh exit classification when the child closes stdin early (exit %i)',
+    async (exitCode) => {
+      const { client, harness } = fakeClient(
+        () =>
+          new Writable({
+            write(_chunk, _encoding, callback) {
+              callback(
+                Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }),
+              );
+            },
+          }),
+      );
+
+      const pending = client.run({
+        destination: 'box',
+        remoteCommand: ['sh', '-s'],
+        input: 'payload that ssh no longer accepts',
+        maxStdoutBytes: 1024,
+        deadlineMs: 5000,
+      });
+
+      const process = harness.processes[0];
+
+      if (process === undefined) throw new Error('expected a spawned ssh');
+      process.close(exitCode);
+
+      const outcome = await pending;
+      await tick();
+      expect(outcome).toMatchObject({ outcome: 'ended', code: exitCode });
+    },
+  );
 
   it('settles once when ssh closes and then reports an error', async () => {
     const { client, harness } = fakeClient();
