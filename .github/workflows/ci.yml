@@ -48,8 +48,39 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
+  changes:
+    name: Product change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      product: ${{ steps.scope.outputs.product }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - id: scope
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            base=HEAD^1
+          elif [ "$EVENT" = push ] && [ "$BEFORE" != 0000000000000000000000000000000000000000 ]; then
+            base="$BEFORE"
+          else
+            echo "product=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git diff --name-only --no-renames -z "$base" HEAD |
+            node scripts/ci-product-scope.mjs >>"$GITHUB_OUTPUT"
+
   typecheck:
     name: Typecheck
+    needs: [changes]
+    if: ${{ needs.changes.outputs.product == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -67,9 +98,11 @@ jobs:
 
   test:
     name: Tests
-    # Nightly and on-demand runs exist for API DAST only.
+    needs: [changes]
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     uses: ./.github/workflows/test.yml
+    with:
+      product: ${{ needs.changes.outputs.product == 'true' }}
     permissions:
       contents: read
       # OIDC for the Codecov coverage and Test Analytics uploads.
@@ -77,26 +110,36 @@ jobs:
 
   build:
     name: Build
+    needs: [changes]
     uses: ./.github/workflows/build.yml
+    with:
+      product: ${{ needs.changes.outputs.product == 'true' }}
 
   mutation:
     name: Mutation testing
+    needs: [changes]
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     uses: ./.github/workflows/mutation.yml
+    with:
+      product: ${{ needs.changes.outputs.product == 'true' }}
 
   e2e:
     name: Product e2e
+    needs: [changes]
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     uses: ./.github/workflows/e2e.yml
+    with:
+      product: ${{ needs.changes.outputs.product == 'true' }}
     permissions:
       contents: read
       # OIDC for the Test Analytics upload.
       id-token: write
 
-  # Always called: a pull request that does not change the API reports the
-  # scanner jobs as skipped, rather than leaving them pending.
+  # DAST retains its narrower API scope for product-relevant pull requests.
   dast:
     name: API DAST
+    needs: [changes]
+    if: ${{ needs.changes.outputs.product == 'true' }}
     uses: ./.github/workflows/dast.yml
     permissions:
       contents: read

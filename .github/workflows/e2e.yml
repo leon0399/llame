@@ -8,6 +8,11 @@ name: Product e2e
 
 on:
   workflow_call:
+    inputs:
+      product:
+        type: boolean
+        default: true
+        description: Run product E2E tests.
 
 permissions:
   contents: read
@@ -18,6 +23,7 @@ env:
 jobs:
   playwright:
     name: Playwright
+    if: ${{ inputs.product }}
     # Pinned, not ubuntu-latest: that label moved to Ubuntu 26.04, and the
     # catalog's Playwright (1.55.1) ships no Chromium for it, so
     # `playwright install --with-deps` fails before any test. 24.04 (noble)
