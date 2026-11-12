@@ -21,7 +21,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   settled-job facts and output suffixes as data. Owner-scoped database reads
   transfer only bounded output tails; verified existing artifact caches can
   supply a host-directory hint without putting it in semantic metadata.
-  Owner event projections omit private consumed-notice identifiers. This
+  Owner event projections omit private consumed-notice identifiers. A delivered
+  notice is authored only by its receiving Run; later dispatches reuse its
+  stored item verbatim while newly delivered notices remain eligible. This
   prerequisite creates no live notice and activates no Run-boundary delivery.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
