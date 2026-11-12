@@ -50,6 +50,7 @@ import {
   ModelsService,
   type ModelSelectionValidator,
 } from '../models/models.service';
+import type { RunWaitService } from './run-wait.service';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -364,6 +365,9 @@ describeIfDb(
         bridge,
         dispatcher,
         new MediaService(tenantDb),
+        {
+          wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+        } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
       );
 
       // Every seeded turn fits the model's window, so a window summary request

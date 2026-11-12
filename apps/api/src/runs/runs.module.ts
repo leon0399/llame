@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { RunAbortRegistry } from './run-abort-registry';
+import { RunQueueModule } from './run-queue.module';
 import { RunsController } from './runs.controller';
 
 /**
@@ -10,7 +11,7 @@ import { RunsController } from './runs.controller';
  * importable by any process that serves clients.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, RunQueueModule],
   controllers: [RunsController],
   providers: [RunAbortRegistry],
   exports: [RunAbortRegistry],

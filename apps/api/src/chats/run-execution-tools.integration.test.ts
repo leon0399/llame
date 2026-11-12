@@ -1,3 +1,4 @@
+import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * Tool-loop persistence integration test (openspec/changes/tool-calling-loop).
  *
@@ -786,9 +787,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
         tenantDb,
         { instanceId: crypto.randomUUID() },
         resolved.instanceConfig,
-        new JobNoticeRunService(resolved.models, resolved.instanceConfig, {
-          enqueueInTransaction: async () => {},
-        }),
+        new JobNoticeRunService(
+          resolved.models,
+          resolved.instanceConfig,
+          {
+            enqueueInTransaction: async () => {},
+          },
+          {
+            wakeForChatInTransaction: () => Promise.resolve(false),
+          } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
+        ),
       ),
     );
   }
@@ -7707,6 +7715,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
           noopReindexDispatch(),
           noopEmbedDispatch(),
           noopQueryEmbedder(),
+          { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
+            RunWaitService,
+            'wakeInTransaction'
+          >,
         );
 
         const forked = await chats.forkChat(seeded.chatId, userId);

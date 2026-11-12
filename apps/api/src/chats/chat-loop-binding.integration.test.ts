@@ -43,6 +43,7 @@ import {
   isRecencyDigestItem,
 } from './context-item-producers';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
@@ -641,6 +642,9 @@ describe('ChatLoopService accept/worker context binding', () => {
       bridge,
       dispatcher,
       new MediaService(tenantDb),
+      {
+        wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+      } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     );
 
     // The window variant is never exercised by this suite: every seeded turn

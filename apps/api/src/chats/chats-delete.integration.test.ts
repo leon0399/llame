@@ -1,3 +1,4 @@
+import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * Chat deletion on a live DB (RLS + FK cascade):
  * - owner delete removes the chat AND cascades its messages;
@@ -133,6 +134,10 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
+      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
+        RunWaitService,
+        'wakeInTransaction'
+      >,
     );
 
     let deleted: boolean;

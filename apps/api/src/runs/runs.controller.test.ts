@@ -8,8 +8,8 @@ import {
   type SystemPromptReceipt,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { RunsController } from './runs.controller';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunsController } from './runs.controller';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 type RunEventRequest = Parameters<RunsController['streamRunEvents']>[3];
@@ -66,7 +66,9 @@ describe('RunsController context receipt', () => {
     const tenantDb: TenantRunner = { runAs };
     vi.spyOn(tenantDb, 'runAs');
 
-    return new RunsController(tenantDb);
+    return new RunsController(tenantDb, {
+      wakeInTransaction: vi.fn().mockResolvedValue(false),
+    });
   }
 
   function request(

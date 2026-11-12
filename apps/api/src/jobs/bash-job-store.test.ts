@@ -3,12 +3,9 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { retryRunTransaction } from '../runs/run-transaction';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
-import {
-  appendJobOutput,
-  retryJobTransaction,
-  settleBashJob,
-} from './bash-job-store';
+import { appendJobOutput, settleBashJob } from './bash-job-store';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 
 const OWNER = 'owner';
@@ -346,7 +343,7 @@ describe('bash-job-store', () => {
     );
   });
 
-  describe('retryJobTransaction', () => {
+  describe('retryRunTransaction', () => {
     it.each(['40P01', '40001'])(
       'retries a %s and returns the later result',
       async (state) => {
@@ -355,7 +352,7 @@ describe('bash-job-store', () => {
           .mockRejectedValueOnce(code(state))
           .mockResolvedValue('done');
 
-        await expect(retryJobTransaction(work)).resolves.toBe('done');
+        await expect(retryRunTransaction(work)).resolves.toBe('done');
         expect(work).toHaveBeenCalledTimes(2);
       },
     );
@@ -363,14 +360,14 @@ describe('bash-job-store', () => {
     it('does not retry an unrelated error', async () => {
       const work = vi.fn().mockRejectedValue(code('23505'));
 
-      await expect(retryJobTransaction(work)).rejects.toThrow('23505');
+      await expect(retryRunTransaction(work)).rejects.toThrow('23505');
       expect(work).toHaveBeenCalledTimes(1);
     });
 
     it('gives up with the last error after five attempts', async () => {
       const work = vi.fn().mockRejectedValue(code('40P01'));
 
-      await expect(retryJobTransaction(work)).rejects.toThrow('40P01');
+      await expect(retryRunTransaction(work)).rejects.toThrow('40P01');
       expect(work).toHaveBeenCalledTimes(5);
     });
   });

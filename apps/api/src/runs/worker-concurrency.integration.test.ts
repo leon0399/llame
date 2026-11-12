@@ -23,6 +23,7 @@ import { ChatLoopService } from '../chats/chat-loop.service';
 import { isInflightUniqueViolation } from '../chats/inflight-unique-violation';
 import { MessagesRepository } from '../chats/chats-repository';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { RunWaitService } from './run-wait.service';
 import { MediaService } from '../media/media.service';
 import { searchChatDocuments } from '../db/schema/search';
 import { waitFor } from '../testing/support';
@@ -378,6 +379,7 @@ describeIfDb(
           bridge,
           harness.dispatch,
           new MediaService(harness.tenantDb),
+          harness.moduleRef.get(RunWaitService, { strict: false }),
         );
 
         await expect(
