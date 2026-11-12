@@ -586,6 +586,34 @@ describe('surfaces without model identity carry no effort', () => {
 });
 
 describe('toChatMessageResponse — owner egress preserves stored parts', () => {
+  it.each([
+    ['user', null, true],
+    ['user', 'owner-id', false],
+    ['assistant', null, false],
+    ['system', null, false],
+    ['tool', null, false],
+  ] as const)(
+    'classifies %s with sender %s as host=%s',
+    (role, senderUserId, host) => {
+      const message: Message = {
+        id: 'message-id',
+        chatId: 'chat-id',
+        seq: 1,
+        role,
+        senderUserId,
+        parts: [],
+        attachments: [],
+        usage: null,
+        inReplyTo: null,
+        absorbedThroughSeq: null,
+        revisedAt: null,
+        createdAt: new Date('2026-11-12T00:00:00.000Z'),
+      };
+
+      expect(toChatMessageResponse(message).host).toBe(host);
+    },
+  );
+
   it('returns every stored part unchanged and in its persisted order', () => {
     const parts = [
       {
@@ -876,6 +904,7 @@ it('adds checkpoint boundary, payload summary, count, and usage stats to owner r
 
   expect(toChatMessageResponse(message)).toMatchObject({
     role: 'checkpoint',
+    host: false,
     absorbedThroughSeq: 7,
     absorbedMessageCount: 3,
     summary: 'Summarized earlier turns.',
@@ -912,6 +941,40 @@ describe('toSharedChatResponse — public-share egress allowlist (tool-calling-l
       ...overrides,
     };
   }
+
+  it('omits the entire host row while retaining its visible assistant reply', () => {
+    const host = fakeMessage({
+      id: 'host-id',
+      role: 'user',
+      senderUserId: null,
+      parts: [
+        {
+          type: 'data-context',
+          data: {
+            v: 1,
+            producer: 'job',
+            form: 'notice',
+            runId: '11111111-1111-4111-8111-111111111111',
+            payload: { job: 'job://bash-7', state: 'failed' },
+            text: '<system-reminder>PRIVATE_JOB_OUTPUT</system-reminder>',
+          },
+        },
+      ],
+    });
+
+    const reply = fakeMessage({
+      id: 'reply-id',
+      inReplyTo: host.id,
+      parts: [{ type: 'text', text: 'Visible answer' }],
+    });
+
+    const response = toSharedChatResponse(fakeChat, [host, reply]);
+
+    expect(response.messages.map((message) => message.id)).toEqual([
+      'reply-id',
+    ]);
+    expect(JSON.stringify(response)).not.toContain('PRIVATE_JOB_OUTPUT');
+  });
 
   it('omits the owner-only Workspace binding from the shared projection', () => {
     const dto = toSharedChatResponse(fakeChat, []);
