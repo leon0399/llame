@@ -58,7 +58,9 @@ function makeService() {
       ChatDeliveriesRepository.prototype,
       'withdrawPending',
     ),
-    findItem: vi.spyOn(ChatDeliveriesRepository.prototype, 'findById'),
+    findItem: vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'findById')
+      .mockResolvedValue(item),
     findActiveRun: vi.spyOn(RunsRepository.prototype, 'findActiveByChatId'),
     createMessage: vi.spyOn(
       MessagesRepository.prototype,

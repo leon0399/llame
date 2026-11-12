@@ -299,7 +299,7 @@ describe('chat deliveries — the queue mode', () => {
           .set('Cookie', cookieA)
           .send({ mode });
 
-        expect(changed.status).toBe(409);
+        expect(changed.status).toBe(400);
       }
 
       expect(await runsOf(chatId)).toEqual([]);
@@ -321,6 +321,29 @@ describe('chat deliveries — the queue mode', () => {
       expect(await itemsOf(chatId)).toMatchObject([{ state: 'withdrawn' }]);
       const after = await request(http).get(url).set('Cookie', cookieA);
       expect(after.body).toEqual({ items: [] });
+    });
+
+    it('refuses a notice mode change without expiring a stale Run', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+      await tenantDb.runAs(userAId, (tx) =>
+        tx.execute(
+          sql`UPDATE runs SET created_at = now() - interval '2 days', started_at = now() - interval '2 days' WHERE id = ${runId}`,
+        ),
+      );
+
+      const before = await runsOf(chatId);
+
+      const response = await request(http)
+        .patch(`/api/v1/chats/${chatId}/deliveries/${notice.id}`)
+        .set('Cookie', cookieA)
+        .send({ mode: 'interrupt' });
+
+      expect(response.status).toBe(400);
+      expect(await runsOf(chatId)).toEqual(before);
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, mode: 'notice', state: 'pending' },
+      ]);
     });
 
     it('leaves a job notice pending when a failed Run pauses owner items', async () => {
