@@ -25,6 +25,50 @@ export async function discardedJobNoticeIds(input: {
   return readConsumedNoticeIds(input, segmentStart, currentStart);
 }
 
+/** Receipts consumed in the source Run's final segment, for its Regenerate. */
+export async function sourceSegmentJobNoticeIds(input: {
+  readonly tx: Db;
+  readonly sourceRunId: string;
+  readonly chatId: string;
+  readonly ownerUserId: string;
+}): Promise<Array<string>> {
+  const [delivered] = await input.tx
+    .select({ sequence: runEvents.sequence })
+    .from(runEvents)
+    .innerJoin(runs, eq(runEvents.runId, runs.id))
+    .where(
+      and(
+        eq(runEvents.runId, input.sourceRunId),
+        eq(runs.chatId, input.chatId),
+        eq(runs.userId, input.ownerUserId),
+        eq(runEvents.eventType, 'run.delivered'),
+      ),
+    )
+    .orderBy(desc(runEvents.sequence))
+    .limit(1);
+
+  const rows = await input.tx
+    .select({
+      receipts: sql<unknown>`${runEvents.payload}->'consumedJobNoticeIds'`,
+    })
+    .from(runEvents)
+    .innerJoin(runs, eq(runEvents.runId, runs.id))
+    .where(
+      and(
+        eq(runEvents.runId, input.sourceRunId),
+        eq(runs.chatId, input.chatId),
+        eq(runs.userId, input.ownerUserId),
+        eq(runEvents.eventType, 'tool.completed'),
+        gt(runEvents.sequence, delivered?.sequence ?? 0),
+      ),
+    )
+    .orderBy(asc(runEvents.sequence));
+
+  return rows.flatMap(({ receipts }) =>
+    Array.isArray(receipts) ? receipts.filter(isString) : [],
+  );
+}
+
 async function currentAttemptStart(input: {
   readonly tx: Db;
   readonly runId: string;

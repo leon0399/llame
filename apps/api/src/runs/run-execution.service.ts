@@ -88,6 +88,7 @@ import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createJobNoticeContext } from './job-notice-context';
+import { sourceSegmentJobNoticeIds } from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
@@ -7240,23 +7241,52 @@ export class RunExecutionService {
       throw new CancellationRecordedError(run.runId);
     }
 
-    const deliveryIds = await new RunEventsRepository(tx).discardedJobNoticeIds(
+    const events = new RunEventsRepository(tx);
+
+    const deliveryIds = await events.discardedJobNoticeIds(
       run.runId,
       run.userId,
       input.attemptId,
     );
 
-    if (deliveryIds.length > 0) {
+    const firstRegenerateDispatch =
+      run.followUpAction === 'regenerate' &&
+      !(await events.findFirstByType(run.runId, run.userId, 'model.requested'));
+
+    const sourceDeliveryIds =
+      firstRegenerateDispatch && fenced.sourceRunId !== null
+        ? await sourceSegmentJobNoticeIds({
+            tx,
+            sourceRunId: fenced.sourceRunId,
+            chatId: run.chatId,
+            ownerUserId: run.userId,
+          })
+        : [];
+
+    if (deliveryIds.length > 0 || sourceDeliveryIds.length > 0) {
       if (!(await new ChatsRepository(tx).lock(run.chatId, run.userId))) {
         throw new RunNotRunnableError(run.runId);
       }
 
-      await new ChatDeliveriesRepository(tx).restoreJobNotices({
-        chatId: run.chatId,
-        ownerUserId: run.userId,
-        runId: run.runId,
-        deliveryIds,
-      });
+      const deliveries = new ChatDeliveriesRepository(tx);
+
+      if (deliveryIds.length > 0) {
+        await deliveries.restoreJobNotices({
+          chatId: run.chatId,
+          ownerUserId: run.userId,
+          runId: run.runId,
+          deliveryIds,
+        });
+      }
+
+      if (sourceDeliveryIds.length > 0 && fenced.sourceRunId !== null) {
+        await deliveries.restoreJobNotices({
+          chatId: run.chatId,
+          ownerUserId: run.userId,
+          runId: fenced.sourceRunId,
+          deliveryIds: sourceDeliveryIds,
+        });
+      }
     }
 
     const stored = await new AcceptedTurnPartsRepository(tx).storeAtDispatch({
