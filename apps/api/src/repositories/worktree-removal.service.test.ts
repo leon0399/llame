@@ -15,7 +15,6 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Mock } from 'vitest';
 
-import * as schema from '../db/schema';
 import { type Checkout } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -164,7 +163,7 @@ function service(
     readonly group?: PermissionGroup;
   } = {},
 ): RemovalUnderTest {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const runner = {
     runAs: async <T>(_userId: string, operation: (tx: Db) => Promise<T>) =>

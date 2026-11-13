@@ -139,7 +139,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = postgres(TEST_DB_URL!, { ssl, max: 5 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     service = new ChatsService(
       tenantDb,

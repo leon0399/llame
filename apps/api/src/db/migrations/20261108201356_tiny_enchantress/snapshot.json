@@ -1,0 +1,394 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "46b7b677-7c67-4fd0-b81a-06c35269cbb3",
+  "prevIds": ["2f6f6ed9-373a-49ca-b977-83817ef69de8"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "chat_deliveries"],
+      "writes": [
+        "s|tbl|public.chat_deliveries",
+        "n|tbl|public.chat_deliveries",
+        "e|tbl|public.chat_deliveries",
+        "n|rel|public.chat_deliveries",
+        "n|type|public.chat_deliveries",
+        "n|rel|public.chat_deliveries_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "chat_deliveries",
+        "chat_deliveries_chat_pending_idx"
+      ],
+      "writes": [
+        "s|idx|public.chat_deliveries_chat_pending_idx",
+        "n|idx|public.chat_deliveries_chat_pending_idx",
+        "e|idx|public.chat_deliveries_chat_pending_idx",
+        "n|rel|public.chat_deliveries_chat_pending_idx"
+      ],
+      "reads": [
+        "n|tbl|public.chat_deliveries",
+        "n|sch|public",
+        "n|col|public.chat_deliveries.chat_id",
+        "n|col|public.chat_deliveries.position"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "chat_deliveries"],
+      "writes": [
+        "s|fk|public.chat_deliveries.chat_deliveries_chat_id_owner_user_id_fk",
+        "n|fk|public.chat_deliveries.chat_deliveries_chat_id_owner_user_id_fk",
+        "e|fk|public.chat_deliveries.chat_deliveries_chat_id_owner_user_id_fk",
+        "n|con|public.chat_deliveries.chat_deliveries_chat_id_owner_user_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.chat_deliveries",
+        "n|sch|public",
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.chat_deliveries.chat_id",
+        "n|col|public.chat_deliveries.owner_user_id",
+        "n|col|public.chats.id",
+        "n|col|public.chats.owner_user_id",
+        "e|uniqueness|public.chats.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "chat_deliveries"],
+      "writes": [
+        "s|pol|public.chat_deliveries.chat_deliveries_owner",
+        "n|pol|public.chat_deliveries.chat_deliveries_owner",
+        "e|pol|public.chat_deliveries.chat_deliveries_owner"
+      ],
+      "reads": [
+        "n|tbl|public.chat_deliveries",
+        "n|sch|public",
+        "e|rls|public.chat_deliveries"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "chat_deliveries",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "chat_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "producer",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "sender_ref",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "mode",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "parts",
+        "type": "json",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "settings",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "state",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'pending'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "position",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": {
+          "name": "chat_deliveries_position_seq",
+          "type": "byDefault",
+          "startWith": "1",
+          "minValue": "1",
+          "maxValue": "9223372036854775807",
+          "increment": "1",
+          "cache": 1,
+          "cycle": false
+        },
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "delivered_message_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "run_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "chat_deliveries_chat_pending_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "position",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": "state = 'pending'",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "chat_deliveries_chat_id_owner_user_id_fk",
+        "nameExplicit": true,
+        "columns": ["chat_id", "owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "chats",
+        "columnsTo": ["id", "owner_user_id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "chat_deliveries_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "chat_deliveries_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    }
+  ]
+}

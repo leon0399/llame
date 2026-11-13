@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { ZodError } from 'zod';
 
 import { ChatsRepository } from '../chats/chats-repository';
-import * as schema from '../db/schema';
+
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type CanonicalHydrationRow } from '../search/chat/canonical-search-hydrator';
 import {
@@ -71,7 +71,7 @@ function fakeContext(
     ReadonlyArray<CanonicalHydrationRow | { line_id: number }>
   > = [],
 ): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(ChatsRepository.prototype, 'searchByOwner').mockResolvedValue(rows);
 
   if (executeRows.length > 0) {

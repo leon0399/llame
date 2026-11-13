@@ -9,7 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { type Db } from '../db/tenant-db.service';
 import { isString } from '@workspace/runtime-safety';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -40,7 +40,7 @@ function testContext(
   toolCallId = 'call-1',
   onNativeMutationUnknown?: () => void,
 ): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     configuredCredentials: [],

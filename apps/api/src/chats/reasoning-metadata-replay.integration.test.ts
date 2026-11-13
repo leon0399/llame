@@ -25,7 +25,6 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type ModelClient,
@@ -218,7 +217,7 @@ describeWithDatabase(
     beforeAll(async () => {
       const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
       sql = postgres(TEST_DB_URL, { ssl, max: 5 });
-      const db: Db = drizzle(sql, { schema });
+      const db: Db = drizzle({ client: sql });
       tenantDb = new TenantDbService(db);
 
       // The window variant is never exercised here: every seeded context fits

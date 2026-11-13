@@ -14,7 +14,6 @@
 import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { MachinesConfig } from '../instance-config/machines-config';
@@ -117,10 +116,10 @@ describe('MachinesProbeService', () => {
     const reachable = vi.spyOn(connector, 'reachable').mockResolvedValue(true);
 
     const status = new MachinesStatusRepository(
-      drizzle.mock({ schema }),
+      drizzle.mock(),
       new TenantDbService({
         transaction: async <T>(callback: (tx: Db) => Promise<T>) =>
-          callback(drizzle.mock({ schema })),
+          callback(drizzle.mock()),
       }),
     );
 

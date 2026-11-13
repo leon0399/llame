@@ -116,7 +116,7 @@ describeIfDb('follow-up admission', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     const sql = postgres(TEST_DB_URL!, { ssl, max: 5 });
-    const db = drizzle(sql, { schema });
+    const db = drizzle({ client: sql });
     const tenantDb = new TenantDbService(db);
     const userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Follow Up', ${`follow-up-${userId}@test.com`})`;

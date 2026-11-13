@@ -1,0 +1,77 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "3102dfc3-4d43-4750-8b4e-94f2e67ed86e",
+  "prevIds": ["9dccb6cb-5e6b-487e-9968-57a940be7a3b"],
+  "footprints": [
+    {
+      "statementType": "drop_column",
+      "statementTarget": ["column", "public", "chats", "title_manually_set_at"],
+      "writes": [
+        "s|col|public.chats.title_manually_set_at",
+        "n|col|public.chats.title_manually_set_at",
+        "e|col|public.chats.title_manually_set_at"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "chats", "title"],
+      "writes": [
+        "s|colprop|public.chats.title.notNull",
+        "s|colprop|public.chats.title.default"
+      ],
+      "reads": [
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.chats.title"
+      ],
+      "sqlHash": "070437cda4de6b4e"
+    },
+    {
+      "statementType": "recreate_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "sessions",
+        "sessions_user_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.sessions_user_created_idx",
+        "n|idx|public.sessions_user_created_idx",
+        "e|idx|public.sessions_user_created_idx",
+        "n|rel|public.sessions_user_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.sessions",
+        "n|sch|public",
+        "n|col|public.sessions.user_id",
+        "n|col|public.sessions.created_at"
+      ],
+      "sharedWrites": ["e|uniqueness|public.sessions.created_at.user_id"],
+      "sqlHash": "2914d637d4e21658"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chats\",\"title_manually_set_at\"]"
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"chats\",\"title\"]",
+      "set": {
+        "notNull": false,
+        "default": null
+      }
+    },
+    {
+      "op": "alter",
+      "key": "indexes\u0000[\"public\",\"sessions_user_created_idx\"]",
+      "set": {
+        "isUnique": false
+      }
+    }
+  ]
+}

@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
-import * as schema from '../db/schema';
 import { User, users } from '../db/schema';
 import { PublicUserResponse } from './public-user.response';
 
@@ -27,7 +26,7 @@ export function toPublicUser(user: User): PublicUserResponse {
 export class UsersService {
   constructor(
     @Inject('DB_DEV')
-    private db: PostgresJsDatabase<typeof schema>,
+    private db: PostgresJsDatabase,
   ) {}
 
   async getUserByEmail(email: string): Promise<User | undefined> {

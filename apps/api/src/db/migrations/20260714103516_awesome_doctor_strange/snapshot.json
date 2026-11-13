@@ -1,0 +1,71 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "3b7bf5d1-dff3-4e16-941d-c2c9f742d155",
+  "prevIds": ["b8e64768-7b0d-4541-b81b-a8901dee3d61"],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "projects",
+        "projects_owner_archived_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.projects_owner_archived_created_idx",
+        "n|idx|public.projects_owner_archived_created_idx",
+        "e|idx|public.projects_owner_archived_created_idx",
+        "n|rel|public.projects_owner_archived_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.projects",
+        "n|sch|public",
+        "n|col|public.projects.owner_user_id",
+        "n|col|public.projects.archived_at",
+        "n|col|public.projects.created_at"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "projects",
+        "name": "projects_owner_archived_created_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "archived_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

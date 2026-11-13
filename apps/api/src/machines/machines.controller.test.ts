@@ -9,7 +9,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import type { MachinesConfig } from '../instance-config/machines-config';
 
@@ -31,10 +30,10 @@ function makeController(enabled: boolean) {
   });
 
   const status = new MachinesStatusRepository(
-    drizzle.mock({ schema }),
+    drizzle.mock(),
     new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) =>
-        callback(drizzle.mock({ schema })),
+        callback(drizzle.mock()),
     }),
   );
 

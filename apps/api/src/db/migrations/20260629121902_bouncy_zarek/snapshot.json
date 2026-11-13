@@ -1,0 +1,155 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "47dec181-cc9e-47fd-ae73-d2a7712550ab",
+  "prevIds": ["4d4d94f6-ff06-4873-9808-26c340853653"],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": ["enum", "public", "chat_visibility"],
+      "writes": [
+        "s|enum|public.chat_visibility",
+        "n|enum|public.chat_visibility",
+        "e|enum|public.chat_visibility",
+        "n|type|public.chat_visibility"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "messages", "seq"],
+      "writes": [
+        "s|col|public.messages.seq",
+        "n|col|public.messages.seq",
+        "e|col|public.messages.seq"
+      ],
+      "reads": ["n|tbl|public.messages", "n|sch|public"]
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "chats", "visibility"],
+      "writes": [
+        "s|colprop|public.chats.visibility.type",
+        "s|colprop|public.chats.visibility.default"
+      ],
+      "reads": [
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.chats.visibility",
+        "n|enum|public.chat_visibility"
+      ],
+      "sqlHash": "f0199a9570928d35"
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "messages",
+        "messages_chat_seq_idx"
+      ],
+      "writes": [
+        "s|idx|public.messages_chat_seq_idx",
+        "n|idx|public.messages_chat_seq_idx",
+        "e|idx|public.messages_chat_seq_idx",
+        "n|rel|public.messages_chat_seq_idx"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.chat_id",
+        "n|col|public.messages.seq"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "chat_visibility",
+        "values": ["private", "public"],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "seq",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": {
+          "name": "messages_seq_seq",
+          "type": "always",
+          "startWith": "1",
+          "minValue": "1",
+          "maxValue": "9223372036854775807",
+          "increment": "1",
+          "cache": 1,
+          "cycle": false
+        },
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "messages_chat_seq_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "seq",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"chats\",\"id\"]",
+      "set": {
+        "typeSchema": null
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"messages\",\"id\"]",
+      "set": {
+        "typeSchema": null
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"chats\",\"visibility\"]",
+      "set": {
+        "type": "chat_visibility",
+        "typeSchema": "public"
+      }
+    }
+  ]
+}

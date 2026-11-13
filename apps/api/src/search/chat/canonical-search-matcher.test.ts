@@ -12,7 +12,6 @@ import { is, SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
-import * as schema from '../../db/schema';
 import type { Db } from '../../db/tenant-db.service';
 
 const timestamp = new Date('2026-08-27T12:00:00.000Z');
@@ -107,7 +106,7 @@ describe('scanCanonicalLogicalLines', () => {
 
 describe('evaluateCanonicalLinePredicates', () => {
   it('returns no matches without executing SQL for an empty query or candidate list', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const execute = vi.spyOn(db, 'execute');
 
     await expect(evaluateCanonicalLinePredicates(db, '', [])).resolves.toEqual(
@@ -120,7 +119,7 @@ describe('evaluateCanonicalLinePredicates', () => {
   });
 
   it('executes one owner-scoped predicate and keeps only safe candidate ids', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const execute = vi.spyOn(db, 'execute').mockResolvedValue(
       Object.assign(

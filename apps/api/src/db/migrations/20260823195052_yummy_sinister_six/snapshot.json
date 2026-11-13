@@ -1,0 +1,170 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "1fb83ad0-9a62-4b2b-919a-31ef77fa80e8",
+  "prevIds": ["ef4531fa-f86c-4d25-9c85-6620af319ae4"],
+  "footprints": [
+    {
+      "statementType": "drop_unique",
+      "statementTarget": ["table", "public", "knowledge_spaces"],
+      "writes": [
+        "s|uq|public.knowledge_spaces.knowledge_spaces_owner_user_id_unique",
+        "n|uq|public.knowledge_spaces.knowledge_spaces_owner_user_id_unique",
+        "e|uq|public.knowledge_spaces.knowledge_spaces_owner_user_id_unique",
+        "n|con|public.knowledge_spaces.knowledge_spaces_owner_user_id_unique",
+        "n|rel|public.knowledge_spaces_owner_user_id_unique"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "e|col|public.knowledge_spaces.owner_user_id"
+      ],
+      "sharedWrites": ["e|uniqueness|public.knowledge_spaces.owner_user_id"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "knowledge_spaces", "name"],
+      "writes": [
+        "s|col|public.knowledge_spaces.name",
+        "n|col|public.knowledge_spaces.name",
+        "e|col|public.knowledge_spaces.name"
+      ],
+      "reads": ["n|tbl|public.knowledge_spaces", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "knowledge_spaces", "created_at"],
+      "writes": [
+        "s|col|public.knowledge_spaces.created_at",
+        "n|col|public.knowledge_spaces.created_at",
+        "e|col|public.knowledge_spaces.created_at"
+      ],
+      "reads": ["n|tbl|public.knowledge_spaces", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "knowledge_spaces", "updated_at"],
+      "writes": [
+        "s|col|public.knowledge_spaces.updated_at",
+        "n|col|public.knowledge_spaces.updated_at",
+        "e|col|public.knowledge_spaces.updated_at"
+      ],
+      "reads": ["n|tbl|public.knowledge_spaces", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "knowledge_spaces",
+        "knowledge_spaces_owner_created_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.knowledge_spaces_owner_created_id_idx",
+        "n|idx|public.knowledge_spaces_owner_created_id_idx",
+        "e|idx|public.knowledge_spaces_owner_created_id_idx",
+        "n|rel|public.knowledge_spaces_owner_created_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "n|col|public.knowledge_spaces.owner_user_id",
+        "n|col|public.knowledge_spaces.created_at",
+        "n|col|public.knowledge_spaces.knowledge_space_id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'Personal'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "created_at",
+        "type": "timestamp (3) with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "updated_at",
+        "type": "timestamp (3) with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_owner_created_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "knowledge_space_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "uniques\u0000[\"public\",\"knowledge_spaces\",\"knowledge_spaces_owner_user_id_unique\"]"
+    }
+  ]
+}

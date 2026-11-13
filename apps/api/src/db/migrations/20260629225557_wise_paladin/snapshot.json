@@ -1,0 +1,98 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "82fd3cd5-1013-4135-bc0d-30dade8e2eb9",
+  "prevIds": ["02008b20-b252-4522-9872-a13e9f7b5436"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "messages", "usage"],
+      "writes": [
+        "s|col|public.messages.usage",
+        "n|col|public.messages.usage",
+        "e|col|public.messages.usage"
+      ],
+      "reads": ["n|tbl|public.messages", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "messages", "in_reply_to"],
+      "writes": [
+        "s|col|public.messages.in_reply_to",
+        "n|col|public.messages.in_reply_to",
+        "e|col|public.messages.in_reply_to"
+      ],
+      "reads": ["n|tbl|public.messages", "n|sch|public"]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "messages"],
+      "writes": [
+        "s|fk|public.messages.messages_in_reply_to_messages_id_fk",
+        "n|fk|public.messages.messages_in_reply_to_messages_id_fk",
+        "e|fk|public.messages.messages_in_reply_to_messages_id_fk",
+        "n|con|public.messages.messages_in_reply_to_messages_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.in_reply_to",
+        "n|col|public.messages.id",
+        "e|uniqueness|public.messages.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "usage",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "in_reply_to",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "messages_in_reply_to_messages_id_fk",
+        "nameExplicit": false,
+        "columns": ["in_reply_to"],
+        "schemaTo": "public",
+        "tableTo": "messages",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    }
+  ]
+}

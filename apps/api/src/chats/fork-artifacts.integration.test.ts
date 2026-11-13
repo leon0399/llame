@@ -11,7 +11,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { isNumber, isString } from '@workspace/runtime-safety';
 
-import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -39,7 +38,7 @@ d('fork artifact copy', () => {
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
       max: 6,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     service = new ChatsService(
       tenantDb,
       noopReindexDispatch(),

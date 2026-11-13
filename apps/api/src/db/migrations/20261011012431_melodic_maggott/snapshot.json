@@ -1,0 +1,548 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "fa5bdfac-63b7-4e34-875b-cadd06bd0596",
+  "prevIds": ["8142b42e-b84a-4ee4-93cd-4e0b7880d773"],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": ["enum", "public", "media_variant"],
+      "writes": [
+        "s|enum|public.media_variant",
+        "n|enum|public.media_variant",
+        "e|enum|public.media_variant",
+        "n|type|public.media_variant"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "media_blobs"],
+      "writes": [
+        "s|tbl|public.media_blobs",
+        "n|tbl|public.media_blobs",
+        "e|tbl|public.media_blobs",
+        "n|rel|public.media_blobs",
+        "n|type|public.media_blobs",
+        "n|rel|public.media_blobs_media_id_variant_pk"
+      ],
+      "reads": ["n|sch|public", "n|enum|public.media_variant"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "media_objects"],
+      "writes": [
+        "s|tbl|public.media_objects",
+        "n|tbl|public.media_objects",
+        "e|tbl|public.media_objects",
+        "n|rel|public.media_objects",
+        "n|type|public.media_objects",
+        "n|rel|public.media_objects_pkey",
+        "n|rel|public.media_objects_owner_sha256_unique"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "media_blobs"],
+      "writes": [
+        "s|fk|public.media_blobs.media_blobs_media_id_media_objects_id_fk",
+        "n|fk|public.media_blobs.media_blobs_media_id_media_objects_id_fk",
+        "e|fk|public.media_blobs.media_blobs_media_id_media_objects_id_fk",
+        "n|con|public.media_blobs.media_blobs_media_id_media_objects_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.media_blobs",
+        "n|sch|public",
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_blobs.media_id",
+        "n|col|public.media_objects.id",
+        "e|uniqueness|public.media_objects.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "media_objects"],
+      "writes": [
+        "s|fk|public.media_objects.media_objects_owner_user_id_users_id_fk",
+        "n|fk|public.media_objects.media_objects_owner_user_id_users_id_fk",
+        "e|fk|public.media_objects.media_objects_owner_user_id_users_id_fk",
+        "n|con|public.media_objects.media_objects_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.media_objects.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "media_blobs"],
+      "writes": [
+        "s|pol|public.media_blobs.media_blobs_owner_select",
+        "n|pol|public.media_blobs.media_blobs_owner_select",
+        "e|pol|public.media_blobs.media_blobs_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.media_blobs",
+        "n|sch|public",
+        "e|rls|public.media_blobs"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "media_blobs"],
+      "writes": [
+        "s|pol|public.media_blobs.media_blobs_owner_insert",
+        "n|pol|public.media_blobs.media_blobs_owner_insert",
+        "e|pol|public.media_blobs.media_blobs_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.media_blobs",
+        "n|sch|public",
+        "e|rls|public.media_blobs"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "media_objects"],
+      "writes": [
+        "s|pol|public.media_objects.media_objects_owner_select",
+        "n|pol|public.media_objects.media_objects_owner_select",
+        "e|pol|public.media_objects.media_objects_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "e|rls|public.media_objects"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "media_objects"],
+      "writes": [
+        "s|pol|public.media_objects.media_objects_owner_insert",
+        "n|pol|public.media_objects.media_objects_owner_insert",
+        "e|pol|public.media_objects.media_objects_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "e|rls|public.media_objects"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "media_blobs",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "media_objects",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "media_variant",
+        "values": ["original", "model"],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_blobs",
+        "name": "media_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_blobs",
+        "name": "variant",
+        "type": "media_variant",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_blobs",
+        "name": "data",
+        "type": "bytea",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "media_type",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "width",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "height",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "byte_size",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "model_media_type",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "model_width",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "model_height",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "model_byte_size",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "sha256",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_blobs",
+        "name": "media_blobs_media_id_media_objects_id_fk",
+        "nameExplicit": false,
+        "columns": ["media_id"],
+        "schemaTo": "public",
+        "tableTo": "media_objects",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "media_objects_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_blobs",
+        "name": "media_blobs_media_id_variant_pk",
+        "columns": ["media_id", "variant"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "media_objects_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "media_objects_owner_sha256_unique",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "sha256"],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_blobs",
+        "name": "media_blobs_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "media_id IN (\n        SELECT id FROM media_objects\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_blobs",
+        "name": "media_blobs_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "media_id IN (\n        SELECT id FROM media_objects\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "media_objects_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "media_objects_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "owner_user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    }
+  ]
+}

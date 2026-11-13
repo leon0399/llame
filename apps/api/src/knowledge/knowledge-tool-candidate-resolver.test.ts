@@ -6,7 +6,6 @@ import {
 } from '../tools/native-files';
 import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
 
-import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { knowledgeSearchTool } from './knowledge-tools';
@@ -25,7 +24,7 @@ import { TOOL_REGISTRY } from '../tools/registry';
 const OWNER_ID = 'owner-a';
 
 function fakeDb() {
-  return drizzle.mock({ schema });
+  return drizzle.mock();
 }
 
 function makeConfig(root: string | undefined): InstanceConfigReader {

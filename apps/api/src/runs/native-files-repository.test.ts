@@ -12,7 +12,7 @@ type StoredEvent = { eventType: string; payload: unknown };
 
 /** A repository whose event query answers exactly `rows`. */
 function repositoryOf(...rows: Array<StoredEvent>) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const query = db.select({
     eventType: schema.runEvents.eventType,
@@ -139,9 +139,9 @@ describe('NativeFilesRepository prior outcomes', () => {
 
 describe('NativeFilesRepository segment mutation scope', () => {
   it("counts only attempts after the Run's latest delivery", async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     // Never spied: the embedded latest-delivery subquery stays a real builder.
-    const subqueries: Db = drizzle.mock({ schema });
+    const subqueries: Db = drizzle.mock();
     const outer = db.select({ id: schema.runEvents.sequence });
     let condition: SQL | undefined;
     vi.spyOn(db, 'select')

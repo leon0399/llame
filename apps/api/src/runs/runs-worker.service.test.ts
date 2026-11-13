@@ -21,7 +21,6 @@ import path, { dirname } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import {
   type ConsumeOptions,
   type QueueConsumer,
@@ -57,7 +56,7 @@ import type { Mock } from 'vitest';
 
 /** Native Drizzle mock; repository behavior is mocked at its public seam. */
 function makeFakeTx(): Db {
-  return drizzle.mock({ schema });
+  return drizzle.mock();
 }
 
 /** A capability the test never exercises still needs a real (throwing) member — an empty object satisfies no narrowed interface either. */

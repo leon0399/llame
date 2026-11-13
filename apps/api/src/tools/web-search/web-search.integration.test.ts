@@ -27,7 +27,7 @@ import {
 } from 'vitest';
 import { z } from 'zod';
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
-import * as schema from '../../db/schema';
+
 import type { RunEvent } from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
 import {
@@ -947,7 +947,7 @@ describeIfDb('web search through the real tool loop', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = postgres(TEST_DB_URL!, { ssl, max: 3 });
-    const db: Db = drizzle(sql, { schema });
+    const db: Db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Web Search', ${`web-search-${userId}@test.com`})`;

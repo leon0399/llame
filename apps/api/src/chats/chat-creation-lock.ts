@@ -3,7 +3,6 @@ import { sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 
 /*
@@ -76,7 +75,7 @@ export async function tryCreationTransactionLock(
   return [...rows][0]?.locked === true;
 }
 
-type DbWithClient = PostgresJsDatabase<typeof schema> & {
+type DbWithClient = PostgresJsDatabase & {
   readonly $client: Sql;
 };
 

@@ -14,7 +14,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type StartedTestContainer } from 'testcontainers';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -46,7 +45,7 @@ const INLINE_BUDGET = 16_000;
 /** The attempt ledger itself is stubbed; the context only needs a DB handle. */
 const tenantDb: TenantRunner = {
   runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-    callback(drizzle.mock({ schema })),
+    callback(drizzle.mock()),
 };
 
 const policy = compileToolPermissionMap(

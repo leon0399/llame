@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import {
   type Checkout,
   type Repository,
@@ -17,7 +16,6 @@ function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: {
       logQuery(sql, params) {
         queries.push({ sql, params });
@@ -117,7 +115,7 @@ function makeStubDb(rows: {
   update?: Array<unknown>;
   delete?: Array<unknown>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(db, 'select').mockImplementation(() =>
     asDbQuery(queryResult(rows.select ?? [])),
   );

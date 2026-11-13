@@ -27,7 +27,6 @@ import { type ToolPermissionMap } from './permissions/types';
 import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
-import * as schema from '../db/schema';
 
 function fakeContext(userId = 'user-A'): ToolContext {
   const tenantDb: TenantRunner = {
@@ -723,7 +722,7 @@ describe('runTool', () => {
   });
 
   it('stores an oversized head result and names the artifact', async () => {
-    const writeDb = drizzle.mock({ schema });
+    const writeDb = drizzle.mock();
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(3);
     vi.spyOn(ArtifactsRepository.prototype, 'insertArtifact').mockResolvedValue(
       { id: 'artifact-id', createdAt: new Date('2026-11-02T12:00:00.000Z') },

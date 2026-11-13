@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type Queue } from '../queue/queue';
@@ -91,7 +90,7 @@ describe('RunDispatchService', () => {
   it('fails the run transactionally when enqueue fails', async () => {
     const enqueueFailure = new Error('queue send failed');
     const db = tenantDb();
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const runAs = vi
       .spyOn(db, 'runAs')

@@ -1,7 +1,6 @@
 import { HttpException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Repository, type RepositoryAlias } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { RepositoriesService } from './repositories.service';
@@ -17,7 +16,7 @@ const repository: Repository = {
 };
 
 function makeService() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

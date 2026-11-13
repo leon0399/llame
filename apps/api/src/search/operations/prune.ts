@@ -79,6 +79,22 @@ function notInDeclared(
       )})`;
 }
 
+async function retireUndeclaredBindings(
+  tenantDb: Pick<TenantDbService, 'runAsPublic'>,
+  declaredModelKeys: ReadonlyArray<string>,
+): Promise<number> {
+  return tenantDb.runAsPublic(async (tx) => {
+    const rows = await tx.execute(
+      sql`DELETE FROM embedding_model_bindings
+          WHERE ${notInDeclared(sql`model_key`, declaredModelKeys)}
+          RETURNING model_key`,
+      'objects',
+    );
+
+    return rows.length;
+  });
+}
+
 export async function pruneUndeclaredModelVectors(
   tenantDb: Pick<TenantDbService, 'runAs' | 'runAsPublic'>,
   declaredModelKeys: ReadonlyArray<string>,
@@ -87,8 +103,9 @@ export async function pruneUndeclaredModelVectors(
     total: prunedDocuments,
     affectedOwners,
     failures,
-  } = await forEachOwner(tenantDb, (tx) =>
-    tx.execute(sql`
+  } = await forEachOwner(tenantDb, async (tx) => {
+    const rows = await tx.execute(
+      sql`
         UPDATE search_chat_documents
         SET embedding = NULL,
             embedding_model_key = NULL,
@@ -97,8 +114,13 @@ export async function pruneUndeclaredModelVectors(
             embedding_fail_reason = NULL
         WHERE embedding_model_key IS NOT NULL
           AND ${notInDeclared(sql`embedding_model_key`, declaredModelKeys)}
-      `),
-  );
+        RETURNING id
+      `,
+      'objects',
+    );
+
+    return { count: rows.length };
+  });
 
   // Retire the ledger row for every undeclared key — see this file's header
   // for why leaving it behind after clearing the vectors is itself a bug.
@@ -112,20 +134,15 @@ export async function pruneUndeclaredModelVectors(
   // silence the warning about the very rows the failure just left behind, and
   // let the id be redefined as a different model with those rows still in the
   // table. A partial prune must stay visibly unfinished and re-runnable.
-  const retired =
+  const retiredBindings =
     failures.length === 0
-      ? await tenantDb.runAsPublic((tx) =>
-          tx.execute(sql`
-            DELETE FROM embedding_model_bindings
-            WHERE ${notInDeclared(sql`model_key`, declaredModelKeys)}
-          `),
-        )
-      : { count: 0 };
+      ? await retireUndeclaredBindings(tenantDb, declaredModelKeys)
+      : 0;
 
   return {
     prunedDocuments,
     affectedOwners,
-    retiredBindings: retired.count,
+    retiredBindings,
     failures,
   };
 }

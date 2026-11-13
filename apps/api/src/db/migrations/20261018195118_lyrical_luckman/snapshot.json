@@ -1,0 +1,42 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9e998051-a550-41fe-84c7-b0feee374dce",
+  "prevIds": ["d3b49119-7007-4064-a0c4-95afb0c707f1"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "workspace_told_available"
+      ],
+      "writes": [
+        "s|col|public.chats.workspace_told_available",
+        "n|col|public.chats.workspace_told_available",
+        "e|col|public.chats.workspace_told_available"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "workspace_told_available",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

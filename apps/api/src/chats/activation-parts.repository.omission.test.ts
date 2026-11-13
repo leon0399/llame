@@ -2,7 +2,6 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ActivationPartsRepository } from './activation-parts.repository';
 import {
@@ -52,7 +51,7 @@ async function append(
   items: Array<AuthoredContextItemPart>,
 ) {
   const writes: Array<Array<unknown>> = [];
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(db, 'select').mockImplementation(() =>
     asQuery(queryResult([{ parts }])),
   );

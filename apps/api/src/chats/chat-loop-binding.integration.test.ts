@@ -17,7 +17,7 @@ import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import * as schema from '../db/schema';
+
 import { TenantDbService } from '../db/tenant-db.service';
 import { MediaService } from '../media/media.service';
 import {
@@ -199,7 +199,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       max: 2,
       ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -788,6 +788,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       }: KnowledgeToolCandidateResolverInput) => {
         const [currentUser] = await tx.execute(
           drizzleSql`select current_setting('app.current_user_id', true) as current_user_id`,
+          'objects',
         );
 
         expect(currentUser?.current_user_id).toBe('user-id');

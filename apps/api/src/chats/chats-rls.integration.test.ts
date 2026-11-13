@@ -34,7 +34,7 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql, type TransactionSql } from 'postgres';
-import * as schema from '../db/schema';
+
 import {
   ChatsRepository,
   MessagesRepository,
@@ -54,7 +54,7 @@ const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 type SqlClient = Sql;
 
 /** The raw wire shape of a checkpoint row's parts, pinned by the raw-SQL tests below. */
-const checkpointParts = JSON.stringify([
+const checkpointParts = [
   {
     type: 'data-context',
     data: {
@@ -66,7 +66,7 @@ const checkpointParts = JSON.stringify([
       text: '<system-reminder>private checkpoint</system-reminder>',
     },
   },
-]);
+];
 
 /** Asserts a raw `sql` template-tag row carries a string `id`. */
 function assertRowId(r: unknown): asserts r is { id: string } {
@@ -113,7 +113,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     sql = connect(TEST_DB_URL!, { ssl, max: 2 });
     // Drizzle client over the same pool — used to round-trip through the actual
     // production repository code path (not hand-rolled SQL).
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
 
     // users has no RLS, so the owner can seed it directly (no scope needed).
     userAId = crypto.randomUUID();
@@ -404,7 +404,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       // A pre-migration write: jsonb sorts the input's members before the
       // column's cast to json keeps that text.
       await tx.execute(
-        dsql`INSERT INTO messages (id, chat_id, seq, role, parts) VALUES (${crypto.randomUUID()}, ${chat.id}, 1, 'assistant', ${JSON.stringify(parts)}::jsonb)`,
+        dsql`INSERT INTO messages (id, chat_id, seq, role, parts) VALUES (${crypto.randomUUID()}, ${chat.id}, 1, 'assistant', ${dsql.param(parts)}::jsonb)`,
       );
 
       const [readBack] = await messagesRepo.findByChatId(chat.id, userAId);
@@ -433,7 +433,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Private Chat')`;
       await tx`
         INSERT INTO messages (id, chat_id, seq, role, parts)
-        VALUES (${msgId}, ${chatId}, 1, 'assistant', ${JSON.stringify([{ type: 'text', text: 'secret' }])})`;
+        VALUES (${msgId}, ${chatId}, 1, 'assistant', ${tx.json([{ type: 'text', text: 'secret' }])})`;
     });
 
     try {
@@ -456,7 +456,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Long Chat')`;
       await tx`
         INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
-        VALUES (${checkpointId}, ${chatId}, 11, 'checkpoint', ${checkpointParts}::jsonb, 10)`;
+        VALUES (${checkpointId}, ${chatId}, 11, 'checkpoint', ${tx.json(checkpointParts)}::jsonb, 10)`;
 
       const owned = await tx<
         Array<{ parts: unknown; absorbed_through_seq: string }>
@@ -467,7 +467,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
       // postgres.js returns bigint columns as strings.
       expect(Number(owned[0]?.absorbed_through_seq)).toBe(10);
-      expect(owned[0]?.parts).toEqual(JSON.parse(checkpointParts));
+      expect(owned[0]?.parts).toEqual(checkpointParts);
     });
 
     try {
@@ -483,7 +483,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
           userBId,
           (tx) => tx`
             INSERT INTO messages (chat_id, seq, role, parts, absorbed_through_seq)
-            VALUES (${chatId}, 20, 'checkpoint', ${checkpointParts}::jsonb, 19)`,
+            VALUES (${chatId}, 20, 'checkpoint', ${tx.json(checkpointParts)}::jsonb, 19)`,
         ),
       ).rejects.toThrow(/row-level security|violates/i);
     } finally {
@@ -498,10 +498,10 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await tx`INSERT INTO chats (id, owner_user_id, visibility, title) VALUES (${chatId}, ${userAId}, 'public', 'Shared')`;
       await tx`
         INSERT INTO messages (chat_id, seq, role, sender_user_id, parts)
-        VALUES (${chatId}, 1, 'user', ${userAId}, ${JSON.stringify([{ type: 'text', text: 'public question' }])}::jsonb)`;
+        VALUES (${chatId}, 1, 'user', ${userAId}, ${tx.json([{ type: 'text', text: 'public question' }])}::jsonb)`;
       await tx`
         INSERT INTO messages (id, chat_id, seq, role, parts, absorbed_through_seq)
-        VALUES (${checkpointId}, ${chatId}, 2, 'checkpoint', ${checkpointParts}::jsonb, 1)`;
+        VALUES (${checkpointId}, ${chatId}, 2, 'checkpoint', ${tx.json(checkpointParts)}::jsonb, 1)`;
     });
 
     try {
@@ -529,25 +529,25 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   it('skill baseline cross-tenant: B can neither read nor write A chat baseline', async () => {
     const chatId = crypto.randomUUID();
 
-    const baseline = JSON.stringify({
+    const baseline = {
       entries: [
         { name: 'secret-skill', description: 'A private catalog entry' },
       ],
       omitted: 3,
-    });
+    };
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Chat A')`;
       await tx`
         UPDATE chats
-        SET skill_catalog_baseline = ${baseline}::jsonb,
+        SET skill_catalog_baseline = ${tx.json(baseline)}::jsonb,
             skill_catalog_rebaked_from = NULL
         WHERE id = ${chatId}`;
 
       const owned = await tx`
         SELECT skill_catalog_baseline FROM chats WHERE id = ${chatId}`;
 
-      expect(owned[0]?.skill_catalog_baseline).toEqual(JSON.parse(baseline));
+      expect(owned[0]?.skill_catalog_baseline).toEqual(baseline);
     });
 
     try {
@@ -565,13 +565,13 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       // the row away before WITH CHECK is ever reached — the attempt matches
       // zero rows and reports no error, which is why the value assertion below
       // is the meaningful half rather than a thrown rejection.
-      const forged = JSON.stringify({ entries: [], omitted: 0 });
+      const forged = { entries: [], omitted: 0 };
 
       const updated = await asUser(
         userBId,
         async (tx) =>
           (
-            await tx`UPDATE chats SET skill_catalog_baseline = ${forged}::jsonb WHERE id = ${chatId} RETURNING id`
+            await tx`UPDATE chats SET skill_catalog_baseline = ${tx.json(forged)}::jsonb WHERE id = ${chatId} RETURNING id`
           ).length,
       );
 
@@ -584,7 +584,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
           tx`SELECT skill_catalog_baseline FROM chats WHERE id = ${chatId}`,
       );
 
-      expect(after[0]?.skill_catalog_baseline).toEqual(JSON.parse(baseline));
+      expect(after[0]?.skill_catalog_baseline).toEqual(baseline);
     } finally {
       await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
     }
@@ -865,7 +865,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
   describe('prompt-imports items and prompt-import audit events', () => {
     const IMPORT_RUN_ID = '44444444-4444-4444-8444-444444444444';
 
-    const promptImportParts = JSON.stringify([
+    const promptImportParts = [
       {
         type: 'data-context',
         data: {
@@ -887,7 +887,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         },
       },
       { type: 'text', text: 'owner question' },
-    ]);
+    ];
 
     const importEventPayload = {
       toolCallId: `prompt-import-${IMPORT_RUN_ID}-attempt-0`,
@@ -907,10 +907,10 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       runId = crypto.randomUUID();
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Import Chat')`;
-        await tx`INSERT INTO messages (id, chat_id, seq, role, sender_user_id, parts) VALUES (${messageId}, ${chatId}, 1, 'user', ${userAId}, ${promptImportParts}::jsonb)`;
+        await tx`INSERT INTO messages (id, chat_id, seq, role, sender_user_id, parts) VALUES (${messageId}, ${chatId}, 1, 'user', ${userAId}, ${tx.json(promptImportParts)})`;
         await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
-        await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.requested', ${JSON.stringify(importEventPayload)}::jsonb)`;
-        await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.completed', ${JSON.stringify({ ...importEventPayload, status: 'success', output: { content: 'PRIVATE_IMPORT_BODY' } })}::jsonb)`;
+        await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.requested', ${tx.json(importEventPayload)})`;
+        await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.completed', ${tx.json({ ...importEventPayload, status: 'success', output: { content: 'PRIVATE_IMPORT_BODY' } })})`;
       });
     }
 
@@ -1019,7 +1019,7 @@ describeIfDb(
       // max: 2 (see first describe block) so afterAll cleanup can't deadlock against
       // an open transaction on a single pooled connection.
       sql = connect(TEST_DB_URL!, { ssl, max: 2 });
-      db = drizzle(sql, { schema });
+      db = drizzle({ client: sql });
       svc = new ChatsService(
         new TenantDbService(db),
         noopReindexDispatch(),

@@ -2,14 +2,13 @@ import { isSQLWrapper, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { timelineByOwner } from './chats-timeline-repository';
 
 const dialect = new PgDialect();
 
 function makeMockDb(): Db {
-  return drizzle.mock({ schema });
+  return drizzle.mock();
 }
 
 /**

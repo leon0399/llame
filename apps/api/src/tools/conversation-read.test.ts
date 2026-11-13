@@ -6,7 +6,7 @@ import {
   type ConversationMessageLookup,
 } from '../chats/chats-repository';
 import { visibleMessageText } from '../chats/conversation-evidence';
-import * as schema from '../db/schema';
+
 import { truncateOversizedResult } from '@workspace/runtime-safety';
 import {
   CONVERSATION_HISTORY_NOTICE,
@@ -42,7 +42,7 @@ function lookup(
 }
 
 function mockDb(result: ConversationMessageLookup | undefined) {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
 
   const find = vi
     .spyOn(MessagesRepository.prototype, 'findConversationMessage')

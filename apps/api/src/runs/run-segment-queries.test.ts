@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -20,7 +19,7 @@ function event(sequence: number, eventType: RunEvent['eventType']): RunEvent {
 }
 
 describe('run segment queries', () => {
-  const tx: Db = drizzle.mock({ schema });
+  const tx: Db = drizzle.mock();
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -104,7 +103,6 @@ describe('run segment queries', () => {
     const queries: Array<string> = [];
 
     const logged: Db = drizzle.mock({
-      schema,
       logger: { logQuery: (sql) => queries.push(sql) },
     });
 
@@ -125,7 +123,6 @@ describe('latestDeliverySequence', () => {
     const queries: Array<string> = [];
 
     const db: Db = drizzle.mock({
-      schema,
       logger: { logQuery: (sql) => queries.push(sql) },
     });
 

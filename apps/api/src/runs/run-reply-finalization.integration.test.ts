@@ -22,7 +22,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { isRecord } from '@workspace/runtime-safety';
 
-import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
@@ -335,7 +334,7 @@ describeIfDb(
         max: 4,
         ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
       });
-      tenantDb = new TenantDbService(drizzle(sql, { schema }));
+      tenantDb = new TenantDbService(drizzle({ client: sql }));
       userId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Reply finalization', ${`reply-finalization-${userId}@test.com`})`;
 

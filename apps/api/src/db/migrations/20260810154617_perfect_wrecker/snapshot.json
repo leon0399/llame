@@ -1,0 +1,141 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "abb6e7f7-4df9-471d-b3f9-6433a6985ad6",
+  "prevIds": ["974f54c4-4ad9-4e7b-b0e4-48aff15a6d32"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_context_snapshots",
+        "availability_hash"
+      ],
+      "writes": [
+        "s|col|public.model_context_snapshots.availability_hash",
+        "n|col|public.model_context_snapshots.availability_hash",
+        "e|col|public.model_context_snapshots.availability_hash"
+      ],
+      "reads": ["n|tbl|public.model_context_snapshots", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_context_snapshots",
+        "tool_availability_manifest"
+      ],
+      "writes": [
+        "s|col|public.model_context_snapshots.tool_availability_manifest",
+        "n|col|public.model_context_snapshots.tool_availability_manifest",
+        "e|col|public.model_context_snapshots.tool_availability_manifest"
+      ],
+      "reads": ["n|tbl|public.model_context_snapshots", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "model_context_snapshots",
+        "model_context_snapshots_owner_content_avail_source_uidx"
+      ],
+      "writes": [
+        "s|idx|public.model_context_snapshots_owner_content_avail_source_uidx",
+        "n|idx|public.model_context_snapshots_owner_content_avail_source_uidx",
+        "e|idx|public.model_context_snapshots_owner_content_avail_source_uidx",
+        "n|rel|public.model_context_snapshots_owner_content_avail_source_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.model_context_snapshots",
+        "n|sch|public",
+        "n|col|public.model_context_snapshots.owner_user_id",
+        "n|col|public.model_context_snapshots.content_hash",
+        "n|col|public.model_context_snapshots.availability_hash",
+        "n|col|public.model_context_snapshots.source"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_context_snapshots",
+        "name": "availability_hash",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'8c150f84f99edb30ec7fb866968b27db1bfc2d26e1be8a7e94ee61e565adf11e'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_context_snapshots",
+        "name": "tool_availability_manifest",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'{\"version\":0,\"state\":\"unobserved\"}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "model_context_snapshots",
+        "name": "model_context_snapshots_owner_content_avail_source_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "content_hash",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "availability_hash",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "source",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

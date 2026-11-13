@@ -1,0 +1,268 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c7104c6b-76b7-4b0b-85cb-e3af1ab0872b",
+  "prevIds": ["9bc28d77-9c1b-4394-8210-70b7d1163965"],
+  "footprints": [
+    {
+      "statementType": "drop_policy",
+      "statementTarget": ["table", "public", "model_context_snapshots"],
+      "writes": [
+        "s|pol|public.model_context_snapshots.model_context_snapshots_owner_select",
+        "n|pol|public.model_context_snapshots.model_context_snapshots_owner_select",
+        "e|pol|public.model_context_snapshots.model_context_snapshots_owner_select"
+      ],
+      "reads": ["n|tbl|public.model_context_snapshots", "n|sch|public"]
+    },
+    {
+      "statementType": "drop_policy",
+      "statementTarget": ["table", "public", "model_context_snapshots"],
+      "writes": [
+        "s|pol|public.model_context_snapshots.model_context_snapshots_owner_insert",
+        "n|pol|public.model_context_snapshots.model_context_snapshots_owner_insert",
+        "e|pol|public.model_context_snapshots.model_context_snapshots_owner_insert"
+      ],
+      "reads": ["n|tbl|public.model_context_snapshots", "n|sch|public"]
+    },
+    {
+      "statementType": "drop_fk",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": [
+        "s|fk|public.runs.runs_model_context_snapshot_id_user_id_fk",
+        "n|fk|public.runs.runs_model_context_snapshot_id_user_id_fk",
+        "e|fk|public.runs.runs_model_context_snapshot_id_user_id_fk",
+        "n|con|public.runs.runs_model_context_snapshot_id_user_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "e|col|public.runs.model_context_snapshot_id",
+        "e|col|public.runs.user_id"
+      ]
+    },
+    {
+      "statementType": "drop_table",
+      "statementTarget": ["table", "public", "model_context_snapshots"],
+      "writes": [
+        "s|tbl|public.model_context_snapshots",
+        "n|tbl|public.model_context_snapshots",
+        "e|tbl|public.model_context_snapshots",
+        "n|rel|public.model_context_snapshots",
+        "n|type|public.model_context_snapshots"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "runs",
+        "runs_model_context_snapshot_idx"
+      ],
+      "writes": [
+        "s|idx|public.runs_model_context_snapshot_idx",
+        "n|idx|public.runs_model_context_snapshot_idx",
+        "e|idx|public.runs_model_context_snapshot_idx",
+        "n|rel|public.runs_model_context_snapshot_idx"
+      ],
+      "reads": [
+        "e|tbl|public.runs",
+        "n|sch|public",
+        "e|col|public.runs.model_context_snapshot_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "model_context_snapshot_id"
+      ],
+      "writes": [
+        "s|col|public.runs.model_context_snapshot_id",
+        "n|col|public.runs.model_context_snapshot_id",
+        "e|col|public.runs.model_context_snapshot_id"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "runs",
+        "runs_id_user_id_unique_idx"
+      ],
+      "writes": [
+        "s|idx|public.runs_id_user_id_unique_idx",
+        "n|idx|public.runs_id_user_id_unique_idx",
+        "e|idx|public.runs_id_user_id_unique_idx",
+        "n|rel|public.runs_id_user_id_unique_idx"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.id",
+        "n|col|public.runs.user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "system_prompt_receipts"],
+      "writes": [
+        "s|fk|public.system_prompt_receipts.system_prompt_receipts_run_id_user_id_fk",
+        "n|fk|public.system_prompt_receipts.system_prompt_receipts_run_id_user_id_fk",
+        "e|fk|public.system_prompt_receipts.system_prompt_receipts_run_id_user_id_fk",
+        "n|con|public.system_prompt_receipts.system_prompt_receipts_run_id_user_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.system_prompt_receipts",
+        "n|sch|public",
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.system_prompt_receipts.run_id",
+        "n|col|public.system_prompt_receipts.owner_user_id",
+        "n|col|public.runs.id",
+        "n|col|public.runs.user_id",
+        "e|uniqueness|public.runs.id.user_id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_id_user_id_unique_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "system_prompt_receipts_run_id_user_id_fk",
+        "nameExplicit": true,
+        "columns": ["run_id", "owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "runs",
+        "columnsTo": ["id", "user_id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"public\",\"model_context_snapshots\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"runs\",\"model_context_snapshot_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"owner_user_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"content_hash\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"prompt_hash\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"tool_hash\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"source\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"system_prompt\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"tool_declarations\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"created_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"availability_hash\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"tool_availability_manifest\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"runs_model_context_snapshot_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"model_context_snapshots_id_owner_user_id_unique_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"model_context_snapshots_owner_content_avail_source_uidx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"runs\",\"runs_model_context_snapshot_id_user_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"model_context_snapshots\",\"model_context_snapshots_owner_user_id_users_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"public\",\"model_context_snapshots\",\"model_context_snapshots_pkey\"]"
+    },
+    {
+      "op": "drop",
+      "key": "policies\u0000[\"public\",\"model_context_snapshots\",\"model_context_snapshots_owner_select\"]"
+    },
+    {
+      "op": "drop",
+      "key": "policies\u0000[\"public\",\"model_context_snapshots\",\"model_context_snapshots_owner_insert\"]"
+    }
+  ]
+}

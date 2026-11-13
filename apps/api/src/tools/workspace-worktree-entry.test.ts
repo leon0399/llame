@@ -16,7 +16,6 @@ import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
-import * as schema from '../db/schema';
 import {
   type Checkout,
   type Repository,
@@ -248,7 +247,7 @@ function policy(group: PermissionGroup = { allow: true }): CompiledPolicy {
 }
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb: TenantRunner = {
     runAs: async <T>(_userId: string, operation: (db: Db) => Promise<T>) =>

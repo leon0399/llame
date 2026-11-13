@@ -1,0 +1,55 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "93c0ae86-7a65-4ee8-817b-3d2802cb384d",
+  "prevIds": ["82fd3cd5-1013-4135-bc0d-30dade8e2eb9"],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "messages",
+        "messages_in_reply_to_unique_idx"
+      ],
+      "writes": [
+        "s|idx|public.messages_in_reply_to_unique_idx",
+        "n|idx|public.messages_in_reply_to_unique_idx",
+        "e|idx|public.messages_in_reply_to_unique_idx",
+        "n|rel|public.messages_in_reply_to_unique_idx"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.in_reply_to"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "messages_in_reply_to_unique_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "in_reply_to",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

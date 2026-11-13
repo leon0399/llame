@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type CheckoutRegistrationService } from './checkout-registration.service';
 import { CheckoutsController } from './checkouts.controller';
@@ -68,7 +67,7 @@ function worktrees(remove: () => Promise<void>): WorktreeRemovalService {
 // its inputs to one service call, and hands back the row's public shape.
 // `ownerUserId` is not part of that shape, so the mapping cannot leak an owner.
 function makeController() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

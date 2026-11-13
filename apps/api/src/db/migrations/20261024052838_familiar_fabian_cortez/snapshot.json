@@ -1,0 +1,1602 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "dc571916-15d1-4746-a77e-f815a623b4f3",
+  "prevIds": ["4657b2a1-e029-4e7d-9843-a330aab3d313"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": [
+        "s|tbl|public.checkouts",
+        "n|tbl|public.checkouts",
+        "e|tbl|public.checkouts",
+        "n|rel|public.checkouts",
+        "n|type|public.checkouts",
+        "n|rel|public.checkouts_pkey",
+        "n|rel|public.checkouts_owner_id_key"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "repositories"],
+      "writes": [
+        "s|tbl|public.repositories",
+        "n|tbl|public.repositories",
+        "e|tbl|public.repositories",
+        "n|rel|public.repositories",
+        "n|type|public.repositories",
+        "n|rel|public.repositories_pkey",
+        "n|rel|public.repositories_owner_id_key"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "repository_aliases"],
+      "writes": [
+        "s|tbl|public.repository_aliases",
+        "n|tbl|public.repository_aliases",
+        "e|tbl|public.repository_aliases",
+        "n|rel|public.repository_aliases",
+        "n|type|public.repository_aliases",
+        "n|rel|public.repository_aliases_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "worktree_leases"],
+      "writes": [
+        "s|tbl|public.worktree_leases",
+        "n|tbl|public.worktree_leases",
+        "e|tbl|public.worktree_leases",
+        "n|rel|public.worktree_leases",
+        "n|type|public.worktree_leases",
+        "n|rel|public.worktree_leases_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "checkouts",
+        "checkouts_owner_executor_path_uidx"
+      ],
+      "writes": [
+        "s|idx|public.checkouts_owner_executor_path_uidx",
+        "n|idx|public.checkouts_owner_executor_path_uidx",
+        "e|idx|public.checkouts_owner_executor_path_uidx",
+        "n|rel|public.checkouts_owner_executor_path_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.executor_id",
+        "n|col|public.checkouts.path"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "checkouts",
+        "checkouts_owner_repository_idx"
+      ],
+      "writes": [
+        "s|idx|public.checkouts_owner_repository_idx",
+        "n|idx|public.checkouts_owner_repository_idx",
+        "e|idx|public.checkouts_owner_repository_idx",
+        "n|rel|public.checkouts_owner_repository_idx"
+      ],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.repository_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "checkouts",
+        "checkouts_owner_parent_idx"
+      ],
+      "writes": [
+        "s|idx|public.checkouts_owner_parent_idx",
+        "n|idx|public.checkouts_owner_parent_idx",
+        "e|idx|public.checkouts_owner_parent_idx",
+        "n|rel|public.checkouts_owner_parent_idx"
+      ],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.parent_checkout_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "repositories",
+        "repositories_owner_canonical_remote_uidx"
+      ],
+      "writes": [
+        "s|idx|public.repositories_owner_canonical_remote_uidx",
+        "n|idx|public.repositories_owner_canonical_remote_uidx",
+        "e|idx|public.repositories_owner_canonical_remote_uidx",
+        "n|rel|public.repositories_owner_canonical_remote_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.repositories",
+        "n|sch|public",
+        "n|col|public.repositories.owner_user_id",
+        "n|col|public.repositories.canonical_remote"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "repositories",
+        "repositories_owner_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.repositories_owner_created_idx",
+        "n|idx|public.repositories_owner_created_idx",
+        "e|idx|public.repositories_owner_created_idx",
+        "n|rel|public.repositories_owner_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.repositories",
+        "n|sch|public",
+        "n|col|public.repositories.owner_user_id",
+        "n|col|public.repositories.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "repository_aliases",
+        "repository_aliases_owner_alias_uidx"
+      ],
+      "writes": [
+        "s|idx|public.repository_aliases_owner_alias_uidx",
+        "n|idx|public.repository_aliases_owner_alias_uidx",
+        "e|idx|public.repository_aliases_owner_alias_uidx",
+        "n|rel|public.repository_aliases_owner_alias_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.repository_aliases",
+        "n|sch|public",
+        "n|col|public.repository_aliases.owner_user_id",
+        "n|col|public.repository_aliases.canonical_alias"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "repository_aliases",
+        "repository_aliases_owner_repository_idx"
+      ],
+      "writes": [
+        "s|idx|public.repository_aliases_owner_repository_idx",
+        "n|idx|public.repository_aliases_owner_repository_idx",
+        "e|idx|public.repository_aliases_owner_repository_idx",
+        "n|rel|public.repository_aliases_owner_repository_idx"
+      ],
+      "reads": [
+        "n|tbl|public.repository_aliases",
+        "n|sch|public",
+        "n|col|public.repository_aliases.owner_user_id",
+        "n|col|public.repository_aliases.repository_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "worktree_leases",
+        "worktree_leases_owner_checkout_idx"
+      ],
+      "writes": [
+        "s|idx|public.worktree_leases_owner_checkout_idx",
+        "n|idx|public.worktree_leases_owner_checkout_idx",
+        "e|idx|public.worktree_leases_owner_checkout_idx",
+        "n|rel|public.worktree_leases_owner_checkout_idx"
+      ],
+      "reads": [
+        "n|tbl|public.worktree_leases",
+        "n|sch|public",
+        "n|col|public.worktree_leases.owner_user_id",
+        "n|col|public.worktree_leases.checkout_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "worktree_leases",
+        "worktree_leases_owner_chat_idx"
+      ],
+      "writes": [
+        "s|idx|public.worktree_leases_owner_chat_idx",
+        "n|idx|public.worktree_leases_owner_chat_idx",
+        "e|idx|public.worktree_leases_owner_chat_idx",
+        "n|rel|public.worktree_leases_owner_chat_idx"
+      ],
+      "reads": [
+        "n|tbl|public.worktree_leases",
+        "n|sch|public",
+        "n|col|public.worktree_leases.owner_user_id",
+        "n|col|public.worktree_leases.chat_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": [
+        "s|fk|public.checkouts.checkouts_owner_user_id_users_id_fk",
+        "n|fk|public.checkouts.checkouts_owner_user_id_users_id_fk",
+        "e|fk|public.checkouts.checkouts_owner_user_id_users_id_fk",
+        "n|con|public.checkouts.checkouts_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": [
+        "s|fk|public.checkouts.checkouts_repository_owner_fk",
+        "n|fk|public.checkouts.checkouts_repository_owner_fk",
+        "e|fk|public.checkouts.checkouts_repository_owner_fk",
+        "n|con|public.checkouts.checkouts_repository_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|tbl|public.repositories",
+        "n|sch|public",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.repository_id",
+        "n|col|public.repositories.owner_user_id",
+        "n|col|public.repositories.id",
+        "e|uniqueness|public.repositories.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": [
+        "s|fk|public.checkouts.checkouts_parent_owner_fk",
+        "n|fk|public.checkouts.checkouts_parent_owner_fk",
+        "e|fk|public.checkouts.checkouts_parent_owner_fk",
+        "n|con|public.checkouts.checkouts_parent_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.parent_checkout_id",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.id",
+        "e|uniqueness|public.checkouts.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "repositories"],
+      "writes": [
+        "s|fk|public.repositories.repositories_owner_user_id_users_id_fk",
+        "n|fk|public.repositories.repositories_owner_user_id_users_id_fk",
+        "e|fk|public.repositories.repositories_owner_user_id_users_id_fk",
+        "n|con|public.repositories.repositories_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.repositories",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.repositories.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "repository_aliases"],
+      "writes": [
+        "s|fk|public.repository_aliases.repository_aliases_owner_user_id_users_id_fk",
+        "n|fk|public.repository_aliases.repository_aliases_owner_user_id_users_id_fk",
+        "e|fk|public.repository_aliases.repository_aliases_owner_user_id_users_id_fk",
+        "n|con|public.repository_aliases.repository_aliases_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.repository_aliases",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.repository_aliases.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "repository_aliases"],
+      "writes": [
+        "s|fk|public.repository_aliases.repository_aliases_repository_owner_fk",
+        "n|fk|public.repository_aliases.repository_aliases_repository_owner_fk",
+        "e|fk|public.repository_aliases.repository_aliases_repository_owner_fk",
+        "n|con|public.repository_aliases.repository_aliases_repository_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.repository_aliases",
+        "n|sch|public",
+        "n|tbl|public.repositories",
+        "n|sch|public",
+        "n|col|public.repository_aliases.owner_user_id",
+        "n|col|public.repository_aliases.repository_id",
+        "n|col|public.repositories.owner_user_id",
+        "n|col|public.repositories.id",
+        "e|uniqueness|public.repositories.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "worktree_leases"],
+      "writes": [
+        "s|fk|public.worktree_leases.worktree_leases_owner_user_id_users_id_fk",
+        "n|fk|public.worktree_leases.worktree_leases_owner_user_id_users_id_fk",
+        "e|fk|public.worktree_leases.worktree_leases_owner_user_id_users_id_fk",
+        "n|con|public.worktree_leases.worktree_leases_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.worktree_leases",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.worktree_leases.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "worktree_leases"],
+      "writes": [
+        "s|fk|public.worktree_leases.worktree_leases_checkout_owner_fk",
+        "n|fk|public.worktree_leases.worktree_leases_checkout_owner_fk",
+        "e|fk|public.worktree_leases.worktree_leases_checkout_owner_fk",
+        "n|con|public.worktree_leases.worktree_leases_checkout_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.worktree_leases",
+        "n|sch|public",
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.worktree_leases.owner_user_id",
+        "n|col|public.worktree_leases.checkout_id",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.id",
+        "e|uniqueness|public.checkouts.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "worktree_leases"],
+      "writes": [
+        "s|fk|public.worktree_leases.worktree_leases_chat_owner_fk",
+        "n|fk|public.worktree_leases.worktree_leases_chat_owner_fk",
+        "e|fk|public.worktree_leases.worktree_leases_chat_owner_fk",
+        "n|con|public.worktree_leases.worktree_leases_chat_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.worktree_leases",
+        "n|sch|public",
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.worktree_leases.chat_id",
+        "n|col|public.worktree_leases.owner_user_id",
+        "n|col|public.chats.id",
+        "n|col|public.chats.owner_user_id",
+        "e|uniqueness|public.chats.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": [
+        "s|pol|public.checkouts.checkouts_owner",
+        "n|pol|public.checkouts.checkouts_owner",
+        "e|pol|public.checkouts.checkouts_owner"
+      ],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "e|rls|public.checkouts"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "repositories"],
+      "writes": [
+        "s|pol|public.repositories.repositories_owner",
+        "n|pol|public.repositories.repositories_owner",
+        "e|pol|public.repositories.repositories_owner"
+      ],
+      "reads": [
+        "n|tbl|public.repositories",
+        "n|sch|public",
+        "e|rls|public.repositories"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "repository_aliases"],
+      "writes": [
+        "s|pol|public.repository_aliases.repository_aliases_owner",
+        "n|pol|public.repository_aliases.repository_aliases_owner",
+        "e|pol|public.repository_aliases.repository_aliases_owner"
+      ],
+      "reads": [
+        "n|tbl|public.repository_aliases",
+        "n|sch|public",
+        "e|rls|public.repository_aliases"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "worktree_leases"],
+      "writes": [
+        "s|pol|public.worktree_leases.worktree_leases_owner",
+        "n|pol|public.worktree_leases.worktree_leases_owner",
+        "e|pol|public.worktree_leases.worktree_leases_owner"
+      ],
+      "reads": [
+        "n|tbl|public.worktree_leases",
+        "n|sch|public",
+        "e|rls|public.worktree_leases"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "checkouts",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "repositories",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "repository_aliases",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "worktree_leases",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "repository_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "executor_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "path",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "kind",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "parent_checkout_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "branch",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "origin",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "worktree_base",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "display_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "canonical_remote",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "repository_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "canonical_alias",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "chat_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "checkout_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "base_ref",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "base_commit",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_owner_executor_path_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "executor_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "path",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_owner_repository_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "repository_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_owner_parent_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "parent_checkout_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "repositories_owner_canonical_remote_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "canonical_remote",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "repositories_owner_created_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "repository_aliases_owner_alias_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "canonical_alias",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "repository_aliases_owner_repository_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "repository_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "worktree_leases_owner_checkout_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "checkout_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "worktree_leases_owner_chat_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_repository_owner_fk",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "repository_id"],
+        "schemaTo": "public",
+        "tableTo": "repositories",
+        "columnsTo": ["owner_user_id", "id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_parent_owner_fk",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "parent_checkout_id"],
+        "schemaTo": "public",
+        "tableTo": "checkouts",
+        "columnsTo": ["owner_user_id", "id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "repositories_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "repository_aliases_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "repository_aliases_repository_owner_fk",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "repository_id"],
+        "schemaTo": "public",
+        "tableTo": "repositories",
+        "columnsTo": ["owner_user_id", "id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "worktree_leases_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "worktree_leases_checkout_owner_fk",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "checkout_id"],
+        "schemaTo": "public",
+        "tableTo": "checkouts",
+        "columnsTo": ["owner_user_id", "id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "worktree_leases_chat_owner_fk",
+        "nameExplicit": true,
+        "columns": ["chat_id", "owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "chats",
+        "columnsTo": ["id", "owner_user_id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "repositories_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "repository_aliases_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "worktree_leases_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_owner_id_key",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "id"],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "repositories_owner_id_key",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "id"],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_kind_check",
+        "value": "\"checkouts\".\"kind\" IN ('main', 'worktree')",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_origin_check",
+        "value": "\"checkouts\".\"origin\" IN ('registered', 'adopted', 'created')",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_worktree_parent_check",
+        "value": "(\"checkouts\".\"kind\" = 'worktree') = (\"checkouts\".\"parent_checkout_id\" IS NOT NULL)",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_worktree_base_check",
+        "value": "\"checkouts\".\"kind\" = 'main' OR \"checkouts\".\"worktree_base\" IS NULL",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "checkouts",
+        "name": "checkouts_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repositories",
+        "name": "repositories_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "repository_aliases",
+        "name": "repository_aliases_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "worktree_leases",
+        "name": "worktree_leases_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    }
+  ]
+}

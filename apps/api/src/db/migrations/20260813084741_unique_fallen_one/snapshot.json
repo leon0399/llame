@@ -1,0 +1,42 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ec0d753c-13e5-4b7c-b4c2-ee06327d848d",
+  "prevIds": ["aac5df4f-71cc-4c1f-bb01-f4a39a493d93"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "recency_digest_rebaked_from"
+      ],
+      "writes": [
+        "s|col|public.chats.recency_digest_rebaked_from",
+        "n|col|public.chats.recency_digest_rebaked_from",
+        "e|col|public.chats.recency_digest_rebaked_from"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "recency_digest_rebaked_from",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

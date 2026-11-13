@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "527df140-9375-439b-b569-413d235d8882",
+  "prevIds": ["baa9f8af-901b-478b-b0ef-0d9771c23e1d"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "skill_catalog_told"],
+      "writes": [
+        "s|col|public.chats.skill_catalog_told",
+        "n|col|public.chats.skill_catalog_told",
+        "e|col|public.chats.skill_catalog_told"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "skill_catalog_told",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

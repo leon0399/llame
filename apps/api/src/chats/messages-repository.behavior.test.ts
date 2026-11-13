@@ -70,7 +70,7 @@ function makeDb(options: {
   update?: Array<QueryValue>;
   execute?: Array<QueryValue>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const select = [...(options.select ?? [])];
   const distinct = [...(options.distinct ?? [])];
   const insert = [...(options.insert ?? [])];
@@ -436,7 +436,7 @@ function sequencingDb(
     fails?: AttemptFailure;
   }>,
 ) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const calls: Array<ChainCall> = [];
   let attempt = 0;
 
@@ -788,7 +788,7 @@ describe('MessagesRepository insert payloads', () => {
   });
 
   it('writes only parts and usage when updating an assistant reply', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
     const updated = message(2, 'assistant');
     vi.spyOn(db, 'update').mockImplementation(() =>
@@ -834,7 +834,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('skips the query entirely for an empty id set', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
 
     const distinct = vi
@@ -866,7 +866,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('filters checkpoint rows before the preview lateral pick and recency counts', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
 
     const distinct = vi
@@ -919,7 +919,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('writes nothing for an empty bulk copy', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
 
     const insert = vi
@@ -932,7 +932,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('orders the assistant lookup by seq so the earliest reply wins, and does not order the user lookup', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
     vi.spyOn(db, 'select').mockImplementation(() =>
       asQuery(recordingQuery([], calls)),
@@ -1034,7 +1034,6 @@ async function renderedStatement<Result>(
   const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: { logQuery: (sql, params) => statements.push({ sql, params }) },
   });
 
@@ -1113,7 +1112,7 @@ async function renderedUpsert(
   followUpAction: FollowUpAction | null = null,
 ) {
   const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(db, 'transaction').mockImplementation(async (callback) =>
     // SAFETY: insertWithChatSequence uses only select/insert on its tx, and
     // the upsert chain below is exactly the one the repository builds.

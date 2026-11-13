@@ -12,7 +12,7 @@ import { sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 import { MessagesRepository, type Db } from '../chats/chats-repository';
-import * as schema from '../db/schema';
+
 import { createGitItem, gitToldState } from './git-item';
 import { type GitObservation } from './git-state-view';
 
@@ -45,7 +45,7 @@ describeIfDb('git context items — cross-tenant isolation', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 2 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     userAId = crypto.randomUUID();
     userBId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'User A', ${`git-a-${userAId}@test.com`})`;
@@ -74,7 +74,7 @@ describeIfDb('git context items — cross-tenant isolation', () => {
       );
       await tx.execute(
         dsql`INSERT INTO messages (chat_id, seq, role, parts)
-          VALUES (${chatId}, 1, 'user', ${JSON.stringify([item])}::jsonb)`,
+          VALUES (${chatId}, 1, 'user', ${dsql.param([item])}::jsonb)`,
       );
     });
 

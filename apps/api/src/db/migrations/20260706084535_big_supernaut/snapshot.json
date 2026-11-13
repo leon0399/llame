@@ -1,0 +1,71 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "bcc8a64f-118c-4e5b-89b8-2e54a7ea5322",
+  "prevIds": ["f33542bf-89a7-445e-9c3a-cf91544aa65c"],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "chats",
+        "chats_owner_pinned_updated_idx"
+      ],
+      "writes": [
+        "s|idx|public.chats_owner_pinned_updated_idx",
+        "n|idx|public.chats_owner_pinned_updated_idx",
+        "e|idx|public.chats_owner_pinned_updated_idx",
+        "n|rel|public.chats_owner_pinned_updated_idx"
+      ],
+      "reads": [
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.chats.owner_user_id",
+        "n|col|public.chats.pinned_at",
+        "n|col|public.chats.updated_at"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "chats_owner_pinned_updated_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "pinned_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "updated_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

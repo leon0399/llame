@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2b883c29-672d-44ef-aef5-948552534a54",
+  "prevIds": ["1fb83ad0-9a62-4b2b-919a-31ef77fa80e8"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "effort"],
+      "writes": [
+        "s|col|public.runs.effort",
+        "n|col|public.runs.effort",
+        "e|col|public.runs.effort"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "effort",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

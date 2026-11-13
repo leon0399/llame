@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ca69ecd1-c9fe-4131-b423-9be73f570e4a",
+  "prevIds": ["2f1f6330-5036-428d-8a67-ad3a7e8b773d"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "model_id"],
+      "writes": [
+        "s|col|public.runs.model_id",
+        "n|col|public.runs.model_id",
+        "e|col|public.runs.model_id"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "model_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

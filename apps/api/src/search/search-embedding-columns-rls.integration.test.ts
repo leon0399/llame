@@ -34,7 +34,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { SearchIndexService } from './search-index.service';
@@ -104,7 +103,7 @@ describeIfDb('search_chat_documents embedding columns — RLS negatives', () => 
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL!, { ssl, max: 3 });
-    db = drizzle(sqlClient, { schema });
+    db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);
     owner = crypto.randomUUID();

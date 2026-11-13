@@ -33,7 +33,10 @@ const PROJECTION_COVERAGE_FIELDS = [
 export type ProjectionCoverageQueryRunner = {
   runAsPublic(
     fn: (tx: {
-      execute: (query: SQLWrapper) => Promise<Iterable<unknown>>;
+      execute: (
+        query: SQLWrapper,
+        mode: 'objects',
+      ) => Promise<Iterable<unknown>>;
     }) => Promise<Iterable<unknown>>,
   ): Promise<Iterable<unknown>>;
 };
@@ -117,11 +120,14 @@ export async function getProjectionCoverageReport(
   }
 
   const rows = await tenantDb.runAsPublic((tx) =>
-    tx.execute(sql`
+    tx.execute(
+      sql`
       SELECT chunker_version, chat_count, ready_chat_count, stale_chat_count,
              document_count, complete_document_count
       FROM llame_search_projection_coverage_v2(${chunkerVersion})
-    `),
+    `,
+      'objects',
+    ),
   );
 
   const result = [...rows];
