@@ -141,8 +141,15 @@ describe('native file authority and durable effects', () => {
         return undefined;
       }
 
-      return (await new RunEventsRepository(tx).append(runId, 'run.started'))
-        .sequence;
+      const sequence = await new RunEventsRepository(tx).append(
+        runId,
+        'run.started',
+      );
+
+      return {
+        sequence: sequence.sequence,
+        attemptId: started.activeAttemptId!,
+      };
     });
 
   const begin = (input: {
@@ -341,26 +348,25 @@ describe('native file authority and durable effects', () => {
   });
 
   it('allows only the newest concurrent delivery to admit a native mutation', async () => {
-    const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
-    expect(
-      sequences.every((sequence): sequence is number => sequence !== undefined),
-    ).toBe(true);
+    const deliveries = await Promise.all([claimDelivery(), claimDelivery()]);
+    expect(deliveries.every((delivery) => delivery !== undefined)).toBe(true);
 
-    const latestSequence = Math.max(
-      ...sequences.filter((sequence) => sequence !== undefined),
+    const latestDelivery = deliveries.reduce((latest, delivery) =>
+      delivery!.sequence > latest!.sequence ? delivery : latest,
     );
 
-    const latestIndex = sequences.indexOf(latestSequence);
-    const calls = sequences.map((_, index) => `delivery-${index}`);
+    const latestIndex = deliveries.indexOf(latestDelivery);
+    const calls = deliveries.map((_, index) => `delivery-${index}`);
 
     const results = await Promise.all(
-      sequences.map((deliverySequence, index) =>
+      deliveries.map((delivery, index) =>
         runTool(
           nativeEditTool,
           { path, oldText: 'Foo', newText: `Bar-${index}` },
           {
             ...context,
-            nativeDeliverySequence: deliverySequence,
+            attemptId: delivery!.attemptId,
+            nativeDeliverySequence: delivery!.sequence,
             toolCallId: calls[index],
           },
           5,
@@ -395,19 +401,11 @@ describe('native file authority and durable effects', () => {
   });
 
   it('rejects a stale read after a newer delivery claim', async () => {
-    const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
+    const deliveries = await Promise.all([claimDelivery(), claimDelivery()]);
 
-    const olderSequence = Math.min(
-      ...sequences.filter(
-        (sequence): sequence is number => sequence !== undefined,
-      ),
-    );
-
-    const newerSequence = Math.max(
-      ...sequences.filter(
-        (sequence): sequence is number => sequence !== undefined,
-      ),
-    );
+    const [olderDelivery, newerDelivery] = deliveries
+      .filter((delivery) => delivery !== undefined)
+      .sort((left, right) => left.sequence - right.sequence);
 
     expect(
       await runTool(
@@ -415,7 +413,8 @@ describe('native file authority and durable effects', () => {
         { path },
         {
           ...context,
-          nativeDeliverySequence: olderSequence,
+          attemptId: olderDelivery.attemptId,
+          nativeDeliverySequence: olderDelivery.sequence,
           toolCallId: 'stale-read',
         },
         5,
@@ -430,7 +429,8 @@ describe('native file authority and durable effects', () => {
         { path },
         {
           ...context,
-          nativeDeliverySequence: newerSequence,
+          attemptId: newerDelivery.attemptId,
+          nativeDeliverySequence: newerDelivery.sequence,
           toolCallId: 'current-read',
         },
         5,
@@ -439,19 +439,11 @@ describe('native file authority and durable effects', () => {
   });
 
   it('does not bind a stale delivery host before the current delivery succeeds', async () => {
-    const sequences = await Promise.all([claimDelivery(), claimDelivery()]);
+    const deliveries = await Promise.all([claimDelivery(), claimDelivery()]);
 
-    const olderSequence = Math.min(
-      ...sequences.filter(
-        (sequence): sequence is number => sequence !== undefined,
-      ),
-    );
-
-    const newerSequence = Math.max(
-      ...sequences.filter(
-        (sequence): sequence is number => sequence !== undefined,
-      ),
-    );
+    const [olderDelivery, newerDelivery] = deliveries
+      .filter((delivery) => delivery !== undefined)
+      .sort((left, right) => left.sequence - right.sequence);
 
     expect(
       await runTool(
@@ -459,8 +451,9 @@ describe('native file authority and durable effects', () => {
         { path },
         {
           ...context,
+          attemptId: olderDelivery.attemptId,
           nativeExecutorId: 'host-a',
-          nativeDeliverySequence: olderSequence,
+          nativeDeliverySequence: olderDelivery.sequence,
           toolCallId: 'stale-host',
         },
         5,
@@ -481,8 +474,9 @@ describe('native file authority and durable effects', () => {
         { path },
         {
           ...context,
+          attemptId: newerDelivery.attemptId,
           nativeExecutorId: 'host-b',
-          nativeDeliverySequence: newerSequence,
+          nativeDeliverySequence: newerDelivery.sequence,
           toolCallId: 'current-host',
         },
         5,

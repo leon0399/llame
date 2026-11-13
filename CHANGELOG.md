@@ -7,6 +7,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Stop heartbeat checks from reading job rows after worker shutdown starts.
+
 - Commit host command promotion and its result together. A pending database
   outcome now delays the Run instead of publishing a conflicting unknown result.
 

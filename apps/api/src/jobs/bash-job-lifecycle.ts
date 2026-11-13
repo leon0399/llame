@@ -38,6 +38,7 @@ type LiveJob = {
 export class BashJobLifecycle {
   private readonly jobs = new Map<string, LiveJob>();
   private readonly commands = new Set<ManagedBashHandle>();
+  private checking = true;
 
   constructor(
     private readonly tenantDb: TenantRunner,
@@ -52,7 +53,11 @@ export class BashJobLifecycle {
   async recheckJobs(): Promise<void> {
     await this.settlePending();
 
+    if (!this.checking) return;
+
     for (const id of this.jobs.keys()) {
+      if (!this.checking) return;
+
       await this.recheckJob(id).catch((error: unknown) =>
         this.logger.warn(`Job check failed: ${String(error)}`),
       );
@@ -238,6 +243,10 @@ export class BashJobLifecycle {
         this.logger.warn(
           `Pending job settlement still failing: ${String(outcome.reason)}`,
         );
+  }
+
+  stopChecks(): void {
+    this.checking = false;
   }
 
   async shutdown(): Promise<void> {

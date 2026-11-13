@@ -238,6 +238,7 @@ export class BashJobRegistry implements OnModuleInit {
 
   async shutdown(): Promise<void> {
     this.accepting = false;
+    this.lifecycle.stopChecks();
     this.worker.jobCheck = undefined;
     await Promise.allSettled(this.promotions);
     await this.lifecycle.shutdown();
