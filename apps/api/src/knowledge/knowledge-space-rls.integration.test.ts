@@ -4,7 +4,6 @@ import { eq, sql as drizzleSql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
-import * as schema from '../db/schema';
 import { knowledgeSpaces } from '../db/schema/knowledge-spaces';
 import { TenantDbService } from '../db/tenant-db.service';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
@@ -25,7 +24,7 @@ d('Knowledge Space RLS and tenant repository', () => {
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
       max: 6,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     userAId = crypto.randomUUID();
     userBId = crypto.randomUUID();
     await sql`

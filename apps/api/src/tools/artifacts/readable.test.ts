@@ -8,7 +8,6 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
 import { createWorkspaceRootCell } from '../workspace-path';
 import { canReadArtifacts } from './readable';
@@ -17,7 +16,7 @@ import { type ToolContext } from '../types';
 const MACHINE_ROOT = 'machine://devl/srv/app';
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
 
   return {
     userId: 'owner',

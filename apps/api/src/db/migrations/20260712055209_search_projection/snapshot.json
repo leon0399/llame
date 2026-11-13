@@ -1,0 +1,895 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "eee36e43-a718-45db-8405-ca1f8637eb40",
+  "prevIds": ["789a6470-4e15-4b0a-b325-bddd8e214c92"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "search_chat_state"],
+      "writes": [
+        "s|tbl|public.search_chat_state",
+        "n|tbl|public.search_chat_state",
+        "e|tbl|public.search_chat_state",
+        "n|rel|public.search_chat_state",
+        "n|type|public.search_chat_state",
+        "n|rel|public.search_chat_state_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "search_documents"],
+      "writes": [
+        "s|tbl|public.search_documents",
+        "n|tbl|public.search_documents",
+        "e|tbl|public.search_documents",
+        "n|rel|public.search_documents",
+        "n|type|public.search_documents",
+        "n|rel|public.search_documents_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "search_chat_state",
+        "search_chat_state_owner_idx"
+      ],
+      "writes": [
+        "s|idx|public.search_chat_state_owner_idx",
+        "n|idx|public.search_chat_state_owner_idx",
+        "e|idx|public.search_chat_state_owner_idx",
+        "n|rel|public.search_chat_state_owner_idx"
+      ],
+      "reads": [
+        "n|tbl|public.search_chat_state",
+        "n|sch|public",
+        "n|col|public.search_chat_state.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "search_documents",
+        "search_documents_chat_ordinal_version_unique"
+      ],
+      "writes": [
+        "s|idx|public.search_documents_chat_ordinal_version_unique",
+        "n|idx|public.search_documents_chat_ordinal_version_unique",
+        "e|idx|public.search_documents_chat_ordinal_version_unique",
+        "n|rel|public.search_documents_chat_ordinal_version_unique"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "n|col|public.search_documents.chat_id",
+        "n|col|public.search_documents.chunk_ordinal",
+        "n|col|public.search_documents.chunker_version"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "search_documents",
+        "search_documents_fts_idx"
+      ],
+      "writes": [
+        "s|idx|public.search_documents_fts_idx",
+        "n|idx|public.search_documents_fts_idx",
+        "e|idx|public.search_documents_fts_idx",
+        "n|rel|public.search_documents_fts_idx"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "n|col|public.search_documents.fts"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "search_documents",
+        "search_documents_trgm_idx"
+      ],
+      "writes": [
+        "s|idx|public.search_documents_trgm_idx",
+        "n|idx|public.search_documents_trgm_idx",
+        "e|idx|public.search_documents_trgm_idx",
+        "n|rel|public.search_documents_trgm_idx"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "n|col|public.search_documents.normalized_content"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "search_documents",
+        "search_documents_owner_chat_idx"
+      ],
+      "writes": [
+        "s|idx|public.search_documents_owner_chat_idx",
+        "n|idx|public.search_documents_owner_chat_idx",
+        "e|idx|public.search_documents_owner_chat_idx",
+        "n|rel|public.search_documents_owner_chat_idx"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "n|col|public.search_documents.owner_user_id",
+        "n|col|public.search_documents.chat_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "search_documents",
+        "search_documents_owner_recency_idx"
+      ],
+      "writes": [
+        "s|idx|public.search_documents_owner_recency_idx",
+        "n|idx|public.search_documents_owner_recency_idx",
+        "e|idx|public.search_documents_owner_recency_idx",
+        "n|rel|public.search_documents_owner_recency_idx"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "n|col|public.search_documents.owner_user_id",
+        "n|col|public.search_documents.last_message_at"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "search_chat_state"],
+      "writes": [
+        "s|fk|public.search_chat_state.search_chat_state_chat_id_chats_id_fk",
+        "n|fk|public.search_chat_state.search_chat_state_chat_id_chats_id_fk",
+        "e|fk|public.search_chat_state.search_chat_state_chat_id_chats_id_fk",
+        "n|con|public.search_chat_state.search_chat_state_chat_id_chats_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.search_chat_state",
+        "n|sch|public",
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.search_chat_state.chat_id",
+        "n|col|public.chats.id",
+        "e|uniqueness|public.chats.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "search_chat_state"],
+      "writes": [
+        "s|fk|public.search_chat_state.search_chat_state_owner_user_id_users_id_fk",
+        "n|fk|public.search_chat_state.search_chat_state_owner_user_id_users_id_fk",
+        "e|fk|public.search_chat_state.search_chat_state_owner_user_id_users_id_fk",
+        "n|con|public.search_chat_state.search_chat_state_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.search_chat_state",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.search_chat_state.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "search_documents"],
+      "writes": [
+        "s|fk|public.search_documents.search_documents_owner_user_id_users_id_fk",
+        "n|fk|public.search_documents.search_documents_owner_user_id_users_id_fk",
+        "e|fk|public.search_documents.search_documents_owner_user_id_users_id_fk",
+        "n|con|public.search_documents.search_documents_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.search_documents.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "search_documents"],
+      "writes": [
+        "s|fk|public.search_documents.search_documents_chat_id_chats_id_fk",
+        "n|fk|public.search_documents.search_documents_chat_id_chats_id_fk",
+        "e|fk|public.search_documents.search_documents_chat_id_chats_id_fk",
+        "n|con|public.search_documents.search_documents_chat_id_chats_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.search_documents.chat_id",
+        "n|col|public.chats.id",
+        "e|uniqueness|public.chats.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "search_chat_state"],
+      "writes": [
+        "s|pol|public.search_chat_state.search_chat_state_owner",
+        "n|pol|public.search_chat_state.search_chat_state_owner",
+        "e|pol|public.search_chat_state.search_chat_state_owner"
+      ],
+      "reads": [
+        "n|tbl|public.search_chat_state",
+        "n|sch|public",
+        "e|rls|public.search_chat_state"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "search_documents"],
+      "writes": [
+        "s|pol|public.search_documents.search_documents_owner",
+        "n|pol|public.search_documents.search_documents_owner",
+        "e|pol|public.search_documents.search_documents_owner"
+      ],
+      "reads": [
+        "n|tbl|public.search_documents",
+        "n|sch|public",
+        "e|rls|public.search_documents"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "search_chat_state",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "search_documents",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "chat_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "indexed_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "chunker_version",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "chat_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "chunk_ordinal",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "chunker_version",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "first_message_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "last_message_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "first_message_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "last_message_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "content",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "normalized_content",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "content_hash",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "fts",
+        "type": "tsvector",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": {
+          "as": "to_tsvector('simple', coalesce(\"normalized_content\", ''))",
+          "type": "stored"
+        },
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "search_chat_state_owner_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_chat_ordinal_version_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "chunk_ordinal",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "chunker_version",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_fts_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "fts",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "gin",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_trgm_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "normalized_content",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": {
+              "name": "gin_trgm_ops",
+              "default": false
+            }
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "gin",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_owner_chat_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_owner_recency_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "last_message_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "search_chat_state_chat_id_chats_id_fk",
+        "nameExplicit": false,
+        "columns": ["chat_id"],
+        "schemaTo": "public",
+        "tableTo": "chats",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "search_chat_state_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_chat_id_chats_id_fk",
+        "nameExplicit": false,
+        "columns": ["chat_id"],
+        "schemaTo": "public",
+        "tableTo": "chats",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "search_chat_state_pkey",
+        "columns": ["chat_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "search_chat_state_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": "owner_user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_documents",
+        "name": "search_documents_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": "owner_user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    }
+  ]
+}

@@ -127,7 +127,7 @@ describeIfDb('a Continue Run', () => {
       max: 4,
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Continue run', ${`continue-run-${userId}@test.com`})`;
 

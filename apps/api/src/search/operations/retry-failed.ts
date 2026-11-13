@@ -55,8 +55,9 @@ export async function retryFailedDocuments(
     total: clearedDocuments,
     affectedOwners,
     failures,
-  } = await forEachOwner(tenantDb, (tx) =>
-    tx.execute(sql`
+  } = await forEachOwner(tenantDb, async (tx) => {
+    const rows = await tx.execute(
+      sql`
         UPDATE search_chat_documents
         SET embedding_model_key = NULL,
             embedded_content_hash = NULL,
@@ -66,8 +67,13 @@ export async function retryFailedDocuments(
           AND embedding_model_key = ${modelId}
           AND embedded_content_hash = content_hash
           AND embed_input_version = ${inputVersion}
-      `),
-  );
+        RETURNING id
+      `,
+      'objects',
+    );
+
+    return { count: rows.length };
+  });
 
   return { clearedDocuments, affectedOwners, failures };
 }

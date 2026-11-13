@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e8814a90-f9e4-4758-bf4e-da4bafd626c2",
+  "prevIds": ["79a028fb-35af-41b9-9a79-e6c737db7f58"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "users", "password"],
+      "writes": [
+        "s|col|public.users.password",
+        "n|col|public.users.password",
+        "e|col|public.users.password"
+      ],
+      "reads": ["n|tbl|public.users", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "users",
+        "name": "password",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { compileToolPermissionMap } from '../permissions/compile-permissions';
 import { type ToolContext, type ToolResult } from '../types';
-import * as schema from '../../db/schema';
+
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { ArtifactsRepository } from './artifacts-repository';
 import { artifactDirectory } from './host-files';
@@ -28,7 +28,7 @@ import { createWorkspaceRootCell } from '../workspace-path';
 
 const TOOL = 'mcp__docs__fetch';
 const LOCATOR = 'artifact://mcp__docs__fetch-4';
-const fakeDispatchDb = drizzle.mock({ schema });
+const fakeDispatchDb = drizzle.mock();
 
 const tenantDb: TenantRunner = {
   runAs: (_userId, fn) => Promise.resolve(fn(fakeDispatchDb)),

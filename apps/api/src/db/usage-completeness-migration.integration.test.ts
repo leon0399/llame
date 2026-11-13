@@ -2,7 +2,7 @@
  * Exercises the hand-authored usage marker against isolated FORCE-RLS tables,
  * applying only this migration's statements.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import postgres, { type JSONValue, type Sql } from 'postgres';
@@ -32,12 +32,21 @@ type MarkedRow = {
   usageIsNull: boolean;
 };
 
+const migrationsDirectory = path.join(__dirname, 'migrations');
+
+const usageMigrationDirectory = readdirSync(migrationsDirectory, {
+  withFileTypes: true,
+}).find(
+  (entry) =>
+    entry.isDirectory() && entry.name.endsWith('_mark_usage_completeness'),
+);
+
+if (!usageMigrationDirectory) {
+  throw new Error('mark_usage_completeness migration directory not found');
+}
+
 const migrationStatements = readFileSync(
-  path.join(
-    __dirname,
-    'migrations',
-    '20260924192905_mark_usage_completeness.sql',
-  ),
+  path.join(migrationsDirectory, usageMigrationDirectory.name, 'migration.sql'),
   'utf8',
 )
   .split('--> statement-breakpoint')

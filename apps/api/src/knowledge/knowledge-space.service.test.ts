@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 import { KnowledgeSpaceUnavailableError } from './knowledge-space.local-resolver';
@@ -17,7 +16,7 @@ const SPACE = {
 };
 
 function fakeDb(): Db {
-  return drizzle.mock({ schema });
+  return drizzle.mock();
 }
 
 function makeService(root: string | undefined) {

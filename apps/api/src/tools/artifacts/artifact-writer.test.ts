@@ -6,7 +6,6 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { ArtifactsRepository } from './artifacts-repository';
 import {
@@ -21,7 +20,7 @@ const USER_ID = 'owner-1';
 const CREATED_AT = new Date('2026-11-02T12:00:00.000Z');
 
 function tenantRunner(): TenantRunner {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
 
   return { runAs };

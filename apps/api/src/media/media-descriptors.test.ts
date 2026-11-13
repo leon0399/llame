@@ -1,7 +1,6 @@
 import type { ModelMessage } from 'ai';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { composeStepMessages } from '../models/step-composer';
 import {
@@ -30,7 +29,7 @@ const OWNER = 'owner';
 function scriptedResolver(
   answers: Array<Array<ReadonlyArray<unknown>> | Error>,
 ) {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const statements: Array<ReadonlyArray<unknown>> = [];
   const queries: Array<string> = [];
   Object.assign(db.$client, {

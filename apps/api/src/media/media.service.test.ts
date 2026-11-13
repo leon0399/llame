@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getTableColumns } from 'drizzle-orm';
+import { getColumns } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import sharp from 'sharp';
 
@@ -30,7 +30,7 @@ type Statement = { sql: string; params: ReadonlyArray<unknown> };
  * row set (rows as positional values, the shape postgres.js `values()` gives).
  */
 function scriptedTenantDb(answers: Array<Array<ReadonlyArray<unknown>>>) {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const statements: Array<Statement> = [];
   Object.assign(db.$client, {
     unsafe(sql: string, params: ReadonlyArray<unknown>) {
@@ -56,7 +56,7 @@ function scriptedTenantDb(answers: Array<Array<ReadonlyArray<unknown>>>) {
 function objectRow(media: MediaObject): ReadonlyArray<unknown> {
   const values = new Map<string, unknown>(Object.entries(media));
 
-  return Object.keys(getTableColumns(schema.mediaObjects)).map((key) =>
+  return Object.keys(getColumns(schema.mediaObjects)).map((key) =>
     values.get(key),
   );
 }

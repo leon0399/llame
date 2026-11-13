@@ -1,0 +1,319 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9bd7f464-c9d9-49fd-b0c1-68c251d50310",
+  "prevIds": ["148edbf6-3248-4247-901b-459fcc6ef62f"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "personalization"],
+      "writes": [
+        "s|tbl|public.personalization",
+        "n|tbl|public.personalization",
+        "e|tbl|public.personalization",
+        "n|rel|public.personalization",
+        "n|type|public.personalization",
+        "n|rel|public.personalization_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "personalization"],
+      "writes": [
+        "s|fk|public.personalization.personalization_user_id_users_id_fk",
+        "n|fk|public.personalization.personalization_user_id_users_id_fk",
+        "e|fk|public.personalization.personalization_user_id_users_id_fk",
+        "n|con|public.personalization.personalization_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.personalization",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.personalization.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "personalization"],
+      "writes": [
+        "s|pol|public.personalization.personalization_owner_select",
+        "n|pol|public.personalization.personalization_owner_select",
+        "e|pol|public.personalization.personalization_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.personalization",
+        "n|sch|public",
+        "e|rls|public.personalization"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "personalization"],
+      "writes": [
+        "s|pol|public.personalization.personalization_owner_insert",
+        "n|pol|public.personalization.personalization_owner_insert",
+        "e|pol|public.personalization.personalization_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.personalization",
+        "n|sch|public",
+        "e|rls|public.personalization"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "personalization"],
+      "writes": [
+        "s|pol|public.personalization.personalization_owner_update",
+        "n|pol|public.personalization.personalization_owner_update",
+        "e|pol|public.personalization.personalization_owner_update"
+      ],
+      "reads": [
+        "n|tbl|public.personalization",
+        "n|sch|public",
+        "e|rls|public.personalization"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "personalization"],
+      "writes": [
+        "s|pol|public.personalization.personalization_owner_delete",
+        "n|pol|public.personalization.personalization_owner_delete",
+        "e|pol|public.personalization.personalization_owner_delete"
+      ],
+      "reads": [
+        "n|tbl|public.personalization",
+        "n|sch|public",
+        "e|rls|public.personalization"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "personalization",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "preferred_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "about",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "response_preferences",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "enabled",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "true",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "share_account_identity",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "personalization_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "personalization_pkey",
+        "columns": ["user_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "personalization_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "personalization_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "personalization_owner_update",
+        "as": "PERMISSIVE",
+        "for": "UPDATE",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": "user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "personalization",
+        "name": "personalization_owner_delete",
+        "as": "PERMISSIVE",
+        "for": "DELETE",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    }
+  ]
+}

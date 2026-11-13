@@ -1,0 +1,451 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9dccb6cb-5e6b-487e-9968-57a940be7a3b",
+  "prevIds": ["93c0ae86-7a65-4ee8-817b-3d2802cb384d"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "compactions"],
+      "writes": [
+        "s|tbl|public.compactions",
+        "n|tbl|public.compactions",
+        "e|tbl|public.compactions",
+        "n|rel|public.compactions",
+        "n|type|public.compactions",
+        "n|rel|public.compactions_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "title_manually_set_at"],
+      "writes": [
+        "s|col|public.chats.title_manually_set_at",
+        "n|col|public.chats.title_manually_set_at",
+        "e|col|public.chats.title_manually_set_at"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "recreate_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "sessions",
+        "sessions_user_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.sessions_user_created_idx",
+        "n|idx|public.sessions_user_created_idx",
+        "e|idx|public.sessions_user_created_idx",
+        "n|rel|public.sessions_user_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.sessions",
+        "n|sch|public",
+        "n|col|public.sessions.user_id",
+        "n|col|public.sessions.created_at"
+      ],
+      "sharedWrites": [],
+      "sqlHash": "d12917f4d532f3fe"
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "compactions",
+        "compactions_chat_upto_seq_idx"
+      ],
+      "writes": [
+        "s|idx|public.compactions_chat_upto_seq_idx",
+        "n|idx|public.compactions_chat_upto_seq_idx",
+        "e|idx|public.compactions_chat_upto_seq_idx",
+        "n|rel|public.compactions_chat_upto_seq_idx"
+      ],
+      "reads": [
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "n|col|public.compactions.chat_id",
+        "n|col|public.compactions.upto_seq"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "compactions",
+        "compactions_id_chat_id_unique_idx"
+      ],
+      "writes": [
+        "s|idx|public.compactions_id_chat_id_unique_idx",
+        "n|idx|public.compactions_id_chat_id_unique_idx",
+        "e|idx|public.compactions_id_chat_id_unique_idx",
+        "n|rel|public.compactions_id_chat_id_unique_idx"
+      ],
+      "reads": [
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "n|col|public.compactions.id",
+        "n|col|public.compactions.chat_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "compactions"],
+      "writes": [
+        "s|fk|public.compactions.compactions_chat_id_chats_id_fk",
+        "n|fk|public.compactions.compactions_chat_id_chats_id_fk",
+        "e|fk|public.compactions.compactions_chat_id_chats_id_fk",
+        "n|con|public.compactions.compactions_chat_id_chats_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.compactions.chat_id",
+        "n|col|public.chats.id",
+        "e|uniqueness|public.chats.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "compactions"],
+      "writes": [
+        "s|fk|public.compactions.compactions_parent_id_compactions_id_fk",
+        "n|fk|public.compactions.compactions_parent_id_compactions_id_fk",
+        "e|fk|public.compactions.compactions_parent_id_compactions_id_fk",
+        "n|con|public.compactions.compactions_parent_id_compactions_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "n|col|public.compactions.parent_id",
+        "n|col|public.compactions.id",
+        "e|uniqueness|public.compactions.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "compactions"],
+      "writes": [
+        "s|fk|public.compactions.compactions_parent_id_chat_id_fk",
+        "n|fk|public.compactions.compactions_parent_id_chat_id_fk",
+        "e|fk|public.compactions.compactions_parent_id_chat_id_fk",
+        "n|con|public.compactions.compactions_parent_id_chat_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "n|col|public.compactions.parent_id",
+        "n|col|public.compactions.chat_id",
+        "n|col|public.compactions.id",
+        "n|col|public.compactions.chat_id",
+        "e|uniqueness|public.compactions.chat_id.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "compactions"],
+      "writes": [
+        "s|pol|public.compactions.compactions_owner",
+        "n|pol|public.compactions.compactions_owner",
+        "e|pol|public.compactions.compactions_owner"
+      ],
+      "reads": [
+        "n|tbl|public.compactions",
+        "n|sch|public",
+        "e|rls|public.compactions"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "compactions",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "title_manually_set_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "chat_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "upto_seq",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "parent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "summary",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "usage",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "compactions_chat_upto_seq_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "upto_seq",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "compactions_id_chat_id_unique_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "compactions_chat_id_chats_id_fk",
+        "nameExplicit": false,
+        "columns": ["chat_id"],
+        "schemaTo": "public",
+        "tableTo": "chats",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "compactions_parent_id_compactions_id_fk",
+        "nameExplicit": false,
+        "columns": ["parent_id"],
+        "schemaTo": "public",
+        "tableTo": "compactions",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "compactions_parent_id_chat_id_fk",
+        "nameExplicit": true,
+        "columns": ["parent_id", "chat_id"],
+        "schemaTo": "public",
+        "tableTo": "compactions",
+        "columnsTo": ["id", "chat_id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "NO ACTION",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "compactions_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "compactions_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "indexes\u0000[\"public\",\"sessions_user_created_idx\"]",
+      "set": {
+        "isUnique": true
+      }
+    }
+  ]
+}

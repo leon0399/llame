@@ -6,7 +6,6 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { isNumber, isString } from '@workspace/runtime-safety';
 import { type ToolContext, type ToolResult } from '../types';
@@ -23,7 +22,7 @@ const CREATED_AT = new Date('2026-11-02T10:00:00.000Z');
 const ASIDE = '00000000-0000-4000-8000-000000000002';
 
 function contextOf(chatId = CHAT_ID): ToolContext {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
 
   return {

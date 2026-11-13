@@ -1,0 +1,53 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4ab6139a-6d00-4a56-bbd9-07c5eafbc0a7",
+  "prevIds": ["ac7f07d0-3987-4082-82f3-a9345ad7c523"],
+  "footprints": [
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "users", "email_verified"],
+      "writes": [
+        "s|colprop|public.users.email_verified.type",
+        "s|colprop|public.users.email_verified.default"
+      ],
+      "reads": [
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.users.email_verified"
+      ],
+      "sqlHash": "4d66d1db960d18c2"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "verification_tokens", "expires"],
+      "writes": [
+        "s|colprop|public.verification_tokens.expires.type",
+        "s|colprop|public.verification_tokens.expires.default"
+      ],
+      "reads": [
+        "n|tbl|public.verification_tokens",
+        "n|sch|public",
+        "n|col|public.verification_tokens.expires"
+      ],
+      "sqlHash": "2e1ec7144fb6907e"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"users\",\"email_verified\"]",
+      "set": {
+        "type": "timestamp with time zone"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"verification_tokens\",\"expires\"]",
+      "set": {
+        "type": "timestamp with time zone"
+      }
+    }
+  ]
+}

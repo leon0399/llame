@@ -40,7 +40,7 @@ describe('conversation source repository lookup', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
     sqlClient = connect(TEST_DB_URL, { ssl, max: 5 });
-    const db: Db = drizzle(sqlClient, { schema });
+    const db: Db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     ownerA = crypto.randomUUID();
     ownerB = crypto.randomUUID();

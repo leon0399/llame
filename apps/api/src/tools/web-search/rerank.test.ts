@@ -10,7 +10,6 @@ import { z } from 'zod';
 
 import { isRecord } from '@workspace/runtime-safety';
 
-import * as schema from '../../db/schema';
 import { type Db } from '../../db/tenant-db.service';
 import { type DecisionClient } from '../../decisions/decision-client';
 import {
@@ -48,7 +47,7 @@ type ResultsSource = Extract<SearchChainSuccess, { kind: 'results' }>;
 let insertParts: MockInstance<ArtifactsRepository['insertParts']>;
 
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner',

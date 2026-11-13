@@ -82,7 +82,7 @@ function makeDb(options: {
   insert?: Array<QueryRows>;
   update?: Array<QueryRows>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const calls: Array<QueryCall> = [];
   const selectResults = [...(options.select ?? [])];
   const insertResults = [...(options.insert ?? [])];
@@ -121,7 +121,6 @@ function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
   });
 

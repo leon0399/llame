@@ -19,7 +19,6 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { ConflictException } from '@nestjs/common';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ProjectsRepository } from './projects-repository';
 
@@ -65,7 +64,7 @@ describe('ProjectsRepository (real Postgres)', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL, { ssl, max: 5 });
-    db = drizzle(sqlClient, { schema });
+    db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     ownerA = crypto.randomUUID();
     ownerB = crypto.randomUUID();

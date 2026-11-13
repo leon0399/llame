@@ -1,0 +1,30 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "20292951-cc06-471b-8c87-c307f30cb8cc",
+  "prevIds": ["948950a4-87ee-47c7-b2a2-c176253eba55"],
+  "footprints": [
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": ["s|ck|public.runs.runs_permission_mode_check"],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.permission_mode",
+        "e|col|public.runs.permission_mode"
+      ],
+      "sqlHash": "0ba56d96121c89d1"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"runs\",\"runs_permission_mode_check\"]",
+      "set": {
+        "value": "\"runs\".\"permission_mode\" IN ('default', 'bypass', 'read-only')"
+      }
+    }
+  ]
+}

@@ -92,7 +92,7 @@ describeIfDb('chat search — searchByOwner (hybrid projection)', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = connect(TEST_DB_URL!, { ssl, max: 3 });
-    db = drizzle(sqlClient, { schema });
+    db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);
     a = crypto.randomUUID();

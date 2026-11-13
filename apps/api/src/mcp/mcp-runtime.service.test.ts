@@ -23,7 +23,7 @@ import {
 import { hashToolDeclaration } from '../tools/turn-tool-catalog';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type ToolContext } from '../tools/types';
-import * as schema from '../db/schema';
+
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
@@ -39,7 +39,7 @@ const fakeTenantDb: TenantRunner = {
   },
 };
 
-const fakeDispatchDb: Db = drizzle.mock({ schema });
+const fakeDispatchDb: Db = drizzle.mock();
 
 type Deferred<T> = {
   readonly promise: Promise<T>;

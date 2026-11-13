@@ -79,7 +79,7 @@ describe('RLS integration — media store tenancy', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
     sql = postgres(TEST_DB_URL, { ssl, max: 4 });
-    const db: Db = drizzle(sql, { schema });
+    const db: Db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     media = new MediaService(tenantDb);
 

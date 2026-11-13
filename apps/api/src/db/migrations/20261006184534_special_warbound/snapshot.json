@@ -1,0 +1,233 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "26a9098f-3a7c-4016-98fd-1d1de0048b16",
+  "prevIds": ["ecde00ad-3250-41f3-ae99-5a76e0c3c809"],
+  "footprints": [
+    {
+      "statementType": "alter_enum",
+      "statementTarget": ["enum", "public", "message_role"],
+      "writes": ["s|enum|public.message_role"],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "drop_policy",
+      "statementTarget": ["table", "public", "compactions"],
+      "writes": [
+        "s|pol|public.compactions.compactions_owner",
+        "n|pol|public.compactions.compactions_owner",
+        "e|pol|public.compactions.compactions_owner"
+      ],
+      "reads": ["n|tbl|public.compactions", "n|sch|public"]
+    },
+    {
+      "statementType": "drop_table",
+      "statementTarget": ["table", "public", "compactions"],
+      "writes": [
+        "s|tbl|public.compactions",
+        "n|tbl|public.compactions",
+        "e|tbl|public.compactions",
+        "n|rel|public.compactions",
+        "n|type|public.compactions"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "messages",
+        "absorbed_through_seq"
+      ],
+      "writes": [
+        "s|col|public.messages.absorbed_through_seq",
+        "n|col|public.messages.absorbed_through_seq",
+        "e|col|public.messages.absorbed_through_seq"
+      ],
+      "reads": ["n|tbl|public.messages", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "messages",
+        "messages_chat_absorbed_through_seq_uidx"
+      ],
+      "writes": [
+        "s|idx|public.messages_chat_absorbed_through_seq_uidx",
+        "n|idx|public.messages_chat_absorbed_through_seq_uidx",
+        "e|idx|public.messages_chat_absorbed_through_seq_uidx",
+        "n|rel|public.messages_chat_absorbed_through_seq_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.chat_id",
+        "n|col|public.messages.absorbed_through_seq"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": ["table", "public", "messages"],
+      "writes": [
+        "s|ck|public.messages.messages_checkpoint_boundary_check",
+        "n|ck|public.messages.messages_checkpoint_boundary_check",
+        "e|ck|public.messages.messages_checkpoint_boundary_check",
+        "n|con|public.messages.messages_checkpoint_boundary_check"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.role",
+        "n|col|public.messages.absorbed_through_seq"
+      ]
+    },
+    {
+      "statementType": "alter_policy",
+      "statementTarget": ["table", "public", "messages"],
+      "writes": ["s|pol|public.messages.messages_public_read"],
+      "reads": ["n|tbl|public.messages", "n|sch|public"],
+      "sqlHash": "19c62a1d8a7ec94c"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "absorbed_through_seq",
+        "type": "bigint",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "messages_chat_absorbed_through_seq_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "absorbed_through_seq",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": "\"messages\".\"absorbed_through_seq\" IS NOT NULL",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "messages_checkpoint_boundary_check",
+        "value": "(\"messages\".\"role\"::text = 'checkpoint') = (\"messages\".\"absorbed_through_seq\" IS NOT NULL)",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"public\",\"compactions\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"chat_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"upto_seq\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"parent_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"summary\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"usage\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"created_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"replacement_history\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"compactions_chat_upto_seq_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"compactions_id_chat_id_unique_idx\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"compactions\",\"compactions_chat_id_chats_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"compactions\",\"compactions_parent_id_compactions_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"compactions\",\"compactions_parent_id_chat_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"public\",\"compactions\",\"compactions_pkey\"]"
+    },
+    {
+      "op": "drop",
+      "key": "policies\u0000[\"public\",\"compactions\",\"compactions_owner\"]"
+    },
+    {
+      "op": "alter",
+      "key": "enums\u0000[\"public\",\"message_role\"]",
+      "set": {
+        "values": ["user", "assistant", "system", "tool", "checkpoint"]
+      }
+    },
+    {
+      "op": "alter",
+      "key": "policies\u0000[\"public\",\"messages\",\"messages_public_read\"]",
+      "set": {
+        "using": "current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public') AND role::text <> 'checkpoint'"
+      }
+    }
+  ]
+}

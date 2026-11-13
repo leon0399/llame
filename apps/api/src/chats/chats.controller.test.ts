@@ -13,7 +13,6 @@ import { type ContinueFollowUpRunDto } from './dto/follow-up-run.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
 import type { ChatJobsService } from './chat-jobs.service';
-import * as schema from '../db/schema';
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
@@ -141,7 +140,7 @@ describe('ChatsController', () => {
         .mockResolvedValue(new Map([[chat.id, 2]])),
     } satisfies Pick<ChatJobsService, 'runningCounts'>;
 
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
@@ -792,7 +791,7 @@ describe('ChatsController response plumbing', () => {
         .mockResolvedValue(new Map([[chat.id, 2]])),
     } satisfies Pick<ChatJobsService, 'runningCounts'>;
 
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const tenantDb: TenantRunner = {
       runAs: async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>

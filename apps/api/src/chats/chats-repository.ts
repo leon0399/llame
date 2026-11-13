@@ -18,7 +18,7 @@ import {
   desc,
   eq,
   exists,
-  getTableColumns,
+  getColumns,
   inArray,
   isNotNull,
   isNull,
@@ -161,7 +161,7 @@ export class ChatsRepository {
     }
 
     if (filter.excludeId !== undefined) {
-      conditions.push(not(eq(chats.id, filter.excludeId)));
+      conditions.push(sql`${chats.id} <> ${filter.excludeId}`);
     }
 
     if (filter.titledOnly) {
@@ -202,7 +202,7 @@ export class ChatsRepository {
     // updatedAt DESC (item-archive / add-pinned-items-reorder).
     if (filter.pinned === 'only') {
       const query = this.db
-        .select(getTableColumns(chats))
+        .select(getColumns(chats))
         .from(chats)
         .innerJoin(
           pins,

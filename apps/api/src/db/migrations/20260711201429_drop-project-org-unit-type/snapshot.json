@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ac4b7846-5ab7-42d2-808e-83feb7d157db",
+  "prevIds": ["9c3b5be0-40ec-41fd-a824-2e2f4ffc205c"],
+  "footprints": [
+    {
+      "statementType": "recreate_enum",
+      "statementTarget": ["enum", "public", "org_unit_type"],
+      "writes": [
+        "s|enum|public.org_unit_type",
+        "n|enum|public.org_unit_type",
+        "e|enum|public.org_unit_type",
+        "n|type|public.org_unit_type",
+        "s|colprop|public.org_units.type.type",
+        "s|colprop|public.org_units.type.default"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "n|col|public.org_units.type"
+      ],
+      "sqlHash": "3c5939b66c383f09"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "enums\u0000[\"public\",\"org_unit_type\"]",
+      "set": {
+        "values": ["organization", "group", "team", "department"]
+      }
+    }
+  ]
+}

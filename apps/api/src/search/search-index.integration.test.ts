@@ -17,7 +17,6 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { z } from 'zod';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { CHUNKER_VERSION } from './chat/conversation-chunker';
@@ -122,7 +121,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL!, { ssl, max: 3 });
-    db = drizzle(sqlClient, { schema });
+    db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);
     u = crypto.randomUUID();

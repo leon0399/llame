@@ -1,0 +1,61 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "618d374b-33f9-4c8e-9055-07cdc0b33225",
+  "prevIds": ["2b883c29-672d-44ef-aef5-948552534a54"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "compactions",
+        "replacement_history"
+      ],
+      "writes": [
+        "s|col|public.compactions.replacement_history",
+        "n|col|public.compactions.replacement_history",
+        "e|col|public.compactions.replacement_history"
+      ],
+      "reads": ["n|tbl|public.compactions", "n|sch|public"]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "compactions",
+        "tool_observation_ledger"
+      ],
+      "writes": [
+        "s|col|public.compactions.tool_observation_ledger",
+        "n|col|public.compactions.tool_observation_ledger",
+        "e|col|public.compactions.tool_observation_ledger"
+      ],
+      "reads": ["n|tbl|public.compactions", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "replacement_history",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"compactions\",\"tool_observation_ledger\"]"
+    }
+  ]
+}

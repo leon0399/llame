@@ -56,7 +56,7 @@ describeIfDb(
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
       sql = connect(TEST_DB_URL!, { ssl, max: 2 });
-      db = drizzle(sql, { schema });
+      db = drizzle({ client: sql });
       tenantDb = new TenantDbService(db);
 
       ownerA = crypto.randomUUID();

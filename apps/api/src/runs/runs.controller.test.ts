@@ -1,7 +1,6 @@
 import { ConflictException, Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import {
   type Run,
   type RunEvent,
@@ -56,7 +55,7 @@ describe('RunsController context receipt', () => {
   afterEach(() => vi.restoreAllMocks());
 
   function controller(wakeInTransaction = vi.fn().mockResolvedValue(false)) {
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,

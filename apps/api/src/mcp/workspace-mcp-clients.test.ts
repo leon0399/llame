@@ -17,7 +17,7 @@ import {
 } from '../testing/machine-protocol-peer';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { type ModelToolDeclaration } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
@@ -183,7 +183,7 @@ function workspaceProvider(
   return { provider, clients };
 }
 
-const fakeDb = drizzle.mock({ schema });
+const fakeDb = drizzle.mock();
 
 const tenantDb: TenantRunner = {
   runAs: <T>(_userId: string, operation: (db: Db) => Promise<T>) =>

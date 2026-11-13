@@ -16,7 +16,6 @@ import { type MockInstance, vi } from 'vitest';
 import { applySelectorSuffix } from '@workspace/native-file-tools';
 import { isRecord } from '@workspace/runtime-safety';
 
-import * as schema from '../../db/schema';
 import { type Db } from '../../db/tenant-db.service';
 import { type WebSearchConfig } from '../../instance-config/web-search-config';
 import { ArtifactsRepository } from '../artifacts/artifacts-repository';
@@ -58,7 +57,7 @@ type ArtifactWrites = {
 let writes: ArtifactWrites;
 
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner',

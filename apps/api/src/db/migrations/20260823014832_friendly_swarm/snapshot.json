@@ -1,0 +1,375 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2f240c4d-b154-4192-a641-1a983e42691f",
+  "prevIds": ["2020f072-4da1-49bb-878d-3738583dde34"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "embedding_model_bindings"],
+      "writes": [
+        "s|tbl|public.embedding_model_bindings",
+        "n|tbl|public.embedding_model_bindings",
+        "e|tbl|public.embedding_model_bindings",
+        "n|rel|public.embedding_model_bindings",
+        "n|type|public.embedding_model_bindings",
+        "n|rel|public.embedding_model_bindings_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "search_chat_documents",
+        "embedding"
+      ],
+      "writes": [
+        "s|col|public.search_chat_documents.embedding",
+        "n|col|public.search_chat_documents.embedding",
+        "e|col|public.search_chat_documents.embedding"
+      ],
+      "reads": ["n|tbl|public.search_chat_documents", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "search_chat_documents",
+        "embedding_model_key"
+      ],
+      "writes": [
+        "s|col|public.search_chat_documents.embedding_model_key",
+        "n|col|public.search_chat_documents.embedding_model_key",
+        "e|col|public.search_chat_documents.embedding_model_key"
+      ],
+      "reads": ["n|tbl|public.search_chat_documents", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "search_chat_documents",
+        "embedded_content_hash"
+      ],
+      "writes": [
+        "s|col|public.search_chat_documents.embedded_content_hash",
+        "n|col|public.search_chat_documents.embedded_content_hash",
+        "e|col|public.search_chat_documents.embedded_content_hash"
+      ],
+      "reads": ["n|tbl|public.search_chat_documents", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "search_chat_documents",
+        "embed_input_version"
+      ],
+      "writes": [
+        "s|col|public.search_chat_documents.embed_input_version",
+        "n|col|public.search_chat_documents.embed_input_version",
+        "e|col|public.search_chat_documents.embed_input_version"
+      ],
+      "reads": ["n|tbl|public.search_chat_documents", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "search_chat_documents",
+        "embedding_fail_reason"
+      ],
+      "writes": [
+        "s|col|public.search_chat_documents.embedding_fail_reason",
+        "n|col|public.search_chat_documents.embedding_fail_reason",
+        "e|col|public.search_chat_documents.embedding_fail_reason"
+      ],
+      "reads": ["n|tbl|public.search_chat_documents", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "embedding_model_bindings",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "model_key",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "provider_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "provider_model_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "revision",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "dimensions",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "distance_metric",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'cosine'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "document_prefix",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "query_prefix",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "batch_size",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_documents",
+        "name": "embedding",
+        "type": "vector",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_documents",
+        "name": "embedding_model_key",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_documents",
+        "name": "embedded_content_hash",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_documents",
+        "name": "embed_input_version",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_documents",
+        "name": "embedding_fail_reason",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "embedding_model_bindings",
+        "name": "embedding_model_bindings_pkey",
+        "columns": ["model_key"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

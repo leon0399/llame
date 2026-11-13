@@ -14,7 +14,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
@@ -94,7 +93,7 @@ type ContextOptions = {
 
 function contextOf(options: ContextOptions = {}): ToolContext {
   const trusted = options.executor !== false;
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner-a',

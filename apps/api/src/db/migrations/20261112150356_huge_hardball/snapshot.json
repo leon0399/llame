@@ -1,0 +1,115 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "b01b15c9-e56c-4e9c-b903-549b4f135018",
+  "prevIds": [
+    "b695a338-54c2-4bac-917a-17c665b74292"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "wake_generation"
+      ],
+      "writes": [
+        "s|col|public.runs.wake_generation",
+        "n|col|public.runs.wake_generation",
+        "e|col|public.runs.wake_generation"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "current_job_id"
+      ],
+      "writes": [
+        "s|col|public.runs.current_job_id",
+        "n|col|public.runs.current_job_id",
+        "e|col|public.runs.current_job_id"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "runs",
+        "awaiting"
+      ],
+      "writes": [
+        "s|col|public.runs.awaiting",
+        "n|col|public.runs.awaiting",
+        "e|col|public.runs.awaiting"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "wake_generation",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "current_job_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "awaiting",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

@@ -1,0 +1,197 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "5cd8dfb1-a6ae-402e-9542-0ffd3df9b945",
+  "prevIds": ["2d0149b6-0653-4fed-9705-2b15caa2fa0e"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "workspace_root"],
+      "writes": [
+        "s|col|public.chats.workspace_root",
+        "n|col|public.chats.workspace_root",
+        "e|col|public.chats.workspace_root"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "workspace_executor_id"],
+      "writes": [
+        "s|col|public.chats.workspace_executor_id",
+        "n|col|public.chats.workspace_executor_id",
+        "e|col|public.chats.workspace_executor_id"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "workspace_generation"],
+      "writes": [
+        "s|col|public.chats.workspace_generation",
+        "n|col|public.chats.workspace_generation",
+        "e|col|public.chats.workspace_generation"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "workspace_told"],
+      "writes": [
+        "s|col|public.chats.workspace_told",
+        "n|col|public.chats.workspace_told",
+        "e|col|public.chats.workspace_told"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "workspace_told_from"],
+      "writes": [
+        "s|col|public.chats.workspace_told_from",
+        "n|col|public.chats.workspace_told_from",
+        "e|col|public.chats.workspace_told_from"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "workspace_detach_reason"
+      ],
+      "writes": [
+        "s|col|public.chats.workspace_detach_reason",
+        "n|col|public.chats.workspace_detach_reason",
+        "e|col|public.chats.workspace_detach_reason"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": ["table", "public", "chats"],
+      "writes": [
+        "s|ck|public.chats.chats_workspace_detach_reason_check",
+        "n|ck|public.chats.chats_workspace_detach_reason_check",
+        "e|ck|public.chats.chats_workspace_detach_reason_check",
+        "n|con|public.chats.chats_workspace_detach_reason_check"
+      ],
+      "reads": [
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.chats.workspace_detach_reason"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "workspace_root",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "workspace_executor_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "workspace_generation",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "workspace_told",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "workspace_told_from",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "workspace_detach_reason",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "chats_workspace_detach_reason_check",
+        "value": "\"chats\".\"workspace_detach_reason\" IS NULL OR \"chats\".\"workspace_detach_reason\" IN ('executor_mismatch', 'executor_absent', 'root_missing', 'root_moved', 'permission_rejected', 'tool_not_allowed')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

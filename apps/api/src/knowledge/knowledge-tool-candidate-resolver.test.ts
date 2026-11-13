@@ -5,7 +5,6 @@ import {
   nativeWriteTool,
 } from '../tools/native-files';
 
-import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { nativeGrepTool } from '../tools/grep';
@@ -21,7 +20,7 @@ import { TOOL_REGISTRY, resolveAdvertisedTools } from '../tools/registry';
 const OWNER_ID = 'owner-a';
 
 function fakeDb() {
-  return drizzle.mock({ schema });
+  return drizzle.mock();
 }
 
 function makeConfig(root: string | undefined): InstanceConfigReader {

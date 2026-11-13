@@ -3,7 +3,6 @@ import { isSQLWrapper, type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import type { Chat, Message, Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
@@ -16,7 +15,7 @@ import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 
 describe('ChatsService.searchChats', () => {
   it('maps internal ranked candidates to the public web result shape', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
@@ -148,7 +147,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
   });
 
   it('uses one target-bounded history query and returns a chronological window ending at the target', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const findById = vi
       .spyOn(ChatsRepository.prototype, 'findById')
@@ -182,7 +181,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
   });
 
   it('returns the closed missing-chat result when the bounded window does not end at the target', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
 
     const findByChatId = vi
@@ -203,7 +202,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
   });
 
   it('counts absorbed rows only for the checkpoints in the requested window', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const secondCheckpoint = checkpoint(6, 5);
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
 
@@ -279,7 +278,7 @@ describe('ChatsService message windows, updates and forks', () => {
   }
 
   function makeService() {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const tenantDb = new TenantDbService({
       transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

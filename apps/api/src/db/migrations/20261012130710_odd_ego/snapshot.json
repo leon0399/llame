@@ -1,0 +1,25 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "55ffdf74-7d3e-461e-8915-f77c06d52f6e",
+  "prevIds": ["fa5bdfac-63b7-4e34-875b-cadd06bd0596"],
+  "footprints": [
+    {
+      "statementType": "alter_policy",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": ["s|pol|public.pins.pins_owner_update"],
+      "reads": ["n|tbl|public.pins", "n|sch|public"],
+      "sqlHash": "a4ddfb686ffd7141"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "policies\u0000[\"public\",\"pins\",\"pins_owner_update\"]",
+      "set": {
+        "withCheck": "user_id = current_setting('app.current_user_id', true) AND (\n        (item_type = 'chat' AND item_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true)))\n        OR (item_type = 'project' AND item_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))\n      )"
+      }
+    }
+  ]
+}

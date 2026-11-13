@@ -26,7 +26,7 @@
 import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
-import * as schema from '../db/schema';
+
 import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { PinsService } from './pins.service';
 
@@ -66,7 +66,7 @@ describeIfDb('RLS integration — pins tenancy (rework-item-pinning)', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 2 });
-    const db: Db = drizzle(sql, { schema });
+    const db: Db = drizzle({ client: sql });
     pinsService = new PinsService(new TenantDbService(db));
 
     userAId = crypto.randomUUID();
