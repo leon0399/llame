@@ -6905,6 +6905,253 @@ describe('RunExecutionService executeRun — tool loop', () => {
       vi.useRealTimers();
     }
   });
+  it('retries host bash recovery after a serialization failure', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const appended = recordAppendedEvents();
+
+      replayAppendedEvents(appended);
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('serialization failure'), {
+            code: '40001',
+          }),
+        )
+        .mockImplementation(({ result }) =>
+          Promise.resolve({ disposition: 'recovery_won', result }),
+        );
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-retry',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+
+      controller.abort();
+
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      const retryResult = await call;
+
+      expect(retryResult.status).toBe('error');
+      expect(retryResult.type).toBe('outcome_unknown');
+
+      expect(recovery).toHaveBeenCalledTimes(2);
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-retry',
+      );
+
+      if (!completed || !isRecord(completed.payload)) {
+        throw new Error('Retry recovery did not complete the bash call.');
+      }
+
+      const output = completed.payload.output;
+
+      if (!isRecord(output)) {
+        throw new Error('Retry recovery wrote a malformed bash result.');
+      }
+
+      expect(output.status).toBe('error');
+
+      expect(output.type).toBe('outcome_unknown');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles other calls immediately but gives an interrupted host bash call its grace period', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+
+      mockNormalExecutionRepositories();
+
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+
+      const appended = recordAppendedEvents();
+
+      replayAppendedEvents(appended);
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockImplementation(({ result }) =>
+          Promise.resolve({ disposition: 'recovery_won', result }),
+        );
+
+      const capturing = makeCapturingClient();
+
+      const otherExecute = vi
+        .spyOn(nativeReadTool, 'execute')
+        .mockImplementation((context) => {
+          const signal = context.abortSignal;
+
+          if (signal === undefined) {
+            throw new Error('The read call has no abort signal.');
+          }
+
+          const { promise, resolve } = Promise.withResolvers<{
+            status: 'success';
+            output: string;
+          }>();
+
+          const finish = () => resolve({ status: 'success', output: 'late' });
+
+          if (signal.aborted) finish();
+          else signal.addEventListener('abort', finish, { once: true });
+
+          return promise;
+        });
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        { allowed: ['bash', 'read'] },
+      );
+
+      const bashExecute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const options = capturing.streamOptions();
+
+      const bashCall = executeBoundBash(
+        options,
+        { command: 'sleep 30', async: true },
+        'bash-grace',
+      );
+
+      const otherCall = executeBoundNative(
+        options,
+        'read',
+        { path: '/native/file' },
+        'other-cancel',
+      );
+
+      await vi.waitFor(() => {
+        expect(bashExecute).toHaveBeenCalled();
+        expect(otherExecute).toHaveBeenCalled();
+      });
+
+      controller.abort();
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      const readCompletion = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'other-cancel',
+      );
+
+      if (!readCompletion || !isRecord(readCompletion.payload)) {
+        throw new Error('Parent abort did not complete the read call.');
+      }
+
+      const readOutput = readCompletion.payload.output;
+
+      if (!isRecord(readOutput)) {
+        throw new Error('Parent abort wrote a malformed read result.');
+      }
+
+      expect(readOutput.status).toBe('error');
+      expect(readOutput.type).toBe('cancelled');
+      expect(readOutput.message).toBe(
+        'The run was cancelled before this tool finished.',
+      );
+
+      const bashCompletedBeforeGrace = appended.some(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-grace',
+      );
+
+      expect(bashCompletedBeforeGrace).toBe(false);
+      expect(recovery).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      const bashResult = await bashCall;
+
+      expect(bashResult.status).toBe('error');
+      expect(bashResult.type).toBe('outcome_unknown');
+
+      await otherCall;
+
+      expect(recovery).toHaveBeenCalledTimes(1);
+
+      const bashCompletion = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-grace',
+      );
+
+      if (!bashCompletion || !isRecord(bashCompletion.payload)) {
+        throw new Error('Bash recovery did not complete the host call.');
+      }
+
+      const bashOutput = bashCompletion.payload.output;
+
+      if (!isRecord(bashOutput)) {
+        throw new Error('Bash recovery wrote a malformed result.');
+      }
+
+      expect(bashOutput.status).toBe('error');
+      expect(bashOutput.type).toBe('outcome_unknown');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('An interrupt during a pending admission writes the request before the completion', async () => {
     mockNormalExecutionRepositories();

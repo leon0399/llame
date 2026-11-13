@@ -443,6 +443,47 @@ describe('BashJobRegistry', () => {
     expect(command.stop).toHaveBeenCalledWith('run');
   });
 
+  it('does not claim a durable receipt when recovery is fenced', async () => {
+    const { registry } = setup();
+    const command = fakeHandle({ stdout: 'before fencing', stderr: '' });
+
+    const unavailable = {
+      status: 'error',
+      type: 'unavailable',
+      message: 'Run no longer owns this attempt',
+    } as const;
+
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockResolvedValue(undefined);
+
+    const recover = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockResolvedValue({ disposition: 'fenced', result: unavailable });
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => unavailable,
+    );
+
+    expect(promoted).toEqual({
+      result: unavailable,
+      receiptCommitted: false,
+      recoveryWon: true,
+    });
+    expect(recover).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-1',
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+      }),
+    );
+    expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
   it('stores no deadline for an unlimited job', async () => {
     const { registry, inserted } = setup(120);
     const command = fakeHandle();
@@ -576,6 +617,24 @@ describe('BashJobRegistry', () => {
         {},
       ),
     ).toMatchObject({ status: 'error', type: 'unavailable' });
+  });
+
+  it('refuses receipt promotion after shutdown without entering persistence', async () => {
+    const { registry, inserted, lock } = setup();
+    const command = fakeHandle();
+    await registry.shutdown();
+
+    expect(() =>
+      registry.promoteWithReceipt(
+        command.handle,
+        facts({ attemptId: 'attempt-1' }),
+        () => ({ status: 'success' }),
+        () => ({ status: 'error', type: 'unavailable', message: 'stopped' }),
+      ),
+    ).toThrow('The worker is shutting down.');
+    expect(inserted).not.toHaveBeenCalled();
+    expect(lock).not.toHaveBeenCalled();
+    expect(command.stop).not.toHaveBeenCalled();
   });
 
   it('settles once when a stop races the natural end', async () => {

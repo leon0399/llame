@@ -454,6 +454,23 @@ describe('foreground host bash move', () => {
     expect(results()).toMatchObject([{ result: { status: 'success' } }]);
   });
 
+  it('retries receipt recovery before returning the foreground result', async () => {
+    const recovery = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockRejectedValueOnce(new Error('first unavailable'))
+      .mockRejectedValueOnce(new Error('second unavailable'));
+
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(0);
+    registry.command.exit(0);
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(call).resolves.toMatchObject({ status: 'success' });
+    expect(recovery).toHaveBeenCalledTimes(3);
+    expect(results()).toMatchObject([{ result: { status: 'success' } }]);
+  });
+
   it('A long test suite passes the bound and is not stopped', async () => {
     const call = bashTool.execute(contextFor(), { command: 'make test' });
 
