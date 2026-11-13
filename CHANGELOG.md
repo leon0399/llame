@@ -83,6 +83,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   from its source Run's discarded segment using the consuming Run identity;
   owner-withdrawn notices stay withdrawn. This layer activates no settlement
   producer and starts no idle-Chat Run.
+
 - **Prepare bounded job notice context (#1657).** The packaged renderer frames
   settled-job facts and output suffixes as data. Owner-scoped database reads
   transfer only bounded output tails; verified existing artifact caches can
