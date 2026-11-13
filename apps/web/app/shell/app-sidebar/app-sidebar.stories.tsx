@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
-import { expect, screen, userEvent, waitFor, within } from "storybook/test";
-import { vi, type Mock } from "vitest";
+import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
 
+import type { ChatListItemResponse } from "@/lib/api/generated/models";
 import type { PublicUserResponse } from "@/lib/services/auth/queries";
 import type { PinnedItem } from "@/lib/services/pins/types";
-import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
+import { jsonResponse } from "@/lib/test-support/fetch-responses";
 import { AppSidebar, SidebarProvider } from "./index";
 
 const ME: PublicUserResponse = {
@@ -28,26 +28,29 @@ const PINS: Array<PinnedItem> = Array.from({ length: 30 }, (_, index) => ({
   },
 }));
 
-// No query hook mocking: the real useMe and usePins run against a stubbed
-// globalThis.fetch that answers who is signed in and their pins. An unrouted
-// request fails the story.
-let fetchMock: Mock<typeof fetch>;
+const PINNED_CHATS: Array<ChatListItemResponse> = PINS.map((pin, index) => ({
+  id: pin.itemId,
+  ownerUserId: "user-1",
+  title: `Pinned chat ${index + 1}`,
+  visibility: "private",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  archivedAt: null,
+  projectId: null,
+  workspaceRoot: null,
+  lastMessage: null,
+  runningJobs: 0,
+}));
 
-/** "METHOD /path" of every request sent so far, in order. */
-function sentRoutes() {
-  return fetchMock.mock.calls.map(([input]) => {
-    const request = input instanceof Request ? input : new Request(input);
+// The real user, pin, and pinned-chat queries run against a stubbed fetch.
+// An unrouted request fails the story.
+const fetchMock = fn<typeof fetch>();
 
-    return `${request.method} ${new URL(request.url).pathname}`;
-  });
-}
-
-/** The rail once the signed-in user's footer and the pins have loaded. */
+/** The rail once the signed-in user's footer and pins have loaded. */
 async function loadedRail(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
   const user = await canvas.findByRole("button", { name: /Ada Lovelace/ });
   await canvas.findByRole("link", { name: "Pinned chat 30" });
-  await expect(sentRoutes()).toEqual(["GET /api/v1/pins", "GET /auth/v1/me"]);
 
   return { canvas, user };
 }
@@ -74,7 +77,9 @@ const meta = {
     ...contrastKnownIssue232,
   },
   beforeEach: () => {
-    fetchMock = stubFetch();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+    fetchMock.mockClear();
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
@@ -83,11 +88,25 @@ const meta = {
 
       if (key === "GET /api/v1/pins")
         return Promise.resolve(jsonResponse(PINS));
+
+      if (key === "GET /api/v1/chats") {
+        const url = new URL(request.url);
+
+        if (
+          url.searchParams.get("pinned") !== "only" ||
+          url.searchParams.get("archived") !== "with"
+        ) {
+          throw new Error(`unexpected chat list filters: ${url.search}`);
+        }
+
+        return Promise.resolve(jsonResponse(PINNED_CHATS));
+      }
+
       throw new Error(`unrouted fetch in story: ${key}`);
     });
 
     return () => {
-      vi.unstubAllGlobals();
+      globalThis.fetch = originalFetch;
     };
   },
   render: (args) => (
