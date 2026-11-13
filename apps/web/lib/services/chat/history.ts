@@ -460,13 +460,6 @@ export function isRegenerateNoticePart(
   );
 }
 
-/** The `regenerate` notice a user turn carries, or null when it carries none. */
-export function regenerateNoticePart(message: {
-  parts: ReadonlyArray<unknown>;
-}): RegenerateNoticePart | null {
-  return message.parts.find(isRegenerateNoticePart) ?? null;
-}
-
 export function isInterruptedNoticePart(
   value: unknown,
 ): value is InterruptedNoticePart {
