@@ -14,9 +14,10 @@ import {
 export type WireCard = { readonly key: string; readonly text: string };
 
 /**
- * Greedy contiguous packing. A card that does not fit alone travels alone,
- * cut to the longest nonempty code-point prefix that fits; undefined means
- * not even one code point of a card fits beside the shared state.
+ * Greedy contiguous packing: each request takes the longest run of the next
+ * cards that fits. A card that does not fit alone travels alone, cut to the
+ * longest nonempty code-point prefix that fits; undefined means not even one
+ * code point of a card fits beside the shared state.
  */
 export function packCards(
   cards: ReadonlyArray<WireCard>,
@@ -24,31 +25,53 @@ export function packCards(
   maxCards: number,
 ): Array<Array<WireCard>> | undefined {
   const groups: Array<Array<WireCard>> = [];
-  let group: Array<WireCard> = [];
+  let start = 0;
 
-  for (const card of cards) {
-    if (group.length < maxCards && fits([...group, card])) {
-      group.push(card);
+  while (start < cards.length) {
+    const length = longestFittingRun(cards, start, fits, maxCards);
+
+    if (length > 0) {
+      groups.push(cards.slice(start, start + length));
+      start += length;
       continue;
     }
 
-    if (group.length > 0) groups.push(group);
-    group = [];
+    const card = cards[start];
 
-    if (fits([card])) {
-      group = [card];
-      continue;
-    }
-
-    const cut = longestFittingPrefix(card, fits);
+    const cut =
+      card === undefined ? undefined : longestFittingPrefix(card, fits);
 
     if (cut === undefined) return undefined;
     groups.push([cut]);
+    start += 1;
   }
 
-  if (group.length > 0) groups.push(group);
-
   return groups;
+}
+
+/**
+ * Binary search for the longest run from `start` that fits. Fitting is
+ * monotone in the run length, because each added card only grows the state
+ * and the questions, so this equals adding cards one by one at about log2(32)
+ * request builds per group instead of one per card.
+ */
+function longestFittingRun(
+  cards: ReadonlyArray<WireCard>,
+  start: number,
+  fits: (cards: ReadonlyArray<WireCard>) => boolean,
+  maxCards: number,
+): number {
+  let low = 0;
+  let high = Math.min(maxCards, cards.length - start);
+
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+
+    if (fits(cards.slice(start, start + middle))) low = middle;
+    else high = middle - 1;
+  }
+
+  return low;
 }
 
 /** Binary search over code points for the longest nonempty prefix that fits alone. */
