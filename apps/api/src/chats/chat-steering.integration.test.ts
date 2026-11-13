@@ -21,19 +21,20 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { chatDeliveries } from '../db/schema';
+import { chatDeliveries, runs, workerInstances } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   ModelNotAvailableError,
   ModelsService,
 } from '../models/models.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { deadLetterQueue } from '../queue/queue';
+import { QUEUE, deadLetterQueue, type Queue } from '../queue/queue';
 import {
   RunAbortRegistry,
   type SegmentControl,
 } from '../runs/run-abort-registry';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { RunWaitService } from '../runs/run-wait.service';
 import { RUNS_QUEUE, type RunJob } from '../runs/run-queues';
 import { RunsWorkerService } from '../runs/runs-worker.service';
 import { type TerminalRunStatus } from '../runs/run-status';
@@ -404,6 +405,128 @@ describe('chat deliveries — the steer mode', () => {
       );
 
       expect(signal).toBe('delivery');
+    });
+
+    it('An interrupt mode change wakes a Run waiting on jobs', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      await sendMode(chatId, 'queue', { id });
+
+      const attemptId = crypto.randomUUID();
+      const workerInstanceId = crypto.randomUUID();
+      const toolCallId = `call-${crypto.randomUUID()}`;
+
+      const job = await tenantDb.runAs(userAId, async (tx) => {
+        await tx
+          .update(runs)
+          .set({ status: 'running_tool', activeAttemptId: attemptId })
+          .where(eq(runs.id, runId));
+        await tx.insert(workerInstances).values({ id: workerInstanceId });
+
+        return new ChatJobsRepository(tx).insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userAId,
+            seq: 1,
+            workerInstanceId,
+            runId,
+            toolCallId,
+            settings: { modelId: MODEL, permissionMode: 'default' },
+          }),
+        );
+      });
+
+      const deadline = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await expect(
+        app.get(RunWaitService, { strict: false }).suspend({
+          runId,
+          chatId,
+          userId: userAId,
+          attemptId,
+          toolCallId,
+          toolInput: { jobs: [job.id], timeout: 3600 },
+          jobIds: [job.id],
+          deadline,
+          parts: [{ type: 'tool-call', id: toolCallId }],
+          steps: { [toolCallId]: 0 },
+        }),
+      ).resolves.toEqual({ kind: 'suspended' });
+
+      const [waiting] = await runsOf(chatId);
+
+      if (!waiting?.currentJobId || !waiting.awaiting)
+        throw new Error('Run did not suspend on its background job');
+
+      const oldWakeJobId = waiting.currentJobId;
+      const generation = waiting.wakeGeneration;
+      const queue = app.get<Queue>(QUEUE, { strict: false });
+      expect(await queue.jobState(RUNS_QUEUE, oldWakeJobId)).toBe('queued');
+
+      const foreignChange = await change(chatId, id, 'interrupt', cookieB);
+      expect(foreignChange.status).toBe(404);
+      expect(await runsOf(chatId)).toMatchObject([
+        {
+          id: runId,
+          status: 'awaiting_jobs',
+          currentJobId: oldWakeJobId,
+          wakeGeneration: generation,
+        },
+      ]);
+      expect(await modesOf(chatId)).toContainEqual([id, 'queue']);
+
+      const changed = await change(chatId, id, 'interrupt');
+      expect(changed.status).toBe(200);
+      expect(changed.body).toMatchObject({
+        id,
+        mode: 'interrupt',
+        state: 'pending',
+      });
+
+      const [resumed] = await runsOf(chatId);
+      expect(resumed).toMatchObject({
+        id: runId,
+        status: 'queued',
+        wakeGeneration: generation,
+      });
+
+      if (!resumed?.currentJobId)
+        throw new Error('Woken Run has no current queue job');
+      const newWakeJobId = resumed.currentJobId;
+      expect(newWakeJobId).not.toBe(oldWakeJobId);
+      expect(await queue.jobState(RUNS_QUEUE, oldWakeJobId)).toBe('queued');
+      expect(await queue.jobState(RUNS_QUEUE, newWakeJobId)).toBe('queued');
+
+      const staleDeadlineWake = await tenantDb.runAs(userAId, (tx) =>
+        app.get(RunWaitService, { strict: false }).wakeInTransaction(tx, {
+          runId,
+          userId: userAId,
+          generation,
+          cause: 'timeout',
+          deadlineJobId: oldWakeJobId,
+        }),
+      );
+
+      expect(staleDeadlineWake).toBe(false);
+      expect(await runsOf(chatId)).toMatchObject([
+        {
+          id: runId,
+          status: 'queued',
+          currentJobId: newWakeJobId,
+          wakeGeneration: generation,
+        },
+      ]);
+
+      const resumedEvents = await tenantDb.runAs(userAId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, userAId, {
+          eventTypes: ['run.resumed'],
+        }),
+      );
+
+      expect(resumedEvents).toMatchObject([
+        {
+          payload: { generation, cause: 'interrupted' },
+        },
+      ]);
     });
 
     it('Interrupt now changes a steer item and stops the segment in flight', async () => {
