@@ -95,7 +95,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   restores each notice against the Run that consumed it. Unrelated ancestor
   receipts remain excluded, and owner-withdrawn notices remain withdrawn.
 
-
 - **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
   seeded job notices beside owner steering, preserve the earlier reply, and
   persist job context only at dispatch. Stop-result recording consumes exact
