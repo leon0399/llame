@@ -1,4 +1,4 @@
-import { and, eq, isNull, notInArray } from 'drizzle-orm';
+import { and, eq, isNull, ne, notInArray } from 'drizzle-orm';
 import { runs, type RunStatus } from '../db/schema/chats';
 
 /**
@@ -34,6 +34,15 @@ export function nonTerminalRun() {
 export type MarkFinishedOptions = {
   error?: unknown;
   attemptId?: string;
+  expectedQueueIdentity?: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
+};
+
+export type MarkStartedOptions = {
+  workerId?: string;
+  expectedQueueIdentity?: MarkFinishedOptions['expectedQueueIdentity'];
 };
 
 type MarkFinishedUpdate = {
@@ -61,6 +70,27 @@ export function markFinishedUpdate(
   return update;
 }
 
+export function queueIdentityPredicate(
+  identity: NonNullable<MarkFinishedOptions['expectedQueueIdentity']>,
+) {
+  return and(
+    identity.currentJobId === null
+      ? isNull(runs.currentJobId)
+      : eq(runs.currentJobId, identity.currentJobId),
+    eq(runs.wakeGeneration, identity.wakeGeneration),
+  );
+}
+
+export function claimableRunPredicate(
+  identity?: NonNullable<MarkFinishedOptions['expectedQueueIdentity']>,
+) {
+  return and(
+    ne(runs.status, 'awaiting_jobs'),
+    nonTerminalRun(),
+    ...(identity ? [queueIdentityPredicate(identity)] : []),
+  );
+}
+
 /**
  * Keep first-writer-wins and attempt fencing in one owner-scoped predicate.
  */
@@ -68,6 +98,7 @@ export function markFinishedPredicate(
   runId: string,
   userId: string,
   attemptId: string | undefined,
+  expectedQueueIdentity?: MarkFinishedOptions['expectedQueueIdentity'],
 ) {
   return and(
     eq(runs.id, runId),
@@ -75,5 +106,8 @@ export function markFinishedPredicate(
     isNull(runs.finishedAt),
     nonTerminalRun(),
     ...(attemptId === undefined ? [] : [eq(runs.activeAttemptId, attemptId)]),
+    ...(expectedQueueIdentity
+      ? [queueIdentityPredicate(expectedQueueIdentity)]
+      : []),
   );
 }

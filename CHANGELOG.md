@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- **Fence worker claims and run budgets (#1657).** Queue workers claim only
+  their observed queue generation, and preparation time counts against the
+  Run's original absolute deadline.
+
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
   A proved lifetime stop settles as `timed_out`; unproved termination stays

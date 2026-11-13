@@ -204,6 +204,138 @@ describe('RunsWorkerService suspension lifecycle', () => {
     }
   });
 
+  it('rejects a pickup claim after a newer wake generation suspends the Run', async () => {
+    const modelId = `stale-claim-${randomUUID()}`;
+
+    const run = await seedRun({
+      tenantDb: harness.tenantDb,
+      userId,
+      modelId,
+      text: 'become suspended before claim',
+    });
+
+    const { attemptId, job } = await harness.tenantDb.runAs(
+      userId,
+      async (tx) => {
+        const job = await seedLiveChatJob({
+          tx,
+          userId,
+          modelId,
+          run,
+        });
+
+        const started = await new RunsRepository(tx).markStarted(
+          run.runId,
+          userId,
+        );
+
+        if (!started?.activeAttemptId) {
+          throw new Error('Expected the initial Run attempt to start');
+        }
+
+        await new RunEventsRepository(tx).append(run.runId, 'run.started', {
+          attemptId: started.activeAttemptId,
+        });
+
+        return { attemptId: started.activeAttemptId, job };
+      },
+    );
+
+    const waiting = await harness.moduleRef.get(RunWaitService).suspend({
+      runId: run.runId,
+      chatId: run.chatId,
+      userId,
+      attemptId,
+      toolCallId: job.toolCallId,
+      toolInput: { jobs: [job.id], timeout: 3600 },
+      jobIds: [job.id],
+      deadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      parts: [],
+      steps: {},
+    });
+
+    expect(waiting).toEqual({ kind: 'suspended' });
+
+    const suspended = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).findById(run.runId, userId),
+    );
+
+    expect(suspended).toMatchObject({
+      status: 'awaiting_jobs',
+      wakeGeneration: 1,
+    });
+
+    const wakeService = harness.moduleRef.get(RunWaitService);
+    await expect(
+      harness.tenantDb.runAs(userId, (tx) =>
+        wakeService.wakeInTransaction(tx, {
+          runId: run.runId,
+          userId,
+          generation: 1,
+          cause: 'interrupted',
+        }),
+      ),
+    ).resolves.toBe(true);
+
+    const queued = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).findById(run.runId, userId),
+    );
+
+    expect(queued).toMatchObject({
+      status: 'queued',
+      wakeGeneration: 1,
+    });
+
+    if (!queued?.currentJobId) {
+      throw new Error('Woken Run has no current queue job');
+    }
+
+    // This models a worker paused after pickup: its queue identity is the
+    // original one, while the Run now belongs to the newer queued generation.
+    const staleClaim = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).markStarted(run.runId, userId, {
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      }),
+    );
+
+    expect(staleClaim).toBeUndefined();
+
+    const staleSettlement = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).markFinished(run.runId, userId, 'cancelled', {
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      }),
+    );
+
+    expect(staleSettlement).toBeUndefined();
+
+    const currentClaim = await harness.tenantDb.runAs(userId, (tx) =>
+      new RunsRepository(tx).markStarted(run.runId, userId, {
+        workerId: 'worker-current',
+        expectedQueueIdentity: {
+          currentJobId: queued.currentJobId,
+          wakeGeneration: queued.wakeGeneration,
+        },
+      }),
+    );
+
+    expect(currentClaim).toMatchObject({
+      status: 'running_model',
+      workerId: 'worker-current',
+    });
+    expect(currentClaim?.activeAttemptId).toBeTruthy();
+    expect(
+      await harness.tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(run.runId, userId),
+      ),
+    ).toMatchObject({
+      status: 'running_model',
+      currentJobId: queued.currentJobId,
+      wakeGeneration: queued.wakeGeneration,
+      workerId: 'worker-current',
+      activeAttemptId: currentClaim?.activeAttemptId,
+    });
+  });
+
   it('cancels a suspended Run through the controller and settles it at real pickup', async () => {
     const modelId = `cancel-waiting-${randomUUID()}`;
     harness.models.register(modelId, {
