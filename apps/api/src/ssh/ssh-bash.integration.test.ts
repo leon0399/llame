@@ -40,6 +40,12 @@ import { runTool } from '../tools/runner';
 import { type ToolContext } from '../tools/types';
 import { createWorkspaceRootCell } from '../tools/workspace-path';
 
+function interruptCurrent(aborts: RunAbortRegistry, runId: string): void {
+  const segment = aborts.segmentOf(runId);
+
+  if (segment !== undefined) aborts.interrupt(runId, segment);
+}
+
 /** The call budget: enough for the containers' first SSH handshake. */
 const CALL_TIMEOUT_SECONDS = 30;
 
@@ -346,7 +352,7 @@ describe('ssh bash over a real sshd', () => {
 
         if (/[0-9a-f]{32}:start/u.test(seen)) {
           seen = '';
-          queueMicrotask(() => aborts.interrupt('run', 'attempt'));
+          queueMicrotask(() => interruptCurrent(aborts, 'run'));
         }
       });
 
@@ -413,7 +419,7 @@ describe('ssh bash over a real sshd', () => {
         'the Machine command to start',
       );
 
-      aborts.interrupt('run', 'attempt');
+      interruptCurrent(aborts, 'run');
       await expect(call).resolves.toMatchObject({
         status: 'error',
         type: 'outcome_unknown',

@@ -71,6 +71,12 @@ import {
 } from './run-abort-registry';
 import { createRunEventTranslator } from './run-stream-bridge';
 
+function interruptCurrent(aborts: RunAbortRegistry, runId: string): boolean {
+  const segment = aborts.segmentOf(runId);
+
+  return segment === undefined ? false : aborts.interrupt(runId, segment);
+}
+
 // The real SDK without a client, with the three calls a Run makes observable.
 vi.mock('@sentry/nestjs', async (importOriginal) => ({
   ...(await importOriginal<typeof Sentry>()),
@@ -6832,7 +6838,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'pending-bash',
     );
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     await vi.waitFor(() =>
       expect(appended.map(({ type }) => type)).toContain('tool.completed'),
     );
@@ -20475,7 +20481,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     ).mockRejectedValueOnce(new Error('pending read unavailable'));
 
     await expect(start()).rejects.toThrow('pending read unavailable');
-    expect(aborts.segmentAttemptOf(runId)).toBeUndefined();
+    expect(aborts.segmentOf(runId)).toBeUndefined();
     expect(payloadOf(appended, 'run.failed')).toMatchObject({
       status: 'failed',
       message: 'pending read unavailable',
@@ -20505,7 +20511,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       5,
     );
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20568,7 +20574,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       );
     }
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
 
@@ -20590,7 +20596,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const call = executeBoundTool(options, { q: 'x' }, 'mcp-1');
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20625,7 +20631,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20666,7 +20672,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     serveInterrupt([interruptItem]);
     const failed = options.onError?.({ error: new Error('aborted') });
     // The edit is still running: nothing settles it and nothing is delivered.
@@ -20713,7 +20719,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     expect(moveSignal?.aborted).toBe(false);
     expect(abortSignal?.aborted).not.toBe(true);
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20748,7 +20754,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20777,7 +20783,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     serveInterrupt([interruptItem]);
     const failed = options.onError?.({ error: new Error('aborted') });
     // Inside the grace nothing settles the call.
@@ -20802,7 +20808,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const record = append.getMockImplementation();
     append.mockImplementation((...args) => {
       // The stop lands while the call's admission is being recorded.
-      if (args[1] === 'tool.started') aborts.interrupt(runId, testAttemptId);
+      if (args[1] === 'tool.started') interruptCurrent(aborts, runId);
 
       return record?.(...args) ?? Promise.reject(new Error('no append'));
     });
@@ -20829,7 +20835,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
     const record = append.getMockImplementation();
     append.mockImplementation((...args) => {
-      if (args[1] === 'tool.started') aborts.interrupt(runId, testAttemptId);
+      if (args[1] === 'tool.started') interruptCurrent(aborts, runId);
 
       return record?.(...args) ?? Promise.reject(new Error('no append'));
     });
@@ -20858,7 +20864,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const started = await rig.start();
     const call = executeBoundTool(started.options, { q: 'x' }, toolCallId);
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     await call;
 
     return started;
@@ -20956,7 +20962,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const { options } = await rig.start(controller.signal);
     const call = executeBoundTool(options, { q: 'x' }, 'mcp-1');
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     controller.abort();
     await call;
     serveInterrupt([interruptItem]);
@@ -21043,7 +21049,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await options.onError?.({ error: new Error('aborted') });
 
-    expect(rig.aborts.segmentAttemptOf(runId)).toBeUndefined();
+    expect(rig.aborts.segmentOf(runId)).toBeUndefined();
   });
 
   it('records the result of an MCP call whose request was committed after the stop settled it', async () => {
@@ -21126,7 +21132,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const { options } = await rig.start();
     const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
     await call;
@@ -21171,7 +21177,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       'pending-bash',
     );
 
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     await waitForType(rig.appended, 'tool.completed');
 
     resolving.resolve({
