@@ -27,7 +27,7 @@ import { appendJobOutput, settleBashJob } from './bash-job-store';
 import { JobPromotionError } from './job-promotion-error';
 import { WorkerHeartbeatService } from './worker-heartbeat.service';
 
-type JobStopCause = Exclude<ManagedStopCause, 'run'>;
+type JobStopCause = Exclude<ManagedStopCause, 'run' | 'lifetime'>;
 
 type OutputOffsets = Record<'stdout' | 'stderr', number>;
 
@@ -53,7 +53,6 @@ type LiveJob = {
   pendingBytes: number;
   flushTimer?: NodeJS.Timeout;
   flushQueued: boolean;
-  lifetimeTimer?: NodeJS.Timeout;
   unsubscribe: () => void;
   writes: Promise<void>;
   completion?: Promise<void>;
@@ -124,7 +123,7 @@ export class BashJobRegistry implements OnModuleInit {
   start(
     input: BashCommandInput,
     context: BashExecutorContext,
-    options: StartManagedBashOptions = {},
+    options: StartManagedBashOptions & { readonly unlimited?: boolean } = {},
   ): ManagedBashHandle | BashUnavailableResult | BashTimedOutResult {
     if (!this.accepting)
       return {
@@ -132,7 +131,15 @@ export class BashJobRegistry implements OnModuleInit {
         type: 'unavailable',
         message: 'The worker is shutting down.',
       };
-    const handle = startManagedBash(input, context, options);
+
+    const lifetimeMs = options.unlimited
+      ? undefined
+      : this.config.config.tools.jobs.maxSeconds * 1000;
+
+    const handle = startManagedBash(input, context, {
+      ...options,
+      lifetimeMs,
+    });
 
     if ('pid' in handle) {
       this.commands.add(handle);
@@ -261,8 +268,6 @@ export class BashJobRegistry implements OnModuleInit {
         Buffer.byteLength(current.stderr.slice(output.stderr.length)),
     );
 
-    if (row.deadlineAt !== null)
-      this.armLifetime(live, row.deadlineAt.getTime());
     void handle.settled.then((result) => {
       if (live.completion === undefined) {
         live.completion = this.persistCompletion(
@@ -313,19 +318,6 @@ export class BashJobRegistry implements OnModuleInit {
     this.observe(live.writes);
   }
 
-  private armLifetime(live: LiveJob, deadline: number): void {
-    // Node clamps larger durations to 1 ms; rearm long operator lifetimes.
-    const delay = Math.max(0, deadline - Date.now());
-    live.lifetimeTimer = setTimeout(
-      () => {
-        if (Date.now() < deadline) this.armLifetime(live, deadline);
-        else this.observe(this.stop(live.row.id, 'lifetime'));
-      },
-      Math.min(delay, 2_147_483_647),
-    );
-    live.lifetimeTimer.unref();
-  }
-
   async stop(jobId: string, cause: JobStopCause): Promise<void> {
     const live = this.jobs.get(jobId);
 
@@ -345,9 +337,12 @@ export class BashJobRegistry implements OnModuleInit {
     cause: JobStopCause,
   ): Promise<void> {
     const output = await live.handle.stop(cause);
+    const result = await live.handle.settled;
     await this.persistCompletion(
       live,
-      stoppedSettlement(cause, output),
+      'type' in result && result.type === 'timed_out'
+        ? naturalSettlement(result)
+        : stoppedSettlement(cause, output),
       output,
     );
   }
@@ -358,7 +353,6 @@ export class BashJobRegistry implements OnModuleInit {
     output: ManagedOutput,
   ): Promise<void> {
     clearTimeout(live.flushTimer);
-    clearTimeout(live.lifetimeTimer);
     live.unsubscribe();
     // A failed periodic flush leaves offsets unchanged; settlement still stores it.
     await live.writes.catch(() => undefined);
@@ -453,6 +447,14 @@ function naturalSettlement(result: BashResult): JobSettlement {
       },
     };
 
+  if (result.type === 'timed_out')
+    return {
+      state: 'timed_out',
+      result: {
+        truncated: result.truncatedStreams ?? bothStreams(result.truncated),
+      },
+    };
+
   return { state: 'lost', result: { outcomeUnknown: true } };
 }
 
@@ -479,8 +481,6 @@ function stoppedSettlement(
 
   if (!output.proved)
     return { state: 'lost', result: { ...result, outcomeUnknown: true } };
-
-  if (cause === 'lifetime') return { state: 'timed_out', result };
 
   return { state: 'cancelled', stoppedBy: cause, result };
 }

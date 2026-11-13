@@ -125,6 +125,49 @@ describe("process-group settlement", () => {
     expect(result.wallTimeMs).toBeGreaterThanOrEqual(30_000);
   });
 
+  it.each([true, false])(
+    "enforces a managed lifetime beyond the call and timer caps with stop proof %s",
+    async (proved) => {
+      vi.useFakeTimers();
+      vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+      const child = new ChildProcess();
+      Object.defineProperty(child, "pid", { value: 12_350 });
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      child.stdout = stdout;
+      child.stderr = stderr;
+      stdout.end();
+      stderr.end();
+      vi.spyOn(processTree, "stopProcessGroup").mockResolvedValue(proved);
+
+      const lifetimeMs = 3_000_000_000;
+      const timerLimit = 2_147_483_647;
+
+      const handle = watchManagedChild(child, {
+        context,
+        attemptId: "managed-lifetime",
+        deadline: true,
+        options: { lifetimeMs },
+      });
+
+      let settled = false;
+      void handle.settled.then(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(timerLimit - 300_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(lifetimeMs - timerLimit - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await handle.settled).toMatchObject({
+        type: proved ? "timed_out" : "outcome_unknown",
+      });
+    },
+  );
+
   it("bounds an open output pipe and marks its result truncated", async () => {
     vi.useFakeTimers();
     const child = new ChildProcess();

@@ -7,6 +7,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- **Enforce host command lifetimes from spawn (#1657).** The managed executor
+  owns the job deadline during foreground execution and pending promotion.
+  A proved lifetime stop settles as `timed_out`; unproved termination stays
+  `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
+  without the ordinary tool-call cap.
+
 - Select the latest API test report per shard on partial CI reruns, so an
   earlier failed attempt cannot override a passing retry in the aggregate.
 
