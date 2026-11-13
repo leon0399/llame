@@ -612,6 +612,32 @@ describe('BashJobRegistry', () => {
   );
 
   it.each(['stdout', 'stderr'] as const)(
+    'does not count committed %s bytes toward a promotion-window flush',
+    async (stream) => {
+      const { registry, chunks, inserted } = setup();
+      const initial = 'x'.repeat(16 * 1024 - 1);
+      const command = fakeHandle({ stdout: '', stderr: '', [stream]: initial });
+
+      inserted.mockImplementationOnce((job) => {
+        command.write({ stdout: '', stderr: '', [stream]: `${initial}y` });
+
+        return Promise.resolve(jobRow(job));
+      });
+      await registry.promote(command.handle, facts());
+      await vi.advanceTimersByTimeAsync(999);
+      expect(chunks).toEqual([
+        { output: stream, content: initial, position: 0 },
+      ]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(chunks).toEqual([
+        { output: stream, content: initial, position: 0 },
+        { output: stream, content: 'y', position: initial.length },
+      ]);
+    },
+  );
+
+  it.each(['stdout', 'stderr'] as const)(
     'counts promotion-window %s bytes toward the 16 KiB flush',
     async (stream) => {
       const { registry, chunks, inserted } = setup();
