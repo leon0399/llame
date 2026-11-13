@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-13
+
+- **Bound pending background-job output snapshots (#1657).** A slow database
+  keeps one pending flush instead of retaining each cumulative output snapshot.
+  The next flush captures the latest output and preserves stored suffix offsets.
+
 # 2026-11-12
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for

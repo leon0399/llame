@@ -66,6 +66,7 @@ type LiveJob = {
   offsets: OutputOffsets;
   pendingBytes: number;
   flushTimer?: NodeJS.Timeout;
+  flushQueued: boolean;
   lifetimeTimer?: NodeJS.Timeout;
   unsubscribe: () => void;
   writes: Promise<void>;
@@ -215,6 +216,7 @@ export class BashJobRegistry {
       facts,
       offsets: { stdout: output.stdout.length, stderr: output.stderr.length },
       pendingBytes: 0,
+      flushQueued: false,
       writes: Promise.resolve(),
       unsubscribe: () => undefined,
     };
@@ -261,11 +263,16 @@ export class BashJobRegistry {
   private queueFlush(live: LiveJob): void {
     clearTimeout(live.flushTimer);
     live.flushTimer = undefined;
-    live.pendingBytes = 0;
-    const snapshot = live.handle.snapshot();
+
+    // Keep at most one future flush; capture its output only when it can write.
+    if (live.flushQueued) return;
+    live.flushQueued = true;
     live.writes = live.writes
       .catch(() => undefined)
       .then(async () => {
+        live.flushQueued = false;
+        live.pendingBytes = 0;
+        const snapshot = live.handle.snapshot();
         await this.tenantDb.runAs(live.facts.ownerUserId, (db) =>
           appendJobOutput(db, live.row, snapshot, live.offsets),
         );

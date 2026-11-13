@@ -63,11 +63,11 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
   const handle = {
     pid: 42,
     settled,
-    snapshot: () => ({
+    snapshot: vi.fn(() => ({
       ...current,
       truncated: cut.stdout || cut.stderr,
       truncatedStreams: cut,
-    }),
+    })),
     onOutput: (listener: (bytes: number) => void) => {
       listeners.push(listener);
       everSubscribed.push(listener);
@@ -82,6 +82,7 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     handle: handle as never,
     stop,
+    snapshot: handle.snapshot,
     write: (next: Output) => (current = next),
     /** Output arrives: the registry hears it through its subscription. */
     emit: (next: Output) => {
@@ -317,6 +318,35 @@ describe('BashJobRegistry', () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(settlements).toMatchObject([expected]);
+  });
+
+  it('does not retain cumulative snapshots behind a stalled output write', async () => {
+    const { registry, tenantDb, chunks } = setup();
+    const command = fakeHandle();
+    await registry.promote(command.handle, facts());
+    command.snapshot.mockClear();
+    const blocked = Promise.withResolvers<void>();
+    const runAs = tenantDb.runAs;
+    vi.spyOn(tenantDb, 'runAs').mockImplementation(async (owner, action) => {
+      await blocked.promise;
+
+      return runAs(owner, action);
+    });
+    const block = 'x'.repeat(16 * 1024);
+    command.emit({ stdout: block, stderr: '' });
+    await vi.advanceTimersByTimeAsync(0);
+
+    for (let count = 2; count <= 6; count++) {
+      command.emit({ stdout: block.repeat(count), stderr: '' });
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    expect(command.snapshot).toHaveBeenCalledTimes(1);
+    blocked.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    command.exit(0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(chunks.map((chunk) => chunk.content).join('')).toBe(block.repeat(6));
   });
 
   it('stores the output that arrived after the last flush when the job settles', async () => {
