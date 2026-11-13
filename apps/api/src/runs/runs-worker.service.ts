@@ -259,20 +259,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     );
 
     if ('expiredBudget' in pickup && pickup.expiredBudget) {
-      const message = 'Run timed out: exceeded its wall-clock budget.';
-      await retryRunTransaction(() =>
-        this.runExecution.settleTerminalRun({
-          runId: job.runId,
-          userId: job.userId,
-          status: 'expired',
-          expectedQueueIdentity: {
-            currentJobId: job.wake?.jobId ?? null,
-            wakeGeneration: job.wake?.generation ?? 0,
-          },
-          runPayload: { status: 'expired', message },
-          error: { message },
-        }),
-      );
+      await this.expireBudget(job);
 
       return;
     }

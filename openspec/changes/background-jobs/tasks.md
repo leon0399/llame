@@ -34,6 +34,7 @@ master
 <- background-jobs/wait-state
 <- background-jobs/wait-routing
 <- background-jobs/wait-suspend
+<- background-jobs/wait-claim
 <- background-jobs/wait-resume
 <- background-jobs/web
 <- background-jobs/finalize
@@ -68,7 +69,8 @@ one changes no behavior that the model or the owner can see.
 | `wait-state`         | `host-runs`          | Wait schema, transactional suspension/wake preparation, queue identity fences and seeded database proof.        | none                                             | 2,000      | refs #1657        |
 | `wait-routing`       | `wait-state`         | Owner and settlement wake entry points, Chat transaction retries, dependency wiring and caller fixtures.        | none                                             | 1,000      | refs #1657        |
 | `wait-suspend`       | `wait-routing`       | Executing-attempt suspension, worker pickup, restart, actual wake races and budget acceptance.                  | none                                             | 1,700      | refs #1657        |
-| `wait-resume`        | `wait-suspend`       | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
+| `wait-claim`         | `wait-suspend`       | Atomic queue-generation execution claims, stale terminal-write fencing, and absolute pickup budgets.            | none                                             | 500        | refs #1657        |
+| `wait-resume`        | `wait-claim`         | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
 | `web`                | `wait-resume`        | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
 | `finalize`           | `web`                | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
 
@@ -356,6 +358,16 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the prepar
 - [x] 11.6 Update `docs/product/operator/scaling.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [x] 11.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 11.8 Run the GitHub review and CI loop on the published head.
+
+## 11c. Queue claim fencing (`background-jobs/wait-claim`)
+
+This atomic repair stays separate to keep the suspension layer within its
+review budget. The model-facing wait tool remains inactive.
+
+- [x] 11c.1 Carry the worker's observed queue identity into the atomic execution claim and fence stale preclaim terminal writes. A real database regression rejects the old claim and cancellation after the next generation becomes queued, then accepts the current claim with its worker identity.
+- [x] 11c.2 Preserve the original absolute Run deadline across awaited cancellation reads and clean up registered abort controllers when model creation fails. Focused worker, repository and execution suites pass, including the expired-pickup and registry cleanup regressions.
+- [x] 11c.3 Verify focused API unit and suspension database cases, lint, types and formatting; review the complete parent-relative repair for correctness, simplification and unnecessary structure.
+- [ ] 11c.4 Publish the repair before wait activation and drive ordinary CI to readiness; process mutations and external review concurrently.
 
 ## 12. Wait (`background-jobs/wait-resume`)
 
