@@ -7,6 +7,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Keep a spawned host command's process slot until settlement when cancellation
+  races with spawn. A foreground bound also releases a stalled output spill to
+  return the bounded inline preview.
+
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
   A proved lifetime stop settles as `timed_out`; unproved termination stays

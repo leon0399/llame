@@ -335,6 +335,27 @@ describe('foreground host bash move', () => {
     expect(start).not.toHaveBeenCalled();
   });
 
+  it('holds capacity when the Run aborts between spawn and promotion', async () => {
+    const abort = new AbortController();
+    const limiter = new BashProcessLimiter(1);
+    vi.spyOn(registry, 'start').mockImplementation(() => {
+      queueMicrotask(() => abort.abort());
+
+      return registry.command;
+    });
+
+    const result = await bashTool.execute(
+      contextFor({ abortSignal: abort.signal, bashProcessLimiter: limiter }),
+      { command: 'make test', async: true },
+    );
+
+    expect(result).toMatchObject({ backgrounded: true });
+    expect(limiter.tryAcquire()).toBeNull();
+    registry.command.settle();
+    await registry.command.settled;
+    expect(limiter.tryAcquire()).not.toBeNull();
+  });
+
   it('keeps the process slot after the move fence listener is removed', async () => {
     registry.command.autoSettle = false;
     const limiter = new BashProcessLimiter(1);

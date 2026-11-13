@@ -469,6 +469,23 @@ describe('the bash spill boundaries', () => {
     expect(textOf(result)).toContain('full result not stored');
   });
 
+  it('returns the inline preview when the foreground bound interrupts a pending write', async () => {
+    insertWrites.insertParts.mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
+    const controller = new AbortController();
+
+    const pending = spillBashResult(
+      testContext({ moveSignal: controller.signal }),
+      success('a'.repeat(20_000)),
+    );
+
+    setTimeout(() => controller.abort(), 0);
+    const result = await pending;
+    expect(result).not.toHaveProperty('artifact');
+    expect(textOf(result)).toContain('full result not stored');
+  }, 1000);
+
   it('probes the read group with the bash locator', async () => {
     const result = await spillBashResult(
       testContext({

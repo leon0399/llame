@@ -30,6 +30,14 @@ type Started =
   | { readonly result: ToolResult }
   | { readonly handle: ManagedBashHandle; readonly startedAt: Date };
 
+type SpawnGate = { readonly signal: AbortSignal; spawned: boolean };
+
+const CANCELLED_BEFORE_START = {
+  status: 'error',
+  type: 'cancelled',
+  message: 'Command was cancelled before start.',
+} as const;
+
 /**
  * Fence, then spawn on the worker registry. A call whose Run was cancelled
  * before the spawn records a known `cancelled` result, never an unknown one.
@@ -44,11 +52,13 @@ async function startHostCommand(
   let started: Started | undefined;
   // The call never spawns once its Run aborts, or once the fence has taken
   // longer than the move window after the bound: the slot is freed at once.
-  const gate = new AbortController();
+  const controller = new AbortController();
+  const gate: SpawnGate = { signal: controller.signal, spawned: false };
 
   const closeGate = () => {
-    gate.abort();
-    slot.release();
+    controller.abort();
+
+    if (!gate.spawned) slot.release();
   };
 
   let timer: NodeJS.Timeout | undefined;
@@ -70,7 +80,7 @@ async function startHostCommand(
   else if (context.moveSignal?.aborted) onMove();
 
   try {
-    started = await fenceAndSpawn(context, input, cwd, gate.signal);
+    started = await fenceAndSpawn(context, input, cwd, gate);
 
     if ('handle' in started) void started.handle.settled.finally(slot.release);
 
@@ -88,7 +98,7 @@ async function fenceAndSpawn(
   context: AsyncContext,
   input: BashInput,
   cwd: string,
-  gate: AbortSignal,
+  gate: SpawnGate,
 ): Promise<Started> {
   const { bashJobs, jobSettings } = context;
 
@@ -111,12 +121,8 @@ async function fenceAndSpawn(
     performance.now() >= context.moveDeadlineAt;
 
   const started =
-    gate.aborted || expired
-      ? ({
-          status: 'error',
-          type: 'cancelled',
-          message: 'Command was cancelled before start.',
-        } as const)
+    gate.signal.aborted || expired
+      ? CANCELLED_BEFORE_START
       : bashJobs.start(
           { command: 'bash', args: ['-c', input.command], cwd, env: input.env },
           managedBashContext(context),
@@ -126,6 +132,8 @@ async function fenceAndSpawn(
             unlimited: input.unlimited === true,
           },
         );
+
+  gate.spawned = 'pid' in started;
 
   if ('pid' in started) return { handle: started, startedAt };
 
