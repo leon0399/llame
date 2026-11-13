@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { fn } from "storybook/test";
 
+import type { Run } from "@/lib/services/chat/active-runs";
 import type { RunPhase } from "@/lib/services/live/live-messages";
 
 // Storybook manual mock for the active-runs context (registered globally via
@@ -21,6 +22,7 @@ type ActiveRunsContextValue = {
   unseenRunOutcomes: ReadonlyMap<string, UnseenRunOutcome>;
   markChatSeen: (chatId: string) => void;
   activeChatIds: ReadonlySet<string>;
+  runStatusByChatId: ReadonlyMap<string, Run["status"]>;
   runPhaseByChatId: ReadonlyMap<string, RunPhase>;
 };
 
@@ -33,6 +35,7 @@ export function emptyActiveRuns(): ActiveRunsContextValue {
     unseenRunOutcomes: new Map(),
     markChatSeen: () => {},
     activeChatIds: new Set(),
+    runStatusByChatId: new Map(),
     runPhaseByChatId: new Map(),
   };
 }

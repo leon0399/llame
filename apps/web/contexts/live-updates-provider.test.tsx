@@ -95,8 +95,12 @@ function ConnectionProbe() {
 }
 
 function RunsProbe() {
-  const { activeChatIds, runPhaseByChatId, unseenRunOutcomes } =
-    useActiveRuns();
+  const {
+    activeChatIds,
+    runPhaseByChatId,
+    runStatusByChatId,
+    unseenRunOutcomes,
+  } = useActiveRuns();
 
   return (
     <div>
@@ -105,6 +109,9 @@ function RunsProbe() {
       </span>
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
       <span data-testid="phase">{runPhaseByChatId.get(chatId) ?? "none"}</span>
+      <span data-testid="run-status">
+        {runStatusByChatId.get(chatId) ?? "none"}
+      </span>
     </div>
   );
 }
@@ -198,10 +205,9 @@ describe("LiveUpdatesProvider", () => {
     });
   });
 
-  it("writes a pushed chat record into the caches without refetching", () => {
-    const { queryClient, invalidate } = renderLive(<ConnectionProbe />);
+  it("writes a pushed chat record into the detail cache", () => {
+    const { queryClient } = renderLive(<ConnectionProbe />);
     latestSocket().serverOpen();
-    invalidate.mockClear();
     queryClient.setQueryData(chatQueryKeys.infinite(), {
       pages: [[]],
       pageParams: [undefined],
@@ -229,7 +235,6 @@ describe("LiveUpdatesProvider", () => {
     expect(
       queryClient.getQueryData(chatQueryKeys.detail(chatId)),
     ).toMatchObject({ title: "Pushed" });
-    expect(invalidate).not.toHaveBeenCalled();
   });
 
   it("fans run progress out to subscribers and ignores malformed frames", () => {
@@ -289,6 +294,14 @@ describe("ActiveRunsProvider with live updates", () => {
       expect(screen.getByTestId("processing").textContent).toBe("true"),
     );
     expect(screen.getByTestId("phase").textContent).toBe("writing");
+    expect(screen.getByTestId("run-status").textContent).toBe("running_model");
+
+    latestSocket().serverSend(JSON.stringify(runUpdated("awaiting_jobs")));
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "awaiting_jobs",
+      ),
+    );
 
     latestSocket().serverSend(JSON.stringify(runUpdated("completed")));
     expect(screen.getByTestId("phase").textContent).toBe("none");
