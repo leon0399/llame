@@ -702,6 +702,11 @@ type ExecuteRunInput = {
    * only a Continue Run resumes kept parts, so every other Run skips that read.
    */
   followUpAction?: FollowUpAction | null;
+  /** Identity observed by a queue worker at pickup; direct callers omit it. */
+  expectedQueueIdentity?: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
 };
 
 type ModelStreamResult = ReturnType<ModelClient['streamText']>;
@@ -1290,7 +1295,12 @@ export class RunExecutionService {
             input.runId,
             input.userId,
             status,
-            { error: { message } },
+            input.expectedQueueIdentity
+              ? {
+                  error: { message },
+                  expectedQueueIdentity: input.expectedQueueIdentity,
+                }
+              : { error: { message } },
           );
 
           return {
@@ -1303,7 +1313,11 @@ export class RunExecutionService {
           };
         }
 
-        const started = await runs.markStarted(input.runId, input.userId);
+        const started = input.expectedQueueIdentity
+          ? await runs.markStarted(input.runId, input.userId, {
+              expectedQueueIdentity: input.expectedQueueIdentity,
+            })
+          : await runs.markStarted(input.runId, input.userId);
 
         if (!started) {
           const current = await runs.findById(input.runId, input.userId);
@@ -1315,11 +1329,11 @@ export class RunExecutionService {
             return { settledReply: undefined };
           }
 
-          const cancelled = await runs.markFinished(
-            input.runId,
-            input.userId,
-            'cancelled',
-          );
+          const cancelled = input.expectedQueueIdentity
+            ? await runs.markFinished(input.runId, input.userId, 'cancelled', {
+                expectedQueueIdentity: input.expectedQueueIdentity,
+              })
+            : await runs.markFinished(input.runId, input.userId, 'cancelled');
 
           return {
             settledReply: await this.settleAtClaim(

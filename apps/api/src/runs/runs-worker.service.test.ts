@@ -20,7 +20,7 @@ import {
   type ModelClientFactory,
 } from '../models/models.service';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { type RunAbortRegistrar } from './run-abort-registry';
+import { RunAbortRegistry, type RunAbortRegistrar } from './run-abort-registry';
 import { type RunWaitService } from './run-wait.service';
 import { ModelContextExecutionError } from './model-context-errors';
 import {
@@ -85,6 +85,7 @@ function makeService(
     allowedTools?: Array<string>;
     nativeExecutorId?: string;
     runsConcurrency?: number | null;
+    tenantDb?: TenantRunner;
   } = {},
 ) {
   // Named consts (not accessed later as `queue.consume`/`tenantDb.runAs`) so
@@ -141,13 +142,15 @@ function makeService(
   // satisfy `runAs`'s own `<T>`. A plain (non-mocked) arrow function assigned
   // to the generic-typed slot lets TS infer the real generic signature; it
   // delegates to the spy for tracking without ever widening then asserting.
-  const runAs: TenantRunner['runAs'] = (userId, fn) => {
+  const defaultRunAs: TenantRunner['runAs'] = (userId, fn) => {
     runAsSpy(userId, fn);
 
     return fn(tx);
   };
 
-  const tenantDb: TenantRunner = { runAs };
+  const tenantDb: TenantRunner = overrides.tenantDb ?? {
+    runAs: defaultRunAs,
+  };
 
   const service = new RunsWorkerService(
     queue,
@@ -904,6 +907,65 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     });
   });
 
+  it('expires at the absolute deadline after a delayed cancellation read', async () => {
+    const startedAt = new Date('2026-11-13T12:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(startedAt.getTime() + 10_000));
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce({ ...queuedRun })
+      .mockResolvedValueOnce({ ...queuedRun });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue({
+      sequence: 1,
+      runId: job.runId,
+      eventType: 'run.started',
+      payload: { status: 'running_model' },
+      createdAt: startedAt,
+    });
+    const runAsSpy = vi.fn();
+
+    const delayedTenantDb: TenantRunner = {
+      runAs: async (userId, callback) => {
+        runAsSpy(userId);
+
+        if (runAsSpy.mock.calls.length === 2) {
+          await vi.advanceTimersByTimeAsync(291_000);
+        }
+
+        return callback(makeFakeTx());
+      },
+    };
+
+    const createClient = vi.fn();
+    const executeRun = vi.fn();
+    const settleTerminalRun = vi.fn().mockResolvedValue({ outcome: 'won' });
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds: 300,
+      tenantDb: delayedTenantDb,
+      models: { createClient },
+      runExecution: { executeRun, settleTerminalRun },
+      aborts: {
+        register: vi.fn().mockReturnValue(new AbortController()),
+        unregister: vi.fn(),
+      },
+    });
+
+    await (
+      await captureRunsHandler(service, consumeSpy)
+    )(job);
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledOnce();
+    expect(settleTerminalRun.mock.calls[0]?.[0]).toMatchObject({
+      status: 'expired',
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+  });
+
   it('routes a cancellation already visible at initial pickup through central terminal settlement', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
       ...queuedRun,
@@ -932,6 +994,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       userId: job.userId,
       status: 'cancelled',
       runPayload: { status: 'cancelled', message: cancellationMessage },
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       error: { message: cancellationMessage },
     });
   });
@@ -974,6 +1037,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       userId: job.userId,
       status: 'cancelled',
       runPayload: { status: 'cancelled', message: cancellationMessage },
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       error: { message: cancellationMessage },
     });
   });
@@ -987,6 +1051,8 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 
     const unavailable = new ModelNotAvailableError(job.modelId);
 
+    const aborts = new RunAbortRegistry();
+
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       models: {
         createClient: () => {
@@ -997,6 +1063,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
         executeRun: unstubbed('executeRun'),
         settleTerminalRun,
       },
+      aborts,
     });
 
     const handler = await captureRunsHandler(service, consumeSpy);
@@ -1008,7 +1075,12 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       userId: job.userId,
       status: 'failed',
       runPayload: { status: 'failed', message: unavailable.message },
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       error: { message: unavailable.message },
+    });
+    expect(aborts.executing()).not.toContainEqual({
+      runId: job.runId,
+      userId: job.userId,
     });
   });
 });

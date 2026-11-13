@@ -36,10 +36,12 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type Db } from '../db/tenant-db.service';
 import { notifyRunControl } from './run-control';
 import {
+  claimableRunPredicate,
   markFinishedPredicate,
   markFinishedUpdate,
   nonTerminalRun,
   type MarkFinishedOptions,
+  type MarkStartedOptions,
   type TerminalRunStatus,
 } from './run-status';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
@@ -392,44 +394,27 @@ export class RunsRepository {
     return rows[0];
   }
 
-  /**
-   * Transition a run into execution and stamp startedAt. Refuses terminal or
-   * cancel-requested runs: cancellation that wins the pickup/claim race must
-   * never be resurrected into running_model.
-   *
-   * A run already at running_model IS reclaimable (durable-run-workers D7):
-   * the job-queue's native worker-liveness only ever redelivers a run job
-   * after its prior holder stopped signalling liveness (fetchNextJob never
-   * re-selects an active job; only the heartbeat-timeout path returns one to
-   * the claimable pool — see pg-boss's plans.js), so any delivery of a
-   * non-terminal, non-cancel-requested run is a legitimate crash-recovery
-   * claim, not a race with a still-live holder. There is no app-level
-   * stale-heartbeat CAS. The rare paused-but-not-dead double delivery this
-   * admits (design D7 risk) is bounded by markFinished's first-writer-wins
-   * guard: at most one terminal outcome ever survives.
-   */
   async markStarted(
     runId: string,
     userId: string,
-    options?: { workerId?: string },
+    options?: MarkStartedOptions,
   ): Promise<Run | undefined> {
-    const workerId = options?.workerId;
-    const attemptId = randomUUID();
+    const identity = options?.expectedQueueIdentity;
 
     const [updated] = await this.db
       .update(runs)
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
-        activeAttemptId: attemptId,
-        ...(workerId !== undefined && { workerId }),
+        activeAttemptId: randomUUID(),
+        ...(options?.workerId !== undefined && { workerId: options.workerId }),
       })
       .where(
         and(
           eq(runs.id, runId),
           eq(runs.userId, userId),
           isNull(runs.cancelRequestedAt),
-          nonTerminalRun(),
+          claimableRunPredicate(identity),
         ),
       )
       .returning();
@@ -510,7 +495,14 @@ export class RunsRepository {
     const [updated] = await this.db
       .update(runs)
       .set(markFinishedUpdate(status, options))
-      .where(markFinishedPredicate(runId, userId, options?.attemptId))
+      .where(
+        markFinishedPredicate(
+          runId,
+          userId,
+          options?.attemptId,
+          options?.expectedQueueIdentity,
+        ),
+      )
       .returning();
 
     // Return notices for this undispatched segment only after winning terminal
