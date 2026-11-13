@@ -6,11 +6,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
@@ -90,6 +92,18 @@ function commit(directory, files) {
 
 const lines = (count, value = "const x = 1;") =>
   `${Array.from({ length: count }, () => value).join("\n")}\n`;
+
+const scriptPath = fileURLToPath(
+  new URL("./mutation-changed-lines.mjs", import.meta.url),
+);
+const fixtureDirectoryPrefix = "stryker-sql-fixtures-";
+const fixtureEnvironment = "LLAME_STRYKER_SQL_FIXTURE_DIR";
+
+function stagedFixtureDirectories() {
+  return readdirSync(path.join(path.dirname(scriptPath), "..", "apps/api"))
+    .filter((entry) => entry.startsWith(fixtureDirectoryPrefix))
+    .sort();
+}
 
 test("an edited source line is mutated at that line, not as a whole file", () => {
   const directory = repository({
@@ -479,4 +493,84 @@ test("a shard outside its count is refused rather than silently empty", () => {
     [Number.NaN, 2],
   ])
     assert.throws(() => shardEntries([], index, count), /Invalid shard/u);
+});
+
+test("with-sql-fixtures stages fixtures for the command and cleans up on either exit", () => {
+  const root = path.resolve(path.dirname(scriptPath), "..");
+  const api = path.join(root, "apps/api");
+  const before = stagedFixtureDirectories();
+  const run = spawnSync(
+    process.execPath,
+    [
+      scriptPath,
+      "with-sql-fixtures",
+      process.execPath,
+      "-e",
+      `console.log(JSON.stringify({
+        fixtureDirectory: process.env.${fixtureEnvironment},
+        files: require("node:fs").readdirSync(process.env.${fixtureEnvironment}).sort(),
+        contents: Object.fromEntries(require("node:fs").readdirSync(process.env.${fixtureEnvironment}).map(
+          (file) => [file, require("node:fs").readFileSync(require("node:path").join(process.env.${fixtureEnvironment}, file), "utf8")]
+        )),
+        cwd: process.cwd(),
+      }))`,
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, [fixtureEnvironment]: "parent-value" },
+    },
+  );
+
+  assert.equal(run.status, 0, run.stderr);
+  const observed = JSON.parse(run.stdout);
+  assert.equal(observed.cwd, root);
+  assert.notEqual(observed.fixtureDirectory, "parent-value");
+  assert.equal(path.dirname(observed.fixtureDirectory), api);
+  assert.ok(
+    path.basename(observed.fixtureDirectory).startsWith(fixtureDirectoryPrefix),
+  );
+  assert.deepEqual(observed.files, [
+    "03-vector-extension.sql",
+    "rls-function-owner.sql",
+  ]);
+  for (const [source, staged] of [
+    [
+      "docker/postgres/initdb/03-vector-extension.sql",
+      "03-vector-extension.sql",
+    ],
+    ["docker/postgres/rls-function-owner.sql", "rls-function-owner.sql"],
+  ])
+    assert.equal(
+      observed.contents[staged],
+      readFileSync(path.join(root, source), "utf8"),
+    );
+  assert.deepEqual(stagedFixtureDirectories(), before);
+
+  const failed = spawnSync(
+    process.execPath,
+    [
+      scriptPath,
+      "with-sql-fixtures",
+      process.execPath,
+      "-e",
+      "process.exit(23)",
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.equal(failed.status, 23, failed.stderr);
+  assert.deepEqual(stagedFixtureDirectories(), before);
+
+  const missingCommand = spawnSync(
+    process.execPath,
+    [
+      scriptPath,
+      "with-sql-fixtures",
+      "/definitely/missing/stryker-fixture-command",
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
+  assert.notEqual(missingCommand.status, 0);
+  assert.match(missingCommand.stderr, /ENOENT/u);
+  assert.deepEqual(stagedFixtureDirectories(), before);
 });
