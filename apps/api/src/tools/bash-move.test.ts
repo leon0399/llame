@@ -613,36 +613,44 @@ describe('foreground host bash move', () => {
   });
 
   it('a hung result append and a hung begin resolve through the runner backstop', async () => {
-    vi.useRealTimers();
-    append.mockImplementation(() => new Promise(() => undefined));
-    const startedAt = Date.now();
+    // Native AbortSignal timers do not use Vitest's clock.
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), milliseconds);
 
-    const hungAppend = await runTool(
+      return controller.signal;
+    });
+    append.mockImplementation(() => new Promise(() => undefined));
+
+    const hungAppend = runTool(
       bashTool,
       { command: 'make test' },
       contextFor({ moveSignal: undefined }),
       0.05,
     );
 
-    expect(hungAppend).toMatchObject({
+    await vi.advanceTimersByTimeAsync(800);
+
+    await expect(hungAppend).resolves.toMatchObject({
       status: 'error',
       type: 'outcome_unknown',
     });
 
     begin.mockImplementation(() => new Promise(() => undefined));
 
-    const hungBegin = await runTool(
+    const hungBegin = runTool(
       bashTool,
       { command: 'make test' },
       contextFor({ moveSignal: undefined, toolCallId: 'call-2' }),
       0.05,
     );
 
-    expect(hungBegin).toMatchObject({
+    await vi.advanceTimersByTimeAsync(800);
+
+    await expect(hungBegin).resolves.toMatchObject({
       status: 'error',
       type: 'outcome_unknown',
     });
-    expect(Date.now() - startedAt).toBeLessThan(3000);
     expect(registry.command.stop).not.toHaveBeenCalled();
   });
 });

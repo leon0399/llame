@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- **Enforce host command lifetimes from spawn (#1657).** The managed executor
+  owns the job deadline during foreground execution and pending promotion.
+  A proved lifetime stop settles as `timed_out`; unproved termination stays
+  `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
+  without the ordinary tool-call cap.
+
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
   The next flush captures the latest output and preserves stored suffix offsets.

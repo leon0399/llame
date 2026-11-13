@@ -465,21 +465,40 @@ describe('BashJobRegistry', () => {
     expect((await output(job.id)).toString()).toBe('kept');
   });
 
-  it.each([true, false])(
-    'A hung build ends at the lifetime; A host command ends at the job lifetime (proof %s)',
-    async (proved) => {
-      const command = new Command();
-      command.proved = proved;
-      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
-      const job = await registry.promote(command, facts);
-      command.print('before lifetime');
-      await vi.advanceTimersByTimeAsync(7_200_000);
-      vi.useRealTimers();
-      await ended(job.id, proved ? 'timed_out' : 'lost');
-      expect(command.stop).toHaveBeenCalledWith('lifetime');
-      expect((await output(job.id)).toString()).toBe('before lifetime');
-    },
-  );
+  it('persists an executor-owned lifetime stop and its captured output', async () => {
+    registry = new BashJobRegistry(tenant, worker, {
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        tools: {
+          ...BUILT_IN_DEFAULTS.tools,
+          jobs: { ...BUILT_IN_DEFAULTS.tools.jobs, maxSeconds: 0.5 },
+        },
+      },
+    });
+
+    const command = registry.start(
+      {
+        command: 'bash',
+        args: ['-c', 'printf "before lifetime"; sleep 30'],
+        cwd: '/tmp',
+      },
+      {
+        workingDirectory: '/tmp',
+        secretBoundary: true,
+        processIsolation: true,
+        outputBoundBytes: 65_536,
+        inputBound: 8000,
+        durationMs: 300_000,
+        maxProcesses: 1,
+      },
+    );
+
+    if (!('pid' in command)) throw new Error('Command did not start');
+    const job = await registry.promote(command, facts);
+    await command.settled;
+    await ended(job.id, 'timed_out');
+    expect((await output(job.id)).toString()).toBe('before lifetime');
+  });
 
   it('A stop that is not proved keeps output and settles lost rather than cancelled', async () => {
     const command = new Command();

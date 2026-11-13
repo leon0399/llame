@@ -39,12 +39,13 @@ const OUTPUT_DRAIN_BUDGET_MS = 50;
 export type WatchRequest = {
   readonly context: BashExecutorContext;
   readonly attemptId: string;
-  /** False for a handle: the caller arms the deadline and calls `stop`. */
+  /** Whether the caller supplies a per-call deadline or a command lifetime. */
   readonly deadline: boolean;
   readonly options: {
     readonly signal?: AbortSignal;
     readonly timeoutSignal?: AbortSignal;
     readonly timeoutMs?: number;
+    readonly lifetimeMs?: number;
     readonly protectedValues?: ReadonlyArray<string>;
   };
 };
@@ -230,18 +231,13 @@ function clearWatch(
   request: WatchRequest,
   controls: WatchSession["controls"],
 ): void {
-  if (controls.timer !== undefined) clearTimeout(controls.timer);
+  const { signal, timeoutSignal } = request.options;
+  const { timer, onAbort, onTimeout } = controls;
+  clearTimeout(timer);
 
-  if (controls.onAbort) {
-    request.options.signal?.removeEventListener("abort", controls.onAbort);
-  }
+  if (onAbort) signal?.removeEventListener("abort", onAbort);
 
-  if (controls.onTimeout) {
-    request.options.timeoutSignal?.removeEventListener(
-      "abort",
-      controls.onTimeout,
-    );
-  }
+  if (onTimeout) timeoutSignal?.removeEventListener("abort", onTimeout);
 }
 
 function armAbort(session: WatchSession): void {
@@ -285,22 +281,25 @@ async function settleAbort(session: WatchSession): Promise<void> {
 
 function armDeadline(session: WatchSession): void {
   const timeoutSignal = session.request.options.timeoutSignal;
+  const onTimeout = () => void settleDeadline(session);
+  session.controls.onTimeout = onTimeout;
+  timeoutSignal?.addEventListener("abort", onTimeout, { once: true });
 
-  if (timeoutSignal !== undefined) {
-    session.controls.onTimeout = () => {
-      void settleDeadline(session);
-    };
+  const durationMs = effectiveDeadlineMs(session);
+  const deadlineAt = session.startedAtMs + durationMs;
 
-    timeoutSignal.addEventListener("abort", session.controls.onTimeout, {
-      once: true,
-    });
-  }
+  const arm = (remaining: number) => {
+    session.controls.timer = setTimeout(
+      remaining > 2_147_483_647
+        ? () => arm(deadlineAt - performance.now())
+        : onTimeout,
+      Math.max(0, Math.min(remaining, 2_147_483_647)),
+    );
+  };
 
-  session.controls.timer = setTimeout(() => {
-    void settleDeadline(session);
-  }, effectiveDeadlineMs(session));
+  arm(durationMs);
 
-  if (timeoutSignal?.aborted) session.controls.onTimeout?.();
+  if (timeoutSignal?.aborted) onTimeout();
 }
 
 async function settleDeadline(session: WatchSession): Promise<void> {
@@ -323,17 +322,16 @@ async function settleDeadline(session: WatchSession): Promise<void> {
     ...(output.wallTimeMs !== undefined && {
       wallTimeMs: output.wallTimeMs,
     }),
-    stdout: output.stdout,
-    stderr: output.stderr,
-    truncated: output.truncated,
-    truncatedStreams: output.truncatedStreams,
+    ...outputOf(output),
   });
 }
 
 function effectiveDeadlineMs(session: WatchSession): number {
-  return Math.min(
-    session.request.context.durationMs,
-    session.request.options.timeoutMs ?? session.request.context.durationMs,
+  const { context, options } = session.request;
+
+  return (
+    options.lifetimeMs ??
+    Math.min(context.durationMs, options.timeoutMs ?? context.durationMs)
   );
 }
 

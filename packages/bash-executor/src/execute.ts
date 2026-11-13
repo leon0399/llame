@@ -339,12 +339,14 @@ function spawnManaged(request: RunRequest): Promise<BashResult> {
 export type StartManagedBashOptions = Pick<
   ExecuteManagedBashOptions,
   "protectedValues" | "toolCallId"
->;
+> & {
+  /** Trusted command lifetime, independent of the ordinary tool-call cap. */
+  readonly lifetimeMs?: number;
+};
 
 /**
- * Start a managed command and hand its control to the caller. The handle arms
- * no deadline and listens to no call signal: the caller stops the command
- * through `stop`, and takes its own process slot from a limiter.
+ * Start a managed command with an optional trusted lifetime. The handle ignores
+ * call signals; its caller owns explicit stops and its process-limiter slot.
  */
 export function startManagedBash(
   input: BashCommandInput,
@@ -364,8 +366,8 @@ export function startManagedBash(
   const watch = watchManagedChild(child, {
     context,
     attemptId: request.attemptId,
-    deadline: false,
-    options: request.options,
+    deadline: options.lifetimeMs !== undefined,
+    options: { ...request.options, lifetimeMs: options.lifetimeMs },
   });
 
   // A child that failed to spawn has no pid and has settled as unavailable.

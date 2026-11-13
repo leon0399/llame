@@ -117,6 +117,7 @@ async function fenceAndSpawn(
           {
             toolCallId: context.toolCallId,
             protectedValues: context.configuredCredentials,
+            unlimited: input.unlimited === true,
           },
         );
 
