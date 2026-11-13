@@ -46,9 +46,9 @@ const unitTest = {
     // Runs its own migrated PostgreSQL Testcontainer; only Stryker's mutation
     // Vitest config includes it, not the ordinary unit project.
     'src/chats/chat-deliveries.query.unit.test.ts',
-    // it fails on any machine whose local config names a server with an unset
-    // secret — and Stryker refuses to start when the initial run has any
-    // failure. A developer's personal config is not a mutation signal.
+    // This test reads the developer's local MCP configuration. Exclude it from
+    // Stryker because it fails when that configuration references an unset
+    // secret; a developer's personal config is not a mutation signal.
     ...(underStryker ? ['src/mcp/mcp-runtime.module.test.ts'] : []),
   ],
   // Raised only under Stryker: instrumentation puts a counter on every
