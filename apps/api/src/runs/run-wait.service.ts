@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
@@ -330,8 +330,19 @@ export class RunWaitService {
 
     if (!run.awaiting) return undefined;
 
-    if (cause === 'timeout' && Date.parse(run.awaiting.deadline) > Date.now())
-      return undefined;
+    if (cause === 'timeout') {
+      const due = await tx
+        .select({ id: runs.id })
+        .from(runs)
+        .where(
+          and(
+            eq(runs.id, run.id),
+            sql`${run.awaiting.deadline}::timestamptz <= now()`,
+          ),
+        );
+
+      if (due.length === 0) return undefined;
+    }
 
     if (cause === 'settled') {
       const states = await this.listedJobStates(

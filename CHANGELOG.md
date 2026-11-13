@@ -23,7 +23,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   collisions with fresh ids, and refuse terminal resurrection or obsolete
   dead-letter expiry. Recorded jobs have no first-enqueue admission grace.
   This prerequisite connects no owner or settlement wake route and exposes
-  no `wait` tool.
+  no `wait` tool. Deadline wake eligibility uses the database clock, so
+  worker clock skew cannot strand the persisted deadline job.
 
 - **State the stop proof boundary (#1657).** The model-facing description and
   tool reference promise termination of the managed process group, without
