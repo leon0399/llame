@@ -40,6 +40,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   their observed queue generation, and preparation time counts against the
   Run's original absolute deadline.
 
+- **Prepare wait wake reconstruction (#1657).** The pure projection restores
+  a checkpoint and its correlated wait result only inside the first resumed
+  attempt. It retains tool metadata, step indices and timeout, rejects malformed
+  receipts, and connects no runtime caller in this prerequisite.
+
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
   A proved lifetime stop settles as `timed_out`; unproved termination stays
@@ -49,6 +54,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
   The next flush captures the latest output and preserves stored suffix offsets.
+
+- **Fence worker claims and run budgets (#1657).** Queue workers claim only
+  their observed queue generation, and preparation time counts against the
+  Run's original absolute deadline.
 
 # 2026-11-12
 
