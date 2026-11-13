@@ -166,7 +166,8 @@ describe('Run segment yield', () => {
         strict: false,
       });
 
-      const yielded = vi.spyOn(aborts, 'yield');
+      const segment = aborts.segmentOf(seeded.runId);
+      expect(segment).toBeDefined();
 
       try {
         await fx.storeItems(
@@ -176,10 +177,7 @@ describe('Run segment yield', () => {
           seeded.runId,
         );
         await vi.waitFor(() =>
-          expect(yielded).toHaveBeenCalledWith(
-            seeded.runId,
-            expect.any(String),
-          ),
+          expect(segment?.control.yield.signal.aborted).toBe(true),
         );
         expect(signal?.aborted).toBe(false);
         const before = await fx.events(seeded.runId);
