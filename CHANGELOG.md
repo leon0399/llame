@@ -5,6 +5,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Keep Chat stories in sync with background-job polling (#1657).** Open
   Chat stories serve an empty jobs list while retaining the strict unrouted
   request guard; incidental request assertions ignore that background poll.
+  Browser-safe Storybook mocks keep those stories usable as raw previews.
 
 - **Control background jobs from the Chat (#1657).** Session details lists live
   and settled jobs, with per-job Stop and Stop all independent of composer Stop.

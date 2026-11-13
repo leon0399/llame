@@ -12,9 +12,16 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { useState, type ComponentProps } from "react";
-import { expect, screen, userEvent, waitFor, within } from "storybook/test";
+import {
+  expect,
+  fn,
+  mocked,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "storybook/test";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { vi, type Mock } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
@@ -47,8 +54,7 @@ import type { PermissionModesResponse } from "@/lib/services/permission-modes/qu
 import {
   emptyResponse,
   jsonResponse,
-  stubFetch,
-} from "@/lib/test-support/fetch-stub";
+} from "@/lib/test-support/fetch-responses";
 import { ChatHeader } from "./chat-header";
 import { SessionDetailsProvider } from "./session-details/details-state";
 import { SessionDetails } from "./session-details";
@@ -59,17 +65,17 @@ import {
   type ChatMarkdownRenderers,
 } from "./use-chat-markdown-ready";
 
-const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
+const useModelsQuery = mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
 
-const usePermissionModesQuery = vi.mocked(
+const usePermissionModesQuery = mocked(
   permissionModeQueries.usePermissionModesQuery,
   { partial: true },
 );
 
-const runIdToCancel = vi.mocked(runs.runIdToCancel);
-const cancelRun = vi.mocked(runs.cancelRun);
+const runIdToCancel = mocked(runs.runIdToCancel);
+const cancelRun = mocked(runs.cancelRun);
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 const HISTORY_ROUTE = `GET /api/v1/chats/${CHAT_ID}/messages`;
@@ -175,7 +181,7 @@ async function chunkLoad(attempt: number) {
 // stories assert only what it carries. A story can answer more routes with
 // `routeAlso`. Any other request is recorded and the meta's afterEach fails
 // the story on it: the throw alone only becomes a query error.
-let fetchMock: Mock<typeof fetch>;
+const fetchMock = fn<typeof fetch>();
 let unrouted: Array<string> = [];
 
 /** The Request a fetch call carries. */
@@ -204,7 +210,9 @@ function routeOpenChat(
   latestRun: ChatLatestRunResponse | null,
   pending: Array<ChatDeliveryResponse>,
 ) {
-  fetchMock = stubFetch();
+  const originalFetch = globalThis.fetch;
+  fetchMock.mockReset();
+  globalThis.fetch = fetchMock;
   unrouted = [];
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
@@ -234,7 +242,7 @@ function routeOpenChat(
   });
 
   return () => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   };
 }
 
@@ -553,7 +561,7 @@ export const SendsWithDefaultModel: Story = {
   },
 };
 
-const uploadAttachment = vi.mocked(uploads.uploadAttachment);
+const uploadAttachment = mocked(uploads.uploadAttachment);
 
 const VISION: AvailableModel = {
   id: "system:openai:vision",
@@ -3069,7 +3077,7 @@ export const EditPutsTheTextBack: Story = {
     pending: [EDITABLE_ITEM],
   } satisfies ChatPageParameters,
   beforeEach: () => {
-    vi.mocked(uploads.fetchMediaDescriptor).mockResolvedValue(
+    mocked(uploads.fetchMediaDescriptor).mockResolvedValue(
       uploaded(EDITABLE_MEDIA_ID, "notes.png"),
     );
     routeAlso({
