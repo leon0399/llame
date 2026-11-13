@@ -243,6 +243,7 @@ rows. It adds no settlement producer and does not complete task 9 acceptance.
 
 - [x] 8d.1 Implement the notice transition repository APIs, including owner deletion, queued/held/pending transitions and atomic restrictions; prove the state rules and isolation with seeded database rows, without creating notices from job settlement.
 - [x] 8d.2 Prepare the exact seeded-row database proof for the task 9.1 owner actions and notice-mode rules; task 9.1 stays unchecked until final activation proves the producer-dependent acceptance end to end.
+- [x] 8d.4 Prove terminal recovery with real stored receipts: return a notice whose receiving segment never dispatched, retain a notice after that segment dispatched, and reject restoration under another owner. The focused integration suite passes 50 cases and instruments every recovery-helper branch.
 - [ ] 8d.3 Run focused repository and database verification, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; do not claim a mutation gate passed until its result is recorded.
 
 ## 8e. Notice context (`background-jobs/notice-context`)
