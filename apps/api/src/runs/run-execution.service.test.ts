@@ -10889,6 +10889,48 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     return { spies, publication, execution, result };
   }
 
+  it('preserves the preceding assistant when textless trigger parts gain staged context', async () => {
+    const capturing = triggerClient();
+
+    const triggerParts = [
+      {
+        type: 'data-context',
+        data: {
+          v: 1 as const,
+          producer: 'workspace',
+          form: 'notice',
+          runId,
+          payload: {},
+        },
+      },
+    ] satisfies RunUserMessage['parts'];
+
+    await executeTriggerCase({
+      client: capturing.client,
+      historyRows: [
+        ...committedTurn({ contextTokens: 100 }),
+        { ...triggerTurn(), parts: triggerParts },
+      ],
+      triggerParts,
+    });
+
+    const messages = capturing.streamOptions().messages;
+    expect(messages.some((message) => message.role === 'assistant')).toBe(true);
+    const trigger = messages.at(-1);
+    expect(trigger?.role).toBe('user');
+    const content = trigger?.content;
+    const parts = Array.isArray(content) ? content.filter(isRecord) : [];
+
+    expect(
+      parts.some(
+        (part) =>
+          part['type'] === 'text' &&
+          isString(part['text']) &&
+          part['text'].trim().length > 0,
+      ),
+    ).toBe(true);
+  });
+
   it('omits effort when a threshold compaction has no effort selection', async () => {
     const { execution } = await executeTriggerCase({
       startedEffort: null,
@@ -14005,6 +14047,28 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     // The stored item names a model the request no longer announces.
     expect(sent).not.toContain('older-model');
     // The new comparison is there instead.
+    expect(sent).toContain('other-model');
+    expect(sent).toContain('fake-model');
+  });
+
+  it('treats a stored model-switch-only trigger as projected during replacement', async () => {
+    const storedSwitch = createModelChangeItem({
+      oldModel: { id: 'older-model' },
+      newModel: { id: 'other-model' },
+      runId,
+    });
+
+    const capturing = makeCapturingClient();
+
+    await executeRegenerate(null, {
+      client: capturing.client,
+      triggerParts: [storedSwitch],
+    });
+
+    const messages = capturing.streamOptions().messages;
+    expect(messages).toHaveLength(1);
+    const sent = JSON.stringify(messages);
+    expect(sent).not.toContain('older-model');
     expect(sent).toContain('other-model');
     expect(sent).toContain('fake-model');
   });

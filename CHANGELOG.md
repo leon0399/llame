@@ -17,6 +17,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Preserve the preceding assistant reply when a textless host trigger adds
+  staged context to a model request.
+
 - Synchronize streamed usage timing tests with consumption and the monotonic clock.
 
 - Stop heartbeat checks from reading job rows after worker shutdown starts.

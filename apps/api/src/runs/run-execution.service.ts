@@ -7286,11 +7286,11 @@ function retainedReadRef(
 }
 
 /**
- * The messages a prepared pass sends: the Chat's history, the trigger's own
- * stored parts in the position its history row takes, then — for a Continue
- * Run — the kept steps (turn-actions D5/D6). An empty host trigger has not
- * produced a history message yet, so it must be appended rather than replace
- * the preceding assistant reply.
+ * The Chat's history, the trigger's stored parts in its history-row position,
+ * then — for a Continue Run — the kept steps (turn-actions D5/D6). A trigger
+ * whose own parts project to no model content has not produced a history
+ * message, even if this dispatch stages context, so it is appended rather than
+ * replacing the preceding assistant reply.
  */
 function requestMessages(
   context: PreparedAttemptContext,
@@ -7318,8 +7318,11 @@ function requestMessages(
     ),
   };
 
-  if (context.triggerParts.length === 0) messages.push(trigger);
-  else messages[messages.length - 1] = trigger;
+  if (userPartsToModelContent(context.triggerParts).length === 0) {
+    messages.push(trigger);
+  } else {
+    messages[messages.length - 1] = trigger;
+  }
 
   return [...messages, ...keptMessages];
 }
