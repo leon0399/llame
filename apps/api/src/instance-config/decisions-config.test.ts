@@ -622,7 +622,9 @@ describe('decision model limits config', () => {
   ])('rejects %s naming the limits path', (_name, limits) => {
     configWith([{ ...CATALOGUE[0], limits }]);
 
-    expect(() => loadInstanceConfig()).toThrow(/limits/u);
+    expect(() => loadInstanceConfig()).toThrow(
+      /decisionModels\[0\]\.limits|\/decisionModels\/0\/limits/u,
+    );
   });
 
   it('rejects a per-question limit above the per-request limit', () => {

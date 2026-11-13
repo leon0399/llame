@@ -36,7 +36,7 @@ import { decisionLogger, type DecisionLogger } from './decision-logger';
  * Jev reranking ran 20 to 30 per request; a larger shared state costs
  * accuracy (decision-model-limits design G7).
  */
-export const DECISION_MAX_CARDS_PER_REQUEST = 32;
+const DECISION_MAX_CARDS_PER_REQUEST = 32;
 
 /**
  * One call judges at most its first this many cards. A rank call shares the
@@ -44,13 +44,7 @@ export const DECISION_MAX_CARDS_PER_REQUEST = 32;
  * queued waves of a large walk stay bounded (design G11). The rest keep
  * their canonical order unjudged.
  */
-export const DECISION_MAX_CARDS_PER_CALL = 256;
-
-/** Limits of an entry that declares none: the configured defaults. */
-const DEFAULT_LIMITS: DecisionModelLimits = {
-  ...DEFAULT_DECISION_LIMITS,
-  maxQuestionsPerRequest: null,
-};
+const DECISION_MAX_CARDS_PER_CALL = 256;
 
 const NO_VALUES: Record<string, never> = {};
 
@@ -277,16 +271,25 @@ export async function judgeCandidatesWith(
   input.abortSignal?.throwIfAborted();
   const send = (request: DecisionRequest) => client.decide(request);
 
-  return judgeRequests(input, options, send, () => {
-    const built = buildRequests(
+  const built = buildRequests(
+    input,
+    options.protectedValues ?? [],
+    options.limits ?? DEFAULT_DECISION_LIMITS,
+  );
+
+  // Nothing fits beside the shared state: no request can be sent at all.
+  if (built === undefined) {
+    return logged(
       input,
-      options.protectedValues ?? [],
-      options.limits ?? DEFAULT_LIMITS,
+      0,
+      unavailableJudgement(input, 'state_too_large'),
+      options.logger,
     );
+  }
 
-    if ('failure' in built) return built;
-    const { wireCards, requests } = built;
+  const { wireCards, requests } = built;
 
+  return judgeRequests(input, options, send, () => {
     return {
       requests,
       scoreOf: (outcomes) => {
@@ -323,26 +326,21 @@ async function judgeRequests<R>(
   input: JudgeCandidatesInput,
   options: JudgeOptions,
   send: (request: R) => Promise<RankOutcome>,
-  plan: () =>
-    | {
-        readonly requests: ReadonlyArray<R>;
-        readonly scoreOf: (outcomes: ReadonlyArray<RankOutcome>) => ScoreLookup;
-      }
-    | { readonly failure: JudgementFailureReason },
+  plan: () => {
+    readonly requests: ReadonlyArray<R>;
+    readonly scoreOf: (outcomes: ReadonlyArray<RankOutcome>) => ScoreLookup;
+  },
 ): Promise<CandidateJudgement> {
-  const planned =
-    input.cards.length === 0 ? { failure: 'no_candidates' as const } : plan();
-
-  if ('failure' in planned) {
+  if (input.cards.length === 0) {
     return logged(
       input,
       0,
-      unavailableJudgement(input, planned.failure),
+      unavailableJudgement(input, 'no_candidates'),
       options.logger,
     );
   }
 
-  const { requests, scoreOf } = planned;
+  const { requests, scoreOf } = plan();
 
   const outcomes = await Promise.all(
     requests.map((request) => sendSafely(() => send(request))),
@@ -392,7 +390,7 @@ function buildRequests(
       readonly wireCards: ReadonlyArray<WireCard>;
       readonly requests: Array<DecisionRequest>;
     }
-  | { readonly failure: 'state_too_large' } {
+  | undefined {
   const protect = (text: string) =>
     redactProtectedString(text, protectedValues);
 
@@ -420,7 +418,7 @@ function buildRequests(
     ),
   );
 
-  if (groups === undefined) return { failure: 'state_too_large' };
+  if (groups === undefined) return undefined;
 
   const requests = groups.map((cards) => ({
     ...buildJudgeRequest({ ...shared, cards }),

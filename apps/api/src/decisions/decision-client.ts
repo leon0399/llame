@@ -188,6 +188,9 @@ async function attempt(
   const release = await wire.slots?.acquire(request.signal);
 
   try {
+    // A grant can land after the caller aborted; start nothing then.
+    request.signal?.throwIfAborted();
+
     return await attemptHoldingSlot(wire, request, number);
   } finally {
     release?.();

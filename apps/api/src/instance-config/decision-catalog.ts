@@ -17,10 +17,11 @@ export type DecisionModelLimits = {
 };
 
 /** Limits of an entry that declares none (decision-models spec). */
-export const DEFAULT_DECISION_LIMITS = {
+export const DEFAULT_DECISION_LIMITS: DecisionModelLimits = {
   perQuestionContextTokens: 8192,
   perRequestContextTokens: 32_768,
-} as const;
+  maxQuestionsPerRequest: null,
+};
 
 /** Attempts in flight to a `system-one` provider that declares no bound. */
 export const DEFAULT_DECISION_CONCURRENT_REQUESTS = 4;

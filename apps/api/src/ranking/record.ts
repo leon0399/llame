@@ -98,7 +98,7 @@ export async function recordAll(
 }
 
 /** The label suffix of an answer recorded with the cards in reverse order. */
-export const REVERSED_SUFFIX = '~reversed';
+const REVERSED_SUFFIX = '~reversed';
 
 /**
  * The same cases with their cards in reverse order, and a sink that records

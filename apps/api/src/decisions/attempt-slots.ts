@@ -3,7 +3,8 @@
  * One instance per `system-one` provider id is shared by every catalog entry
  * and every call on it, so two checkpoints behind one server share its
  * capacity. A waiter whose signal aborts leaves the queue at once and rejects
- * with the signal's reason; it never takes a slot.
+ * with the signal's reason (an `AbortError` when that reason is not an
+ * `Error`); it never takes a slot.
  */
 export type AttemptSlots = {
   /** Resolves with the release function once a slot is held. */

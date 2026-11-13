@@ -863,21 +863,40 @@ describe('request limits', () => {
     expect(judgement.probabilities?.get('c0')).toBe(0.5);
   });
 
-  it('replaces the key before the cut, so no key prefix reaches the wire', async () => {
+  it('replaces the key before the cut, so a cut inside the key span leaks no key prefix', async () => {
+    const before = 'x'.repeat(200);
+
+    // A limit that lets exactly 204 characters through: the cut lands four
+    // characters into the span the key occupied before replacement.
+    const limit = perQuestionEstimate(
+      buildJudgeRequest({
+        query: input().query,
+        rubric: RUBRIC,
+        cards: [{ key: 'p0', text: `${before}${KEY.slice(0, 4)}` }],
+      }),
+    );
+
     const client = clientOf(answering('m'));
 
     await judgeCandidatesWith(
       client,
       input({
-        cards: [
-          { key: 'c0', text: `${'x'.repeat(200)}${KEY}${'y'.repeat(200)}` },
-        ],
+        cards: [{ key: 'c0', text: `${before}${KEY}${'y'.repeat(200)}` }],
       }),
-      { logger: SILENT, protectedValues: PROTECTED, limits: limits(260) },
+      { logger: SILENT, protectedValues: PROTECTED, limits: limits(limit) },
     );
 
-    const body = JSON.stringify(client.requests);
-    expect(body).not.toContain('sk-');
+    expect(client.requests).toHaveLength(1);
+
+    const sent =
+      z
+        .object({ cards: z.record(z.string(), z.string()) })
+        .parse(client.requests[0]?.state).cards['p0'] ?? '';
+
+    expect(sent.startsWith(before)).toBe(true);
+    expect(sent.length).toBeGreaterThan(before.length);
+    expect(sent.length).toBeLessThan(before.length + KEY.length);
+    expect(JSON.stringify(client.requests)).not.toContain(KEY.slice(0, 3));
   });
 
   it('is unavailable with state_too_large and sends nothing when no card fits', async () => {
