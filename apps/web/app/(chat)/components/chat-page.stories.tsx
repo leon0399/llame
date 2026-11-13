@@ -76,6 +76,7 @@ const HISTORY_ROUTE = `GET /api/v1/chats/${CHAT_ID}/messages`;
 const RESUME_ROUTE = `GET /api/v1/chats/${CHAT_ID}/stream`;
 const SEND_ROUTE = `POST /api/v1/chats/${CHAT_ID}/messages`;
 const DELIVERIES_ROUTE = `GET /api/v1/chats/${CHAT_ID}/deliveries`;
+const JOBS_ROUTE = `GET /api/v1/chats/${CHAT_ID}/jobs`;
 
 // The server page seeds an opened chat's history into the query cache, so the
 // browser only probes for a run to resume (204: none) and re-reads history
@@ -169,12 +170,11 @@ async function chunkLoad(attempt: number) {
   return load;
 }
 
-// The resume probe and the history re-read run through the REAL hooks against
-// a stubbed fetch, answering as the api does for a chat with no active run. A
-// send is held unanswered: the stories assert only what it carries. A story
-// can answer more routes with `routeAlso`. Any other request is recorded and
-// the meta's afterEach fails the story on it: the throw alone only becomes a
-// query error.
+// The resume probe, history re-read, delivery list, and jobs list run through
+// the REAL hooks against a stubbed fetch. A send is held unanswered: the
+// stories assert only what it carries. A story can answer more routes with
+// `routeAlso`. Any other request is recorded and the meta's afterEach fails
+// the story on it: the throw alone only becomes a query error.
 let fetchMock: Mock<typeof fetch>;
 let unrouted: Array<string> = [];
 
@@ -219,6 +219,10 @@ function routeOpenChat(
       return Promise.resolve(jsonResponse({ items: pending }));
     }
 
+    if (key === JOBS_ROUTE) {
+      return Promise.resolve(jsonResponse({ items: [] }));
+    }
+
     if (key === SEND_ROUTE) return new Promise<Response>(() => {});
 
     if (DRAFT_CATALOG_ROUTES.includes(key)) {
@@ -254,12 +258,14 @@ function everyRoute() {
 }
 
 /** "METHOD /path" of every request the chat sent so far, in order. The
- *  pending-item read is left out like the catalog: it answers empty unless a
- *  story names items, and the stories are about what the chat itself sends. */
+ *  pending-item and jobs reads are left out like the catalog: these stories
+ *  are about chat behavior, not background activity polling. */
 function sentRoutes() {
   return everyRoute().filter(
     (route) =>
-      !DRAFT_CATALOG_ROUTES.includes(route) && !route.endsWith("/deliveries"),
+      !DRAFT_CATALOG_ROUTES.includes(route) &&
+      route !== JOBS_ROUTE &&
+      !route.endsWith("/deliveries"),
   );
 }
 
