@@ -419,6 +419,10 @@
           "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": ["string", "null"] },
           "description": "Optional operator headers. X-Session-Id: {session:id} defaults on openai, anthropic, openrouter, opencode-zen, openai-responses, openai-completions, anthropic-messages, and opencode-go. Codex, system-one, and cohere-rerank have no default. null removes a default; operator values override base headers case-insensitively. Environment and path tokens resolve at startup. Chat calls render session tokens per request; non-chat calls omit session templates and retain static headers. Authored session tokens are rejected on system-one and cohere-rerank profiles."
+        },
+        "maxConcurrentRequests": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Optional, `type: \"system-one\"` only: attempts in flight to this provider id in one process, shared by every `decisionModels[]` entry on it. Default 4. A retry wait holds no slot. Raise it only as far as the server tolerates."
         }
       },
       "allOf": [
@@ -473,6 +477,12 @@
           "then": {
             "properties": { "accountId": false }
           }
+        },
+        {
+          "if": {
+            "properties": { "type": { "not": { "const": "system-one" } } }
+          },
+          "then": { "properties": { "maxConcurrentRequests": false } }
         }
       ]
     },
@@ -494,6 +504,25 @@
         "providerModelId": {
           "type": "string",
           "description": "Provider model id, sent verbatim as the wire `model`, e.g. \"~typesafe/jev-latest\", \"typesafe/jev-1.14\", or \"jev-1.13\". The alias is not a revision: the response's `model` is logged, so a moved alias is visible."
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional token ceilings of this model on this route, as its vendor documents them. Omitted fields default to 8,192 per question and 32,768 per request (or the per-question limit when larger). A small self-hosted model must declare them. llame estimates tokens as UTF-8 bytes of the serialized JSON divided by 3.",
+          "properties": {
+            "perQuestionContextTokens": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "State plus the largest single question (TypeSafe `per_question_context`)."
+            },
+            "perRequestContextTokens": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "State plus every question (TypeSafe `per_request_context`). Must not be below `perQuestionContextTokens` when both are declared."
+            },
+            "maxQuestionsPerRequest": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Questions in one request. The lane never sends more than 32, so a larger value has no effect."
+            }
+          }
         }
       }
     },

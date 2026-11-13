@@ -61,6 +61,12 @@ const CATALOGUE = [
   },
 ];
 
+const DEFAULT_LIMITS = {
+  perQuestionContextTokens: 8192,
+  perRequestContextTokens: 32_768,
+  maxQuestionsPerRequest: null,
+};
+
 const WEB_SEARCH = {
   engines: [{ id: 'duckduckgo', type: 'duckduckgo' }],
   chain: ['duckduckgo'],
@@ -86,6 +92,25 @@ describe('decisionModels config', () => {
   it('is absent when the array is not configured', () => {
     configWith(undefined);
     expect(loadInstanceConfig().decisionModels).toBeUndefined();
+  });
+
+  it('resolves the catalogue entries with their provider, model, and default limits', () => {
+    configWith(CATALOGUE);
+
+    expect(loadInstanceConfig().decisionModels).toMatchObject([
+      {
+        id: 'opencode',
+        provider: 'opencode-decisions',
+        providerModelId: 'jev-1.13',
+        limits: DEFAULT_LIMITS,
+      },
+      {
+        id: 'openrouter',
+        provider: 'openrouter-decisions',
+        providerModelId: '~typesafe/jev-latest',
+        limits: DEFAULT_LIMITS,
+      },
+    ]);
   });
 
   it('accepts an empty catalogue', () => {
@@ -231,6 +256,7 @@ describe('decisionModels config', () => {
         id: 'jev',
         provider: 'opencode-decisions',
         providerModelId: 'jev-1.13',
+        limits: DEFAULT_LIMITS,
       },
     ]);
   });
@@ -570,5 +596,143 @@ describe('model entries cannot name a decision provider', () => {
     });
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+});
+
+describe('decision model limits config', () => {
+  function limitsOf(env: NodeJS.ProcessEnv = {}) {
+    return loadInstanceConfig(env).decisionModels?.[0]?.limits;
+  }
+
+  it('keeps declared limits and defaults the per-request limit', () => {
+    configWith([
+      {
+        ...CATALOGUE[0],
+        limits: { perQuestionContextTokens: 1024, maxQuestionsPerRequest: 16 },
+      },
+    ]);
+
+    expect(limitsOf()).toEqual({
+      perQuestionContextTokens: 1024,
+      perRequestContextTokens: 32_768,
+      maxQuestionsPerRequest: 16,
+    });
+  });
+
+  it('raises the per-request default to a larger declared per-question limit', () => {
+    configWith([
+      { ...CATALOGUE[0], limits: { perQuestionContextTokens: 65_536 } },
+    ]);
+
+    expect(limitsOf()).toEqual({
+      perQuestionContextTokens: 65_536,
+      perRequestContextTokens: 65_536,
+      maxQuestionsPerRequest: null,
+    });
+  });
+
+  it('resolves a whole-value interpolation token', () => {
+    configWith([
+      {
+        ...CATALOGUE[0],
+        limits: { perQuestionContextTokens: '{env:LAYA_WINDOW}' },
+      },
+    ]);
+
+    expect(limitsOf({ LAYA_WINDOW: '1024' })?.perQuestionContextTokens).toBe(
+      1024,
+    );
+  });
+
+  it.each([
+    ['a negative value', { perRequestContextTokens: -1 }],
+    ['a fractional value', { maxQuestionsPerRequest: 2.5 }],
+    ['an unknown field', { contextWindowTokens: 1024 }],
+  ])('rejects %s naming the limits path', (_name, limits) => {
+    configWith([{ ...CATALOGUE[0], limits }]);
+
+    expect(() => loadInstanceConfig()).toThrow(/limits/u);
+  });
+
+  it('rejects a per-question limit above the per-request limit', () => {
+    configWith([
+      {
+        ...CATALOGUE[0],
+        limits: {
+          perQuestionContextTokens: 65_536,
+          perRequestContextTokens: 32_768,
+        },
+      },
+    ]);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'decisionModels[0].limits: perQuestionContextTokens must not exceed perRequestContextTokens',
+    );
+  });
+
+  it('rejects an interpolated limit that is not an integer without printing it', () => {
+    configWith([
+      {
+        ...CATALOGUE[0],
+        limits: { perQuestionContextTokens: '{env:LAYA_WINDOW}' },
+      },
+    ]);
+
+    let message = '';
+
+    try {
+      loadInstanceConfig({ LAYA_WINDOW: '1024.5' });
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+
+    expect(message).toContain(
+      'decisionModels[0].limits.perQuestionContextTokens',
+    );
+    expect(message).not.toContain('1024.5');
+  });
+});
+
+describe('system-one maxConcurrentRequests config', () => {
+  function bound(provider: UnknownRecord, env: NodeJS.ProcessEnv = {}) {
+    configWith(CATALOGUE.slice(0, 1), {
+      providers: [{ ...SYSTEM_ONE_PROVIDER, ...provider }],
+    });
+
+    const resolved = loadInstanceConfig(env).providers.find(
+      (entry) => entry.id === SYSTEM_ONE_PROVIDER.id,
+    );
+
+    return resolved?.type === 'system-one'
+      ? resolved.maxConcurrentRequests
+      : undefined;
+  }
+
+  it('defaults to four', () => {
+    expect(bound({})).toBe(4);
+  });
+
+  it('keeps a declared bound and resolves a token', () => {
+    expect(bound({ maxConcurrentRequests: 16 })).toBe(16);
+    expect(
+      bound(
+        { maxConcurrentRequests: '{env:DECISION_SLOTS}' },
+        { DECISION_SLOTS: '2' },
+      ),
+    ).toBe(2);
+  });
+
+  it.each([0, 2.5])('rejects %s naming the entry and the field', (value) => {
+    expect(() => bound({ maxConcurrentRequests: value })).toThrow(
+      /maxConcurrentRequests/u,
+    );
+  });
+
+  it('rejects the field on another provider type', () => {
+    configWith(undefined, {
+      providers: [{ ...CHAT_PROVIDER, maxConcurrentRequests: 4 }],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(/maxConcurrentRequests/u);
   });
 });
