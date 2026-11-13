@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- **Show background activity in Chat sidebars (#1657).** Chats with live jobs
+  retain a background indicator after their Run ends. Awaiting Runs use that
+  state even when no job is currently running. Pinned Chat summaries load in
+  one shared request, including on a fresh admin route.
+
 - Keep the operator tool-prompt inventory and example comments consistent
   with the registered tools, including `grep`, `web_search`, and `wait`.
 
@@ -11,17 +16,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
   without the ordinary tool-call cap.
 
-- **Prepare wait wake reconstruction (#1657).** The pure projection restores
-  a checkpoint and its correlated wait result only inside the first resumed
-  attempt. It retains tool metadata, step indices and timeout, rejects malformed
-  receipts, and connects no runtime caller in this prerequisite.
-
 - Bind pending interrupt and steering checks to the exact segment they read, so
   a delayed database response cannot control a same-attempt replacement.
 
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
   The next flush captures the latest output and preserves stored suffix offsets.
+
+- **Prepare wait wake reconstruction (#1657).** The pure projection restores
+  a checkpoint and its correlated wait result only inside the first resumed
+  attempt. It retains tool metadata, step indices and timeout, rejects malformed
+  receipts, and connects no runtime caller in this prerequisite.
 
 - **Fence worker claims and run budgets (#1657).** Queue workers claim only
   their observed queue generation, and preparation time counts against the

@@ -90,6 +90,7 @@ function Probe({
   const {
     activeChatIds,
     unseenRunOutcomes,
+    runStatusByChatId,
     trackRun,
     untrackChat,
     markChatSeen,
@@ -99,6 +100,9 @@ function Probe({
     <div>
       {viewedChatId ? <ViewedChatRegistration chatId={viewedChatId} /> : null}
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
+      <span data-testid="run-status">
+        {runStatusByChatId.get(chatId) ?? "none"}
+      </span>
       <span data-testid="unread">{String(unseenRunOutcomes.has(chatId))}</span>
       <span data-testid="outcome">
         {unseenRunOutcomes.get(chatId) ?? "none"}
@@ -198,6 +202,37 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
       expect(screen.getByTestId("processing").textContent).toBe("true"),
     );
     expect(screen.getByTestId("unread").textContent).toBe("false");
+  });
+
+  it("rehydrates an awaiting_jobs Run with its background status", async () => {
+    stubActiveRunsNetwork();
+    activeRunsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ActiveRunResponse>>([
+          {
+            runId: "run-awaiting",
+            chatId: "chat-awaiting",
+            chatTitle: "Background chat",
+            status: "awaiting_jobs",
+            createdAt: "2026-07-06T00:00:00.000Z",
+          },
+        ]),
+      );
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({ id: runId, status: "awaiting_jobs" }),
+        ),
+      );
+
+    renderProbe("chat-awaiting");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "awaiting_jobs",
+      ),
+    );
+    expect(screen.getByTestId("processing").textContent).toBe("true");
   });
 
   it("does not act on a stale cached snapshot before THIS mount's own fetch resolves (isFetchedAfterMount)", async () => {

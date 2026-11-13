@@ -39,6 +39,7 @@ master
 <- background-jobs/wait-resume
 <- background-jobs/wait-tool
 <- background-jobs/web
+<- background-jobs/web-activity
 <- background-jobs/web-controls
 <- background-jobs/finalize
 ```
@@ -77,7 +78,8 @@ one changes no behavior that the model or the owner can see.
 | `wait-resume`        | `wake-projection`    | Deferred SDK call seams, atomic wait result persistence and runtime wake wiring.                                | none                                             | 1,500      | refs #1657        |
 | `wait-tool`          | `wait-resume`        | Wait admission, owner-facing documentation and actual SDK lifecycle, recovery, usage and cold-pickup proof.     | `wait`                                           | 1,500      | refs #1657        |
 | `web`                | `wait-tool`          | Shared backgrounded Bash, wait and stop presentation with browser stories and accessible fallbacks.             | backgrounded Bash rows                           | 750        | refs #1657        |
-| `web-controls`       | `web`                | Sidebar state, Jobs controls, host notices, tool dispatch and full browser acceptance.                          | complete owner controls                          | 1,700      | Closes #1657      |
+| `web-activity`       | `web`                | Background and awaiting-job sidebar state, cold-cache pinned summaries and shared active-Run status.            | sidebar background activity                      | 1,000      | refs #1657        |
+| `web-controls`       | `web-activity`       | Jobs controls, host notices, tool dispatch and full browser acceptance.                                         | complete owner controls                          | 1,500      | Closes #1657      |
 | `finalize`           | `web-controls`       | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
 
 **Budget exception (named):** the `proposal` layer exceeds the 2,000-line review budget. The
@@ -414,9 +416,15 @@ acceptance and model-visible activation remain together in `wait-tool`.
 - [x] 13a.2 Verify the shared UI types and lint, 16 focused browser stories, and actual rendered preview. Review with independent correctness, simplify and ponytail reviewers before ready; use CLI while Storybook MCP is disconnected.
 - [ ] 13a.3 Publish the tool-presentation layer and drive ordinary CI green; process mutations and bot claims concurrently without blocking owner-controls development.
 
+## 13b. Sidebar activity (`background-jobs/web-activity`)
+
+- [x] 13.1 Add the `background` sidebar state; component tests and stories cover "A monitor with no live Run" and "A Run that waits".
+- [x] 13b.1 Fetch pinned Chat summaries once on a cold cache, derive their job counts once, and preserve the authoritative awaiting-Run state even with zero running jobs. The admin sidebar uses the same active-Run provider.
+- [x] 13b.2 Verify web lint/types, focused unit and browser stories, actual rendered previews, and independent correctness, simplify and ponytail reviews.
+- [ ] 13b.3 Publish the activity layer and drive ordinary CI green while Jobs and transcript controls proceed; mutations and external reviews remain concurrent.
+
 ## 13. Web controls (`background-jobs/web-controls`)
 
-- [ ] 13.1 Add the `background` sidebar state; component tests and stories cover "A monitor with no live Run" and "A Run that waits".
 - [ ] 13.2 Add the Jobs section of the Session details panel; stories and tests cover "Stop all with no live Run" and "The composer Stop leaves jobs alone".
 - [ ] 13.3 Render a pending notice and a host message; stories and tests cover "A host message in the transcript", the delete-only row, and the web half of "A held notice alone does not label a paused queue".
 - [ ] 13.4 Add transcript rows for `wait`, `stop`, and the `backgrounded` result, with the `BashTool` output schema; run the Storybook MCP tests and return the preview URLs.

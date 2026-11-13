@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import {
   SidebarGroup,
@@ -15,17 +16,26 @@ import { MessagesSquareIcon, PenLineIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import type { RunPhase } from "@/lib/services/live/live-messages";
 import {
   DeleteChatDialog,
   RenameChatDialog,
 } from "@/app/(chat)/components/app-sidebar/chat-item-dialogs";
-import { useReorderPins, useUnpinItem } from "@/lib/services/pins/mutations";
-import { useSetChatArchive } from "@/lib/services/chat/management";
-import type { PinnedItem } from "@/lib/services/pins/types";
-import { usePins } from "@/lib/services/pins/queries";
-import { useOptionalActiveRuns } from "@/contexts/active-runs-context";
+import {
+  ChatActivityIndicator,
+  resolveChatActivityStatus,
+  type ChatActivityStatus,
+} from "@/app/(chat)/components/chat-list-sidebar/chat-activity-indicator";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
+import { useOptionalActiveRuns } from "@/contexts/active-runs-context";
+import { useChatsQuery } from "@/lib/services/chat/queries";
+import { useSetChatArchive } from "@/lib/services/chat/management";
+import { useReorderPins, useUnpinItem } from "@/lib/services/pins/mutations";
+import { usePins } from "@/lib/services/pins/queries";
+import type { PinnedItem } from "@/lib/services/pins/types";
+
+import { pinnedChatsFilters } from "@/app/(chat)/components/chat-list-view";
 
 import { PinnedProjectRow } from "./pinned-project-row";
 import { PinDragHandle, PinRowMenu, PinRowSurface } from "./pinned-row-parts";
@@ -42,22 +52,84 @@ function pinKey(pin: PinnedItem): string {
   return `${pin.itemType}-${pin.itemId}`;
 }
 
+function PinnedChatActivity({
+  status,
+  phase,
+}: {
+  status: ChatActivityStatus | null;
+  phase?: RunPhase;
+}) {
+  return (
+    <>
+      <MessagesSquareIcon className="size-4 text-muted-foreground" />
+      <ChatActivityIndicator status={status} phase={phase} />
+    </>
+  );
+}
+
+function PinnedChatTitle({
+  label,
+  archived,
+  muted,
+  shimmer,
+}: {
+  label: string;
+  archived: boolean;
+  muted: boolean;
+  shimmer: boolean;
+}) {
+  return (
+    <span className="flex min-w-0 flex-1 items-center gap-1.5">
+      <SidebarRowTitle
+        text={label}
+        animateChanges
+        shimmer={shimmer}
+        className={cn(muted && "text-muted-foreground")}
+      />
+      {archived && <ArchivedBadge />}
+    </span>
+  );
+}
+
+function PinnedChatIcon({
+  archived,
+  status,
+  phase,
+}: {
+  archived: boolean;
+  status: ChatActivityStatus | null;
+  phase?: RunPhase;
+}) {
+  return (
+    <span
+      className={cn(
+        "relative flex shrink-0 items-center",
+        archived && "opacity-50",
+      )}
+    >
+      <PinnedChatActivity status={status} phase={phase} />
+    </span>
+  );
+}
+
 function PinnedChatLabel({
   pin,
   label,
   isArchived,
   isActive,
+  processing,
+  status,
+  phase,
 }: {
   pin: PinnedChat;
   label: string;
   isArchived: boolean;
   isActive: boolean;
+  processing: boolean;
+  status: ChatActivityStatus | null;
+  phase?: RunPhase;
 }) {
-  // Optional: the admin shell mounts this rail without the runs provider, and
-  // there "nothing is running here" is the honest answer rather than a crash.
-  const activeRuns = useOptionalActiveRuns();
-  const naming = activeRuns?.activeChatIds.has(pin.itemId) ?? false;
-  const muted = isArchived || (pin.item.title === null && !naming);
+  const muted = isArchived || (pin.item.title === null && !processing);
 
   return (
     <SidebarMenuButton
@@ -67,21 +139,13 @@ function PinnedChatLabel({
       isActive={isActive}
       tooltip={label}
     >
-      {/* Archived rows read as de-emphasized (mock's
-          `.pin-item[data-archived]` icon opacity + muted title). */}
-      <MessagesSquareIcon className={cn(isArchived && "opacity-50")} />
-      {/* Wrapper so the row's `[&>span:last-child]:truncate` rule lands here
-          and not on the title, which fades rather than ellipses. */}
-      <span className="flex min-w-0 flex-1 items-center gap-1.5">
-        <SidebarRowTitle
-          text={label}
-          animateChanges
-          // Same rules as the list row: shimmer while named, muted once idle.
-          shimmer={pin.item.title === null && naming}
-          className={cn(muted && "text-muted-foreground")}
-        />
-        {isArchived && <ArchivedBadge />}
-      </span>
+      <PinnedChatIcon archived={isArchived} status={status} phase={phase} />
+      <PinnedChatTitle
+        label={label}
+        archived={isArchived}
+        muted={muted}
+        shimmer={pin.item.title === null && processing}
+      />
     </SidebarMenuButton>
   );
 }
@@ -118,9 +182,22 @@ function PinnedChatDialogs({
   );
 }
 
-/** The row's mutations and dialog-open state — split out so `PinnedChatRow`
- *  composes only markup. */
-function usePinnedChatActions(pin: PinnedChat, isArchived: boolean) {
+type PinnedChatActions = {
+  renameOpen: boolean;
+  setRenameOpen: (open: boolean) => void;
+  deleteOpen: boolean;
+  setDeleteOpen: (open: boolean) => void;
+  unpin: () => void;
+  edit: { label: string; icon: ReactNode; onSelect: () => void };
+  toggleArchive: () => void;
+  startDelete: () => void;
+};
+
+/** The row's mutations and dialog-open state. */
+function usePinnedChatActions(
+  pin: PinnedChat,
+  isArchived: boolean,
+): PinnedChatActions {
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const unpinMutation = useUnpinItem();
@@ -146,29 +223,45 @@ function usePinnedChatActions(pin: PinnedChat, isArchived: boolean) {
   };
 }
 
-type PinnedRowProps<TPin> = {
-  pin: TPin;
-  dragControls: DragControls;
-};
+function usePinnedChatActivityState(pin: PinnedChat, runningJobs: number) {
+  const activeRuns = useOptionalActiveRuns();
+  const live = activeRuns?.activeChatIds.has(pin.itemId) ?? false;
 
-export function PinnedChatRow({
+  const awaitingJobs =
+    activeRuns?.runStatusByChatId.get(pin.itemId) === "awaiting_jobs";
+
+  const processing = live && !awaitingJobs;
+
+  return {
+    processing,
+    status: resolveChatActivityStatus({
+      processing,
+      background: awaitingJobs || (!live && runningJobs > 0),
+      outcome: activeRuns?.unseenRunOutcomes.get(pin.itemId),
+    }),
+    phase: processing
+      ? activeRuns?.runPhaseByChatId.get(pin.itemId)
+      : undefined,
+  };
+}
+
+function PinnedChatControls({
   pin,
   dragControls,
-}: PinnedRowProps<PinnedChat>) {
-  const pathname = usePathname();
-  const label = pin.item.title ?? UNTITLED_CHAT_LABEL;
-  const isArchived = pin.item.archivedAt !== null;
-  const isActive = pathname === `/chat/${pin.itemId}`;
-  const actions = usePinnedChatActions(pin, isArchived);
-
+  label,
+  isActive,
+  isArchived,
+  actions,
+}: {
+  pin: PinnedChat;
+  dragControls: DragControls;
+  label: string;
+  isActive: boolean;
+  isArchived: boolean;
+  actions: PinnedChatActions;
+}) {
   return (
     <>
-      <PinnedChatLabel
-        pin={pin}
-        label={label}
-        isArchived={isArchived}
-        isActive={isActive}
-      />
       <PinDragHandle dragControls={dragControls} />
       <PinRowMenu
         isActive={isActive}
@@ -190,12 +283,54 @@ export function PinnedChatRow({
   );
 }
 
+type PinnedRowProps<TPin> = {
+  pin: TPin;
+  dragControls: DragControls;
+};
+
+export function PinnedChatRow({
+  pin,
+  dragControls,
+  runningJobs,
+}: PinnedRowProps<PinnedChat> & { runningJobs: number }) {
+  const pathname = usePathname();
+  const activity = usePinnedChatActivityState(pin, runningJobs);
+  const label = pin.item.title ?? UNTITLED_CHAT_LABEL;
+  const isArchived = pin.item.archivedAt !== null;
+  const isActive = pathname === `/chat/${pin.itemId}`;
+  const actions = usePinnedChatActions(pin, isArchived);
+
+  return (
+    <>
+      <PinnedChatLabel
+        pin={pin}
+        label={label}
+        isArchived={isArchived}
+        isActive={isActive}
+        processing={activity.processing}
+        status={activity.status}
+        phase={activity.phase}
+      />
+      <PinnedChatControls
+        pin={pin}
+        dragControls={dragControls}
+        label={label}
+        isActive={isActive}
+        isArchived={isArchived}
+        actions={actions}
+      />
+    </>
+  );
+}
+
 function SortablePinnedRow({
   pin,
+  runningJobsByChatId,
   onDragStart,
   onReorderCommit,
 }: {
   pin: PinnedItem;
+  runningJobsByChatId: ReadonlyMap<string, number>;
   onDragStart: () => void;
   onReorderCommit: () => void;
 }) {
@@ -214,7 +349,11 @@ function SortablePinnedRow({
     >
       {pin.itemType === "chat" ? (
         <PinRowSurface>
-          <PinnedChatRow pin={pin} dragControls={dragControls} />
+          <PinnedChatRow
+            pin={pin}
+            dragControls={dragControls}
+            runningJobs={runningJobsByChatId.get(pin.itemId) ?? 0}
+          />
         </PinRowSurface>
       ) : (
         <PinnedProjectRow pin={pin} dragControls={dragControls} />
@@ -266,6 +405,24 @@ function useReorderablePins(pins: Array<PinnedItem> | undefined) {
   return { items, setItems, onDragStart, onReorderCommit };
 }
 
+function usePinnedChatSummaries(pins: Array<PinnedItem> | undefined) {
+  const hasChatPins = pins?.some((pin) => pin.itemType === "chat") ?? false;
+
+  const { data } = useChatsQuery(pinnedChatsFilters(), hasChatPins);
+
+  return useMemo(() => {
+    const runningJobsByChatId = new Map<string, number>();
+
+    for (const page of data?.pages ?? []) {
+      for (const chat of page) {
+        runningJobsByChatId.set(chat.id, chat.runningJobs);
+      }
+    }
+
+    return runningJobsByChatId;
+  }, [data]);
+}
+
 /**
  * The rail's mixed chats+projects "Pinned" section (AppShell.dc.html) — one
  * unified list sourced straight from GET /pins (pins is the sole source of
@@ -275,6 +432,7 @@ function useReorderablePins(pins: Array<PinnedItem> | undefined) {
  */
 export function AppSidebarPinned() {
   const { data: pins } = usePins();
+  const runningJobsByChatId = usePinnedChatSummaries(pins);
 
   const { items, setItems, onDragStart, onReorderCommit } =
     useReorderablePins(pins);
@@ -305,6 +463,7 @@ export function AppSidebarPinned() {
               <SortablePinnedRow
                 key={pinKey(pin)}
                 pin={pin}
+                runningJobsByChatId={runningJobsByChatId}
                 onDragStart={onDragStart}
                 onReorderCommit={onReorderCommit}
               />
