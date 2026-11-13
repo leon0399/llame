@@ -135,6 +135,11 @@ the mechanisms below. These mechanisms cover the failure modes:
   be settled to a terminal `run.expired` state in the tenant scope of the Run owner. The dead-letter path of the
   queue does this with no cross-tenant scan.
 
+An expiry MUST first arbitrate any unresolved host bash promotion under the durable result fence
+of `bash-execution`. The Run cannot become terminal until that outcome is recorded. A database
+outage can delay terminal settlement beyond the budget or execution ceiling; a queue redelivery
+MUST use the same fence and MUST NOT execute the command again.
+
 There MUST be no application-level liveness poll and no "deadman" job per Run. The native queue
 heartbeat drives the detection of a dead worker. The deadline job of an open `wait` is one
 delayed job for each `wait`, and it is not a deadman job for the Run. It ends that `wait` at its

@@ -113,6 +113,10 @@ export interface ToolContext {
    * (run-steering D7).
    */
   readonly attemptId?: string;
+  /** Marks the point after host bash has spawned but before its receipt commits. */
+  readonly onHostCommandStarted?: () => void;
+  /** Notifies the runner that host bash entered its fenced promotion receipt. */
+  readonly onHostPromotionStarted?: () => void;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
   /** Trusted canonical target for the first page of an instruction import. */

@@ -39,6 +39,10 @@ master
 Each layer leaves `master` in a state that works. A layer that only prepares code for a later
 one changes no behavior that the model or the owner can see.
 
+The delayed-promotion receipt repair is carried on `yield` by Leo's direction.
+Do not merge `bash-move` without `yield`: its existing promotion path has the same
+receipt race until that repair lands.
+
 | Layer                | Parent               | Owns                                                                                                            | Visible change                                   | Estimate   | Issue             |
 | -------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------- | ----------------- |
 | `proposal`           | `master`             | The planning artifacts of this change.                                                                          | none                                             | 3,250      | refs #1657        |
@@ -198,9 +202,12 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 ## 8. Yield (`background-jobs/yield`)
 
 - [x] 8.1 Add the `steer` kind on the control channel and the level-triggered yield signal of a segment; integration tests cover "A steer during a host command returns the call", "A steer during a tool call waits for the result" (`grep`), "A read does not yield", "Two commands yield at one signal", "A steer reaches a dedicated worker", "A lost signal delays the steer", "A steer names its cause", and a command that starts while a steer is pending.
-      Cover a message-triggered promotion that exceeds its own 750 ms window without blocking delivery.
 - [x] 8.2 Decide the interrupt fate for each call from `bashTarget` and await `background` calls in `settleOnInterrupt`; update `registry.test.ts` and `tool-settlement.test.ts`. Integration tests cover "A host command continues after an interrupt", "An interrupt kills a long command" (`ssh://`), "A call that yields carries no interrupt marker", and an interrupt during a Machine Workspace call with no `cwd`.
 - [x] 8.3 Update `docs/product/reference` for steering during a command and `CHANGELOG.md`; `pnpm lint:markdown` passes.
+- [x] 8.6 Fence promotion and recovery to one authoritative durable result. Prove delayed commit,
+      lost acknowledgement and recovery races with real Postgres; a message-triggered promotion
+      pending beyond 750 ms delays delivery until the winner is known. No model step advances before
+      the winner is known, and the command is never executed again.
 - [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
 - [ ] 8.5 Run the GitHub review and CI loop on the published head.
 

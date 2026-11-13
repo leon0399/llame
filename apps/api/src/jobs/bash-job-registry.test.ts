@@ -8,6 +8,7 @@ import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import { BashJobLifecycle } from './bash-job-lifecycle';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { JobPromotionError } from './job-promotion-error';
@@ -870,28 +871,46 @@ describe('BashJobRegistry', () => {
   });
 });
 
-describe('BashJobRegistry.recheckJobs', () => {
+describe('BashJobLifecycle.recheckJobs', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('checks the later jobs after one job check fails', async () => {
-    const registry = new BashJobRegistry(
+    const lifecycle = new BashJobLifecycle(
       { runAs: vi.fn() },
-      { instanceId: crypto.randomUUID(), jobCheck: undefined },
-      { config: BUILT_IN_DEFAULTS },
+      { warn: vi.fn(), error: vi.fn() },
     );
 
-    for (const id of ['a', 'b', 'c']) {
-      // SAFETY: the loop reads only keys; recheckJob is stubbed below.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      registry['jobs'].set(id, {} as never);
-    }
+    const command = fakeHandle();
+
+    const job = jobRow({
+      chatId: CHAT,
+      ownerUserId: OWNER,
+      executor: 'bash',
+      seq: 1,
+      runId: 'run-1',
+      toolCallId: 'call-1',
+      workerInstanceId: 'worker-1',
+      pid: 42,
+      startedAt: STARTED,
+      outputs: ['stdout', 'stderr'],
+      artifactReadable: true,
+      settings: facts().settings,
+    });
+
+    for (const id of ['a', 'b', 'c'])
+      lifecycle.trackJob(command.handle, { ...job, id }, facts(), {
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
+      });
 
     const check = vi
-      .spyOn(registry, 'recheckJob')
+      .spyOn(lifecycle, 'recheckJob')
       .mockRejectedValueOnce(new Error('db down'))
       .mockResolvedValue(undefined);
 
-    await expect(registry.recheckJobs()).resolves.toBeUndefined();
+    await expect(lifecycle.recheckJobs()).resolves.toBeUndefined();
     expect(check.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c']);
   });
 });

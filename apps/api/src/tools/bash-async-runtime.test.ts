@@ -14,9 +14,9 @@ import {
   ChatJobsRepository,
   type JobSettlement,
 } from '../jobs/chat-jobs.repository';
-import { JobPromotionError } from '../jobs/job-promotion-error';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
+import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import * as hostFiles from './artifacts/host-files';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
@@ -34,12 +34,17 @@ const asDb = (fake: { insert: unknown }): Db => fake as never;
 describe('async host bash through the tool', () => {
   let directory: string;
   let registry: BashJobRegistry;
+  let registryTenantDb: ToolContext['tenantDb'];
   let limiter: BashProcessLimiter;
   let inserted: Array<ChatJob>;
   let settlements: Array<JobSettlement>;
   let begin: MockInstance<NativeFilesRepository['begin']>;
   let appended: Array<unknown>;
   let insertArtifact: MockInstance<ArtifactsRepository['insertArtifact']>;
+
+  let lockHostPromotion: MockInstance<
+    RunRowFenceRepository['lockHostPromotion']
+  >;
 
   function context(overrides: Partial<ToolContext> = {}): ToolContext {
     // The tables the job runtime writes; everything else is spied above.
@@ -56,9 +61,10 @@ describe('async host bash through the tool', () => {
       configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
-      runId: 'run',
-      toolCallId: 'call-1',
       nativeExecutorId: 'host',
+      runId: 'run',
+      attemptId: 'attempt-1',
+      toolCallId: 'call-1',
       nativeDeliverySequence: 1,
       bashProcessLimiter: limiter,
       bashJobs: registry,
@@ -94,12 +100,17 @@ describe('async host bash through the tool', () => {
     settlements = [];
     appended = [];
 
-    const tenantDb = context().tenantDb;
+    registryTenantDb = context().tenantDb;
 
     registry = new BashJobRegistry(
-      tenantDb,
+      registryTenantDb,
       { instanceId: crypto.randomUUID() },
       { config: BUILT_IN_DEFAULTS },
+    );
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
+      // SAFETY: the promotion path only checks whether the Chat is locked.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      {} as never,
     );
     begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
@@ -117,12 +128,25 @@ describe('async host bash through the tool', () => {
         });
       },
     );
-    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
-    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
-      // SAFETY: only presence is checked.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      {} as never,
-    );
+    vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    ).mockImplementation(({ result }) => {
+      appended.push({ toolCallId: 'call-1', result });
+
+      return Promise.resolve({ disposition: 'recovery_won', result });
+    });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findNativeResult',
+    ).mockResolvedValue(undefined);
+    lockHostPromotion = vi
+      .spyOn(RunRowFenceRepository.prototype, 'lockHostPromotion')
+      .mockResolvedValue(
+        // SAFETY: only presence is checked by the registry.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        {} as never,
+      );
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
       (job) => {
         // SAFETY: the row echoes the fields the registry reads.
@@ -148,6 +172,7 @@ describe('async host bash through the tool', () => {
         return Promise.resolve({} as ChatJob);
       },
     );
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
     insertArtifact = vi
       .spyOn(ArtifactsRepository.prototype, 'insertArtifact')
       .mockResolvedValue({ id: 'art-1', createdAt: new Date() });
@@ -176,6 +201,7 @@ describe('async host bash through the tool', () => {
       job: 'job://bash-7',
     });
     expect(appended).toEqual([{ toolCallId: 'call-1', result }]);
+    expect(lockHostPromotion).toHaveBeenCalledWith('run', 'owner', 'attempt-1');
     expect(inserted[0]).toMatchObject({
       seq: 7,
       chatId: 'chat',
@@ -191,6 +217,85 @@ describe('async host bash through the tool', () => {
       state: 'succeeded',
       result: { exitCode: 0 },
     });
+  });
+
+  it('retries a deadlock without stopping the host command', async () => {
+    lockHostPromotion = vi
+      .spyOn(RunRowFenceRepository.prototype, 'lockHostPromotion')
+      .mockRejectedValueOnce(
+        Object.assign(new Error('deadlock detected'), { code: '40P01' }),
+      )
+      .mockResolvedValue(
+        // SAFETY: the registry checks only that a Run row was locked.
+        // eslint-disable-next-line typescript/no-unsafe-type-assertion
+        {} as never,
+      );
+
+    const result = await run({ command: 'printf alive' });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      job: 'job://bash-7',
+    });
+    expect(lockHostPromotion).toHaveBeenCalledTimes(2);
+    expect(appended).toHaveLength(1);
+    await settled();
+    expect(settlements[0]).toMatchObject({ state: 'succeeded' });
+  });
+  it('reconciles a lost transaction acknowledgement from the committed receipt', async () => {
+    let loseAcknowledgement = true;
+    const runAs = registryTenantDb.runAs;
+
+    vi.spyOn(registryTenantDb, 'runAs').mockImplementation(
+      async (userId, callback) => {
+        const value = await runAs(userId, callback);
+
+        if (loseAcknowledgement) {
+          loseAcknowledgement = false;
+          throw new Error('connection ended after commit');
+        }
+
+        return value;
+      },
+    );
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findNativeResult',
+    ).mockImplementation(() => {
+      const payload = appended[0];
+
+      if (payload === undefined) return Promise.resolve(undefined);
+
+      return Promise.resolve({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result',
+        payload,
+        createdAt: new Date(),
+      });
+    });
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockImplementation(
+      () => {
+        const job = inserted[0];
+
+        if (job === undefined)
+          return Promise.reject(new Error('Expected committed job'));
+
+        return Promise.resolve(job);
+      },
+    );
+
+    const result = await run({ command: 'sleep 30' });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      job: 'job://bash-7',
+    });
+    expect(inserted).toHaveLength(1);
+    expect(appended).toHaveLength(1);
+    expect(appended[0]).toMatchObject({ toolCallId: 'call-1', result });
   });
 
   it('runs the shell text in the given directory with the given environment', async () => {
@@ -388,20 +493,25 @@ describe('async host bash through the tool', () => {
       await vi.waitFor(() => expect(limiter.tryAcquire()).not.toBeNull());
     });
 
-    it('after an unproved stop returns outcome_unknown', async () => {
-      vi.spyOn(registry, 'promote').mockImplementation((handle) =>
-        Promise.reject(
-          new JobPromotionError(
-            {
-              proved: false,
-              stdout: '',
-              stderr: '',
-              truncated: false,
-              truncatedStreams: { stdout: false, stderr: false },
-            },
-            { cause: new Error('db') },
-          ),
-        ).finally(() => void handle.stop('run')),
+    it('after an unproved stop returns outcome_unknown with its fenced receipt', async () => {
+      vi.spyOn(registry, 'promoteWithReceipt').mockImplementation(
+        (_handle, _facts, _resultForJob, resultForStop) => {
+          const result = resultForStop({
+            proved: false,
+            stdout: '',
+            stderr: '',
+            truncated: false,
+            truncatedStreams: { stdout: false, stderr: false },
+          });
+
+          appended.push({ toolCallId: 'call-1', result });
+
+          return Promise.resolve({
+            result,
+            receiptCommitted: true,
+            recoveryWon: true,
+          });
+        },
       );
 
       const result = await run({ command: 'sleep 30' });
@@ -416,9 +526,10 @@ describe('async host bash through the tool', () => {
       expect(appended).toHaveLength(1);
     });
 
-    it('rethrows an error that is not a promotion error and records nothing', async () => {
-      vi.spyOn(registry, 'promote').mockRejectedValue(new Error('unexpected'));
-
+    it('propagates an unexpected promotion error without recording a result', async () => {
+      vi.spyOn(registry, 'promoteWithReceipt').mockRejectedValue(
+        new Error('unexpected'),
+      );
       await expect(run({ command: 'sleep 30' })).rejects.toThrow('unexpected');
       expect(appended).toEqual([]);
     });

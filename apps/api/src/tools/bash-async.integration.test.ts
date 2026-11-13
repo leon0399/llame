@@ -80,14 +80,16 @@ describe('real host async jobs', () => {
         modelId: 'test-model',
       });
 
-      await runs.markStarted(run.id, owner);
+      const startedRun = await runs.markStarted(run.id, owner);
+
+      if (startedRun === undefined) throw new Error('Could not start the Run.');
 
       const started = await new RunEventsRepository(db).append(
         run.id,
         'run.started',
       );
 
-      return { chat, run, sequence: started.sequence };
+      return { chat, run: startedRun, sequence: started.sequence };
     });
 
     context = {
@@ -97,7 +99,7 @@ describe('real host async jobs', () => {
       tenantDb: tenant,
       runId: seeded.run.id,
       nativeExecutorId: 'async-host',
-      toolCallId: crypto.randomUUID(),
+      attemptId: seeded.run.activeAttemptId!,
       nativeDeliverySequence: seeded.sequence,
       bashProcessLimiter: new BashProcessLimiter(2),
       bashJobs: registry,
@@ -186,6 +188,7 @@ describe('real host async jobs', () => {
           { command: 'printf ready; sleep 30' },
           {
             ...context,
+            attemptId,
             toolCallId,
             yieldSignal: segment.yield.signal,
           },

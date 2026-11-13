@@ -10,6 +10,7 @@ import {
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
 import { isBashTool } from '../tools/bash';
+import { isHostBashCall } from '../tools/bash-target';
 import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { isCancelledBeforeExecution } from '../tools/cancelled-before-execution';
 import { interruptFateOf } from '../tools/registry';
@@ -60,6 +61,7 @@ import {
 
 import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { errorMessageWithoutParams, loggableError } from '../db/loggable-error';
+import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Chat,
@@ -958,6 +960,38 @@ type InstanceConfigWithIdentity = InstanceConfigReader &
  */
 type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
+async function recoverHostPromotionWithRetry(
+  tenantDb: TenantDbService,
+  input: {
+    runId: string;
+    userId: string;
+    attemptId: string;
+    toolCallId: string;
+    result: ToolResult;
+  },
+  attemptsRemaining = 3,
+): Promise<ToolResult> {
+  try {
+    return (
+      await tenantDb.runAs(input.userId, (tx) =>
+        new NativeFilesRepository(tx).recoverHostPromotion(input),
+      )
+    ).result;
+  } catch (error) {
+    const code = pgErrorCode(error);
+
+    if (attemptsRemaining === 1 || (code !== '40P01' && code !== '40001')) {
+      throw error;
+    }
+
+    return recoverHostPromotionWithRetry(
+      tenantDb,
+      input,
+      attemptsRemaining - 1,
+    );
+  }
+}
+
 /**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
  * assembly, the model call, and every durable side effect (assistant turn,
@@ -969,6 +1003,7 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
  * HTTP types, and the caller supplies the ModelClient after resolving the run's
  * stored model id.
  */
+
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
@@ -2162,25 +2197,43 @@ export class RunExecutionService {
      * Runs through recordToolCompleted so each settlement emits its durable
      * `tool.completed` event AND fills its reserved part — the live stream,
      * the event log and history then agree. Host bash calls stay open during
-     * the bounded parent-abort grace so a known result can win; the fallback
-     * from toolTerminationResult records unknown effects after that grace.
+     * the bounded parent-abort grace so a known result can win; after it, a
+     * Run-row-fenced `native.result` arbitrates with any pending promotion
+     * before the tool activity is completed.
      * The part collector ignores a genuine late result for an already-settled
      * call.
      */
-    const settleOpenToolCalls = (
+    const settleOpenToolCalls = async (
       status: 'cancelled' | 'expired' | 'failed',
       shouldSettle: (toolName: string) => boolean = () => true,
     ) => {
       // recordToolCompleted deletes the current key; removing the entry being
       // visited is well-defined for a Map iterator.
-      for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
+      for (const [
+        toolCallId,
+        { toolName, toolInput, classification },
+      ] of openToolCalls) {
         if (!shouldSettle(toolName)) continue;
-        recordToolCompleted(
-          toolCallId,
-          toolName,
-          toolInput,
-          toolTerminationResult(status, toolName),
-        );
+
+        let result = toolTerminationResult(status, toolName);
+
+        if (
+          toolName === 'bash' &&
+          classification !== undefined &&
+          isRecord(toolInput) &&
+          isHostBashCall(toolInput, toolContext)
+        ) {
+          await deltaWrites;
+          result = await recoverHostPromotionWithRetry(this.tenantDb, {
+            runId: input.runId,
+            userId: input.userId,
+            attemptId,
+            toolCallId,
+            result,
+          });
+        }
+
+        recordToolCompleted(toolCallId, toolName, toolInput, result);
       }
     };
 
@@ -2188,7 +2241,7 @@ export class RunExecutionService {
       status: Exclude<TerminalRunStatus, 'completed'>,
       telemetry: AssistantTurnTelemetry,
     ): Promise<boolean> => {
-      settleOpenToolCalls(status);
+      await settleOpenToolCalls(status);
       // settleOpenToolCalls enqueued new events via recordToolCompleted.
       // Without this await, finishRun's terminal event can commit before the
       // settlement events, and a process kill in that window permanently loses them.
@@ -2697,15 +2750,17 @@ export class RunExecutionService {
         ({ toolName }) => toolName === 'bash',
       );
 
-      settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
       parentAbortSettlement = (async () => {
+        await settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
+
         if (hasBashCall) {
           await new Promise<void>((resolve) => {
             setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
           });
         }
 
-        settleOpenToolCalls(status);
+        await settleOpenToolCalls(status);
+
         await deltaWrites;
 
         if (progressWriteFailed) {

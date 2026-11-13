@@ -250,9 +250,9 @@ async function runHostBash(
   context: ToolContext,
   input: BashInput,
 ): Promise<ToolResult> {
-  const { runId, nativeExecutorId, toolCallId } = context;
+  const { runId, nativeExecutorId, toolCallId, attemptId } = context;
 
-  if (!runId || !nativeExecutorId || !toolCallId) {
+  if (!runId || !nativeExecutorId || !toolCallId || !attemptId) {
     return {
       status: 'error',
       type: 'executor_unavailable',
@@ -284,14 +284,14 @@ async function runHostBash(
 
   if (input.async === true)
     return runAsyncBash(
-      { ...context, runId, nativeExecutorId, toolCallId },
+      { ...context, runId, nativeExecutorId, toolCallId, attemptId },
       input,
       admitted.cwd,
       slot,
     );
 
   return runForegroundBash(
-    { ...context, runId, nativeExecutorId, toolCallId },
+    { ...context, runId, nativeExecutorId, toolCallId, attemptId },
     input,
     admitted.cwd,
     slot,

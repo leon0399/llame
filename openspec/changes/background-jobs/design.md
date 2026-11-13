@@ -164,10 +164,10 @@ composed signal.
 The runner changes for a `host` call:
 
 - The call gets the Run abort and the per-call timeout as **separate** signals. The timeout is a
-  move trigger and never an abort. Run abort keeps its existing 750 ms settlement grace.
-  Every foreground promotion (bound or yield) starts a separate 750 ms result/persistence
-  window. Expiry records exactly one `outcome_unknown` result without signalling a command
-  whose promotion is pending. A later failure stops the command but cannot replace that result.
+  move trigger and never an abort. The 750 ms window is a fast path, not a deadline for a final
+  result when promotion persistence is unresolved. The Run cannot advance until a database
+  authority chooses one durable outcome. A lost commit acknowledgement is resolved against that
+  authority. Recovery and the promotion writer use the same fence and never repeat the command.
 - The foreground bound is `min(tools.bash.backgroundAfterSeconds, tools.callTimeoutSeconds)`.
 
 The foreground call races four things: `settled`, the bound, the yield signal of the segment,
@@ -175,9 +175,8 @@ and the Run abort.
 
 - `settled` first: the call returns the ordinary result, as today.
 - Bound or yield first: the registry promotes the command. It reserves the number, inserts the
-  `chat_jobs` row, and stores the output captured up to that point. If the move and its result
-  persist within the window, the call returns `backgrounded` and appends one `native.result`.
-  A late promotion remains a normal job and MUST NOT append a second `native.result`.
+  `chat_jobs` row, and stores the output captured up to that point. A committed promotion records
+  `backgrounded` and appends one `native.result`, even if the commit takes more than 750 ms.
 - A promotion that fails stops the command with `stop('run')`. A proved stop returns
   `timed_out` with the captured output and a message that names the failed move.
   An unproved stop returns `outcome_unknown`. The promotion failure retains the stop proof.

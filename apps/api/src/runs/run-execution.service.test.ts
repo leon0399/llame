@@ -31,6 +31,7 @@ import {
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { bashTool } from '../tools/bash';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -183,6 +184,7 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   reconstructDurableAssistant,
   toolActivityPart,
@@ -811,6 +813,18 @@ function mockNormalExecutionRepositories() {
     .spyOn(RunsRepository.prototype, 'findById')
     .mockResolvedValue(run);
 
+  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+  vi.spyOn(
+    RunRowFenceRepository.prototype,
+    'lockHostPromotionRecovery',
+  ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+  vi.spyOn(RunEventsRepository.prototype, 'findNativeResult').mockResolvedValue(
+    undefined,
+  );
+  vi.spyOn(RunEventsRepository.prototype, 'hasNativeAttempt').mockResolvedValue(
+    false,
+  );
+
   const findByOwnedRun = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByOwnedRun')
     .mockResolvedValue([]);
@@ -869,9 +883,10 @@ function mockNormalExecutionRepositories() {
     ChatDeliveriesRepository.prototype,
     'stepEndSignal',
   ).mockResolvedValue(undefined);
-  vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValue(
-    undefined,
-  );
+  vi.spyOn(
+    RunRowFenceRepository.prototype,
+    'lockForDelivery',
+  ).mockResolvedValue(undefined);
   vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue(
     undefined,
   );
@@ -6294,7 +6309,7 @@ async function executeBoundTool(
 
 async function executeBoundBash(
   options: StreamOptions,
-  args: { command: string; cwd?: string },
+  args: { command: string; cwd?: string; async?: boolean },
   toolCallId: string,
 ): Promise<ToolResult> {
   const bound = options.tools?.bash;
@@ -6793,6 +6808,104 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
   });
 
+  it('records the recovery winner before terminally settling an unresolved host bash call', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const appended = recordAppendedEvents();
+      replayAppendedEvents(appended);
+      vi.spyOn(
+        NativeFilesRepository.prototype,
+        'recoverHostPromotion',
+      ).mockImplementation(({ toolCallId, result }) => {
+        appended.push({
+          type: 'native.result',
+          payload: { toolCallId, result },
+        });
+
+        return Promise.resolve({ disposition: 'recovery_won', result });
+      });
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const result = Promise.withResolvers<ToolResult>();
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return result.promise;
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+      const options = capturing.streamOptions();
+
+      const call = executeBoundBash(
+        options,
+        { command: 'sleep 30', async: true },
+        'bash-recovery',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+      await vi.waitFor(() =>
+        expect(appended.some(({ type }) => type === 'run.cancelled')).toBe(
+          true,
+        ),
+      );
+
+      const receiptIndex = appended.findIndex(
+        ({ type, payload }) =>
+          type === 'native.result' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-recovery',
+      );
+
+      const completedIndex = appended.findIndex(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-recovery',
+      );
+
+      expect(receiptIndex).toBeGreaterThanOrEqual(0);
+      expect(receiptIndex).toBeLessThan(completedIndex);
+      expect(appended[receiptIndex]?.payload).toMatchObject({
+        toolCallId: 'bash-recovery',
+        result: { status: 'error', type: 'outcome_unknown' },
+      });
+
+      result.resolve({
+        status: 'success',
+        backgrounded: true,
+        job: 'job://bash-9',
+      });
+      await expect(call).resolves.toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('An interrupt during a pending admission writes the request before the completion', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -6902,7 +7015,11 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
     const execute = vi
       .spyOn(bashTool, 'execute')
-      .mockImplementation(() => new Promise<ToolResult>(() => {}));
+      .mockImplementation((context) => {
+        context.onHostCommandStarted?.();
+
+        return new Promise<ToolResult>(() => {});
+      });
 
     const capturing = makeCapturingClient();
 
@@ -6944,6 +7061,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
     expect(appended.at(-1)?.type).toBe('run.cancelled');
   });
+
   it('records a settled bash result that arrives after the parent abort', async () => {
     const controller = new AbortController();
     mockNormalExecutionRepositories();
@@ -19355,9 +19473,10 @@ describe('RunExecutionService executeRun — run segments', () => {
     items: Array<ChatDelivery>,
     locked: Run | undefined = { ...run, activeAttemptId: testAttemptId },
   ) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      locked,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(locked);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
 
     const lockPending = vi
@@ -19607,7 +19726,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       'stepEndSignal',
     );
 
-    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const lock = vi.spyOn(RunRowFenceRepository.prototype, 'lockForDelivery');
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
@@ -19687,9 +19806,10 @@ describe('RunExecutionService executeRun — run segments', () => {
     signal.mockResolvedValueOnce('delivery');
     await options?.stopWhenExtra?.();
     // Another attempt superseded this one: its row lock finds no live Run.
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      undefined,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(undefined);
     await options?.onFinish?.(finishToolCalls);
     await result.consumeStream();
 
@@ -19710,7 +19830,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       'stepEndSignal',
     );
 
-    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const lock = vi.spyOn(RunRowFenceRepository.prototype, 'lockForDelivery');
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
@@ -20423,9 +20543,10 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     items: Array<ChatDelivery>,
     locked: Run = { ...run, activeAttemptId: testAttemptId },
   ) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      locked,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(locked);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,

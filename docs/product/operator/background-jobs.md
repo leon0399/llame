@@ -38,9 +38,10 @@ settles, not merely until the tool returns its job locator.
 `tools.bash.backgroundAfterSeconds` (default 120) is how long a foreground host
 command runs before it moves to the background. The lesser of it and
 `tools.callTimeoutSeconds` applies; with a call timeout of 30 seconds a command
-moves after 30 seconds. The move never stops the command. A move that fails stops
-it, and a move that the database records more than 750 ms late leaves a normal
-job and an unknown call result. SSH and Machine commands do not move.
+moves after 30 seconds. The move never stops the command. A failed move stops
+it. If the database takes longer to settle a move, the Run waits for its
+authoritative result; a committed move returns the job. SSH and Machine
+commands do not move.
 
 `tools.jobs.maxSeconds` is measured from command start. It defaults to 7,200
 seconds and accepts an integer of at least 60 or a whole-value interpolation

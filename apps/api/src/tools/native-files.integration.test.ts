@@ -84,14 +84,20 @@ describe('native file authority and durable effects', () => {
         modelId: 'native-test',
       });
 
-      await runs.markStarted(run.id, owner);
+      const startedRun = await runs.markStarted(run.id, owner);
+
+      if (startedRun === undefined) throw new Error('Could not start the Run.');
 
       const started = await new RunEventsRepository(tx).append(
         run.id,
         'run.started',
       );
 
-      return { id: run.id, startedSequence: started.sequence };
+      return {
+        id: run.id,
+        activeAttemptId: startedRun.activeAttemptId,
+        startedSequence: started.sequence,
+      };
     });
 
     runId = run.id;
@@ -101,6 +107,7 @@ describe('native file authority and durable effects', () => {
       chatId,
       tenantDb,
       runId,
+      attemptId: run.activeAttemptId!,
       nativeExecutorId: 'host-a',
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),

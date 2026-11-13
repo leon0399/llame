@@ -68,10 +68,20 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
       callback(db),
   };
 
+  vi.spyOn(
+    NativeFilesRepository.prototype,
+    'recoverHostPromotion',
+  ).mockImplementation(({ runId, toolCallId, result }) =>
+    new RunEventsRepository(db)
+      .append(runId, 'native.result', { toolCallId, result })
+      .then(() => ({ disposition: 'recovery_won' as const, result })),
+  );
+
   return {
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
+    attemptId: 'attempt-1',
     toolCallId: 'call-1',
     nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
@@ -132,6 +142,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   rmSync(temporaryRoot, { recursive: true, force: true });
 });

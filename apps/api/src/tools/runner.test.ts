@@ -699,22 +699,24 @@ describe('runTool', () => {
     }
   });
 
-  it('returns an unknown host bash outcome only after the yield grace expires', async () => {
+  it('does not publish an unknown host bash result while promotion is unresolved', async () => {
     vi.useFakeTimers();
 
     try {
       const yieldController = new AbortController();
       const startedSignal = Promise.withResolvers<void>();
+      const execution = Promise.withResolvers<ToolResult>();
 
-      vi.spyOn(bashTool, 'execute').mockImplementation(() => {
+      vi.spyOn(bashTool, 'execute').mockImplementation((context) => {
         startedSignal.resolve();
+        context.onHostPromotionStarted?.();
 
-        return new Promise<ToolResult>(() => {});
+        return execution.promise;
       });
 
       const resultPromise = runTool(
         bashTool,
-        { command: 'sleep 1' },
+        { command: 'sleep 1', async: true },
         {
           ...fakeContext(),
           permissionPolicy: compileTestPermissionPolicy(['bash']),
@@ -731,13 +733,55 @@ describe('runTool', () => {
 
       await startedSignal.promise;
       yieldController.abort();
-      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS - 1);
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
       expect(settled).toBe(false);
 
-      await vi.advanceTimersByTimeAsync(1);
+      execution.resolve({
+        status: 'error',
+        type: 'outcome_unknown',
+        message: 'Promotion receipt was reconciled.',
+      });
       await expect(resultPromise).resolves.toMatchObject({
         status: 'error',
         type: 'outcome_unknown',
+        message: 'Promotion receipt was reconciled.',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the abort backstop active before host promotion starts', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const yieldController = new AbortController();
+      const startedSignal = Promise.withResolvers<void>();
+
+      vi.spyOn(bashTool, 'execute').mockImplementation(() => {
+        startedSignal.resolve();
+
+        return new Promise<ToolResult>(() => {});
+      });
+
+      const resultPromise = runTool(
+        bashTool,
+        { command: 'sleep 1', async: true },
+        {
+          ...fakeContext(),
+          permissionPolicy: compileTestPermissionPolicy(['bash']),
+          yieldSignal: yieldController.signal,
+          bashBackgroundAfterSeconds: 5,
+        },
+        15,
+      );
+
+      await startedSignal.promise;
+      yieldController.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+      await expect(resultPromise).resolves.toMatchObject({
+        status: 'error',
+        type: 'cancelled',
       });
     } finally {
       vi.useRealTimers();

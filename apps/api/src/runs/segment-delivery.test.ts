@@ -12,6 +12,7 @@ import {
 import { type Db } from '../db/tenant-db.service';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   abortedByInterrupt,
   closedTelemetry,
@@ -157,7 +158,7 @@ describe('deliverPendingSteering', () => {
     ).mockResolvedValue([]);
 
     const lockForDelivery = vi
-      .spyOn(RunsRepository.prototype, 'lockForDelivery')
+      .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
       .mockResolvedValue(has('locked') ? overrides.locked : run);
 
     const lockChat = vi
@@ -551,9 +552,10 @@ describe('deliverPendingSteering closing usage and baselines', () => {
 
   /** Every repository a delivery of `items` reads or writes, served. */
   function serve(items: Array<ChatDelivery>) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValue(
-      run,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue(run);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,

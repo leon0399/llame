@@ -5,6 +5,7 @@ import * as schema from '../db/schema';
 import { type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 
 type QueryCall = { method: string; args: Array<unknown> };
 
@@ -660,5 +661,95 @@ describe('RunEventsRepository.findFirstByType ordering', () => {
 
     expect(queries[0]?.sql).toContain('order by "run_events"."sequence" asc');
     expect(queries[1]?.sql).toContain('order by "run_events"."sequence" desc');
+  });
+});
+
+describe('RunEventsRepository.findNativeResult', () => {
+  it('queries only committed results for the owner and call', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunEventsRepository(db)
+      .findNativeResult(run.id, run.userId, 'call-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"run_events"."event_type" = $');
+    expect(queries[0]?.sql).toContain('"run_events"."payload"');
+    expect(queries[0]?.params).toContain('call-1');
+  });
+
+  it('returns the stored result when a call has a committed receipt', async () => {
+    const nativeResult: RunEvent = {
+      ...event,
+      eventType: 'native.result',
+      payload: { toolCallId: 'call-1', result: { status: 'success' } },
+    };
+
+    const { db } = makeDb({ select: [[{ run_events: nativeResult }]] });
+
+    await expect(
+      new RunEventsRepository(db).findNativeResult(
+        run.id,
+        run.userId,
+        'call-1',
+      ),
+    ).resolves.toBe(nativeResult);
+  });
+});
+
+describe('RunRowFenceRepository.lockHostPromotion', () => {
+  it('returns only an owned, current, nonterminal Run under row lock', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunRowFenceRepository(db)
+      .lockHostPromotion(run.id, run.userId, 'attempt-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."id" = $');
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"runs"."active_attempt_id" = $');
+    expect(queries[0]?.sql).toContain('for update');
+    expect(queries[0]?.params).toContain('attempt-1');
+  });
+
+  it('returns the locked Run, or no row when the fence misses', async () => {
+    const { db } = makeDb({ select: [[run], []] });
+    const repository = new RunRowFenceRepository(db);
+
+    await expect(
+      repository.lockHostPromotion(run.id, run.userId, 'attempt-1'),
+    ).resolves.toBe(run);
+    await expect(
+      repository.lockHostPromotion(run.id, run.userId, 'attempt-2'),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('RunRowFenceRepository.lockHostPromotionRecovery', () => {
+  it("locks the owner's current nonterminal Run, including after cancellation is requested", async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunRowFenceRepository(db)
+      .lockHostPromotionRecovery(run.id, run.userId, 'attempt-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"runs"."active_attempt_id" = $');
+    expect(queries[0]?.sql).toContain('for update');
+    expect(queries[0]?.sql).not.toContain('"runs"."cancel_requested_at"');
+  });
+});
+
+describe('RunEventsRepository.hasNativeAttempt', () => {
+  it('checks the owner-scoped call attempt', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunEventsRepository(db)
+      .hasNativeAttempt(run.id, run.userId, 'call-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"run_events"."event_type" = $');
+    expect(queries[0]?.params).toContain('call-1');
   });
 });

@@ -35,8 +35,8 @@ The foreground bound of a host `bash` call MUST be the lesser of
 `tools.bash.backgroundAfterSeconds` and `tools.callTimeoutSeconds`. At that bound the command
 MUST move to the background, and it MUST NOT stop. `tools.callTimeoutSeconds` MUST still stop a
 `bash` call on an `ssh://` directory and a `bash` call on a `machine://` directory.
-The call timeout MUST NOT abort a host command. Its call MUST settle in the 750 ms window
-defined by `bash-execution`.
+The call timeout MUST NOT abort a host command. Its final result follows the durable promotion
+settlement rules of `bash-execution`.
 
 #### Scenario: A higher call timeout does not delay the background move
 

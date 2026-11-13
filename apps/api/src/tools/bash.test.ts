@@ -46,11 +46,21 @@ function testContext(
       callback(db),
   };
 
+  vi.spyOn(
+    NativeFilesRepository.prototype,
+    'recoverHostPromotion',
+  ).mockImplementation(({ runId, toolCallId, result }) =>
+    new RunEventsRepository(db)
+      .append(runId, 'native.result', { toolCallId, result })
+      .then(() => ({ disposition: 'recovery_won' as const, result })),
+  );
+
   return {
     configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
+    attemptId: 'attempt-1',
     toolCallId,
     nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
@@ -145,6 +155,21 @@ describe('bash durable admission', () => {
     ).resolves.toMatchObject({
       status: 'error',
       type: 'invalid_input',
+    });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before host admission without the current Run attempt', async () => {
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    const result = await bashTool.execute(
+      { ...testContext(), attemptId: undefined },
+      { command: 'printf never' },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
     });
     expect(begin).not.toHaveBeenCalled();
   });

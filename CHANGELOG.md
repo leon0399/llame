@@ -7,6 +7,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Commit host command promotion and its result together. A pending database
+  outcome now delays the Run instead of publishing a conflicting unknown result.
+
 - Bind pending interrupt and steering checks to the exact segment they read, so
   a delayed database response cannot control a same-attempt replacement.
 

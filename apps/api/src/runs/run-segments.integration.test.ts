@@ -27,6 +27,7 @@ import {
 } from '../testing/run-segments.test-fixture';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import { createUser } from './worker-harness';
 
 if (!process.env['TEST_DATABASE_URL']) {
@@ -817,7 +818,7 @@ describe('run steering segments', () => {
           chatId: seeded.chatId,
           userId: owner,
         }),
-        locked: await new RunsRepository(tx).lockForDelivery(
+        locked: await new RunRowFenceRepository(tx).lockForDelivery(
           seeded.runId,
           owner,
           attemptId,
