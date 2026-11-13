@@ -43,7 +43,9 @@ const unitTest = {
   include: ['src/**/*.test.ts'],
   exclude: [
     'src/**/*.integration.test.ts',
-    // Under Stryker only: this reads the operator's real llame.config.json, so
+    // Runs its own migrated PostgreSQL Testcontainer; only Stryker's mutation
+    // Vitest config includes it, not the ordinary unit project.
+    'src/chats/chat-deliveries.query.unit.test.ts',
     // it fails on any machine whose local config names a server with an unset
     // secret — and Stryker refuses to start when the initial run has any
     // failure. A developer's personal config is not a mutation signal.
