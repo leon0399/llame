@@ -456,6 +456,28 @@ describe('runTool', () => {
     expect(onNativeMutationUnknown).not.toHaveBeenCalled();
   });
 
+  it('does not apply the host move deadline to SSH bash', async () => {
+    let executedContext: ToolContext | undefined;
+    vi.spyOn(bashTool, 'execute').mockImplementation((context) => {
+      executedContext = context;
+
+      return Promise.resolve({ status: 'success' });
+    });
+
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'true', cwd: 'ssh://host/tmp' },
+        {
+          ...fakeContext(),
+          permissionPolicy: compileTestPermissionPolicy(['bash']),
+        },
+        15,
+      ),
+    ).resolves.toEqual({ status: 'success' });
+    expect(executedContext?.moveSignal).toBeUndefined();
+  });
+
   it('does not abort the Run when a native edit fails without outcome_unknown', async () => {
     const onNativeMutationUnknown = vi.fn();
     vi.spyOn(nativeEditTool, 'execute').mockResolvedValue({

@@ -268,6 +268,88 @@ describe('foreground host bash move', () => {
     await expect(call).resolves.toMatchObject({ type: 'cancelled' });
     expect(start).not.toHaveBeenCalled();
   });
+  it('closes a move fence synchronously at its zero-grace deadline', async () => {
+    const admission = Promise.withResolvers<undefined>();
+    const start = vi.spyOn(registry, 'start');
+    const limiter = new BashProcessLimiter(1);
+    begin.mockReturnValue(admission.promise);
+    moved.abort();
+
+    const call = bashTool.execute(
+      contextFor({
+        bashProcessLimiter: limiter,
+        moveDeadlineAt: performance.now(),
+      }),
+      { command: 'make test', async: true },
+    );
+
+    const capacity = limiter.tryAcquire();
+
+    expect(capacity).not.toBeNull();
+    capacity?.release();
+    admission.resolve(undefined);
+
+    await expect(call).resolves.toMatchObject({ type: 'cancelled' });
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('does not close a live move fence when its signal has not fired', async () => {
+    const admission = Promise.withResolvers<undefined>();
+    registry.command.autoSettle = false;
+    begin.mockReturnValue(admission.promise);
+
+    const limiter = new BashProcessLimiter(1);
+
+    const call = bashTool.execute(contextFor({ bashProcessLimiter: limiter }), {
+      command: 'make test',
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(751);
+    expect(limiter.tryAcquire()).toBeNull();
+
+    moved.abort();
+    admission.resolve(undefined);
+    await expect(call).resolves.toMatchObject({ backgrounded: true });
+    expect(limiter.tryAcquire()).toBeNull();
+    registry.command.settle();
+  });
+
+  it('does not spawn when admission completes exactly at its move deadline', async () => {
+    const admission = Promise.withResolvers<undefined>();
+    const start = vi.spyOn(registry, 'start');
+    begin.mockReturnValue(admission.promise);
+
+    const call = bashTool.execute(
+      contextFor({
+        moveSignal: undefined,
+        moveDeadlineAt: performance.now(),
+      }),
+      { command: 'make test', async: true },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    admission.resolve(undefined);
+
+    await expect(call).resolves.toMatchObject({ type: 'cancelled' });
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('keeps the process slot after the move fence listener is removed', async () => {
+    registry.command.autoSettle = false;
+    const limiter = new BashProcessLimiter(1);
+
+    const call = bashTool.execute(contextFor({ bashProcessLimiter: limiter }), {
+      command: 'make test',
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort();
+    await expect(call).resolves.toMatchObject({ backgrounded: true });
+    await vi.advanceTimersByTimeAsync(751);
+    expect(limiter.tryAcquire()).toBeNull();
+    registry.command.settle();
+  });
 
   it.each(['bashJobs', 'jobSettings'] as const)(
     'refuses a host command without %s before recording a native attempt',
