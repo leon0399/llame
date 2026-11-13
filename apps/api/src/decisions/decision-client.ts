@@ -20,6 +20,7 @@ import {
   type RequestHeaders,
   type RequestHeaderTemplates,
 } from '../models/request-headers';
+import { type AttemptSlots } from './attempt-slots';
 import {
   DECISION_ATTEMPT_TIMEOUT_MS,
   DECISION_MAX_ATTEMPTS,
@@ -55,6 +56,11 @@ export type DecisionClientDependencies = {
   /** Test seam for latency measurement. */
   readonly now?: () => number;
   readonly attemptTimeoutMs?: number;
+  /**
+   * The provider's shared attempt bound. Each attempt holds one slot from
+   * before its request until its body is read; a retry wait holds none.
+   */
+  readonly slots?: AttemptSlots;
 };
 
 /**
@@ -76,6 +82,7 @@ export function createDecisionClient(
     now: dependencies.now ?? Date.now,
     attemptTimeoutMs:
       dependencies.attemptTimeoutMs ?? DECISION_ATTEMPT_TIMEOUT_MS,
+    slots: dependencies.slots,
   };
 
   return { decide: (request) => decide(wire, request) };
@@ -92,6 +99,7 @@ type DecisionWire = {
   readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly now: () => number;
   readonly attemptTimeoutMs: number;
+  readonly slots: AttemptSlots | undefined;
 };
 
 type Accepted = {
@@ -167,7 +175,29 @@ export async function runAttempts<T>(options: {
   return { kind: 'failed', reason: lastReason };
 }
 
+/**
+ * One attempt under the provider's slot bound. The slot wait follows the
+ * caller's signal and rejects with its reason, which `decide` surfaces as an
+ * abort; the attempt timeout starts only once the slot is held.
+ */
 async function attempt(
+  wire: DecisionWire,
+  request: DecisionRequest,
+  number: number,
+): Promise<AttemptResult<Accepted>> {
+  const release = await wire.slots?.acquire(request.signal);
+
+  try {
+    // A grant can land after the caller aborted; start nothing then.
+    request.signal?.throwIfAborted();
+
+    return await attemptHoldingSlot(wire, request, number);
+  } finally {
+    release?.();
+  }
+}
+
+async function attemptHoldingSlot(
   wire: DecisionWire,
   request: DecisionRequest,
   number: number,

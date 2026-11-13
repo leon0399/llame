@@ -118,7 +118,9 @@
     //   "id": "openrouter-decisions",
     //   "type": "system-one",
     //   "key": "{env:OPENROUTER_API_KEY}",
-    //   "baseUrl": "https://openrouter.ai/api/v1"
+    //   "baseUrl": "https://openrouter.ai/api/v1",
+    //   // Attempts in flight to this provider per process (default 4).
+    //   "maxConcurrentRequests": 8
     // },
 
     // A Cohere v2 rerank endpoint (experimental rank seat). It serves the
@@ -581,6 +583,13 @@
   //     "id": "jev-openrouter",
   //     "provider": "openrouter-decisions",
   //     "model": "~typesafe/jev-latest",
+  //     // Token ceilings of this model on this route. Omitted: 8,192 per
+  //     // question and 32,768 per request. A small self-hosted model must
+  //     // declare its own.
+  //     "limits": {
+  //       "perQuestionContextTokens": 32768,
+  //       "perRequestContextTokens": 65536,
+  //     },
   //   },
   // ],
 

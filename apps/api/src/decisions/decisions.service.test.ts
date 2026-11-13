@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 import {
   normalizeProtectedValues,
   type UnknownRecord,
@@ -13,7 +15,10 @@ import { type InstanceConfigService } from '../instance-config/instance-config.s
 import { createDecisionClient, type DecisionClient } from './decision-client';
 import {
   type DecisionOutcome,
+  type DecisionQuestion,
+  type DecisionQuestions,
   type DecisionRequest,
+  type DecisionState,
   type DecisionUsage,
 } from './decision-protocol';
 import {
@@ -31,6 +36,8 @@ import {
   UNTRUSTED_STATE_INSTRUCTION,
   type JudgeCandidatesInput,
 } from './decisions.service';
+import { type DecisionModelLimits } from '../instance-config/decision-catalog';
+import { estimatedTokens } from './request-packing';
 
 const RUBRIC = 'Does this result help answer the objective or query?';
 const SILENT = { info: () => undefined };
@@ -209,23 +216,26 @@ describe('judgeCandidatesWith', () => {
     [11, 'p00', 'p10'],
     [100, 'p00', 'p99'],
     [101, 'p000', 'p100'],
-    [1000, 'p000', 'p999'],
-    [1001, 'p0000', 'p1000'],
-  ])('pads %i cards from %s to %s', async (count, firstKey, lastKey) => {
-    const client = clientOf(answering('m'));
+    [1000, 'p000', 'p255'],
+    [1001, 'p0000', 'p0255'],
+  ])(
+    'pads %i cards to the call width, sending %s to %s',
+    async (count, firstKey, lastKey) => {
+      const client = clientOf(answering('m'));
 
-    await judgeCandidatesWith(client, input({ cards: cards(count) }), {
-      logger: SILENT,
-    });
+      await judgeCandidatesWith(client, input({ cards: cards(count) }), {
+        logger: SILENT,
+      });
 
-    const keys = client.requests.flatMap(cardKeysOf);
-    expect(keys).toHaveLength(count);
-    expect(keys[0]).toBe(firstKey);
-    expect(keys.at(-1)).toBe(lastKey);
-    expect(new Set(keys.map((key) => key.length)).size).toBe(1);
-  });
+      const keys = client.requests.flatMap(cardKeysOf);
+      expect(keys).toHaveLength(Math.min(count, 256));
+      expect(keys[0]).toBe(firstKey);
+      expect(keys.at(-1)).toBe(lastKey);
+      expect(new Set(keys.map((key) => key.length)).size).toBe(1);
+    },
+  );
 
-  it('sends 256-card groups together, each request carrying only its own cards', async () => {
+  it('fills 32-card requests in canonical order, each carrying only its own cards', async () => {
     let inFlight = 0;
     let peak = 0;
 
@@ -252,12 +262,12 @@ describe('judgeCandidatesWith', () => {
 
     const judgement = await judgeCandidatesWith(
       recording,
-      input({ cards: cards(600) }),
+      input({ cards: cards(70) }),
       { logger: SILENT },
     );
 
     expect(requests.map((request) => cardKeysOf(request).length)).toEqual([
-      256, 256, 88,
+      32, 32, 6,
     ]);
     expect(peak).toBe(3);
 
@@ -271,16 +281,35 @@ describe('judgeCandidatesWith', () => {
       );
     }
 
-    expect(requests[1] && cardKeysOf(requests[1])[0]).toBe('p256');
-    expect(judgement.probabilities?.size).toBe(600);
+    expect(requests[1] && cardKeysOf(requests[1])[0]).toBe('p32');
+    expect(judgement.probabilities?.size).toBe(70);
   });
 
   it('leaves only the failed request unjudged', async () => {
     const client = clientOf((request) =>
-      cardKeysOf(request).includes('p000')
+      cardKeysOf(request).includes('p00')
         ? answering('jev')(request)
         : failing('timeout'),
     );
+
+    const judgement = await judgeCandidatesWith(
+      client,
+      input({ cards: cards(40) }),
+      { logger: SILENT },
+    );
+
+    expect(judgement.status).toBe('answered');
+    expect(judgement.probabilities?.size).toBe(32);
+    expect(judgement.unanswered).toEqual(
+      cards(40)
+        .slice(32)
+        .map((card) => card.key),
+    );
+    expect(judgement.probabilities?.has('c32')).toBe(false);
+  });
+
+  it('judges only the first 256 cards of a call and leaves the rest unanswered', async () => {
+    const client = clientOf(answering('m'));
 
     const judgement = await judgeCandidatesWith(
       client,
@@ -288,14 +317,13 @@ describe('judgeCandidatesWith', () => {
       { logger: SILENT },
     );
 
-    expect(judgement.status).toBe('answered');
+    expect(client.requests).toHaveLength(8);
     expect(judgement.probabilities?.size).toBe(256);
     expect(judgement.unanswered).toEqual(
       cards(300)
         .slice(256)
         .map((card) => card.key),
     );
-    expect(judgement.probabilities?.has('c256')).toBe(false);
   });
 
   it('is unavailable with the first failure reason only when every request fails', async () => {
@@ -405,16 +433,16 @@ describe('judgeCandidatesWith', () => {
 
     it('sums accepted usage and wire costs, excluding failed requests', async () => {
       const client = clientOf((request) =>
-        cardKeysOf(request).includes('p000')
+        cardKeysOf(request).includes('p00')
           ? answering('m', usage(100, 20, 0.1))(request)
-          : cardKeysOf(request).includes('p256')
+          : cardKeysOf(request).includes('p32')
             ? answering('m', usage(50, 5, 0.2))(request)
             : failing('timeout'),
       );
 
       const judgement = await judgeCandidatesWith(
         client,
-        input({ cards: cards(700) }),
+        input({ cards: cards(70) }),
         { logger: SILENT },
       );
 
@@ -427,7 +455,7 @@ describe('judgeCandidatesWith', () => {
       const client = clientOf((request) =>
         answering(
           'm',
-          cardKeysOf(request).includes('p000')
+          cardKeysOf(request).includes('p00')
             ? usage(1, 1, 0.1)
             : usage(1, 1, null),
         )(request),
@@ -435,7 +463,7 @@ describe('judgeCandidatesWith', () => {
 
       const judgement = await judgeCandidatesWith(
         client,
-        input({ cards: cards(300) }),
+        input({ cards: cards(40) }),
         { logger: SILENT },
       );
 
@@ -458,13 +486,13 @@ describe('judgeCandidatesWith', () => {
         tool: 'web_search',
         model: 'jev-1.14',
         cards: 300,
-        requests: 2,
-        judged: 300,
-        inputTokens: 20,
-        outputTokens: 4,
+        requests: 8,
+        judged: 256,
+        inputTokens: 80,
+        outputTokens: 16,
         latencyMs: 10,
       });
-      expect(line?.['costUsd']).toBeCloseTo(0.2, 10);
+      expect(line?.['costUsd']).toBeCloseTo(0.8, 10);
       expect(line).not.toHaveProperty('chunks');
     });
 
@@ -611,7 +639,7 @@ describe('judgeCandidatesWith', () => {
 
       const pending = judgeCandidatesWith(
         client,
-        input({ cards: cards(600), abortSignal: controller.signal }),
+        input({ cards: cards(70), abortSignal: controller.signal }),
         { logger: { info: (payload) => lines.push(payload) } },
       );
 
@@ -625,7 +653,7 @@ describe('judgeCandidatesWith', () => {
         event: 'decision.completed',
         status: 'answered',
         requests: 3,
-        judged: 256,
+        judged: 32,
         inputTokens: 10,
         outputTokens: 2,
         costUsd: 0.1,
@@ -643,6 +671,7 @@ describe('judgeCandidatesWith', () => {
         key: KEY,
         baseUrl: 'https://judge.example/v1',
         headers: {},
+        maxConcurrentRequests: 4,
       };
 
       const client = createDecisionClient(provider, 'jev', {
@@ -681,6 +710,7 @@ function configWith(
           key: KEY,
           baseUrl: 'https://opencode.ai/zen/v1',
           headers: {},
+          maxConcurrentRequests: 4,
         },
       ],
       ...(decisionModels !== undefined && { decisionModels }),
@@ -689,8 +719,204 @@ function configWith(
 }
 
 const CATALOGUE: LlameConfig['decisionModels'] = [
-  { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+  {
+    id: 'jev',
+    provider: 'opencode-decisions',
+    model: 'jev-1.13',
+    limits: {
+      perQuestionContextTokens: 8192,
+      perRequestContextTokens: 32_768,
+      maxQuestionsPerRequest: null,
+    },
+  },
 ];
+
+function limits(
+  perQuestionContextTokens: number,
+  overrides: Partial<DecisionModelLimits> = {},
+): DecisionModelLimits {
+  return {
+    perQuestionContextTokens,
+    perRequestContextTokens: 1_000_000,
+    maxQuestionsPerRequest: null,
+    ...overrides,
+  };
+}
+
+/** The per-question estimate of a request, computed independently of the lane. */
+function perQuestionEstimate(request: {
+  readonly state: DecisionState;
+  readonly questions: DecisionQuestions;
+}): number {
+  const bytes = (value: DecisionState | DecisionQuestions | DecisionQuestion) =>
+    Buffer.byteLength(JSON.stringify(value), 'utf8');
+
+  return estimatedTokens(
+    bytes(request.state) +
+      Math.max(...Object.values(request.questions).map(bytes)),
+  );
+}
+
+describe('request limits', () => {
+  it('sums the bytes before it divides by three and rounds up', () => {
+    expect(estimatedTokens(2998 + 301)).toBe(1100);
+  });
+
+  it('fills a request with exactly the cards that fit, then starts with the next card', async () => {
+    const all = cards(20);
+
+    const firstFive = buildJudgeRequest({
+      query: input().query,
+      rubric: RUBRIC,
+      cards: all.slice(0, 5).map((card, index) => ({
+        key: `p${String(index).padStart(2, '0')}`,
+        text: card.text,
+      })),
+    });
+
+    const client = clientOf(answering('m'));
+
+    await judgeCandidatesWith(client, input({ cards: all }), {
+      logger: SILENT,
+      limits: limits(perQuestionEstimate(firstFive)),
+    });
+
+    expect(cardKeysOf(client.requests[0] ?? firstFive)).toEqual([
+      'p00',
+      'p01',
+      'p02',
+      'p03',
+      'p04',
+    ]);
+    expect(client.requests[1] && cardKeysOf(client.requests[1])[0]).toBe('p05');
+  });
+
+  it('keeps every request within the per-question and per-request limits', async () => {
+    const client = clientOf(answering('m'));
+
+    await judgeCandidatesWith(client, input({ cards: cards(40) }), {
+      logger: SILENT,
+      limits: limits(600, { perRequestContextTokens: 1500 }),
+    });
+
+    for (const request of client.requests) {
+      expect(perQuestionEstimate(request)).toBeLessThanOrEqual(600);
+      expect(
+        estimatedTokens(
+          Buffer.byteLength(JSON.stringify(request.state)) +
+            Buffer.byteLength(JSON.stringify(request.questions)),
+        ),
+      ).toBeLessThanOrEqual(1500);
+    }
+
+    expect(client.requests.flatMap(cardKeysOf)).toHaveLength(40);
+  });
+
+  it('caps a request at the declared question limit', async () => {
+    const client = clientOf(answering('m'));
+
+    await judgeCandidatesWith(client, input({ cards: cards(20) }), {
+      logger: SILENT,
+      limits: limits(8192, { maxQuestionsPerRequest: 8 }),
+    });
+
+    expect(
+      client.requests.map((request) => cardKeysOf(request).length),
+    ).toEqual([8, 8, 4]);
+  });
+
+  it('sends a card that alone exceeds the limit by itself, cut to the longest prefix that fits', async () => {
+    const long = { key: 'c0', text: 'x'.repeat(4000) };
+
+    const shortRequest = buildJudgeRequest({
+      query: input().query,
+      rubric: RUBRIC,
+      cards: [{ key: 'p0', text: 'x'.repeat(300) }],
+    });
+
+    const limit = perQuestionEstimate(shortRequest);
+    const client = clientOf(answering('m'));
+
+    const judgement = await judgeCandidatesWith(
+      client,
+      input({ cards: [long] }),
+      { logger: SILENT, limits: limits(limit) },
+    );
+
+    const sent =
+      z
+        .object({ cards: z.record(z.string(), z.string()) })
+        .parse(client.requests[0]?.state).cards['p0'] ?? '';
+
+    const withText = (text: string) =>
+      perQuestionEstimate(
+        buildJudgeRequest({
+          query: input().query,
+          rubric: RUBRIC,
+          cards: [{ key: 'p0', text }],
+        }),
+      );
+
+    expect(sent.length).toBeGreaterThan(0);
+    expect(withText(sent)).toBeLessThanOrEqual(limit);
+    expect(withText(`${sent}x`)).toBeGreaterThan(limit);
+    expect(judgement.probabilities?.get('c0')).toBe(0.5);
+  });
+
+  it('replaces the key before the cut, so a cut inside the key span leaks no key prefix', async () => {
+    const before = 'x'.repeat(200);
+
+    // A limit that lets exactly 204 characters through: the cut lands four
+    // characters into the span the key occupied before replacement.
+    const limit = perQuestionEstimate(
+      buildJudgeRequest({
+        query: input().query,
+        rubric: RUBRIC,
+        cards: [{ key: 'p0', text: `${before}${KEY.slice(0, 4)}` }],
+      }),
+    );
+
+    const client = clientOf(answering('m'));
+
+    await judgeCandidatesWith(
+      client,
+      input({
+        cards: [{ key: 'c0', text: `${before}${KEY}${'y'.repeat(200)}` }],
+      }),
+      { logger: SILENT, protectedValues: PROTECTED, limits: limits(limit) },
+    );
+
+    expect(client.requests).toHaveLength(1);
+
+    const sent =
+      z
+        .object({ cards: z.record(z.string(), z.string()) })
+        .parse(client.requests[0]?.state).cards['p0'] ?? '';
+
+    expect(sent.startsWith(before)).toBe(true);
+    expect(sent.length).toBeGreaterThan(before.length);
+    expect(sent.length).toBeLessThan(before.length + KEY.length);
+    expect(JSON.stringify(client.requests)).not.toContain(KEY.slice(0, 3));
+  });
+
+  it('is unavailable with state_too_large and sends nothing when no card fits', async () => {
+    const lines: Array<UnknownRecord> = [];
+    const client = clientOf(answering('m'));
+
+    const judgement = await judgeCandidatesWith(
+      client,
+      input({ objective: 'o'.repeat(30_000), cards: cards(3) }),
+      { logger: { info: (payload) => lines.push(payload) } },
+    );
+
+    expect(client.requests).toHaveLength(0);
+    expect(judgement).toMatchObject({
+      status: 'unavailable',
+      reason: 'state_too_large',
+    });
+    expect(lines[0]).toMatchObject({ requests: 0, reason: 'state_too_large' });
+  });
+});
 
 describe('DecisionsService', () => {
   it('fails closed for an absent or empty catalogue', async () => {
@@ -1020,6 +1246,64 @@ describe('judgeCandidatesWithReranker', () => {
       outputTokens: 0,
       costUsd: 0.00004278,
     });
+  });
+});
+
+describe('DecisionsService attempt bound', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('shares the default four slots between two catalog entries on one provider', async () => {
+    let inFlight = 0;
+    let peak = 0;
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight -= 1;
+
+        const body = z
+          .object({ questions: z.record(z.string(), z.unknown()) })
+          .parse(JSON.parse(z.string().parse(init?.body)));
+
+        return new Response(
+          JSON.stringify({
+            model: 'jev-1.13',
+            answers: Object.fromEntries(
+              Object.keys(body.questions).map((id) => [
+                id,
+                { type: 'noul', noul: 0.5 },
+              ]),
+            ),
+            usage: { input_tokens: 1, output_tokens: 0 },
+          }),
+        );
+      }),
+    );
+
+    const entry = CATALOGUE?.[0];
+
+    if (entry === undefined) throw new Error('catalogue fixture is empty');
+
+    const service = new DecisionsService(
+      configWith([entry, { ...entry, id: 'jev-second', model: 'jev-1.14' }]),
+    );
+
+    const judgements = await Promise.all([
+      service.judgeCandidates(input({ model: 'jev', cards: cards(128) })),
+      service.judgeCandidates(
+        input({ model: 'jev-second', cards: cards(128) }),
+      ),
+    ]);
+
+    expect(peak).toBe(4);
+    expect(
+      judgements.map((judgement) => judgement.probabilities?.size),
+    ).toEqual([128, 128]);
   });
 });
 

@@ -706,6 +706,7 @@ describe('createModelClient system-one guard (decision-rerank)', () => {
             type: 'system-one',
             key: 'secret-decision-key',
             baseUrl: 'https://decisions.example/v1',
+            maxConcurrentRequests: 4,
             headers: {},
           },
           model: { ...model, provider: 'decisions' },

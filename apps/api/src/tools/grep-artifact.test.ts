@@ -36,7 +36,12 @@ import {
   type KnowledgeWalkOpen,
 } from '../knowledge/knowledge-filesystem';
 import {
+  type DecisionOutcome,
+  type DecisionRequest,
+} from '../decisions/decision-protocol';
+import {
   DecisionsService,
+  judgeCandidatesWith,
   type CandidateJudgement,
   type DecisionJudge,
   type JudgeCandidatesInput,
@@ -1118,6 +1123,49 @@ describe('grep rerank', () => {
     }
 
     expect(swept).toBeGreaterThanOrEqual(GREP_RANKING_UNITS);
+  });
+
+  it('ranks the first 256 of 300 runs through the decision lane and keeps the rest in walk order', async () => {
+    const decide = (request: DecisionRequest): Promise<DecisionOutcome> =>
+      Promise.resolve({
+        status: 'answered',
+        model: 'jev-test',
+        answers: Object.fromEntries(
+          Object.keys(request.questions).map((key) => [
+            key,
+            { type: 'noul' as const, noul: Number(key.slice(1)) / 1000 },
+          ]),
+        ),
+        usage: { inputTokens: 1, outputTokens: 0, costUsd: null },
+        latencyMs: 1,
+      });
+
+    const decisions: DecisionJudge = {
+      judgeCandidates: (input) =>
+        judgeCandidatesWith({ decide }, input, {
+          logger: { info: () => undefined },
+        }),
+      protectText: (_model, text) => text,
+    };
+
+    const result = await finishGrepCall(
+      stateOf(
+        Array.from({ length: 300 }, (_, index) =>
+          longPassage(`/f${String(index)}.ts`, 1, 200),
+        ),
+      ),
+      rankedContext(decisions),
+      20,
+      ASK,
+    );
+
+    const record = rerankOf(result);
+    expect(Object.keys(record?.scores ?? {})).toHaveLength(256);
+    expect(record?.order).toHaveLength(300);
+    expect(record?.order.slice(0, 2)).toEqual(['p255', 'p254']);
+    expect(record?.order.slice(256)).toEqual(
+      Array.from({ length: 44 }, (_, index) => `p${String(256 + index)}`),
+    );
   });
 
   it('ranks the judged runs first when only some are answered', async () => {

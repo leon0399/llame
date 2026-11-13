@@ -9,7 +9,13 @@ import {
 
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import {
+  DEFAULT_DECISION_LIMITS,
+  type DecisionModelLimits,
+} from '../instance-config/decision-catalog';
+import { createAttemptSlots, type AttemptSlots } from './attempt-slots';
 import { createDecisionClient, type DecisionClient } from './decision-client';
+import { fitsLimits, packCards, type WireCard } from './request-packing';
 import {
   createRerankClient,
   type RerankClient,
@@ -25,8 +31,20 @@ import {
 } from './decision-protocol';
 import { decisionLogger, type DecisionLogger } from './decision-logger';
 
-/** One request carries at most this many cards with their questions. */
-export const DECISION_MAX_CARDS_PER_REQUEST = 256;
+/**
+ * One request carries at most this many cards with their questions. Published
+ * Jev reranking ran 20 to 30 per request; a larger shared state costs
+ * accuracy (decision-model-limits design G7).
+ */
+const DECISION_MAX_CARDS_PER_REQUEST = 32;
+
+/**
+ * One call judges at most its first this many cards. A rank call shares the
+ * tool deadline, and an expired deadline fails the whole tool call, so the
+ * queued waves of a large walk stay bounded (design G11). The rest keep
+ * their canonical order unjudged.
+ */
+const DECISION_MAX_CARDS_PER_CALL = 256;
 
 const NO_VALUES: Record<string, never> = {};
 
@@ -111,7 +129,8 @@ export type JudgeCandidatesInput = {
 export type JudgementFailureReason =
   | DecisionFailureReason
   | 'no_candidates'
-  | 'unknown_model';
+  | 'unknown_model'
+  | 'state_too_large';
 
 export type CandidateJudgement = {
   readonly status: 'answered' | 'unavailable';
@@ -149,9 +168,6 @@ export type DecisionJudge = {
 function cardKey(index: number, width: number): string {
   return `p${String(index).padStart(width, '0')}`;
 }
-
-/** A card as the wire sees it: positional key plus protected, final text. */
-type WireCard = { readonly key: string; readonly text: string };
 
 /**
  * The state and questions of ONE decision request: its cards are keyed by wire
@@ -229,6 +245,8 @@ export type JudgeOptions = {
    * complete occurrences are replaced.
    */
   readonly protectedValues?: ReadonlyArray<string>;
+  /** The catalog entry's limits; absent means the defaults. */
+  readonly limits?: DecisionModelLimits;
 };
 
 /**
@@ -239,10 +257,11 @@ export type JudgeOptions = {
  * rejects with the signal's reason so the tool runner reports its own timeout
  * or cancellation.
  *
- * Cards travel with their questions: the batch is split into groups of at most
- * 256 cards, one request per group carries only that group's cards, and every
- * group is in flight at once. A failed group leaves only its own cards
- * unjudged; the call is unavailable only when every group failed.
+ * Cards travel with their questions: the first 256 cards fill requests in
+ * canonical order, each request as full as the model's limits and the
+ * 32-card bound allow, and each request carries only its own cards. A failed
+ * request leaves only its own cards unjudged; the call is unavailable only
+ * when every request failed.
  */
 export async function judgeCandidatesWith(
   client: DecisionClient,
@@ -252,12 +271,25 @@ export async function judgeCandidatesWith(
   input.abortSignal?.throwIfAborted();
   const send = (request: DecisionRequest) => client.decide(request);
 
-  return judgeRequests(input, options, send, () => {
-    const { wireCards, requests } = buildRequests(
-      input,
-      options.protectedValues ?? [],
-    );
+  const built = buildRequests(
+    input,
+    options.protectedValues ?? [],
+    options.limits ?? DEFAULT_DECISION_LIMITS,
+  );
 
+  // Nothing fits beside the shared state: no request can be sent at all.
+  if (built === undefined) {
+    return logged(
+      input,
+      0,
+      unavailableJudgement(input, 'state_too_large'),
+      options.logger,
+    );
+  }
+
+  const { wireCards, requests } = built;
+
+  return judgeRequests(input, options, send, () => {
     return {
       requests,
       scoreOf: (outcomes) => {
@@ -343,15 +375,22 @@ function logged(
 }
 
 /**
- * Key and protect the cards, then group them into requests of at most 256.
+ * Key and protect the cards, then pack the first 256 into requests.
  * Exact-key replacement runs on the query, objective, and FULL card text, and
  * only then is each card cut to the bound, so no cut can split an occurrence
- * of the key and leak a prefix of it.
+ * of the key and leak a prefix of it. Packing is greedy and contiguous in
+ * canonical order: a request takes the next card while it still fits.
  */
 function buildRequests(
   input: JudgeCandidatesInput,
   protectedValues: ReadonlyArray<string>,
-) {
+  limits: DecisionModelLimits,
+):
+  | {
+      readonly wireCards: ReadonlyArray<WireCard>;
+      readonly requests: Array<DecisionRequest>;
+    }
+  | undefined {
   const protect = (text: string) =>
     redactProtectedString(text, protectedValues);
 
@@ -370,21 +409,21 @@ function buildRequests(
     rubric: input.rubric,
   };
 
-  const requests: Array<DecisionRequest> = [];
+  const groups = packCards(
+    wireCards.slice(0, DECISION_MAX_CARDS_PER_CALL),
+    (cards) => fitsLimits(buildJudgeRequest({ ...shared, cards }), limits),
+    Math.min(
+      DECISION_MAX_CARDS_PER_REQUEST,
+      limits.maxQuestionsPerRequest ?? DECISION_MAX_CARDS_PER_REQUEST,
+    ),
+  );
 
-  for (
-    let start = 0;
-    start < wireCards.length;
-    start += DECISION_MAX_CARDS_PER_REQUEST
-  ) {
-    requests.push({
-      ...buildJudgeRequest({
-        ...shared,
-        cards: wireCards.slice(start, start + DECISION_MAX_CARDS_PER_REQUEST),
-      }),
-      ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
-    });
-  }
+  if (groups === undefined) return undefined;
+
+  const requests = groups.map((cards) => ({
+    ...buildJudgeRequest({ ...shared, cards }),
+    ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+  }));
 
   return { wireCards, requests };
 }
@@ -614,15 +653,26 @@ export class DecisionsService implements DecisionJudge {
     const providers = new Map(config.providers.map((p) => [p.id, p]));
     const entries = new Map<string, CatalogueEntry>();
 
+    // One attempt bound per provider id, shared by every entry on it.
+    const slotsByProvider = new Map<string, AttemptSlots>();
+
     for (const entry of config.decisionModels ?? []) {
       const provider = providers.get(entry.provider);
 
       if (provider?.type !== 'system-one') continue;
-      const client = createDecisionClient(provider, entry.model);
+      let slots = slotsByProvider.get(provider.id);
+
+      if (slots === undefined) {
+        slots = createAttemptSlots(provider.maxConcurrentRequests);
+        slotsByProvider.set(provider.id, slots);
+      }
+
+      const client = createDecisionClient(provider, entry.model, { slots });
       const protectedValues = normalizeProtectedValues([provider.key]);
+      const { limits } = entry;
       entries.set(entry.id, {
         judge: (input) =>
-          judgeCandidatesWith(client, input, { protectedValues }),
+          judgeCandidatesWith(client, input, { protectedValues, limits }),
         protectedValues,
       });
     }

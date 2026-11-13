@@ -7,6 +7,10 @@
  * drift.
  */
 
+import type {
+  DecisionModelConfig,
+  RawDecisionModelEntry,
+} from './decision-catalog';
 import type { BillingMode } from '../models/model-client';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
@@ -112,6 +116,8 @@ export type SystemOneProviderConfig = {
   key: string;
   baseUrl: string;
   headers: RequestHeaderTemplates;
+  /** Attempts in flight to this provider id in one process. */
+  maxConcurrentRequests: number;
 };
 
 /**
@@ -300,30 +306,10 @@ export type RawProviderEntry =
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       baseUrl: string | null;
       headers?: Record<string, string | null>;
+      /** Positive integer or a whole-value interpolation token. */
+      maxConcurrentRequests?: number | string;
     }
   | Rerank.RawCohereRerankProviderEntry;
-
-/**
- * One entry of the decision-model catalogue: the model a tool's rerank block
- * names. `provider` must be a `providers[]` entry of `type: 'system-one'` and
- * `model` is sent verbatim on the wire; both references are checked at boot,
- * because the published JSON Schema cannot express them.
- */
-export type DecisionModelConfig = {
-  /** Unique catalogue id, referenced by a tool's `rerank.model`. */
-  readonly id: string;
-  /** A `providers[]` entry of `type: 'system-one'` (checked at boot). */
-  readonly provider: string;
-  /** Model id sent verbatim on the wire. */
-  readonly model: string;
-};
-
-/** The still-uninterpolated `decisionModels[]` entry once schema-validated. */
-export type RawDecisionModelEntry = {
-  id: string;
-  provider: string;
-  model: string;
-};
 
 /**
  * Distance metric a declared embedding model produces (chat-search-embeddings

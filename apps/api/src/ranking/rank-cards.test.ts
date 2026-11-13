@@ -123,9 +123,10 @@ describe('assertPermutation', () => {
 describe('labeled ranking fixtures', () => {
   const cases = loadRankingCases();
 
-  it('ships the four cases, each hand-labeled and within 40 cards', () => {
+  it('ships the five cases, each hand-labeled and within 40 cards', () => {
     expect(cases.map(({ name }) => name)).toEqual([
       'permission-evaluator',
+      'retry-injection',
       'retry-synthetic',
       'rls-security-definer-web',
       'tenant-db',

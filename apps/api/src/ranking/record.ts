@@ -97,6 +97,33 @@ export async function recordAll(
   }
 }
 
+/** The label suffix of an answer recorded with the cards in reverse order. */
+const REVERSED_SUFFIX = '~reversed';
+
+/**
+ * The same cases with their cards in reverse order, and a sink that records
+ * each answer as `<model>~reversed`. Comparing the two answers of a case
+ * measures how much card position moves the model's scores.
+ */
+export function reversedVariant(
+  cases: ReadonlyArray<RankingCase>,
+  sink: RecordSink,
+) {
+  const label = (model: string) => `${model}${REVERSED_SUFFIX}`;
+
+  return {
+    cases: cases.map((rankingCase) => ({
+      ...rankingCase,
+      cards: [...rankingCase.cards].reverse(),
+    })),
+    sink: {
+      write: (caseName: string, model: string, answer: RecordedAnswer) =>
+        sink.write(caseName, label(model), { ...answer, model: label(model) }),
+      log: (line: string) => sink.log(`${line} (reversed)`),
+    } satisfies RecordSink,
+  };
+}
+
 /** A sink that writes `<case>.<model>.json` under `dir` and logs to stdout. */
 export function fileSink(dir: string): RecordSink {
   fs.mkdirSync(dir, { recursive: true });
