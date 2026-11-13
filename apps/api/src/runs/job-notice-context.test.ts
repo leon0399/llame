@@ -191,4 +191,28 @@ describe('createJobNoticeContext', () => {
       'unreadable private artifact output',
     );
   });
+  it('withholds artifact content and host paths when the job has no artifact identity', async () => {
+    const items = await setup({
+      notices: [notice(RUN_ID, 'missing-artifact-identity')],
+      jobs: new Map<string, ChatJob>([
+        [
+          'missing-artifact-identity',
+          job({
+            id: 'missing-artifact-identity',
+            artifactId: null,
+            artifactReadable: true,
+          }),
+        ],
+      ]),
+      chunkText: 'permitted chunk output',
+      artifactTexts: { 4: 'private artifact output without identity' },
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.data.text).toContain('permitted chunk output');
+    expect(items[0]?.data.text).not.toContain(HOST_DIRECTORY);
+    expect(items[0]?.data.text).not.toContain(
+      'private artifact output without identity',
+    );
+  });
 });

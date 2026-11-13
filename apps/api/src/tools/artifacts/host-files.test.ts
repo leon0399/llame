@@ -179,6 +179,133 @@ describe('writing host files after the commit', () => {
       }),
     ).toBeUndefined();
   });
+  it('rejects negative sequences and accepts sequence zero only when present', async () => {
+    const zeroDirectory = path.join(artifactDirectory(CHAT), 'bash-0');
+    mkdirPrivate(zeroDirectory);
+    writeFileSync(path.join(zeroDirectory, 'stdout.txt'), 'zero\n', {
+      mode: 0o600,
+    });
+
+    const negativeDirectory = path.join(artifactDirectory(CHAT), 'bash--1');
+    mkdirPrivate(negativeDirectory);
+    writeFileSync(path.join(negativeDirectory, 'stdout.txt'), 'negative\n', {
+      mode: 0o600,
+    });
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 0,
+      }),
+    ).toBe(zeroDirectory);
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: -1,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report a cache containing only malformed file names', async () => {
+    const directory = path.join(artifactDirectory(CHAT), 'bash-12');
+    mkdirPrivate(directory);
+    writeFileSync(path.join(directory, '0stdout.txt'), 'private\n', {
+      mode: 0o600,
+    });
+    writeFileSync(path.join(directory, 'stdout.txt.bak'), 'private\n', {
+      mode: 0o600,
+    });
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report a cache file with group or other permissions', async () => {
+    await write(CHAT);
+    const file = path.join(artifactDirectory(CHAT), 'bash-12', 'stdout.txt');
+    await chmod(file, 0o644);
+    await chmod(
+      path.join(artifactDirectory(CHAT), 'bash-12', 'stderr.txt'),
+      0o644,
+    );
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report a cache file reached through a symbolic link', async () => {
+    const directory = path.join(artifactDirectory(CHAT), 'bash-12');
+    const outside = path.join(temporaryRoot, 'outside.txt');
+    mkdirPrivate(directory);
+    writeFileSync(outside, 'not a cache\n', { mode: 0o600 });
+    symlinkSync(outside, path.join(directory, 'stdout.txt'));
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report a cache under a non-private Chat directory', async () => {
+    await write(CHAT);
+    await chmod(chatRoot(CHAT), 0o755);
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report a cache under a non-private artifacts directory', async () => {
+    await write(CHAT);
+    await chmod(artifactDirectory(CHAT), 0o755);
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('does not report a cache under a symbolic-link Chat directory', async () => {
+    const outside = mkdtempSync(path.join(temporaryRoot, 'outside-'));
+    mkdirPrivate(path.join(outside, 'artifacts', 'bash-12'));
+    writeFileSync(
+      path.join(outside, 'artifacts', 'bash-12', 'stdout.txt'),
+      'not a cache\n',
+      { mode: 0o600 },
+    );
+    mkdirPrivate(path.dirname(chatRoot(CHAT)));
+    symlinkSync(outside, chatRoot(CHAT));
+
+    expect(
+      await existingArtifactHostDirectory({
+        chatId: CHAT,
+        toolName: 'bash',
+        seq: 12,
+      }),
+    ).toBeUndefined();
+  });
   it('reports only the directory for the exact tool sequence', async () => {
     await write(CHAT);
 

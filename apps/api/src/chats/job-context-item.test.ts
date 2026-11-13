@@ -119,6 +119,19 @@ describe('createJobNoticeItem', () => {
     expect(item.data.text).not.toContain('outcome unknown');
   });
 
+  it.each([
+    [{ signal: 'SIGTERM' }, 'signal SIGTERM'],
+    [{ outcomeUnknown: true }, 'outcome unknown'],
+  ])('reports a failed job result without an exit code', (result, detail) => {
+    const item = createJobNoticeItem({
+      runId: RUN_ID,
+      job: job({ result }),
+      outputs: [],
+    });
+
+    expect(item.data.text).toContain(detail);
+  });
+
   it('renders a singular second at exactly one second', () => {
     const item = createJobNoticeItem({
       runId: RUN_ID,
