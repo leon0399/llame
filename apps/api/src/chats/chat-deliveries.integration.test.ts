@@ -29,8 +29,8 @@ import {
   ModelsService,
 } from '../models/models.service';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type TerminalRunStatus } from '../runs/run-status';
-import { RunsRepository } from '../runs/runs-repository';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
   FakeModelsService,
@@ -750,6 +750,113 @@ describe('chat deliveries — the queue mode', () => {
       expect(pgErrorCode(duplicate)).toBe('23505');
       expect(await itemsOf(chatId)).toMatchObject([
         { id: notice.id, state: 'withdrawn' },
+      ]);
+    });
+
+    it('returns a notice when its receiving segment never dispatched', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+
+      const run = await tenantDb.runAs(userAId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        const found = await runs.findById(runId, userAId);
+
+        if (!found) throw new Error('seeded Run was not stored');
+
+        await tx
+          .update(chatDeliveries)
+          .set({
+            state: 'delivered',
+            runId,
+            deliveredMessageId: found.messageId,
+          })
+          .where(eq(chatDeliveries.id, notice.id));
+
+        return found;
+      });
+
+      await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).returnUndispatchedJobNotices(run),
+      );
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, state: 'pending', deliveredMessageId: null },
+      ]);
+    });
+
+    it('keeps a notice delivered after its receiving segment dispatched', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+
+      const run = await tenantDb.runAs(userAId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        const events = new RunEventsRepository(tx);
+        const found = await runs.findById(runId, userAId);
+
+        if (!found) throw new Error('seeded Run was not stored');
+
+        await events.append(runId, 'run.delivered', {
+          messageId: found.messageId,
+        });
+        await events.append(runId, 'model.requested', { modelId: MODEL });
+        await tx
+          .update(chatDeliveries)
+          .set({
+            state: 'delivered',
+            runId,
+            deliveredMessageId: found.messageId,
+          })
+          .where(eq(chatDeliveries.id, notice.id));
+
+        return found;
+      });
+
+      await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).returnUndispatchedJobNotices(run),
+      );
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        {
+          id: notice.id,
+          state: 'delivered',
+          runId,
+          deliveredMessageId: run.messageId,
+        },
+      ]);
+    });
+
+    it('does not restore another owner’s delivered notice', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+
+      const run = await tenantDb.runAs(userAId, async (tx) => {
+        const found = await new RunsRepository(tx).findById(runId, userAId);
+
+        if (!found) throw new Error('seeded Run was not stored');
+
+        await tx
+          .update(chatDeliveries)
+          .set({
+            state: 'delivered',
+            runId,
+            deliveredMessageId: found.messageId,
+          })
+          .where(eq(chatDeliveries.id, notice.id));
+
+        return found;
+      });
+
+      await tenantDb.runAs(userBId, (tx) =>
+        new ChatDeliveriesRepository(tx).returnUndispatchedJobNotices(run),
+      );
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        {
+          id: notice.id,
+          state: 'delivered',
+          runId,
+          deliveredMessageId: run.messageId,
+        },
       ]);
     });
   });
