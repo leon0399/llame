@@ -156,7 +156,8 @@ one card per result, `[p<index>] <title> — <host> — <snippet>` (the zero-bas
 engine position, zero-padded to the width of the last index), cut at 400 units,
 and asks whether it helps answer the call's `objective`, or the query without
 one. Judged results sort by score, highest first; a tie keeps engine order, and
-a result the model did not judge follows the judged ones in engine order. The
+a result the model did not judge follows the judged ones in engine order. A
+decision model judges at most the first 256 results of a call. The
 inline head, the stored artifact text, its findings, the continuation line and
 the `left out` count all read that one order.
 

@@ -171,9 +171,10 @@ file runs, and a result with no run needs no judgment. Otherwise the walk's
 order stands and the tool makes no decision call.
 
 When it ranks, the tool makes one card for each file run. A card holds the
-path and up to three matching lines, at most 384 code units, and the tool judges
-every card against the `objective`, or against the patterns joined by `" | "`
-without one. Judged runs sort by score, strongest first; a tie and a run the
+path and up to three matching lines, at most 384 code units, and the tool sends
+every card to be judged against the `objective`, or against the patterns joined
+by `" | "` without one. A decision model judges at most the first 256 cards of
+a call; the rest keep their canonical order after the judged runs. Judged runs sort by score, strongest first; a tie and a run the
 model did not judge keep the canonical order after them.
 
 Ranking moves whole file runs and never a single passage. Every run stays

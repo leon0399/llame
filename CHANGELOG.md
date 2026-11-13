@@ -1,5 +1,19 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-13
+
+- Size decision-model requests by the model. A `decisionModels[]` entry can
+  declare `limits` (`perQuestionContextTokens`, `perRequestContextTokens`,
+  `maxQuestionsPerRequest`), defaulting to 8,192 and 32,768 estimated tokens,
+  and a `system-one` provider can declare `maxConcurrentRequests`, default 4.
+  The decision lane now fills requests in canonical order up to 32 cards and
+  the model's limits instead of 256 cards, judges at most the first 256 cards
+  of a call, and queues attempts per provider. A card too long for the window
+  is cut to fit, a state too large for any card reports `state_too_large`, and
+  a server truncation report makes its request unavailable. A small
+  self-hosted model must declare its limits; see
+  [decisions](docs/product/operator/decisions.md).
+
 # 2026-11-12
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
