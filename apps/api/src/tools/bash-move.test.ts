@@ -505,6 +505,53 @@ describe('foreground host bash move', () => {
     expect(results()).toMatchObject([{ result: { type: 'cancelled' } }]);
   });
 
+  it('uses the message deadline instead of the later foreground deadline', async () => {
+    const committed = Promise.withResolvers<ChatJob>();
+    registry.promotion = () => committed.promise;
+
+    const call = bashTool.execute(
+      contextFor({ moveDeadlineAt: performance.now() + 120_000 }),
+      { command: 'make test' },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort({ cause: 'message', deadlineAt: performance.now() + 300 });
+    await vi.advanceTimersByTimeAsync(300);
+    const observation = await Promise.race([call, Promise.resolve('pending')]);
+    committed.resolve(jobRow(7));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(observation).toMatchObject({ type: 'outcome_unknown' });
+    expect(results()).toMatchObject([{ result: { type: 'outcome_unknown' } }]);
+    expect(registry.command.stop).not.toHaveBeenCalled();
+  });
+  it('returns unknown immediately when the message window has already expired', async () => {
+    const committed = Promise.withResolvers<ChatJob>();
+    registry.promotion = () => committed.promise;
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort({ cause: 'message', deadlineAt: performance.now() });
+    await vi.advanceTimersByTimeAsync(0);
+    const observation = await Promise.race([call, Promise.resolve('pending')]);
+
+    committed.resolve(jobRow(7));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(observation).toMatchObject({ type: 'outcome_unknown' });
+    expect(results()).toMatchObject([{ result: { type: 'outcome_unknown' } }]);
+  });
+
+  it('records unknown when an already-expired promotion finishes immediately', async () => {
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort({ cause: 'message', deadlineAt: performance.now() });
+
+    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(results()).toMatchObject([{ result: { type: 'outcome_unknown' } }]);
+    expect(results()).toHaveLength(1);
+  });
+
   it('a late message promotion cannot replace the unknown native receipt', async () => {
     const committed = Promise.withResolvers<ChatJob>();
     const yielded = new AbortController();
