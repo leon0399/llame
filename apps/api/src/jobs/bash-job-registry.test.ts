@@ -349,6 +349,34 @@ describe('BashJobRegistry', () => {
     expect(chunks.map((chunk) => chunk.content).join('')).toBe(block.repeat(6));
   });
 
+  it('retires a flush timer whose bytes the queued snapshot already includes', async () => {
+    const { registry, tenantDb, chunks } = setup();
+    const command = fakeHandle();
+    await registry.promote(command.handle, facts());
+    command.snapshot.mockClear();
+    const blocked = Promise.withResolvers<void>();
+    const runAs = tenantDb.runAs;
+    vi.spyOn(tenantDb, 'runAs').mockImplementation(async (owner, action) => {
+      await blocked.promise;
+
+      return runAs(owner, action);
+    });
+    const block = 'x'.repeat(16 * 1024);
+    command.emit({ stdout: block, stderr: '' });
+    await vi.advanceTimersByTimeAsync(0);
+    command.emit({ stdout: `${block}a`, stderr: '' });
+    await vi.advanceTimersByTimeAsync(1000);
+    command.emit({ stdout: `${block}ab`, stderr: '' });
+    blocked.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(command.snapshot).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(command.snapshot).toHaveBeenCalledTimes(2);
+    expect(chunks.map((chunk) => chunk.content).join('')).toBe(`${block}ab`);
+    command.exit(0);
+    await vi.advanceTimersByTimeAsync(0);
+  });
+
   it('stores the output that arrived after the last flush when the job settles', async () => {
     const { registry, chunks } = setup();
     const command = fakeHandle();

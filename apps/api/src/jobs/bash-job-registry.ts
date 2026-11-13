@@ -271,6 +271,8 @@ export class BashJobRegistry {
       .catch(() => undefined)
       .then(async () => {
         live.flushQueued = false;
+        clearTimeout(live.flushTimer);
+        live.flushTimer = undefined;
         live.pendingBytes = 0;
         const snapshot = live.handle.snapshot();
         await this.tenantDb.runAs(live.facts.ownerUserId, (db) =>
