@@ -52,7 +52,7 @@ Sources: [TypeSafe models](https://docs.typesafe.ai/models.md),
 
 Two token ceilings and one count recur; each member leaves some blank. Jev's
 billing in the repository's own fixtures matches a state read once: 40 cards
-cost $0.000284, about 6.7k tokens at $0.042 per million.
+cost $0.000284, about 6.8k tokens at $0.042 per million.
 
 ### Laya probe (measured)
 
@@ -132,7 +132,8 @@ four requests in flight, one run per variant plus a repeat as the noise floor:
 - Request size follows the model, attempt concurrency follows the server, and
   card counts stay ranking constants of the lane.
 - A server-reported cut never becomes an accepted ranking.
-- Ranking never turns a large walk into a whole-call timeout by queueing.
+- Ranking queues a bounded number of waves per call, so a large walk does not
+  spend its remaining deadline on dozens of queued requests.
 
 **Non-Goals:**
 
@@ -144,8 +145,9 @@ four requests in flight, one run per variant plus a repeat as the noise floor:
 
 ## Decisions
 
-Decision codes match the review with Leo on 2026-11-13. The two review rounds
-on this proposal changed G4, G8 and G11; each change is marked.
+Decision codes match the review with Leo on 2026-11-13. The proposal reviews
+changed G2, G4, G5, G7, G8 and G11; G4, G8 and G11 changed in substance and
+are marked.
 
 **G1. Limits belong to the catalog entry.** A limit is a property of one model
 on one route: Jev is 64k per request on TypeSafe and 262k through OpenRouter,
@@ -162,7 +164,9 @@ These defaults suit hosted members: 32 ASCII grep cards estimate about 4,500
 per question. They do not protect a small member, which must declare its
 limits; 32 grep cards fit the default and are the exact request that preceded
 the Laya outage. The defaults do not keep a body under OpenRouter's ~32,000
-bytes either: escaped or non-ASCII cards can reach about 37 KB within them.
+bytes either: the per-question default allows about 24.6 KB of state plus the
+questions map, and one measured set of quote-heavy cards reached a 36,872-byte
+body within the defaults.
 Rejected: no bound (keeps the oversized request as the default), Jev's
 documented values (no protection at all), and required fields (boot friction
 for hosted members that fit the defaults).
@@ -233,12 +237,18 @@ grilling chose no per-call cap, on the premise that the tool deadline leaves an
 unjudged tail. The review showed that premise false: a deadline during ranking
 fails the whole tool call, and `grep` can send thousands of cards, which at 32
 per request and four slots becomes dozens of queued waves. A fixed lane
-constant of 256, the old single-request size, bounds a call to eight requests:
-two waves at the default slots on Jev. The tail keeps its canonical order
+constant of 256, the old single-request size, bounds a call to eight requests
+when 32 cards fit per request: two waves at the default slots on Jev. The tail keeps its canonical order
 unjudged, which the tool-result-rendering contract already places last. It is
-a lane constant, not a tool option, so the G11 rejection of configuration
-stands. Rejected: a time budget inside the lane (it cannot see the tool
+a lane constant, not a tool option, so the non-goal of a configurable item
+cap stands. It binds only the decision lane; the rerank lane keeps its
+1,000-card requests and no call bound. Rejected: a time budget inside the lane (it cannot see the tool
 deadline) and leaving the call unbounded.
+
+Cut-to-fit and the existing `cardBound` cut are both exceptions to the
+canonical rule that a card's text is verbatim except for key replacement. The
+requirement `A card that alone exceeds the limit is cut to fit` names the new cut; the
+older wording predates both cuts and is left for the requirement owner.
 
 **G12. Canonical order in production.** The order effect is measurable but
 moved one rank in the eval; shuffling only randomizes a bias and makes
@@ -260,11 +270,16 @@ a CI test.
   operator who declares limits above the real window gets degraded answers.
   The operator page states this.
 - [Small members need many requests] → at about three cards per request, a
-  256-card call is about 85 requests, roughly 20 waves at four slots, and a
+  256-card call is about 86 requests, about 22 waves at four slots, and a
   deadline still fails the whole tool call. The operator can raise
   `maxConcurrentRequests` only as far as the server tolerates.
-- [One call can delay another on a shared provider] → FIFO slots and the
-  256-card call bound limit the delay to the queued waves ahead of it.
+- [One call can delay another on a shared provider] → before this change
+  every request started at once; now a call can wait behind another Run's
+  attempts. Grep ranks inside the time left before its enclosing deadline
+  (about 12 s at the default tool timeout), so a busy shared provider can turn
+  a successful rank into a whole-call timeout. FIFO slots and the 256-card call
+  bound limit the waves ahead; the operator raises the bound where the server
+  allows.
 - [Per-process and per-provider-id bound] → several worker processes, or two
   provider ids on one server URL, multiply the load; the operator page states
   both.

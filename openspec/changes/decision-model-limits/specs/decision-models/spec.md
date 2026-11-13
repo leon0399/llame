@@ -10,10 +10,10 @@
 One request MUST carry at most 32 cards with their questions. One call MUST
 judge at most its first 256 cards in canonical order. The other cards MUST
 stay unjudged. Each request MUST carry only its own cards and questions. Each
-attempt MUST start only when its provider has a free slot. Each attempt MUST
-time out after 10 seconds. A request MUST have at most 3 attempts. After status
-408, 429, 5xx, or a transport failure, the system MUST retry until three
-attempts ran or the enclosing call aborted. The system MUST honour
+attempt to a `system-one` provider MUST start only when that provider has a
+free slot. Each attempt MUST time out after 10 seconds. A request MUST have at
+most 3 attempts. After status 408, 429, 5xx, or a transport failure, the system
+MUST retry unless three attempts ran or the enclosing call aborted. The system MUST honour
 `retry-after` up to 5 seconds.
 
 #### Scenario: A batch is larger than the bound
@@ -28,6 +28,7 @@ attempts ran or the enclosing call aborted. The system MUST honour
 - **WHEN** a call has 300 cards
 - **THEN** the system judges the first 256 cards in canonical order
 - **AND** the other 44 cards stay unjudged
+- **AND** the log line reports 300 cards and at most 256 judged cards
 
 #### Scenario: All requests of one call are in flight
 
@@ -145,15 +146,15 @@ that is larger. The question limit MUST NOT raise the 32-card bound.
 
 ### Requirement: Request estimates use a fixed formula
 
-The system MUST estimate tokens as the UTF-8 byte length of `JSON.stringify`
-output, divided by 3 and rounded up. The per-question estimate MUST use the
-state plus the largest single question. The per-request estimate MUST use the
-state plus the `questions` map.
+The system MUST measure the UTF-8 bytes of `JSON.stringify` output. It MUST
+add the byte counts first, then divide the sum by 3 and round up. The
+per-question estimate MUST add the state and the largest single question. The
+per-request estimate MUST add the state and the `questions` map.
 
 #### Scenario: The estimate uses the serialized state and question
 
-- **WHEN** the serialized state has 2,997 bytes and the largest serialized question has 300 bytes
-- **THEN** the per-question estimate is 1,099 tokens
+- **WHEN** the serialized state has 2,998 bytes and the largest serialized question has 301 bytes
+- **THEN** the per-question estimate is 1,100 tokens
 
 ### Requirement: Cards fill each request in canonical order
 
@@ -169,10 +170,10 @@ bound. A request MUST NOT skip a card.
 
 ### Requirement: A card that alone exceeds the limit is cut to fit
 
-When one card exceeds a limit alone, the system MUST send the longest
-code-point prefix of its text that fits. The cut MUST follow the
-decision-credential replacement. When the state without card text does not
-fit, the call MUST be `unavailable` with the reason `state_too_large`.
+When one card exceeds a limit alone, its request MUST carry only that card.
+The card text MUST be the longest nonempty code-point prefix that fits. The
+cut MUST follow the decision-credential replacement. When no nonempty prefix
+fits, the call MUST be `unavailable` with the reason `state_too_large`.
 
 #### Scenario: A long card is cut
 
@@ -182,7 +183,7 @@ fit, the call MUST be `unavailable` with the reason `state_too_large`.
 
 #### Scenario: The shared state alone exceeds the limit
 
-- **WHEN** the objective and the fixed state text exceed the per-question limit without a card
+- **WHEN** the objective, the fixed state text, and one question with a one-character card exceed the per-question limit
 - **THEN** the system sends no request
 - **AND** the result is `unavailable` with the reason `state_too_large`
 - **AND** the log line reports 0 requests
@@ -190,9 +191,11 @@ fit, the call MUST be `unavailable` with the reason `state_too_large`.
 ### Requirement: A truncation report makes its request unavailable
 
 A response with `usage.truncated` equal to `true` MUST make its request
-unavailable. So MUST a `usage.state_tokens_dropped` above 0. A present
-truncation field of another type MUST make its request unavailable. That
-request MUST contribute no answers or usage.
+unavailable. A `usage.state_tokens_dropped` above 0 MUST make its request
+unavailable. A present `truncated` that is not a boolean MUST make its request
+unavailable. A present `state_tokens_dropped` that is not a nonnegative
+integer MUST make its request unavailable. That request MUST contribute no
+answers or usage.
 
 #### Scenario: The server reports a cut state
 
@@ -202,7 +205,7 @@ request MUST contribute no answers or usage.
 
 #### Scenario: A truncation field has a wrong type
 
-- **WHEN** a response reports `usage.truncated: "true"` or `usage.state_tokens_dropped: "12"`
+- **WHEN** a response reports `usage.truncated: "true"`, `usage.state_tokens_dropped: "12"`, or `usage.state_tokens_dropped: -1`
 - **THEN** that request is `unavailable` with the reason `invalid_response`
 
 #### Scenario: The server reports no truncation field
@@ -215,7 +218,8 @@ request MUST contribute no answers or usage.
 The system MUST NOT have more in-flight attempts to one `system-one` provider
 than its `maxConcurrentRequests`. Every catalog entry and every call on that
 provider id MUST share the bound in one process. Without the field, the bound
-MUST be 4. A retry wait MUST NOT hold a slot.
+MUST be 4. Waiting attempts MUST start in arrival order. A retry wait MUST NOT
+hold a slot. An attempt MUST release its slot when it settles or aborts.
 
 #### Scenario: Two catalog entries share one provider
 

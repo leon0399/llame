@@ -5,8 +5,8 @@
 The decision lane sizes every request by one constant, 256 cards, whatever the
 model behind the catalog entry accepts, and sends all split requests at once
 ([#1717](https://github.com/leon0399/llame/issues/1717)). By llame's own
-estimate a full 256-card request is about 34k tokens per question and 65k per
-request: near Jev's documented 32k per-question and 64k per-request ceilings,
+estimate a full 256-card grep request is about 34k tokens per question and 73k
+per request: near Jev's documented 32k per-question and 64k per-request ceilings,
 and far past the ~32,000 bytes at which OpenRouter moves Jev to its slower
 long-context mode. A small self-hosted member fails harder.
 `laya-multilingual` behind a LiteLLM gateway takes 1,024 tokens per question.
@@ -57,6 +57,9 @@ None.
 - `web-search`: the 300-card aggregate scenario judges its first 256 cards.
 - `tool-result-rendering`: the partial-answer rank-record scenario follows the
   256-card call bound.
+- `grep-tool`: the rank sends every card but a decision model judges only the
+  cards within the call bound; the partial-answer scenario follows the request
+  bound.
 
 ## Evidence, intent and decisions
 
@@ -85,5 +88,6 @@ a backstop.
   `state_too_large` failure reason.
 - `docs/product/operator/decisions.md`: the fields, defaults, the per-process
   bound, and guidance for small members.
-- No database, API surface, or model-visible change. Ranked tools keep their
-  output contract; calls past 256 cards leave their tail unjudged.
+- No database or API surface change. A ranked call past 256 cards leaves its
+  tail unjudged in canonical order, so the order the model reads changes for
+  such calls.
