@@ -100,6 +100,7 @@ describe('real host async jobs', () => {
       runId: seeded.run.id,
       nativeExecutorId: 'async-host',
       attemptId: seeded.run.activeAttemptId!,
+      toolCallId: crypto.randomUUID(),
       nativeDeliverySequence: seeded.sequence,
       bashProcessLimiter: new BashProcessLimiter(2),
       bashJobs: registry,

@@ -798,7 +798,7 @@ describe('bash durable admission', () => {
 
       await expect(first).resolves.toMatchObject({
         status: 'error',
-        type: 'outcome_unknown',
+        type: 'cancelled',
       });
 
       const next = await runTool(
