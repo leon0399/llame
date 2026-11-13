@@ -200,8 +200,9 @@ beside `embeddingModels`. An absent array MUST mean that no decision model
 exists. Each entry MUST be `{ id, provider, model, limits? }`. `limits` MUST
 accept only `perQuestionContextTokens`, `perRequestContextTokens`, and
 `maxQuestionsPerRequest`. Each limit MUST be a positive integer, or a
-whole-value interpolation that resolves to one. An invalid limit MUST fail
-startup and name its array-index path.
+whole-value interpolation that resolves to one. When an entry declares both
+token limits, the per-question limit MUST NOT exceed the per-request limit. An
+invalid limit MUST fail startup and name its array-index path.
 
 #### Scenario: A decision model catalog loads
 
@@ -219,9 +220,14 @@ startup and name its array-index path.
 
 - **WHEN** a `decisionModels` entry sets `limits` to `{ perQuestionContextTokens: 1024, maxQuestionsPerRequest: 16 }`
 - **THEN** startup succeeds
-- **AND** the entry has no per-request limit of its own
+- **AND** the entry uses the default per-request limit
 
 #### Scenario: A catalog entry declares an invalid limit
 
 - **WHEN** the first `decisionModels` entry sets `limits.perRequestContextTokens` to `-1`, or sets an unknown `limits` field
+- **THEN** startup fails and names the `decisionModels[0].limits` path
+
+#### Scenario: A per-question limit exceeds the per-request limit
+
+- **WHEN** the first `decisionModels` entry sets `perQuestionContextTokens: 65536` and `perRequestContextTokens: 32768`
 - **THEN** startup fails and names the `decisionModels[0].limits` path

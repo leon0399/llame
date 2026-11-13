@@ -17,8 +17,14 @@ See [proposal.md](proposal.md) for motivation. Current state, read at
 - `decisionModels[]` entries are `{ id, provider, model }`; a `system-one`
   provider is `{ id, type, key, baseUrl, billing?, headers? }`. Nothing
   describes what a model accepts.
-- The only in-process concurrency control in `apps/api` is pg-boss worker
-  concurrency; no limiter library is installed.
+- `apps/api` has pg-boss worker concurrency and fixed-size batching in the
+  search reindex paths (`CONCURRENCY = 20`), but no shared limiter keyed by an
+  external server, and no limiter library is installed.
+- An enclosing deadline or cancellation makes `judgeRequests` rethrow, so a
+  rank call that outlives the tool deadline fails the whole tool call with the
+  runner's timeout; it does not leave a judged head and an unjudged tail.
+- `grep` puts no bound on its card count: a large walk produces thousands of
+  file-run cards.
 
 ### Members surveyed
 
@@ -61,7 +67,9 @@ built by `buildJudgeRequest`:
 | 32    | HTTP 500     |              |               | 26.9 s  |                   |
 
 Input tokens grow as questions times state. The 16-card response was HTTP 200
-with collapsed answers that the current codec accepts. After the 32-card
+with every question marked truncated, and the current codec accepts it. The
+answers were flat at 8 cards too, so the flatness is not shown to come from
+truncation. After the 32-card
 request the server refused connections. The vendor card puts the base
 checkpoints near chance zero-shot (0.362 and 0.352 against a 0.318 baseline);
 only `laya-typed-decisions` is competitive. No configuration fixes that; this
@@ -100,7 +108,7 @@ four requests in flight, one run per variant plus a repeat as the noise floor:
 
 - Shared state ranked at least as well on every case and separated relevant
   from irrelevant better on three of four, at about a third of the tokens and
-  roughly an eighth of the wall time (0.3 s against 1.3 to 2.9 s).
+  4 to 10 times less wall time (0.3 s against 1.3 to 2.9 s).
 - Order: in the two single-request cases, reversed card order moved
   probabilities by 0.034 and 0.042 on average (maximum 0.23) against a 0.008
   noise floor. It moved one rank on `permission-evaluator` and changed no other
@@ -113,86 +121,129 @@ four requests in flight, one run per variant plus a repeat as the noise floor:
   content gap in [#1606](https://github.com/leon0399/llame/issues/1606)), so
   the fixtures cannot separate layouts on quality. One run, one injection
   phrasing, one model. The per-card variant reused llame's keyed template, not
-  TypeSafe's `{ query, candidate }` pair shape.
+  TypeSafe's `{ query, candidate }` pair shape. The eval script was a one-off
+  and its raw output is not committed; the implementation layer records the
+  injection and reversed-order cases through `ranking:record`.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Request size follows the model, request concurrency follows the server, and
-  card count stays a ranking constant of the lane.
-- A silent server-side cut never becomes an accepted ranking.
+- Request size follows the model, attempt concurrency follows the server, and
+  card counts stay ranking constants of the lane.
+- A server-reported cut never becomes an accepted ranking.
+- Ranking never turns a large walk into a whole-call timeout by queueing.
 
 **Non-Goals:**
 
-- Choosing a layout per model, a `choice` pass, shuffled order, and per-tool
-  item caps. Each waits for evidence that the shared layout or canonical order
-  loses on llame's own data.
+- Choosing a layout per model, a `choice` pass, shuffled order, and a
+  configurable per-tool item cap. Each waits for evidence on llame's own data.
 - Exact token counts. No tokenizer for these members ships in llame.
-- Bounding concurrency across processes. The bound is per process; an
-  operator with several workers divides it.
+- Bounding concurrency across processes or across provider ids that point at
+  one server. The bound is per process and per provider id.
 
 ## Decisions
 
-Decision codes match the review with Leo on 2026-11-13.
+Decision codes match the review with Leo on 2026-11-13. The two review rounds
+on this proposal changed G4, G8 and G11; each change is marked.
 
-**G1. Limits belong to the catalogue entry.** A limit is a property of one
-model on one route: Jev is 64k per request on TypeSafe and 262k through
-OpenRouter, and two Laya checkpoints on one server differ (512 and 1,024).
-Rejected: limits on the provider (cannot tell checkpoints apart) and a
-built-in table keyed by model id (every new checkpoint needs a release).
+**G1. Limits belong to the catalog entry.** A limit is a property of one model
+on one route: Jev is 64k per request on TypeSafe and 262k through OpenRouter,
+and two Laya checkpoints on one server differ (512 and 1,024). Rejected: limits
+on the provider (cannot tell checkpoints apart) and a built-in table keyed by
+model id (every new checkpoint needs a release).
 
 **G2 and G9. Omitted limits default to 8,192 per question and 32,768 per
-request, with no question default.** A full 32-card batch fits these defaults
-on Jev, and the body stays under OpenRouter's ~32 KB long-context switch.
-Rejected: no bound (keeps the failure as the default), Jev's documented values
-(32 times too large for small members), and required fields (boot friction for
-no safety gain). The 32-card cap makes a question default redundant.
+request.** When only a per-question limit is declared above 32,768, the
+per-request default rises to match, so a declared Liquid 65,536 is not capped
+silently; when both are declared, per-question above per-request fails boot.
+`maxQuestionsPerRequest` has no default and cannot raise the 32-card bound.
+These defaults suit hosted members: 32 ASCII grep cards estimate about 4,500
+per question. They do not protect a small member, which must declare its
+limits; 32 grep cards fit the default and are the exact request that preceded
+the Laya outage. The defaults do not keep a body under OpenRouter's ~32,000
+bytes either: escaped or non-ASCII cards can reach about 37 KB within them.
+Rejected: no bound (keeps the oversized request as the default), Jev's
+documented values (no protection at all), and required fields (boot friction
+for hosted members that fit the defaults).
 
 **G3 and G10. Limits are tokens; the lane estimates
-`ceil(utf8Bytes / 3)`.** Vendors document tokens, so operators copy their
-numbers. Bytes over three overcounts code about twofold and stays high for
-two-byte scripts such as Cyrillic. Rejected: bytes as the unit (every vendor
-figure needs conversion) and the chat-side `length / 4` estimate, which
-undercounts Cyrillic and would let a near-full request reach truncation.
+`ceil(utf8Bytes(JSON.stringify(...)) / 3)`.** The per-question estimate is the
+serialized state plus the largest serialized question; the per-request
+estimate is the serialized state plus the serialized `questions` map. Body
+envelope and `model` are excluded; the difference is tens of bytes. Vendors
+document tokens, so operators copy their numbers. Assumption, not measured
+against a tokenizer: three bytes per token errs high for code and stays high
+for two-byte scripts such as Cyrillic. Rejected: bytes as the unit (every
+vendor figure needs conversion) and the chat-side `length / 4` estimate, which
+counts UTF-16 units and undercounts Cyrillic.
 
-**G4. `maxConcurrentRequests` on the `system-one` provider, default 4.**
-Capacity belongs to the server: both Laya checkpoints share one server,
-and hosted routes rate-limit per account. A counting semaphore keyed by
-provider id, built once with the decision clients, wraps each request. It is
-about twenty lines; no dependency is warranted. The enclosing deadline and
-cancellation already stop queued work, because each request checks its signal
-before its first attempt. Rejected: unbounded by default (a self-hosted server
-receives every split request at once) and a bound per catalogue entry (two
-checkpoints on one server double it).
+Laya reserves a fixed question budget inside its window
+(`max(64, max_len - head_max_len - 8)` for the state, 760 of 1,024 on the
+multilingual checkpoint). The per-question limit subtracts the estimated
+question instead, so the operator page tells such an operator to declare the
+state budget plus a typical question, not the raw window.
+
+**G4. `maxConcurrentRequests` on the `system-one` provider, default 4
+(revised).** Capacity belongs to the server: both Laya checkpoints share one
+server, and hosted routes rate-limit per account. A FIFO counting
+semaphore keyed by provider id, built once with the decision clients, wraps
+each attempt, not each request: a retry wait releases its slot, so one failing
+request cannot hold the server while it backs off. A slot wait listens to the
+call's signal and leaves the queue at once on abort; the earlier draft claimed
+the existing signal check covered this, but that check runs only after a slot
+is held. The call's `latencyMs` becomes its wall time, including slot waits,
+instead of the slowest request's own time. Rejected: unbounded by default (a
+self-hosted server receives every split request at once) and a bound per
+catalog entry (two checkpoints on one server double it).
 
 **G5. A truncation report makes its request unavailable.** The cut is to the
-shared state, so every question of that request read less evidence. Checking
-`usage.truncated === true` or `usage.state_tokens_dropped > 0` is an optional
-extension of the usage schema; Jev and Liquid responses omit both and are
-unaffected. This is a backstop: `LAYA_JEV_STRICT=1` strips the fields, so the
+shared state, so every question of that request read less evidence. The usage
+schema reads `truncated` and `state_tokens_dropped` when present and fails
+closed on a wrong type; it still ignores every other extra field, including
+`truncated_questions`. The reason is `invalid_response`. Such a request
+contributes no usage even though the server billed it, as with every other
+rejected response; the log therefore understates spend on a misdeclared
+member. This is a backstop: `LAYA_JEV_STRICT=1` strips the fields, so the
 declared limits remain the guard. Rejected: keep only questions not listed in
 `truncated_questions`.
 
-**G7. Keep the shared state, capped at 32 cards, lowered to fit.** The
-published production measurements (Unblocked, Opine) used this layout at 20 to
-30 per request, and llame's eval agreed at a third of the tokens. Packing is
-greedy in canonical order: add cards while the request's estimates fit the
-entry's limits and the cap, then start the next request. Card keys keep their
+**G7. Keep the shared state, at most 32 cards per request, filled in order.**
+The published production measurements (Unblocked, Opine) used this layout at
+20 to 30 per request; llame's eval found it no worse at a third of the tokens,
+though its fixtures could not separate the layouts on quality. Packing is
+greedy, contiguous and in canonical order: a request takes the next card while
+its estimates fit the entry's limits and the bound. Card keys keep their
 canonical position across the call, so the existing key rule holds. Rejected:
 one card per request everywhere (no measured gain, about three times the
 tokens and many round trips) and a per-model layout field (no evidence yet).
 
-**G8. A card that alone exceeds a limit is cut to fit.** The lane repeats the
-existing code-point cut with a smaller bound, after key replacement, until a
-one-card request fits. When the state without any card text already exceeds
-the limit, the lane sends nothing for that card and it stays unjudged.
-Rejected: drop the card (files with long matches never rank on small models).
+**G8. A card that alone exceeds a limit is cut to fit (revised).** The lane
+sends the longest code-point prefix of the card text that fits, cut after key
+replacement. When the state without any card text already exceeds the limit,
+nothing can fit, so the call is `unavailable` with a new lane reason,
+`state_too_large`, and logs 0 requests. Today an empty request list reports
+`upstream_error`, which would misstate the cause. A 2,000-unit grep objective
+alone estimates about 950 tokens, so this case is real on 512- and 1,024-token
+members. Rejected: drop the card (files with long matches never rank on small
+members).
+
+**G11. One call judges at most its first 256 cards (changed).** The
+grilling chose no per-call cap, on the premise that the tool deadline leaves an
+unjudged tail. The review showed that premise false: a deadline during ranking
+fails the whole tool call, and `grep` can send thousands of cards, which at 32
+per request and four slots becomes dozens of queued waves. A fixed lane
+constant of 256, the old single-request size, bounds a call to eight requests:
+two waves at the default slots on Jev. The tail keeps its canonical order
+unjudged, which the tool-result-rendering contract already places last. It is
+a lane constant, not a tool option, so the G11 rejection of configuration
+stands. Rejected: a time budget inside the lane (it cannot see the tool
+deadline) and leaving the call unbounded.
 
 **G12. Canonical order in production.** The order effect is measurable but
 moved one rank in the eval; shuffling only randomizes a bias and makes
-identical calls disagree. The eval records two orders so a future change can
-measure it.
+identical calls disagree. `ranking:record` gains a reversed-order variant so a
+later change can measure the effect.
 
 **G13. `web_search` keeps the shared layout.** Cross-card injection moved
 other cards by at most 0.14 on Jev and changed no ranking. Per-card isolation
@@ -208,16 +259,21 @@ a CI test.
 - [A server truncates without a report] → declared limits are the guard; an
   operator who declares limits above the real window gets degraded answers.
   The operator page states this.
-- [More requests per call on small members] → each carries fewer cards, so
-  latency per call grows on those members; the tool deadline leaves the tail
-  unjudged in canonical order, which is the existing failure contract.
-- [Per-process bound] → several worker processes multiply the load on one
-  server; the operator page states the bound is per process.
+- [Small members need many requests] → at about three cards per request, a
+  256-card call is about 85 requests, roughly 20 waves at four slots, and a
+  deadline still fails the whole tool call. The operator can raise
+  `maxConcurrentRequests` only as far as the server tolerates.
+- [One call can delay another on a shared provider] → FIFO slots and the
+  256-card call bound limit the delay to the queued waves ahead of it.
+- [Per-process and per-provider-id bound] → several worker processes, or two
+  provider ids on one server URL, multiply the load; the operator page states
+  both.
 - [Layout evidence is thin] → the fixtures saturate. Harder cases, starting
   with #1606, are needed before any later layout change.
 
 ## Migration Plan
 
 No data or API migration. An existing configuration loads unchanged and gets
-the default limits and concurrency. Rollback is a revert of the implementation
-layer; no persisted state depends on the new fields.
+the default limits and concurrency; a small self-hosted member should add
+`limits` in the same deploy. Rollback is a revert of the implementation layer;
+no persisted state depends on the new fields.
