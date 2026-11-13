@@ -12,6 +12,10 @@ import {
   SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
 
+import { DemoChip } from "@/app/shell/soon-chip";
+
+import type { SectionView } from "./section-list";
+
 function ValueRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between px-2 py-1 text-sm">
@@ -89,3 +93,17 @@ export function DemoChangesSection() {
     </>
   );
 }
+
+export const demoContextView = {
+  title: "Context",
+  badge: <DemoChip />,
+  summary: <DemoContextSummary />,
+  content: <DemoContextSection />,
+} satisfies SectionView;
+
+export const demoChangesView = {
+  title: "Changes",
+  badge: <DemoChip />,
+  summary: "1 pull request",
+  content: <DemoChangesSection />,
+} satisfies SectionView;

@@ -72,14 +72,17 @@ second after the first unflushed byte, so another worker can read them without
 adopting the process. Job output keeps the credential set and artifact policy
 of the starting Run.
 
+In the Chat, open Session details and select Jobs to inspect live and settled
+jobs. Live jobs appear first. Stop requests cancellation of that job; Stop all
+appears when at least two jobs are live. Both work after the starting Run ends.
+The composer's Stop remains separate and cancels only the Run.
+
 The owner lists jobs with `GET /api/v1/chats/:chatId/jobs` and requests a stop
 with `PATCH /api/v1/chats/:chatId/jobs/:jobId` and body
 `{"state":"cancelled"}`. The response may still show `running`: it records a
 request, and the hosting worker proves termination before settlement. Its
 control listener acts after the transaction commits; the heartbeat re-checks
 recorded requests after a lost signal. Deleting the Chat also stops its jobs.
-The composer's Stop cancels the Run, not a job that already moved to the
-background.
 
 ## Runtime boundary
 

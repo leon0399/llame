@@ -2090,3 +2090,87 @@ export const RegenerateNoticeOnUserMessage: Story = {
     expect(canvas.queryByText(/system-reminder/)).toBeNull();
   },
 };
+
+/** A host-authored job result is a muted notice, not an owner message. */
+const HOST_JOB_NOTICE_MESSAGE: UIMessage = {
+  id: "host-job-notice",
+  role: "assistant",
+  metadata: { seq: 42, host: true },
+  parts: [
+    {
+      type: "data-context",
+      data: {
+        v: 1,
+        producer: "job",
+        form: "notice",
+        runId: "11111111-1111-4111-8111-111111111111",
+        payload: {
+          locator: "job://bash-7",
+          state: "succeeded",
+        },
+        text: "Host-authored model-only settlement text",
+      },
+    },
+    {
+      type: "data-context",
+      data: {
+        v: 1,
+        producer: "job",
+        form: "notice",
+        runId: "11111111-1111-4111-8111-111111111111",
+        payload: {
+          locator: "job://bash-8",
+          state: "failed",
+        },
+        text: "Second model-only settlement",
+      },
+    },
+  ],
+};
+
+/**
+ * A host message with a job result renders only the validated locator and
+ * state; its model-only text, owner bubble, and message actions stay hidden.
+ *
+ * @summary host job output is a muted notice, not an owner message
+ */
+export const HostJobNotice: Story = {
+  args: { renderKey: "host-job-notice", message: HOST_JOB_NOTICE_MESSAGE },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("job://bash-7 succeeded")).toBeVisible();
+    await expect(canvas.getByText("job://bash-8 failed")).toBeVisible();
+    await expect(canvas.getAllByText(/job:\/\/bash-/)).toHaveLength(2);
+    await expect(
+      canvas.queryByText("Host-authored model-only settlement text"),
+    ).toBeNull();
+    await expect(canvas.queryByRole("button")).toBeNull();
+  },
+};
+
+const MIXED_OWNER_JOB_NOTICE_MESSAGE: UIMessage = {
+  ...HOST_JOB_NOTICE_MESSAGE,
+  id: "owner-job-notice",
+  role: "user",
+  parts: [
+    ...HOST_JOB_NOTICE_MESSAGE.parts,
+    { type: "text", text: "Owner content stays visible." },
+  ],
+};
+
+/**
+ * A job notice and owner text on one message keep both parts visible.
+ *
+ * @summary mixed owner content and a job notice both render
+ */
+export const MixedOwnerJobNotice: Story = {
+  args: {
+    renderKey: "owner-job-notice",
+    message: MIXED_OWNER_JOB_NOTICE_MESSAGE,
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("job://bash-7 succeeded")).toBeVisible();
+    await expect(
+      canvas.getByText("Owner content stays visible."),
+    ).toBeVisible();
+  },
+};

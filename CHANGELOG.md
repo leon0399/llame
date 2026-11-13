@@ -2,11 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
-- **Show background activity in Chat sidebars (#1657).** Chats with live jobs
-  retain a background indicator after their Run ends. Awaiting Runs use that
-  state even when no job is currently running. Pinned Chat summaries load in
-  one shared request, including on a fresh admin route; the rail shows 30 pins
-  and keeps Administration above the user footer as pins scroll.
+- **Control background jobs from the Chat (#1657).** Session details lists live
+  and settled jobs, with per-job Stop and Stop all independent of composer Stop.
+  Pending job notices and host-authored transcript rows preserve their identity
+  without owner message actions. Chat dispatch renders backgrounded Bash, wait,
+  and stop results through their dedicated components.
 
 - Keep the operator tool-prompt inventory and example comments consistent
   with the registered tools, including `grep`, `web_search`, and `wait`.
@@ -28,6 +28,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   a checkpoint and its correlated wait result only inside the first resumed
   attempt. It retains tool metadata, step indices and timeout, rejects malformed
   receipts, and connects no runtime caller in this prerequisite.
+
+- **Show background activity in Chat sidebars (#1657).** Chats with live jobs
+  retain a background indicator after their Run ends. Awaiting Runs use that
+  state even when no job is currently running. Pinned Chat summaries load in
+  one shared request, including on a fresh admin route; the rail shows 30 pins
+  and keeps Administration above the user footer as pins scroll.
 
 - **Fence worker claims and run budgets (#1657).** Queue workers claim only
   their observed queue generation, and preparation time counts against the

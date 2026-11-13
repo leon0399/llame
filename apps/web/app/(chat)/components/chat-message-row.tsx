@@ -17,18 +17,6 @@ import {
   ToolOutput,
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
-import { BashTool } from "@workspace/ui/components/custom/bash";
-import { ConversationReadTool } from "@workspace/ui/components/custom/conversation-read";
-import { EditTool } from "@workspace/ui/components/custom/edit";
-import { GrepTool } from "@workspace/ui/components/custom/grep";
-import { KnowledgeSearchTool } from "@workspace/ui/components/custom/knowledge-search";
-import { McpTool } from "@workspace/ui/components/custom/mcp-tool";
-import { ReadTool } from "@workspace/ui/components/custom/read";
-import { SearchConversationsTool } from "@workspace/ui/components/custom/search-conversations";
-import type { ToolPartProps } from "@workspace/ui/components/custom/tool-row";
-import { WebSearchTool } from "@workspace/ui/components/custom/web-search";
-import { WorkspaceTool } from "@workspace/ui/components/custom/workspace";
-import { WriteTool } from "@workspace/ui/components/custom/write";
 import {
   getToolName,
   isToolUIPart,
@@ -41,6 +29,7 @@ import { FileSearchIcon, PencilIcon } from "lucide-react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
+import { dedicatedToolRow } from "./dedicated-tool-row";
 import { MessageActionButton } from "./message-action-button";
 import {
   groupAssistantParts,
@@ -48,6 +37,8 @@ import {
 } from "./group-assistant-parts";
 import { hasVisibleContent, isVisibleSegment } from "./message-visibility";
 import { InstructionsPart } from "./instructions-part";
+import { JobNoticePart } from "./job-notice-part";
+import { HostMessageRow } from "./host-message-row";
 import { InterruptedNoticePart } from "./interrupted-notice-part";
 import { MessageAttachments } from "./message-attachments";
 import { MessageCopyButton } from "./message-copy-button";
@@ -66,14 +57,15 @@ import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import {
-  interruptedNoticePart,
+  isInterruptedNoticePart,
   isInstructionsPart,
   isPromptImportsPart,
+  isRegenerateNoticePart,
+  isHostMessageMetadata,
   messageSeqFromMetadata,
-  regenerateNoticePart,
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
-import { storedImageSources } from "@/lib/services/media/urls";
+import { isJobNoticePart } from "@/lib/services/chat/job-notice";
 
 // Markdown/reasoning bodies come from `ChatMarkdownProvider` — never
 // next/dynamic here. Dynamic still mounts an empty shell on first paint even
@@ -145,49 +137,6 @@ function ReasoningPanel({
   );
 }
 
-/** The dedicated row for a tool, or `null` when it has none. A stored
- *  `read` image result's thumbnail loads the `/model` route and its lightbox
- *  the `/original` route. */
-function dedicatedToolRow(
-  toolName: string,
-  props: ToolPartProps,
-  renderers: ChatMarkdownRenderers,
-): ReactNode {
-  switch (toolName) {
-    case "read":
-      return (
-        <ReadTool
-          {...props}
-          Markdown={renderers.MessageResponse}
-          mediaSources={storedImageSources}
-        />
-      );
-    case "web_search":
-      return <WebSearchTool {...props} Markdown={renderers.MessageResponse} />;
-    case "bash":
-      return <BashTool {...props} />;
-    case "edit":
-      return <EditTool {...props} />;
-    case "write":
-      return <WriteTool {...props} />;
-    case "grep":
-      return <GrepTool {...props} />;
-    case "search_conversations":
-      return <SearchConversationsTool {...props} />;
-    case "conversation_read":
-      return <ConversationReadTool {...props} />;
-    case "knowledge_search":
-      return <KnowledgeSearchTool {...props} />;
-    case "enter_workspace":
-    case "exit_workspace":
-      return <WorkspaceTool {...props} name={toolName} />;
-    default:
-      return toolName.startsWith("mcp__") ? (
-        <McpTool {...props} name={toolName} />
-      ) : null;
-  }
-}
-
 /** A tool call/result: its dedicated row, else the generic tool block. */
 function ToolUIPartView({
   part,
@@ -196,16 +145,16 @@ function ToolUIPartView({
   part: ToolUIPart | DynamicToolUIPart;
   renderers: ChatMarkdownRenderers;
 }) {
-  const row = dedicatedToolRow(
-    getToolName(part),
-    {
+  const row = dedicatedToolRow({
+    toolName: getToolName(part),
+    props: {
       input: part.input,
       output: part.output,
       errorText: part.errorText,
       state: toolHeaderState(part),
     },
     renderers,
-  );
+  });
 
   return row ?? <ToolPartView part={part} />;
 }
@@ -493,23 +442,23 @@ function MessageSegments({
   });
 }
 
-/** The notices a user turn carries, rendered above its bubble with the
- *  transcript's context-item styling: the interrupt of a delivered message
- *  (run-steering) and the regenerate notice (turn-actions D9/D13). They are
- *  server-authored context, not something the owner wrote. */
+/** Server-authored notices precede owner content in their stored order. */
 function MessageNotice({ message }: { message: UIMessage }) {
   if (message.role !== "user") return null;
-  const interrupted = interruptedNoticePart(message);
-  const regenerated = regenerateNoticePart(message);
 
-  return (
-    <>
-      {interrupted === null ? null : <InterruptedNoticePart />}
-      {regenerated === null ? null : (
-        <RegenerateNoticePart payload={regenerated.data.payload} />
-      )}
-    </>
-  );
+  return message.parts.map((part, index) => {
+    if (isInterruptedNoticePart(part)) {
+      return <InterruptedNoticePart key={index} />;
+    }
+
+    if (isRegenerateNoticePart(part)) {
+      return <RegenerateNoticePart key={index} payload={part.data.payload} />;
+    }
+
+    return isJobNoticePart(part) ? (
+      <JobNoticePart key={index} notice={part} />
+    ) : null;
+  });
 }
 
 /** The row's bubble: the pending shimmer or the stored parts. A turn whose
@@ -543,6 +492,62 @@ function MessageBubble({
   );
 }
 
+function hostMessageRow(
+  message: UIMessage,
+  renderKey: string,
+  boundary: ReactNode,
+  modelBoundary: ReactNode,
+): ReactNode | null {
+  return message.role === "assistant" &&
+    isHostMessageMetadata(message.metadata) ? (
+    <HostMessageRow
+      message={message}
+      renderKey={renderKey}
+      boundary={boundary}
+      modelBoundary={modelBoundary}
+    />
+  ) : null;
+}
+
+function VisibleChatMessage({
+  message,
+  messageSeq,
+  mode,
+  renderKey,
+  renderers,
+  footerProps,
+  isLast,
+}: {
+  message: UIMessage;
+  messageSeq: number | null;
+  mode: MessageRowMode;
+  renderKey: string;
+  renderers: ChatMarkdownRenderers;
+  footerProps: ChatMessageActionProps;
+  isLast: boolean;
+}) {
+  return (
+    <Message
+      id={messageSeq === null ? undefined : `msg-${messageSeq}`}
+      from={message.role}
+      // Names the group the action row reveals on, so no outer `group`
+      // can trigger it.
+      className="group/message"
+      data-message-key={renderKey}
+    >
+      <MessageAttachments message={message} />
+      <MessageNotice message={message} />
+      <MessageBubble
+        mode={mode}
+        parts={message.parts}
+        renderKey={renderKey}
+        renderers={renderers}
+      />
+      <ChatMessageFooter {...footerProps} isLast={isLast} />
+    </Message>
+  );
+}
+
 export function ChatMessageRow({
   renderKey,
   boundary,
@@ -558,35 +563,26 @@ export function ChatMessageRow({
   // somehow mounts earlier rather than painting empty Streamdown shells.
   if (renderers === null) return null;
 
+  const hostRow = hostMessageRow(message, renderKey, boundary, modelBoundary);
+
+  if (hostRow !== null) return hostRow;
+
   const mode = messageRowMode({ message, isLast, status });
 
-  // Live-only empty placeholders omit the bubble, but the compaction /
-  // model-switch marker is about the transcript position — keep it.
   return (
     <>
       {boundary}
       {modelBoundary}
       {mode === "hidden" ? null : (
-        // data-message-key anchors ChatLoadOlder's scroll compensation when
-        // older pages prepend.
-        <Message
-          id={messageSeq === null ? undefined : `msg-${messageSeq}`}
-          from={message.role}
-          // Names the group the action row reveals on, so no outer `group`
-          // can trigger it.
-          className="group/message"
-          data-message-key={renderKey}
-        >
-          <MessageAttachments message={message} />
-          <MessageNotice message={message} />
-          <MessageBubble
-            mode={mode}
-            parts={message.parts}
-            renderKey={renderKey}
-            renderers={renderers}
-          />
-          <ChatMessageFooter {...footerProps} isLast={isLast} />
-        </Message>
+        <VisibleChatMessage
+          message={message}
+          messageSeq={messageSeq}
+          mode={mode}
+          renderKey={renderKey}
+          renderers={renderers}
+          footerProps={footerProps}
+          isLast={isLast}
+        />
       )}
     </>
   );
