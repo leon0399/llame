@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- Make the Knowledge Space name pattern in OpenAPI match runtime validation,
+  including astral format characters and ECMAScript trim whitespace. Add a
+  generated-schema/runtime regression for Unicode names.
+
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.
@@ -9,7 +13,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The live-before-history handoff story uses explicit stream and history
   gates, so it observes the pending item before removing it and adopting the
   delivered history; no time-based delay chooses the event order.
-
 - Skip product CI stages for documentation, OpenSpec and harness-instruction-only
   pull requests and pushes. Runtime prompts and unknown paths still run product
   checks; scheduled and manual behavior is unchanged. Scope detection uses the
