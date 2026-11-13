@@ -7,22 +7,28 @@ import type { RunPhase } from "@/lib/services/live/live-messages";
  * also has `needs-input`, which has no backend signal yet (#45) and is not
  * faked here.
  *
- * - `processing`: a run is currently tracked (non-terminal) for this chat —
- *   `ActiveRunsProvider`'s `activeChatIds`.
- * - `failed`: a run for this chat failed or expired while the user was
+ * `processing`: a live run is currently generating a reply.
+ * `background`: a job is running without a generating reply, or the live Run
+ *   is waiting for jobs.
+ * `failed`: a run for this chat failed or expired while the user was
  *   elsewhere — a `failed` entry in `unseenRunOutcomes`.
- * - `unread`: a run for this chat completed while the user was elsewhere —
+ * `unread`: a run for this chat completed while the user was elsewhere —
  *   a `completed` entry in `unseenRunOutcomes`.
  */
-export type ChatActivityStatus = "unread" | "failed" | "processing";
+export type ChatActivityStatus =
+  | "unread"
+  | "failed"
+  | "background"
+  | "processing";
 
 export function resolveChatActivityStatus(input: {
   processing: boolean;
+  background: boolean;
   outcome: "completed" | "failed" | undefined;
 }): ChatActivityStatus | null {
-  // A chat that's actively generating a reply has no outcome to show yet —
-  // processing takes precedence over an earlier run's unseen result.
   if (input.processing) return "processing";
+
+  if (input.background) return "background";
 
   if (input.outcome === "failed") return "failed";
 
@@ -37,6 +43,12 @@ export function resolveChatActivityStatus(input: {
 // behind it).
 const BADGE_BASE =
   "absolute -right-1 -bottom-0.75 size-2.25 rounded-full ring-2 ring-sidebar";
+
+const STATUS_BADGES = {
+  background: { label: "Background work", color: "bg-muted-foreground" },
+  failed: { label: "Run failed", color: "bg-destructive" },
+  unread: { label: "Unread reply", color: "bg-info" },
+} as const;
 
 /** Accessible label for a processing chat; the live run phase, when known,
  *  refines it without changing its stable "Generating response" prefix. */
@@ -81,26 +93,15 @@ export function ChatActivityIndicator({
     );
   }
 
-  if (status === "failed") {
-    return (
-      <output
-        aria-label="Run failed"
-        title="Run failed"
-        className={`${BADGE_BASE} bg-destructive`}
-      />
-    );
-  }
+  if (!status) return null;
 
-  if (status === "unread") {
-    // The design's blue (#3b82f6), as the semantic `info` token.
-    return (
-      <output
-        aria-label="Unread reply"
-        title="Unread reply"
-        className={`${BADGE_BASE} bg-info`}
-      />
-    );
-  }
+  const badge = STATUS_BADGES[status];
 
-  return null;
+  return (
+    <output
+      aria-label={badge.label}
+      title={badge.label}
+      className={`${BADGE_BASE} ${badge.color}`}
+    />
+  );
 }
