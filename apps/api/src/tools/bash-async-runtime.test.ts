@@ -397,6 +397,7 @@ describe('async host bash through the tool', () => {
           },
         },
       },
+      { startOnSettlement: vi.fn() },
     );
 
     await run(
