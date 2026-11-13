@@ -825,7 +825,7 @@ describe('chat deliveries — the queue mode', () => {
       ]);
     });
 
-    it('does not restore another owner’s delivered notice', async () => {
+    it('does not restore a delivered notice owned by another user', async () => {
       const { chatId, runId } = await chatWithLiveRun();
       const { notice } = await seedNotice(chatId, chatId);
 
