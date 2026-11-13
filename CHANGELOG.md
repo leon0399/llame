@@ -26,7 +26,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Show background activity in Chat sidebars (#1657).** Chats with live jobs
   retain a background indicator after their Run ends. Awaiting Runs use that
   state even when no job is currently running. Pinned Chat summaries load in
-  one shared request, including on a fresh admin route.
+  one shared request, including on a fresh admin route; the rail shows 30 pins
+  and keeps Administration above the user footer as pins scroll.
 
 - Preserve the preceding assistant reply when a textless host trigger adds
   staged context to a model request.
