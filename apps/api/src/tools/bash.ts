@@ -157,7 +157,6 @@ function machineBashExecution(
   return runMachineBash(context, input, machine);
 }
 
-
 export const bashTool: Tool<BashInput> = {
   id: 'bash',
   classification: 'execute_code',
