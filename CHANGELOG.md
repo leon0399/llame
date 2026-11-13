@@ -51,12 +51,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   a checkpoint and its correlated wait result only inside the first resumed
   attempt. It retains tool metadata, step indices and timeout, rejects malformed
   receipts, and connects no runtime caller in this prerequisite.
+- Keep the operator tool-prompt inventory and example comments consistent
+  with the registered tools, including `grep`, `web_search`, and `wait`.
 
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
   A proved lifetime stop settles as `timed_out`; unproved termination stays
   `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
   without the ordinary tool-call cap.
+
 
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.

@@ -763,15 +763,16 @@
     // "permissionModes": ["default", "read-only", "bypass"],
     // Optional whole-file replacements for llame-owned tool descriptions,
     // keyed by registered tool id (bash, conversation_read, edit, enter_workspace,
-    // exit_workspace, knowledge_search, read, search_conversations, stop, wait, write); MCP ids are
-    // rejected. A models[].toolPromptFiles entry above wins over this one,
+    // exit_workspace, grep, knowledge_search, read, search_conversations, stop,
+    // wait, web_search, write); MCP ids are rejected.
+    // A models[].toolPromptFiles entry above wins over this one,
     // which wins over the packaged default. Paths are literal, resolve against
     // this file, and are read when an execution process starts — editing one
     // needs a restart. See docs/product/operator/tool-prompts.md.
     // "promptFiles": { "search_conversations": "./prompts/search.md" },
     // Allow/reject rules per exact tool id. There is NO built-in policy:
     // omitting this property rejects every call. This block is the recommended
-    // portable map — ten code-owned tools, each with a whole-tool allow except
+    // portable map — code-owned tools, each with a whole-tool allow except
     // enter_workspace, whose operator-edited field allow names trusted roots.
     // Every admitted entry root is trusted to run code and read host secrets
     // through its Workspace MCP configuration. W1/W2 below reject text paths to
