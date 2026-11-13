@@ -484,15 +484,20 @@ describe('BashJobRegistry', () => {
   });
 
   it('persists an executor-owned lifetime stop and its captured output', async () => {
-    registry = new BashJobRegistry(tenant, worker, {
-      config: {
-        ...BUILT_IN_DEFAULTS,
-        tools: {
-          ...BUILT_IN_DEFAULTS.tools,
-          jobs: { ...BUILT_IN_DEFAULTS.tools.jobs, maxSeconds: 0.5 },
+    registry = new BashJobRegistry(
+      tenant,
+      worker,
+      {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          tools: {
+            ...BUILT_IN_DEFAULTS.tools,
+            jobs: { ...BUILT_IN_DEFAULTS.tools.jobs, maxSeconds: 0.5 },
+          },
         },
       },
-    });
+      noticeRuns,
+    );
 
     const command = registry.start(
       {
