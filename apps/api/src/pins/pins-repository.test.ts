@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   PinReorderMismatchError,
@@ -30,7 +29,6 @@ function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: {
       logQuery(sql, params) {
         queries.push({ sql, params });
@@ -175,7 +173,7 @@ describe('PinsRepository reorder', () => {
       { ...chatPin, position: 1 },
     ];
 
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const selectResults = [
       selectResult(existingRows),
@@ -245,7 +243,7 @@ describe('PinsRepository reorder', () => {
   });
 
   it('reorders a chat-only set without querying project cards', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const selectResults = [
       selectResult([
@@ -289,7 +287,7 @@ describe('PinsRepository reorder', () => {
   });
 
   it('returns an empty result when reordering an empty set', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const selectResults = [selectResult([]), selectResult([])];
     // SAFETY: these fixtures resolve the initial owner pin read and the final
     // listWithCards read with no rows.
@@ -303,7 +301,7 @@ describe('PinsRepository reorder', () => {
 
 describe('PinsRepository hydration and writes', () => {
   it('hydrates chat and project cards and drops an inaccessible pin', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const results = [
       selectResult([chatPin, projectPin, { ...chatPin, itemId: 'missing' }]),
@@ -344,7 +342,7 @@ describe('PinsRepository hydration and writes', () => {
       })),
     }));
 
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     // SAFETY: the insert fixture implements the exact values/conflict chain
     // used by `PinsRepository.pin`, and its terminal promise is deterministic.
     vi.spyOn(db, 'insert').mockImplementation(() => asDbQuery(insert()));
@@ -375,7 +373,7 @@ describe('PinsRepository hydration and writes', () => {
       })),
     }));
 
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     // SAFETY: the insert fixture implements the exact values/conflict chain
     // used by PinsRepository.pin, and its terminal promise is deterministic.
     vi.spyOn(db, 'insert').mockImplementation(() => asDbQuery(insert()));
@@ -402,7 +400,7 @@ describe('PinsRepository hydration and writes', () => {
   });
 
   it('hydrates a chat-only list without querying project cards', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const results = [
       selectResult([chatPin]),
@@ -427,7 +425,7 @@ describe('PinsRepository hydration and writes', () => {
   });
 
   it('hydrates a project-only list without querying chat cards', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const results = [
       selectResult([projectPin]),
@@ -460,7 +458,7 @@ describe('PinsRepository hydration and writes', () => {
       })),
     }));
 
-    const missingPinDb: Db = drizzle.mock({ schema });
+    const missingPinDb: Db = drizzle.mock();
     // SAFETY: the insert fixture implements the exact values/conflict chain
     // used by `PinsRepository.pin`, and its terminal promise is deterministic.
     vi.spyOn(missingPinDb, 'insert').mockImplementation(() =>
@@ -477,7 +475,7 @@ describe('PinsRepository hydration and writes', () => {
       ),
     ).resolves.toBeUndefined();
 
-    const missingCardDb: Db = drizzle.mock({ schema });
+    const missingCardDb: Db = drizzle.mock();
     // SAFETY: the insert fixture implements the exact values/conflict chain
     // used by `PinsRepository.pin`, and its terminal promise is deterministic.
     vi.spyOn(missingCardDb, 'insert').mockImplementation(() =>

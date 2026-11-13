@@ -49,7 +49,7 @@ describe('native file authority and durable effects', () => {
 
     if (!url) throw new Error('Integration database was not provisioned.');
     sql = postgres(url, { max: 2 });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'Native', ${`${owner}@test.com`}), (${otherOwner}, 'Other', ${`${otherOwner}@test.com`})`;
   });
 
@@ -859,7 +859,7 @@ describe('kb:// mutations under real owner binding', () => {
 
     if (!url) throw new Error('Integration database was not provisioned.');
     sql = postgres(url, { max: 2 });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'KB', ${`${owner}@test.com`}), (${otherOwner}, 'KB other', ${`${otherOwner}@test.com`})`;
   });
 

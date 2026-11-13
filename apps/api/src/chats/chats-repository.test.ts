@@ -13,7 +13,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { ChatsRepository, type Db } from './chats-repository';
 import { MessagesRepository } from './messages-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import * as schema from '../db/schema';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 type LoggedQuery = {
@@ -29,7 +28,6 @@ function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: {
       logQuery(sql, params) {
         queries.push({ sql, params });

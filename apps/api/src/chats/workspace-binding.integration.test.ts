@@ -41,7 +41,7 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       max: 2,
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
     });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'Workspace binding', ${`${owner}@test.com`})`;
   });

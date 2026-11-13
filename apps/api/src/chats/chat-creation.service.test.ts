@@ -3,7 +3,6 @@ import { NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { MockInstance } from 'vitest';
 
-import * as schema from '../db/schema';
 import {
   type Chat,
   type Checkout,
@@ -329,7 +328,7 @@ function makeService(options: {
 }) {
   // Every repository the route touches is spied at its prototype, so the
   // transaction handle is never dereferenced.
-  const tx = asDouble<Db>(drizzle.mock({ schema }));
+  const tx = asDouble<Db>(drizzle.mock());
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),

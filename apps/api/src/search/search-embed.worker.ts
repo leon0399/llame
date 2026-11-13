@@ -175,7 +175,8 @@ async function persistEmbeddingSuccess(
   // bound as text with an explicit ::vector cast (no native JS→vector type).
   const vectorLiteral = JSON.stringify(result.embedding);
 
-  const updated = await tx.execute(sql`
+  const updated = await tx.execute(
+    sql`
     UPDATE search_chat_documents
     SET embedding = ${vectorLiteral}::vector,
         embedding_model_key = ${target.modelKey},
@@ -183,9 +184,12 @@ async function persistEmbeddingSuccess(
         embed_input_version = ${target.inputVersion},
         embedding_fail_reason = NULL
     WHERE ${embedGuardWhere(result.documentId, result.contentHash, priorEmbedInputVersion)}
-  `);
+    RETURNING id
+  `,
+    'objects',
+  );
 
-  return updated.count > 0;
+  return updated.length > 0;
 }
 
 /**
@@ -209,7 +213,8 @@ async function persistEmbeddingFailure(
   target: EmbedTarget,
   reason: string,
 ): Promise<boolean> {
-  const updated = await tx.execute(sql`
+  const updated = await tx.execute(
+    sql`
     UPDATE search_chat_documents
     SET embedding = NULL,
         embedding_model_key = ${target.modelKey},
@@ -217,9 +222,12 @@ async function persistEmbeddingFailure(
         embed_input_version = ${target.inputVersion},
         embedding_fail_reason = ${reason}
     WHERE ${embedGuardWhere(row.id, row.contentHash, row.priorEmbedInputVersion)}
-  `);
+    RETURNING id
+  `,
+    'objects',
+  );
 
-  return updated.count > 0;
+  return updated.length > 0;
 }
 
 const reuseSource = alias(searchChatDocuments, 'reuse_source');

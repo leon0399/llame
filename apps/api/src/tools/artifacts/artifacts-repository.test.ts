@@ -6,7 +6,6 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
 import { type Db } from '../../db/tenant-db.service';
 import { ArtifactsRepository } from './artifacts-repository';
 
@@ -19,7 +18,6 @@ function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: {
       logQuery(sql, params) {
         queries.push({ sql, params });

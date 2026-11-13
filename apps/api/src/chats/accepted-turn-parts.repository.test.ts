@@ -1,7 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   AcceptedTurnPartsRepository,
@@ -229,7 +228,7 @@ function dispatchDb(
   options: { updated?: boolean } = {},
 ) {
   const writes: Array<Array<unknown>> = [];
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(db, 'select').mockImplementation(() =>
     asQuery(queryResult(stored === undefined ? [] : [{ parts: stored }])),
   );

@@ -14,7 +14,6 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -373,7 +372,7 @@ describe('operator-configured MCP production acceptance', () => {
 
     const ssl = /sslmode=require/.test(testDatabaseUrl) ? 'require' : false;
     sql = postgres(testDatabaseUrl, { ssl, max: 2 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'MCP Operator Acceptance', ${`mcp-operator-${userId}@test.com`})`;

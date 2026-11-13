@@ -48,7 +48,7 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     a = crypto.randomUUID();
     b = crypto.randomUUID();

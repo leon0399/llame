@@ -9,7 +9,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { join } from 'node:path';
 import {
   MAX_RESULT_CODE_UNITS,
@@ -103,7 +103,7 @@ function deferred<T>(): Deferred<T> {
 }
 
 function trustedContext(root?: string): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     configuredCredentials: [],
@@ -2289,7 +2289,7 @@ function machineSkillCatalog(): SkillCatalogPort {
 
 describe('Machine Workspace skill reads', () => {
   function machineContext(connector: MachineConnector): ToolContext {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     return {
       configuredCredentials: [],

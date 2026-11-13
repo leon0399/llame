@@ -1,0 +1,63 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "a42734bf-2ae7-4d7d-a269-767bf5dc67be",
+  "prevIds": ["527df140-9375-439b-b569-413d235d8882"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "active_attempt_id"],
+      "writes": [
+        "s|col|public.runs.active_attempt_id",
+        "n|col|public.runs.active_attempt_id",
+        "e|col|public.runs.active_attempt_id"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "completed_attempt_id"],
+      "writes": [
+        "s|col|public.runs.completed_attempt_id",
+        "n|col|public.runs.completed_attempt_id",
+        "e|col|public.runs.completed_attempt_id"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "active_attempt_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "completed_attempt_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

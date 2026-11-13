@@ -1,0 +1,124 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2f1f6330-5036-428d-8a67-ad3a7e8b773d",
+  "prevIds": ["9e7d4f8f-3bb7-4111-a018-4207469ad036"],
+  "footprints": [
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|pol|public.memberships.memberships_trigger_read",
+        "n|pol|public.memberships.memberships_trigger_read",
+        "e|pol|public.memberships.memberships_trigger_read"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "e|rls|public.memberships"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|pol|public.org_units.org_units_trigger_read",
+        "n|pol|public.org_units.org_units_trigger_read",
+        "e|pol|public.org_units.org_units_trigger_read"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "e|rls|public.org_units"
+      ]
+    },
+    {
+      "statementType": "alter_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": ["s|pol|public.memberships.memberships_select"],
+      "reads": ["n|tbl|public.memberships", "n|sch|public"],
+      "sqlHash": "429f2d3f32fce178"
+    },
+    {
+      "statementType": "alter_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": ["s|pol|public.memberships.memberships_insert"],
+      "reads": ["n|tbl|public.memberships", "n|sch|public"],
+      "sqlHash": "42775f52aa85ae82"
+    },
+    {
+      "statementType": "alter_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": ["s|pol|public.memberships.memberships_update"],
+      "reads": ["n|tbl|public.memberships", "n|sch|public"],
+      "sqlHash": "f5612a2540bc5f4a"
+    },
+    {
+      "statementType": "alter_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": ["s|pol|public.memberships.memberships_delete"],
+      "reads": ["n|tbl|public.memberships", "n|sch|public"],
+      "sqlHash": "672f02e91c383223"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_trigger_read",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "pg_trigger_depth() > 0",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_trigger_read",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "pg_trigger_depth() > 0",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "policies\u0000[\"public\",\"memberships\",\"memberships_select\"]",
+      "set": {
+        "using": "user_id = current_setting('app.current_user_id', true) OR llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin','maintainer','member','viewer','guest','service_account']::org_role[])"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "policies\u0000[\"public\",\"memberships\",\"memberships_insert\"]",
+      "set": {
+        "withCheck": "(\n        user_id = current_setting('app.current_user_id', true)\n        AND role = 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND u.parent_id IS NULL\n            AND u.created_by = current_setting('app.current_user_id', true)\n        )\n      ) OR (\n        llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])\n      ) OR (\n        memberships.role <> 'owner'\n        AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[])\n      )"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "policies\u0000[\"public\",\"memberships\",\"memberships_update\"]",
+      "set": {
+        "using": "(\n        memberships.role <> 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[])\n      ) OR llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])",
+        "withCheck": "(\n        memberships.role <> 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[])\n      ) OR (\n        memberships.role = 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])\n      )"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "policies\u0000[\"public\",\"memberships\",\"memberships_delete\"]",
+      "set": {
+        "using": "\n        user_id = current_setting('app.current_user_id', true)\n        OR (memberships.role <> 'owner' AND llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner','admin']::org_role[]))\n        OR llame_role_on_unit_path(memberships.org_unit_id, ARRAY['owner']::org_role[])\n      "
+      }
+    }
+  ]
+}

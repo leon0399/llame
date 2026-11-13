@@ -7,7 +7,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunsRepository, RunEventsRepository } from '../runs/runs-repository';
@@ -114,7 +113,7 @@ describe('Workspace MCP production integration', () => {
         'Integration global setup did not provide TEST_DATABASE_URL.',
       );
     sql = postgres(url, { max: 2 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Workspace MCP Integration', ${`workspace-mcp-${userId}@test.com`})`;

@@ -1,0 +1,90 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e49f926b-7109-49b5-bffe-756490383ca0",
+  "prevIds": ["abb6e7f7-4df9-471d-b3f9-6433a6985ad6"],
+  "footprints": [
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "model_context_snapshots",
+        "model_context_snapshots_owner_content_source_unique_idx"
+      ],
+      "writes": [
+        "s|idx|public.model_context_snapshots_owner_content_source_unique_idx",
+        "n|idx|public.model_context_snapshots_owner_content_source_unique_idx",
+        "e|idx|public.model_context_snapshots_owner_content_source_unique_idx",
+        "n|rel|public.model_context_snapshots_owner_content_source_unique_idx"
+      ],
+      "reads": [
+        "n|tbl|public.model_context_snapshots",
+        "n|sch|public",
+        "e|col|public.model_context_snapshots.owner_user_id",
+        "e|col|public.model_context_snapshots.content_hash",
+        "e|col|public.model_context_snapshots.source"
+      ],
+      "sharedWrites": [
+        "e|uniqueness|public.model_context_snapshots.content_hash.owner_user_id.source"
+      ]
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_context_snapshots",
+        "availability_hash"
+      ],
+      "writes": [
+        "s|colprop|public.model_context_snapshots.availability_hash.default"
+      ],
+      "reads": [
+        "n|tbl|public.model_context_snapshots",
+        "n|sch|public",
+        "n|col|public.model_context_snapshots.availability_hash"
+      ],
+      "sqlHash": "de8c7d3168fd9036"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "model_context_snapshots",
+        "tool_availability_manifest"
+      ],
+      "writes": [
+        "s|colprop|public.model_context_snapshots.tool_availability_manifest.default"
+      ],
+      "reads": [
+        "n|tbl|public.model_context_snapshots",
+        "n|sch|public",
+        "n|col|public.model_context_snapshots.tool_availability_manifest"
+      ],
+      "sqlHash": "e5725aff0553e86b"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"model_context_snapshots_owner_content_source_unique_idx\"]"
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"availability_hash\"]",
+      "set": {
+        "default": null
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"model_context_snapshots\",\"tool_availability_manifest\"]",
+      "set": {
+        "default": null
+      }
+    }
+  ]
+}

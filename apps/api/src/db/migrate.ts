@@ -3,7 +3,11 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 
-import { assertLedgerStampIsUsable } from './migration-ledger';
+import {
+  enforceMigrationLedgerNameConstraint,
+  prepareMigrationLedger,
+  withMigrationAdvisoryLock,
+} from './migration-ledger-upgrade';
 
 config({
   path: '.env.local',
@@ -14,34 +18,33 @@ const runMigrate = async () => {
     throw new Error('POSTGRES_URL is not defined');
   }
 
-  const connection = postgres(process.env.POSTGRES_URL, { max: 1 });
-  const db = drizzle(connection);
+  const pool = postgres(process.env.POSTGRES_URL, { max: 1 });
 
-  console.log('⏳ Running migrations...');
+  // Hold the advisory lock, ledger conversion, and Drizzle migrations in one
+  // transaction on one connection. Drizzle needs client.options, and its
+  // transaction path calls client.begin; on a transaction client, begin must
+  // create a savepoint rather than reserve a different pool connection.
+  try {
+    console.log('⏳ Running migrations...');
+    const start = Date.now();
 
-  const start = Date.now();
-  await migrate(db, { migrationsFolder: './src/db/migrations' });
-  const end = Date.now();
+    await withMigrationAdvisoryLock(pool, async (tx) => {
+      tx.options = pool.options;
+      Object.defineProperty(tx, 'begin', {
+        value: <T>(callback: (client: typeof tx) => Promise<T>) =>
+          tx.savepoint(callback),
+      });
+      const db = drizzle({ client: tx });
 
-  // Drizzle applies a journal entry only when its `when` is newer than the
-  // newest ledger row (`order by created_at desc limit 1`), so one row stamped
-  // in nanoseconds instead of milliseconds makes every later migration skip
-  // with no error. Fail loudly instead of reporting a run that applied nothing.
-  // The sort key is cast so it stays the column: an unqualified `order by
-  // created_at` would resolve to the projected text and sort lexicographically.
-  const [newestLedgerRow] = await connection<
-    Array<{ hash: string; created_at: string | null }>
-  >`
-    select hash, created_at::text
-    from drizzle.__drizzle_migrations
-    order by created_at::bigint desc
-    limit 1
-  `;
+      await prepareMigrationLedger(tx, './src/db/migrations');
+      await migrate(db, { migrationsFolder: './src/db/migrations' });
+      await enforceMigrationLedgerNameConstraint(tx);
+    });
 
-  assertLedgerStampIsUsable(newestLedgerRow, Date.now());
-
-  console.log('✅ Migrations completed in', end - start, 'ms');
-  process.exit(0);
+    console.log('✅ Migrations completed in', Date.now() - start, 'ms');
+  } finally {
+    await pool.end();
+  }
 };
 
 runMigrate().catch((error: unknown) => {

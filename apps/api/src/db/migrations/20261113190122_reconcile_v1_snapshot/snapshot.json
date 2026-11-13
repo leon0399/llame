@@ -1,0 +1,405 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "93c1c9ea-2bfa-43c7-b59f-589c253ec633",
+  "prevIds": ["48183161-f1a3-4bb7-8da7-368b30ab13e4"],
+  "footprints": [
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "knowledge_spaces", "created_at"],
+      "writes": [
+        "s|colprop|public.knowledge_spaces.created_at.type",
+        "s|colprop|public.knowledge_spaces.created_at.default"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "n|col|public.knowledge_spaces.created_at"
+      ],
+      "sqlHash": "bc62926cda3178c8"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "knowledge_spaces", "updated_at"],
+      "writes": [
+        "s|colprop|public.knowledge_spaces.updated_at.type",
+        "s|colprop|public.knowledge_spaces.updated_at.default"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "n|col|public.knowledge_spaces.updated_at"
+      ],
+      "sqlHash": "bd414c2b8d804a96"
+    },
+    {
+      "statementType": "recreate_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "messages",
+        "messages_chat_absorbed_through_seq_uidx"
+      ],
+      "writes": [
+        "s|idx|public.messages_chat_absorbed_through_seq_uidx",
+        "n|idx|public.messages_chat_absorbed_through_seq_uidx",
+        "e|idx|public.messages_chat_absorbed_through_seq_uidx",
+        "n|rel|public.messages_chat_absorbed_through_seq_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.chat_id",
+        "n|col|public.messages.absorbed_through_seq"
+      ],
+      "sharedWrites": [],
+      "sqlHash": "ecc0af81422ba02f"
+    },
+    {
+      "statementType": "recreate_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "project_repositories",
+        "project_repositories_owner_project_primary_uidx"
+      ],
+      "writes": [
+        "s|idx|public.project_repositories_owner_project_primary_uidx",
+        "n|idx|public.project_repositories_owner_project_primary_uidx",
+        "e|idx|public.project_repositories_owner_project_primary_uidx",
+        "n|rel|public.project_repositories_owner_project_primary_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.project_repositories",
+        "n|sch|public",
+        "n|col|public.project_repositories.owner_user_id",
+        "n|col|public.project_repositories.project_id"
+      ],
+      "sharedWrites": [],
+      "sqlHash": "da63ea59b836f7b8"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "messages"],
+      "writes": ["s|ck|public.messages.messages_seq_positive"],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.seq",
+        "e|col|public.messages.seq"
+      ],
+      "sqlHash": "5bcc91eb0c5f979c"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "chats"],
+      "writes": ["s|ck|public.chats.chats_workspace_detach_reason_check"],
+      "reads": [
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.chats.workspace_detach_reason",
+        "e|col|public.chats.workspace_detach_reason"
+      ],
+      "sqlHash": "e9e590b6215f5e7e"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": ["s|ck|public.runs.runs_permission_mode_check"],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.permission_mode",
+        "e|col|public.runs.permission_mode"
+      ],
+      "sqlHash": "5fb115330db11a6c"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "messages"],
+      "writes": ["s|ck|public.messages.messages_checkpoint_boundary_check"],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.role",
+        "n|col|public.messages.absorbed_through_seq",
+        "e|col|public.messages.role",
+        "e|col|public.messages.absorbed_through_seq"
+      ],
+      "sqlHash": "b3902538fe314fe7"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "media_objects"],
+      "writes": ["s|ck|public.media_objects.media_objects_shape"],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.media_type",
+        "n|col|public.media_objects.width",
+        "n|col|public.media_objects.height",
+        "n|col|public.media_objects.model_media_type",
+        "n|col|public.media_objects.model_width",
+        "n|col|public.media_objects.model_height",
+        "n|col|public.media_objects.model_byte_size",
+        "n|col|public.media_objects.page_count",
+        "e|col|public.media_objects.media_type",
+        "e|col|public.media_objects.width",
+        "e|col|public.media_objects.height",
+        "e|col|public.media_objects.model_media_type",
+        "e|col|public.media_objects.model_width",
+        "e|col|public.media_objects.model_height",
+        "e|col|public.media_objects.model_byte_size",
+        "e|col|public.media_objects.page_count"
+      ],
+      "sqlHash": "8e35fe7994edd2c8"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "machines_status"],
+      "writes": ["s|ck|public.machines_status.machines_status_name_check"],
+      "reads": [
+        "n|tbl|public.machines_status",
+        "n|sch|public",
+        "n|col|public.machines_status.name",
+        "e|col|public.machines_status.name"
+      ],
+      "sqlHash": "51d23bc114c8c5da"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "machines_status"],
+      "writes": [
+        "s|ck|public.machines_status.machines_status_failure_reason_check"
+      ],
+      "reads": [
+        "n|tbl|public.machines_status",
+        "n|sch|public",
+        "n|col|public.machines_status.last_failure_reason",
+        "e|col|public.machines_status.last_failure_reason"
+      ],
+      "sqlHash": "2b82cf8e7dae7499"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_kind_check"],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.kind",
+        "e|col|public.checkouts.kind"
+      ],
+      "sqlHash": "2cc49295c9e419d4"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_origin_check"],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.origin",
+        "e|col|public.checkouts.origin"
+      ],
+      "sqlHash": "6240de034404e8d6"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_worktree_parent_check"],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.kind",
+        "n|col|public.checkouts.parent_checkout_id",
+        "e|col|public.checkouts.kind",
+        "e|col|public.checkouts.parent_checkout_id"
+      ],
+      "sqlHash": "572ed90765449621"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_worktree_base_check"],
+      "reads": [
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.checkouts.kind",
+        "n|col|public.checkouts.worktree_base",
+        "e|col|public.checkouts.kind",
+        "e|col|public.checkouts.worktree_base"
+      ],
+      "sqlHash": "ff5b81d87dfd9187"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "project_repositories"],
+      "writes": [
+        "s|ck|public.project_repositories.project_repositories_isolation_check"
+      ],
+      "reads": [
+        "n|tbl|public.project_repositories",
+        "n|sch|public",
+        "n|col|public.project_repositories.isolation",
+        "e|col|public.project_repositories.isolation"
+      ],
+      "sqlHash": "fd0fcb29008d15d6"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "chat_creation_records"],
+      "writes": [
+        "s|ck|public.chat_creation_records.chat_creation_records_attempts_check"
+      ],
+      "reads": [
+        "n|tbl|public.chat_creation_records",
+        "n|sch|public",
+        "n|col|public.chat_creation_records.attempts",
+        "e|col|public.chat_creation_records.attempts"
+      ],
+      "sqlHash": "0d4afe1c7cdad7eb"
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": ["s|ck|public.runs.runs_follow_up_action_check"],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.follow_up_action",
+        "e|col|public.runs.follow_up_action"
+      ],
+      "sqlHash": "4017b81627e10abe"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"knowledge_spaces\",\"created_at\"]",
+      "set": {
+        "type": "timestamp(3) with time zone"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"knowledge_spaces\",\"updated_at\"]",
+      "set": {
+        "type": "timestamp(3) with time zone"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "indexes\u0000[\"public\",\"messages_chat_absorbed_through_seq_uidx\"]",
+      "set": {
+        "where": "\"absorbed_through_seq\" IS NOT NULL"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "indexes\u0000[\"public\",\"project_repositories_owner_project_primary_uidx\"]",
+      "set": {
+        "where": "\"is_primary\""
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"messages\",\"messages_seq_positive\"]",
+      "set": {
+        "value": "\"seq\" > 0"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"chats\",\"chats_workspace_detach_reason_check\"]",
+      "set": {
+        "value": "\"workspace_detach_reason\" IS NULL OR \"workspace_detach_reason\" IN ('executor_mismatch', 'executor_absent', 'root_missing', 'root_moved', 'permission_rejected', 'tool_not_allowed')"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"runs\",\"runs_permission_mode_check\"]",
+      "set": {
+        "value": "\"permission_mode\" IN ('default', 'bypass', 'read-only')"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"messages\",\"messages_checkpoint_boundary_check\"]",
+      "set": {
+        "value": "(\"role\"::text = 'checkpoint') = (\"absorbed_through_seq\" IS NOT NULL)"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"media_objects\",\"media_objects_shape\"]",
+      "set": {
+        "value": "(\"media_type\" <> 'application/pdf'\n        AND \"width\" IS NOT NULL AND \"height\" IS NOT NULL\n        AND \"model_media_type\" IS NOT NULL AND \"model_width\" IS NOT NULL\n        AND \"model_height\" IS NOT NULL AND \"model_byte_size\" IS NOT NULL\n        AND \"page_count\" IS NULL)\n      OR (\"media_type\" = 'application/pdf'\n        AND \"page_count\" IS NOT NULL AND \"page_count\" BETWEEN 1 AND 100\n        AND \"width\" IS NULL AND \"height\" IS NULL\n        AND \"model_media_type\" IS NULL AND \"model_width\" IS NULL\n        AND \"model_height\" IS NULL AND \"model_byte_size\" IS NULL)"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"machines_status\",\"machines_status_name_check\"]",
+      "set": {
+        "value": "\"name\" ~ '^[a-z0-9-]{1,63}$'"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"machines_status\",\"machines_status_failure_reason_check\"]",
+      "set": {
+        "value": "\"last_failure_reason\" IS NULL OR \"last_failure_reason\" IN ('unreachable', 'host_key_mismatch', 'auth_failed', 'incompatible_version', 'session_lost')"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"checkouts\",\"checkouts_kind_check\"]",
+      "set": {
+        "value": "\"kind\" IN ('main', 'worktree')"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"checkouts\",\"checkouts_origin_check\"]",
+      "set": {
+        "value": "\"origin\" IN ('registered', 'adopted', 'created')"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"checkouts\",\"checkouts_worktree_parent_check\"]",
+      "set": {
+        "value": "(\"kind\" = 'worktree') = (\"parent_checkout_id\" IS NOT NULL)"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"checkouts\",\"checkouts_worktree_base_check\"]",
+      "set": {
+        "value": "\"kind\" = 'main' OR \"worktree_base\" IS NULL"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"project_repositories\",\"project_repositories_isolation_check\"]",
+      "set": {
+        "value": "\"isolation\" IN ('inherit', 'always_worktree', 'never')"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"chat_creation_records\",\"chat_creation_records_attempts_check\"]",
+      "set": {
+        "value": "jsonb_typeof(\"attempts\") = 'array'"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"runs\",\"runs_follow_up_action_check\"]",
+      "set": {
+        "value": "\"follow_up_action\" IS NULL OR \"follow_up_action\" IN ('continue', 'regenerate')"
+      }
+    }
+  ]
+}

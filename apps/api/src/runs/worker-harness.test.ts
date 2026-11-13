@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import * as schema from '../db/schema';
+
 import { type Db } from '../db/tenant-db.service';
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -263,7 +263,6 @@ describe('createUser', () => {
     const queries: Array<{ sql: string; params: Array<unknown> }> = [];
 
     const db: Db = drizzle.mock({
-      schema,
       logger: {
         logQuery(sql, params) {
           queries.push({ sql, params });
@@ -294,7 +293,7 @@ describe('createUser', () => {
  * Every repository seedRun touches is prototype-spied, so nothing reaches it.
  */
 function fakeTenantDb() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

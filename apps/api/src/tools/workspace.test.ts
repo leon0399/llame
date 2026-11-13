@@ -1,7 +1,6 @@
 import { tool, type ToolSet } from 'ai';
 import { z } from 'zod';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
 
 import {
   mkdir,
@@ -56,7 +55,7 @@ function permissivePolicy() {
 }
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb: TenantRunner = {
     runAs: async <T>(_userId: string, operation: (db: Db) => Promise<T>) =>

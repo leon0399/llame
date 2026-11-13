@@ -5,7 +5,6 @@ import type {
   GitWorktreeAddResult,
 } from '@workspace/git-executor';
 
-import * as schema from '../db/schema';
 import {
   type Checkout,
   type Repository,
@@ -159,7 +158,7 @@ function makeWorkspace(options: {
   readonly policy?: CompiledPolicy;
   readonly config?: LlameConfig;
 }) {
-  const tx = asDouble<Db>(drizzle.mock({ schema }));
+  const tx = asDouble<Db>(drizzle.mock());
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (inner: Db) => Promise<T>) => callback(tx),

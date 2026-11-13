@@ -1,0 +1,63 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "b8e64768-7b0d-4541-b81b-a8901dee3d61",
+  "prevIds": ["5f5a5baa-0700-43d9-a1c3-f923d7049765"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "archived_at"],
+      "writes": [
+        "s|col|public.chats.archived_at",
+        "n|col|public.chats.archived_at",
+        "e|col|public.chats.archived_at"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "projects", "archived_at"],
+      "writes": [
+        "s|col|public.projects.archived_at",
+        "n|col|public.projects.archived_at",
+        "e|col|public.projects.archived_at"
+      ],
+      "reads": ["n|tbl|public.projects", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "archived_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "projects",
+        "name": "archived_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

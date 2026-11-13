@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c0fbd3d5-e10e-4545-8f87-681b0059b206",
+  "prevIds": ["c615b2aa-3b2c-4509-aaa2-39c7b3d85f3b"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "messages", "revised_at"],
+      "writes": [
+        "s|col|public.messages.revised_at",
+        "n|col|public.messages.revised_at",
+        "e|col|public.messages.revised_at"
+      ],
+      "reads": ["n|tbl|public.messages", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "revised_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

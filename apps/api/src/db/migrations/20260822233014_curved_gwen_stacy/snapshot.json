@@ -1,0 +1,236 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2020f072-4da1-49bb-878d-3738583dde34",
+  "prevIds": ["f5e0bf7b-a729-49e1-bde1-1f2a60c7e3a2"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "knowledge_spaces"],
+      "writes": [
+        "s|tbl|public.knowledge_spaces",
+        "n|tbl|public.knowledge_spaces",
+        "e|tbl|public.knowledge_spaces",
+        "n|rel|public.knowledge_spaces",
+        "n|type|public.knowledge_spaces",
+        "n|rel|public.knowledge_spaces_pkey",
+        "n|rel|public.knowledge_spaces_owner_user_id_unique"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "knowledge_spaces"],
+      "writes": [
+        "s|fk|public.knowledge_spaces.knowledge_spaces_owner_user_id_users_id_fk",
+        "n|fk|public.knowledge_spaces.knowledge_spaces_owner_user_id_users_id_fk",
+        "e|fk|public.knowledge_spaces.knowledge_spaces_owner_user_id_users_id_fk",
+        "n|con|public.knowledge_spaces.knowledge_spaces_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.knowledge_spaces.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "knowledge_spaces"],
+      "writes": [
+        "s|pol|public.knowledge_spaces.knowledge_spaces_owner_select",
+        "n|pol|public.knowledge_spaces.knowledge_spaces_owner_select",
+        "e|pol|public.knowledge_spaces.knowledge_spaces_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "e|rls|public.knowledge_spaces"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "knowledge_spaces"],
+      "writes": [
+        "s|pol|public.knowledge_spaces.knowledge_spaces_owner_insert",
+        "n|pol|public.knowledge_spaces.knowledge_spaces_owner_insert",
+        "e|pol|public.knowledge_spaces.knowledge_spaces_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "e|rls|public.knowledge_spaces"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "knowledge_spaces"],
+      "writes": [
+        "s|pol|public.knowledge_spaces.knowledge_spaces_owner_update",
+        "n|pol|public.knowledge_spaces.knowledge_spaces_owner_update",
+        "e|pol|public.knowledge_spaces.knowledge_spaces_owner_update"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "e|rls|public.knowledge_spaces"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "knowledge_spaces"],
+      "writes": [
+        "s|pol|public.knowledge_spaces.knowledge_spaces_owner_delete",
+        "n|pol|public.knowledge_spaces.knowledge_spaces_owner_delete",
+        "e|pol|public.knowledge_spaces.knowledge_spaces_owner_delete"
+      ],
+      "reads": [
+        "n|tbl|public.knowledge_spaces",
+        "n|sch|public",
+        "e|rls|public.knowledge_spaces"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "knowledge_spaces",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_space_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_pkey",
+        "columns": ["knowledge_space_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_owner_user_id_unique",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "owner_user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_owner_update",
+        "as": "PERMISSIVE",
+        "for": "UPDATE",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": "owner_user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "knowledge_spaces_owner_delete",
+        "as": "PERMISSIVE",
+        "for": "DELETE",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    }
+  ]
+}

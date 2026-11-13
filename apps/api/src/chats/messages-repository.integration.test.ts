@@ -11,7 +11,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { runningReplyUsage } from '../runs/run-reply-finalizer';
 import { ChatsRepository } from './chats-repository';
@@ -41,7 +40,7 @@ describeIfDb('MessagesRepository running replies', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = postgres(TEST_DB_URL!, { ssl, max: 5 });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     owner = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'R', ${`r-${owner}@t.com`})`;
   });

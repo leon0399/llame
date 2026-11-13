@@ -1,5 +1,4 @@
 import { type SQL } from 'drizzle-orm';
-import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import * as schema from '../db/schema';
@@ -7,14 +6,7 @@ import { type ChatCreationAttempt } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatCreationRecordRepository } from './chat-creation-record.repository';
 
-/*
- * The owner-only creation record (openspec `chat-start-location`, design D9):
- * one row per Chat holding an append-only list of attempts. The insert-or-
- * append is one statement, so the SQL it builds — the conflict target, the
- * `||` append, and the attempt it carries — is what this suite pins; the row
- * behavior itself is proved against Postgres in
- * `chat-creation.integration.test.ts`.
- */
+// Database-backed append behavior is covered in chat-creation.integration.test.ts.
 
 const OWNER = 'owner-1';
 const CHAT_ID = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
@@ -94,7 +86,7 @@ function asQuery<T extends object>(query: T): never {
 }
 
 function makeDb(selects: ReadonlyArray<ReadonlyArray<AttemptsRow>> = []) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const inserts: Array<InsertCall> = [];
   const queue = [...selects];
   vi.spyOn(db, 'insert').mockImplementation(() =>
@@ -131,23 +123,6 @@ describe('ChatCreationRecordRepository', () => {
       schema.chatCreationRecords.ownerUserId,
       schema.chatCreationRecords.chatId,
     ]);
-  });
-
-  it('appends with `||` so a second attempt cannot overwrite the first', async () => {
-    const { db, inserts } = makeDb();
-
-    await new ChatCreationRecordRepository(db).appendAttempt({
-      ownerUserId: OWNER,
-      chatId: CHAT_ID,
-      decisions: [DECISION],
-    });
-
-    const append = inserts[0]?.onConflict?.set?.attempts;
-
-    if (append === undefined) throw new Error('expected the append statement');
-    const compiled = new PgDialect().sqlToQuery(append);
-    expect(compiled.sql).toContain('||');
-    expect(compiled.params.join('')).toContain(ROOT);
   });
 
   it('records the worktree directory only when the attempt decided one', async () => {

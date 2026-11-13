@@ -11,7 +11,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { MediaService } from '../media/media.service';
@@ -143,7 +142,7 @@ describeIfDb('personalization binds per run', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     personalization = new PersonalizationService(tenantDb);
 
     userAId = crypto.randomUUID();

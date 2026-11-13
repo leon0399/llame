@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Checkout } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -157,7 +156,7 @@ describe('executorTarget', () => {
 
 describe('creationLocationSource', () => {
   function source(rows: ReadonlyArray<Checkout>, online: Array<string>) {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const listMainCheckouts = vi
       .spyOn(ProjectLinksRepository.prototype, 'listMainCheckouts')
@@ -205,7 +204,7 @@ describe('creationLocationSource', () => {
   });
 
   it('forwards every other read to the link repository unchanged', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     const listLinks = vi
       .spyOn(ProjectLinksRepository.prototype, 'listLinks')

@@ -7,7 +7,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { is, SQL } from 'drizzle-orm';
 
-import * as schema from '../../db/schema';
 import type { Db } from '../../db/tenant-db.service';
 
 const CHAT_ID = '11111111-1111-4111-8111-111111111111';
@@ -694,7 +693,7 @@ describe('hydrateCanonicalSearchCandidate', () => {
   ])(
     'rejects %s before opening the transaction query',
     async (_name, owner, candidate) => {
-      const tx: Db = drizzle.mock({ schema });
+      const tx: Db = drizzle.mock();
       const execute = vi.spyOn(tx, 'execute');
 
       await expect(
@@ -705,7 +704,7 @@ describe('hydrateCanonicalSearchCandidate', () => {
   );
 
   it('executes one query for a valid owner and UUID candidate', async () => {
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const rows = [
       row(),

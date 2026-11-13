@@ -1,7 +1,6 @@
 import { HttpException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Checkout } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type CheckoutRegistrationService } from './checkout-registration.service';
@@ -42,7 +41,7 @@ const other: Checkout = {
 // the prototype, so the assertions are the arguments and the merged summary,
 // and the RLS-scoped SQL itself stays in `checkouts.integration.test.ts`.
 function makeService() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

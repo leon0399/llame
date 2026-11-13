@@ -31,7 +31,6 @@ function makeLoggedDb(options: { stubSelectWith?: Array<unknown> } = {}) {
   const queries: Array<LoggedQuery> = [];
 
   const db = drizzle.mock({
-    schema,
     logger: {
       logQuery(sql, params) {
         queries.push({ sql, params });
@@ -90,7 +89,7 @@ function makeStubDb(rows: {
   select?: Array<unknown>;
   update?: Array<unknown>;
 }) {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const calls: Array<QueryCall> = [];
 
   const select = vi.spyOn(db, 'select').mockImplementation(() => {
@@ -377,7 +376,7 @@ describe('SessionsRepository read and delete queries', () => {
   });
 
   it('counts the rows the delete actually returned', async () => {
-    const db = drizzle.mock({ schema });
+    const db = drizzle.mock();
     const calls: Array<QueryCall> = [];
     vi.spyOn(db, 'delete').mockImplementation(() =>
       asDbQuery(queryResult([{ id: 'a' }, { id: 'b' }], calls)),

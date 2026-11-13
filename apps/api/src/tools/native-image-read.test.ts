@@ -6,7 +6,6 @@ import sharp from 'sharp';
 import { MEDIA_SELECTOR_MESSAGE } from '@workspace/native-file-tools';
 import { z } from 'zod';
 
-import * as schema from '../db/schema';
 import type { MediaObject } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
@@ -133,7 +132,7 @@ describe('native media reads', () => {
   let shot: Buffer;
 
   function context(overrides: Partial<ToolContext> = {}): ToolContext {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     return {
       userId: 'owner',

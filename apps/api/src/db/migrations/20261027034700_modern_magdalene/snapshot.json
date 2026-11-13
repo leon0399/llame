@@ -1,0 +1,177 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c615b2aa-3b2c-4509-aaa2-39c7b3d85f3b",
+  "prevIds": ["f7417bbb-7281-437a-bd84-43b19d00c90d"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "follow_up_action"],
+      "writes": [
+        "s|col|public.runs.follow_up_action",
+        "n|col|public.runs.follow_up_action",
+        "e|col|public.runs.follow_up_action"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "source_run_id"],
+      "writes": [
+        "s|col|public.runs.source_run_id",
+        "n|col|public.runs.source_run_id",
+        "e|col|public.runs.source_run_id"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "runs",
+        "runs_source_run_id_user_id_idx"
+      ],
+      "writes": [
+        "s|idx|public.runs_source_run_id_user_id_idx",
+        "n|idx|public.runs_source_run_id_user_id_idx",
+        "e|idx|public.runs_source_run_id_user_id_idx",
+        "n|rel|public.runs_source_run_id_user_id_idx"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.source_run_id",
+        "n|col|public.runs.user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": [
+        "s|fk|public.runs.runs_source_run_id_user_id_fk",
+        "n|fk|public.runs.runs_source_run_id_user_id_fk",
+        "e|fk|public.runs.runs_source_run_id_user_id_fk",
+        "n|con|public.runs.runs_source_run_id_user_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.source_run_id",
+        "n|col|public.runs.user_id",
+        "n|col|public.runs.id",
+        "n|col|public.runs.user_id",
+        "e|uniqueness|public.runs.id.user_id"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": [
+        "s|ck|public.runs.runs_follow_up_action_check",
+        "n|ck|public.runs.runs_follow_up_action_check",
+        "e|ck|public.runs.runs_follow_up_action_check",
+        "n|con|public.runs.runs_follow_up_action_check"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.follow_up_action"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "follow_up_action",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "source_run_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_source_run_id_user_id_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "source_run_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_source_run_id_user_id_fk",
+        "nameExplicit": true,
+        "columns": ["source_run_id", "user_id"],
+        "schemaTo": "public",
+        "tableTo": "runs",
+        "columnsTo": ["id", "user_id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "NO ACTION",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_follow_up_action_check",
+        "value": "\"runs\".\"follow_up_action\" IS NULL OR \"runs\".\"follow_up_action\" IN ('continue', 'regenerate')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

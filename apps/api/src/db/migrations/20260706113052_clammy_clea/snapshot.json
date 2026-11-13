@@ -1,0 +1,63 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2e8861f5-a606-47ca-84e4-eb1184ddcb72",
+  "prevIds": ["bcc8a64f-118c-4e5b-89b8-2e54a7ea5322"],
+  "footprints": [
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "chats"],
+      "writes": [
+        "s|pol|public.chats.chats_public_read",
+        "n|pol|public.chats.chats_public_read",
+        "e|pol|public.chats.chats_public_read"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public", "e|rls|public.chats"]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "messages"],
+      "writes": [
+        "s|pol|public.messages.messages_public_read",
+        "n|pol|public.messages.messages_public_read",
+        "e|pol|public.messages.messages_public_read"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "e|rls|public.messages"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "chats_public_read",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "visibility = 'public' AND current_setting('app.current_user_id', true) = ''",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "messages_public_read",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "current_setting('app.current_user_id', true) = '' AND chat_id IN (SELECT id FROM chats WHERE visibility = 'public')",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    }
+  ]
+}

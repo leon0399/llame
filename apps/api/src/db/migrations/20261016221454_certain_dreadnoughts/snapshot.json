@@ -1,0 +1,187 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9722b849-630b-4a6a-848b-14462b8f2047",
+  "prevIds": ["afb47cd0-7966-485c-bb3c-2dab3940052f"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "media_objects", "page_count"],
+      "writes": [
+        "s|col|public.media_objects.page_count",
+        "n|col|public.media_objects.page_count",
+        "e|col|public.media_objects.page_count"
+      ],
+      "reads": ["n|tbl|public.media_objects", "n|sch|public"]
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "media_objects", "width"],
+      "writes": ["s|colprop|public.media_objects.width.notNull"],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.width"
+      ],
+      "sqlHash": "59d92cc524c96ccc"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "media_objects", "height"],
+      "writes": ["s|colprop|public.media_objects.height.notNull"],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.height"
+      ],
+      "sqlHash": "296418a9559398fb"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "media_objects",
+        "model_media_type"
+      ],
+      "writes": ["s|colprop|public.media_objects.model_media_type.notNull"],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.model_media_type"
+      ],
+      "sqlHash": "824955ccb2084464"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "media_objects", "model_width"],
+      "writes": ["s|colprop|public.media_objects.model_width.notNull"],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.model_width"
+      ],
+      "sqlHash": "048caf5d68783314"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "media_objects", "model_height"],
+      "writes": ["s|colprop|public.media_objects.model_height.notNull"],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.model_height"
+      ],
+      "sqlHash": "926557a0d9635721"
+    },
+    {
+      "statementType": "alter_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "media_objects",
+        "model_byte_size"
+      ],
+      "writes": ["s|colprop|public.media_objects.model_byte_size.notNull"],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.model_byte_size"
+      ],
+      "sqlHash": "a2e2f5404c6e9747"
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": ["table", "public", "media_objects"],
+      "writes": [
+        "s|ck|public.media_objects.media_objects_shape",
+        "n|ck|public.media_objects.media_objects_shape",
+        "e|ck|public.media_objects.media_objects_shape",
+        "n|con|public.media_objects.media_objects_shape"
+      ],
+      "reads": [
+        "n|tbl|public.media_objects",
+        "n|sch|public",
+        "n|col|public.media_objects.media_type",
+        "n|col|public.media_objects.width",
+        "n|col|public.media_objects.height",
+        "n|col|public.media_objects.model_media_type",
+        "n|col|public.media_objects.model_width",
+        "n|col|public.media_objects.model_height",
+        "n|col|public.media_objects.model_byte_size",
+        "n|col|public.media_objects.page_count"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "page_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "media_objects",
+        "name": "media_objects_shape",
+        "value": "(\"media_objects\".\"media_type\" <> 'application/pdf'\n        AND \"media_objects\".\"width\" IS NOT NULL AND \"media_objects\".\"height\" IS NOT NULL\n        AND \"media_objects\".\"model_media_type\" IS NOT NULL AND \"media_objects\".\"model_width\" IS NOT NULL\n        AND \"media_objects\".\"model_height\" IS NOT NULL AND \"media_objects\".\"model_byte_size\" IS NOT NULL\n        AND \"media_objects\".\"page_count\" IS NULL)\n      OR (\"media_objects\".\"media_type\" = 'application/pdf'\n        AND \"media_objects\".\"page_count\" IS NOT NULL AND \"media_objects\".\"page_count\" BETWEEN 1 AND 100\n        AND \"media_objects\".\"width\" IS NULL AND \"media_objects\".\"height\" IS NULL\n        AND \"media_objects\".\"model_media_type\" IS NULL AND \"media_objects\".\"model_width\" IS NULL\n        AND \"media_objects\".\"model_height\" IS NULL AND \"media_objects\".\"model_byte_size\" IS NULL)",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"media_objects\",\"width\"]",
+      "set": {
+        "notNull": false
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"media_objects\",\"height\"]",
+      "set": {
+        "notNull": false
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"media_objects\",\"model_media_type\"]",
+      "set": {
+        "notNull": false
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"media_objects\",\"model_width\"]",
+      "set": {
+        "notNull": false
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"media_objects\",\"model_height\"]",
+      "set": {
+        "notNull": false
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"media_objects\",\"model_byte_size\"]",
+      "set": {
+        "notNull": false
+      }
+    }
+  ]
+}

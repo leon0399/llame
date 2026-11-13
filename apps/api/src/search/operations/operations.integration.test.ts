@@ -36,7 +36,6 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { z } from 'zod';
 
-import * as schema from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
 import {
   ChatsRepository,
@@ -199,7 +198,7 @@ describeIfDb('chat-search-embeddings/operations (layer 7)', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
-    db = drizzle(sqlClient, { schema });
+    db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);
     owner = crypto.randomUUID();

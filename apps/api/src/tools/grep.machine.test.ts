@@ -22,7 +22,6 @@ import {
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import { describe, expect, it, vi } from 'vitest';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   KnowledgeFilesystemAdapter,
@@ -102,7 +101,7 @@ function context(
   connector: MachineConnector,
   overrides: Partial<ToolContext> = {},
 ): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner',

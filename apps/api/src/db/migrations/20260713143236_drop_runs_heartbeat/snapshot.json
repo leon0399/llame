@@ -1,0 +1,25 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "5f5a5baa-0700-43d9-a1c3-f923d7049765",
+  "prevIds": ["1ff55b57-645d-4dde-8eac-133262a8c829"],
+  "footprints": [
+    {
+      "statementType": "drop_column",
+      "statementTarget": ["column", "public", "runs", "heartbeat_at"],
+      "writes": [
+        "s|col|public.runs.heartbeat_at",
+        "n|col|public.runs.heartbeat_at",
+        "e|col|public.runs.heartbeat_at"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"runs\",\"heartbeat_at\"]"
+    }
+  ]
+}

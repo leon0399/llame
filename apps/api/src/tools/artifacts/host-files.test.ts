@@ -23,7 +23,6 @@ import path from 'node:path';
 import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
 import { type Db } from '../../db/tenant-db.service';
 import { ArtifactsRepository, type ChatPartFile } from './artifacts-repository';
 import { writeToolArtifact } from './artifact-writer';
@@ -45,7 +44,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 let temporaryRoot: string;
 
 function tenantDb() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>

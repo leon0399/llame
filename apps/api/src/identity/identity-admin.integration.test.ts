@@ -26,7 +26,6 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { IdentityService } from './identity.service';
 
@@ -48,7 +47,7 @@ describeIfDb('org/membership admin surface — RLS + escalation guards', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     identity = new IdentityService(new TenantDbService(db));
     owner = crypto.randomUUID();
     member = crypto.randomUUID();

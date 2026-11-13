@@ -1,0 +1,627 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "d510514f-06d2-457a-b2e7-ca5ca770baee",
+  "prevIds": ["c0fbd3d5-e10e-4545-8f87-681b0059b206"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "tool_artifact_parts"],
+      "writes": [
+        "s|tbl|public.tool_artifact_parts",
+        "n|tbl|public.tool_artifact_parts",
+        "e|tbl|public.tool_artifact_parts",
+        "n|rel|public.tool_artifact_parts",
+        "n|type|public.tool_artifact_parts",
+        "n|rel|public.tool_artifact_parts_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "tool_artifacts"],
+      "writes": [
+        "s|tbl|public.tool_artifacts",
+        "n|tbl|public.tool_artifacts",
+        "e|tbl|public.tool_artifacts",
+        "n|rel|public.tool_artifacts",
+        "n|type|public.tool_artifacts",
+        "n|rel|public.tool_artifacts_pkey",
+        "n|rel|public.tool_artifacts_chat_seq_unique",
+        "n|rel|public.tool_artifacts_chat_run_call_unique"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "artifact_seq"],
+      "writes": [
+        "s|col|public.chats.artifact_seq",
+        "n|col|public.chats.artifact_seq",
+        "e|col|public.chats.artifact_seq"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "tool_artifact_parts",
+        "tool_artifact_parts_artifact_idx"
+      ],
+      "writes": [
+        "s|idx|public.tool_artifact_parts_artifact_idx",
+        "n|idx|public.tool_artifact_parts_artifact_idx",
+        "e|idx|public.tool_artifact_parts_artifact_idx",
+        "n|rel|public.tool_artifact_parts_artifact_idx"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifact_parts",
+        "n|sch|public",
+        "n|col|public.tool_artifact_parts.artifact_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "tool_artifact_parts"],
+      "writes": [
+        "s|fk|public.tool_artifact_parts.tool_artifact_parts_artifact_id_tool_artifacts_id_fk",
+        "n|fk|public.tool_artifact_parts.tool_artifact_parts_artifact_id_tool_artifacts_id_fk",
+        "e|fk|public.tool_artifact_parts.tool_artifact_parts_artifact_id_tool_artifacts_id_fk",
+        "n|con|public.tool_artifact_parts.tool_artifact_parts_artifact_id_tool_artifacts_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifact_parts",
+        "n|sch|public",
+        "n|tbl|public.tool_artifacts",
+        "n|sch|public",
+        "n|col|public.tool_artifact_parts.artifact_id",
+        "n|col|public.tool_artifacts.id",
+        "e|uniqueness|public.tool_artifacts.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "tool_artifacts"],
+      "writes": [
+        "s|fk|public.tool_artifacts.tool_artifacts_chat_id_chats_id_fk",
+        "n|fk|public.tool_artifacts.tool_artifacts_chat_id_chats_id_fk",
+        "e|fk|public.tool_artifacts.tool_artifacts_chat_id_chats_id_fk",
+        "n|con|public.tool_artifacts.tool_artifacts_chat_id_chats_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifacts",
+        "n|sch|public",
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.tool_artifacts.chat_id",
+        "n|col|public.chats.id",
+        "e|uniqueness|public.chats.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "tool_artifact_parts"],
+      "writes": [
+        "s|pol|public.tool_artifact_parts.tool_artifact_parts_owner_select",
+        "n|pol|public.tool_artifact_parts.tool_artifact_parts_owner_select",
+        "e|pol|public.tool_artifact_parts.tool_artifact_parts_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifact_parts",
+        "n|sch|public",
+        "e|rls|public.tool_artifact_parts"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "tool_artifact_parts"],
+      "writes": [
+        "s|pol|public.tool_artifact_parts.tool_artifact_parts_owner_insert",
+        "n|pol|public.tool_artifact_parts.tool_artifact_parts_owner_insert",
+        "e|pol|public.tool_artifact_parts.tool_artifact_parts_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifact_parts",
+        "n|sch|public",
+        "e|rls|public.tool_artifact_parts"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "tool_artifacts"],
+      "writes": [
+        "s|pol|public.tool_artifacts.tool_artifacts_owner_select",
+        "n|pol|public.tool_artifacts.tool_artifacts_owner_select",
+        "e|pol|public.tool_artifacts.tool_artifacts_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifacts",
+        "n|sch|public",
+        "e|rls|public.tool_artifacts"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "tool_artifacts"],
+      "writes": [
+        "s|pol|public.tool_artifacts.tool_artifacts_owner_insert",
+        "n|pol|public.tool_artifacts.tool_artifacts_owner_insert",
+        "e|pol|public.tool_artifacts.tool_artifacts_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifacts",
+        "n|sch|public",
+        "e|rls|public.tool_artifacts"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "tool_artifact_parts",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "tool_artifacts",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "artifact_seq",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "artifact_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "''",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "content_type",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "content",
+        "type": "bytea",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "sha256",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "byte_size",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "line_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "findings",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "chat_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "seq",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_call_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "run_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "complete",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "tool_artifact_parts_artifact_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "artifact_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "tool_artifact_parts_artifact_id_tool_artifacts_id_fk",
+        "nameExplicit": false,
+        "columns": ["artifact_id"],
+        "schemaTo": "public",
+        "tableTo": "tool_artifacts",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_artifacts_chat_id_chats_id_fk",
+        "nameExplicit": false,
+        "columns": ["chat_id"],
+        "schemaTo": "public",
+        "tableTo": "chats",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "tool_artifact_parts_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_artifacts_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_artifacts_chat_seq_unique",
+        "nameExplicit": true,
+        "columns": ["chat_id", "seq"],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_artifacts_chat_run_call_unique",
+        "nameExplicit": true,
+        "columns": ["chat_id", "run_id", "tool_call_id"],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "tool_artifact_parts_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "artifact_id IN (\n        SELECT tool_artifacts.id FROM tool_artifacts\n        INNER JOIN chats ON chats.id = tool_artifacts.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "tool_artifact_parts_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "artifact_id IN (\n        SELECT tool_artifacts.id FROM tool_artifacts\n        INNER JOIN chats ON chats.id = tool_artifacts.chat_id\n        WHERE chats.owner_user_id = current_setting('app.current_user_id', true)\n      )",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_artifacts_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifacts",
+        "name": "tool_artifacts_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "chat_id IN (\n        SELECT id FROM chats\n        WHERE owner_user_id = current_setting('app.current_user_id', true)\n      )",
+        "entityType": "policies"
+      }
+    }
+  ]
+}

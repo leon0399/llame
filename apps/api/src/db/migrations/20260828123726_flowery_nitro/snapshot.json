@@ -1,0 +1,57 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ac7f07d0-3987-4082-82f3-a9345ad7c523",
+  "prevIds": ["2989bb4d-7d3d-492e-aa1c-1ab3d136034d"],
+  "footprints": [
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "messages", "seq"],
+      "writes": [
+        "s|colprop|public.messages.seq.identity",
+        "s|colprop|public.messages.seq.default",
+        "s|colprop|public.messages.seq.notNull"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.seq"
+      ]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": ["table", "public", "messages"],
+      "writes": [
+        "s|ck|public.messages.messages_seq_positive",
+        "n|ck|public.messages.messages_seq_positive",
+        "e|ck|public.messages.messages_seq_positive",
+        "n|con|public.messages.messages_seq_positive"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.seq"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "messages",
+        "name": "messages_seq_positive",
+        "value": "\"messages\".\"seq\" > 0",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"messages\",\"seq\"]",
+      "set": {
+        "identity": null
+      }
+    }
+  ]
+}

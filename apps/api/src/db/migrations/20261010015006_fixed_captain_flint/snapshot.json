@@ -1,0 +1,25 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8142b42e-b84a-4ee4-93cd-4e0b7880d773",
+  "prevIds": ["26a9098f-3a7c-4016-98fd-1d1de0048b16"],
+  "footprints": [
+    {
+      "statementType": "drop_column",
+      "statementTarget": ["column", "public", "runs", "context_items"],
+      "writes": [
+        "s|col|public.runs.context_items",
+        "n|col|public.runs.context_items",
+        "e|col|public.runs.context_items"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"runs\",\"context_items\"]"
+    }
+  ]
+}

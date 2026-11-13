@@ -19,10 +19,9 @@ import {
   type Db,
   type TenantTransactionExecutor,
 } from './tenant-db.service';
-import * as schema from './schema';
 
 function makeFakeDb() {
-  const fakeTx: Db = drizzle.mock({ schema });
+  const fakeTx: Db = drizzle.mock();
 
   const executeSpy = vi.spyOn(fakeTx, 'execute').mockResolvedValue(
     Object.assign([], {

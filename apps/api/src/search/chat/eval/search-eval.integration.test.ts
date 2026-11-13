@@ -14,7 +14,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 
-import * as schema from '../../../db/schema';
 import { TenantDbService, type Db } from '../../../db/tenant-db.service';
 import {
   ChatsRepository,
@@ -49,7 +48,7 @@ describeIfDb('chat search — relevance eval', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL!, { ssl, max: 3 });
-    db = drizzle(sqlClient, { schema });
+    db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     const indexService = new SearchIndexService(tenantDb);
     u = crypto.randomUUID();
@@ -152,10 +151,13 @@ describeIfDb('chat search — relevance eval', () => {
     // Embed all fixture documents
     for (const [, chatId] of chatIdByKey) {
       const docs = await tenantDb.runAs(u, (tx) =>
-        tx.execute(sql`
+        tx.execute(
+          sql`
           SELECT id, content FROM search_chat_documents
           WHERE chat_id = ${chatId} AND embedding IS NULL
-        `),
+        `,
+          'objects',
+        ),
       );
 
       for (const doc of docs) {

@@ -13,7 +13,6 @@ import postgres, { type Sql } from 'postgres';
 import { isString } from '@workspace/runtime-safety';
 import { describe, expect, it } from 'vitest';
 
-import * as schema from '../db/schema';
 import { ChatsRepository } from '../chats/chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -47,7 +46,7 @@ describe('bash stream spill', () => {
       ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
       max: 4,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     owner = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'A', ${`a-${owner}@t.com`})`;
   });

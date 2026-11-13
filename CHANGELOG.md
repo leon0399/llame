@@ -1,5 +1,16 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-13
+
+- **Drizzle v1 RC5 migration upgrade.** Convert the existing legacy migration
+  ledger to named migration entries using exact historical timestamps; unsafe,
+  incomplete, or ambiguous ledger history stops migration rather than being
+  guessed. Before upgrading, back up the database and stop the old API and
+  workers. After `pnpm db:migrate`, run `pnpm db:provision-rls` before starting
+  the matching release. Do not automatically roll back to the old release or
+  edit/re-stamp ledger rows after a failure; investigate the ledger and restore
+  from backup if required.
+
 # 2026-11-12
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for

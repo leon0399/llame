@@ -1,7 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   createContextItemPart,
@@ -108,7 +107,7 @@ function fakeDb(
 ) {
   const writes: Array<Array<unknown>> = [];
   const reads: Array<null> = [];
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(db, 'select').mockImplementation(() => {
     reads.push(null);
 
@@ -293,7 +292,6 @@ describe('PromptImportPartsRepository owner scoping', () => {
     const queries: Array<{ sql: string; params: Array<unknown> }> = [];
 
     const db: Db = drizzle.mock({
-      schema,
       logger: {
         logQuery(sql, params) {
           queries.push({ sql, params });

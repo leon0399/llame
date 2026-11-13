@@ -12,7 +12,7 @@ import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
 import { type ContinueFollowUpRunDto } from './dto/follow-up-run.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
-import * as schema from '../db/schema';
+
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
@@ -135,7 +135,7 @@ describe('ChatsController', () => {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
 
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
@@ -811,7 +811,7 @@ describe('ChatsController response plumbing', () => {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
 
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const tenantDb: TenantRunner = {
       runAs: async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>

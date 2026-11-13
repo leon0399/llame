@@ -8,7 +8,7 @@ import type {
   Run,
   SystemPromptReceipt,
 } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { createFakeModelClient } from '../models/fake-model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
@@ -106,7 +106,7 @@ const sourceReceipt: SystemPromptReceipt = {
 };
 
 function makeService(client: ModelClient = createFakeModelClient(['summary'])) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

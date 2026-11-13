@@ -13,7 +13,6 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { z } from 'zod';
 
-import * as schema from '../../db/schema';
 import { TenantDbService } from '../../db/tenant-db.service';
 import {
   ChatsRepository,
@@ -134,7 +133,7 @@ describeIfDb('canonical search hydration', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL!, { ssl, max: 5 });
-    tenantDb = new TenantDbService(drizzle(sqlClient, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sqlClient }));
     indexService = new SearchIndexService(tenantDb);
     ownerA = crypto.randomUUID();
     ownerB = crypto.randomUUID();

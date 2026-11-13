@@ -23,9 +23,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import type { PgTransactionConfig } from 'drizzle-orm/pg-core';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import * as schema from './schema';
 
-export type Db = PostgresJsDatabase<typeof schema>;
+export type Db = PostgresJsDatabase;
 
 export type TenantTransactionExecutor = {
   transaction<T>(

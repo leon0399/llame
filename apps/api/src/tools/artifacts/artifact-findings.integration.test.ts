@@ -50,7 +50,7 @@ d('artifact finding re-check', () => {
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
       max: 4,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     owner = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'A', ${`a-${owner}@t.com`})`;
     chatId = await createChat(tenantDb, owner, 'Findings');

@@ -131,7 +131,7 @@ describe('Knowledge tools — real Postgres owner binding', () => {
       max: 6,
       ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     spaceService = new KnowledgeSpaceService(
       tenantDb,
       new KnowledgeSpaceLocalResolver(root),

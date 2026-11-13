@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type KnowledgeSpace } from '../db/schema/knowledge-spaces';
 import { type Db } from '../db/tenant-db.service';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
@@ -18,7 +17,7 @@ function fakeDb(input: {
   onConflict: ReturnType<typeof vi.fn>;
 }): Db {
   let selectIndex = 0;
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   Object.assign(db, {
     select: () => ({
       from: () => ({

@@ -12,7 +12,7 @@ import {
   desc,
   eq,
   exists,
-  getTableColumns,
+  getColumns,
   isNotNull,
   isNull,
   not,
@@ -45,14 +45,7 @@ export class ProjectsRepository {
       conditions.push(isNull(projects.archivedAt));
     }
 
-    // SAFETY: 'project' is a member of PinItemType ('chat' | 'project');
-    // eq()'s inferred column-comparison parameter widens the literal to
-    // string in this position, so this pins it back to the enum type.
-    const pinnedByOwner = and(
-      eq(pins.userId, ownerUserId),
-      eq(pins.itemType, 'project' as PinItemType),
-      eq(pins.itemId, projects.id),
-    );
+    const pinnedByOwner = projectPinCondition(ownerUserId);
 
     if (filter.pinned === 'exclude') {
       const pinSubquery = this.db
@@ -60,12 +53,16 @@ export class ProjectsRepository {
         .from(pins)
         .where(pinnedByOwner);
 
-      conditions.push(not(exists(pinSubquery)));
+      const exclusion = not(exists(pinSubquery));
+
+      if (exclusion !== undefined) {
+        conditions.push(exclusion);
+      }
     }
 
     if (filter.pinned === 'only') {
       return this.db
-        .select(getTableColumns(projects))
+        .select(getColumns(projects))
         .from(projects)
         .innerJoin(pins, pinnedByOwner)
         .where(and(...conditions))
@@ -188,6 +185,17 @@ export class ProjectsRepository {
 
     return deleted.length > 0;
   }
+}
+
+function projectPinCondition(ownerUserId: string) {
+  // SAFETY: 'project' is a member of PinItemType ('chat' | 'project');
+  // eq()'s inferred column-comparison parameter widens the literal to
+  // string in this position, so this pins it back to the enum type.
+  return and(
+    eq(pins.userId, ownerUserId),
+    eq(pins.itemType, 'project' as PinItemType),
+    eq(pins.itemId, projects.id),
+  );
 }
 
 type ProjectPatch = {

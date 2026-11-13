@@ -15,7 +15,6 @@ import path from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
-import * as schema from './schema';
 import { TenantDbService } from './tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { isRecord } from '@workspace/runtime-safety';
@@ -34,11 +33,21 @@ type SqlClient = Sql;
  * the historical statement targeted the type the column had when it ran.
  */
 function cutoverUpdate(): string {
+  const migrationsDirectory = path.resolve(__dirname, 'migrations');
+
+  const migrationDirectory = fs
+    .readdirSync(migrationsDirectory, { withFileTypes: true })
+    .find(
+      (entry) =>
+        entry.isDirectory() && entry.name.endsWith('_context_item_cutover'),
+    );
+
+  if (!migrationDirectory) {
+    throw new Error('context_item_cutover migration directory not found');
+  }
+
   const file = fs.readFileSync(
-    path.resolve(
-      __dirname,
-      'migrations/20260821030000_context_item_cutover.sql',
-    ),
+    path.join(migrationsDirectory, migrationDirectory.name, 'migration.sql'),
     'utf8',
   );
 
@@ -67,7 +76,7 @@ describeIfDb('context-item cutover migration', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 3 });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Cutover', ${`cutover-${userId}@test.com`})`;
   });

@@ -33,6 +33,7 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
+import { TenantDbService } from '../db/tenant-db.service';
 import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
@@ -47,6 +48,7 @@ import {
   expectRegisteredUserId,
   openSseStream,
 } from '../testing/support';
+import { ChatCreationRecordRepository } from './chat-creation-record.repository';
 
 // A git hook exports GIT_DIR and friends; clear them so the fixtures' own git
 // commands cannot be redirected at this checkout.
@@ -566,6 +568,32 @@ describe('chat creation over HTTP', () => {
   });
 
   describe('a create without a location', () => {
+    it('keeps repeated creation attempts as objects', async () => {
+      const chatId = newChatId();
+      await create({ id: chatId }).expect(201);
+      const tenantDb = harness.app.get(TenantDbService);
+
+      for (const worktreeDirectory of ['/first', '/second']) {
+        await tenantDb.runAs(owner.userId, (tx) =>
+          new ChatCreationRecordRepository(tx).appendAttempt({
+            ownerUserId: owner.userId,
+            chatId,
+            decisions: [],
+            worktreeDirectory,
+          }),
+        );
+      }
+
+      const attempts = await tenantDb.runAs(owner.userId, (tx) =>
+        new ChatCreationRecordRepository(tx).findAttempts(owner.userId, chatId),
+      );
+
+      expect(attempts.map((attempt) => attempt.worktreeDirectory)).toEqual([
+        '/first',
+        '/second',
+      ]);
+    });
+
     it('stores an unfiled Chat with an unbound Workspace and starts nothing', async () => {
       const chatId = newChatId();
 

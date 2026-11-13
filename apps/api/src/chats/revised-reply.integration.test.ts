@@ -37,7 +37,7 @@ describeIfDb('a revised reply', () => {
       max: 4,
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
     });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     owner = crypto.randomUUID();
     otherOwner = crypto.randomUUID();
