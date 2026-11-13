@@ -11,6 +11,7 @@ export const SESSION_DETAILS_LAYOUT_COOKIE = "session_details_layout";
 
 export const SESSION_DETAILS_SECTIONS = [
   "environment",
+  "jobs",
   "context",
   "changes",
 ] as const;

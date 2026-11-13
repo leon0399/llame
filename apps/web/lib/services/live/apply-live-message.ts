@@ -8,6 +8,7 @@ import {
   type ChatResponse,
 } from "../chat/queries";
 import type { ChatSearchResult } from "../chat/search";
+import { chatJobsQueryKeys } from "../jobs/queries";
 import { machinesQueryKeys } from "../machines/queries";
 import { pinQueryKeys } from "../pins/queries";
 import type { PinnedItem } from "../pins/types";
@@ -24,12 +25,14 @@ import type {
 
 /**
  * Applies one live record update to the TanStack Query caches, so the UI
- * changes without refetching:
+ * changes without refetching where the update can be applied locally:
  *
  * - a chat or project record replaces its cached copy in every list whose
  *   filters it matches, is inserted where it now matches, and is removed
  *   where it no longer does; lists re-sort by `updatedAt`, except
  *   pinned-only lists, which keep pin order;
+ * - a chat upsert invalidates that Chat's jobs query, whose endpoint includes
+ *   job state changed by the same transaction;
  * - pinned-item cards and search results take the new title or name;
  * - a deletion removes the record everywhere;
  * - `chat.deliveries` replaces the Chat's pending-item list;
@@ -49,7 +52,13 @@ export function applyLiveMessage(
 ): void {
   switch (message.type) {
     case "chat.upserted":
-      return applyChat(queryClient, message.chat);
+      applyChat(queryClient, message.chat);
+      void queryClient.invalidateQueries({
+        queryKey: chatJobsQueryKeys.chat(message.chat.id),
+        exact: true,
+      });
+
+      return;
     case "chat.deleted":
       return removeChat(queryClient, message.chatId);
     case "chat.deliveries":
@@ -72,14 +81,14 @@ export function applyLiveMessage(
   }
 }
 
-/** Every list a missed message could have changed: the owner's, and Machines. */
+/** Every owner-scoped cache a missed message could have changed. */
 export function invalidateOwnerLists(queryClient: QueryClient): void {
   // `chatQueryKeys.all` covers lists and every chat's detail and messages:
   // a Run that finished while disconnected changed the open transcript too.
-  // `machinesQueryKeys.list()` is instance-wide and shares this refetch on
-  // reconnect, since a Machine's derived status moves with time as well.
+  // Jobs also need a refetch because resync can hide a missed chat upsert.
   for (const queryKey of [
     chatQueryKeys.all,
+    chatJobsQueryKeys.all,
     machinesQueryKeys.list(),
     pinQueryKeys.list(),
     projectQueryKeys.lists(),
