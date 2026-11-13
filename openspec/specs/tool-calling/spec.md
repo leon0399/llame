@@ -1256,6 +1256,11 @@ state of a terminal Run into a new Run. That Continue Run MUST replay the settle
 MUST NOT execute a settled call again. A future durable effect-dedupe capability can replace
 this terminal behavior, and this capability does not define it.
 
+A wake of a Run from `awaiting_jobs` is not a retry. The first attempt after a wake MUST
+continue from the stored steps of the current reply, as the requirement for a woken Run defines.
+A redelivered queue job of a woken Run is a retry, and it MUST follow the rules of this
+requirement.
+
 #### Scenario: Known native mutation result is replayed without execution
 
 - **WHEN** a native edit or write settled before a client reconnect
@@ -1308,6 +1313,91 @@ this terminal behavior, and this capability does not define it.
 - **AND** the worker dies in the second segment before a native attempt of that segment
 - **THEN** the retry restarts the second segment from its delivered message
 - **AND** the `write` does not execute again
+
+#### Scenario: A wake does not restart the segment
+
+- **WHEN** a Run leaves `awaiting_jobs` after two completed tool steps of its current segment
+- **THEN** the first attempt after the wake keeps both steps and executes neither call again
+
+#### Scenario: A retry after a wake restarts a read-only segment
+
+- **WHEN** the queue retries the job of a woken Run whose current segment has no `native.attempt`
+- **THEN** the tool loop executes again from the first step of that segment
+
+### Requirement: A tool can yield to a steer
+
+A tool can declare that it yields. `wait` and `bash` on the llame host MUST yield, and no other
+tool does. A steer, an interrupt, or a job notice can signal the Run. Each open call of a tool
+that yields MUST then return a known result at once. The work of that call MUST continue as a job of
+`background-jobs`. A call that yields MUST NOT settle as `outcome_unknown` or `cancelled`.
+
+#### Scenario: A read does not yield
+
+- **WHEN** the owner sends a steer while a `read` of a web locator runs
+- **THEN** the `read` finishes with its own result before the steer is delivered
+
+#### Scenario: Two commands yield at one signal
+
+- **WHEN** two host `bash` calls of one step run in the foreground, and the owner sends a steer
+- **THEN** both calls return `backgrounded`, and both commands continue
+
+### Requirement: Only a wait call stays open while its Run waits
+
+A `wait` call MUST be the only tool call that stays open while a Run is in `awaiting_jobs`. The
+Run MUST settle every other call of the step before it enters that status. A step MUST hold at
+most one open `wait` call, and a second `wait` call in the step MUST return an error. A `wait`
+call MUST NOT record a native attempt, because it has no effect on the host.
+
+#### Scenario: A wait beside a read in one step
+
+- **WHEN** the model calls `read` and `wait` in one step
+- **THEN** the `read` result is stored before the Run enters `awaiting_jobs`
+
+#### Scenario: Two wait calls in one step
+
+- **WHEN** the model calls `wait` twice in one step
+- **THEN** the second call returns an error that names the first call, and the Run waits on the first call only
+
+### Requirement: A woken Run settles the wait and continues from its stored steps
+
+When a Run leaves `awaiting_jobs`, its attempt MUST record the result of the open `wait` call
+exactly once. It MUST then send the next model request with the history and the stored steps of
+the current reply, through that result. It MUST NOT execute a settled call again. A redelivered
+queue job of the woken Run MUST follow the retry rules of `No mid-run tool-state checkpointing`.
+
+#### Scenario: A build fails while the Run waits
+
+- **WHEN** a Run waits on a build, the build fails, and another worker claims the Run
+- **THEN** the reply keeps its earlier steps, and the `wait` call gets the result that names the failed build
+- **AND** the next model request carries those steps and that result
+
+#### Scenario: A worker stops after the wake
+
+- **WHEN** the current segment holds no native attempt, and the worker stops after it recorded the `wait` result
+- **THEN** the retry executes the segment again from its first step
+- **AND** a new `wait` call on the settled job returns at once
+
+#### Scenario: A worker stops after the wake of a segment with a command
+
+- **WHEN** the current segment holds a `bash` attempt, and the worker stops after the wake
+- **THEN** the redelivered Run fails as `outcome_unknown`, and the owner can start a Continue
+
+### Requirement: The stop tool is a host-capability tool
+
+`stop` MUST have the `execute_code` classification, and it MUST be in the exact host-capability
+set. It MUST be available only on a process that can run host `bash`. Its retry policy is this:
+a retried `stop` call requests the stop again, and a job that is already settled keeps its
+state. `wait` MUST have the `read_only` classification.
+
+#### Scenario: Stop is advertised with bash
+
+- **WHEN** `tools.allowed` names `bash` and `stop`, and the process accepted native host authority
+- **THEN** the system advertises `stop`
+
+#### Scenario: Stop without host authority is not advertised
+
+- **WHEN** `tools.allowed` names `stop`, and the process accepted no native host authority
+- **THEN** the system does not advertise `stop` and does not execute it
 
 ### Requirement: Tool activity is rendered in the chat UI
 
