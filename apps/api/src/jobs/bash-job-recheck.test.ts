@@ -256,6 +256,99 @@ describe('the heartbeat check of live jobs', () => {
     ]);
   });
 
+  it('stops checking after shutdown begins while a row lookup is pending', async () => {
+    const a = await live();
+    const b = await live();
+
+    const { promise: rowReadStarted, resolve: markRowReadStarted } =
+      Promise.withResolvers<void>();
+
+    const { promise: rowRead, resolve: releaseRowRead } =
+      Promise.withResolvers<void>();
+
+    const { promise: stopsReleased, resolve: releaseStops } =
+      Promise.withResolvers<void>();
+
+    const { promise: stopsStarted, resolve: markStopsStarted } =
+      Promise.withResolvers<void>();
+
+    let startedStops = 0;
+
+    rows.set(a.id, { state: 'running', stopRequestedBy: null });
+    rows.set(b.id, { state: 'running', stopRequestedBy: null });
+    findById.mockImplementationOnce(async (_chat, _owner, id) => {
+      lookups.push(id);
+      markRowReadStarted();
+      await rowRead;
+
+      // SAFETY: the mock returns only the fields consumed by the recheck.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      return rows.get(id) as ChatJob | undefined;
+    });
+
+    a.stop.mockImplementation(async () => {
+      if (++startedStops === 2) markStopsStarted();
+      await stopsReleased;
+      a.finish({
+        status: 'success',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      });
+
+      return {
+        proved: true,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
+      };
+    });
+    b.stop.mockImplementation(async () => {
+      if (++startedStops === 2) markStopsStarted();
+      await stopsReleased;
+      b.finish({
+        status: 'success',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      });
+
+      return {
+        proved: true,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
+      };
+    });
+
+    const checking = registry.recheckJobs();
+    await rowReadStarted;
+    const shutdown = registry.shutdown();
+    await stopsStarted;
+
+    try {
+      expect(a.stop).toHaveBeenCalledWith('worker');
+      expect(b.stop).toHaveBeenCalledWith('worker');
+
+      releaseRowRead();
+      await checking;
+
+      expect(lookups).toEqual([a.id]);
+    } finally {
+      releaseStops();
+      await shutdown;
+    }
+
+    expect(settlements).toMatchObject([
+      { state: 'cancelled', stoppedBy: 'worker' },
+      { state: 'cancelled', stoppedBy: 'worker' },
+    ]);
+  });
+
   it('leaves failed settlement retry to shutdown once the worker stops accepting', async () => {
     const job = await live();
 

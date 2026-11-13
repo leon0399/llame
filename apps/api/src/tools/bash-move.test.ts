@@ -673,17 +673,19 @@ describe('foreground host bash move', () => {
     expect(results()).toHaveLength(1);
   });
 
-  it('a move completed after 750 ms returns the committed job and receipt', async () => {
+  it('a promotion still pending after its timer returns the eventual receipt', async () => {
     const commit = Promise.withResolvers<ChatJob>();
     registry.jobAdmission = () => commit.promise;
     moved.abort();
     const call = bashTool.execute(contextFor(), { command: 'x' });
+    let settled = false;
+    void Promise.resolve(call).then(() => {
+      settled = true;
+    });
 
     await vi.advanceTimersByTimeAsync(0);
     vi.advanceTimersByTime(750);
-    expect(await Promise.race([call, Promise.resolve('pending')])).toBe(
-      'pending',
-    );
+    expect(settled).toBe(false);
     expect(results()).toEqual([]);
     commit.resolve(jobRow(7));
     await expect(call).resolves.toMatchObject({
@@ -698,6 +700,27 @@ describe('foreground host bash move', () => {
     ]);
     expect(results()).toHaveLength(1);
     expect(registry.command.stop).not.toHaveBeenCalled();
+  });
+
+  it('returns the durable receipt winner without recording a competing result', async () => {
+    const durableWinner: ToolResult = {
+      status: 'error',
+      type: 'timed_out',
+      message: 'The durable receipt already won.',
+    };
+
+    vi.spyOn(registry, 'promoteWithReceipt').mockResolvedValue({
+      result: durableWinner,
+      receiptCommitted: false,
+      recoveryWon: true,
+    });
+    moved.abort();
+
+    await expect(
+      bashTool.execute(contextFor(), { command: 'x' }),
+    ).resolves.toEqual(durableWinner);
+    expect(append).not.toHaveBeenCalled();
+    expect(registry.receipts).toHaveLength(0);
   });
 
   it('a late known promotion failure returns its proved stop result', async () => {

@@ -4,12 +4,16 @@ import {
 } from '@workspace/bash-executor';
 
 import { ChatsRepository } from '../chats/chats-repository';
-import { type ChatJob } from '../db/schema';
+import { type ChatJob, type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
+import { RunEventsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { BashJobLifecycle } from './bash-job-lifecycle';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
+import { jobSequence, toolResultFromReceipt } from './bash-promotion-receipt';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { JobPromotionError } from './job-promotion-error';
 
@@ -260,6 +264,183 @@ describe('BashJobRegistry', () => {
       { output: 'stdout', content: 'so far\n', position: 0 },
       { output: 'stderr', content: 'warn\n', position: 0 },
     ]);
+  });
+
+  it('reconciles a committed job receipt when the transaction acknowledgement is lost', async () => {
+    const { registry, tenantDb } = setup();
+    const command = fakeHandle({ stdout: 'captured output', stderr: '' });
+
+    const receipt = {
+      toolCallId: 'call-1',
+      result: { status: 'success', job: 'job://bash-7' },
+    };
+
+    const runAs = tenantDb.runAs;
+    let loseAcknowledgement = true;
+
+    vi.spyOn(tenantDb, 'runAs').mockImplementation(async (owner, operation) => {
+      const committed = await runAs(owner, operation);
+
+      if (loseAcknowledgement) {
+        loseAcknowledgement = false;
+        throw new Error('connection lost after commit');
+      }
+
+      return committed;
+    });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockResolvedValue({
+      id: 'run-1',
+      chatId: CHAT,
+      messageId: 'message-1',
+      userId: OWNER,
+      modelId: 'model-1',
+      activeAttemptId: 'attempt-1',
+      completedAttemptId: null,
+      turnToolAvailability: null,
+      status: 'running_model',
+      workerId: null,
+      cancelRequestedAt: null,
+      error: null,
+      createdAt: STARTED,
+      startedAt: STARTED,
+      finishedAt: null,
+      effort: null,
+      permissionMode: 'default',
+      followUpAction: null,
+      sourceRunId: null,
+    } satisfies Run);
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      sequence: 1,
+      runId: 'run-1',
+      eventType: 'native.result',
+      payload: null,
+      createdAt: STARTED,
+    } satisfies RunEvent);
+    vi.spyOn(RunEventsRepository.prototype, 'findNativeResult')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({
+        sequence: 2,
+        runId: 'run-1',
+        eventType: 'native.result',
+        payload: receipt,
+        createdAt: STARTED,
+      } satisfies RunEvent);
+
+    const findJob = vi
+      .spyOn(ChatJobsRepository.prototype, 'findByLocator')
+      .mockResolvedValue(
+        jobRow({
+          chatId: CHAT,
+          ownerUserId: OWNER,
+          executor: 'bash',
+          seq: 7,
+          runId: 'run-1',
+          toolCallId: 'call-1',
+          workerInstanceId: 'worker',
+          pid: 42,
+          startedAt: STARTED,
+          outputs: ['stdout', 'stderr'],
+          artifactReadable: true,
+          settings: facts().settings,
+        }),
+      );
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => ({ status: 'error', type: 'unavailable', message: 'stopped' }),
+    );
+
+    expect(promoted).toEqual({
+      result: receipt.result,
+      receiptCommitted: true,
+      recoveryWon: false,
+    });
+    expect(findJob).toHaveBeenCalledWith(CHAT, OWNER, 'bash', 7);
+    expect(command.stop).not.toHaveBeenCalled();
+
+    await registry.shutdown();
+    expect(command.stop).toHaveBeenCalledWith('worker');
+  });
+
+  it('accepts only a complete tool result from a promotion receipt', () => {
+    expect(
+      toolResultFromReceipt({
+        result: { status: 'error', type: 'timed_out', message: 'deadline' },
+      }),
+    ).toEqual({ status: 'error', type: 'timed_out', message: 'deadline' });
+    expect(
+      toolResultFromReceipt({ result: { status: 'error', type: 'timed_out' } }),
+    ).toBeUndefined();
+    expect(
+      toolResultFromReceipt({
+        result: { status: 'pending', job: 'job://bash-7' },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('accepts only complete bash job locators from a receipt', () => {
+    expect(jobSequence({ status: 'success', job: 'job://bash-123' })).toBe(123);
+
+    for (const job of [
+      'job://bash-1x',
+      'xjob://bash-1',
+      'job://bash-a',
+      'job://ssh-1',
+    ]) {
+      expect(jobSequence({ status: 'success', job })).toBeUndefined();
+    }
+
+    expect(jobSequence({ status: 'success' })).toBeUndefined();
+  });
+
+  it('returns the durable stop receipt when recovery wins the Run lock', async () => {
+    const { registry } = setup();
+    const command = fakeHandle({ stdout: 'before recovery', stderr: '' });
+
+    const stopped = {
+      status: 'error',
+      type: 'unavailable',
+      message: 'Run ended before promotion',
+    } as const;
+
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockResolvedValue(undefined);
+
+    const recover = vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    );
+
+    recover.mockResolvedValue({ disposition: 'recovery_won', result: stopped });
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => stopped,
+    );
+
+    expect(promoted).toEqual({
+      result: stopped,
+      receiptCommitted: true,
+      recoveryWon: true,
+    });
+    expect(recover).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-1',
+        userId: OWNER,
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+      }),
+    );
+    expect(command.stop).toHaveBeenCalledWith('run');
   });
 
   it('stores no deadline for an unlimited job', async () => {
