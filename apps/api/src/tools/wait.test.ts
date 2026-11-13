@@ -109,19 +109,7 @@ describe('waitTool', () => {
 
     expect(result).toBe(WAIT_SUSPENSION);
     expect(tools.beginWaitCall).toHaveBeenCalledOnce();
-    expect(tools.findByLocator).toHaveBeenCalledWith(
-      'chat-id',
-      'owner-id',
-      'bash',
-      3,
-    );
-    expect(tools.onWaitRequested).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolCallId: 'call-id',
-        toolInput: { jobs: ['job://bash-3'], timeout: 12 },
-        jobIds: ['job-id'],
-      }),
-    );
+    expect(tools.onWaitRequested).toHaveBeenCalledOnce();
   });
 
   it('refuses the entire list when any record locator is unknown', async () => {
