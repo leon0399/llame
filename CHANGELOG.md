@@ -52,8 +52,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - **Prepare wait wake routing (#1657).** Owner steering, interruption,
   cancellation and job settlement can wake an internally suspended Run through
   its tenant transaction. Chat admission, deletion and settlement use bounded
-  transaction retries. The production wait tool remains inactive; worker
-  suspension and restart acceptance follow in the lifecycle layer.
+  transaction retries. Chat deletion cancels and cascades a suspended Run
+  without a queue wake, so queue unavailability cannot block the deletion.
+  The production wait tool remains inactive; worker suspension and restart
+  acceptance follow in the lifecycle layer.
 
 - Preserve the SSH subprocess's exit classification when it closes stdin
   before accepting all input. A broken input pipe no longer escapes as an

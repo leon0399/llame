@@ -109,54 +109,57 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
     expect(survivor?.id).toBe(chat);
   });
 
-  it('deleteChat cancels an in-flight run before deleting', async () => {
-    const chat = await newChat(a);
-    const runId = crypto.randomUUID();
-    // Seed a running run as the owner (RLS admits it inside runAs).
-    await tenantDb.runAs(a, (tx) =>
-      tx.insert(schema.runs).values({
-        id: runId,
-        chatId: chat,
-        userId: a,
-        modelId: 'system:openai:gpt-5.4-mini',
-        status: 'running_model',
-      }),
-    );
+  it.each(['running_model', 'awaiting_jobs'] as const)(
+    'deleteChat cancels and removes a %s Run while wake dispatch is unavailable',
+    async (status) => {
+      const chat = await newChat(a);
+      const runId = crypto.randomUUID();
+      // Seed a running run as the owner (RLS admits it inside runAs).
+      await tenantDb.runAs(a, (tx) =>
+        tx.insert(schema.runs).values({
+          id: runId,
+          chatId: chat,
+          userId: a,
+          modelId: 'system:openai:gpt-5.4-mini',
+          status,
+        }),
+      );
 
-    const control: Array<string> = [];
+      const control: Array<string> = [];
 
-    const listener = await sql.listen(RUN_CONTROL_CHANNEL, (raw) =>
-      control.push(raw),
-    );
+      const listener = await sql.listen(RUN_CONTROL_CHANNEL, (raw) =>
+        control.push(raw),
+      );
 
-    const service = new ChatsService(
-      tenantDb,
-      noopReindexDispatch(),
-      noopEmbedDispatch(),
-      noopQueryEmbedder(),
-      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-        RunWaitService,
-        'wakeInTransaction'
-      >,
-    );
+      const service = new ChatsService(
+        tenantDb,
+        noopReindexDispatch(),
+        noopEmbedDispatch(),
+        noopQueryEmbedder(),
+        {
+          wakeInTransaction: () =>
+            Promise.reject(new Error('Queue unavailable')),
+        } satisfies Pick<RunWaitService, 'wakeInTransaction'>,
+      );
 
-    let deleted: boolean;
+      let deleted: boolean;
 
-    try {
-      deleted = await service.deleteChat(a, chat);
-      await vi.waitFor(() => expect(control).toHaveLength(1));
-    } finally {
-      await listener.unlisten();
-    }
+      try {
+        deleted = await service.deleteChat(a, chat);
+        await vi.waitFor(() => expect(control).toHaveLength(1));
+      } finally {
+        await listener.unlisten();
+      }
 
-    expect(deleted).toBe(true);
-    // The cancellation was sent on the run-control channel, delivered on
-    // commit, so the process executing the run stops it.
-    expect(JSON.parse(control[0])).toEqual({ runId, kind: 'cancel' });
+      expect(deleted).toBe(true);
+      // The cancellation was sent on the run-control channel, delivered on
+      // commit, so the process executing the run stops it.
+      expect(JSON.parse(control[0])).toEqual({ runId, kind: 'cancel' });
 
-    const [{ n }] =
-      await sql`SELECT count(*)::int AS n FROM runs WHERE id = ${runId}`;
+      const [{ n }] =
+        await sql`SELECT count(*)::int AS n FROM runs WHERE id = ${runId}`;
 
-    expect(n).toBe(0);
-  });
+      expect(n).toBe(0);
+    },
+  );
 });

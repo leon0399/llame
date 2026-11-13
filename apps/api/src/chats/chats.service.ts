@@ -492,22 +492,13 @@ export class ChatsService {
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
     return retryRunTransaction(() =>
       this.tenantDb.runAs(userId, async (tx) => {
-        // Preserve run-before-Chat lock order: cancellation wakes a waiting Run
-        // inside this transaction, then the Chat row is locked before deletion.
+        // Cancel before locking the Chat. The cascade removes a waiting Run,
+        // so deletion needs no queue wake.
         const runsRepo = new RunsRepository(tx);
         const active = await runsRepo.findActiveByChatId(chatId, userId);
 
         if (active) {
           await runsRepo.requestCancel(active.id, userId);
-
-          if (active.status === 'awaiting_jobs') {
-            await this.runWait.wakeInTransaction(tx, {
-              runId: active.id,
-              userId,
-              generation: active.wakeGeneration,
-              cause: 'cancelled',
-            });
-          }
         }
 
         const chats = new ChatsRepository(tx);
