@@ -17,6 +17,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Synchronize streamed usage timing tests with consumption and the monotonic clock.
+
 - Stop heartbeat checks from reading job rows after worker shutdown starts.
 
 - Commit host command promotion and its result together. A pending database
