@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { type SystemOneProviderConfig } from '../instance-config/llame-config';
+import { createAttemptSlots } from './attempt-slots';
 import { createDecisionClient } from './decision-client';
 import {
   DECISION_RESPONSE_MAX_BYTES,
@@ -56,6 +57,7 @@ function provider(
     key: KEY,
     baseUrl: 'https://judge.example/v1',
     headers: {},
+    maxConcurrentRequests: 4,
     ...overrides,
   };
 }
@@ -643,5 +645,115 @@ describe('decision client abort', () => {
     await expect(decide(fetch, {}, controller.signal)).rejects.toThrow(
       'mid-body',
     );
+  });
+});
+
+describe('decision client truncation reports', () => {
+  const BASE = { input_tokens: 1024, output_tokens: 0 };
+
+  it.each([
+    ['a truncated state', { ...BASE, truncated: true }],
+    ['dropped state tokens', { ...BASE, state_tokens_dropped: 104 }],
+    ['a string truncated', { ...BASE, truncated: 'true' }],
+    ['a string dropped count', { ...BASE, state_tokens_dropped: '12' }],
+    ['a negative dropped count', { ...BASE, state_tokens_dropped: -1 }],
+    ['a fractional dropped count', { ...BASE, state_tokens_dropped: 0.5 }],
+  ])('makes the request unavailable on %s', async (_name, usage) => {
+    const { fetch } = scripted(() => json(okBody({ usage })));
+
+    await expect(decide(fetch)).resolves.toMatchObject({
+      status: 'unavailable',
+      reason: 'invalid_response',
+    });
+  });
+
+  it('accepts an explicit report of no truncation', async () => {
+    const { fetch } = scripted(() =>
+      json(
+        okBody({
+          usage: { ...BASE, truncated: false, state_tokens_dropped: 0 },
+        }),
+      ),
+    );
+
+    await expect(decide(fetch)).resolves.toMatchObject({ status: 'answered' });
+  });
+
+  it('accepts a response without truncation fields', async () => {
+    const { fetch } = scripted(() => json(okBody({ usage: BASE })));
+
+    await expect(decide(fetch)).resolves.toMatchObject({ status: 'answered' });
+  });
+});
+
+describe('decision client attempt slots', () => {
+  it('keeps attempts to one provider within its slots across clients', async () => {
+    const slots = createAttemptSlots(2);
+    let inFlight = 0;
+    let peak = 0;
+
+    const fetch = async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+
+      return json(okBody());
+    };
+
+    const outcomes = await Promise.all(
+      Array.from({ length: 6 }, () => decide(fetch, { slots })),
+    );
+
+    expect(peak).toBe(2);
+    expect(outcomes.every((outcome) => outcome.status === 'answered')).toBe(
+      true,
+    );
+  });
+
+  it('releases the slot during a retry wait', async () => {
+    const slots = createAttemptSlots(1);
+    const order: Array<string> = [];
+    const retryWait = Promise.withResolvers<void>();
+
+    const first = decide(
+      scripted((index) => {
+        order.push(`first-${index}`);
+
+        return index === 0 ? json({}, 503) : json(okBody());
+      }).fetch,
+      { slots, sleep: () => retryWait.promise },
+    );
+
+    // The second request runs while the first waits to retry.
+    const second = decide(
+      scripted(() => {
+        order.push('second');
+        retryWait.resolve();
+
+        return json(okBody());
+      }).fetch,
+      { slots },
+    );
+
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first-0', 'second', 'first-1']);
+  });
+
+  it('leaves the slot queue at once when the call aborts while waiting', async () => {
+    const slots = createAttemptSlots(1);
+    const held = Promise.withResolvers<Response>();
+    const holder = decide(() => held.promise, { slots });
+    const controller = new AbortController();
+    const reason = new Error('owner cancelled');
+    const { calls, fetch } = scripted(() => json(okBody()));
+    const waiting = decide(fetch, { slots }, controller.signal);
+
+    controller.abort(reason);
+
+    await expect(waiting).rejects.toBe(reason);
+    expect(calls).toHaveLength(0);
+    held.resolve(json(okBody()));
+    await expect(holder).resolves.toMatchObject({ status: 'answered' });
   });
 });

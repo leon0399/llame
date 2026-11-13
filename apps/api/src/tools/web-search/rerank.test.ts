@@ -714,7 +714,7 @@ describe('aggregate candidate retention', () => {
     }
   });
 
-  it('sends 300 cards in two parallel requests and stores all 300', async () => {
+  it('judges the first 256 of 300 cards in 32-card requests and stores all 300', async () => {
     let inFlight = 0;
     let peak = 0;
 
@@ -758,9 +758,17 @@ describe('aggregate candidate retention', () => {
       { limit: 10, fetchSize: 100 },
     );
 
-    expect(decide).toHaveBeenCalledTimes(2);
-    expect(peak).toBe(2);
-    expect(record(result)).toMatchObject({ costUsd: 0.002 });
+    expect(decide).toHaveBeenCalledTimes(8);
+    expect(peak).toBe(8);
+    expect(
+      decide.mock.calls.every(
+        ([request]) => Object.keys(request.questions).length <= 32,
+      ),
+    ).toBe(true);
+    const stored = record(result);
+    expect(stored?.costUsd).toBeCloseTo(0.008, 10);
+    expect(Object.keys(stored?.scores ?? {})).toHaveLength(256);
+    expect(stored?.order).toHaveLength(300);
     expect(writtenTitles()).toHaveLength(300);
   });
 });

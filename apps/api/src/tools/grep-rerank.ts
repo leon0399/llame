@@ -4,8 +4,9 @@
  * `grep` reports files, not pages: the walk's order is the order the walk met
  * the files in, which says nothing about which file answers the caller's
  * `objective`. When the whole result does not fit inline, this module turns
- * the artifact's file runs into one card each, asks the decision model about
- * every card, and permutes whole runs — never passages — so the inline head,
+ * the artifact's file runs into one card each, sends every card to the rank
+ * call (a decision model judges the first 256), and permutes whole runs — never
+ * passages — so the inline head,
  * the stored artifact text, its findings, and the remainder map read one order.
  *
  * It runs in `finishGrepCall`, after the walk: the walk's stop, counts,

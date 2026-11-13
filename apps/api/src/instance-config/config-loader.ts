@@ -30,7 +30,6 @@ import {
   type OpenCodeGoProviderConfig,
   type ProviderConfig,
   type SystemOneProviderConfig,
-  type DecisionModelConfig,
   type RawProviderEntry,
   type RawInstanceConfig,
   type RawMcpServerEntry,
@@ -38,6 +37,13 @@ import {
   type RawWebAdapterEntry,
   type WebAdapterConfig,
 } from './llame-config';
+import {
+  DEFAULT_DECISION_CONCURRENT_REQUESTS,
+  DEFAULT_DECISION_LIMITS,
+  type DecisionModelConfig,
+  type DecisionModelLimits,
+  type RawDecisionModelLimits,
+} from './decision-catalog';
 import type {
   RawWebSearchConfig,
   RawWebSearchEngineEntry,
@@ -803,12 +809,57 @@ function resolveDecisionModels(
 
     indexById.set(id, index);
 
-    return resolveRankModel(
-      entry,
-      { id, base },
-      { providerType: 'system-one', env, providersById },
-    );
+    return {
+      ...resolveRankModel(
+        entry,
+        { id, base },
+        { providerType: 'system-one', env, providersById },
+      ),
+      limits: resolveDecisionLimits(entry.limits, `${base}.limits`, env),
+    };
   });
+}
+
+/**
+ * Apply the decision-model limit defaults. A per-question limit declared
+ * above the per-request default raises that default, so a declared window is
+ * never capped by a value the operator did not write; both declared with the
+ * per-question limit above the per-request one is a contradiction.
+ */
+function resolveDecisionLimits(
+  raw: RawDecisionModelLimits | undefined,
+  base: string,
+  env: NodeJS.ProcessEnv,
+): DecisionModelLimits {
+  const field = (name: keyof RawDecisionModelLimits) =>
+    resolveOptionalPositiveInteger(`${base}.${name}`, raw?.[name], env);
+
+  const perQuestion = field('perQuestionContextTokens');
+  const perRequest = field('perRequestContextTokens');
+
+  if (
+    perQuestion !== undefined &&
+    perRequest !== undefined &&
+    perQuestion > perRequest
+  ) {
+    throw new InstanceConfigError(
+      `${base}: perQuestionContextTokens must not exceed perRequestContextTokens`,
+    );
+  }
+
+  const perQuestionContextTokens =
+    perQuestion ?? DEFAULT_DECISION_LIMITS.perQuestionContextTokens;
+
+  return {
+    perQuestionContextTokens,
+    perRequestContextTokens:
+      perRequest ??
+      Math.max(
+        DEFAULT_DECISION_LIMITS.perRequestContextTokens,
+        perQuestionContextTokens,
+      ),
+    maxQuestionsPerRequest: field('maxQuestionsPerRequest') ?? null,
+  };
 }
 
 /** One catalogue entry: its provider has the catalogue's `type` and its model is nonblank. */
@@ -3078,7 +3129,38 @@ function resolveSystemOneProvider(
       env,
       credentials,
     }),
+    maxConcurrentRequests:
+      resolveOptionalPositiveInteger(
+        `providers[${entry.id}].maxConcurrentRequests`,
+        entry.maxConcurrentRequests,
+        env,
+      ) ?? DEFAULT_DECISION_CONCURRENT_REQUESTS,
   };
+}
+
+/**
+ * One optional positive-integer leaf: absent stays absent, otherwise the
+ * shared literal-or-whole-value-token resolution, bounded after
+ * interpolation.
+ */
+function resolveOptionalPositiveInteger(
+  configPath: string,
+  raw: number | string | undefined,
+  env: NodeJS.ProcessEnv,
+): number | undefined {
+  if (raw === undefined) return undefined;
+
+  return requireResolvedNumber(
+    resolveNumeric({
+      configPath,
+      present: true,
+      raw,
+      builtInDefault: null,
+      nullable: false,
+      env,
+    }),
+    configPath,
+  );
 }
 
 /**
