@@ -18,6 +18,7 @@ import {
   isUuid,
   keysMatch,
 } from "./context-item-envelope";
+import { isJobNoticePart, type JobNoticePart } from "./job-notice";
 
 export type ChatMessageResponse = {
   id: string;
@@ -480,42 +481,45 @@ export function interruptedNoticePart(message: {
 }
 
 /** Whether this app renders a server context item on that role: the
- *  model-switch marker, the prompt-imports disclosure, the regenerate
- *  and interrupted notices that ride a user message, and the instructions item, which rides
- *  either role. A type predicate, so the caller keeps the narrowed part. */
+ *  model-switch marker, prompt-imports disclosure, regenerate and interrupted
+ *  notices on user messages, job notices on user messages or host assistant
+ *  messages, and instructions on either role. */
 function isRenderableControlPart(
   role: UIMessage["role"],
+  host: boolean,
   part: unknown,
 ): part is
   | ModelSwitchPart
   | InstructionsPart
   | PromptImportsPart
   | RegenerateNoticePart
-  | InterruptedNoticePart {
+  | InterruptedNoticePart
+  | JobNoticePart {
   return role === "user"
     ? isModelSwitchPart(part) ||
         isInstructionsPart(part) ||
         isPromptImportsPart(part) ||
         isRegenerateNoticePart(part) ||
-        isInterruptedNoticePart(part)
-    : isInstructionsPart(part);
+        isInterruptedNoticePart(part) ||
+        isJobNoticePart(part)
+    : isInstructionsPart(part) ||
+        (role === "assistant" && host && isJobNoticePart(part));
 }
 
 /**
  * The control parts a server-fetched message is trusted to overlay, each with
  * its stored position: exactly the producers this app renders from stored
- * parts — the model-switch marker and the prompt-imports disclosure the rail
- * stages on a user message, and the instructions item, which rides the
- * assistant turn of an in-Run load and the
- * triggering user turn of the accepted-turn load (design D5, D9). Every other
- * producer stays invisible, and a part no server message vouches for is
- * dropped.
+ * parts. This includes model-switch and prompt-import disclosures staged on a
+ * user message, instructions on user or assistant messages, job notices on
+ * user messages or host-authored assistant messages, and regenerate and
+ * interrupted notices on user messages. Every other producer stays
+ * invisible, and a part no server message vouches for is dropped.
  *
- * Server order is kept: a turn the rail both switched models on and loaded
- * instructions for carries both parts, in the order the api stored them.
+ * Server order is kept for multiple accepted items on one message.
  */
 function trustedContextParts(message: {
   role: UIMessage["role"];
+  host: boolean;
   parts: ReadonlyArray<unknown>;
 }) {
   // Each part's index is the count of non-context parts before it: the merge
@@ -527,7 +531,8 @@ function trustedContextParts(message: {
       | InstructionsPart
       | PromptImportsPart
       | RegenerateNoticePart
-      | InterruptedNoticePart;
+      | InterruptedNoticePart
+      | JobNoticePart;
   }> = [];
 
   let index = 0;
@@ -535,7 +540,7 @@ function trustedContextParts(message: {
   for (const part of message.parts) {
     if (!isContextItemPart(part)) {
       index += 1;
-    } else if (isRenderableControlPart(message.role, part)) {
+    } else if (isRenderableControlPart(message.role, message.host, part)) {
       placed.push({ index, part });
     }
   }
@@ -577,7 +582,18 @@ export function mergeTrustedModelContextParts(
 ): Array<UIMessage> {
   const trustedByMessageId = new Map(
     serverMessages.map(
-      (message) => [message.id, trustedContextParts(message)] as const,
+      (message) =>
+        [
+          message.id,
+          trustedContextParts({
+            role: message.role,
+            host:
+              isNonNullObject(message.metadata) &&
+              "host" in message.metadata &&
+              message.metadata.host === true,
+            parts: message.parts,
+          }),
+        ] as const,
     ),
   );
 
@@ -692,4 +708,13 @@ export function messageSeqFromMetadata(metadata: unknown): number | null {
   const seq = (metadata as { seq?: unknown }).seq;
 
   return isNumber(seq) && Number.isSafeInteger(seq) && seq > 0 ? seq : null;
+}
+
+/** Whether message metadata marks a server-authored host message. */
+export function isHostMessageMetadata(
+  metadata: unknown,
+): metadata is object & { host: true } {
+  return (
+    isNonNullObject(metadata) && "host" in metadata && metadata.host === true
+  );
 }
