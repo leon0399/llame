@@ -7,6 +7,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Select the latest API test report per shard on partial CI reruns, so an
+  earlier failed attempt cannot override a passing retry in the aggregate.
+
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
   The next flush captures the latest output and preserves stored suffix offsets.
