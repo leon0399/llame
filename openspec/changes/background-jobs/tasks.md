@@ -440,8 +440,8 @@ UI union; the final integrated stack retains its own end-to-end verification.
 
 ## 14. Finalize (`background-jobs/finalize`)
 
-- [ ] 14.1 Enter `background-jobs/finalize` with `$gh-stack` from the `web-controls` top before `$openspec-sync-specs` writes.
-- [ ] 14.2 Run `$openspec-sync-specs`; `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
+- [x] 14.1 Enter `background-jobs/finalize` with `$gh-stack` from the `web-controls` top before `$openspec-sync-specs` writes.
+- [x] 14.2 Run `$openspec-sync-specs`; `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
 - [ ] 14.3 Confirm archive readiness: `openspec status --change background-jobs --json` reports every artifact done, and every task above is checked.
 
 ## Workflow follow-up

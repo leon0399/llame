@@ -40,6 +40,11 @@ Each item MUST have its **own text content block** in that message. It MUST NOT 
 or the user's text in one block. Thus the separation between server-authored content and
 user-authored content is structural, not a text convention that user input can copy.
 
+A `job` item of `background-jobs` is never an in-Run item. `run-steering` delivers it at a step
+boundary in the delivered message of the owner. When that delivery has no owner item, or when
+the host starts a Run for it, a host message carries it. The host message is the message that
+the `job` producer owns, and it MUST hold no other content.
+
 #### Scenario: Two items are injected on one turn
 
 - **WHEN** the system injects two context items before a user's message
@@ -122,6 +127,12 @@ user-authored content is structural, not a text convention that user input can c
 - **AND** the owner regenerates the turn
 - **THEN** the Regenerate Run reads no import target again and stores no second `prompt-imports` or `skill-activation` item
 - **AND** its request carries the stored items once
+
+#### Scenario: A job item between two steps gets a host message
+
+- **WHEN** a job settles between two model steps of a Run, and no owner item is pending
+- **THEN** the `job` item is stored on a new host message, and not on the assistant message of the Run
+- **AND** the next segment of the Run answers that host message
 
 The system MUST persist in conversation history each persisted-literal rail item that a model
 request carries. It MUST do this in the dispatch transaction of that request, whatever the outcome
@@ -392,22 +403,24 @@ authors items and prepares requests MUST then persist them in a fixed producer p
 order. They MUST go before the user text in the user message of the turn:
 
 1. `interrupted`
-2. `effective-context-change`
-3. `regenerate`
-4. `tool-availability`
-5. `workspace`
-6. `git`
-7. `instructions`
-8. `skill-catalog`
-9. `skill-activation`
-10. `prompt-imports`
-11. `recency-digest`
-12. `temporal`
+2. `job`
+3. `effective-context-change`
+4. `regenerate`
+5. `tool-availability`
+6. `workspace`
+7. `git`
+8. `instructions`
+9. `skill-catalog`
+10. `skill-activation`
+11. `prompt-imports`
+12. `recency-digest`
+13. `temporal`
 
 When one producer contributes more than one item, the system MUST store those
 items in emission order. A producer added later MUST extend this list
 in the rail specification. The `interrupted` producer of `run-steering` attaches its item to a
-delivered message.
+delivered message. The `job` producer of `background-jobs` attaches its items to a delivered
+message, to the user message of a send, or to a host message.
 
 In-Run items MUST be in the order of the model step that caused them. In a step,
 they MUST be in this same producer precedence. The system MUST NOT sort them
@@ -509,6 +522,12 @@ rule of a retry after a dispatch.
 - **WHEN** a Run delivers an interrupt as a user message
 - **THEN** the `interrupted` item is the first attached item of that message
 - **AND** the dispatch transaction of the next segment stores it
+
+#### Scenario: A job notice follows the interrupted item
+
+- **WHEN** a Run delivers an interrupt and a job notice in one user message
+- **THEN** the `interrupted` item is the first attached item, and the `job` item is the second
+- **AND** both come before the owner text
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 

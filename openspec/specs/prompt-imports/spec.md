@@ -27,7 +27,7 @@ The system SHALL scan the owner's stored, neutralized prompt text using the shar
 Each target MUST resolve as native `read` resolves it, with its selector.
 This includes absolute host paths, `file:` aliases, and paths relative to the
 bound Workspace. It also includes each locator scheme that native `read`
-accepts, except `artifact://`. An unbound relative target MUST stay prose. An
+accepts, except `artifact://` and `job://`. An unbound relative target MUST stay prose. An
 absolute or `file:` host target can run unbound only with `read` in
 `tools.allowed` and a native executor. A `kb://` target can run unbound only
 with `read` in `tools.allowed` and a Knowledge root.
@@ -57,12 +57,12 @@ of these schemes MUST get an outcome when the Run can reach its source. The
 outcome is imported, denied, failed, or omitted. A scheme without a probe or
 availability rule in this capability MUST import through one direct `read`,
 with no probe. A marker whose scheme native `read` does not accept MUST stay
-prose, with no read and no audit event. An `artifact://` marker MUST also stay
-prose, because its locator names an artifact of the current Chat only.
+prose, with no read and no audit event. An `artifact://` or `job://` marker MUST also stay
+prose, because its locator names an artifact or a job of the current Chat only.
 
 #### Scenario: A marker for each read scheme gets an outcome
 
-- **WHEN** the Run can reach the source of each locator scheme that native `read` accepts, `artifact://` excluded
+- **WHEN** the Run can reach the source of each locator scheme that native `read` accepts, `artifact://` and `job://` excluded
 - **AND** a prompt contains one valid marker for each of these schemes
 - **THEN** the system attempts each target through `read`
 - **AND** the owner chip shows each target as imported, denied, failed, or omitted
@@ -82,6 +82,12 @@ prose, because its locator names an artifact of the current Chat only.
 #### Scenario: An artifact marker stays prose
 
 - **WHEN** a prompt contains `@artifact://grep-7` and the Chat has that artifact
+- **THEN** the marker stays prose
+- **AND** the system records no read, no audit event, and no owner chip entry for it
+
+#### Scenario: A job marker stays prose
+
+- **WHEN** a prompt contains `@job://bash-4/stdout` and the Chat has that job
 - **THEN** the marker stays prose
 - **AND** the system records no read, no audit event, and no owner chip entry for it
 
