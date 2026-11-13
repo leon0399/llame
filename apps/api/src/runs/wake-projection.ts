@@ -4,7 +4,6 @@ import {
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-import { type ProviderMetadata } from 'ai';
 
 import {
   continueStepOffset,
@@ -21,6 +20,7 @@ import {
 } from '../tools/types';
 import { toolActivityPart } from './assistant-transcript';
 import {
+  eventProviderMetadata,
   permissionFromPayload,
   toolResultFromPayload,
 } from './run-event-payload';
@@ -284,15 +284,7 @@ function wakeActivityMetadata(
     toolCallId,
   );
 
-  const providerValue =
-    isRecord(requestPayload) && isRecord(requestPayload['providerMetadata'])
-      ? requestPayload['providerMetadata']
-      : undefined;
-
-  // SAFETY: providerMetadata is opaque adapter JSON persisted with the
-  // original request; preserve it without interpreting adapter-specific keys.
-  // eslint-disable-next-line typescript/no-unsafe-type-assertion
-  const providerMetadata = providerValue as ProviderMetadata | undefined;
+  const providerMetadata = eventProviderMetadata(requestPayload);
 
   const classification = classificationBeforeSuspension(
     segment,
