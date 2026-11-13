@@ -33,7 +33,10 @@ export function newSegmentControl(): SegmentControl {
   return { abort: new AbortController(), yield: new AbortController() };
 }
 
-type SegmentEntry = { control: SegmentControl; attemptId: string };
+export type SegmentSnapshot = Readonly<{
+  control: SegmentControl;
+  attemptId: string;
+}>;
 
 /**
  * Registry of the in-flight runs this process executes (#48).
@@ -53,7 +56,7 @@ type SegmentEntry = { control: SegmentControl; attemptId: string };
 export class RunAbortRegistry {
   private readonly entries = new Map<
     string,
-    { controller: AbortController; userId: string; segment?: SegmentEntry }
+    { controller: AbortController; userId: string; segment?: SegmentSnapshot }
   >();
 
   register(runId: string, userId: string): AbortController {
@@ -105,21 +108,18 @@ export class RunAbortRegistry {
     if (entry?.segment?.control === control) entry.segment = undefined;
   }
 
-  /** The attempt whose model call or tool calls are in flight, if any. */
-  segmentAttemptOf(runId: string): string | undefined {
-    return this.entries.get(runId)?.segment?.attemptId;
+  /** The current model-call segment, including its exact registry identity. */
+  segmentOf(runId: string): SegmentSnapshot | undefined {
+    return this.entries.get(runId)?.segment;
   }
 
   /**
-   * Stops the in-flight model call and tool calls of the Run's segment run by
-   * `attemptId`. Returns whether that segment was in flight to stop.
+   * Stops the captured segment if it is still current. Returns whether that
+   * exact segment was in flight to stop.
    */
-  interrupt(runId: string, attemptId: string): boolean {
-    const segment = this.entries.get(runId)?.segment;
-
+  interrupt(runId: string, segment: SegmentSnapshot): boolean {
     if (
-      !segment ||
-      segment.attemptId !== attemptId ||
+      this.entries.get(runId)?.segment !== segment ||
       segment.control.abort.signal.aborted
     ) {
       return false;
@@ -134,13 +134,11 @@ export class RunAbortRegistry {
   }
 
   /**
-   * Raises the yield signal of the segment run by `attemptId`. It never aborts
-   * the call. Returns whether that segment was in flight.
+   * Raises the yield signal of the captured segment if it is still current.
+   * It never aborts the call.
    */
-  yield(runId: string, attemptId: string): boolean {
-    const segment = this.entries.get(runId)?.segment;
-
-    if (!segment || segment.attemptId !== attemptId) return false;
+  yield(runId: string, segment: SegmentSnapshot): boolean {
+    if (this.entries.get(runId)?.segment !== segment) return false;
     segment.control.yield.abort();
 
     return true;

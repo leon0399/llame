@@ -7,6 +7,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Bind pending interrupt and steering checks to the exact segment they read, so
+  a delayed database response cannot control a same-attempt replacement.
+
 - Keep a spawned host command's process slot until settlement when cancellation
   races with spawn. A foreground bound also releases a stalled output spill to
   return the bounded inline preview.

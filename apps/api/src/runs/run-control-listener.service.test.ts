@@ -140,6 +140,7 @@ async function boot(
   }
 
   return {
+    aborts,
     controller,
     segment,
     onNotify,
@@ -327,6 +328,35 @@ describe('RunControlListenerService interrupts', () => {
     expect(segment?.abort.signal.aborted).toBe(true);
     expect(segment?.abort.signal.reason).toBe(INTERRUPT_ABORT_REASON);
   });
+  it.each(['interrupt', 'steer'] as const)(
+    'does not apply a pending %s read to a replacement segment of the same attempt',
+    async (kind) => {
+      const { aborts, segment, onNotify, runAs, flush } = await boot(visible, {
+        segmentAttemptId: ATTEMPT_ID,
+        pendingInterrupt: true,
+        pendingSteering: true,
+      });
+
+      const { promise: read, resolve: finishRead } =
+        Promise.withResolvers<boolean>();
+
+      runAs.mockImplementation(() => read);
+
+      onNotify(JSON.stringify({ runId: RUN_ID, kind }));
+      await vi.waitFor(() => expect(runAs).toHaveBeenCalled());
+
+      const replacement = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
+      if (!replacement) throw new Error('no replacement segment');
+      finishRead(true);
+      await flush();
+
+      expect(segment?.yield.signal.aborted).toBe(false);
+      expect(segment?.abort.signal.aborted).toBe(false);
+      expect(replacement.yield.signal.aborted).toBe(false);
+      expect(replacement.abort.signal.aborted).toBe(false);
+    },
+  );
 
   it('does not stop a segment of an attempt the Run has already left', async () => {
     const { segment, onNotify, pending, settled } = await boot(visible, {
