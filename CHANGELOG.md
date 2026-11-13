@@ -2,16 +2,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
-- **Prepare wait wake reconstruction (#1657).** The pure projection restores
-  a checkpoint and its correlated wait result only inside the first resumed
-  attempt. It retains tool metadata, step indices and timeout, rejects malformed
-  receipts, and connects no runtime caller in this prerequisite.
+- Keep the operator tool-prompt inventory and example comments consistent
+  with the registered tools, including `grep`, `web_search`, and `wait`.
 
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
   A proved lifetime stop settles as `timed_out`; unproved termination stays
   `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
   without the ordinary tool-call cap.
+
+- **Prepare wait wake reconstruction (#1657).** The pure projection restores
+  a checkpoint and its correlated wait result only inside the first resumed
+  attempt. It retains tool metadata, step indices and timeout, rejects malformed
+  receipts, and connects no runtime caller in this prerequisite.
 
 - Bind pending interrupt and steering checks to the exact segment they read, so
   a delayed database response cannot control a same-attempt replacement.
