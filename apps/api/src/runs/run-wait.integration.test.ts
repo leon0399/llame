@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { chatJobs, runs, workerInstances, type ChatJob } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
@@ -363,6 +363,50 @@ describe('Run wait transactions', () => {
     );
 
     expect(stale).toBe(false);
+  });
+
+  it('wakes a deadline that is due by database time despite a lagging worker clock', async () => {
+    const seeded = await seedWaitingRun();
+    const service = fx.harness.moduleRef.get(RunWaitService);
+    await service.suspend(suspendInput(seeded));
+    const waiting = await fx.run(seeded.runId);
+
+    if (!waiting?.currentJobId || !waiting.awaiting)
+      throw new Error('Run did not suspend');
+    const deadlineJobId = waiting.currentJobId;
+    await fx.db((tx) =>
+      tx
+        .update(runs)
+        .set({
+          awaiting: sql`jsonb_set(awaiting, '{deadline}', to_jsonb((now() - interval '1 second')::text))`,
+        })
+        .where(eq(runs.id, seeded.runId)),
+    );
+
+    const deadline = (await fx.run(seeded.runId))?.awaiting?.deadline;
+
+    if (!deadline) throw new Error('Run lost its wait deadline');
+
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse(deadline) - 5e3);
+
+    const woken = await fx.harness.tenantDb.runAs(fx.userId, (tx) =>
+      service.wakeInTransaction(tx, {
+        runId: seeded.runId,
+        userId: fx.userId,
+        generation: waiting.wakeGeneration,
+        cause: 'timeout',
+        deadlineJobId,
+      }),
+    );
+
+    expect(Date.parse(deadline)).toBeGreaterThan(Date.now());
+    expect(woken).toBe(true);
+    expect(await fx.run(seeded.runId)).toMatchObject({
+      status: 'queued',
+      currentJobId: deadlineJobId,
+      wakeGeneration: waiting.wakeGeneration,
+      awaiting: { ...waiting.awaiting, deadline },
+    });
   });
   it('a deadline that discovers a listed lost job reuses the deadline job without enqueueing', async () => {
     const seeded = await seedWaitingRun();
