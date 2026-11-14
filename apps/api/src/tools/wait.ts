@@ -43,8 +43,6 @@ export const waitTool: Tool<WaitInput> = {
 
     if (!parsed.success) return invalidResult();
 
-    if (!context.beginWaitCall?.()) return invalidResult();
-
     const locators = parsed.data.jobs.map(parseJobLocatorText);
 
     if (
@@ -63,31 +61,50 @@ export const waitTool: Tool<WaitInput> = {
 
     if (!rows) return notFoundResult();
 
-    if (!context.toolCallId || !context.onWaitRequested) {
-      return {
-        status: 'error',
-        type: 'no_context',
-        message: 'The wait could not be suspended safely.',
-      };
-    }
-
-    const timeout = parsed.data.timeout ?? 3600;
-
-    const request: WaitRequest = {
-      toolCallId: context.toolCallId,
-      toolInput: parsed.data,
-      jobIds: rows.map(({ id }) => id),
-      deadline: new Date(Date.now() + timeout * 1000).toISOString(),
-    };
-
-    const beforeSuspendStop = stoppedResult(context);
-
-    if (beforeSuspendStop !== undefined) return beforeSuspendStop;
-    context.onWaitRequested(request);
-
-    return WAIT_SUSPENSION;
+    return requestWait(context, parsed.data, rows);
   },
 };
+
+function requestWait(
+  context: ToolContext,
+  input: WaitInput,
+  rows: ReadonlyArray<ChatJob>,
+): ToolResult {
+  if (!context.toolCallId || !context.onWaitRequested) {
+    return {
+      status: 'error',
+      type: 'no_context',
+      message: 'The wait could not be suspended safely.',
+    };
+  }
+
+  const timeout = input.timeout ?? 3600;
+
+  const request: WaitRequest = {
+    toolCallId: context.toolCallId,
+    toolInput: input,
+    jobIds: rows.map(({ id }) => id),
+    deadline: new Date(Date.now() + timeout * 1000).toISOString(),
+  };
+
+  const beforeSuspendStop = stoppedResult(context);
+
+  if (beforeSuspendStop !== undefined) return beforeSuspendStop;
+
+  const firstCallId = context.beginWaitCall?.(context.toolCallId);
+
+  if (firstCallId !== undefined) {
+    return {
+      status: 'error',
+      type: 'wait_already_requested',
+      message: `This step already has a wait request from tool call ${firstCallId}.`,
+    };
+  }
+
+  context.onWaitRequested(request);
+
+  return WAIT_SUSPENSION;
+}
 
 function resolveWaitJobs(
   context: ToolContext,

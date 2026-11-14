@@ -20986,6 +20986,91 @@ describe('RunExecutionService executeRun — run segments', () => {
     },
   );
 
+  it('keeps the first valid wait request when the model requests wait twice in one step', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = {
+      ...settledBashJob(47),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish)
+      throw new Error('wait tool-loop callbacks were not captured');
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'first-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-47'] },
+    });
+    options.onToolCall({
+      toolCallId: 'second-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-47'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(suspend).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'first-wait' }),
+    );
+
+    const refusal = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'second-wait' &&
+        isRecord(entry.payload['output']),
+    );
+
+    if (!refusal || !isRecord(refusal.payload)) {
+      throw new Error('Expected the second wait call completion.');
+    }
+
+    const output = refusal.payload['output'];
+
+    if (!isRecord(output)) {
+      throw new Error('Expected the second wait call refusal output.');
+    }
+
+    expect(output['type']).toBe('wait_already_requested');
+    expect(output['message']).toContain('first-wait');
+  });
+
   it('claims a resumed wait and completes it before continuing', async () => {
     registerTestOnlyTool(waitTool);
 
@@ -21052,8 +21137,15 @@ describe('RunExecutionService executeRun — run segments', () => {
       },
     ];
 
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
-      wakeEvents,
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          wakeEvents.filter(
+            ({ eventType }) =>
+              options?.eventTypes === undefined ||
+              options.eventTypes.some((type) => type === eventType),
+          ),
+        ),
     );
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
@@ -21062,7 +21154,6 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     serveDelivery([], { ...run, activeAttemptId: testAttemptId });
 
-    let selectCount = 0;
     const segment = makeSegmentClient();
 
     const executor: Tool = {
@@ -21087,38 +21178,27 @@ describe('RunExecutionService executeRun — run segments', () => {
       },
     );
 
+    const latest = [
+      {
+        eventType: 'run.resumed',
+        payload: { generation: 1, cause: 'settled' },
+      },
+    ];
+
     Object.defineProperty(execution.db, 'select', {
       configurable: true,
-      value: () => {
-        const current = selectCount++;
-
-        if (current === 0) {
-          const latest = [
-            {
-              eventType: 'run.resumed',
-              payload: { generation: 1, cause: 'settled' },
-            },
-          ];
-
-          return {
-            from: () => ({
-              innerJoin: () => ({
-                where: () => ({
-                  orderBy: () => ({
-                    limit: () => Promise.resolve(latest),
-                  }),
-                }),
+      value: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: () => Promise.resolve(latest),
               }),
             }),
-          };
-        }
-
-        return {
-          from: () => ({
-            where: () => Promise.resolve([settledJob]),
           }),
-        };
-      },
+          where: () => Promise.resolve([settledJob]),
+        }),
+      }),
     });
 
     const result = await execution.service.executeRun(
@@ -21141,7 +21221,32 @@ describe('RunExecutionService executeRun — run segments', () => {
     await options.onFinish?.(finishToolCalls);
     await result.consumeStream();
 
-    expect(selectCount).toBe(2);
+    const completed = appended.findIndex(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'wake-wait',
+    );
+
+    const continued = appended.findIndex(
+      (entry) =>
+        entry.type === 'tool.requested' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'after-wake',
+    );
+
+    const modelRequest = appended.findIndex(
+      (entry) => entry.type === 'model.requested',
+    );
+
+    expect(completed).toBeGreaterThanOrEqual(0);
+    expect(continued).toBeGreaterThan(completed);
+    expect(modelRequest).toBeGreaterThan(completed);
+    expect(appended[completed]?.payload).toMatchObject({
+      output: {
+        jobs: [expect.objectContaining({ locator: 'job://bash-45' })],
+      },
+    });
 
     expect(
       appended.find((entry) => entry.type === 'tool.completed'),

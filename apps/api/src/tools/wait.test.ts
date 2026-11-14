@@ -45,7 +45,10 @@ function setup(rows: Readonly<Record<string, ChatJob | undefined>>) {
     },
   };
 
-  const beginWaitCall = vi.fn(() => true);
+  const beginWaitCall = vi.fn(
+    (_toolCallId: string): string | undefined => undefined,
+  );
+
   const onWaitRequested = vi.fn();
 
   const findByLocator = vi
@@ -108,7 +111,7 @@ describe('waitTool', () => {
     });
 
     expect(result).toBe(WAIT_SUSPENSION);
-    expect(tools.beginWaitCall).toHaveBeenCalledOnce();
+    expect(tools.beginWaitCall).toHaveBeenCalledWith('call-id');
     expect(tools.onWaitRequested).toHaveBeenCalledOnce();
   });
 
@@ -122,7 +125,12 @@ describe('waitTool', () => {
       jobs: ['job://bash-3', 'job://bash-4'],
     });
 
-    expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'not_found',
+      message: 'One or more jobs were not found in this Chat.',
+    });
+    expect(tools.beginWaitCall).not.toHaveBeenCalled();
     expect(tools.onWaitRequested).not.toHaveBeenCalled();
   });
 
@@ -131,14 +139,38 @@ describe('waitTool', () => {
 
     await expect(
       waitTool.execute(tools.context, { jobs: ['job://bash-3/stdout'] }),
-    ).resolves.toMatchObject({ status: 'error', type: 'invalid_input' });
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_input',
+      message: 'The wait arguments are invalid.',
+    });
     await expect(
       waitTool.execute(tools.context, {
         jobs: ['job://bash-3'],
         timeout: 3601,
       }),
-    ).resolves.toMatchObject({ status: 'error', type: 'invalid_input' });
-    expect(tools.onWaitRequested).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_input',
+      message: 'The wait arguments are invalid.',
+    });
+    expect(tools.beginWaitCall).not.toHaveBeenCalled();
+  });
+
+  it('rejects a mixed list containing an output locator before reserving the wait', async () => {
+    const tools = setup({ 'job://bash-3': job('job-id') });
+
+    await expect(
+      waitTool.execute(tools.context, {
+        jobs: ['job://bash-3', 'job://bash-3/stdout'],
+      }),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_input',
+      message: 'The wait arguments are invalid.',
+    });
+    expect(tools.beginWaitCall).not.toHaveBeenCalled();
+    expect(tools.findByLocator).not.toHaveBeenCalled();
   });
 
   it('returns cancellation before resolving any locator', async () => {
@@ -149,7 +181,11 @@ describe('waitTool', () => {
 
     await expect(
       waitTool.execute(context, { jobs: ['job://bash-3'] }),
-    ).resolves.toMatchObject({ status: 'error', type: 'cancelled' });
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'cancelled',
+      message: 'Tool "wait" was cancelled.',
+    });
     expect(tools.findByLocator).not.toHaveBeenCalled();
   });
 
@@ -167,8 +203,80 @@ describe('waitTool', () => {
 
     await expect(
       waitTool.execute(context, { jobs: ['job://bash-3'] }),
-    ).resolves.toMatchObject({ status: 'error', type: 'timeout' });
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'timeout',
+      message: 'Tool "wait" timed out.',
+    });
+    expect(tools.beginWaitCall).not.toHaveBeenCalled();
     expect(tools.onWaitRequested).not.toHaveBeenCalled();
+  });
+
+  it('names the first wait call when a second valid wait is refused', async () => {
+    const tools = setup({ 'job://bash-3': job('job-id') });
+
+    let firstCallId: string | undefined;
+    tools.beginWaitCall.mockImplementation((toolCallId) => {
+      if (firstCallId !== undefined) return firstCallId;
+
+      firstCallId = toolCallId;
+
+      return undefined;
+    });
+
+    await expect(
+      waitTool.execute(
+        { ...tools.context, toolCallId: 'first-call' },
+        { jobs: ['job://bash-3'] },
+      ),
+    ).resolves.toBe(WAIT_SUSPENSION);
+
+    const refusal = await waitTool.execute(
+      { ...tools.context, toolCallId: 'second-call' },
+      { jobs: ['job://bash-3'] },
+    );
+
+    expect(refusal.status).toBe('error');
+
+    if (refusal.status !== 'error') {
+      throw new Error('Expected the second wait to be refused.');
+    }
+
+    expect(refusal.type).toBe('wait_already_requested');
+    expect(refusal.message).toContain('first-call');
+
+    expect(tools.onWaitRequested).toHaveBeenCalledOnce();
+  });
+
+  it('does not consume the wait reservation for a not-found job', async () => {
+    const tools = setup({ 'job://bash-3': undefined });
+
+    await expect(
+      waitTool.execute(tools.context, { jobs: ['job://bash-3'] }),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'not_found',
+      message: 'One or more jobs were not found in this Chat.',
+    });
+    expect(tools.beginWaitCall).not.toHaveBeenCalled();
+  });
+
+  it('returns not found without resolving a locator when the chat is unavailable', async () => {
+    const tools = setup({ 'job://bash-3': job('job-id') });
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      waitTool.execute(tools.context, { jobs: ['job://bash-3'] }),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'not_found',
+      message: 'One or more jobs were not found in this Chat.',
+    });
+
+    expect(tools.findByLocator).not.toHaveBeenCalled();
+    expect(tools.beginWaitCall).not.toHaveBeenCalled();
   });
 
   it('does not suspend when the call has no durable wait context', async () => {
@@ -177,7 +285,11 @@ describe('waitTool', () => {
 
     await expect(
       waitTool.execute(context, { jobs: ['job://bash-3'] }),
-    ).resolves.toMatchObject({ status: 'error', type: 'no_context' });
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'no_context',
+      message: 'The wait could not be suspended safely.',
+    });
     expect(tools.onWaitRequested).not.toHaveBeenCalled();
   });
 
@@ -220,9 +332,9 @@ describe('buildWaitResult', () => {
       outputs: ['stdout'],
     };
 
-    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
-      Buffer.from('settled output'),
-    );
+    const readOutputTail = vi
+      .spyOn(ChatJobsRepository.prototype, 'readOutputTail')
+      .mockResolvedValue(Buffer.from('settled output'));
 
     const result = await buildWaitResult(
       TX,
@@ -247,5 +359,82 @@ describe('buildWaitResult', () => {
         },
       ],
     });
+    expect(result).not.toHaveProperty('jobs.0.outputs');
+    expect(readOutputTail).toHaveBeenCalledOnce();
+  });
+
+  it('omits empty exit details and reports cancellation and artifact locators', async () => {
+    const startedAt = new Date('2026-11-14T12:00:00.000Z');
+
+    const failed = {
+      ...job('failed-id', 'failed'),
+      result: null,
+      startedAt,
+      settledAt: startedAt,
+      artifactId: 'artifact-id',
+    };
+
+    const cancelled = {
+      ...job('cancelled-id', 'cancelled'),
+      stoppedBy: 'owner' as const,
+      result: { signal: 'SIGTERM' },
+      startedAt,
+      settledAt: startedAt,
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+      Buffer.alloc(0),
+    );
+
+    const result = await buildWaitResult(
+      TX,
+      { chatId: 'chat-id', userId: 'owner-id' },
+      [failed, cancelled],
+      'interrupted',
+    );
+
+    expect(result).toMatchObject({
+      ended: 'interrupted',
+      jobs: [
+        {
+          locator: 'job://bash-3',
+          state: 'failed',
+          elapsedMs: 0,
+          outputs: [],
+          artifactLocator: 'artifact://bash-3',
+        },
+        {
+          state: 'cancelled',
+          exitDetail: { signal: 'SIGTERM', stoppedBy: 'owner' },
+        },
+      ],
+    });
+    expect(result).not.toHaveProperty('jobs.0.exitDetail');
+    expect(result).not.toHaveProperty('promise');
+  });
+
+  it('returns only the final 2000 output characters', async () => {
+    const startedAt = new Date('2026-11-14T12:00:00.000Z');
+
+    const settled = {
+      ...job('settled-id', 'succeeded'),
+      startedAt,
+      settledAt: startedAt,
+      outputs: ['stdout'],
+    };
+
+    const readOutputTail = vi
+      .spyOn(ChatJobsRepository.prototype, 'readOutputTail')
+      .mockResolvedValue(Buffer.from('x'.repeat(2001)));
+
+    const result = await buildWaitResult(
+      TX,
+      { chatId: 'chat-id', userId: 'owner-id' },
+      [settled],
+      'settled',
+    );
+
+    expect(result).toHaveProperty('jobs.0.outputs.0.text', 'x'.repeat(2000));
+    expect(readOutputTail).toHaveBeenCalledOnce();
   });
 });

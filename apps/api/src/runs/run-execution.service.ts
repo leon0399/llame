@@ -2051,7 +2051,7 @@ export class RunExecutionService {
       });
     };
 
-    let waitRequestedInStep = false;
+    let waitCallIdInStep: string | undefined;
     let waitRequest: WaitRequest | undefined;
     let pendingWait = false;
     let deferredWaitStep = false;
@@ -2119,11 +2119,11 @@ export class RunExecutionService {
       machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
       sshClient: this.sshClient,
       executorGit: this.executorGit,
-      beginWaitCall: () => {
-        if (waitRequestedInStep) return false;
-        waitRequestedInStep = true;
+      beginWaitCall: (toolCallId) => {
+        if (waitCallIdInStep !== undefined) return waitCallIdInStep;
+        waitCallIdInStep = toolCallId;
 
-        return true;
+        return undefined;
       },
       onWaitRequested: (request) => {
         waitRequest = request;
@@ -3502,7 +3502,7 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
-              waitRequestedInStep = false;
+              waitCallIdInStep = undefined;
               deferredWaitStep = false;
               stepsStarted += 1;
               workspaceRoot.beginStep();

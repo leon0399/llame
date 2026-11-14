@@ -331,12 +331,36 @@ function replyParts(
   snapshot: ReadonlyArray<unknown>,
   continued: ContinueState | undefined,
 ): Array<MessagePart> {
-  const placed = placeStoredContextItems(
-    rebuilt,
-    continued === undefined ? snapshot : ownSnapshotParts(snapshot, run.id),
-  );
+  const snapshotParts =
+    continued === undefined
+      ? snapshot
+      : withoutRepeatedContextItems(ownSnapshotParts(snapshot, run.id), [
+          ...continued.parts,
+          ...rebuilt,
+        ]);
+
+  const placed = placeStoredContextItems(rebuilt, snapshotParts);
 
   return continued === undefined ? placed : [...continued.parts, ...placed];
+}
+
+function withoutRepeatedContextItems(
+  snapshot: ReadonlyArray<unknown>,
+  existing: ReadonlyArray<unknown>,
+): Array<unknown> {
+  const existingItems = new Set<string>();
+
+  for (const part of existing) {
+    if (isContextItemPart(part)) {
+      existingItems.add(JSON.stringify(part) ?? '');
+    }
+  }
+
+  return snapshot.filter(
+    (part) =>
+      !isContextItemPart(part) ||
+      !existingItems.has(JSON.stringify(part) ?? ''),
+  );
 }
 
 /**

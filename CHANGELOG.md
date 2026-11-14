@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-14
 
+- Reserve a wait call only after its locators resolve, and name the first call
+  when a second wait in the same model step is refused.
+
+- Keep wake-prefix context items single in replies recovered before the next
+  model request.
+
 - Prefer independently mergeable stack layers and explicit intermediate merge
   boundaries. Treat 2,000 authored lines as a review target, not a limit.
 

@@ -116,9 +116,11 @@ describe('completeWaitInTransaction', () => {
     vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
       Buffer.from('completed'),
     );
-    vi.spyOn(RunsRepository.prototype, 'updateForAttempt').mockResolvedValue(
-      currentRun,
-    );
+
+    const update = vi
+      .spyOn(RunsRepository.prototype, 'updateForAttempt')
+      .mockResolvedValue(currentRun);
+
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'consumeJobNotices',
@@ -150,6 +152,34 @@ describe('completeWaitInTransaction', () => {
       ],
     });
     expect(consumed).toEqual(['settled-id']);
+    expect(update).toHaveBeenCalledWith(
+      currentRun.id,
+      currentRun.userId,
+      currentRun.activeAttemptId,
+      { awaiting: null },
+    );
+  });
+
+  it('refuses a listed job that is no longer visible before consuming notices', async () => {
+    const currentRun = run();
+    const update = vi.spyOn(RunsRepository.prototype, 'updateForAttempt');
+
+    const consumeNotices = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    );
+
+    await expect(
+      completeWaitInTransaction(
+        db([]),
+        currentRun,
+        { toolCallId: 'call-id', jobIds: ['missing-id'] },
+        'settled',
+      ),
+    ).rejects.toThrow('A resumed wait no longer owns its listed job.');
+
+    expect(update).not.toHaveBeenCalled();
+    expect(consumeNotices).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -264,7 +294,16 @@ describe('pendingWakeInTransaction', () => {
 
   it('does not inspect wake events when the Run is not awaiting jobs', async () => {
     await expect(
-      pendingWakeInTransaction(db([]), run({ awaiting: null })),
+      pendingWakeInTransaction(
+        db([
+          {
+            eventType: 'run.resumed',
+            payload: { generation: 1, cause: 'settled' },
+            sequence: 2,
+          },
+        ]),
+        run({ awaiting: null }),
+      ),
     ).resolves.toBeUndefined();
   });
 });
