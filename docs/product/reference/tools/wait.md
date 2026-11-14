@@ -37,6 +37,10 @@ only for entries that remain running.
 The wait result is a read-only observation. It creates no native attempt and
 exposes no job receipt or host path.
 
+## Behavior
+
+A `read-only` Run may use `wait` when enabled.
+
 ## Errors
 
 A malformed argument is `invalid_input`. A locator that does not name a job of
@@ -44,7 +48,4 @@ this Chat is `not_found`; the Run does not wait.
 
 ## Configured by
 
-Add `wait` to `tools.allowed` and give it an explicit `wait` permission group in
-`tools.permissions`. The recommended portable policy in
-`apps/api/llame.config.jsonc.example` contains `{ "allow": true }` for `wait`.
-A `read-only` Run may use it when enabled.
+[Background jobs](../../operator/background-jobs.md).
