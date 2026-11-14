@@ -8,6 +8,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- Preserve the SSH subprocess's exit classification when it closes stdin
+  before accepting all input. A broken input pipe no longer escapes as an
+  uncaught stream error during a bounded SSH read or command.
+
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.
