@@ -260,15 +260,34 @@ describe('NativeReceiptsRepository (PostgreSQL)', () => {
       toolCallId: 'call-1',
     });
 
-    const repository = (userId: string, id: string, callId: string) =>
-      tenantDb.runAs(userId, (tx) =>
-        new NativeReceiptsRepository(tx).hasNativeAttempt(id, userId, callId),
+    const repository = (
+      tenantUserId: string,
+      queryUserId: string,
+      id: string,
+      callId: string,
+    ) =>
+      tenantDb.runAs(tenantUserId, (tx) =>
+        new NativeReceiptsRepository(tx).hasNativeAttempt(
+          id,
+          queryUserId,
+          callId,
+        ),
       );
 
-    expect(await repository(ownerId, runId, 'call-1')).toBe(true);
-    expect(await repository(ownerId, runId, 'result-only')).toBe(false);
-    expect(await repository(ownerId, runId, 'missing-call')).toBe(false);
-    expect(await repository(ownerId, otherRunId, 'call-1')).toBe(false);
-    expect(await repository(otherOwnerId, runId, 'call-1')).toBe(false);
+    expect(await repository(ownerId, ownerId, runId, 'call-1')).toBe(true);
+    expect(await repository(ownerId, ownerId, runId, 'result-only')).toBe(
+      false,
+    );
+    expect(await repository(ownerId, ownerId, runId, 'missing-call')).toBe(
+      false,
+    );
+    expect(await repository(ownerId, ownerId, otherRunId, 'call-1')).toBe(
+      false,
+    );
+    // Query a foreign owner id while the tenant can read this Run, isolating
+    // the SQL owner predicate from row-level security.
+    expect(await repository(ownerId, otherOwnerId, runId, 'call-1')).toBe(
+      false,
+    );
   });
 });
