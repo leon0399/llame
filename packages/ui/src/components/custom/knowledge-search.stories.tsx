@@ -3,8 +3,8 @@ import { expect } from "storybook/test";
 
 import { KnowledgeSearchTool } from "./knowledge-search.js";
 
-// The Parameters panel renders through Shiki's one-light palette, whose token
-// colors fall below WCAG AA; only the color-contrast rule is disabled.
+// The Parameters panel renders syntax-colored Shiki markup; only the
+// color-contrast rule is disabled.
 const shikiThemeContrastKnownIssue = {
   a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
 };

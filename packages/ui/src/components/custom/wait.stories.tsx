@@ -39,7 +39,11 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** A settled wait includes only its returned job state and output excerpt. */
+/**
+ * A settled wait includes only its returned job state and output excerpt.
+ *
+ * @summary settled job state and output excerpt
+ */
 export const Settled: Story = {
   tags: ["ai-generated"],
   play: async ({ canvas, userEvent }) => {
@@ -50,7 +54,11 @@ export const Settled: Story = {
   },
 };
 
-/** A timed-out wait can return a still-running job without output. */
+/**
+ * A timed-out wait can return a still-running job without output.
+ *
+ * @summary timed-out wait leaves the job running
+ */
 export const TimedOut: Story = {
   tags: ["ai-generated"],
   args: {
@@ -71,7 +79,11 @@ export const TimedOut: Story = {
   },
 };
 
-/** Unknown historical output remains visible through the generic fallback. */
+/**
+ * Unknown historical output remains visible through the generic fallback.
+ *
+ * @summary unknown wait output uses the generic fallback
+ */
 export const UnknownOutput: Story = {
   tags: ["ai-generated"],
   args: { output: { status: "success", ended: "later", jobs: [] } },
@@ -85,7 +97,11 @@ export const UnknownOutput: Story = {
   },
 };
 
-/** An interrupted wait reports its actual end reason and current job state. */
+/**
+ * An interrupted wait reports its actual end reason and current job state.
+ *
+ * @summary interrupted wait shows its end reason and job state
+ */
 export const Interrupted: Story = {
   tags: ["ai-generated"],
   args: {

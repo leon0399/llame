@@ -4,8 +4,8 @@ import { expect } from "storybook/test";
 import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { SearchConversationsTool } from "./search-conversations.js";
 
-// The Parameters panel renders through Shiki's one-light palette, whose token
-// colors fall below WCAG AA; only the color-contrast rule is disabled.
+// The Parameters panel renders syntax-colored Shiki markup; only the
+// color-contrast rule is disabled.
 const shikiThemeContrastKnownIssue = {
   a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
 };

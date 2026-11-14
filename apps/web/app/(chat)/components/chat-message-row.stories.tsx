@@ -309,10 +309,8 @@ export const LiveStreaming: Story = {
   },
 };
 
-// The web_search Parameters panel renders through the shared Shiki CodeBlock,
-// whose built-in "one-light" palette ships token colors below WCAG AA
-// color-contrast (same third-party-theme defect code-block.stories.tsx
-// suppresses). Only the color-contrast rule is disabled.
+// The web_search Parameters panel renders syntax-colored markup through the
+// shared Shiki CodeBlock. Only the color-contrast rule is disabled.
 const webSearchShikiContrastKnownIssue = {
   a11y: {
     config: {
