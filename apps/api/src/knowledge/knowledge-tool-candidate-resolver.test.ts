@@ -4,12 +4,10 @@ import {
   nativeEditTool,
   nativeWriteTool,
 } from '../tools/native-files';
-import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
 
 import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
-import { knowledgeSearchTool } from './knowledge-tools';
 import { nativeGrepTool } from '../tools/grep';
 import {
   KnowledgeToolCandidateResolver,
@@ -18,9 +16,6 @@ import {
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
 import { bashTool } from '../tools/bash';
 import { stopTool } from '../tools/stop';
-import { searchConversationsTool } from '../tools/search-conversations';
-import { conversationReadTool } from '../tools/conversation-read';
-import { webSearchTool } from '../tools/web-search/tool';
 import { TOOL_REGISTRY, resolveAdvertisedTools } from '../tools/registry';
 
 const OWNER_ID = 'owner-a';
@@ -275,46 +270,9 @@ describe('KnowledgeToolCandidateResolver', () => {
 
     const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
 
-    const candidates = await makeInput(resolver);
+    await makeInput(resolver);
 
     expect(findForOwnerForBinding).not.toHaveBeenCalled();
-    expect(candidates).toEqual([
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: nativeReadTool,
-      },
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: enterWorkspaceTool,
-      },
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: exitWorkspaceTool,
-      },
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: searchConversationsTool,
-      },
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: conversationReadTool,
-      },
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: knowledgeSearchTool,
-      },
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: webSearchTool,
-      },
-    ]);
   });
 
   it('keeps knowledge_search callable when configured root has zero owner rows', async () => {

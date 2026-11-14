@@ -51,6 +51,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   a checkpoint and its correlated wait result only inside the first resumed
   attempt. It retains tool metadata, step indices and timeout, rejects malformed
   receipts, and connects no runtime caller in this prerequisite.
+- Keep the operator tool-prompt inventory and example comments consistent
+  with the registered tools, including `grep`, `web_search`, and `wait`.
 
 - **Enforce host command lifetimes from spawn (#1657).** The managed executor
   owns the job deadline during foreground execution and pending promotion.
@@ -63,6 +65,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The next flush captures the latest output and preserves stored suffix offsets.
 
 # 2026-11-12
+
+- **Wait for background jobs without holding a worker (#1657).** The read-only
+  `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
+  It returns settled results immediately, or suspends and durably resumes the
+  same Run at settlement, interruption, or its deadline. Sibling tools finish
+  before suspension; the first wake retains completed steps and records the
+  real result together with exact notice consumption. Cancellation leaves jobs
+  running, and retries never replay native mutations. See
+  [wait](docs/product/reference/tools/wait.md).
 
 - **Prepare durable wait continuation (#1657).** Deferred provider call seams
   drain sibling tools without a synthetic wait result. Internal wake claims

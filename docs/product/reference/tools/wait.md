@@ -9,8 +9,6 @@ configured_by: ../../operator/background-jobs.md
 
 # wait
 
-This tool is not yet available. This page describes the planned behavior.
-
 ## Purpose
 
 `wait` suspends the current Run while one or more jobs continue in the background.
@@ -39,6 +37,10 @@ only for entries that remain running.
 The wait result is a read-only observation. It creates no native attempt and
 exposes no job receipt or host path.
 
+## Behavior
+
+A `read-only` Run may use `wait` when enabled.
+
 ## Errors
 
 A malformed argument is `invalid_input`. A locator that does not name a job of
@@ -46,4 +48,4 @@ this Chat is `not_found`; the Run does not wait.
 
 ## Configured by
 
-The wait tool cannot be enabled yet.
+[Background jobs](../../operator/background-jobs.md).
