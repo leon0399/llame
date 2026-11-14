@@ -13,12 +13,9 @@ import {
 } from '../tools/artifacts/artifact-writer';
 import * as hostFiles from '../tools/artifacts/host-files';
 import { chatDeliveries, type ChatJob } from '../db/schema';
+import { retryRunTransaction } from '../runs/run-transaction';
 import * as jobNotices from './job-notices';
-import {
-  appendJobOutput,
-  retryJobTransaction,
-  settleBashJob,
-} from './bash-job-store';
+import { appendJobOutput, settleBashJob } from './bash-job-store';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { readJob } from './job-reader';
 
@@ -354,7 +351,7 @@ describe('bash-job-store on a live database', () => {
         .mockRejectedValueOnce({ cause: { code } })
         .mockResolvedValue('settled');
 
-      expect(await retryJobTransaction(work)).toBe('settled');
+      expect(await retryRunTransaction(work)).toBe('settled');
       expect(work).toHaveBeenCalledTimes(2);
     },
   );
@@ -362,7 +359,7 @@ describe('bash-job-store on a live database', () => {
   it('does not retry unrelated failures', async () => {
     const work = vi.fn().mockRejectedValue(new Error('unrelated'));
 
-    await expect(retryJobTransaction(work)).rejects.toThrow('unrelated');
+    await expect(retryRunTransaction(work)).rejects.toThrow('unrelated');
     expect(work).toHaveBeenCalledTimes(1);
   });
 });

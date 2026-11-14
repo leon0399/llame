@@ -1,3 +1,4 @@
+import type { RunWaitService } from '../runs/run-wait.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { eq } from 'drizzle-orm';
@@ -82,9 +83,17 @@ class Command implements ManagedBashHandle {
 
 const config: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
 
-const noticeRuns = new JobNoticeRunService(new FakeModelsService(), config, {
-  enqueueInTransaction: async () => {},
-});
+const noticeRuns = new JobNoticeRunService(
+  new FakeModelsService(),
+  config,
+  {
+    enqueueInTransaction: async () => {},
+  },
+  { wakeForChatInTransaction: () => Promise.resolve(false) } satisfies Pick<
+    RunWaitService,
+    'wakeForChatInTransaction'
+  >,
+);
 
 describe('BashJobRegistry', () => {
   let client: Sql;

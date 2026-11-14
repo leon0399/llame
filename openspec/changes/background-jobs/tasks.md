@@ -32,6 +32,7 @@ master
 <- background-jobs/run-enqueue
 <- background-jobs/host-runs
 <- background-jobs/wait-state
+<- background-jobs/wait-routing
 <- background-jobs/wait-suspend
 <- background-jobs/wait-resume
 <- background-jobs/web
@@ -69,7 +70,8 @@ receipt race until that repair lands.
 | `run-enqueue`        | `notices`            | Queue insertion through the caller's tenant transaction, with rollback and delay proof.                         | none                                             | 750        | refs #1657        |
 | `host-runs`          | `run-enqueue`        | Runs that the host starts, held notices and notice-started history acceptance.                                  | a notice starts a Run                            | 1,950      | refs #1657        |
 | `wait-state`         | `host-runs`          | Wait schema, transactional suspension/wake preparation, queue identity fences and seeded database proof.        | none                                             | 2,000      | refs #1657        |
-| `wait-suspend`       | `wait-state`         | Executing-attempt suspension, settlement/owner wakers, worker pickup, restart and budget acceptance.            | none                                             | 2,000      | refs #1657        |
+| `wait-routing`       | `wait-state`         | Owner and settlement wake entry points, Chat transaction retries, dependency wiring and caller fixtures.        | none                                             | 1,000      | refs #1657        |
+| `wait-suspend`       | `wait-routing`       | Executing-attempt suspension, worker pickup, restart, actual wake races and budget acceptance.                  | none                                             | 1,700      | refs #1657        |
 | `wait-resume`        | `wait-suspend`       | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
 | `web`                | `wait-resume`        | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
 | `finalize`           | `web`                | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
@@ -333,6 +335,18 @@ and entry-point proof remain in `wait-suspend`.
 - [x] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
 - [x] 10a.1 Prepare the owner-scoped suspension/wake transactions, deadline queue identity, typed enqueue collision retry, and recorded-job admission. Prove atomic rollback, fresh-id retry after an actual queue collision, listed versus unrelated settlement precedence, terminal immutability, stale dead-letter fencing, cancellation preparation, and durable wake publication through the real database.
 - [ ] 10a.2 Run focused state/database and generated-contract checks, self-review the parent-relative diff, and publish. Ordinary CI controls readiness; mutation testing and external reviews continue concurrently.
+
+## 10b. Wait wake routing (`background-jobs/wait-routing`)
+
+This prerequisite connects the prepared wake transaction to owner and settlement
+entry points. No production tool can enter `awaiting_jobs`, so it exposes no
+new model-visible behavior. Actual worker, restart, and competing-entry-point
+acceptance remains in `wait-suspend`. The measured lifecycle concern remained
+over budget after duplicate test setup and mock-only forwarding tests were removed.
+
+- [x] 10b.1 Wire owner steering, interruption, cancellation and job settlement to the prepared wait transaction; use the shared bounded retry at Chat transaction boundaries and migrate affected service callers without compatibility paths.
+- [x] 10b.2 Verify the isolated routing candidate with focused caller and database suites, API lint/typecheck, Markdown and strict proposal checks; self-review with correctness, simplify and ponytail review before publication.
+- [ ] 10b.3 Publish the routing prerequisite and drive ordinary CI to readiness; mutation tests and external review remain concurrent with worker lifecycle development.
 
 ## 11. Suspension (`background-jobs/wait-suspend`)
 

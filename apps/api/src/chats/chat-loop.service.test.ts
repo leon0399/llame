@@ -18,6 +18,7 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelSelectionValidator } from '../models/models.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { heartbeatSeconds } from '../runs/run-queues';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
@@ -316,6 +317,9 @@ function makeService(options?: {
     bridge,
     dispatch,
     media,
+    {
+      wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+    } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
   );
 
   return {

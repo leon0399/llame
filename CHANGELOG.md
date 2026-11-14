@@ -49,6 +49,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- **Prepare wait wake routing (#1657).** Owner steering, interruption,
+  cancellation and job settlement can wake an internally suspended Run through
+  its tenant transaction. Chat admission, deletion and settlement use bounded
+  transaction retries. Chat deletion cancels and cascades a suspended Run
+  without a queue wake, so queue unavailability cannot block the deletion.
+  The production wait tool remains inactive; worker suspension and restart
+  acceptance follow in the lifecycle layer.
+
 - **Prepare durable wait state (#1657).** The schema records an open wait,
   its generation, and its authoritative queue job. Internal transactions bind
   suspension and wake updates to actual pg-boss inserts, retry queue-id

@@ -1,3 +1,4 @@
+import type { RunWaitService } from '../runs/run-wait.service';
 import { ConfigService } from '@nestjs/config';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
@@ -32,9 +33,17 @@ import { JobNoticeRunService } from '../runs/job-notice-run.service';
 
 const config = { config: BUILT_IN_DEFAULTS };
 
-const noticeRuns = new JobNoticeRunService(new FakeModelsService(), config, {
-  enqueueInTransaction: async () => {},
-});
+const noticeRuns = new JobNoticeRunService(
+  new FakeModelsService(),
+  config,
+  {
+    enqueueInTransaction: async () => {},
+  },
+  { wakeForChatInTransaction: () => Promise.resolve(false) } satisfies Pick<
+    RunWaitService,
+    'wakeForChatInTransaction'
+  >,
+);
 
 describe('real host async jobs', () => {
   let sql: Sql;
@@ -518,11 +527,9 @@ describe('real host async jobs', () => {
     const first = await start();
     context = { ...context, toolCallId: crypto.randomUUID() };
     const second = await start();
-    await new ChatJobsService(tenant, config).stop(
-      context.chatId,
-      first.id,
-      owner,
-    );
+    await new ChatJobsService(tenant, config, {
+      wakeForChatInTransaction: () => Promise.resolve(false),
+    }).stop(context.chatId, first.id, owner);
     await vi.waitFor(async () => {
       expect((await jobs()).find((job) => job.id === first.id)).toMatchObject({
         state: 'cancelled',

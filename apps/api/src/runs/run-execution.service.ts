@@ -418,7 +418,7 @@ import { promoteNextQueueItem } from './queue-promotion';
 import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
 import { type RunJob } from './run-queues';
 import { parseJobLocatorText } from '../jobs/job-locator';
-import { retryJobTransaction } from '../jobs/bash-job-store';
+import { retryRunTransaction } from './run-transaction';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
@@ -978,7 +978,7 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
  * Re-running `work` opens a fresh transaction; connection failures are not
  * retried because their commit outcome can be ambiguous.
  */
-async function retryRunTransaction<T>(work: () => Promise<T>): Promise<T> {
+async function retryAbortedTransaction<T>(work: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await work();
@@ -1003,7 +1003,7 @@ async function recoverHostPromotionWithRetry(
   },
 ): Promise<ToolResult> {
   return (
-    await retryRunTransaction(() =>
+    await retryAbortedTransaction(() =>
       tenantDb.runAs(input.userId, (tx) =>
         new NativeFilesRepository(tx).recoverHostPromotion(input),
       ),
@@ -1274,7 +1274,7 @@ export class RunExecutionService {
     // compaction is part of this run's execution budget and cancellation
     // lifecycle, not untracked pre-work. A cancel that won the worker pickup
     // TOCTOU is settled atomically here without spending on either model.
-    const claim = await retryJobTransaction(() =>
+    const claim = await retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
         const runs = new RunsRepository(tx);
         const events = new RunEventsRepository(tx);
@@ -1730,7 +1730,7 @@ export class RunExecutionService {
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
     try {
-      await retryJobTransaction(() =>
+      await retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, (tx) =>
           this.dispatchAttempt(tx, {
             run: input,
@@ -1834,7 +1834,7 @@ export class RunExecutionService {
 
         if (payloadInTransaction) {
           try {
-            await retryJobTransaction(() =>
+            await retryRunTransaction(() =>
               this.tenantDb.runAs(input.userId, append),
             );
             recorded = true;
@@ -2955,7 +2955,7 @@ export class RunExecutionService {
     // The step end settles dead Chat jobs before checking delivery/cancellation,
     // so a lost worker's notice participates in this same boundary.
     const stopWhenExtra = async (): Promise<boolean> => {
-      stopCause = await retryJobTransaction(() =>
+      stopCause = await retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, async (tx) => {
           await new ChatJobsRepository(tx).settleOnDeadWorkers(
             input.chatId,
@@ -3046,7 +3046,7 @@ export class RunExecutionService {
       ) => {
         const { telemetry } = modelCompleted;
 
-        const boundary = await retryRunTransaction(() =>
+        const boundary = await retryAbortedTransaction(() =>
           this.tenantDb.runAs(input.userId, (tx) =>
             deliverPendingSteering(tx, {
               run: { runId: input.runId, userId: input.userId },
@@ -5325,7 +5325,7 @@ export class RunExecutionService {
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
     try {
-      return await retryRunTransaction(() =>
+      return await retryAbortedTransaction(() =>
         this.tenantDb.runAs(input.userId, (tx) =>
           this.finishRunInTransaction(tx, input),
         ),

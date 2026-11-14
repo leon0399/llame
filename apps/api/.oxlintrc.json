@@ -36,6 +36,7 @@
       // Nest DI and decorated handlers own these signatures.
       "files": [
         "src/chats/chat-creation.service.ts",
+        "src/chats/chat-deliveries.service.ts",
         "src/chats/chat-loop.service.ts",
         "src/chats/chats-repository.ts",
         "src/chats/chats.controller.ts",

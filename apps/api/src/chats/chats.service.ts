@@ -34,6 +34,7 @@ import { RunsRepository } from '../runs/runs-repository';
 import { pgErrorCode } from '../db/pg-error';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { notifyRunControl } from '../runs/run-control';
+import { retryRunTransaction } from '../runs/run-transaction';
 import {
   toSharedChatResponse,
   type ChatMessageResponseRow,
@@ -486,39 +487,31 @@ export class ChatsService {
   }
 
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
-    return this.tenantDb.runAs(userId, async (tx) => {
-      // Cancel an in-flight run FIRST: stamp cancel_requested_at and send it on the
-      // run-control channel (on commit), so the provider stream stops (real token spend +
-      // a burst of FK-violation log noise on each post-cascade event append)
-      // instead of running until the deadman timeout. Reuses the stop path.
-      //
-      // This order is also load-bearing for deadlock avoidance, so do not
-      // reorder it to delete first: taking the run row before the chat row is
-      // what lets the run finalizer's terminal transaction insert its assistant
-      // message without closing a cycle with this one. See the LOCK ORDER note
-      // in run-execution.service.ts#finishRun for the full argument.
-      const runsRepo = new RunsRepository(tx);
-      const active = await runsRepo.findActiveByChatId(chatId, userId);
+    return retryRunTransaction(() =>
+      this.tenantDb.runAs(userId, async (tx) => {
+        // Cancel before locking the Chat. The cascade removes a waiting Run,
+        // so deletion needs no queue wake.
+        const runsRepo = new RunsRepository(tx);
+        const active = await runsRepo.findActiveByChatId(chatId, userId);
 
-      if (active) {
-        await runsRepo.requestCancel(active.id, userId);
-      }
+        if (active) {
+          await runsRepo.requestCancel(active.id, userId);
+        }
 
-      const chats = new ChatsRepository(tx);
+        const chats = new ChatsRepository(tx);
 
-      if (!(await chats.lock(chatId, userId))) return false;
+        if (!(await chats.lock(chatId, userId))) return false;
 
-      // The delete cascades the job rows, so a worker's recheck finds none and
-      // stops; the signal only makes that prompt.
-      for (const jobId of await new ChatJobsRepository(tx).runningIdsInChat(
-        chatId,
-        userId,
-      )) {
-        await notifyRunControl(tx, { kind: 'job-stop', jobId });
-      }
+        for (const jobId of await new ChatJobsRepository(tx).runningIdsInChat(
+          chatId,
+          userId,
+        )) {
+          await notifyRunControl(tx, { kind: 'job-stop', jobId });
+        }
 
-      return chats.deleteById(chatId, userId);
-    });
+        return chats.deleteById(chatId, userId);
+      }),
+    );
   }
 
   /**

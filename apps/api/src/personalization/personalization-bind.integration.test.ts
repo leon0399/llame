@@ -21,6 +21,7 @@ import { MessagesRepository } from '../chats/chats-repository';
 import { isTextPart } from '../chats/context-builder';
 import { RunsRepository } from '../runs/runs-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { PersonalizationService } from './personalization.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { createFakeModelClient } from '../models/fake-model-client';
@@ -178,6 +179,9 @@ describeIfDb('personalization binds per run', () => {
         jobState: () => Promise.resolve('absent'),
       },
       new MediaService(tenantDb),
+      {
+        wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+      } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     );
     runExecution = new RunExecutionService(
       tenantDb,

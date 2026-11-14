@@ -5,8 +5,8 @@ import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
-import { retryJobTransaction } from '../jobs/bash-job-store';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { retryRunTransaction } from '../runs/run-transaction';
 import {
   formatJobLocator,
   parseJobLocatorText,
@@ -56,7 +56,7 @@ function recordRequests(
   context: ToolContext,
   locators: ReadonlyArray<JobLocator>,
 ): Promise<Array<ChatJob> | undefined> {
-  return retryJobTransaction(() =>
+  return retryRunTransaction(() =>
     context.tenantDb.runAs(context.userId, async (tx: Db) => {
       const jobs = new ChatJobsRepository(tx);
 

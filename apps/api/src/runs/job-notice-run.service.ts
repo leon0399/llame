@@ -26,6 +26,7 @@ import {
 import { type RunJob } from './run-queues';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunsRepository } from './runs-repository';
+import { RunWaitService } from './run-wait.service';
 
 @Injectable()
 export class JobNoticeRunService {
@@ -36,10 +37,19 @@ export class JobNoticeRunService {
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(RunDispatchService)
     private readonly dispatch: Pick<RunDispatchService, 'enqueueInTransaction'>,
+    @Inject(RunWaitService)
+    private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
 
   async startOnSettlement(tx: Db, job: ChatJob): Promise<void> {
-    if (!startsNoticeRun(job)) return;
+    const waitingRunWoken = await this.runWait.wakeForChatInTransaction(tx, {
+      chatId: job.chatId,
+      userId: job.ownerUserId,
+      jobId: job.id,
+      kind: 'settlement',
+    });
+
+    if (waitingRunWoken || !startsNoticeRun(job)) return;
 
     const chat = await new ChatsRepository(tx).lock(
       job.chatId,
@@ -58,18 +68,21 @@ export class JobNoticeRunService {
     );
 
     if (activeRun !== undefined) {
-      if (
-        activeRun.status !== 'queued' ||
-        activeRun.followUpAction !== null ||
-        activeRun.cancelRequestedAt !== null
-      )
-        return;
-
       await this.attachToQueuedHostRun(tx, job, activeRun, deliveries);
 
       return;
     }
 
+    await this.startNoticeRunForIdleChat(tx, job, deliveries, runs);
+  }
+
+  /** Start the first pending notice only after the latest Run completed. */
+  private async startNoticeRunForIdleChat(
+    tx: Db,
+    job: ChatJob,
+    deliveries: ChatDeliveriesRepository,
+    runs: RunsRepository,
+  ): Promise<void> {
     const latestRun = await runs.findLatestByChatId(
       job.chatId,
       job.ownerUserId,

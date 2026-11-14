@@ -31,6 +31,8 @@ import { withoutProviderMetadataPayload } from '../chats/provider-metadata-egres
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Run, type RunEvent } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
+import { RunWaitService } from './run-wait.service';
+import { retryRunTransaction } from './run-transaction';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { isTerminalRunStatus } from './run-status';
@@ -74,6 +76,8 @@ export class RunsController {
   constructor(
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
+    @Inject(RunWaitService)
+    private readonly runWait: Pick<RunWaitService, 'wakeInTransaction'>,
   ) {}
 
   @Get(':id')
@@ -143,8 +147,32 @@ export class RunsController {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     @Body() input: UpdateRunDto,
   ): Promise<RunResponse> {
-    const requested = await this.tenantDb.runAs(userId, (tx) =>
-      new RunsRepository(tx).requestCancel(id, userId),
+    const { requested, current } = await retryRunTransaction(() =>
+      this.tenantDb.runAs(userId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        let responseRun = await runs.requestCancel(id, userId);
+        let current = responseRun ?? (await runs.findById(id, userId));
+
+        if (
+          current?.status === 'awaiting_jobs' &&
+          current.cancelRequestedAt !== null
+        ) {
+          const woke = await this.runWait.wakeInTransaction(tx, {
+            runId: current.id,
+            userId,
+            generation: current.wakeGeneration,
+            cause: 'cancelled',
+          });
+
+          if (woke) {
+            current = (await runs.findById(id, userId)) ?? current;
+
+            if (responseRun) responseRun = current;
+          }
+        }
+
+        return { requested: responseRun, current };
+      }),
     );
 
     if (requested) {
@@ -153,7 +181,7 @@ export class RunsController {
 
     // The atomic guard missed: missing/cross-tenant (404), already terminal
     // (409), or already cancel-requested (idempotent 200).
-    const run = await this.findOwnedRun(id, userId);
+    const run = current ?? (await this.findOwnedRun(id, userId));
 
     if (isTerminalRunStatus(run.status)) {
       throw new ConflictException('Run already finished');

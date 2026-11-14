@@ -8,8 +8,8 @@ import {
   type SystemPromptReceipt,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { RunsController } from './runs.controller';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunsController } from './runs.controller';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 type RunEventRequest = Parameters<RunsController['streamRunEvents']>[3];
@@ -55,7 +55,7 @@ describe('RunsController context receipt', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  function controller() {
+  function controller(wakeInTransaction = vi.fn().mockResolvedValue(false)) {
     const tx: Db = drizzle.mock({ schema });
 
     const runAs: TenantRunner['runAs'] = async <T>(
@@ -66,7 +66,7 @@ describe('RunsController context receipt', () => {
     const tenantDb: TenantRunner = { runAs };
     vi.spyOn(tenantDb, 'runAs');
 
-    return new RunsController(tenantDb);
+    return new RunsController(tenantDb, { wakeInTransaction });
   }
 
   function request(
@@ -204,10 +204,131 @@ describe('RunsController context receipt', () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
       cancelling,
     );
+    const wakeInTransaction = vi.fn().mockResolvedValue(false);
+
+    await expect(
+      controller(wakeInTransaction).updateRun('owner', run.id, {
+        status: 'cancelled',
+      }),
+    ).resolves.toMatchObject({ id: run.id, status: 'running_model' });
+
+    expect(wakeInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('wakes a cancel-requested waiting run and returns its refreshed state', async () => {
+    const requested = {
+      ...run,
+      status: 'awaiting_jobs' as const,
+      cancelRequestedAt: new Date('2026-07-18T10:00:01.500Z'),
+      wakeGeneration: 7,
+    };
+
+    const refreshed = { ...requested, status: 'queued' as const };
+
+    const requestCancel = vi
+      .spyOn(RunsRepository.prototype, 'requestCancel')
+      .mockResolvedValue(requested);
+
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValue(refreshed);
+
+    const wakeInTransaction = vi.fn().mockResolvedValue(true);
+
+    await expect(
+      controller(wakeInTransaction).updateRun('owner', run.id, {
+        status: 'cancelled',
+      }),
+    ).resolves.toMatchObject({ id: run.id, status: 'queued' });
+
+    expect(requestCancel).toHaveBeenCalledWith(run.id, 'owner');
+    expect(wakeInTransaction).toHaveBeenCalledWith(expect.anything(), {
+      runId: run.id,
+      userId: 'owner',
+      generation: 7,
+      cause: 'cancelled',
+    });
+    expect(findById).toHaveBeenCalledWith(run.id, 'owner');
+  });
+
+  it('keeps the current waiting run when waking an existing cancellation fails', async () => {
+    const waiting = {
+      ...run,
+      status: 'awaiting_jobs' as const,
+      cancelRequestedAt: new Date('2026-07-18T10:00:01.500Z'),
+      wakeGeneration: 4,
+    };
+
+    vi.spyOn(RunsRepository.prototype, 'requestCancel').mockResolvedValue(
+      undefined,
+    );
+
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValue(waiting);
+
+    const wakeInTransaction = vi.fn().mockResolvedValue(false);
+
+    await expect(
+      controller(wakeInTransaction).updateRun('owner', run.id, {
+        status: 'cancelled',
+      }),
+    ).resolves.toMatchObject({ id: run.id, status: 'awaiting_jobs' });
+
+    expect(wakeInTransaction).toHaveBeenCalledWith(expect.anything(), {
+      runId: run.id,
+      userId: 'owner',
+      generation: 4,
+      cause: 'cancelled',
+    });
+    expect(findById).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes an existing cancel-requested waiting run after a successful wake', async () => {
+    const waiting = {
+      ...run,
+      status: 'awaiting_jobs' as const,
+      cancelRequestedAt: new Date('2026-07-18T10:00:01.500Z'),
+      wakeGeneration: 5,
+    };
+
+    const refreshed = { ...waiting, status: 'queued' as const };
+
+    vi.spyOn(RunsRepository.prototype, 'requestCancel').mockResolvedValue(
+      undefined,
+    );
+
+    const findById = vi
+      .spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(waiting)
+      .mockResolvedValueOnce(refreshed);
+
+    const wakeInTransaction = vi.fn().mockResolvedValue(true);
+
+    await expect(
+      controller(wakeInTransaction).updateRun('owner', run.id, {
+        status: 'cancelled',
+      }),
+    ).resolves.toMatchObject({ id: run.id, status: 'queued' });
+
+    expect(wakeInTransaction).toHaveBeenCalledWith(expect.anything(), {
+      runId: run.id,
+      userId: 'owner',
+      generation: 5,
+      cause: 'cancelled',
+    });
+    expect(findById).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns not-found when cancellation targets a missing run', async () => {
+    vi.spyOn(RunsRepository.prototype, 'requestCancel').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(undefined);
 
     await expect(
       controller().updateRun('owner', run.id, { status: 'cancelled' }),
-    ).resolves.toMatchObject({ id: run.id, status: 'running_model' });
+    ).rejects.toThrow(`Run ${run.id} not found`);
   });
 
   it('returns not-produced for a terminal run without a prompt receipt', async () => {

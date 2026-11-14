@@ -12,6 +12,7 @@ import {
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { ChatLoopService } from './chat-loop.service';
@@ -69,6 +70,9 @@ function makeService(models?: {
       bridge,
       dispatch,
       new MediaService(tenantDb),
+      {
+        wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+      } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     ),
     runAs,
     validateModelSelection,
