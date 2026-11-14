@@ -13,7 +13,7 @@
  * Component's router) is mocked.
  */
 
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -80,25 +80,34 @@ function stubActiveRunsNetwork() {
   });
 }
 
-function Probe({
+const Probe = memo(function Probe({
   chatId,
   viewedChatId,
+  onContext,
 }: {
   chatId: string;
   viewedChatId?: string;
+  onContext?: (value: ReturnType<typeof useActiveRuns>) => void;
 }) {
+  const context = useActiveRuns();
+  onContext?.(context);
+
   const {
     activeChatIds,
     unseenRunOutcomes,
+    runStatusByChatId,
     trackRun,
     untrackChat,
     markChatSeen,
-  } = useActiveRuns();
+  } = context;
 
   return (
     <div>
       {viewedChatId ? <ViewedChatRegistration chatId={viewedChatId} /> : null}
       <span data-testid="processing">{String(activeChatIds.has(chatId))}</span>
+      <span data-testid="run-status">
+        {runStatusByChatId.get(chatId) ?? "none"}
+      </span>
       <span data-testid="unread">{String(unseenRunOutcomes.has(chatId))}</span>
       <span data-testid="outcome">
         {unseenRunOutcomes.get(chatId) ?? "none"}
@@ -117,7 +126,7 @@ function Probe({
       </button>
     </div>
   );
-}
+});
 
 function ViewedChatRegistration({ chatId }: { chatId: string }) {
   const { registerViewedChat } = useActiveRuns();
@@ -128,7 +137,13 @@ function ViewedChatRegistration({ chatId }: { chatId: string }) {
 
 function renderProbe(
   chatId: string,
-  { viewedChatId }: { viewedChatId?: string } = {},
+  {
+    viewedChatId,
+    onContext,
+  }: {
+    viewedChatId?: string;
+    onContext?: (value: ReturnType<typeof useActiveRuns>) => void;
+  } = {},
 ) {
   const queryClient = new QueryClient();
 
@@ -136,7 +151,11 @@ function renderProbe(
     <QueryClientProvider client={queryClient}>
       <ActiveRunsProvider>
         <Toaster />
-        <Probe chatId={nextChatId} viewedChatId={nextViewedChatId} />
+        <Probe
+          chatId={nextChatId}
+          viewedChatId={nextViewedChatId}
+          onContext={onContext}
+        />
       </ActiveRunsProvider>
     </QueryClientProvider>
   );
@@ -191,13 +210,57 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
           runResponseFixture({ id: runId, status: "running_model" }),
         ),
       );
+    const contextSnapshots: Array<ReturnType<typeof useActiveRuns>> = [];
 
-    renderProbe("chat-a");
+    const onContext = (value: ReturnType<typeof useActiveRuns>) =>
+      contextSnapshots.push(value);
 
+    const { rerenderProbe } = renderProbe("chat-a", { onContext });
     await waitFor(() =>
       expect(screen.getByTestId("processing").textContent).toBe("true"),
     );
     expect(screen.getByTestId("unread").textContent).toBe("false");
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "running_model",
+      ),
+    );
+    const contextValue = contextSnapshots.at(-1);
+    const renderCount = contextSnapshots.length;
+    rerenderProbe("chat-a");
+    expect(contextSnapshots).toHaveLength(renderCount);
+    expect(contextSnapshots.at(-1)).toBe(contextValue);
+  });
+
+  it("rehydrates an awaiting_jobs Run with its background status", async () => {
+    stubActiveRunsNetwork();
+    activeRunsHandler = () =>
+      Promise.resolve(
+        jsonResponse<Array<ActiveRunResponse>>([
+          {
+            runId: "run-awaiting",
+            chatId: "chat-awaiting",
+            chatTitle: "Background chat",
+            status: "awaiting_jobs",
+            createdAt: "2026-07-06T00:00:00.000Z",
+          },
+        ]),
+      );
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({ id: runId, status: "awaiting_jobs" }),
+        ),
+      );
+
+    renderProbe("chat-awaiting");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "awaiting_jobs",
+      ),
+    );
+    expect(screen.getByTestId("processing").textContent).toBe("true");
   });
 
   it("does not act on a stale cached snapshot before THIS mount's own fetch resolves (isFetchedAfterMount)", async () => {

@@ -224,7 +224,8 @@ const meta = {
   beforeEach: () => {
     useActiveRuns.mockReturnValue({
       ...emptyActiveRuns(),
-      activeChatIds: new Set(["chat-processing"]),
+      activeChatIds: new Set(["chat-processing", "chat-awaiting"]),
+      runStatusByChatId: new Map([["chat-awaiting", "awaiting_jobs" as const]]),
       unseenRunOutcomes: new Map([
         ["chat-unread", "completed"],
         ["chat-failed", "failed"],
@@ -314,9 +315,11 @@ export const Active: Story = {
  * @summary chat with an in-flight run (processing dot)
  */
 export const Processing: Story = {
-  // "chat-processing" is the id the meta beforeEach marks active.
-  args: { chat: { ...baseChat, id: "chat-processing" } },
-  tags: ["ai-generated"],
+  // "chat-processing" is the id the meta beforeEach marks active. The running
+  // job count proves a live reply still takes precedence over background work.
+  args: {
+    chat: { ...baseChat, id: "chat-processing", runningJobs: 1 },
+  },
   // The "Generating response" indicator spins continuously, so a screenshot
   // captures a nondeterministic frame; skip screenshot capture (play still runs).
   parameters: { visualTests: { disable: true } },
@@ -324,6 +327,38 @@ export const Processing: Story = {
     const canvas = within(canvasElement);
     await expect(
       canvas.getByLabelText("Generating response"),
+    ).toBeInTheDocument();
+  },
+};
+
+/**
+ * An awaiting_jobs Run is background activity, not an active reply spinner.
+ *
+ * @summary chat with a Run awaiting jobs
+ */
+export const AwaitingJobs: Story = {
+  args: { chat: { ...baseChat, id: "chat-awaiting" } },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByLabelText("Background work")).toBeInTheDocument();
+    await expect(canvas.queryByLabelText("Generating response")).toBeNull();
+  },
+};
+
+/**
+ * A running job without a live reply shows background activity on the row.
+ *
+ * @summary chat with a running background job
+ */
+export const Background: Story = {
+  args: {
+    chat: { ...baseChat, id: "chat-background", runningJobs: 1 },
+  },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    await expect(
+      within(canvasElement).getByLabelText("Background work"),
     ).toBeInTheDocument();
   },
 };
@@ -358,6 +393,24 @@ export const Failed: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByLabelText("Run failed")).toBeInTheDocument();
     await expect(canvas.queryByLabelText("Unread reply")).toBeNull();
+  },
+};
+
+/**
+ * A pinned chat keeps its background-job badge while the pin action is visible.
+ *
+ * @summary pinned chat with a running background job
+ */
+export const PinnedBackground: Story = {
+  args: {
+    chat: { ...baseChat, id: "chat-pinned-background", runningJobs: 1 },
+    isPinned: true,
+  },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    await expect(
+      within(canvasElement).getByLabelText("Background work"),
+    ).toBeInTheDocument();
   },
 };
 
