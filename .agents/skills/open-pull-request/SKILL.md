@@ -19,14 +19,14 @@ Decide from the change, not by default:
 
 |Use a single PR against `master` when…|Use a `$gh-stack` stack when…|
 |---|---|
-|the change is one concern within the review budget|it splits into dependent, separately reviewable layers|
-|it is a fix, chore, dependency bump, or tooling change|it is feature delivery (proposal → implementation → finalize)|
+|the change is one reviewable concern|it splits into dependent, separately reviewable layers|
+|a fix, chore, dependency bump, or tooling change fits one PR|feature delivery requires proposal → implementation → finalize|
 |nothing else is in flight on top of it|later work must build on it before it merges|
 
 A stack layer's branch, base, rebase, and publish commands go through
-`$gh-stack`; a single PR uses plain `git` and `gh` (below). Do not split one
-concern into layers to look smaller, and do not pile a growing concern into one
-PR past the budget: split it instead.
+`$gh-stack`; a single PR uses plain `git` and `gh` (below). Prefer independently
+mergeable layers and safe intermediate merge points. Split a concern when it
+improves review or enables a safe merge, not merely to meet a line count.
 
 ## 2. Before writing
 

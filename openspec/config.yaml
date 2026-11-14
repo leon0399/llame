@@ -68,19 +68,20 @@ rules:
     - >-
       Plan one linear stack: master <- <change>/proposal <- implementation
       layers <- <change>/finalize. Use $gh-stack and $openspec-apply-change.
+      Prefer layers that are independently mergeable after their parents.
+      Identify safe intermediate merge boundaries and any inseparable layers.
       Give each layer its exact branch, parent, one-sentence ownership,
       estimated changed lines, exit evidence, and issue-closing responsibility.
     - >-
-      Budget at most about 2,000 authored added-plus-deleted lines per layer
-      against its immediate parent, not master. Include tests, specs, docs, and
-      mechanical codemods. Reproducible generated files count zero toward this
-      quota: Drizzle metadata snapshots, generated OpenAPI/clients, lockfiles,
-      and equivalent outputs. Report their churn separately from authored size.
-      Generated does not mean unreviewed: verify regeneration and migration
-      safety; count hand-authored SQL/security steps. Measure pure moves with
-      rename detection, not deletion plus recreation. Split by coherent
-      responsibility, never separate a change from its required tests or safety.
-      Request an explicit exception before publishing an oversized layer.
+      Prefer about 2,000 authored added-plus-deleted lines per layer against
+      its immediate parent, not master; this is a review target, not a limit.
+      Include tests, specs, docs, and mechanical codemods. Reproducible generated
+      files count zero: Drizzle metadata snapshots, generated OpenAPI/clients,
+      lockfiles, and equivalent outputs. Report their churn separately.
+      Verify regeneration and migration safety; count hand-authored SQL/security
+      steps. Measure pure moves with rename detection. Split by coherent
+      responsibility when useful, never separate a change from its required
+      tests or safety merely to meet the target.
     - >-
       Assign each checkbox to exactly one layer and state its observable proof.
       Keep tasks bounded; link scenarios rather than copying the spec.
@@ -93,10 +94,12 @@ rules:
       the external review loop. For finalize, both checkpoints follow archive
       movement as post-archive gates, not pre-archive checklist prerequisites.
     - >-
-      The functionality-completing implementation layer owns Closes #N.
-      Every layer that ships work owns its relevant operator docs, dated
-      CHANGELOG.md entry, and completed ROADMAP.md removals. Finalize owns
-      only spec synchronization, task records, and archive movement.
+      Put Closes #N on the PR whose merge satisfies that issue's acceptance,
+      even when later implementation or finalize layers remain. Earlier partial
+      layers reference the issue without closing it. Each layer updates its
+      affected documentation, dated CHANGELOG.md entry, and completed ROADMAP.md
+      removals. Finalize owns spec synchronization, task records, and archive
+      movement, not deferred documentation or issue closure.
     - >-
       Include final-layer spec-sync and archive-readiness tasks. Require entry
       to <change>/finalize with $gh-stack before $openspec-sync-specs writes.
@@ -115,9 +118,14 @@ operations:
         and verify observable behavior before checking a task. Stop at the
         layer boundary for CONTRIBUTING.md publication, review, and CI gates.
       - >-
+        Update affected documentation in the layer that changes the behavior.
+        Put Closes #N on the PR that satisfies the issue's acceptance, even
+        when later layers remain; do not defer closure to finalize.
+      - >-
         Check the parent-relative authored diff against the approximately
-        2,000-line budget before it outgrows the planned concern. Replan or
-        request an exception; never solve sizing by hiding generated churn.
+        2,000-line review target. Consider a coherent split if review would
+        benefit, but do not require an exception for a larger layer or hide
+        generated churn.
       - >-
         Use $gh-stack to repair lower-layer defects on their owning branch,
         replay the stack upward, and return to the current layer.
