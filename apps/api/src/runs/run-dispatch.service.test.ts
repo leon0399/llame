@@ -88,6 +88,16 @@ describe('RunDispatchService', () => {
     expect(enqueue).toHaveBeenCalledOnce();
   });
 
+  it('rejects a transaction whose queue id was already used', async () => {
+    const q = queue();
+    vi.spyOn(q, 'enqueue').mockResolvedValue(null);
+    const service = new RunDispatchService(q, config(), tenantDb());
+
+    await expect(
+      service.enqueueInTransaction(drizzle.mock({ schema }), job),
+    ).rejects.toBeInstanceOf(Error);
+  });
+
   it('fails the run transactionally when enqueue fails', async () => {
     const enqueueFailure = new Error('queue send failed');
     const db = tenantDb();

@@ -1,5 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
+
+import type { Db } from '../db/tenant-db.service';
 
 import { processTraced, publishTraced, type TracedJob } from './job-trace';
 
@@ -155,36 +158,29 @@ export class PgBossQueueService implements Queue {
     data: T,
     options?: EnqueueOptions,
   ): Promise<string | null> {
-    const sendOptions: EnqueueOptions = {};
+    const { tx, ...queueOptions } = options ?? {};
 
-    if (options?.id !== undefined) {
-      sendOptions.id = options.id;
-    }
+    const sendOptions: NonNullable<Parameters<typeof this.boss.send>[2]> =
+      queueOptions;
 
-    if (options?.priority !== undefined) {
-      sendOptions.priority = options.priority;
-    }
+    if (tx !== undefined) {
+      // pg-boss is ESM-only, so load its public adapter asynchronously from
+      // this CommonJS API build.
+      const { fromDrizzle } = await import('pg-boss');
 
-    if (options?.startAfter !== undefined) {
-      sendOptions.startAfter = options.startAfter;
-    }
+      // postgres.js returns a RowList from execute(), while pg-boss's Drizzle
+      // adapter expects { rows }. Keep the query itself in Drizzle so its SQL
+      // tag and parameter binding remain intact.
+      const db = fromDrizzle(
+        {
+          async execute(query: Parameters<Db['execute']>[0]) {
+            return { rows: await tx.execute(query) };
+          },
+        },
+        sql,
+      );
 
-    if (options?.retryLimit !== undefined) {
-      sendOptions.retryLimit = options.retryLimit;
-    }
-
-    if (options?.retryDelay !== undefined) {
-      sendOptions.retryDelay = options.retryDelay;
-    }
-
-    if (options?.retryBackoff !== undefined) {
-      sendOptions.retryBackoff = options.retryBackoff;
-    }
-
-    // Coalescing key — meaningful only under a de-duplicating queue policy
-    // (QueueOptions.policy); a no-op for dedup on a standard queue.
-    if (options?.singletonKey !== undefined) {
-      sendOptions.singletonKey = options.singletonKey;
+      sendOptions.db = db;
     }
 
     return publishTraced(queue.name, data, (payload) =>

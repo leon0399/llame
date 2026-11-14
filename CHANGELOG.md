@@ -70,6 +70,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Prepare transactional Run enqueue (#1657).** Internal producers can insert
+  a Run's queue job through their existing Drizzle transaction, using the
+  public pg-boss adapter with postgres.js result normalization. Queue writes
+  roll back with the caller, preserve delayed starts and parameter binding,
+  and reject duplicate ids. Owner-started dispatch is unchanged; idle host
+  Runs and durable waits remain inactive until their owning layers.
+
 - **Activate background-job settlement notices at Run boundaries (#1657).**
   Each winning settlement, including a lost-on-touch settlement, creates one
   pending notice. Jobless dead-worker checks take no Chat lock; actual lost
@@ -87,6 +94,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Recovery follows only tool results retained by each Continue checkpoint and
   restores each notice against the Run that consumed it. Unrelated ancestor
   receipts remain excluded, and owner-withdrawn notices remain withdrawn.
+
 - **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
   seeded job notices beside owner steering, preserve the earlier reply, and
   persist job context only at dispatch. Stop-result recording consumes exact
