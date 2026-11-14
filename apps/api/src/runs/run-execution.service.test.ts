@@ -6666,6 +6666,200 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(noticeState).toBe('withdrawn');
   });
 
+  it.each(['unfenced', 'cancel-requested', 'chat-lock-unavailable'] as const)(
+    'does not consume stop notices when the result transaction is %s',
+    async (fenceState) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const job = settledBashJob(42);
+
+      const updateForAttempt = vi.spyOn(
+        RunsRepository.prototype,
+        'updateForAttempt',
+      );
+
+      let activeFenceUpdates = 0;
+      updateForAttempt.mockImplementation(
+        (_candidateRunId, _ownerId, _attemptId, patch) => {
+          if (patch.activeAttemptId !== testAttemptId)
+            return Promise.resolve({ ...run });
+
+          activeFenceUpdates += 1;
+
+          if (activeFenceUpdates < 3) return Promise.resolve({ ...run });
+
+          if (fenceState === 'unfenced') return Promise.resolve(undefined);
+
+          if (fenceState === 'cancel-requested')
+            return Promise.resolve({ ...run, cancelRequestedAt: now });
+
+          return Promise.resolve({ ...run });
+        },
+      );
+
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
+        Promise.resolve(
+          fenceState === 'chat-lock-unavailable' && activeFenceUpdates >= 3
+            ? undefined
+            : chat,
+        ),
+      );
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockResolvedValue(['notice-42']);
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: `stop-${fenceState}`,
+              toolName: 'stop',
+              input: JSON.stringify({ jobs: ['job://bash-42'] }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('done'),
+      ]);
+
+      const execution = makeExecutionService(client, undefined, 'stop-host', {
+        allowed: ['stop'],
+        permissionPolicy: compileTestPermissionPolicy(['stop']),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('done');
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === `stop-${fenceState}`,
+      );
+
+      expect(completed?.payload).toMatchObject({
+        status: 'success',
+        consumedJobNoticeIds: [],
+      });
+    },
+  );
+
+  it.each(['succeeded', 'failed', 'cancelled', 'timed_out', 'lost'] as const)(
+    'consumes notices for a matching %s stop result',
+    async (state) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const job = { ...settledBashJob(43), state };
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockResolvedValue(['notice-43']);
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: `stop-${state}`,
+              toolName: 'stop',
+              input: JSON.stringify({ jobs: ['job://bash-43'] }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('done'),
+      ]);
+
+      const execution = makeExecutionService(client, undefined, 'stop-host', {
+        allowed: ['stop'],
+        permissionPolicy: compileTestPermissionPolicy(['stop']),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('done');
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === `stop-${state}`,
+      );
+
+      expect(completed?.payload).toMatchObject({
+        status: 'success',
+        consumedJobNoticeIds: ['notice-43'],
+      });
+    },
+  );
+
+  it('does not consume notices when a settled job changes state before the result transaction', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const initialJob = settledBashJob(44);
+    let reads = 0;
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockImplementation(({ jobIds }) =>
+      Promise.resolve(jobIds.includes('job-44') ? ['notice-44'] : []),
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockImplementation(
+      () => {
+        reads += 1;
+
+        return Promise.resolve(
+          reads === 1 ? initialJob : { ...initialJob, state: 'failed' },
+        );
+      },
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-state-changed',
+            toolName: 'stop',
+            input: JSON.stringify({ jobs: ['job://bash-44'] }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('done'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+    await expect(result.text).resolves.toBe('done');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-state-changed',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      status: 'success',
+      consumedJobNoticeIds: [],
+    });
+  });
+
   it('does not consume notices when the stop tool rejects an unknown job', async () => {
     mockNormalExecutionRepositories();
 
