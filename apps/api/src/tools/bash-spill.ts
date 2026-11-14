@@ -400,7 +400,7 @@ async function writeStreamParts(
 
   if (!canReadArtifacts(context, 'bash')) return undefined;
 
-  return writeWhileLive(context, async () => {
+  return writeWhileLive(context, async (signal) => {
     const written = await writeToolArtifact(
       context.tenantDb,
       {
@@ -422,7 +422,7 @@ async function writeStreamParts(
       {
         maxBytes: artifactMaxBytes(context),
         hostFiles: context.artifactHostFiles === true,
-        abortSignal: context.abortSignal,
+        abortSignal: signal,
         timeoutSignal: context.timeoutSignal,
       },
     );
@@ -448,16 +448,24 @@ async function writeStreamParts(
  */
 async function writeWhileLive(
   context: ToolContext,
-  write: () => Promise<WrittenArtifact | undefined>,
+  write: (
+    signal: AbortSignal | undefined,
+  ) => Promise<WrittenArtifact | undefined>,
 ): Promise<WrittenArtifact | undefined> {
-  if (context.abortSignal?.aborted || context.timeoutSignal?.aborted)
-    return undefined;
-  const signal = context.abortSignal;
+  const signals = [
+    context.abortSignal,
+    context.timeoutSignal,
+    context.moveSignal,
+  ].filter((signal): signal is AbortSignal => signal !== undefined);
 
-  if (signal === undefined) return await write().catch(() => undefined);
+  if (signals.some((signal) => signal.aborted)) return undefined;
+  const signal = signals.length > 0 ? AbortSignal.any(signals) : undefined;
+
+  if (signal === undefined)
+    return await write(undefined).catch(() => undefined);
   const aborted = once(signal, 'abort').then((): undefined => undefined);
 
-  return await Promise.race([write().catch(() => undefined), aborted]);
+  return await Promise.race([write(signal).catch(() => undefined), aborted]);
 }
 
 /**

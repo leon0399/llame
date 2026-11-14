@@ -72,6 +72,23 @@ field, even when false; a Machine Workspace's omitted working directory is a
 Machine target too. An unlimited request is refused before spawn unless the
 operator permits it. The model cannot provide a duration or override a bound.
 
+A foreground host command that runs past the foreground bound moves to the
+background. The bound is the lesser of the operator's foreground setting and
+the call timeout; see [background jobs](../../operator/background-jobs.md#bound-jobs).
+The call then returns `backgrounded` with cause `time`, the command keeps
+running as a job, and the output captured before the move is the start of its
+stored output. The call timeout never stops, rejects, or marks unknown a host
+command.
+
+The move has its own 750 ms window. A failed move stops the command: a proved
+stop is a `timed_out` result with the captured output and a message that names
+the failed move, and an unproved stop is `outcome_unknown`. The move and its recorded result share that window. A move not recorded
+after the window returns one `outcome_unknown` result, and the job continues
+and settles normally. A Run cancellation stops a command that is still in the
+foreground, and never one that already moved. A host call whose attempt or result cannot be stored within 750 ms of the
+bound also returns `outcome_unknown`, and no command is stopped. A command on
+an `ssh://` or `machine://` directory keeps its call deadline and does not move.
+
 A background job survives completion, failure, and cancellation of its starting
 Run. The composer's Stop leaves it running. The owner jobs API and Chat deletion
 can stop it, and its hosting worker stops it on orderly shutdown.

@@ -125,6 +125,13 @@ rejects the whole call.
 }
 ```
 
+A host `bash` command that runs longer than `tools.bash.backgroundAfterSeconds`
+(default 120 seconds, an integer of at least 1 or a whole-value interpolation
+token) moves to the background as a job and keeps running. The lesser of that
+value and `tools.callTimeoutSeconds` applies, so a lower call timeout moves the
+command earlier and never stops it. `ssh://` and `machine://` commands keep the
+call timeout as a deadline. See [background jobs](background-jobs.md).
+
 `grep` walks without a file, entry, byte, or file-size bound unless the
 operator sets one. The call deadline is its only default stop: the tool call
 timeout (120 seconds unless `tools.callTimeoutSeconds` says otherwise), less

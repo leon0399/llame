@@ -48,14 +48,16 @@ function fakeHandle(initial: Output = { stdout: '', stderr: '' }) {
   const listeners: Array<(bytes: number) => void> = [];
   const everSubscribed: Array<(bytes: number) => void> = [];
 
-  const stop = vi.fn((_cause: string) =>
-    Promise.resolve({
+  const stop = vi.fn((cause: string) => {
+    finish({ status: 'error', type: 'cancelled', message: cause });
+
+    return Promise.resolve({
       proved: true,
       ...current,
       truncated: cut.stdout || cut.stderr,
       truncatedStreams: cut,
-    }),
-  );
+    });
+  });
 
   const handle = {
     pid: 42,
@@ -259,46 +261,29 @@ describe('BashJobRegistry', () => {
     ]);
   });
 
-  it('stores no deadline and arms no lifetime for an unlimited job', async () => {
-    const { registry, inserted, settle } = setup(120);
+  it('stores no deadline for an unlimited job', async () => {
+    const { registry, inserted } = setup(120);
     const command = fakeHandle();
 
     await registry.promote(command.handle, facts({ unlimited: true }));
-    await vi.advanceTimersByTimeAsync(10_000_000);
 
     expect(inserted.mock.calls[0][0].deadlineAt).toBeUndefined();
-    expect(command.stop).not.toHaveBeenCalled();
-    expect(settle).not.toHaveBeenCalled();
   });
 
-  it('stops a job at its lifetime and settles it timed_out; an unproved stop is lost', async () => {
-    const { registry, settlements } = setup(120);
-    const command = fakeHandle();
-
+  it('preserves an executor timeout when an owner stop wins registry pickup', async () => {
+    const { registry, settlements } = setup();
+    const command = fakeHandle({ stdout: 'before deadline', stderr: '' });
     await registry.promote(command.handle, facts());
-    await vi.advanceTimersByTimeAsync(119_000);
-    expect(command.stop).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(command.stop).toHaveBeenCalledWith('lifetime');
-    expect(settlements).toMatchObject([{ state: 'timed_out' }]);
-
-    const second = setup(120);
-    const unproved = fakeHandle();
-
-    unproved.stop.mockResolvedValue({
-      proved: false,
-      stdout: '',
+    command.end({
+      status: 'error',
+      type: 'timed_out',
+      durationMs: 120_000,
+      stdout: 'before deadline',
       stderr: '',
       truncated: false,
-      truncatedStreams: { stdout: false, stderr: false },
     });
-    await second.registry.promote(unproved.handle, facts());
-    await vi.advanceTimersByTimeAsync(120_000);
-
-    expect(second.settlements).toMatchObject([
-      { state: 'lost', result: { outcomeUnknown: true } },
-    ]);
+    await registry.stop('job-1', 'owner');
+    expect(settlements).toMatchObject([{ state: 'timed_out' }]);
   });
 
   it.each([
@@ -759,26 +744,12 @@ describe('BashJobRegistry', () => {
     });
   });
 
-  describe('lifetime beyond one timer', () => {
-    it('re-arms a lifetime longer than a timer can hold and stops at the deadline', async () => {
-      const { registry } = setup(3_000_000);
-      const command = fakeHandle();
-      const limit = 2_147_483_647;
-
-      await registry.promote(command.handle, facts());
-      await vi.advanceTimersByTimeAsync(limit);
-      expect(command.stop).not.toHaveBeenCalled();
-
-      await vi.advanceTimersByTimeAsync(3_000_000_000 - limit - 1);
-      expect(command.stop).not.toHaveBeenCalled();
-
-      await vi.advanceTimersByTimeAsync(1);
-      expect(command.stop).toHaveBeenCalledWith('lifetime');
-    });
-  });
-
   describe('commands that are not jobs', () => {
-    const real = (registry: BashJobRegistry, script: string) => {
+    const real = (
+      registry: BashJobRegistry,
+      script: string,
+      options: { readonly unlimited?: boolean } = {},
+    ) => {
       const started = registry.start(
         { command: 'bash', args: ['-c', script], cwd: '/tmp', env: {} },
         {
@@ -790,12 +761,61 @@ describe('BashJobRegistry', () => {
           durationMs: 300_000,
           maxProcesses: 4,
         },
+        options,
       );
 
       if (!('pid' in started)) throw new Error('the command did not start');
 
       return started;
     };
+
+    it('enforces lifetime from spawn through foreground and stalled promotion', async () => {
+      vi.useRealTimers();
+      const { registry, settlements } = setup(0.05);
+      const foreground = real(registry, 'sleep 0.15');
+      const foregroundResult = await foreground.settled;
+      expect(foregroundResult).toMatchObject({
+        status: 'error',
+        type: 'timed_out',
+      });
+
+      const { promise: sequence, resolve: release } =
+        Promise.withResolvers<number>();
+
+      vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockReturnValue(
+        sequence,
+      );
+      const promoting = real(registry, 'sleep 0.15');
+
+      const promotion = registry.promote(
+        promoting,
+        facts({ startedAt: new Date() }),
+      );
+
+      expect(await promoting.settled).toMatchObject({
+        status: 'error',
+        type: 'timed_out',
+      });
+      release(7);
+      await promotion;
+      await registry.shutdown();
+      expect(settlements).toMatchObject([{ state: 'timed_out' }]);
+    });
+
+    it('does not arm a lifetime for an unlimited command', async () => {
+      vi.useRealTimers();
+      const { registry } = setup(0.05);
+
+      const command = real(registry, 'sleep 0.15; printf completed', {
+        unlimited: true,
+      });
+
+      expect(await command.settled).toMatchObject({
+        status: 'success',
+        exitCode: 0,
+        stdout: 'completed',
+      });
+    });
 
     it('stops a foreground command at shutdown, and not one that ended', async () => {
       vi.useRealTimers();

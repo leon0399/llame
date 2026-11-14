@@ -57,7 +57,12 @@ let rootWarned = false;
 /** The trusted fields a reconcile reads; a `bash` call has all of them. */
 export type ArtifactHostContext = Pick<
   ToolContext,
-  'tenantDb' | 'userId' | 'chatId' | 'abortSignal' | 'timeoutSignal'
+  | 'tenantDb'
+  | 'userId'
+  | 'chatId'
+  | 'abortSignal'
+  | 'timeoutSignal'
+  | 'moveSignal'
 >;
 
 /** Whether this process keeps artifact host files (D10). */
@@ -245,7 +250,7 @@ function errorCode(error: unknown): string {
 export async function reconcileArtifactFiles(
   context: ArtifactHostContext,
 ): Promise<void> {
-  if (aborted(context)) return;
+  if (aborted(context) || context.moveSignal?.aborted) return;
   const root = await verifiedChatsRoot();
 
   if (root === undefined) return;
@@ -268,7 +273,7 @@ export async function reconcileArtifactFiles(
   );
 
   for (const [index, part] of parts.entries()) {
-    if (aborted(context)) return;
+    if (aborted(context) || context.moveSignal?.aborted) return;
 
     if (!matches[index]) await repairPart(context, directory, part);
   }

@@ -28,6 +28,7 @@ import { executeSshBash } from './ssh-bash';
 import { type SshClient, type SshRunOutcome } from '../ssh/ssh-client';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { artifactDirectory } from './artifacts/host-files';
+import { hostBashJobs } from '../testing/host-bash-jobs';
 import { bashTool } from './bash';
 import { previewStream, spillBashResult, spillBashStreams } from './bash-spill';
 import { renderToolResultText } from './model-text';
@@ -62,6 +63,11 @@ let insertWrites: ArtifactWrites;
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock({ schema });
 
+  const tenantDb = {
+    runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      callback(db),
+  };
+
   return {
     userId: 'owner',
     chatId: 'chat',
@@ -70,12 +76,10 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
     nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
     bashProcessLimiter: new BashProcessLimiter(64),
+    ...hostBashJobs(tenantDb),
     permissionPolicy: compileTestPermissionPolicy(),
     artifactReadable: true,
-    tenantDb: {
-      runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        callback(db),
-    },
+    tenantDb,
     ...overrides,
     configuredCredentials: overrides.configuredCredentials ?? [],
   };
@@ -464,6 +468,23 @@ describe('the bash spill boundaries', () => {
     expect(result).not.toHaveProperty('artifact');
     expect(textOf(result)).toContain('full result not stored');
   });
+
+  it('returns the inline preview when the foreground bound interrupts a pending write', async () => {
+    insertWrites.insertParts.mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
+    const controller = new AbortController();
+
+    const pending = spillBashResult(
+      testContext({ moveSignal: controller.signal }),
+      success('a'.repeat(20_000)),
+    );
+
+    setTimeout(() => controller.abort(), 0);
+    const result = await pending;
+    expect(result).not.toHaveProperty('artifact');
+    expect(textOf(result)).toContain('full result not stored');
+  }, 1000);
 
   it('probes the read group with the bash locator', async () => {
     const result = await spillBashResult(

@@ -33,6 +33,7 @@ import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtim
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { hostBashJobs } from '../testing/host-bash-jobs';
 import { bashTool } from './bash';
 
 describe('native file authority and durable effects', () => {
@@ -104,6 +105,7 @@ describe('native file authority and durable effects', () => {
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
       bashProcessLimiter: new BashProcessLimiter(64),
+      ...hostBashJobs(tenantDb),
       permissionPolicy: compileTestPermissionPolicy(),
     };
   });

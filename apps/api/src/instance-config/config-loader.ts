@@ -457,6 +457,18 @@ function resolveBashBounds(
       }),
       'tools.bash.maxProcesses',
     ),
+    backgroundAfterSeconds: requireResolvedNumber(
+      resolveNumeric({
+        configPath: 'tools.bash.backgroundAfterSeconds',
+        present: Object.hasOwn(bounds, 'backgroundAfterSeconds'),
+        raw: bounds.backgroundAfterSeconds,
+        builtInDefault: BUILT_IN_DEFAULTS.tools.bash.backgroundAfterSeconds,
+        nullable: false,
+        env,
+        max: Number.MAX_SAFE_INTEGER,
+      }),
+      'tools.bash.backgroundAfterSeconds',
+    ),
   };
 }
 

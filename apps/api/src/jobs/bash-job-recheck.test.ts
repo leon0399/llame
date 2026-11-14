@@ -31,15 +31,23 @@ function command() {
   let finish: (result: BashResult) => void = () => {};
   const settled = new Promise<BashResult>((resolve) => (finish = resolve));
 
-  const stop = vi.fn((_cause: string) =>
-    Promise.resolve({
+  const stop = vi.fn((_cause: string) => {
+    finish({
+      status: 'success',
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      truncated: false,
+    });
+
+    return Promise.resolve({
       proved: true,
       stdout: '',
       stderr: '',
       truncated: false,
       truncatedStreams: { stdout: false, stderr: false },
-    }),
-  );
+    });
+  });
 
   return {
     // SAFETY: the registry uses only these members.
@@ -216,6 +224,13 @@ describe('the heartbeat check of live jobs', () => {
 
     job.stop.mockImplementationOnce(async () => {
       await stopping;
+      job.finish({
+        status: 'success',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      });
 
       return {
         proved: true,

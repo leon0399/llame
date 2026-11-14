@@ -207,6 +207,15 @@ export interface ToolContext {
   readonly jobSettings?: ChatDeliverySettings;
   readonly allowUnlimitedJobs?: boolean;
   /**
+   * Host `bash` only: aborts at the foreground bound, counted from the start
+   * of the call. It moves the command; it never stops it.
+   */
+  readonly moveSignal?: AbortSignal;
+  /** Monotonic spawn deadline in `performance.now()` milliseconds. */
+  readonly moveDeadlineAt?: number;
+  /** `tools.bash.backgroundAfterSeconds`; absent means the built-in 120. */
+  readonly bashBackgroundAfterSeconds?: number;
+  /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.
    */

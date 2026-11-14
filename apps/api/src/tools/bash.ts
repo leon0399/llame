@@ -8,7 +8,6 @@ import {
   type AdmittedBashExecution,
   type BashTimedOutResult,
   type BashUnavailableResult,
-  type ManagedProcessSlot,
   type StreamBound,
 } from '@workspace/bash-executor';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -34,15 +33,13 @@ import {
   readProcBashResult,
   runMachineMutation,
 } from './machine-call';
-import { NativeFilesRepository } from '../runs/native-files-repository';
-import { RunEventsRepository } from '../runs/runs-repository';
 import {
   bashTarget,
   machineWorkingDirectory,
   type BashInput,
   type MachineWorkingDirectory,
 } from './bash-target';
-import { runAsyncBash } from './bash-async';
+import { runAsyncBash, runForegroundBash } from './bash-async';
 
 const bashLogger = new Logger('BashTool');
 
@@ -51,9 +48,6 @@ const MACHINE_BASH_STREAM_BOUND: StreamBound = {
   kind: 'code-units',
   limit: BASH_BOUNDS.outputBound,
 };
-
-type AdmittedBashContext = ToolContext &
-  Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
 
 /**
  * Run on the Machine through its working directory: the command, the managed
@@ -163,50 +157,6 @@ function machineBashExecution(
   return runMachineBash(context, input, machine);
 }
 
-async function runAdmittedBash(
-  context: AdmittedBashContext,
-  admitted: AdmittedBashExecution,
-  slot: ManagedProcessSlot,
-): Promise<ToolResult> {
-  const { runId, userId, nativeExecutorId, toolCallId } = context;
-  const onAbort = () => slot.release();
-
-  context.abortSignal?.addEventListener('abort', onAbort);
-
-  try {
-    const prior = await context.tenantDb.runAs(userId, (db) =>
-      new NativeFilesRepository(db).begin({
-        runId,
-        userId,
-        fence: { bound: true, executorId: nativeExecutorId },
-        deliverySequence: context.nativeDeliverySequence,
-        attemptId: context.attemptId,
-        toolCallId,
-        operation: 'bash',
-        path: admitted.cwd,
-      }),
-    );
-
-    if (prior) return prior;
-    context.abortSignal?.removeEventListener('abort', onAbort);
-    // A host command always runs on the llame host, so the notice names the
-    // directory: in a Machine Workspace every spilled call is a Machine one
-    // (the projection sends it there), so no host-only case is reachable here.
-    const result = await spillBashResult(context, await admitted.run());
-    await context.tenantDb.runAs(userId, async (db) => {
-      await new RunEventsRepository(db).append(runId, 'native.result', {
-        toolCallId,
-        result,
-      });
-    });
-
-    return result;
-  } finally {
-    context.abortSignal?.removeEventListener('abort', onAbort);
-    slot.release();
-  }
-}
-
 export const bashTool: Tool<BashInput> = {
   id: 'bash',
   classification: 'execute_code',
@@ -288,8 +238,6 @@ function admitHostCommand(
     managedBashContext(context),
     {
       signal: context.abortSignal,
-      timeoutSignal: context.timeoutSignal,
-      timeoutMs: context.timeoutMs,
       toolCallId,
       protectedValues: context.configuredCredentials,
     },
@@ -301,7 +249,7 @@ async function runHostBash(
   context: ToolContext,
   input: BashInput,
 ): Promise<ToolResult> {
-  const { runId, userId, nativeExecutorId, toolCallId } = context;
+  const { runId, nativeExecutorId, toolCallId } = context;
 
   if (!runId || !nativeExecutorId || !toolCallId) {
     return {
@@ -341,9 +289,10 @@ async function runHostBash(
       slot,
     );
 
-  return runAdmittedBash(
-    { ...context, runId, userId, nativeExecutorId, toolCallId },
-    admitted,
+  return runForegroundBash(
+    { ...context, runId, nativeExecutorId, toolCallId },
+    input,
+    admitted.cwd,
     slot,
   );
 }

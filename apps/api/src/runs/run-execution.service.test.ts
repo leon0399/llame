@@ -30,6 +30,7 @@ import {
 } from '../tools/artifacts/host-files';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { bashTool } from '../tools/bash';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -657,6 +658,12 @@ function makeExecutionService(
     options.gitSnapshots,
     options.runDispatch,
     options.segmentAborts,
+    // A host `bash` call spawns through the worker registry.
+    new BashJobRegistry(
+      tenantDb,
+      { instanceId: crypto.randomUUID() },
+      instanceConfig,
+    ),
   );
 
   return {

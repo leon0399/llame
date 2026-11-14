@@ -265,6 +265,34 @@ describe('async host bash through the tool', () => {
     expect(inserted[1]?.deadlineAt).toBeNull();
   });
 
+  it('an allowed unlimited command can outlive the configured job lifetime', async () => {
+    await registry.shutdown();
+    registry = new BashJobRegistry(
+      context().tenantDb,
+      { instanceId: crypto.randomUUID() },
+      {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          tools: {
+            ...BUILT_IN_DEFAULTS.tools,
+            jobs: { ...BUILT_IN_DEFAULTS.tools.jobs, maxSeconds: 0.1 },
+          },
+        },
+      },
+    );
+
+    await run(
+      { command: 'sleep 0.3', unlimited: true },
+      { allowUnlimitedJobs: true, toolCallId: 'call-unlimited' },
+    );
+    await settled();
+
+    expect(settlements[0]).toMatchObject({
+      state: 'succeeded',
+      result: { exitCode: 0 },
+    });
+  });
+
   it('refuses an unlimited job when the operator does not allow it, before any attempt', async () => {
     const result = await run({ command: 'true', unlimited: true });
 

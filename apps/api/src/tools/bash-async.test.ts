@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { bashTool } from './bash';
-import { bashTarget } from './bash-target';
+import { bashTarget, isHostBashCall } from './bash-target';
 import { createWorkspaceRootCell } from './workspace-path';
 import { type ToolContext } from './types';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -66,6 +66,24 @@ describe('host-only background fields', () => {
       ).toMatchObject({ type: 'invalid_input' });
     },
   );
+  it('requires a string command before classifying host bash', () => {
+    expect(isHostBashCall({}, context)).toBe(false);
+  });
+
+  it('rejects invalid and remote projected directories as host calls', () => {
+    const machine = {
+      ...context,
+      workspaceRoot: createWorkspaceRootCell('machine://dev/tmp/project'),
+    };
+
+    expect(
+      isHostBashCall({ command: 'true', cwd: 'relative/path' }, machine),
+    ).toBe(false);
+    expect(
+      isHostBashCall({ command: 'true', cwd: 'ssh://host/tmp' }, context),
+    ).toBe(false);
+  });
+
   it('refuses an omitted cwd in a Machine Workspace after projection', async () => {
     const machine = {
       ...context,

@@ -1,3 +1,4 @@
+import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { parsePathScheme } from '@workspace/native-file-tools';
 import { type ToolContext, type ToolResult } from './types';
 import { isSshLocator } from '../ssh/ssh-locator';
@@ -54,6 +55,21 @@ export function bashTarget(
           : 'host',
     input: projected,
   };
+}
+
+/** A call that runs on the llame host, judged on the projected directory. */
+export function isHostBashCall(
+  args: UnknownRecord,
+  context: ToolContext,
+): boolean {
+  if (!isString(args.command)) return false;
+
+  const projected = bashTarget(context, {
+    command: args.command,
+    cwd: isString(args.cwd) ? args.cwd : undefined,
+  });
+
+  return !('status' in projected) && projected.target === 'host';
 }
 
 function projectBashInput(

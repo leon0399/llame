@@ -23,6 +23,7 @@ import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { bashTool } from './bash';
+import { runTool } from './runner';
 import { type ToolContext } from './types';
 
 const config = { config: BUILT_IN_DEFAULTS };
@@ -181,6 +182,54 @@ describe('real host async jobs', () => {
       toolCallId: context.toolCallId,
       result: { backgrounded: true, job: `job://bash-${job.seq}` },
     });
+  });
+
+  it('A real foreground command moves at the bound with its output and keeps running', async () => {
+    context = { ...context, bashBackgroundAfterSeconds: 1 };
+
+    const result = await runTool(
+      bashTool,
+      { command: 'printf before; sleep 2; printf after' },
+      context,
+      30,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      cause: 'time',
+    });
+
+    const job = (await jobs()).find(
+      (stored) => stored.toolCallId === context.toolCallId,
+    );
+
+    if (job === undefined) throw new Error('The move stored no job');
+    expect(job.state).toBe('running');
+
+    await vi.waitFor(
+      async () => {
+        expect((await jobs())[0]?.state).toBe('succeeded');
+      },
+      { timeout: 8000 },
+    );
+
+    const output = await tenant.runAs(owner, (db) =>
+      new ChatJobsRepository(db).readOutput(owner, job.id, 'stdout'),
+    );
+
+    expect(output.toString()).toBe('beforeafter');
+
+    const results = (
+      await tenant.runAs(owner, (db) =>
+        db
+          .select()
+          .from(schema.runEvents)
+          .where(eq(schema.runEvents.runId, context.runId!)),
+      )
+    ).filter((event) => event.eventType === 'native.result');
+
+    expect(results).toHaveLength(1);
   });
 
   it.each(['completed', 'failed', 'cancelled'] as const)(
