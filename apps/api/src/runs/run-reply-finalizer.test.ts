@@ -560,6 +560,65 @@ describe('finalizeRunReply', () => {
     },
   );
 
+  it('keeps unrelated wake completions while replacing the suspended wait result', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(1, 'prior'),
+        event(2, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(3, 'run.suspended', {
+          generation: 1,
+          toolCallId: 'wait-call',
+          parts: [{ type: 'text', text: 'checkpoint' }],
+          steps: {},
+          awaiting: {
+            toolCallId: 'wait-call',
+            toolInput: { jobs: ['job://executor-1'] },
+            jobIds: ['job-id'],
+            deadline: '2026-10-10T01:00:00.000Z',
+          },
+        }),
+        event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+        event(5, 'run.started', { attemptId: 'wake' }),
+        requested(6, 'wake'),
+        event(7, 'tool.completed', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          output: { status: 'success', value: 'finished' },
+        }),
+        ...toolCall(8, 'other-call'),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake' },
+      status: 'failed',
+      attemptId: 'wake',
+      models,
+    });
+
+    expect(update.mock.calls[0]?.[0]?.parts).toEqual([
+      { type: 'text', text: 'checkpoint' },
+      expect.objectContaining({ type: 'tool-wait', toolCallId: 'wait-call' }),
+      expect.objectContaining({
+        type: 'tool-search',
+        toolCallId: 'other-call',
+      }),
+    ]);
+  });
+
   it('keeps wake reply usage to the seeded attempt, not the suspended attempt', async () => {
     const running = runningReplyUsage({
       runId,

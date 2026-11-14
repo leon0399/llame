@@ -411,6 +411,8 @@ describe('buildWaitResult', () => {
     });
     expect(result).not.toHaveProperty('jobs.0.exitDetail');
     expect(result).not.toHaveProperty('promise');
+    expect(result).not.toHaveProperty('jobs.0.exitDetail.stoppedBy');
+    expect(result).not.toHaveProperty('jobs.1.artifactLocator');
   });
 
   it('returns only the final 2000 output characters', async () => {

@@ -292,6 +292,12 @@ describe('pendingWakeInTransaction', () => {
     ).rejects.toThrow(expected);
   });
 
+  it('does not treat a missing wake receipt as a resumed Run', async () => {
+    await expect(
+      pendingWakeInTransaction(db([]), run()),
+    ).resolves.toBeUndefined();
+  });
+
   it('does not inspect wake events when the Run is not awaiting jobs', async () => {
     await expect(
       pendingWakeInTransaction(

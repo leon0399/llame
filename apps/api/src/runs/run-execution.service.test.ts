@@ -1104,6 +1104,20 @@ describe('RunExecutionService executeRun', () => {
     ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
   }
 
+  it('does not execute after the Chat lock cannot be acquired', async () => {
+    mockNormalExecutionRepositories();
+
+    const execution = makeExecutionService();
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(undefined);
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(stream).not.toHaveBeenCalled();
+  });
+
   it('restores the Chat artifact files before the first request and sweeps stale directories at attempt start', async () => {
     mockNormalExecutionRepositories();
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
