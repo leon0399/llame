@@ -7,7 +7,7 @@
  */
 import { simulateReadableStream, type TextStreamPart, type ToolSet } from 'ai';
 
-import { consumeStreamParts } from './stream-parts';
+import { consumeStreamParts, forwardChunk } from './stream-parts';
 import { createToolCallGate } from './tool-call-gate';
 
 type Delivery = [string, string | undefined, unknown];
@@ -173,6 +173,13 @@ describe('consumeStreamParts', () => {
     const metadata = { openai: { itemId: 'fc_1' } };
 
     const reported: Array<[string, unknown]> = [];
+
+    const reportedCalls: Array<{
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+    }> = [];
+
     await consumeStreamParts(
       simulateReadableStream<TextStreamPart<ToolSet>>({
         chunks: [
@@ -181,7 +188,7 @@ describe('consumeStreamParts', () => {
             type: 'tool-call',
             toolCallId: 'call-1',
             toolName: 'echo',
-            input: {},
+            input: { value: 'hello' },
             providerMetadata: metadata,
           },
         ],
@@ -191,12 +198,129 @@ describe('consumeStreamParts', () => {
           order.push('metadata');
           reported.push([toolCallId, providerMetadata]);
         },
+        onToolCall: (call) => {
+          order.push('tool');
+          reportedCalls.push(call);
+        },
       },
       gate,
     );
 
-    expect(order).toEqual(['metadata', 'call']);
+    expect(order).toEqual(['metadata', 'tool', 'call']);
     expect(reported).toEqual([['call-1', metadata]]);
+    expect(reportedCalls).toEqual([
+      { toolCallId: 'call-1', toolName: 'echo', input: { value: 'hello' } },
+    ]);
+  });
+
+  it('reports a streamed tool call to the model callback', () => {
+    const reportedCalls: Array<unknown> = [];
+    const metadata: Array<unknown> = [];
+
+    forwardChunk(
+      {
+        type: 'tool-call',
+        toolCallId: 'call-2',
+        toolName: 'echo',
+        input: { value: 'world' },
+        providerMetadata: { openai: { itemId: 'fc_2' } },
+      },
+      {
+        onToolCall: (call) => reportedCalls.push(call),
+        onToolCallMetadata: (_id, value) => metadata.push(value),
+      },
+    );
+
+    expect(reportedCalls).toEqual([
+      { toolCallId: 'call-2', toolName: 'echo', input: { value: 'world' } },
+    ]);
+    expect(metadata).toEqual([{ openai: { itemId: 'fc_2' } }]);
+  });
+  it('keeps invalid streamed calls from invoking tools while forwarding metadata', async () => {
+    const metadata = { openai: { itemId: 'fc-invalid' } };
+    const streamedCalls: Array<unknown> = [];
+    const streamedMetadata: Array<unknown> = [];
+
+    await consumeStreamParts(
+      simulateReadableStream<TextStreamPart<ToolSet>>({
+        chunks: [
+          {
+            type: 'tool-call',
+            toolCallId: 'invalid-streamed',
+            toolName: 'echo',
+            input: {},
+            dynamic: true,
+            invalid: true,
+            providerMetadata: metadata,
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'valid-streamed',
+            toolName: 'echo',
+            input: {},
+            dynamic: true,
+            invalid: false,
+          },
+        ],
+      }),
+      {
+        onToolCall: (call) => streamedCalls.push(call),
+        onToolCallMetadata: (_id, value) => streamedMetadata.push(value),
+      },
+      createToolCallGate(),
+    );
+
+    expect(streamedCalls).toEqual([
+      {
+        toolCallId: 'valid-streamed',
+        toolName: 'echo',
+        input: {},
+      },
+    ]);
+    expect(streamedMetadata).toEqual([metadata]);
+
+    const chunkCalls: Array<unknown> = [];
+    const chunkMetadata: Array<unknown> = [];
+
+    forwardChunk(
+      {
+        type: 'tool-call',
+        toolCallId: 'invalid-chunk',
+        toolName: 'echo',
+        input: {},
+        dynamic: true,
+        invalid: true,
+        providerMetadata: metadata,
+      },
+      {
+        onToolCall: (call) => chunkCalls.push(call),
+        onToolCallMetadata: (_id, value) => chunkMetadata.push(value),
+      },
+    );
+
+    forwardChunk(
+      {
+        type: 'tool-call',
+        toolCallId: 'valid-chunk',
+        toolName: 'echo',
+        input: {},
+        dynamic: true,
+        invalid: false,
+      },
+      {
+        onToolCall: (call) => chunkCalls.push(call),
+        onToolCallMetadata: (_id, value) => chunkMetadata.push(value),
+      },
+    );
+
+    expect(chunkCalls).toEqual([
+      {
+        toolCallId: 'valid-chunk',
+        toolName: 'echo',
+        input: {},
+      },
+    ]);
+    expect(chunkMetadata).toEqual([metadata]);
   });
 
   it('ends quietly when the stream fails, leaving the error to the caller’s own consumption', async () => {

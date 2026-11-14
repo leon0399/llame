@@ -253,6 +253,8 @@ import {
   registerTestOnlyTool,
   unregisterTestOnlyTool,
 } from '../tools/registry';
+import { RunWaitService } from './run-wait.service';
+import { waitTool } from '../tools/wait';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -538,6 +540,8 @@ type ExecutionServiceOptions = {
   runDispatch?: Pick<RunDispatcher, 'dispatch'>;
   /** The registry an owner interrupt aborts a segment through. */
   segmentAborts?: RunSegmentRegistrar;
+  /** Durable wait suspension dependency for the host-controlled wait tool. */
+  runWait?: RunWaitService;
 };
 
 function makeExecutionService(
@@ -546,6 +550,8 @@ function makeExecutionService(
   nativeExecutorId?: string,
   options: ExecutionServiceOptions = {},
 ) {
+  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+
   const db: Db = drizzle.mock({ schema });
 
   const tenantDb = new TenantDbService({
@@ -680,6 +686,7 @@ function makeExecutionService(
       instanceConfig,
       { startOnSettlement: vi.fn() },
     ),
+    options.runWait,
   );
 
   return {
@@ -1096,6 +1103,34 @@ describe('RunExecutionService executeRun', () => {
       'findPartContent',
     ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
   }
+
+  it('executes a normal attempt when no native mutation needs recovery', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
+      false,
+    );
+
+    const execution = makeExecutionService();
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await execution.service.executeRun(executionInput(execution.client));
+
+    expect(stream).toHaveBeenCalledOnce();
+  });
+
+  it('does not execute after the Chat lock cannot be acquired', async () => {
+    mockNormalExecutionRepositories();
+
+    const execution = makeExecutionService();
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(undefined);
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(stream).not.toHaveBeenCalled();
+  });
 
   it('restores the Chat artifact files before the first request and sweeps stale directories at attempt start', async () => {
     mockNormalExecutionRepositories();
@@ -5632,6 +5667,7 @@ describe('RunExecutionService executeRun — queue promotion', () => {
       ),
     );
     await execution.service.executeRun(executionInput(capturing.client));
+    lock.mockClear();
 
     return {
       streamOptions: capturing.streamOptions(),
@@ -6768,14 +6804,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         },
       );
 
-      vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
-        Promise.resolve(
-          fenceState === 'chat-lock-unavailable' && activeFenceUpdates >= 3
-            ? undefined
-            : chat,
-        ),
-      );
-
       vi.spyOn(
         ChatDeliveriesRepository.prototype,
         'consumeJobNotices',
@@ -6803,6 +6831,14 @@ describe('RunExecutionService executeRun — tool loop', () => {
         allowed: ['stop'],
         permissionPolicy: compileTestPermissionPolicy(['stop']),
       });
+
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
+        Promise.resolve(
+          fenceState === 'chat-lock-unavailable' && activeFenceUpdates >= 3
+            ? undefined
+            : chat,
+        ),
+      );
 
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('done');
@@ -20715,6 +20751,7 @@ describe('RunExecutionService git state', () => {
 
 describe('RunExecutionService executeRun — run segments', () => {
   afterEach(() => {
+    unregisterTestOnlyTool('wait');
     vi.restoreAllMocks();
   });
 
@@ -20819,6 +20856,527 @@ describe('RunExecutionService executeRun — run segments', () => {
     finishReason: 'tool-calls' as const,
     stepCount: 2,
   };
+
+  it.each([
+    {
+      outcome: { kind: 'suspended' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'cancelled' as const },
+      terminalStatus: 'cancelled' as const,
+      expectedContinuation: false,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: 'completed' as const,
+      expectedContinuation: true,
+    },
+  ])(
+    'records wait suspension outcome $outcome.kind',
+    async ({ outcome, terminalStatus, expectedContinuation }) => {
+      registerTestOnlyTool(waitTool);
+
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const job = {
+        ...settledBashJob(44),
+        state: 'running' as const,
+        settledAt: null,
+        result: null,
+        outputs: [],
+      };
+
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const suspend = vi
+        .fn<RunWaitService['suspend']>()
+        .mockResolvedValue(outcome);
+
+      const segment = makeSegmentClient();
+
+      const execution = makeExecutionService(
+        segment.client,
+        undefined,
+        undefined,
+        {
+          allowed: ['wait'],
+          permissionPolicy: compileTestPermissionPolicy(['wait']),
+          runWait: asDouble<RunWaitService>({ suspend }),
+        },
+      );
+
+      const settledJob = {
+        ...job,
+        state: 'succeeded' as const,
+        settledAt: new Date(now.getTime() + 1000),
+        result: { exitCode: 0 },
+      };
+
+      if (expectedContinuation) {
+        vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+          ...run,
+          activeAttemptId: testAttemptId,
+        });
+        vi.spyOn(
+          ChatDeliveriesRepository.prototype,
+          'consumeJobNotices',
+        ).mockResolvedValue([]);
+        Object.defineProperty(execution.db, 'select', {
+          configurable: true,
+          value: () => ({
+            from: () => ({
+              where: () => Promise.resolve([settledJob]),
+            }),
+          }),
+        });
+        serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+      }
+
+      const result = await execution.service.executeRun(
+        executionInput(segment.client),
+      );
+
+      const options = segment.calls[0];
+      expect(options?.tools).toHaveProperty('wait');
+
+      if (!options?.onToolCall)
+        throw new Error('wait tool call callback was not captured');
+
+      await options.onStepStart?.({ messages: [], stepNumber: 0 });
+      options.onToolCall({
+        toolCallId: 'wait-call',
+        toolName: 'wait',
+        input: { jobs: ['job://bash-44'], timeout: 30 },
+      });
+      await options.onFinish?.(finishToolCalls);
+      await result.consumeStream();
+
+      if (expectedContinuation) {
+        const continuation = segment.calls[1];
+
+        if (!continuation?.onFinish || !continuation.onTextDelta) {
+          throw new Error('wait continuation was not captured');
+        }
+
+        await continuation.onStepStart?.({ messages: [], stepNumber: 0 });
+        continuation.onTextDelta('answer', '0:answer');
+        await continuation.onFinish({
+          text: 'answer',
+          usage: ZERO_USAGE,
+          finishReason: 'stop',
+          stepCount: 1,
+        });
+      }
+
+      expect(suspend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId,
+          chatId,
+          userId,
+          attemptId: testAttemptId,
+          toolCallId: 'wait-call',
+          toolInput: { jobs: ['job://bash-44'], timeout: 30 },
+          jobIds: ['job-44'],
+          steps: { 'wait-call': 0 },
+        }),
+      );
+      expect(appended.map(({ type }) => type)).toContain('tool.requested');
+
+      if (terminalStatus === 'cancelled') {
+        expect(appended.map(({ type }) => type)).toContain('run.cancelled');
+        expect(spies.markFinished).toHaveBeenCalledWith(
+          runId,
+          userId,
+          'cancelled',
+          expect.any(Object),
+        );
+      } else if (terminalStatus === 'completed') {
+        expect(appended.map(({ type }) => type)).toContain('tool.completed');
+        expect(appended.map(({ type }) => type)).toContain('run.completed');
+        expect(spies.markFinished).toHaveBeenCalledWith(
+          runId,
+          userId,
+          'completed',
+          expect.objectContaining({ attemptId: testAttemptId }),
+        );
+        expect(
+          appended.find(({ type }) => type === 'model.delta')?.payload,
+        ).toMatchObject({ text: 'answer', stepNumber: 2 });
+      } else {
+        expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+        expect(spies.markFinished).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('keeps the first valid wait request when the model requests wait twice in one step', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = {
+      ...settledBashJob(47),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish)
+      throw new Error('wait tool-loop callbacks were not captured');
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'first-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-47'] },
+    });
+    options.onToolCall({
+      toolCallId: 'second-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-47'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(suspend).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'first-wait' }),
+    );
+
+    const refusal = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'second-wait' &&
+        isRecord(entry.payload['output']),
+    );
+
+    if (!refusal || !isRecord(refusal.payload)) {
+      throw new Error('Expected the second wait call completion.');
+    }
+
+    const output = refusal.payload['output'];
+
+    if (!isRecord(output)) {
+      throw new Error('Expected the second wait call refusal output.');
+    }
+
+    expect(output['type']).toBe('wait_already_requested');
+    expect(output['message']).toContain('first-wait');
+  });
+
+  it('allows a valid wait after an invalid wait call in the same step', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = {
+      ...settledBashJob(48),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('wait tool-loop callbacks were not captured');
+    }
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'invalid-wait',
+      toolName: 'wait',
+      input: { jobs: ['not-a-job-locator'] },
+    });
+    options.onToolCall({
+      toolCallId: 'valid-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-48'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(suspend).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'valid-wait' }),
+    );
+
+    const invalidCompletion = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'invalid-wait',
+    );
+
+    if (!invalidCompletion || !isRecord(invalidCompletion.payload)) {
+      throw new Error('Expected the invalid wait call completion.');
+    }
+
+    const output = invalidCompletion.payload['output'];
+
+    if (!isRecord(output)) {
+      throw new Error('Expected the invalid wait call output.');
+    }
+
+    expect(output['type']).toBe('invalid_input');
+  });
+  it('claims a resumed wait and completes it before continuing', async () => {
+    registerTestOnlyTool(waitTool);
+
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const awaiting = {
+      toolCallId: 'wake-wait',
+      toolInput: { jobs: ['job://bash-45'], timeout: 30 },
+      jobIds: ['job-45'],
+      deadline: '2026-11-14T12:30:00.000Z',
+    };
+
+    const claimed = {
+      ...run,
+      activeAttemptId: testAttemptId,
+      awaiting,
+      wakeGeneration: 1,
+    };
+
+    spies.markStarted.mockResolvedValue(claimed);
+
+    const settledJob = {
+      ...settledBashJob(45),
+      settledAt: new Date(now.getTime() + 1000),
+      outputs: [],
+    };
+
+    const wakeEvents: Array<RunEvent> = [
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'run.suspended',
+        payload: {
+          attemptId: 'suspended-attempt',
+          generation: 1,
+          toolCallId: awaiting.toolCallId,
+          awaiting,
+          parts: [{ type: 'text', text: 'before wait', step: 4 }],
+          steps: { [awaiting.toolCallId]: 4 },
+        },
+      },
+      {
+        ...event,
+        sequence: 2,
+        eventType: 'run.resumed',
+        payload: { generation: 1, cause: 'settled' },
+      },
+      {
+        ...event,
+        sequence: 3,
+        eventType: 'run.started',
+        payload: { attemptId: testAttemptId },
+      },
+      {
+        ...event,
+        sequence: 4,
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: awaiting.toolCallId,
+          toolName: 'wait',
+          output: { status: 'success', ended: 'settled', jobs: [] },
+        },
+      },
+    ];
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          wakeEvents.filter(
+            ({ eventType }) =>
+              options?.eventTypes === undefined ||
+              options.eventTypes.some((type) => type === eventType),
+          ),
+        ),
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockResolvedValue([]);
+
+    serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+
+    const segment = makeSegmentClient();
+
+    const executor: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: () => ({ status: 'success' as const, value: 'continued' }),
+    };
+
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver(executor),
+      undefined,
+      {
+        ...withDeclaredTool(),
+        allowed: ['wait', toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([
+          'wait',
+          toolDeclaration.id,
+        ]),
+      },
+    );
+
+    const latest = [
+      {
+        eventType: 'run.resumed',
+        payload: { generation: 1, cause: 'settled' },
+      },
+    ];
+
+    Object.defineProperty(execution.db, 'select', {
+      configurable: true,
+      value: () => ({
+        from: () => ({
+          innerJoin: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: () => Promise.resolve(latest),
+              }),
+            }),
+          }),
+          where: () => Promise.resolve([settledJob]),
+        }),
+      }),
+    });
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall)
+      throw new Error('wake tool-loop callback was not captured');
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'after-wake',
+      toolName: toolDeclaration.id,
+      input: { q: 'continue' },
+    });
+    await executeBoundTool(options, { q: 'continue' }, 'after-wake');
+    await options.onStepStart?.({ messages: [], stepNumber: 1 });
+    await options.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    const completed = appended.findIndex(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'wake-wait',
+    );
+
+    const continued = appended.findIndex(
+      (entry) =>
+        entry.type === 'tool.requested' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'after-wake',
+    );
+
+    const modelRequest = appended.findIndex(
+      (entry) => entry.type === 'model.requested',
+    );
+
+    expect(completed).toBeGreaterThanOrEqual(0);
+    expect(continued).toBeGreaterThan(completed);
+    expect(modelRequest).toBeGreaterThan(completed);
+    expect(appended[completed]?.payload).toMatchObject({
+      output: {
+        jobs: [expect.objectContaining({ locator: 'job://bash-45' })],
+      },
+    });
+
+    expect(
+      appended.find((entry) => entry.type === 'tool.completed'),
+    ).toMatchObject({
+      payload: {
+        toolCallId: 'wake-wait',
+        toolName: 'wait',
+      },
+    });
+    expect(
+      appended.find((entry) => entry.type === 'tool.requested'),
+    ).toMatchObject({
+      payload: {
+        toolCallId: 'after-wake',
+        stepNumber: 0,
+      },
+    });
+    expect(spies.markStarted).toHaveBeenCalledWith(runId, userId);
+  });
 
   it('stops the call when the step end finds a pending item and not otherwise', async () => {
     mockNormalExecutionRepositories();

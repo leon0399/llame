@@ -95,7 +95,7 @@ async function readJobNoticeHostDirectory(
   });
 }
 
-async function readJobNoticeOutputs(input: {
+export async function readJobNoticeOutputs(input: {
   readonly chatId: string;
   readonly ownerUserId: string;
   readonly job: ChatJob;

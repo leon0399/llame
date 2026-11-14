@@ -215,6 +215,16 @@ export interface ModelStreamInput {
     providerMetadata: ProviderMetadata,
   ) => void;
   /**
+   * A validated tool call, after its metadata is observed and before the
+   * execution gate opens. Deferred tools can execute under host control
+   * without giving the SDK a fabricated completion.
+   */
+  onToolCall?: (call: {
+    readonly toolCallId: string;
+    readonly toolName: string;
+    readonly input: unknown;
+  }) => void;
+  /**
    * Called for each reasoning ("thinking") delivery from a reasoning model:
    * the delta text (possibly empty), the id of the provider part it belongs to,
    * and the opaque metadata that part carries. Same narrow seam as

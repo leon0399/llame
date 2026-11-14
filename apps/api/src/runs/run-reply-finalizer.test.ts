@@ -1,7 +1,10 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { MessagesRepository } from '../chats/chats-repository';
-import { createContextItemPart } from '../chats/context-item';
+import {
+  createContextItemPart,
+  isContextItemPart,
+} from '../chats/context-item';
 import * as schema from '../db/schema';
 import { type Message, type Run, type RunEvent } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
@@ -422,9 +425,18 @@ describe('finalizeRunReply', () => {
         event(1, 'run.started', null),
         requested(2, 'a'),
         ...toolCall(3, 't1'),
-        event(5, 'model.delta', { text: 'after the rules' }),
+        event(5, 'model.completed', {
+          attemptId: 'a',
+          telemetry: {
+            ...telemetry('a'),
+            inputTokens: 100,
+            outputTokens: 10,
+            totalTokens: 110,
+          },
+        }),
+        event(6, 'model.delta', { text: 'after the rules' }),
         // Attempt b started and failed before its own dispatch.
-        event(6, 'run.started', null),
+        event(7, 'run.started', null),
       ],
       reply: reply({ usage: running, parts: [toolPart('t1'), item] }),
     });
@@ -454,6 +466,415 @@ describe('finalizeRunReply', () => {
           billing: 'subscription',
           costUsd: null,
         },
+      }),
+    );
+  });
+
+  it.each([true, false])(
+    'keeps the first claimed wait result before usage advances (explicit attempt: %s)',
+    async (explicitAttempt) => {
+      const running = runningReplyUsage({
+        runId,
+        attemptId: 'prior',
+        modelId: 'fake-model',
+        effort: undefined,
+        permissionMode: 'default',
+      });
+
+      const measured = {
+        ...telemetry('prior'),
+        inputTokens: 17,
+        outputTokens: 5,
+        totalTokens: 22,
+        status: 'completed' as const,
+        complete: true,
+      };
+
+      const { update } = serve({
+        log: [
+          requested(0, 'prior'),
+          event(1, 'model.delta', { text: 'checkpoint' }),
+          event(2, 'model.completed', {
+            attemptId: 'prior',
+            telemetry: measured,
+          }),
+          event(3, 'tool.requested', {
+            toolCallId: 'wait-call',
+            toolName: 'wait',
+            input: { jobs: ['job://executor-1'] },
+            providerMetadata: { provider: { marker: 'kept' } },
+          }),
+          event(4, 'tool.started', {
+            toolCallId: 'wait-call',
+            classification: 'read_only',
+          }),
+          event(5, 'run.suspended', {
+            generation: 1,
+            toolCallId: 'wait-call',
+            parts: [{ type: 'text', text: 'checkpoint' }],
+            steps: {},
+            awaiting: {
+              toolCallId: 'wait-call',
+              toolInput: { jobs: ['job://executor-1'] },
+              jobIds: ['job://executor-1'],
+              deadline: '2026-10-10T01:00:00.000Z',
+            },
+          }),
+          event(6, 'run.resumed', { generation: 1, cause: 'settled' }),
+          event(7, 'run.started', { attemptId: 'wake' }),
+          event(8, 'tool.completed', {
+            toolCallId: 'wait-call',
+            toolName: 'wait',
+            output: { status: 'success', value: 'finished' },
+          }),
+        ],
+        reply: reply({ usage: running }),
+      });
+
+      await finalizeRunReply(tx, {
+        run: { ...run, activeAttemptId: 'wake' },
+        status: 'failed',
+        ...(explicitAttempt && { attemptId: 'wake' }),
+        models,
+      });
+
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parts: [
+            { type: 'text', text: 'checkpoint' },
+            {
+              type: 'tool-wait',
+              toolCallId: 'wait-call',
+              state: 'output-available',
+              step: 0,
+              input: { jobs: ['job://executor-1'] },
+              output: { status: 'success', value: 'finished' },
+              outcome: 'success',
+              classification: 'read_only',
+              providerMetadata: { provider: { marker: 'kept' } },
+            },
+          ],
+          usage: { ...measured, status: 'error', complete: false },
+        }),
+      );
+    },
+  );
+
+  it('keeps unrelated wake completions while replacing the suspended wait result', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(1, 'prior'),
+        event(2, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(3, 'run.suspended', {
+          generation: 1,
+          toolCallId: 'wait-call',
+          parts: [{ type: 'text', text: 'checkpoint' }],
+          steps: {},
+          awaiting: {
+            toolCallId: 'wait-call',
+            toolInput: { jobs: ['job://executor-1'] },
+            jobIds: ['job-id'],
+            deadline: '2026-10-10T01:00:00.000Z',
+          },
+        }),
+        event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+        event(5, 'run.started', { attemptId: 'wake' }),
+        requested(6, 'wake'),
+        event(7, 'tool.completed', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          output: { status: 'success', value: 'finished' },
+        }),
+        ...toolCall(8, 'other-call'),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake' },
+      status: 'failed',
+      attemptId: 'wake',
+      models,
+    });
+
+    expect(update.mock.calls[0]?.[0]?.parts).toEqual([
+      { type: 'text', text: 'checkpoint' },
+      expect.objectContaining({ type: 'tool-wait', toolCallId: 'wait-call' }),
+      expect.objectContaining({
+        type: 'tool-search',
+        toolCallId: 'other-call',
+      }),
+    ]);
+    expect(update.mock.calls[0]?.[0]?.usage).toMatchObject({
+      status: 'error',
+      complete: false,
+      attemptId: 'prior',
+    });
+  });
+
+  it('keeps wake reply usage to the seeded attempt, not the suspended attempt', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'wake',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const beforeWake = {
+      ...telemetry('prior'),
+      inputTokens: 100,
+      outputTokens: 10,
+      totalTokens: 110,
+    };
+
+    const afterWake = {
+      ...telemetry('wake'),
+      inputTokens: 20,
+      outputTokens: 5,
+      totalTokens: 25,
+    };
+
+    const { update } = serve({
+      log: [
+        requested(0, 'prior'),
+        event(1, 'model.completed', {
+          attemptId: 'prior',
+          telemetry: beforeWake,
+        }),
+        event(2, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(3, 'run.suspended', {
+          generation: 1,
+          toolCallId: 'wait-call',
+          parts: [],
+          steps: {},
+          awaiting: {
+            toolCallId: 'wait-call',
+            toolInput: { jobs: ['job://executor-1'] },
+            jobIds: ['job-id'],
+            deadline: '2026-10-10T01:00:00.000Z',
+          },
+        }),
+        event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+        event(5, 'run.started', { attemptId: 'wake' }),
+        event(6, 'tool.completed', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          output: { status: 'success', jobs: [] },
+        }),
+        requested(7, 'wake'),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake' },
+      status: 'completed',
+      attemptId: 'wake',
+      telemetry: afterWake,
+      models,
+    });
+
+    expect(update.mock.calls[0]?.[0]?.usage).toMatchObject({
+      inputTokens: 20,
+      outputTokens: 5,
+      complete: false,
+      attemptId: 'wake',
+    });
+  });
+
+  it('does not duplicate a wake prefix item already present in the reply snapshot', async () => {
+    const item = contextItem('wake instructions');
+
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(0, 'prior'),
+        event(1, 'model.completed', {
+          attemptId: 'prior',
+          telemetry: { ...telemetry('prior'), status: 'completed' },
+        }),
+        event(2, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(3, 'run.suspended', {
+          generation: 1,
+          toolCallId: 'wait-call',
+          parts: [item],
+          steps: {},
+          awaiting: {
+            toolCallId: 'wait-call',
+            toolInput: { jobs: ['job://executor-1'] },
+            jobIds: ['job-id'],
+            deadline: '2026-10-10T01:00:00.000Z',
+          },
+        }),
+        event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+        event(5, 'run.started', { attemptId: 'wake' }),
+      ],
+      reply: reply({ usage: running, parts: [item] }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake' },
+      status: 'failed',
+      attemptId: 'wake',
+      models,
+    });
+
+    expect(update.mock.calls[0]?.[0]?.parts?.filter(isContextItemPart)).toEqual(
+      [item],
+    );
+  });
+
+  it.each([
+    ['wrong attempt', { ...telemetry('other'), inputTokens: 100 }],
+    [
+      'wrong Run',
+      {
+        ...telemetry('prior'),
+        runId: '44444444-4444-4444-8444-444444444444',
+        inputTokens: 100,
+      },
+    ],
+    ['malformed telemetry', null],
+  ])('rejects wake telemetry for a %s', async (_case, measured) => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(0, 'prior'),
+        event(1, 'model.completed', {
+          attemptId: 'prior',
+          telemetry: measured,
+        }),
+        event(2, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(3, 'run.suspended', {
+          generation: 1,
+          toolCallId: 'wait-call',
+          parts: [],
+          steps: {},
+          awaiting: {
+            toolCallId: 'wait-call',
+            toolInput: { jobs: ['job://executor-1'] },
+            jobIds: ['job-id'],
+            deadline: '2026-10-10T01:00:00.000Z',
+          },
+        }),
+        event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+        event(5, 'run.started', { attemptId: 'wake' }),
+        event(6, 'tool.completed', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          output: { status: 'success', ended: 'settled', jobs: [] },
+        }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake' },
+      status: 'failed',
+      attemptId: 'wake',
+      models,
+    });
+
+    const usage = update.mock.calls[0]?.[0]?.usage;
+    expect(usage).toMatchObject({
+      status: 'error',
+      complete: false,
+      attemptId: 'prior',
+      costUsd: null,
+    });
+    expect(usage).not.toHaveProperty('inputTokens');
+  });
+
+  it('does not seed the first claimed wait result into a retry', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(1, 'prior'),
+        event(2, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(3, 'run.suspended', {
+          generation: 1,
+          toolCallId: 'wait-call',
+          parts: [{ type: 'text', text: 'checkpoint' }],
+          steps: {},
+          awaiting: {
+            toolCallId: 'wait-call',
+            toolInput: { jobs: ['job://executor-1'] },
+            jobIds: ['job://executor-1'],
+            deadline: '2026-10-10T01:00:00.000Z',
+          },
+        }),
+        event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+        event(5, 'run.started', { attemptId: 'wake' }),
+        event(6, 'tool.completed', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          output: { status: 'success', value: 'finished' },
+        }),
+        event(7, 'run.started', { attemptId: 'retry' }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'failed',
+      attemptId: 'retry',
+      models,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [],
       }),
     );
   });

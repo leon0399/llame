@@ -14,6 +14,7 @@ export const TOOL_PROMPT_IDS = [
   'conversation_read',
   'knowledge_search',
   'web_search',
+  'wait',
   'grep',
 ] as const;
 
