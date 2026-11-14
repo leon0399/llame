@@ -13356,7 +13356,8 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
       (_runId, _userId, options) =>
         Promise.resolve(
           options?.eventTypes?.includes('run.suspended') &&
-            options.attemptId === suspensionEvent.payload.attemptId
+            (options.attemptId === undefined ||
+              options.attemptId === suspensionEvent.payload.attemptId)
             ? [suspensionEvent]
             : [],
         ),

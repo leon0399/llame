@@ -649,6 +649,22 @@ describe('RunEventsRepository reads', () => {
     expect(queries[0]?.sql).toContain('"run_events"."event_type" in (');
     expect(queries[1]?.sql).not.toContain('"run_events"."event_type" in (');
   });
+  it('filters event history to a specific attempt when requested', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunEventsRepository(db)
+      .listByRunId(run.id, run.userId, { attemptId: 'attempt-1' })
+      .catch(() => undefined);
+    await new RunEventsRepository(db)
+      .listByRunId(run.id, run.userId)
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain(
+      `"run_events"."payload"->>'attemptId' = $`,
+    );
+    expect(queries[0]?.params).toContain('attempt-1');
+    expect(queries[1]?.sql).not.toContain(`->>'attemptId'`);
+  });
 });
 
 describe('RunEventsRepository.findFirstByType ordering', () => {
