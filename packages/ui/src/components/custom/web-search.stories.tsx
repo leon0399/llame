@@ -10,12 +10,8 @@ const markdownRenderer: WebSearchToolProps["Markdown"] = MessageResponse;
 /** Accessible name of an outbound result or citation link. */
 const outboundLinkName = (label: string) => `${label} opens in a new tab`;
 
-// The Parameters panel renders through the shared Shiki CodeBlock, whose
-// built-in "one-light" palette ships token colors below WCAG AA color-contrast
-// (e.g. #e45649 and #50a14f on white). Same third-party-theme defect that
-// code-block.stories.tsx suppresses, and it only surfaces once Shiki's async
-// highlight resolves (always, here, because the play function expands the
-// panel first). Only the color-contrast rule is disabled.
+// The Parameters panel renders syntax-colored markup through the shared Shiki
+// CodeBlock. Only the color-contrast rule is disabled.
 const shikiThemeContrastKnownIssue = {
   a11y: {
     config: {

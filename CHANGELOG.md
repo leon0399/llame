@@ -66,6 +66,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- **Prepare background-job transcript components (#1657).** Bash rows display
+  background job locators and their promotion cause. Shared wait and stop
+  components render their actual results, with accessible fallback highlighting;
+  their Chat transcript dispatch is connected in the owner-controls layer.
+
 - **Wait for background jobs without holding a worker (#1657).** The read-only
   `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
   It returns settled results immediately, or suspends and durably resumes the

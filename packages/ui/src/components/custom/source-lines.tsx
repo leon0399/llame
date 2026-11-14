@@ -97,8 +97,7 @@ function useHighlightedTokens(
     let active = true;
     codeToTokens(code, {
       lang: language,
-      // High-contrast palettes keep every token at WCAG AA on the muted
-      // panel; the transcript's one-light/one-dark-pro code blocks do not.
+      // High-contrast palettes keep every token at WCAG AA on the muted panel.
       themes: {
         light: "github-light-high-contrast",
         dark: "github-dark-high-contrast",

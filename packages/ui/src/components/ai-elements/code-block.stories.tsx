@@ -7,13 +7,8 @@ const sampleCode = `function greet(name: string) {
   return "Hello, " + name + "!";
 }`;
 
-// Shiki's built-in "one-light"/"one-dark-pro" themes ship fixed syntax-token
-// colors that fail WCAG AA color-contrast on some tokens (e.g. #4078f2 blue
-// on white is ~4.04:1, below the 4.5:1 threshold). This is inherent to the
-// third-party theme's palette, not our design tokens, and only surfaces once
-// Shiki's async highlight has resolved — a race some stories win and some
-// lose depending on test timing, so it's suppressed file-wide rather than
-// per-story.
+// The stories render syntax-colored Shiki markup. Disable only the
+// color-contrast rule for this generated code output.
 const shikiThemeContrastKnownIssue = {
   a11y: {
     config: {

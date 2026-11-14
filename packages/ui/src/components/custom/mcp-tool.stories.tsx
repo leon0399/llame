@@ -3,8 +3,8 @@ import { expect } from "storybook/test";
 
 import { McpTool } from "./mcp-tool.js";
 
-// The Parameters and JSON panels render through Shiki's one-light palette,
-// whose token colors fall below WCAG AA; only color-contrast is disabled.
+// The Parameters and JSON panels render syntax-colored Shiki markup; only the
+// color-contrast rule is disabled.
 const shikiThemeContrastKnownIssue = {
   a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
 };

@@ -18,11 +18,16 @@ const inputSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
 });
 
-/** Loose: the runner's oversize cap may add `truncated`/`truncationNotice`,
- *  the executor's own stream cut is `cut`, and a part stored before either
- *  carries `truncated` for the executor cut and may hold the old
- *  `operation`/`executor`. */
-const outputSchema = z.looseObject({
+const backgroundedOutputSchema = z.looseObject({
+  status: z.literal("success"),
+  backgrounded: z.literal(true),
+  job: z.string(),
+  cause: z.enum(["async", "time", "message"]),
+  wallTimeMs: z.number().optional(),
+});
+
+/** The executor and runner may append their own stream truncation metadata. */
+const normalOutputSchema = z.looseObject({
   status: z.literal("success"),
   exitCode: z.number(),
   stdout: z.string(),
@@ -33,9 +38,39 @@ const outputSchema = z.looseObject({
   truncationNotice: z.string().optional(),
 });
 
-type BashInput = z.infer<typeof inputSchema>;
+type BackgroundedBashOutput = z.infer<typeof backgroundedOutputSchema>;
 
-type BashOutput = z.infer<typeof outputSchema>;
+type NormalBashOutput = z.infer<typeof normalOutputSchema>;
+
+function BackgroundedResult({ output }: { output: BackgroundedBashOutput }) {
+  const cause =
+    output.cause === "async"
+      ? "Backgrounded by request"
+      : output.cause === "time"
+        ? "Moved to background after the foreground time limit"
+        : "Moved to background for an incoming message";
+
+  const wallTime =
+    output.wallTimeMs === undefined
+      ? undefined
+      : `${(output.wallTimeMs / MILLISECONDS_PER_SECOND).toFixed(1)} s`;
+
+  return (
+    <>
+      <ToolSection label="Background job">
+        <p className="break-all font-mono text-sm">{output.job}</p>
+      </ToolSection>
+      <ToolDetails
+        rows={[
+          ["Status", cause],
+          ["Time", wallTime],
+        ]}
+      />
+    </>
+  );
+}
+
+type BashInput = z.infer<typeof inputSchema>;
 
 /** Props for the dedicated `bash` tool row. */
 export type BashToolProps = ToolPartProps;
@@ -72,7 +107,7 @@ function BashCommand({ input }: { input: BashInput }) {
 
 const MILLISECONDS_PER_SECOND = 1000;
 
-function BashResult({ output }: { output: BashOutput }) {
+function BashResult({ output }: { output: NormalBashOutput }) {
   const wallTime =
     output.wallTimeMs === undefined
       ? undefined
@@ -112,10 +147,8 @@ function BashResult({ output }: { output: BashOutput }) {
 
 /**
  * Renders a host `bash` invocation as a shell prompt (command, working
- * directory, added environment) followed by the exit code and the standard
- * output and error streams, with the command's wall time beside them. A failed
- * command's output arrives inside the error text, which the error panel shows
- * with its line breaks.
+ * directory, and added environment) followed by either its normal output or
+ * its background job locator.
  *
  * @summary displays a shell command and its output inside a collapsible tool row
  */
@@ -126,7 +159,8 @@ export function BashTool({
   state,
 }: BashToolProps): ReactElement {
   const command = inputSchema.safeParse(input).data;
-  const result = outputSchema.safeParse(output).data;
+  const backgroundedResult = backgroundedOutputSchema.safeParse(output).data;
+  const result = normalOutputSchema.safeParse(output).data;
 
   return (
     <ToolRow
@@ -138,7 +172,9 @@ export function BashTool({
       showInput={command === undefined}
       preview={command ? <BashCommand input={command} /> : null}
     >
-      {result ? (
+      {backgroundedResult ? (
+        <BackgroundedResult output={backgroundedResult} />
+      ) : result ? (
         <BashResult output={result} />
       ) : (
         <ToolResultFallback output={output} />
