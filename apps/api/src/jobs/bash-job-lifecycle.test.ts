@@ -144,9 +144,11 @@ function setup(
   };
 
   const logger = { warn: vi.fn(), error: vi.fn() };
+
   const lifecycle = new BashJobLifecycle(tenantDb, logger, {
     startOnSettlement: vi.fn(),
   });
+
   const cmd = command(initial);
 
   if (trackJob) {
