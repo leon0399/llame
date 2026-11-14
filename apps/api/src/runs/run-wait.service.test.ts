@@ -188,6 +188,38 @@ describe('RunWaitService.suspend', () => {
     expect(enqueueCall?.[2]?.startAfter).toEqual(new Date(input.deadline));
   });
 
+  it('persists measured usage before its suspension checkpoint', async () => {
+    const fixture = makeFixture();
+
+    const telemetry = asDouble<NonNullable<SuspendRunWaitInput['telemetry']>>({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      modelId: 'system:openai:gpt-5.4-mini',
+      status: 'completed',
+      complete: true,
+    });
+
+    await expect(
+      fixture.service.suspend({ ...input, telemetry }),
+    ).resolves.toEqual({ kind: 'suspended' });
+
+    expect(fixture.append.mock.calls).toEqual([
+      [
+        input.runId,
+        'model.completed',
+        {
+          finishReason: telemetry.finishReason,
+          telemetry,
+        },
+      ],
+      [
+        input.runId,
+        'run.suspended',
+        expect.objectContaining({ attemptId: input.attemptId }),
+      ],
+    ]);
+  });
+
   it('refuses suspension when the chat lock is unavailable', async () => {
     const fixture = makeFixture({ chatLocked: false });
 

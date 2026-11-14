@@ -16,6 +16,8 @@ import {
   tool,
   type LanguageModelUsage,
   type ModelMessage,
+  type ToolExecutionOptions,
+  type ToolSet,
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import { z } from 'zod';
@@ -1146,6 +1148,70 @@ describe('createOpenAICompletionsModelClient — reasoning deltas and the tool l
   });
 });
 
+describe('host-controlled wait calls on Chat Completions', () => {
+  it('executes a deferred wait once while the SDK completes its sibling read', async () => {
+    const model = scriptedModel([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'wait-1',
+            toolName: 'wait',
+            input: '{"jobs":["job://bash-1"]}',
+          },
+          {
+            type: 'tool-call',
+            toolCallId: 'read-1',
+            toolName: 'read',
+            input: '{}',
+          },
+        ],
+        'tool-calls',
+      ),
+    ]);
+
+    let waits = 0;
+    let reads = 0;
+
+    const result = buildClient(model).client.streamText({
+      chat: CHAT,
+      messages,
+      tools: {
+        wait: tool({
+          inputSchema: z.object({ jobs: z.array(z.string()) }),
+        }),
+        read: tool({
+          inputSchema: z.object({}),
+          execute: () => {
+            reads += 1;
+
+            return { status: 'success', text: 'read payload' };
+          },
+        }),
+      },
+      maxSteps: 2,
+      onToolCall: ({ toolName, input }) => {
+        if (toolName !== 'wait') return;
+        expect(input).toEqual({ jobs: ['job://bash-1'] });
+        waits += 1;
+      },
+    });
+
+    const outputs: Array<string> = [];
+
+    for await (const part of result.fullStream) {
+      if (part.type === 'error') throw part.error;
+
+      if (part.type === 'tool-result') outputs.push(part.toolName);
+    }
+
+    expect(waits).toBe(1);
+    expect(reads).toBe(1);
+    expect(outputs).toEqual(['read']);
+    expect(model.doStreamCalls).toHaveLength(1);
+  });
+});
+
 describe('createOpenAICompletionsModelClient — provider metadata on the call (A7)', () => {
   it('forwards a call’s opaque metadata before the gate releases it', async () => {
     // The adapter puts a Gemini `thought_signature` on the call's own part; a
@@ -1207,6 +1273,141 @@ describe('createOpenAICompletionsModelClient — provider metadata on the call (
       metadata,
     );
     expect(order).toEqual(['reasoning', 'metadata', 'execute']);
+  });
+});
+
+describe('Chat Completions tool-call gate channels', () => {
+  it.each(['reasoning', 'metadata', 'tool-call'] as const)(
+    'holds tool execution until the call chunk reaches the %s channel',
+    async (channel) => {
+      streamTextMock.mockClear();
+      streamTextMock.mockReturnValue({});
+
+      const execute = vi.fn(({ value }: { value: string }) => value);
+      const onReasoningDelta = vi.fn();
+      const onToolCallMetadata = vi.fn();
+      const onToolCall = vi.fn();
+      let assignedTools: ToolSet | undefined;
+
+      const { client } = buildClient(
+        new MockLanguageModelV3({
+          provider: 'openai-compatible.test',
+          modelId: 'deepseek-chat',
+        }),
+        { stream: streamTextMock },
+      );
+
+      client.streamText({
+        chat: CHAT,
+        messages,
+        tools: {
+          echo: tool({
+            inputSchema: z.object({ value: z.string() }),
+            execute,
+          }),
+        },
+        onToolSet: (tools) => {
+          assignedTools = tools;
+        },
+        ...(channel === 'reasoning' && { onReasoningDelta }),
+        ...(channel === 'metadata' && { onToolCallMetadata }),
+        ...(channel === 'tool-call' && { onToolCall }),
+      });
+
+      const options = streamTextMock.mock.calls[0]?.[0];
+      const gatedExecute = assignedTools?.echo?.execute;
+      expect(gatedExecute).toBeTypeOf('function');
+
+      const toolCallOptions: ToolExecutionOptions = {
+        toolCallId: 'call-0',
+        messages: [...messages],
+      };
+
+      const execution = Promise.resolve(
+        gatedExecute?.({ value: 'payload' }, toolCallOptions),
+      );
+
+      await Promise.resolve();
+      expect(execute).not.toHaveBeenCalled();
+
+      if (channel === 'reasoning') {
+        options?.onChunk?.({
+          chunk: { type: 'reasoning-delta', id: 'reasoning-0', text: 'think' },
+        });
+      }
+
+      options?.onChunk?.({
+        chunk: {
+          type: 'tool-call',
+          toolCallId: 'call-0',
+          toolName: 'echo',
+          input: { value: 'payload' },
+          providerMetadata: { openaiCompatible: { thoughtSignature: 'sig' } },
+        },
+      });
+
+      await expect(execution).resolves.toBe('payload');
+      expect(execute).toHaveBeenCalledOnce();
+
+      if (channel === 'reasoning')
+        expect(onReasoningDelta).toHaveBeenCalledWith(
+          'think',
+          'reasoning-0',
+          undefined,
+        );
+
+      if (channel === 'metadata')
+        expect(onToolCallMetadata).toHaveBeenCalledWith('call-0', {
+          openaiCompatible: { thoughtSignature: 'sig' },
+        });
+
+      if (channel === 'tool-call')
+        expect(onToolCall).toHaveBeenCalledWith({
+          toolCallId: 'call-0',
+          toolName: 'echo',
+          input: { value: 'payload' },
+        });
+    },
+  );
+
+  it('does not hold execution when the caller has only a text channel', async () => {
+    streamTextMock.mockReturnValue({});
+
+    const execute = vi.fn(({ value }: { value: string }) => value);
+    let assignedTools: ToolSet | undefined;
+
+    const { client } = buildClient(
+      new MockLanguageModelV3({
+        provider: 'openai-compatible.test',
+        modelId: 'deepseek-chat',
+      }),
+      { stream: streamTextMock },
+    );
+
+    client.streamText({
+      chat: CHAT,
+      messages,
+      tools: {
+        echo: tool({
+          inputSchema: z.object({ value: z.string() }),
+          execute,
+        }),
+      },
+      onToolSet: (tools) => {
+        assignedTools = tools;
+      },
+      onTextDelta: vi.fn(),
+    });
+
+    const toolCallOptions: ToolExecutionOptions = {
+      toolCallId: 'call-0',
+      messages: [...messages],
+    };
+
+    await expect(
+      assignedTools?.echo?.execute?.({ value: 'payload' }, toolCallOptions),
+    ).resolves.toBe('payload');
+    expect(execute).toHaveBeenCalledOnce();
   });
 });
 

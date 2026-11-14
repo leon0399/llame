@@ -1,8 +1,8 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { chatJobs, runs, type AwaitingJobs, type Run } from '../db/schema';
 import { isTerminalRunStatus } from './run-status';
@@ -16,6 +16,7 @@ import { RunDispatchService } from './run-dispatch.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { retryRunTransaction } from './run-transaction';
 import { type EnqueueOptions } from '../queue/queue';
+import { type AssistantTurnTelemetry } from './run-reply-finalizer';
 
 export type RunWaitCause = 'settled' | 'interrupted' | 'timeout' | 'cancelled';
 
@@ -30,6 +31,7 @@ export type SuspendRunWaitInput = {
   deadline: string;
   parts: Array<unknown>;
   steps: Record<string, number>;
+  telemetry?: AssistantTurnTelemetry;
 };
 
 type WakeRunInput = {
@@ -118,12 +120,8 @@ export class RunWaitService {
     run: Run,
     input: SuspendRunWaitInput,
   ): Promise<{ generation: number; jobId: string } | undefined> {
-    const awaiting: AwaitingJobs = {
-      toolCallId: input.toolCallId,
-      toolInput: input.toolInput,
-      jobIds: input.jobIds,
-      deadline: input.deadline,
-    };
+    const { toolCallId, toolInput, jobIds, deadline } = input;
+    const awaiting: AwaitingJobs = { toolCallId, toolInput, jobIds, deadline };
 
     const generation = run.wakeGeneration + 1;
     const jobId = randomUUID();
@@ -142,7 +140,15 @@ export class RunWaitService {
     );
 
     if (!updated) return undefined;
-    await new RunEventsRepository(tx).append(run.id, 'run.suspended', {
+
+    const events = new RunEventsRepository(tx);
+
+    if (input.telemetry !== undefined)
+      await events.append(run.id, 'model.completed', {
+        finishReason: input.telemetry.finishReason,
+        telemetry: input.telemetry,
+      });
+    await events.append(run.id, 'run.suspended', {
       attemptId: input.attemptId,
       generation,
       toolCallId: input.toolCallId,

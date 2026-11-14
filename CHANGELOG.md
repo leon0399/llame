@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-14
 
+- Reserve a wait call only after its locators resolve, and name the first call
+  when a second wait in the same model step is refused.
+
+- Keep wake-prefix context items single in replies recovered before the next
+  model request.
+
 - Prefer independently mergeable stack layers and explicit intermediate merge
   boundaries. Treat 2,000 authored lines as a review target, not a limit.
 
@@ -57,6 +63,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The next flush captures the latest output and preserves stored suffix offsets.
 
 # 2026-11-12
+
+- **Prepare durable wait continuation (#1657).** Deferred provider call seams
+  drain sibling tools without a synthetic wait result. Internal wake claims
+  atomically store the real result and exact notice receipts, then preserve
+  the checkpoint once in provider history and finalization. Pre-dispatch
+  failures retain the committed result. This prerequisite does not register
+  or advertise the model-facing `wait` tool.
 
 - **Prepare durable Run suspension (#1657).** Internal suspension commits
   `awaiting_jobs`, its open-call state, generation, and deadline queue job
