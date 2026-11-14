@@ -316,6 +316,17 @@ describe('readArtifact', () => {
     expect(scripted.readPart).toHaveBeenCalledWith(CHAT_ID, 'grep', 1, '');
   });
 
+  it('says that an artifact with no stream has none', async () => {
+    scriptRepository().findParts.mockResolvedValue({
+      createdAt: CREATED_AT,
+      parts: [],
+    } satisfies ArtifactParts);
+
+    const result = await readArtifact(contextOf(), 'read', 'artifact://bash-2');
+
+    expect(contentOf(result)).toBe('artifact://bash-2\n(no streams)\n');
+  });
+
   it('lists the streams of a bash artifact in the Chat form', async () => {
     const scripted = scriptRepository();
     scripted.findParts.mockResolvedValue({

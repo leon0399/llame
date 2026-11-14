@@ -23,6 +23,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
 
+# 2026-11-11
+
+- **Add the job store for background jobs (#1657).** New tables `chat_jobs`,
+  `chat_job_chunks`, and `worker_instances` hold one record for each job of a
+  Chat, its stored output increments, and the heartbeat of each worker process.
+  The two job tables have forced owner row-level security. A worker that
+  consumes runs takes a new random identity at each start and records a
+  heartbeat every `runs.heartbeatSeconds`; a worker with no heartbeat for four
+  intervals is dead, and a read of a job or an owner API request settles its
+  running jobs as `lost`. Native `read` accepts a `job://` locator: the record
+  of a job, the stored text of one output, or a bare list of the jobs of the
+  Chat. The owner lists the jobs with `GET /api/v1/chats/:chatId/jobs` and
+  records a stop request with `PATCH /api/v1/chats/:chatId/jobs/:jobId`
+  (200 for a repeat, 409 for a job that settled otherwise, 404 for another
+  owner). Owner job responses name only declared cut outputs in `truncated`,
+  in their declared order, or `[]` when none were cut. The chat list and the
+  live Chat record carry `runningJobs`. No tool starts a job yet, and no worker
+  acts on a stop request yet. See
+  [job://](docs/product/reference/locators/job.md).
+
 # 2026-11-10
 
 - Reconcile the vendored anti-slop Oxlint plugin with upstream

@@ -1236,6 +1236,125 @@
         "tags": ["chats"]
       }
     },
+    "/api/v1/chats/{chatId}/jobs": {
+      "get": {
+        "operationId": "listChatJobs",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The jobs of the Chat, the live jobs first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatJobsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed chat id (not a UUID)"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat not found or not owned"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
+    "/api/v1/chats/{chatId}/jobs/{jobId}": {
+      "patch": {
+        "operationId": "stopChatJob",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeChatJobDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The job after the request. A running job carries the recorded stop request; a job that the owner already stopped is returned as it is.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatJobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed id, or a state to set"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat or job not found, or not owned"
+          },
+          "409": {
+            "description": "The job settled in a state other than an owner stop"
+          },
+          "413": {
+            "description": "The request body is larger than the server accepts."
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
     "/api/v1/chats/{id}/creation-record": {
       "get": {
         "operationId": "getChatCreationRecord",
@@ -4921,6 +5040,10 @@
             "type": "string",
             "nullable": true,
             "maxLength": 160
+          },
+          "runningJobs": {
+            "type": "number",
+            "minimum": 0
           }
         },
         "required": [
@@ -4933,7 +5056,8 @@
           "archivedAt",
           "projectId",
           "workspaceRoot",
-          "lastMessage"
+          "lastMessage",
+          "runningJobs"
         ]
       },
       "ChatSearchResultResponse": {
@@ -5499,6 +5623,137 @@
           }
         },
         "required": ["mode"],
+        "additionalProperties": false
+      },
+      "ChatJobResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chatId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locator": {
+            "type": "string",
+            "example": "job://bash-4"
+          },
+          "executor": {
+            "type": "string",
+            "example": "bash"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "timed_out",
+              "lost"
+            ]
+          },
+          "stoppedBy": {
+            "type": "string",
+            "enum": ["owner", "assistant", "worker"],
+            "nullable": true,
+            "description": "Who stopped a `cancelled` job."
+          },
+          "startedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "settledAt": {
+            "type": "object",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stopRequestedAt": {
+            "type": "object",
+            "format": "date-time",
+            "nullable": true
+          },
+          "stopRequestedBy": {
+            "type": "string",
+            "enum": ["owner", "assistant", "worker"],
+            "nullable": true
+          },
+          "outputs": {
+            "description": "The names of the outputs.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "truncated": {
+            "description": "The names of the outputs cut by their byte bound.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exitCode": {
+            "type": "number",
+            "nullable": true
+          },
+          "signal": {
+            "type": "string",
+            "nullable": true
+          },
+          "outcomeUnknown": {
+            "type": "boolean",
+            "description": "True when the worker of the job stopped; the outcome is unknown."
+          },
+          "artifact": {
+            "type": "string",
+            "nullable": true,
+            "description": "The artifact locator, when the output is stored as one."
+          }
+        },
+        "required": [
+          "id",
+          "chatId",
+          "locator",
+          "executor",
+          "state",
+          "stoppedBy",
+          "startedAt",
+          "settledAt",
+          "stopRequestedAt",
+          "stopRequestedBy",
+          "outputs",
+          "truncated",
+          "exitCode",
+          "signal",
+          "outcomeUnknown",
+          "artifact"
+        ]
+      },
+      "ChatJobsResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "description": "The jobs of the Chat, the live jobs first.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatJobResponse"
+            }
+          }
+        },
+        "required": ["items"]
+      },
+      "ChangeChatJobDto": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["cancelled"],
+            "description": "The new state of the job. `cancelled` requests a stop with the stopper `owner`."
+          }
+        },
+        "required": ["state"],
         "additionalProperties": false
       },
       "CreateChatWorktreeDto": {

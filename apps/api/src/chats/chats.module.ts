@@ -12,6 +12,8 @@ import { ChatGitStateController } from './chat-git-state.controller';
 import { ChatGitStateService } from './chat-git-state.service';
 import { ChatDeliveriesController } from './chat-deliveries.controller';
 import { ChatDeliveriesService } from './chat-deliveries.service';
+import { ChatJobsController } from './chat-jobs.controller';
+import { ChatJobsService } from './chat-jobs.service';
 import { ChatCreationLock } from './chat-creation-lock';
 import { ChatCreationController } from './chat-creation.controller';
 import { ChatCreationService } from './chat-creation.service';
@@ -46,6 +48,7 @@ import { SharedChatsController } from './shared-chats.controller';
   controllers: [
     ChatsController,
     ChatDeliveriesController,
+    ChatJobsController,
     ChatCreationController,
     ChatGitStateController,
     MeRunsController,
@@ -55,6 +58,7 @@ import { SharedChatsController } from './shared-chats.controller';
     ChatsService,
     ChatGitStateService,
     ChatDeliveriesService,
+    ChatJobsService,
     ChatLoopService,
     FollowUpAdmissionService,
     ChatCreationLock,

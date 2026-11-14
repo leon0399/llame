@@ -2151,6 +2151,7 @@ function chatCard(workspaceRoot: string): ChatListItemResponse {
     projectId: null,
     workspaceRoot,
     lastMessage: null,
+    runningJobs: 0,
   };
 }
 

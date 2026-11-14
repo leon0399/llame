@@ -41,9 +41,10 @@ and read-only. Each scheme page states its accepted spellings; see
 | `http(s)://`                 | yes    | no     | no      | no       | the public web, through the API process                 | no         | no                    |
 | `media://`                   | yes    | no     | no      | no       | the owner's stored images, read-only                    | no         | no                    |
 | [`artifact://`](artifact.md) | yes    | no     | no      | no       | this Chat's stored tool results, read-only              | no         | no                    |
+| [`job://`](job.md)           | yes    | no     | no      | no       | this Chat's background jobs, read-only                  | no         | no                    |
 
-`edit` and `write` reject `http://`, `https://`, and
-[`artifact://`](artifact.md) with `invalid_path`, and reject `skill://`,
+`edit` and `write` reject `http://`, `https://`,
+[`artifact://`](artifact.md), and [`job://`](job.md) with `invalid_path`, and reject `skill://`,
 [`media://`](media.md), and [`ssh://`](ssh.md) with `unsupported_operation`
 and no filesystem effect. The
 same two tools refuse the two [`machine://`](machine.md) listing forms with
@@ -60,7 +61,8 @@ access on every call, with no filesystem probe; `skill://` resolves inside a
 package the operator installed; `http(s)://` is fetched by the API process;
 `media://` resolves only the Run owner's stored media, and
 [`artifact://`](artifact.md) resolves only the current Chat's stored tool
-results under its owner's row-level security. A `machine://` locator runs on an
+results, and [`job://`](job.md) only its jobs, both under its owner's row-level
+security. A `machine://` locator runs on an
 operator-configured Machine as that Machine's OS user, over the operator's SSH
 route, and an `ssh://` locator runs on an external host as its login user over
 the operator's own SSH configuration, with nothing installed there. No scheme
@@ -78,7 +80,7 @@ absolute path and `file://` in [host-path](host-path.md), a Space directory in
 [kb](kb.md), a package directory and the catalog in [skill](skill.md), a
 Machine's status and registered roots in [machine](machine.md), an external
 host's directory in [ssh](ssh.md), a Chat's artifacts oldest first and a `bash` artifact's streams
-in [artifact](artifact.md), and a web adapter directory in
+in [artifact](artifact.md), a Chat's jobs oldest first in [job](job.md), and a web adapter directory in
 [web adapters](../web-adapters.md#github-adapter).
 
 ## Errors
@@ -94,7 +96,7 @@ refuse `:outline:raw`, where a host path or web locator reads it as a raw read
 of a path or URL ending in `:outline`; see
 [selectors](../selectors.md#markdown-outline). `not_found` covers a refused
 symbolic-link component on `kb://`, an absent path, a `media://` id the owner
-does not hold, and an `artifact://` locator of another Chat or a missing part. The shared native
+does not hold, and an `artifact://` or `job://` locator of another Chat or a missing part. The shared native
 vocabulary is in [read](../tools/read.md#errors).
 
 ## Configured by

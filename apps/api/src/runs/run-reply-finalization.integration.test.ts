@@ -24,6 +24,9 @@ import { isRecord } from '@workspace/runtime-safety';
 
 import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
+import { newChatJob } from '../testing/chat-job-rows';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
@@ -689,6 +692,53 @@ describeIfDb(
         attemptId: retryAttemptId,
         modelId: MODEL_ID,
       });
+    });
+
+    // background-jobs Scenario: A crash is found at the next message
+    it('settles a job of a dead worker as lost at the Run claim, before the first model request', async () => {
+      const chatId = await createChat();
+      const turn = await seedTurn(chatId);
+      const deadWorker = crypto.randomUUID();
+
+      await sql`INSERT INTO worker_instances (id, last_seen_at)
+        VALUES (${deadWorker}, now() - make_interval(secs => ${workerDeadAfterSeconds(BUILT_IN_DEFAULTS) + 5}))`;
+
+      const crashed = await tenantDb.runAs(userId, (tx) =>
+        new ChatJobsRepository(tx).insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userId,
+            seq: 1,
+            runId: turn.runId,
+            workerInstanceId: deadWorker,
+          }),
+        ),
+      );
+
+      const stateAtRequest: Array<string | undefined> = [];
+
+      const model = new MockLanguageModelV3({
+        doStream: async () => {
+          const job = await tenantDb.runAs(userId, (tx) =>
+            new ChatJobsRepository(tx).findById(chatId, userId, crashed.id),
+          );
+
+          stateAtRequest.push(job?.state);
+
+          return {
+            stream: simulateReadableStream({ chunks: answerChunks('Done.') }),
+          };
+        },
+      });
+
+      try {
+        const result = await execute(turn, scriptedClient(model));
+        await result.consumeStream?.();
+        await waitForEvent(turn.runId, 'run.completed');
+        expect(stateAtRequest).toEqual(['lost']);
+      } finally {
+        await sql`DELETE FROM worker_instances WHERE id = ${deadWorker}`;
+      }
     });
 
     const writers: ReadonlyArray<TerminalWriter> = [

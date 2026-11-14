@@ -7,9 +7,12 @@
  */
 import type {
   ChangeChatDeliveryDto,
+  ChangeChatJobDto,
   ChatCreationRecordResponse,
   ChatDeliveriesResponse,
   ChatDeliveryResponse,
+  ChatJobResponse,
+  ChatJobsResponse,
   ChatListItemResponse,
   ChatMessagesResponse,
   ChatResponse,
@@ -503,6 +506,86 @@ export const changeChatDelivery = async (
     throw err;
   }
   const data: ChatDeliveryResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type listChatJobsError = void | void | void;
+
+export const getListChatJobsUrl = (chatId: string) => {
+  return `/api/v1/chats/${chatId}/jobs`;
+};
+
+export const listChatJobs = async (
+  chatId: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ChatJobsResponse> => {
+  const res = await fetchFn(getListChatJobsUrl(chatId), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: listChatJobsError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getListChatJobsUrl(chatId)} failed (${res.status})`,
+    );
+    const data: listChatJobsError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ChatJobsResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type stopChatJobError = void | void | void | void | void;
+
+export const getStopChatJobUrl = (chatId: string, jobId: string) => {
+  return `/api/v1/chats/${chatId}/jobs/${jobId}`;
+};
+
+export const stopChatJob = async (
+  chatId: string,
+  jobId: string,
+  changeChatJobDto: ChangeChatJobDto,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ChatJobResponse> => {
+  const res = await fetchFn(getStopChatJobUrl(chatId, jobId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(changeChatJobDto),
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & { info?: stopChatJobError; status?: number } =
+      new globalThis.Error(
+        `PATCH ${getStopChatJobUrl(chatId, jobId)} failed (${res.status})`,
+      );
+    const data: stopChatJobError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ChatJobResponse = body ? JSON.parse(body) : {};
   return data;
 };
 

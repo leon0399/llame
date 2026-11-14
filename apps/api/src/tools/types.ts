@@ -200,6 +200,12 @@ export interface ToolContext {
    */
   readonly callTimeoutSeconds?: number;
   /**
+   * Seconds without a heartbeat after which a worker is dead, four intervals of
+   * `runs.heartbeatSeconds` (background-jobs D9). A `job://` read settles the
+   * running jobs of a dead worker as `lost`. Absent means the built-in value.
+   */
+  readonly workerDeadAfterSeconds?: number;
+  /**
    * Trusted model-client factory for model-hosted web search engines, never
    * model supplied. A host double that only validates selections leaves
    * `createClient` unset, and those engines then fail closed.

@@ -176,6 +176,7 @@ components:
               projectId: null
               workspaceRoot: null
               lastMessage: How does postgres.js re-LISTEN after a dropped connection?
+              runningJobs: 0
     chatDeleted:
       name: chat.deleted
       title: Chat deleted
