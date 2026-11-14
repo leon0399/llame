@@ -592,12 +592,17 @@ describe('finalizeRunReply', () => {
         event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
         event(5, 'run.started', { attemptId: 'wake' }),
         requested(6, 'wake'),
-        event(7, 'tool.completed', {
+        event(7, 'tool.requested', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          input: { jobs: ['job://executor-1'] },
+        }),
+        event(8, 'tool.completed', {
           toolCallId: 'wait-call',
           toolName: 'wait',
           output: { status: 'success', value: 'finished' },
         }),
-        ...toolCall(8, 'other-call'),
+        ...toolCall(9, 'other-call'),
       ],
       reply: reply({ usage: running }),
     });

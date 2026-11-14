@@ -1,3 +1,5 @@
+import { isRecord, isString } from '@workspace/runtime-safety';
+import { type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import * as schema from '../db/schema';
 import { type ChatJob, type Run } from '../db/schema';
@@ -81,17 +83,44 @@ function db(rows: ReadonlyArray<ChatJob | WakeEvent>): Db {
     .filter((row): row is WakeEvent => 'eventType' in row)
     .sort((left, right) => right.sequence - left.sequence);
 
-  const selectedRows = Object.assign([...rows], {
-    orderBy: () => ({ limit: () => Promise.resolve(wakeRows.slice(0, 1)) }),
-  });
-
   const tx = drizzle.mock({ schema });
 
   Object.defineProperty(tx, 'select', {
     value: () => ({
       from: () => ({
-        innerJoin: () => ({ where: () => selectedRows }),
-        where: () => selectedRows,
+        innerJoin: () => ({
+          where: (condition: SQL) => {
+            const parameters: Array<unknown> = [];
+
+            const collectParameters = (chunk: unknown): void => {
+              if (Array.isArray(chunk)) {
+                for (const item of chunk) collectParameters(item);
+              } else if (isRecord(chunk)) {
+                if ('value' in chunk) parameters.push(chunk.value);
+
+                if (Array.isArray(chunk['queryChunks']))
+                  collectParameters(chunk['queryChunks']);
+              }
+            };
+
+            collectParameters(condition.queryChunks);
+
+            const eventTypes = parameters
+              .filter(isString)
+              .filter((value) => value.startsWith('run.'));
+
+            const matchingWakeRows = wakeRows.filter((row) =>
+              eventTypes.includes(row.eventType),
+            );
+
+            return Object.assign([...matchingWakeRows], {
+              orderBy: () => ({
+                limit: () => Promise.resolve(matchingWakeRows.slice(0, 1)),
+              }),
+            });
+          },
+        }),
+        where: () => rows,
       }),
     }),
   });
