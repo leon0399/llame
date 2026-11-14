@@ -16,7 +16,6 @@ import {
 
 import { useRouter } from "next/navigation";
 import {
-  useQueries,
   useQuery,
   useQueryClient,
   type QueryClient,
@@ -28,7 +27,6 @@ import {
   activeRunsQueryKeys,
   activeRunsToTrackArgs,
   fetchActiveRuns,
-  fetchRun,
   type Run,
 } from "@/lib/services/chat/active-runs";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
@@ -37,9 +35,12 @@ import {
   resolveTerminalRun,
 } from "@/lib/services/chat/run-notifications";
 import type { RunMessage, RunPhase } from "@/lib/services/live/live-messages";
-import { useOptionalLiveUpdates } from "@/contexts/live-updates-context";
-
-const POLL_MS = 4000;
+import {
+  useActiveRunQueries,
+  useOptionalLiveUpdates,
+  useRunStatusesByChat,
+  type ActiveRunQuery,
+} from "@/contexts/active-run-queries";
 
 type TrackedRun = { chatId: string; title: string };
 
@@ -293,38 +294,6 @@ function useRehydrateActiveRuns(
   }, [isFetchedAfterMount, rehydratedRuns, trackRun]);
 }
 
-// Poll every tracked run until it reaches a terminal status. One query per
-// run (queued/dropped as `active` changes), each on its own POLL_MS
-// interval that self-stops once its data is terminal (or the run is gone) —
-// `refetchIntervalInBackground: true` is required here (not React Query's
-// default): the whole point of this feature is noticing completion while
-// the tab is backgrounded, so polling must NOT pause on blur/hidden the way
-// refetchInterval does by default.
-function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
-  const liveConnected = useOptionalLiveUpdates()?.connected ?? false;
-
-  return useQueries({
-    queries: activeEntries.map(([runId]) => ({
-      queryKey: activeRunsQueryKeys.run(runId),
-      queryFn: () => fetchRun(runId),
-      staleTime: 0,
-      refetchInterval: (query: { state: { data?: Run | null } }) => {
-        const data = query.state.data;
-
-        if (data === undefined) return POLL_MS; // no result yet — keep polling
-
-        if (data === null) return false; // 404: gone, nothing left to poll
-
-        // The live socket pushes status changes; poll only without it.
-        if (liveConnected) return false;
-
-        return isTerminalRunStatus(data.status) ? false : POLL_MS;
-      },
-      refetchIntervalInBackground: true,
-    })),
-  });
-}
-
 type TerminalRunHandlerDeps = {
   handledRunIds: MutableRefObject<Set<string>>;
   drop: (runId: string) => void;
@@ -404,28 +373,7 @@ function notifyTerminalRun(
   });
 }
 
-type ActiveRunQuery = { data: Run | null | undefined };
-
-/** Status map for tracked runs that are still live in the query results. */
-function runStatusesByChat(
-  activeEntries: ReadonlyArray<ActiveEntry>,
-  runQueries: ReadonlyArray<ActiveRunQuery>,
-): ReadonlyMap<string, Run["status"]> {
-  const statuses = new Map<string, Run["status"]>();
-  activeEntries.forEach(([, meta], index) => {
-    const status = runQueries[index]?.data?.status;
-
-    if (status === undefined || isTerminalRunStatus(status)) return;
-
-    const current = statuses.get(meta.chatId);
-
-    if (current === undefined || current === "awaiting_jobs")
-      statuses.set(meta.chatId, status);
-  });
-
-  return statuses;
-}
-
+/** Handles terminal results for currently tracked runs. */
 function processRunQueries(
   activeEntries: ReadonlyArray<ActiveEntry>,
   runQueries: ReadonlyArray<ActiveRunQuery>,
@@ -455,7 +403,8 @@ function useRunCompletionEffects(params: {
   } = params;
 
   const runQueries = useActiveRunQueries(activeEntries);
-  const runStatusByChatId = runStatusesByChat(activeEntries, runQueries);
+  const runStatusByChatId = useRunStatusesByChat(activeEntries, runQueries);
+
   const handledRunIds = useRef(new Set<string>());
 
   useEffect(() => {
