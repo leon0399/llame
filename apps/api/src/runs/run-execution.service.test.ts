@@ -253,6 +253,8 @@ import {
   registerTestOnlyTool,
   unregisterTestOnlyTool,
 } from '../tools/registry';
+import { RunWaitService } from './run-wait.service';
+import { waitTool } from '../tools/wait';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -538,6 +540,8 @@ type ExecutionServiceOptions = {
   runDispatch?: Pick<RunDispatcher, 'dispatch'>;
   /** The registry an owner interrupt aborts a segment through. */
   segmentAborts?: RunSegmentRegistrar;
+  /** Durable wait suspension dependency for the host-controlled wait tool. */
+  runWait?: RunWaitService;
 };
 
 function makeExecutionService(
@@ -682,6 +686,7 @@ function makeExecutionService(
       instanceConfig,
       { startOnSettlement: vi.fn() },
     ),
+    options.runWait,
   );
 
   return {
@@ -20718,6 +20723,7 @@ describe('RunExecutionService git state', () => {
 
 describe('RunExecutionService executeRun — run segments', () => {
   afterEach(() => {
+    unregisterTestOnlyTool('wait');
     vi.restoreAllMocks();
   });
 
@@ -20822,6 +20828,339 @@ describe('RunExecutionService executeRun — run segments', () => {
     finishReason: 'tool-calls' as const,
     stepCount: 2,
   };
+
+  it.each([
+    {
+      outcome: { kind: 'suspended' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'cancelled' as const },
+      terminalStatus: 'cancelled' as const,
+      expectedContinuation: false,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: 'completed' as const,
+      expectedContinuation: true,
+    },
+  ])(
+    'records wait suspension outcome $outcome.kind',
+    async ({ outcome, terminalStatus, expectedContinuation }) => {
+      registerTestOnlyTool(waitTool);
+
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const job = {
+        ...settledBashJob(44),
+        state: 'running' as const,
+        settledAt: null,
+        result: null,
+        outputs: [],
+      };
+
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const suspend = vi
+        .fn<RunWaitService['suspend']>()
+        .mockResolvedValue(outcome);
+
+      const segment = makeSegmentClient();
+
+      const execution = makeExecutionService(
+        segment.client,
+        undefined,
+        undefined,
+        {
+          allowed: ['wait'],
+          permissionPolicy: compileTestPermissionPolicy(['wait']),
+          runWait: asDouble<RunWaitService>({ suspend }),
+        },
+      );
+
+      const settledJob = {
+        ...job,
+        state: 'succeeded' as const,
+        settledAt: new Date(now.getTime() + 1000),
+        result: { exitCode: 0 },
+      };
+
+      if (expectedContinuation) {
+        vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+          ...run,
+          activeAttemptId: testAttemptId,
+        });
+        vi.spyOn(
+          ChatDeliveriesRepository.prototype,
+          'consumeJobNotices',
+        ).mockResolvedValue([]);
+        Object.defineProperty(execution.db, 'select', {
+          configurable: true,
+          value: () => ({
+            from: () => ({
+              where: () => Promise.resolve([settledJob]),
+            }),
+          }),
+        });
+        serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+      }
+
+      const result = await execution.service.executeRun(
+        executionInput(segment.client),
+      );
+
+      const options = segment.calls[0];
+      expect(options?.tools).toHaveProperty('wait');
+
+      if (!options?.onToolCall)
+        throw new Error('wait tool call callback was not captured');
+
+      await options.onStepStart?.({ messages: [], stepNumber: 0 });
+      options.onToolCall({
+        toolCallId: 'wait-call',
+        toolName: 'wait',
+        input: { jobs: ['job://bash-44'], timeout: 30 },
+      });
+      await options.onFinish?.(finishToolCalls);
+      await result.consumeStream();
+
+      if (expectedContinuation) {
+        const continuation = segment.calls[1];
+
+        if (!continuation?.onFinish || !continuation.onTextDelta) {
+          throw new Error('wait continuation was not captured');
+        }
+
+        await continuation.onStepStart?.({ messages: [], stepNumber: 0 });
+        continuation.onTextDelta('answer', '0:answer');
+        await continuation.onFinish({
+          text: 'answer',
+          usage: ZERO_USAGE,
+          finishReason: 'stop',
+          stepCount: 1,
+        });
+      }
+
+      expect(suspend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId,
+          chatId,
+          userId,
+          attemptId: testAttemptId,
+          toolCallId: 'wait-call',
+          toolInput: { jobs: ['job://bash-44'], timeout: 30 },
+          jobIds: ['job-44'],
+          steps: { 'wait-call': 0 },
+        }),
+      );
+      expect(appended.map(({ type }) => type)).toContain('tool.requested');
+
+      if (terminalStatus === 'cancelled') {
+        expect(appended.map(({ type }) => type)).toContain('run.cancelled');
+        expect(spies.markFinished).toHaveBeenCalledWith(
+          runId,
+          userId,
+          'cancelled',
+          expect.any(Object),
+        );
+      } else if (terminalStatus === 'completed') {
+        expect(appended.map(({ type }) => type)).toContain('tool.completed');
+        expect(appended.map(({ type }) => type)).toContain('run.completed');
+        expect(spies.markFinished).toHaveBeenCalledWith(
+          runId,
+          userId,
+          'completed',
+          expect.objectContaining({ attemptId: testAttemptId }),
+        );
+        expect(
+          appended.find(({ type }) => type === 'model.delta')?.payload,
+        ).toMatchObject({ text: 'answer', stepNumber: 2 });
+      } else {
+        expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+        expect(spies.markFinished).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it('claims a resumed wait and completes it before continuing', async () => {
+    registerTestOnlyTool(waitTool);
+
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const awaiting = {
+      toolCallId: 'wake-wait',
+      toolInput: { jobs: ['job://bash-45'], timeout: 30 },
+      jobIds: ['job-45'],
+      deadline: '2026-11-14T12:30:00.000Z',
+    };
+
+    const claimed = {
+      ...run,
+      activeAttemptId: testAttemptId,
+      awaiting,
+      wakeGeneration: 1,
+    };
+
+    spies.markStarted.mockResolvedValue(claimed);
+
+    const settledJob = {
+      ...settledBashJob(45),
+      settledAt: new Date(now.getTime() + 1000),
+      outputs: [],
+    };
+
+    const wakeEvents: Array<RunEvent> = [
+      {
+        ...event,
+        sequence: 1,
+        eventType: 'run.suspended',
+        payload: {
+          attemptId: 'suspended-attempt',
+          generation: 1,
+          toolCallId: awaiting.toolCallId,
+          awaiting,
+          parts: [{ type: 'text', text: 'before wait', step: 4 }],
+          steps: { [awaiting.toolCallId]: 4 },
+        },
+      },
+      {
+        ...event,
+        sequence: 2,
+        eventType: 'run.resumed',
+        payload: { generation: 1, cause: 'settled' },
+      },
+      {
+        ...event,
+        sequence: 3,
+        eventType: 'run.started',
+        payload: { attemptId: testAttemptId },
+      },
+      {
+        ...event,
+        sequence: 4,
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: awaiting.toolCallId,
+          toolName: 'wait',
+          output: { status: 'success', ended: 'settled', jobs: [] },
+        },
+      },
+    ];
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      wakeEvents,
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockResolvedValue([]);
+
+    serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+
+    let selectCount = 0;
+    const segment = makeSegmentClient();
+
+    const executor: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: () => ({ status: 'success' as const, value: 'continued' }),
+    };
+
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver(executor),
+      undefined,
+      {
+        ...withDeclaredTool(),
+        allowed: ['wait', toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([
+          'wait',
+          toolDeclaration.id,
+        ]),
+      },
+    );
+
+    Object.defineProperty(execution.db, 'select', {
+      configurable: true,
+      value: () => {
+        const current = selectCount++;
+
+        if (current === 0) {
+          const latest = [
+            {
+              eventType: 'run.resumed',
+              payload: { generation: 1, cause: 'settled' },
+            },
+          ];
+
+          return {
+            from: () => ({
+              innerJoin: () => ({
+                where: () => ({
+                  orderBy: () => ({
+                    limit: () => Promise.resolve(latest),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+
+        return {
+          from: () => ({
+            where: () => Promise.resolve([settledJob]),
+          }),
+        };
+      },
+    });
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall)
+      throw new Error('wake tool-loop callback was not captured');
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'after-wake',
+      toolName: toolDeclaration.id,
+      input: { q: 'continue' },
+    });
+    await executeBoundTool(options, { q: 'continue' }, 'after-wake');
+    await options.onStepStart?.({ messages: [], stepNumber: 1 });
+    await options.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    expect(selectCount).toBe(2);
+
+    expect(
+      appended.find((entry) => entry.type === 'tool.completed'),
+    ).toMatchObject({
+      payload: {
+        toolCallId: 'wake-wait',
+        toolName: 'wait',
+      },
+    });
+    expect(
+      appended.find((entry) => entry.type === 'tool.requested'),
+    ).toMatchObject({
+      payload: {
+        toolCallId: 'after-wake',
+        stepNumber: 0,
+      },
+    });
+    expect(spies.markStarted).toHaveBeenCalledWith(runId, userId);
+  });
 
   it('stops the call when the step end finds a pending item and not otherwise', async () => {
     mockNormalExecutionRepositories();
