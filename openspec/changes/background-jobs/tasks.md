@@ -35,6 +35,7 @@ master
 <- background-jobs/wait-routing
 <- background-jobs/wait-suspend
 <- background-jobs/wait-claim
+<- background-jobs/wake-projection
 <- background-jobs/wait-resume
 <- background-jobs/web
 <- background-jobs/finalize
@@ -74,7 +75,8 @@ receipt race until that repair lands.
 | `wait-routing`       | `wait-state`         | Owner and settlement wake entry points, Chat transaction retries, dependency wiring and caller fixtures.        | none                                             | 1,000      | refs #1657        |
 | `wait-suspend`       | `wait-routing`       | Executing-attempt suspension, worker pickup, restart, actual wake races and budget acceptance.                  | none                                             | 1,700      | refs #1657        |
 | `wait-claim`         | `wait-suspend`       | Atomic queue-generation execution claims, stale terminal-write fencing, and absolute pickup budgets.            | none                                             | 500        | refs #1657        |
-| `wait-resume`        | `wait-claim`         | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
+| `wake-projection`    | `wait-claim`         | Pure checkpoint and wait-result reconstruction, attempt boundaries, and malformed-receipt proof.                | none                                             | 650        | refs #1657        |
+| `wait-resume`        | `wake-projection`    | The `wait` tool and the attempt after a wake.                                                                   | `wait`                                           | 2,000      | refs #1657        |
 | `web`                | `wait-resume`        | The sidebar state, the Jobs section, and the transcript rows.                                                   | the owner controls                               | 1,800      | Closes #1657      |
 | `finalize`           | `web`                | Spec synchronization, task records, and archive movement.                                                       | none                                             | 0 authored | refs #1657        |
 
@@ -375,6 +377,15 @@ review budget. The model-facing wait tool remains inactive.
 - [x] 11c.2 Preserve the original absolute Run deadline across awaited cancellation reads and clean up registered abort controllers when model creation fails. Focused worker, repository and execution suites pass, including the expired-pickup and registry cleanup regressions.
 - [x] 11c.3 Verify focused API unit and suspension database cases, lint, types and formatting; review the complete parent-relative repair for correctness, simplification and unnecessary structure.
 - [ ] 11c.4 Publish the repair before wait activation and drive ordinary CI to readiness; process mutations and external review concurrently.
+
+## 11d. Wake projection (`background-jobs/wake-projection`)
+
+The pure projection and its tests move before runtime wiring to keep both
+concerns within the review budget. No tool, worker, or runtime caller is added.
+
+- [x] 11d.1 Prepare checkpoint and correlated wait-result reconstruction with attempt and delivery boundaries, preserving original tool activity metadata, timeout and step indices.
+- [x] 11d.2 Prove the actual predecessor tree with API types, focused projection cases and lint; independently review correctness, simplification and unnecessary structure. Malformed receipts must retain a matching generation so the validation under test is reached.
+- [ ] 11d.3 Publish the prerequisite and drive ordinary CI green while runtime wiring and mutations continue concurrently.
 
 ## 12. Wait (`background-jobs/wait-resume`)
 
