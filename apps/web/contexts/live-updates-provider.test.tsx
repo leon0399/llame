@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ActiveRunResponse } from "@/lib/api/generated/models";
 import { activeRunsQueryKeys } from "@/lib/services/chat/active-runs";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
+import { chatJobsQueryKeys } from "@/lib/services/jobs/queries";
 import type {
   RunMessage,
   RunProgressMessage,
@@ -236,7 +237,10 @@ describe("LiveUpdatesProvider", () => {
     expect(
       queryClient.getQueryData(chatQueryKeys.detail(chatId)),
     ).toMatchObject({ title: "Pushed" });
-    expect(invalidate).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalledExactlyOnceWith({
+      queryKey: chatJobsQueryKeys.chat(chatId),
+      exact: true,
+    });
   });
 
   it("fans run progress out to subscribers and ignores malformed frames", () => {
