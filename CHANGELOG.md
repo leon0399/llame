@@ -57,6 +57,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The production wait tool remains inactive; worker suspension and restart
   acceptance follow in the lifecycle layer.
 
+- **Prepare durable wait state (#1657).** The schema records an open wait,
+  its generation, and its authoritative queue job. Internal transactions bind
+  suspension and wake updates to actual pg-boss inserts, retry queue-id
+  collisions with fresh ids, and refuse terminal resurrection or obsolete
+  dead-letter expiry. Recorded jobs have no first-enqueue admission grace.
+  This prerequisite connects no owner or settlement wake route and exposes
+  no `wait` tool. Deadline wake eligibility uses the database clock, so
+  worker clock skew cannot strand the persisted deadline job.
+
 - Preserve the SSH subprocess's exit classification when it closes stdin
   before accepting all input. A broken input pipe no longer escapes as an
   uncaught stream error during a bounded SSH read or command.
@@ -77,22 +86,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The datastore permits one notice per job even after withdrawal; owner and
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
-- **Prepare durable wait state (#1657).** The schema records an open wait,
-  its generation, and its authoritative queue job. Internal transactions bind
-  suspension and wake updates to actual pg-boss inserts, retry queue-id
-  collisions with fresh ids, and refuse terminal resurrection or obsolete
-  dead-letter expiry. Recorded jobs have no first-enqueue admission grace.
-  This prerequisite connects no owner or settlement wake route and exposes
-  no `wait` tool. Deadline wake eligibility uses the database clock, so
-  worker clock skew cannot strand the persisted deadline job.
-
-- **State the stop proof boundary (#1657).** The model-facing description and
-  tool reference promise termination of the managed process group, without
-  claiming that detached descendants are also stopped.
-
-- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
-  the standard timeout header, measured duration and captured output before the
-  explanation that job promotion failed.
 
 - **Start host Runs for background-job results (#1657).** Eligible settlements
   on idle, unarchived Chats commit the trigger, Run, notices, and queue job

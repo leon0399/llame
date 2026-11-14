@@ -978,7 +978,7 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
  * Re-running `work` opens a fresh transaction; connection failures are not
  * retried because their commit outcome can be ambiguous.
  */
-async function retryRunTransaction<T>(work: () => Promise<T>): Promise<T> {
+async function retryAbortedTransaction<T>(work: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await work();
@@ -1003,7 +1003,7 @@ async function recoverHostPromotionWithRetry(
   },
 ): Promise<ToolResult> {
   return (
-    await retryRunTransaction(() =>
+    await retryAbortedTransaction(() =>
       tenantDb.runAs(input.userId, (tx) =>
         new NativeFilesRepository(tx).recoverHostPromotion(input),
       ),
@@ -3046,7 +3046,7 @@ export class RunExecutionService {
       ) => {
         const { telemetry } = modelCompleted;
 
-        const boundary = await retryRunTransaction(() =>
+        const boundary = await retryAbortedTransaction(() =>
           this.tenantDb.runAs(input.userId, (tx) =>
             deliverPendingSteering(tx, {
               run: { runId: input.runId, userId: input.userId },
@@ -5325,7 +5325,7 @@ export class RunExecutionService {
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
     try {
-      return await retryRunTransaction(() =>
+      return await retryAbortedTransaction(() =>
         this.tenantDb.runAs(input.userId, (tx) =>
           this.finishRunInTransaction(tx, input),
         ),
