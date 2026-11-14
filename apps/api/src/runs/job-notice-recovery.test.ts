@@ -1,6 +1,4 @@
-import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { isSQLWrapper, type SQL } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -16,37 +14,19 @@ type QueryRow = {
   toolCallId?: unknown;
 };
 
-type QueryObservation = {
-  selection: string;
-  projectionSql: Array<string>;
-  whereSql?: { sql: string; params: Array<unknown> };
-};
-
 type QueryResponse = {
   selection: string;
   rows: Array<QueryRow>;
 };
 
-const dialect = new PgDialect();
-
-function compileProjection(value: unknown): string | undefined {
-  if (!isSQLWrapper(value)) return undefined;
-
-  return dialect.sqlToQuery(value.getSQL()).sql;
-}
-
-function queryResult(rows: Array<QueryRow>, observation: QueryObservation) {
+function queryResult(rows: Array<QueryRow>) {
   const terminal = Promise.resolve(rows);
   const chain = () => terminal;
 
   return Object.assign(terminal, {
     from: chain,
     innerJoin: chain,
-    where(condition: SQL) {
-      observation.whereSql = dialect.sqlToQuery(condition);
-
-      return terminal;
-    },
+    where: chain,
     orderBy: chain,
     limit: chain,
   });
@@ -61,7 +41,6 @@ function asQuery(value: ReturnType<typeof queryResult>): never {
 
 function finiteQueryDb(responses: Array<QueryResponse>) {
   let nextResponse = 0;
-  const observations: Array<QueryObservation> = [];
   const db: Db = drizzle.mock({ schema });
 
   const select = vi.spyOn(db, 'select').mockImplementation((selection) => {
@@ -77,25 +56,10 @@ function finiteQueryDb(responses: Array<QueryResponse>) {
       );
     }
 
-    const observation: QueryObservation = {
-      selection: selectedColumns,
-      projectionSql: Object.values(selection).flatMap((projection) => {
-        const compiled = compileProjection(projection);
-
-        return compiled === undefined ? [] : [compiled];
-      }),
-    };
-
-    observations.push(observation);
-
-    return asQuery(queryResult(response.rows, observation));
+    return asQuery(queryResult(response.rows));
   });
 
-  return {
-    tx: db,
-    queryCount: () => select.mock.calls.length,
-    observations,
-  };
+  return { tx: db, queryCount: () => select.mock.calls.length };
 }
 
 describe('job notice recovery', () => {
@@ -118,21 +82,9 @@ describe('job notice recovery', () => {
       }),
     ).resolves.toEqual(['notice-a', 'notice-b']);
     expect(queries.queryCount()).toBe(3);
-    expect(queries.observations[0]?.whereSql?.params).toContain(
-      'attempt-current',
-    );
-    expect(queries.observations[1]?.whereSql?.params).toContain(
-      'run.delivered',
-    );
-    expect(queries.observations[2]?.whereSql?.params).toContain(
-      'tool.completed',
-    );
-    expect(queries.observations[2]?.projectionSql).toContain(
-      `"run_events"."payload"->'consumedJobNoticeIds'`,
-    );
   });
 
-  it('keeps direct receipts and stops at a delivered source boundary', async () => {
+  it('keeps direct receipts when a delivered sequence is present', async () => {
     const queries = finiteQueryDb([
       { selection: 'sequence', rows: [{ sequence: 10 }] },
       { selection: 'receipts', rows: [{ receipts: ['direct-receipt'] }] },
@@ -192,6 +144,40 @@ describe('job notice recovery', () => {
     expect(empty.queryCount()).toBe(3);
   });
 
+  it('omits a source group when its retained results have no receipts', async () => {
+    const queries = finiteQueryDb([
+      { selection: 'sequence', rows: [] },
+      { selection: 'receipts', rows: [] },
+      {
+        selection: 'payload',
+        rows: [
+          {
+            payload: {
+              sourceRunId: 'run-ancestor',
+              parts: [{ toolCallId: 'empty-tool' }],
+            },
+          },
+        ],
+      },
+      {
+        selection: 'toolCallId,receipts',
+        rows: [{ toolCallId: 'empty-tool', receipts: [] }],
+      },
+      { selection: 'sequence', rows: [] },
+      { selection: 'payload', rows: [] },
+    ]);
+
+    await expect(
+      sourceSegmentJobNoticeIds({
+        tx: queries.tx,
+        sourceRunId: 'run-empty-receipts',
+        chatId: 'chat',
+        ownerUserId: 'owner',
+      }),
+    ).resolves.toEqual([]);
+    expect(queries.queryCount()).toBe(6);
+  });
+
   it('filters retained results and terminates a cyclic Continue chain', async () => {
     const queries = finiteQueryDb([
       { selection: 'sequence', rows: [] },
@@ -210,7 +196,7 @@ describe('job notice recovery', () => {
       {
         selection: 'toolCallId,receipts',
         rows: [
-          { toolCallId: 'cycle-tool', receipts: [] },
+          { toolCallId: 'cycle-tool', receipts: ['ancestor-kept'] },
           { toolCallId: 'discarded-tool', receipts: ['ancestor-discarded'] },
         ],
       },
@@ -243,25 +229,9 @@ describe('job notice recovery', () => {
         ownerUserId: 'owner',
       }),
     ).resolves.toEqual([
+      { runId: 'run-ancestor', deliveryIds: ['ancestor-kept'] },
       { runId: 'run-start', deliveryIds: ['starting-kept'] },
     ]);
     expect(queries.queryCount()).toBe(7);
-    expect(
-      queries.observations.some((query) =>
-        query.whereSql?.params.includes('run.continued'),
-      ),
-    ).toBe(true);
-    expect(
-      queries.observations.some((query) =>
-        query.whereSql?.params.includes('tool.completed'),
-      ),
-    ).toBe(true);
-    expect(queries.observations[2]?.projectionSql).toContain(
-      `"run_events"."payload"`,
-    );
-    expect(queries.observations[3]?.projectionSql).toEqual([
-      `"run_events"."payload"->'toolCallId'`,
-      `"run_events"."payload"->'consumedJobNoticeIds'`,
-    ]);
   });
 });

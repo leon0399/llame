@@ -10,7 +10,10 @@ import {
   call,
   answer,
 } from '../testing/run-segments.test-fixture';
-import { sourceSegmentJobNoticeIds } from './job-notice-recovery';
+import {
+  discardedJobNoticeIds,
+  sourceSegmentJobNoticeIds,
+} from './job-notice-recovery';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -28,6 +31,42 @@ describe('Regenerate restores consumed job notices', () => {
   });
 
   const { db, seed, terminal, itemState, events } = fx;
+
+  it('reads discarded receipts only between delivery and attempt start', async () => {
+    const source = await seed('Discard only receipts in the current segment');
+    const attemptId = randomUUID();
+
+    await db(async (tx) => {
+      const log = new RunEventsRepository(tx);
+      await log.append(source.runId, 'tool.completed', {
+        toolCallId: 'before-delivery',
+        consumedJobNoticeIds: ['before-delivery'],
+      });
+      await log.append(source.runId, 'run.delivered', {
+        messageId: source.userMessage.id,
+      });
+      await log.append(source.runId, 'tool.completed', {
+        toolCallId: 'inside-discarded-segment',
+        consumedJobNoticeIds: ['inside-discarded-segment'],
+      });
+      await log.append(source.runId, 'run.started', { attemptId });
+      await log.append(source.runId, 'tool.completed', {
+        toolCallId: 'after-attempt-start',
+        consumedJobNoticeIds: ['after-attempt-start'],
+      });
+    });
+
+    const deliveryIds = await db((tx) =>
+      discardedJobNoticeIds({
+        tx,
+        runId: source.runId,
+        ownerUserId: fx.userId,
+        attemptId,
+      }),
+    );
+
+    expect(deliveryIds).toEqual(['inside-discarded-segment']);
+  });
 
   it('replays a source Run stop receipt into the Regenerate provider request but not an owner withdrawal', async () => {
     const source = await seed('Regenerate this answer');
