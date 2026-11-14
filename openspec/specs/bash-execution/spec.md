@@ -179,6 +179,37 @@ process group stopped, the watcher MUST drain output for at most 50 ms. The
 watcher MUST mark a stream that is still open at that bound as truncated, and
 MUST destroy it.
 
+For a command on the llame host, the foreground bound starts promotion instead
+of stopping the command. The command's duration follows the job lifetime rules
+of `background-jobs`, including its operator-authorized unlimited option. An
+unresolved host promotion has no per-call deadline: the call MUST remain
+unsettled until promotion or recovery determines the authoritative result. The
+`ssh://` and Machine duration bounds and settlement rules remain unchanged.
+
+#### Scenario: Promotion wins the durable fence
+
+- **WHEN** promotion commits the job, initial output, and `backgrounded` result before recovery
+- **THEN** the host call returns `backgrounded` and the job exists
+- **AND** recovery uses the committed result without settling a second outcome
+
+#### Scenario: Recovery wins the durable fence
+
+- **WHEN** recovery records `outcome_unknown` for an open host command before promotion commits
+- **THEN** the Run fails and the command is not executed again
+- **AND** the losing promotion creates no job
+
+#### Scenario: A lost acknowledgement does not roll back promotion
+
+- **WHEN** promotion commits but the host loses the transaction acknowledgement
+- **THEN** the host resolves the result under the durable fence
+- **AND** the committed `backgrounded` result remains authoritative
+
+#### Scenario: Remote command timeout remains unchanged
+
+- **WHEN** an `ssh://` command reaches its effective runner or managed-executor timeout, or a Machine command reaches its 300-second cap
+- **THEN** the existing remote timeout signal, duration, and settlement bound apply
+- **AND** the host-promotion exception does not start or extend the remote command
+
 #### Scenario: Oversized output is bounded
 
 - **WHEN** a command on the llame host produces more output than `tools.artifacts.maxBytes`
@@ -288,10 +319,10 @@ at settlement as a best effort, except when a background promotion remains in pr
 The host MUST NOT refuse a later bash admission because of an earlier unknown on that worker.
 
 The durable `native.attempt` MUST still prevent a second execution of the command by recovery.
-When a Run is resumed on any host after an attempt without a recorded result, recovery MUST fail
-the Run with `outcome_unknown`. It MUST NOT execute the command again. A shell process group can
-survive a worker crash. A replacement worker can admit a new bash command while the old group is
-alive.
+When a Run is resumed after an attempt without a recorded result, recovery MUST arbitrate with any
+pending promotion before it determines the result. Recovery that wins records `outcome_unknown`
+and fails the Run; it MUST NOT execute the command again. A shell process group can survive a
+worker crash. A replacement worker can admit a new bash command while the old group is alive.
 
 When the managed child closes and the process group is not yet proven empty, the executor MUST
 SIGKILL the group and settle from that proof. A group that is proven empty MUST record a known
@@ -299,16 +330,23 @@ result with the observed exit status. A group that cannot be proven empty MUST r
 `outcome_unknown`.
 
 A command on the llame host has no per-call deadline. At its foreground bound the call MUST
-start the move. A successful move within the settlement window MUST record `backgrounded`;
-a failed or late move MUST follow the rules of `A move that fails stops the command`.
+start the move. A committed move MUST record `backgrounded`; a failed move MUST follow the rules
+of `A move that fails stops the command`.
 The command deadline is the job lifetime of `background-jobs`. For a command on
 an `ssh://` or `machine://` directory, the runner MUST pass bash a separate timeout signal and
 duration. The effective deadline of that command MUST be the lesser of the per-call timeout of
 the runner and the 300-second cap of the managed executor. Caller cancellation stays separate.
-After a deadline, a foreground bound, or a Run cancellation, bash MUST have at most 750 ms to settle and persist
-`native.result`. If settlement or persistence takes longer, the result MUST be
-`outcome_unknown`. The host MUST NOT run an attempt again automatically, under the same or
-another tool-call ID.
+After a deadline or Run cancellation, a remote bash call has at most 750 ms to settle and
+persist `native.result`; a longer settlement or persistence produces `outcome_unknown`.
+After a host Run cancellation with no promotion pending, bash has at most 750 ms to settle and
+persist `native.result`; a longer settlement or persistence produces `outcome_unknown`. For a
+host promotion whose durable outcome remains unresolved after 750 ms, the host MUST NOT publish
+a final result or advance the Run until the authoritative outcome is known.
+Promotion and recovery MUST arbitrate one durable result under the same database fence. Promotion
+MUST commit the job, its initial output and its `backgrounded` result in one transaction. Recovery
+that wins first MUST record `outcome_unknown` under that fence; a losing promotion MUST NOT create
+a job. A lost commit acknowledgement MUST be resolved under that fence, not treated as a rollback.
+The host MUST NOT run an attempt again automatically, under the same or another tool-call ID.
 
 #### Scenario: Normal completion permits the next call
 
@@ -408,8 +446,9 @@ that background work is available only on the llame host.
 ### Requirement: A foreground host command moves to the background
 
 A foreground host `bash` call MUST start a move when it reaches the bound of `instance-config`,
-or when a steer, interrupt, or job notice signals the Run. A successful timely move MUST return
-`backgrounded`, keep the earlier output, and leave the command running as a job. A failed or late move MUST follow `A move that fails stops the command`.
+or when a steer, interrupt, or job notice signals the Run. A successful move MUST return
+`backgrounded`, keep the earlier output, and leave the command running as a job. A failed move
+MUST follow `A move that fails stops the command`.
 
 #### Scenario: A long test suite passes the bound
 
@@ -435,9 +474,8 @@ A command that exits while a timely move commits MUST NOT prevent the move. The 
 
 A failed move MUST stop the command under the cancellation rules. A proved stop MUST return
 `timed_out` with its output and a failed-move message; an unproved stop MUST return
-`outcome_unknown`. The call MUST settle within 750 ms of starting the move. A late commit MUST
-leave a normal job. A late failure MUST stop the command but keep its recorded
-`outcome_unknown` result.
+`outcome_unknown`. A late commit leaves a normal job and records `backgrounded`. Until the
+transaction outcome is known, the call remains unsettled and the Run does not advance.
 
 #### Scenario: The job record cannot be written
 
@@ -452,7 +490,7 @@ leave a normal job. A late failure MUST stop the command but keep its recorded
 #### Scenario: A move that is recorded late
 
 - **WHEN** a job record commits more than 750 ms after the foreground bound
-- **THEN** the call returns `outcome_unknown`, and the job settles with a notice normally
+- **THEN** the call returns the committed `backgrounded` result, and the job settles with a notice normally
 
 ### Requirement: A job settles from the exit of its command
 

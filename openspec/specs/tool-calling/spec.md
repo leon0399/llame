@@ -478,6 +478,12 @@ Ordinary isolated failures retain the continuation behavior below.
 
 A tool that throws, times out, becomes unavailable, dynamically loses its trusted executor, or returns invalid output SHALL produce a structured error result — recorded, streamed, and visible to the model — and the run SHALL continue whenever the failure is isolated to that tool. Tool execution SHALL be bounded by the global `tools.callTimeoutSeconds` (operator config, documented built-in default 120). A trusted per-tool registration MAY only reduce that value and MUST be finite, positive, and no greater than the configured global maximum; an invalid override SHALL fail registration/admission before advertisement. The effective abort signal SHALL be forwarded into the executor and remote transport, and a timed-out MCP request/body SHALL be aborted and cleaned up before the structured timeout result settles. Tool errors SHALL never expose internal stack traces, remote exception bodies, or secrets in the recorded result.
 
+For any host `bash` promotion, including one triggered by a steer, interrupt, or job notice, the
+per-call timeout SHALL NOT settle the call while the promotion outcome is unresolved. The host
+MUST wait for the authoritative durable outcome; a committed promotion produces `backgrounded`,
+and a promotion that loses to recovery produces the recovery result. This exception applies only
+to the host promotion; all other tool timeout behavior remains unchanged.
+
 Oversized tool results SHALL be truncated to a documented cap, measured in JavaScript UTF-16 code units over the model-facing rendering of the result, after secret redaction; `tool-result-rendering` defines that rendering as the serialized result for a JSON-rendered tool and the text shape for a text-rendered tool. The stored `display` object MUST NOT count toward the cap, and text the rendering builds from its values MUST count. Truncation SHALL operate on the tool's own payload rather than on the result envelope: the `status` discriminant and every top-level field the tool declared SHALL survive, with values shrunk in place. Where the declared field names alone exceed the cap, the cap SHALL win over the declared shape — trailing fields SHALL be omitted and the marker SHALL state how many of how many — so a result above the cap is never emitted. A string value SHALL be cut only on a Unicode code-point boundary, so no truncated payload contains a lone surrogate. Truncation SHALL NOT re-serialize any part of the payload into a string field, so redaction performed before truncation cannot be defeated by an alternate typed representation. A truncated result SHALL carry one visible truncation marker stating how many characters were omitted and the recovery action available to the model. When truncation shortens a list, the marker SHALL also state how many elements of that list survived out of how many it held, naming the lists that lost the most and counting any remainder, so a count read off a shortened list is not mistaken for a complete one. Error results SHALL NOT be truncated, because every error message this loop produces is a short, statically authored string.
 
 An image in a tool result SHALL be carried without image bytes, so the cap measures only the
@@ -602,6 +608,24 @@ A code-owned tool whose executor is inconsistent with its admitted in-memory id/
   were it counted
 - **THEN** the result is recorded without truncation
 - **AND** its `display.thumbnail` is recorded unchanged
+
+#### Scenario: A committed promotion wins over timeout settlement
+
+- **WHEN** a host `bash` promotion commits while the call's per-call timeout is due
+- **THEN** the call records the committed `backgrounded` result
+- **AND** the Run does not advance before the promotion outcome is authoritative
+
+#### Scenario: Recovery wins before host promotion
+
+- **WHEN** recovery settles an open host `bash` attempt before promotion commits
+- **THEN** the attempt records `outcome_unknown` and the Run fails
+- **AND** the promotion creates no job
+
+#### Scenario: A lost promotion acknowledgement is resolved durably
+
+- **WHEN** the promotion transaction commits but its acknowledgement is lost
+- **THEN** the host resolves the result under the durable fence
+- **AND** it does not treat the commit as a rollback or settle the call twice
 
 ### Requirement: Availability comparison retains only committed tool identities and states
 
@@ -876,6 +900,24 @@ Comparing an attempt-local MCP source declaration against its current source SHA
 Tool execution SHALL receive a cancellation signal derived from both the run's termination and the effective per-call timeout, so a tool that supports cooperative cancellation can abandon work whose result can no longer be used. The same per-call timeout signal SHALL drive both the execution context and the timeout race. A tool that ignores the signal SHALL still be bounded by that timeout and SHALL still produce a structured result. The signal SHALL come from the trusted execution context, never from model-controlled arguments.
 
 A cooperative rejection caused by the per-call timeout SHALL produce the structured `timeout` outcome. A rejection caused by the parent run abort SHALL NOT be recorded as `execution_failed` or win first settlement; the call SHALL remain open for the run's terminal settlement so its durable outcome agrees with the terminal run state.
+
+For a host `bash` call with promotion pending, parent cancellation SHALL NOT settle the call before
+promotion and recovery arbitrate its durable result. Cancellation before promotion starts retains
+the existing terminal settlement behavior; while promotion is pending, the call and Run remain
+unresolved until the authoritative outcome is known. This exception does not change cancellation
+or timeout behavior for remote bash.
+
+#### Scenario: Abort before host promotion uses terminal settlement
+
+- **WHEN** the Run aborts before a host `bash` promotion starts
+- **THEN** the call remains open for the Run's terminal settlement
+- **AND** the command is not represented as a committed background job
+
+#### Scenario: Abort during host promotion waits for arbitration
+
+- **WHEN** the Run aborts while host `bash` promotion is pending
+- **THEN** the call remains unsettled until promotion or recovery wins the durable fence
+- **AND** the Run does not advance before the authoritative result is known
 
 #### Scenario: Run cancellation reaches an executing tool
 
@@ -1246,10 +1288,12 @@ A redelivered Run with a recorded `native.attempt` in its current segment MUST f
 `outcome_unknown`. It MUST NOT replay its loop. A recorded `native.attempt` of an earlier segment
 has a settled result, and it MUST NOT stop the retry. This recovery rule has no native-executor
 or `workerId` precondition. Before terminal settlement, the host MUST settle each open call that
-has a durable `native.result` from that result, whatever the tool source. An open `bash`, native
-mutation, or MCP call with a recorded `native.attempt` and no result for it MUST settle as
-`outcome_unknown`. Every other open call settles as the termination settlement rules
-require.
+has a durable `native.result` from that result, whatever the tool source. Recovery MUST first
+arbitrate with any pending host promotion under their shared durable fence. It uses a committed
+promotion's result, or records `outcome_unknown` if recovery wins before promotion. An open
+`bash`, native mutation, or MCP call with a recorded `native.attempt` and no competing promotion
+or result MUST settle as `outcome_unknown`. Every other open call settles as the termination
+settlement rules require.
 
 Only a Continue that the owner requests through `turn-actions` can carry the settled tool-loop
 state of a terminal Run into a new Run. That Continue Run MUST replay the settled results. It
@@ -1327,9 +1371,11 @@ requirement.
 ### Requirement: A tool can yield to a steer
 
 A tool can declare that it yields. `wait` and `bash` on the llame host MUST yield, and no other
-tool does. A steer, an interrupt, or a job notice can signal the Run. Each open call of a tool
-that yields MUST then return a known result at once. The work of that call MUST continue as a job of
-`background-jobs`. A call that yields MUST NOT settle as `outcome_unknown` or `cancelled`.
+tool does. A steer, an interrupt, or a job notice can signal the Run. A host `bash` call that
+yields MUST begin promotion without waiting for command completion. Its final result waits for
+the authoritative durable outcome; no model step or delivery advances while that outcome is
+unresolved. A successful promotion continues as a job of `background-jobs`. A `wait` call that
+yields follows its own settlement rules.
 
 #### Scenario: A read does not yield
 
