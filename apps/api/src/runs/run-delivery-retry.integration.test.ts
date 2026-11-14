@@ -50,12 +50,12 @@ describe('run delivery transaction retry', () => {
 
     let boundaryAttemptId: string | undefined;
 
-    const lockPendingSteering = vi.spyOn(
+    const lockPendingBoundary = vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     );
 
-    lockPendingSteering.mockImplementationOnce(() => {
+    lockPendingBoundary.mockImplementationOnce(() => {
       boundaryAttemptId = lockForDelivery.mock.calls.at(-1)?.[2];
 
       return Promise.reject(
@@ -100,12 +100,12 @@ describe('run delivery transaction retry', () => {
 
     let boundaryAttemptId: string | undefined;
 
-    const lockPendingSteering = vi.spyOn(
+    const lockPendingBoundary = vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     );
 
-    lockPendingSteering.mockImplementationOnce(() => {
+    lockPendingBoundary.mockImplementationOnce(() => {
       boundaryAttemptId = lockForDelivery.mock.calls.at(-1)?.[2];
 
       return Promise.reject(
@@ -144,13 +144,13 @@ describe('run delivery transaction retry', () => {
 
     let boundaryAttemptId: string | undefined;
 
-    const lockPendingSteering = vi.spyOn(
+    const lockPendingBoundary = vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     );
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      lockPendingSteering.mockImplementationOnce(() => {
+      lockPendingBoundary.mockImplementationOnce(() => {
         boundaryAttemptId ??= lockForDelivery.mock.calls.at(-1)?.[2];
 
         return Promise.reject(

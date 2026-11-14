@@ -15,6 +15,7 @@ import {
   type JobSettlement,
 } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
+import { NativeReceiptsRepository } from '../runs/native-receipts-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -137,7 +138,7 @@ describe('async host bash through the tool', () => {
       return Promise.resolve({ disposition: 'recovery_won', result });
     });
     vi.spyOn(
-      RunEventsRepository.prototype,
+      NativeReceiptsRepository.prototype,
       'findNativeResult',
     ).mockResolvedValue(undefined);
     lockHostPromotion = vi
@@ -260,7 +261,7 @@ describe('async host bash through the tool', () => {
       },
     );
     vi.spyOn(
-      RunEventsRepository.prototype,
+      NativeReceiptsRepository.prototype,
       'findNativeResult',
     ).mockImplementation(() => {
       const payload = appended[0];

@@ -14,6 +14,7 @@ import { renderListing } from '../tools/listing-window';
 import { nativeErrorResult, selectInMemoryText } from '../tools/text-selection';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { ChatJobsRepository } from './chat-jobs.repository';
+import { retryJobTransaction } from './bash-job-store';
 import {
   formatJobLocator,
   JOB_SCHEME,
@@ -55,20 +56,22 @@ export async function readJob(
 
   context.abortSignal?.throwIfAborted();
 
-  return context.tenantDb.runAs(context.userId, async (db) => {
-    const jobs = new ChatJobsRepository(db);
+  return retryJobTransaction(() =>
+    context.tenantDb.runAs(context.userId, async (db) => {
+      const jobs = new ChatJobsRepository(db);
 
-    await jobs.settleOnDeadWorkers(
-      context.chatId,
-      context.userId,
-      context.workerDeadAfterSeconds ??
-        workerDeadAfterSeconds(BUILT_IN_DEFAULTS),
-    );
+      await jobs.settleOnDeadWorkers(
+        context.chatId,
+        context.userId,
+        context.workerDeadAfterSeconds ??
+          workerDeadAfterSeconds(BUILT_IN_DEFAULTS),
+      );
 
-    return locator === undefined
-      ? listJobs(context, jobs, selector)
-      : readLocator(context, { db, jobs }, locator, selector);
-  });
+      return locator === undefined
+        ? listJobs(context, jobs, selector)
+        : readLocator(context, { db, jobs }, locator, selector);
+    }),
+  );
 }
 
 async function listJobs(

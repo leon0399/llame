@@ -46,6 +46,9 @@ const unitTest = {
     // Runs its own migrated PostgreSQL Testcontainer; only Stryker's mutation
     // Vitest config includes it, not the ordinary unit project.
     'src/chats/chat-deliveries.query.unit.test.ts',
+    // Runs its own migrated PostgreSQL Testcontainer; only Stryker's mutation
+    // Vitest config includes it, not the ordinary unit project.
+    'src/runs/native-receipts-repository.test.ts',
     // This test reads the developer's local MCP configuration. Exclude it from
     // Stryker because it fails when that configuration references an unset
     // secret; a developer's personal config is not a mutation signal.

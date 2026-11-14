@@ -70,6 +70,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
+  seeded job notices beside owner steering, preserve the earlier reply, and
+  persist job context only at dispatch. Stop-result recording consumes exact
+  notices atomically; discarded results and terminal segments that never
+  dispatched restore only their own notices. Regenerate restores exact receipts
+  from its source Run's discarded segment using the consuming Run identity;
+  owner-withdrawn notices stay withdrawn. This layer activates no settlement
+  producer and starts no idle-Chat Run.
+
 - **Prepare bounded job notice context (#1657).** The packaged renderer frames
   settled-job facts and output suffixes as data. Owner-scoped database reads
   transfer only bounded output tails; verified existing artifact caches can

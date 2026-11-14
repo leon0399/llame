@@ -89,6 +89,7 @@ vi.mock('@sentry/nestjs', async (importOriginal) => ({
 import type {
   Chat,
   ChatDelivery,
+  ChatJob,
   MediaObject,
   Message,
   ModelToolDeclaration,
@@ -147,6 +148,7 @@ import {
   isPromptImportsPayload,
   promptImportMediaKey,
 } from '../chats/prompt-imports-item';
+import { createJobNoticeItem } from '../chats/job-context-item';
 import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
@@ -184,6 +186,7 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   reconstructDurableAssistant,
@@ -787,11 +790,23 @@ function mockNormalExecutionRepositories() {
     undefined,
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
+  vi.spyOn(
+    RunEventsRepository.prototype,
+    'discardedJobNoticeIds',
+  ).mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
     'hasPendingSteering',
   ).mockResolvedValue(false);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'listDeliveredJobNotices',
+  ).mockResolvedValue([]);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'lockPendingBoundary',
+  ).mockResolvedValue([]);
 
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
@@ -818,12 +833,14 @@ function mockNormalExecutionRepositories() {
     RunRowFenceRepository.prototype,
     'lockHostPromotionRecovery',
   ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
-  vi.spyOn(RunEventsRepository.prototype, 'findNativeResult').mockResolvedValue(
-    undefined,
-  );
-  vi.spyOn(RunEventsRepository.prototype, 'hasNativeAttempt').mockResolvedValue(
-    false,
-  );
+  vi.spyOn(
+    NativeReceiptsRepository.prototype,
+    'findNativeResult',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(
+    NativeReceiptsRepository.prototype,
+    'hasNativeAttempt',
+  ).mockResolvedValue(false);
 
   const findByOwnedRun = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByOwnedRun')
@@ -6550,10 +6567,383 @@ function createMidRunAdditionTools() {
   return { adder, executeAdded, executeAddedSecond };
 }
 
+function settledBashJob(seq: number): ChatJob {
+  return {
+    id: `job-${seq}`,
+    chatId,
+    ownerUserId: userId,
+    executor: 'bash',
+    seq,
+    state: 'succeeded',
+    stoppedBy: null,
+    runId,
+    toolCallId: `bash-call-${seq}`,
+    workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    pid: null,
+    startedAt: now,
+    settledAt: now,
+    deadlineAt: null,
+    stopRequestedAt: null,
+    stopRequestedBy: null,
+    result: { exitCode: 0 },
+    outputs: ['stdout'],
+    artifactId: null,
+    artifactReadable: false,
+    settings: { modelId: 'fake-model', permissionMode: 'default' },
+  };
+}
+
 describe('RunExecutionService executeRun — tool loop', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  it('consumes notices only from a successful stop tool receipt', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = settledBashJob(41);
+
+    let noticeState: 'pending' | 'withdrawn' = 'pending';
+
+    const consumeNotices = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'consumeJobNotices')
+      .mockImplementation(({ jobIds }) => {
+        if (noticeState === 'pending' && jobIds.includes('job-41')) {
+          noticeState = 'withdrawn';
+
+          return Promise.resolve(['notice-41']);
+        }
+
+        return Promise.resolve([]);
+      });
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-success',
+            toolName: 'stop',
+            input: JSON.stringify({ jobs: ['job://bash-41'] }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('done'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+    await expect(result.text).resolves.toBe('done');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-success',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'success',
+      consumedJobNoticeIds: ['notice-41'],
+    });
+    expect(consumeNotices).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      runId,
+      jobIds: ['job-41'],
+    });
+    expect(noticeState).toBe('withdrawn');
+  });
+
+  it.each(['unfenced', 'cancel-requested', 'chat-lock-unavailable'] as const)(
+    'does not consume stop notices when the result transaction is %s',
+    async (fenceState) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const job = settledBashJob(42);
+
+      const updateForAttempt = vi.spyOn(
+        RunsRepository.prototype,
+        'updateForAttempt',
+      );
+
+      let activeFenceUpdates = 0;
+      updateForAttempt.mockImplementation(
+        (_candidateRunId, _ownerId, _attemptId, patch) => {
+          if (patch.activeAttemptId !== testAttemptId)
+            return Promise.resolve({ ...run });
+
+          activeFenceUpdates += 1;
+
+          if (activeFenceUpdates < 3) return Promise.resolve({ ...run });
+
+          if (fenceState === 'unfenced') return Promise.resolve(undefined);
+
+          if (fenceState === 'cancel-requested')
+            return Promise.resolve({ ...run, cancelRequestedAt: now });
+
+          return Promise.resolve({ ...run });
+        },
+      );
+
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
+        Promise.resolve(
+          fenceState === 'chat-lock-unavailable' && activeFenceUpdates >= 3
+            ? undefined
+            : chat,
+        ),
+      );
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockResolvedValue(['notice-42']);
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: `stop-${fenceState}`,
+              toolName: 'stop',
+              input: JSON.stringify({ jobs: ['job://bash-42'] }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('done'),
+      ]);
+
+      const execution = makeExecutionService(client, undefined, 'stop-host', {
+        allowed: ['stop'],
+        permissionPolicy: compileTestPermissionPolicy(['stop']),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('done');
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === `stop-${fenceState}`,
+      );
+
+      expect(completed?.payload).toMatchObject({
+        status: 'success',
+        consumedJobNoticeIds: [],
+      });
+    },
+  );
+
+  it.each(['succeeded', 'failed', 'cancelled', 'timed_out', 'lost'] as const)(
+    'consumes notices for a matching %s stop result',
+    async (state) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const job = { ...settledBashJob(43), state };
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockImplementation(({ jobIds }) =>
+        Promise.resolve(jobIds.includes('job-43') ? ['notice-43'] : []),
+      );
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: `stop-${state}`,
+              toolName: 'stop',
+              input: JSON.stringify({ jobs: ['job://bash-43'] }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('done'),
+      ]);
+
+      const execution = makeExecutionService(client, undefined, 'stop-host', {
+        allowed: ['stop'],
+        permissionPolicy: compileTestPermissionPolicy(['stop']),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('done');
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === `stop-${state}`,
+      );
+
+      expect(completed?.payload).toMatchObject({
+        status: 'success',
+        consumedJobNoticeIds: ['notice-43'],
+      });
+    },
+  );
+
+  it('does not consume notices for a reported-running job or a missing re-read job', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const runningJob = { ...settledBashJob(45), state: 'running' as const };
+    const reportedRunningJob = settledBashJob(45);
+    const settledJob = settledBashJob(46);
+    let runningReads = 0;
+    let settledReads = 0;
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockImplementation(({ jobIds }) =>
+      Promise.resolve(
+        jobIds.some((jobId) => jobId === 'job-45' || jobId === 'job-46')
+          ? ['notice-45-or-46']
+          : [],
+      ),
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'requestStop').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockImplementation(
+      (_chatId, _userId, _executor, seq) => {
+        if (seq === 45) {
+          runningReads += 1;
+
+          return Promise.resolve(
+            runningReads === 1 ? runningJob : reportedRunningJob,
+          );
+        }
+
+        settledReads += 1;
+
+        return Promise.resolve(settledReads === 1 ? settledJob : undefined);
+      },
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+      runningJob,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-running-and-missing',
+            toolName: 'stop',
+            input: JSON.stringify({
+              jobs: ['job://bash-45', 'job://bash-46'],
+            }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('done'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+
+    await expect(result.text).resolves.toBe('done');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-running-and-missing',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      status: 'success',
+      output: {
+        jobs: [
+          { job: 'job://bash-45', state: 'running' },
+          { job: 'job://bash-46', state: 'succeeded' },
+        ],
+      },
+      consumedJobNoticeIds: [],
+    });
+  }, 10_000);
+
+  it('does not consume notices when the stop tool rejects an unknown job', async () => {
+    mockNormalExecutionRepositories();
+
+    const appended = recordAppendedEvents();
+
+    const consumeNotices = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    );
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      undefined,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-rejected',
+            toolName: 'stop',
+            input: JSON.stringify({ jobs: ['job://bash-99'] }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('not found'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+
+    await expect(result.text).resolves.toBe('not found');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-rejected',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'error',
+      output: { type: 'not_found' },
+    });
+    expect(completed?.payload).not.toHaveProperty('consumedJobNoticeIds');
+    expect(consumeNotices).not.toHaveBeenCalled();
+  });
+
   it('executes an in-Run addition on the next model step', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -6815,7 +7205,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
       const appended = recordAppendedEvents();
@@ -6912,7 +7302,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
       const appended = recordAppendedEvents();
@@ -7001,7 +7391,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
 
@@ -7058,7 +7448,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
       const recoveryError = new Error('recovery permission denied');
@@ -7115,7 +7505,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       mockNormalExecutionRepositories();
 
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
 
@@ -13317,6 +13707,132 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.restoreAllMocks();
   });
 
+  it('stages delivered settled job output on the trigger request', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const jobId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const jobNotice = chatDeliveryRow({
+      chatId,
+      ownerUserId: userId,
+      producer: 'job',
+      senderRef: jobId,
+      mode: 'notice',
+      parts: [],
+      state: 'delivered',
+      deliveredMessageId: messageId,
+      runId,
+    });
+
+    const settledJob: ChatJob = {
+      id: jobId,
+      chatId,
+      ownerUserId: userId,
+      executor: 'bash',
+      seq: 4,
+      state: 'succeeded',
+      stoppedBy: null,
+      runId,
+      toolCallId: 'bash-call',
+      workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      pid: null,
+      startedAt: now,
+      settledAt: now,
+      deadlineAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      result: { exitCode: 0 },
+      outputs: ['stdout'],
+      artifactId: null,
+      artifactReadable: false,
+      settings: { modelId: 'fake-model', permissionMode: 'default' },
+    };
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listDeliveredJobNotices',
+    ).mockResolvedValue([jobNotice]);
+    vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+      settledJob,
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+      Buffer.from('completed job output'),
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    await execution.service.executeRun(executionInput(capturing.client));
+    const staged = repositories.storeAtDispatch.mock.calls.at(-1)?.[0].items;
+
+    const stagedJob = staged?.find(
+      (item) => isContextItemPart(item) && item.data.producer === 'job',
+    );
+
+    expect(isContextItemPart(stagedJob) && stagedJob.data.form).toBe('notice');
+    expect(
+      isContextItemPart(stagedJob) &&
+        isRecord(stagedJob.data.payload) &&
+        stagedJob.data.payload['locator'] === 'job://bash-4',
+    ).toBe(true);
+    expect(JSON.stringify(capturing.streamOptions().messages)).toContain(
+      'completed job output',
+    );
+  });
+
+  it('restores withdrawn notices before retry dispatch and the next model request', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const deliveryId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const deliveryIds = [deliveryId];
+    let state: 'withdrawn' | 'pending' = 'withdrawn';
+    const order: Array<string> = [];
+
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'discardedJobNoticeIds',
+    ).mockResolvedValue(deliveryIds);
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'restoreJobNotices',
+    ).mockImplementation((input) => {
+      if (
+        input.chatId === chatId &&
+        input.ownerUserId === userId &&
+        input.runId === runId &&
+        input.deliveryIds.includes(deliveryId)
+      ) {
+        state = 'pending';
+        order.push('restored');
+      }
+
+      return Promise.resolve();
+    });
+
+    repositories.storeAtDispatch.mockImplementation(() => {
+      expect(state).toBe('pending');
+      order.push('dispatched');
+
+      return Promise.resolve({ applied: true });
+    });
+
+    const capturing = makeCapturingClient();
+
+    const client: ModelClient = {
+      ...capturing.client,
+      streamText: (options) => {
+        expect(state).toBe('pending');
+        order.push('model-requested');
+
+        return capturing.client.streamText(options);
+      },
+    };
+
+    const execution = makeExecutionService(client);
+
+    await execution.service.executeRun(executionInput(client));
+
+    expect(state).toBe('pending');
+    expect(order).toEqual(['restored', 'dispatched', 'model-requested']);
+  });
+
   it('stages the items with their form and commits the observed availability', async () => {
     const repositories = mockNormalExecutionRepositories();
 
@@ -13566,6 +14082,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     function retryAgainstStoredTrigger(
       repositories: ReturnType<typeof mockNormalExecutionRepositories>,
       record: Array<TurnToolAvailabilityEntry>,
+      retryTrigger: Message = trigger,
     ) {
       repositories.findById.mockResolvedValue({
         ...run,
@@ -13576,9 +14093,105 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         { ...event, eventType: 'model.requested' },
       ]);
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-        trigger,
+        retryTrigger,
       ]);
     }
+
+    it('retains the delivered job output exactly once on a retry', async () => {
+      const repositories = mockNormalExecutionRepositories();
+      const jobId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+      const settledJob: ChatJob = {
+        id: jobId,
+        chatId,
+        ownerUserId: userId,
+        executor: 'bash',
+        seq: 4,
+        state: 'succeeded',
+        stoppedBy: null,
+        runId,
+        toolCallId: 'bash-call',
+        workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        pid: null,
+        startedAt: now,
+        settledAt: now,
+        deadlineAt: null,
+        stopRequestedAt: null,
+        stopRequestedBy: null,
+        result: { exitCode: 0 },
+        outputs: ['stdout'],
+        artifactId: null,
+        artifactReadable: false,
+        settings: { modelId: 'fake-model', permissionMode: 'default' },
+      };
+
+      const storedJobItem = createJobNoticeItem({
+        runId,
+        job: settledJob,
+        outputs: [{ name: 'stdout', text: 'already delivered output' }],
+      });
+
+      const retryTrigger: Message = {
+        ...trigger,
+        parts: [
+          ...trigger.parts.slice(0, 1),
+          storedJobItem,
+          ...trigger.parts.slice(1),
+        ],
+      };
+
+      retryAgainstStoredTrigger(repositories, [], retryTrigger);
+
+      const jobNotice = chatDeliveryRow({
+        chatId,
+        ownerUserId: userId,
+        producer: 'job',
+        senderRef: jobId,
+        mode: 'notice',
+        parts: [],
+        state: 'delivered',
+        deliveredMessageId: messageId,
+        runId,
+      });
+
+      const listDeliveredJobNotices = vi
+        .spyOn(ChatDeliveriesRepository.prototype, 'listDeliveredJobNotices')
+        .mockResolvedValue([jobNotice]);
+
+      vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+        settledJob,
+      );
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'readOutputTail',
+      ).mockResolvedValue(Buffer.from('already delivered output'));
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(capturing.client);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      const stored = stagedPartsOf(
+        repositories.storeAtDispatch,
+        retryTrigger.parts,
+      );
+
+      const jobItems = stored
+        .filter(isContextItemPart)
+        .filter((item) => item.data.producer === 'job');
+
+      const request = capturing.streamOptions().messages.at(-1);
+
+      const requestText = JSON.stringify(request);
+
+      expect(jobItems).toHaveLength(1);
+      expect(jobItems[0]?.data.text).toContain('already delivered output');
+      expect(request).toEqual({
+        role: 'user',
+        content: userPartsToModelContent(stored),
+      });
+      expect(requestText.split('already delivered output')).toHaveLength(2);
+      expect(listDeliveredJobNotices).not.toHaveBeenCalled();
+    });
 
     it('appends an availability reminder against its own record after the stored items', async () => {
       const repositories = mockNormalExecutionRepositories();
@@ -19902,7 +20515,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
 
     const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
       .mockResolvedValue(items);
 
     vi.spyOn(
@@ -20972,7 +21585,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     ).mockResolvedValue(items);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,

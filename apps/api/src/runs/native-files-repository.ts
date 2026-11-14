@@ -1,4 +1,5 @@
 import { ChatsRepository } from '../chats/chats-repository';
+import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { and, desc, eq, gt, isNull, max, or, sql } from 'drizzle-orm';
@@ -52,7 +53,7 @@ export class NativeFilesRepository {
   }
 
   private async recordedHostPromotionReceipt(
-    events: RunEventsRepository,
+    events: NativeReceiptsRepository,
     input: {
       runId: string;
       userId: string;
@@ -91,7 +92,8 @@ export class NativeFilesRepository {
   }): Promise<HostPromotionRecoveryResult> {
     const run = await this.lockRecoveryRun(input);
     const events = new RunEventsRepository(this.db);
-    const prior = await this.recordedHostPromotionReceipt(events, input);
+    const receipts = new NativeReceiptsRepository(this.db);
+    const prior = await this.recordedHostPromotionReceipt(receipts, input);
 
     if (prior !== undefined) {
       return { disposition: 'receipt', result: prior };
@@ -99,7 +101,7 @@ export class NativeFilesRepository {
 
     if (
       run === undefined ||
-      !(await events.hasNativeAttempt(
+      !(await receipts.hasNativeAttempt(
         input.runId,
         input.userId,
         input.toolCallId,

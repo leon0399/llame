@@ -120,6 +120,15 @@ function pending(id: string, text: string): ChatDelivery {
 
 const first = pending('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'first');
 const second = pending('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'second');
+
+const jobNotice: ChatDelivery = {
+  ...pending('cccccccc-cccc-4ccc-8ccc-cccccccccccc', ''),
+  producer: 'job',
+  senderRef: 'job://bash-1',
+  mode: 'notice',
+  parts: [],
+};
+
 const models = [{ id: 'fake-model', billing: 'subscription' as const }];
 
 const closingTelemetry = {
@@ -166,7 +175,7 @@ describe('deliverPendingSteering', () => {
       .mockResolvedValue(has('chat') ? overrides.chat : chat);
 
     const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
       .mockResolvedValue(overrides.items ?? [first, second]);
 
     const markDelivered = vi
@@ -379,6 +388,74 @@ describe('deliverPendingSteering', () => {
     interrupted: true,
   };
 
+  it.each([
+    {
+      label: 'job notice alone',
+      items: [jobNotice],
+      cause: 'notice',
+      expectedUsage: closingTelemetry,
+    },
+    {
+      label: 'owner steer before job notice',
+      items: [first, jobNotice],
+      cause: 'steer',
+      expectedUsage: closingTelemetry,
+    },
+    {
+      label: 'job notice before owner steer',
+      items: [jobNotice, first],
+      cause: 'steer',
+      expectedUsage: closingTelemetry,
+    },
+    {
+      label: 'owner interrupt before job notice',
+      items: [{ ...first, mode: 'interrupt' }, jobNotice],
+      cause: 'interrupt',
+      expectedUsage: interrupted,
+    },
+    {
+      label: 'job notice before owner interrupt',
+      items: [jobNotice, { ...first, mode: 'interrupt' }],
+      cause: 'interrupt',
+      expectedUsage: interrupted,
+    },
+  ] as const)(
+    'delivers $label with its cause and closing telemetry',
+    async ({ items, cause, expectedUsage }) => {
+      const spies = serve({ items: [...items] });
+
+      const createSystemMessage = vi
+        .spyOn(MessagesRepository.prototype, 'create')
+        .mockResolvedValue(storedMessage({ senderUserId: null, parts: [] }));
+
+      const outcome = await deliver({
+        modelCompleted: {
+          usage: { inputTokens: 3 },
+          finishReason: 'tool-calls',
+          telemetry: { ...closingTelemetry },
+        },
+      });
+
+      expect(outcome.kind).toBe('delivered');
+
+      if (outcome.kind !== 'delivered') return;
+      expect(outcome.cause).toBe(cause);
+      expect(outcome.closedReply?.usage).toEqual(expectedUsage);
+
+      if (items.every((item) => item.producer === 'job')) {
+        expect(spies.createUser).not.toHaveBeenCalled();
+        expect(createSystemMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            role: 'user',
+            senderUserId: null,
+            parts: [],
+            attachments: [],
+          }),
+        );
+      }
+    },
+  );
+
   it('closes the reply aborted, and records the cause, when an interrupt item is delivered', async () => {
     const spies = serve({ items: [interruptItem] });
 
@@ -559,7 +636,7 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     ).mockResolvedValue(items);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
@@ -676,6 +753,13 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     await deliver();
 
     expect(spies.setDigest).toHaveBeenCalledWith(chatId, userId, baseline, []);
+  });
+  it('does not write first-epoch baselines when a job notice joins an owner steer', async () => {
+    const spies = serve([first, jobNotice]);
+
+    await deliver();
+
+    expect(spies.setDigest).not.toHaveBeenCalled();
   });
 
   it('writes no first-epoch baseline when an interrupt is among the delivered items', async () => {

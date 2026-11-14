@@ -4,6 +4,7 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import * as schema from '../db/schema';
 import { type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 
@@ -664,11 +665,11 @@ describe('RunEventsRepository.findFirstByType ordering', () => {
   });
 });
 
-describe('RunEventsRepository.findNativeResult', () => {
+describe('NativeReceiptsRepository.findNativeResult', () => {
   it('queries only committed results for the owner and call', async () => {
     const { db, queries } = makeLoggedDb();
 
-    await new RunEventsRepository(db)
+    await new NativeReceiptsRepository(db)
       .findNativeResult(run.id, run.userId, 'call-1')
       .catch(() => undefined);
 
@@ -688,7 +689,7 @@ describe('RunEventsRepository.findNativeResult', () => {
     const { db } = makeDb({ select: [[{ run_events: nativeResult }]] });
 
     await expect(
-      new RunEventsRepository(db).findNativeResult(
+      new NativeReceiptsRepository(db).findNativeResult(
         run.id,
         run.userId,
         'call-1',
@@ -740,11 +741,11 @@ describe('RunRowFenceRepository.lockHostPromotionRecovery', () => {
   });
 });
 
-describe('RunEventsRepository.hasNativeAttempt', () => {
+describe('NativeReceiptsRepository.hasNativeAttempt', () => {
   it('checks the owner-scoped call attempt', async () => {
     const { db, queries } = makeLoggedDb();
 
-    await new RunEventsRepository(db)
+    await new NativeReceiptsRepository(db)
       .hasNativeAttempt(run.id, run.userId, 'call-1')
       .catch(() => undefined);
 

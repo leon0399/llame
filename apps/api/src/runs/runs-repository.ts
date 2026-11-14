@@ -34,6 +34,7 @@ import {
 } from '../db/schema';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type Db } from '../db/tenant-db.service';
+import { discardedJobNoticeIds as readDiscardedJobNoticeIds } from './job-notice-recovery';
 import { notifyRunControl } from './run-control';
 import {
   markFinishedPredicate,
@@ -459,8 +460,11 @@ export class RunsRepository {
       )
       .returning();
 
-    for (const run of cancelled)
-      await new ChatDeliveriesRepository(this.db).pauseBehind(run);
+    for (const run of cancelled) {
+      const deliveries = new ChatDeliveriesRepository(this.db);
+      await deliveries.returnUndispatchedJobNotices(run);
+      await deliveries.pauseBehind(run);
+    }
 
     return cancelled;
   }
@@ -510,9 +514,13 @@ export class RunsRepository {
       .where(markFinishedPredicate(runId, userId, options?.attemptId))
       .returning();
 
-    // The queue pauses behind a Run that did not deliver its steering items.
-    if (updated)
-      await new ChatDeliveriesRepository(this.db).pauseBehind(updated);
+    // Return notices for this undispatched segment only after winning terminal
+    // arbitration, in the same transaction as the terminal state change.
+    if (updated) {
+      const deliveries = new ChatDeliveriesRepository(this.db);
+      await deliveries.returnUndispatchedJobNotices(updated);
+      await deliveries.pauseBehind(updated);
+    }
 
     return updated;
   }
@@ -610,55 +618,6 @@ export class RunEventsRepository {
     return created;
   }
 
-  /** The newest native.result for one tool call, without treating a bare
-   * native.attempt as a committed receipt. Used to reconcile an ambiguous
-   * promotion-transaction acknowledgement without inventing an outcome. */
-  async findNativeResult(
-    runId: string,
-    userId: string,
-    toolCallId: string,
-  ): Promise<RunEvent | undefined> {
-    const [row] = await this.db
-      .select()
-      .from(runEvents)
-      .innerJoin(runs, eq(runEvents.runId, runs.id))
-      .where(
-        and(
-          eq(runEvents.runId, runId),
-          eq(runs.userId, userId),
-          eq(runEvents.eventType, 'native.result'),
-          sql`${runEvents.payload}->>'toolCallId' = ${toolCallId}`,
-        ),
-      )
-      .orderBy(desc(runEvents.sequence))
-      .limit(1);
-
-    return row?.run_events;
-  }
-
-  /** Whether one call has the native.attempt that authorizes recovery. */
-  async hasNativeAttempt(
-    runId: string,
-    userId: string,
-    toolCallId: string,
-  ): Promise<boolean> {
-    const [row] = await this.db
-      .select({ sequence: runEvents.sequence })
-      .from(runEvents)
-      .innerJoin(runs, eq(runEvents.runId, runs.id))
-      .where(
-        and(
-          eq(runEvents.runId, runId),
-          eq(runs.userId, userId),
-          eq(runEvents.eventType, 'native.attempt'),
-          sql`${runEvents.payload}->>'toolCallId' = ${toolCallId}`,
-        ),
-      )
-      .limit(1);
-
-    return row !== undefined;
-  }
-
   /**
    * The first event of `eventType` this Run holds (the newest with
    * `newest`), or undefined. Owner-scoped like every read here; the first
@@ -723,5 +682,17 @@ export class RunEventsRepository {
         : await query.limit(options.limit);
 
     return rows.map((r) => r.run_events);
+  }
+  discardedJobNoticeIds(
+    runId: string,
+    ownerUserId: string,
+    attemptId: string,
+  ): Promise<Array<string>> {
+    return readDiscardedJobNoticeIds({
+      tx: this.db,
+      runId,
+      ownerUserId,
+      attemptId,
+    });
   }
 }

@@ -58,6 +58,7 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type Sql } from 'postgres';
 import { z } from 'zod';
 
@@ -74,6 +75,7 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import {
   buildContext,
@@ -159,6 +161,7 @@ import { type InRunContextProducer } from '../runs/in-run-context-items';
 import { createInstructionsProducer } from '../instructions/instructions-producer';
 import { ChatsService } from './chats.service';
 import { MemoryService } from '../memory/memory.service';
+import { newChatJob } from '../testing/chat-job-rows';
 import { RecencyDigestService } from './recency-digest.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -1735,6 +1738,200 @@ describeIfDb('executeRun tool-loop persistence', () => {
     expect(await asSchema(advertised!.inputSchema).jsonSchema).toEqual(
       await resolveJsonSchema(liveTool.inputSchema),
     );
+
+    await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+  });
+
+  it('consumes a matching pending job notice from a successful stop receipt', async () => {
+    const seeded = await seedBoundRun(`stop-notice-${crypto.randomUUID()}`);
+
+    const service = serviceWithTools({
+      nativeExecutorId: 'stop-test-host',
+      allowed: ['stop'],
+    });
+
+    const job = await tenantDb.runAs(userId, async (tx) => {
+      const jobs = new ChatJobsRepository(tx);
+
+      const inserted = await jobs.insert(
+        newChatJob({
+          chatId: seeded.chatId,
+          ownerUserId: userId,
+          seq: 41,
+          workerInstanceId: crypto.randomUUID(),
+        }),
+      );
+
+      const settled = await jobs.settle(seeded.chatId, userId, inserted.id, {
+        state: 'succeeded',
+        result: { exitCode: 0 },
+      });
+
+      if (!settled) throw new Error('the seeded job must settle');
+
+      return settled;
+    });
+
+    let noticeId: string | undefined;
+
+    let turn = 0;
+
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        if (turn++ === 0) {
+          const notice = await tenantDb.runAs(userId, (tx) =>
+            new ChatDeliveriesRepository(tx).insertJobNotice(job),
+          );
+
+          if (!notice) throw new Error('the job notice must be inserted');
+          noticeId = notice.id;
+
+          return jsonToolCallResponse('stop-call', 'stop', {
+            jobs: ['job://bash-41'],
+          });
+        }
+
+        return textResponse('The job has stopped.');
+      },
+    });
+
+    const execution = await executeSeeded(
+      seeded,
+      service,
+      recordingMockClient(model, []),
+    );
+
+    await execution.consumeStream?.();
+
+    const recordedNoticeId = noticeId;
+
+    if (recordedNoticeId === undefined)
+      throw new Error('the notice must be recorded');
+
+    const events = await tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+    );
+
+    const completed = events.find(
+      (entry) =>
+        entry.eventType === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'stop-call',
+    );
+
+    const noticeAfter = await tenantDb.runAs(userId, (tx) =>
+      new ChatDeliveriesRepository(tx).findById(recordedNoticeId, userId),
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'success',
+      consumedJobNoticeIds: [recordedNoticeId],
+    });
+    expect(noticeAfter).toMatchObject({
+      id: recordedNoticeId,
+      state: 'withdrawn',
+      runId: seeded.run.id,
+    });
+
+    await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+  });
+
+  it('leaves the job notice delivered when the stop tool rejects an unknown job', async () => {
+    const seeded = await seedBoundRun(
+      `stop-rejected-notice-${crypto.randomUUID()}`,
+    );
+
+    const service = serviceWithTools({
+      nativeExecutorId: 'stop-test-host',
+      allowed: ['stop'],
+    });
+
+    const job = await tenantDb.runAs(userId, async (tx) => {
+      const jobs = new ChatJobsRepository(tx);
+
+      const inserted = await jobs.insert(
+        newChatJob({
+          chatId: seeded.chatId,
+          ownerUserId: userId,
+          seq: 42,
+          workerInstanceId: crypto.randomUUID(),
+        }),
+      );
+
+      const settled = await jobs.settle(seeded.chatId, userId, inserted.id, {
+        state: 'succeeded',
+        result: { exitCode: 0 },
+      });
+
+      if (!settled) throw new Error('the seeded job must settle');
+
+      return settled;
+    });
+
+    let noticeId: string | undefined;
+
+    let turn = 0;
+
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        if (turn++ === 0) {
+          const notice = await tenantDb.runAs(userId, (tx) =>
+            new ChatDeliveriesRepository(tx).insertJobNotice(job),
+          );
+
+          if (!notice) throw new Error('the job notice must be inserted');
+          noticeId = notice.id;
+
+          return jsonToolCallResponse('stop-rejected-call', 'stop', {
+            jobs: ['job://bash-43'],
+          });
+        }
+
+        return textResponse('The requested job was not found.');
+      },
+    });
+
+    const execution = await executeSeeded(
+      seeded,
+      service,
+      recordingMockClient(model, []),
+    );
+
+    await execution.consumeStream?.();
+
+    const recordedNoticeId = noticeId;
+
+    if (recordedNoticeId === undefined)
+      throw new Error('the notice must be recorded');
+
+    const events = await tenantDb.runAs(userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+    );
+
+    const completed = events.find(
+      (entry) =>
+        entry.eventType === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'stop-rejected-call',
+    );
+
+    const noticeAfter = await tenantDb.runAs(userId, (tx) =>
+      new ChatDeliveriesRepository(tx).findById(recordedNoticeId, userId),
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'error',
+      output: { type: 'not_found' },
+    });
+    expect(completed?.payload).not.toHaveProperty('consumedJobNoticeIds');
+    expect(noticeAfter).toMatchObject({
+      id: recordedNoticeId,
+      state: 'delivered',
+      runId: seeded.run.id,
+      deliveredMessageId: expect.any(String),
+    });
 
     await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
   });

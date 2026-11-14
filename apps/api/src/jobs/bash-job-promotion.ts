@@ -12,6 +12,7 @@ import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { pgErrorCode } from '../db/pg-error';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
+import { NativeReceiptsRepository } from '../runs/native-receipts-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
@@ -287,7 +288,7 @@ export class BashJobPromotion {
     facts: BashJobFacts,
     captured: CapturedOutput,
   ): Promise<PromotionOutcome | undefined> {
-    const previous = await new RunEventsRepository(tx).findNativeResult(
+    const previous = await new NativeReceiptsRepository(tx).findNativeResult(
       facts.runId,
       facts.ownerUserId,
       facts.toolCallId,
@@ -530,7 +531,7 @@ export class BashJobPromotion {
 
   private readReceipt(facts: BashJobFacts) {
     return this.tenantDb.runAs(facts.ownerUserId, (db) =>
-      new RunEventsRepository(db).findNativeResult(
+      new NativeReceiptsRepository(db).findNativeResult(
         facts.runId,
         facts.ownerUserId,
         facts.toolCallId,
