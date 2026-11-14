@@ -13,7 +13,7 @@
  * Component's router) is mocked.
  */
 
-import { useEffect } from "react";
+import { memo, useEffect } from "react";
 
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -80,13 +80,18 @@ function stubActiveRunsNetwork() {
   });
 }
 
-function Probe({
+const Probe = memo(function Probe({
   chatId,
   viewedChatId,
+  onContext,
 }: {
   chatId: string;
   viewedChatId?: string;
+  onContext?: (value: ReturnType<typeof useActiveRuns>) => void;
 }) {
+  const context = useActiveRuns();
+  onContext?.(context);
+
   const {
     activeChatIds,
     unseenRunOutcomes,
@@ -94,7 +99,7 @@ function Probe({
     trackRun,
     untrackChat,
     markChatSeen,
-  } = useActiveRuns();
+  } = context;
 
   return (
     <div>
@@ -121,7 +126,7 @@ function Probe({
       </button>
     </div>
   );
-}
+});
 
 function ViewedChatRegistration({ chatId }: { chatId: string }) {
   const { registerViewedChat } = useActiveRuns();
@@ -132,7 +137,13 @@ function ViewedChatRegistration({ chatId }: { chatId: string }) {
 
 function renderProbe(
   chatId: string,
-  { viewedChatId }: { viewedChatId?: string } = {},
+  {
+    viewedChatId,
+    onContext,
+  }: {
+    viewedChatId?: string;
+    onContext?: (value: ReturnType<typeof useActiveRuns>) => void;
+  } = {},
 ) {
   const queryClient = new QueryClient();
 
@@ -140,7 +151,11 @@ function renderProbe(
     <QueryClientProvider client={queryClient}>
       <ActiveRunsProvider>
         <Toaster />
-        <Probe chatId={nextChatId} viewedChatId={nextViewedChatId} />
+        <Probe
+          chatId={nextChatId}
+          viewedChatId={nextViewedChatId}
+          onContext={onContext}
+        />
       </ActiveRunsProvider>
     </QueryClientProvider>
   );
@@ -195,13 +210,26 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
           runResponseFixture({ id: runId, status: "running_model" }),
         ),
       );
+    const contextSnapshots: Array<ReturnType<typeof useActiveRuns>> = [];
 
-    renderProbe("chat-a");
+    const onContext = (value: ReturnType<typeof useActiveRuns>) =>
+      contextSnapshots.push(value);
 
+    const { rerenderProbe } = renderProbe("chat-a", { onContext });
     await waitFor(() =>
       expect(screen.getByTestId("processing").textContent).toBe("true"),
     );
     expect(screen.getByTestId("unread").textContent).toBe("false");
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "running_model",
+      ),
+    );
+    const contextValue = contextSnapshots.at(-1);
+    const renderCount = contextSnapshots.length;
+    rerenderProbe("chat-a");
+    expect(contextSnapshots).toHaveLength(renderCount);
+    expect(contextSnapshots.at(-1)).toBe(contextValue);
   });
 
   it("rehydrates an awaiting_jobs Run with its background status", async () => {

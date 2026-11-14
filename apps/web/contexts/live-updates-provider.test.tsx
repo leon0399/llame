@@ -206,8 +206,9 @@ describe("LiveUpdatesProvider", () => {
   });
 
   it("writes a pushed chat record into the detail cache", () => {
-    const { queryClient } = renderLive(<ConnectionProbe />);
+    const { queryClient, invalidate } = renderLive(<ConnectionProbe />);
     latestSocket().serverOpen();
+    invalidate.mockClear();
     queryClient.setQueryData(chatQueryKeys.infinite(), {
       pages: [[]],
       pageParams: [undefined],
@@ -235,6 +236,7 @@ describe("LiveUpdatesProvider", () => {
     expect(
       queryClient.getQueryData(chatQueryKeys.detail(chatId)),
     ).toMatchObject({ title: "Pushed" });
+    expect(invalidate).not.toHaveBeenCalled();
   });
 
   it("fans run progress out to subscribers and ignores malformed frames", () => {
