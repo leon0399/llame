@@ -89,6 +89,7 @@ vi.mock('@sentry/nestjs', async (importOriginal) => ({
 import type {
   Chat,
   ChatDelivery,
+  ChatJob,
   MediaObject,
   Message,
   ModelToolDeclaration,
@@ -13332,6 +13333,104 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.restoreAllMocks();
   });
 
+  it('stages delivered settled job output on the trigger request', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const jobId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const jobNotice = chatDeliveryRow({
+      chatId,
+      ownerUserId: userId,
+      producer: 'job',
+      senderRef: jobId,
+      mode: 'notice',
+      parts: [],
+      state: 'delivered',
+      deliveredMessageId: messageId,
+      runId,
+    });
+
+    const settledJob: ChatJob = {
+      id: jobId,
+      chatId,
+      ownerUserId: userId,
+      executor: 'bash',
+      seq: 4,
+      state: 'succeeded',
+      stoppedBy: null,
+      runId,
+      toolCallId: 'bash-call',
+      workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      pid: null,
+      startedAt: now,
+      settledAt: now,
+      deadlineAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      result: { exitCode: 0 },
+      outputs: ['stdout'],
+      artifactId: null,
+      artifactReadable: false,
+      settings: { modelId: 'fake-model', permissionMode: 'default' },
+    };
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listDeliveredJobNotices',
+    ).mockResolvedValue([jobNotice]);
+    vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+      settledJob,
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+      Buffer.from('completed job output'),
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    await execution.service.executeRun(executionInput(capturing.client));
+    const staged = repositories.storeAtDispatch.mock.calls.at(-1)?.[0].items;
+
+    const stagedJob = staged?.find(
+      (item) => isContextItemPart(item) && item.data.producer === 'job',
+    );
+
+    expect(isContextItemPart(stagedJob) && stagedJob.data.form).toBe('notice');
+    expect(
+      isContextItemPart(stagedJob) &&
+        isRecord(stagedJob.data.payload) &&
+        stagedJob.data.payload['locator'] === 'job://bash-4',
+    ).toBe(true);
+    expect(JSON.stringify(capturing.streamOptions().messages)).toContain(
+      'completed job output',
+    );
+  });
+
+  it('restores notices consumed by the attempt before dispatching its retry', async () => {
+    mockNormalExecutionRepositories();
+
+    const deliveryIds = ['dddddddd-dddd-4ddd-8ddd-dddddddddddd'];
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'discardedJobNoticeIds',
+    ).mockResolvedValue(deliveryIds);
+
+    const restoreJobNotices = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'restoreJobNotices')
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService();
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+    expect(restoreJobNotices).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      runId,
+      deliveryIds,
+    });
+  });
+
   it('stages the items with their form and commits the observed availability', async () => {
     const repositories = mockNormalExecutionRepositories();
 
@@ -13594,6 +13693,69 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         trigger,
       ]);
     }
+
+    it('does not add the delivered job output again on a retry', async () => {
+      const repositories = mockNormalExecutionRepositories();
+      retryAgainstStoredTrigger(repositories, []);
+      const jobId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+      const jobNotice = chatDeliveryRow({
+        chatId,
+        ownerUserId: userId,
+        producer: 'job',
+        senderRef: jobId,
+        mode: 'notice',
+        parts: [],
+        state: 'delivered',
+        deliveredMessageId: messageId,
+        runId,
+      });
+
+      const listDeliveredJobNotices = vi
+        .spyOn(ChatDeliveriesRepository.prototype, 'listDeliveredJobNotices')
+        .mockResolvedValue([jobNotice]);
+
+      vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue({
+        id: jobId,
+        chatId,
+        ownerUserId: userId,
+        executor: 'bash',
+        seq: 4,
+        state: 'succeeded',
+        stoppedBy: null,
+        runId,
+        toolCallId: 'bash-call',
+        workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        pid: null,
+        startedAt: now,
+        settledAt: now,
+        deadlineAt: null,
+        stopRequestedAt: null,
+        stopRequestedBy: null,
+        result: { exitCode: 0 },
+        outputs: ['stdout'],
+        artifactId: null,
+        artifactReadable: false,
+        settings: { modelId: 'fake-model', permissionMode: 'default' },
+      });
+
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'readOutputTail',
+      ).mockResolvedValue(Buffer.from('already delivered output'));
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(capturing.client);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      const stored = stagedPartsOf(repositories.storeAtDispatch, trigger.parts);
+
+      expect(producersOf(stored)).not.toContain('job');
+      expect(JSON.stringify(capturing.streamOptions().messages)).not.toContain(
+        'already delivered output',
+      );
+      expect(listDeliveredJobNotices).not.toHaveBeenCalled();
+    });
 
     it('appends an availability reminder against its own record after the stored items', async () => {
       const repositories = mockNormalExecutionRepositories();
