@@ -13307,6 +13307,81 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
 
+  it('does not terminalize an attempt with its own suspension receipt', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const suspendedAttemptId = testAttemptId;
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: suspendedAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === suspendedAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'stale answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(repositories.markFinished).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    expect(appended.map(({ type }) => type)).not.toContain('model.completed');
+  });
+
+  it('does not treat another attempt’s suspension receipt as its own', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: '6a6a6a6a-6a6a-4a6a-8a6a-6a6a6a6a6a6a' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === suspensionEvent.payload.attemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'current answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+    expect(appended.map(({ type }) => type)).toContain('run.completed');
+  });
+
   it('finalizes its own running reply when another writer cancelled the run', async () => {
     const spies = mockNormalExecutionRepositories();
     spies.markFinished.mockResolvedValue(undefined);

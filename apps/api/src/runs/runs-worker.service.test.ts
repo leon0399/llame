@@ -645,7 +645,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
   it('accepts the current wake and expires it against the original run start budget', async () => {
     const startedAt = new Date('2026-11-13T12:00:00.000Z');
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(startedAt.getTime() + 301_000));
+    vi.setSystemTime(new Date(startedAt.getTime() + 300_000));
     vi.spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValueOnce({
         ...queuedRun,
