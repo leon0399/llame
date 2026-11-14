@@ -364,13 +364,20 @@ describe('Regenerate restores consumed job notices', () => {
 
   it('restores only kept receipts across multiple Continues', async () => {
     const source = await seed('Continue through retained results');
-    const trigger = source.userMessage;
 
     const createContinue = async (
       sourceRunId: string,
       toolCallIds: Array<string>,
     ): Promise<string> =>
       db(async (tx) => {
+        const trigger = await new MessagesRepository(tx).findById(
+          source.chatId,
+          fx.userId,
+          source.userMessage.id,
+        );
+
+        if (!trigger) throw new Error('The Continue trigger was not found.');
+
         const { run } = await createRunForMessage(
           tx,
           {

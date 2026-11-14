@@ -1,3 +1,6 @@
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   discardedJobNoticeIds,
@@ -11,51 +14,52 @@ type QueryRow = {
   toolCallId?: unknown;
 };
 
-type QuerySelection = Partial<{
-  sequence: unknown;
-  receipts: unknown;
-  payload: unknown;
-  toolCallId: unknown;
-}>;
-
 type QueryResponse = {
   selection: string;
   rows: Array<QueryRow>;
 };
 
+function queryResult(rows: Array<QueryRow>) {
+  const terminal = Promise.resolve(rows);
+  const chain = () => terminal;
+
+  return Object.assign(terminal, {
+    from: chain,
+    innerJoin: chain,
+    where: chain,
+    orderBy: chain,
+    limit: chain,
+  });
+}
+
+function asQuery(value: ReturnType<typeof queryResult>): never {
+  // SAFETY: this query builder implements every select-chain method these
+  // functions use, and all method calls return a real Promise.
+  // eslint-disable-next-line typescript/no-unsafe-type-assertion
+  return value as never;
+}
+
 function finiteQueryDb(responses: Array<QueryResponse>) {
   let nextResponse = 0;
+  const db: Db = drizzle.mock({ schema });
 
-  const db = {
-    select(selection: QuerySelection) {
-      const response = responses[nextResponse++];
-      const selectedColumns = Object.keys(selection).join(',');
+  const select = vi.spyOn(db, 'select').mockImplementation((selection) => {
+    const response = responses[nextResponse++];
+    const selectedColumns = Object.keys(selection).join(',');
 
-      if (!response)
-        throw new Error(`Unexpected query selecting ${selectedColumns}.`);
+    if (!response)
+      throw new Error(`Unexpected query selecting ${selectedColumns}.`);
 
-      if (response.selection !== selectedColumns) {
-        throw new Error(
-          `Expected query selecting ${response.selection}, got ${selectedColumns}.`,
-        );
-      }
+    if (response.selection !== selectedColumns) {
+      throw new Error(
+        `Expected query selecting ${response.selection}, got ${selectedColumns}.`,
+      );
+    }
 
-      const result = Object.assign(Promise.resolve(response.rows), {
-        from: () => result,
-        innerJoin: () => result,
-        where: () => result,
-        orderBy: () => result,
-        limit: () => result,
-      });
+    return asQuery(queryResult(response.rows));
+  });
 
-      return result;
-    },
-  };
-
-  // SAFETY: this strict finite double supplies only the select/query chain used
-  // by these functions. Every query consumes one explicitly queued response.
-  // eslint-disable-next-line typescript/no-unsafe-type-assertion
-  return { tx: db as Db, queryCount: () => nextResponse };
+  return { tx: db, queryCount: () => select.mock.calls.length };
 }
 
 describe('job notice recovery', () => {
