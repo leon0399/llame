@@ -60,7 +60,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
   without the ordinary tool-call cap.
 
-
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
   The next flush captures the latest output and preserves stored suffix offsets.
@@ -75,7 +74,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   real result together with exact notice consumption. Cancellation leaves jobs
   running, and retries never replay native mutations. See
   [wait](docs/product/reference/tools/wait.md).
-
 
 - **Prepare durable Run suspension (#1657).** Internal suspension commits
   `awaiting_jobs`, its open-call state, generation, and deadline queue job
