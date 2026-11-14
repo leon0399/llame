@@ -1,8 +1,12 @@
+import { isSQLWrapper, type SQL } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { PgDialect } from 'drizzle-orm/pg-core';
+
 import { type ChatJob, type Run } from '../db/schema';
-import { type Db } from '../db/tenant-db.service';
-import { asDouble } from '../testing/support';
+import * as schema from '../db/schema';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunsRepository } from '../runs/runs-repository';
+import { asDouble } from '../testing/support';
 import { recordJobSettlementNotice } from './job-notices';
 
 const CHAT_ID = '33333333-3333-4333-8333-333333333333';
@@ -38,8 +42,17 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('recordJobSettlementNotice', () => {
   function setup(run: Run | undefined) {
-    const execute = vi.fn(() => Promise.resolve([]));
-    const tx = asDouble<Db>({ execute });
+    const tx = drizzle.mock({ schema });
+
+    const execute = vi.spyOn(tx, 'execute').mockResolvedValue(
+      Object.assign([], {
+        columns: [],
+        count: 0,
+        command: 'SELECT',
+        statement: { name: '', string: '', types: [], columns: [] },
+        state: { status: 'I', pid: 0, secret: 0 },
+      }),
+    );
 
     const insertNotice = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'insertJobNotice')
@@ -77,7 +90,32 @@ describe('recordJobSettlementNotice', () => {
     await recordJobSettlementNotice(tx, job());
 
     expect(insertNotice).toHaveBeenCalledWith(job());
-    expect(execute).toHaveBeenCalledTimes(1);
+
+    const notifications: Array<SQL> = execute.mock.calls.map(([statement]) => {
+      if (!isSQLWrapper(statement)) {
+        throw new Error('Expected a SQL notification');
+      }
+
+      return statement.getSQL();
+    });
+
+    expect(notifications).toHaveLength(1);
+    expect(
+      notifications.map((statement) => {
+        const { sql, params } = new PgDialect().sqlToQuery(statement);
+        expect(sql).toBe('select pg_notify($1, $2)');
+
+        return params;
+      }),
+    ).toEqual([
+      [
+        'llame_run_control',
+        JSON.stringify({
+          runId: '66666666-6666-4666-8666-666666666666',
+          kind: 'steer',
+        }),
+      ],
+    ]);
   });
 
   it('records the notice without notifying when there is no active Run', async () => {
