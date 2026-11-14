@@ -25,6 +25,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-11
 
+- **Add incremental managed-command output capture (#1657).** A managed handle
+  reports output activity and returns redacted snapshots without rescanning its
+  stable prefix. Credential overlaps, split credentials, and Unicode boundaries
+  retain the full sanitizer's output. Truncation is tracked per stream, including
+  timed-out commands. This prepares capture for the worker job registry without
+  starting background jobs from a tool.
 - **Bound the commands of a worker with `tools.bash.maxProcesses` (#1657).**
   A worker process used to run one managed `bash` command at a time, and the
   refusal for a second one was `unavailable`. One limiter now counts the host

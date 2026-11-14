@@ -32,7 +32,9 @@ export type ResultCaptures = {
   readonly stderr?: StreamCapture;
 };
 
-type SanitizedStream = {
+export type ProtectedValueIntervals = ReadonlyArray<ProtectedValueInterval>;
+
+export type SanitizedStream = {
   readonly text: string;
   readonly truncated: boolean;
 };
@@ -45,7 +47,7 @@ type KeptCapture = {
 };
 
 /** The members and the longest member length both streams share. */
-type Redaction = {
+export type Redaction = {
   readonly values: ReadonlyArray<string>;
   readonly longest: number;
 };
@@ -127,15 +129,23 @@ export function sanitizeKnownResultAtBound<
     captures.stderr,
   );
 
+  const streams = result.truncatedStreams;
+
   return {
     ...result,
     stdout: stdout.text,
     stderr: stderr.text,
     truncated: result.truncated || stdout.truncated || stderr.truncated,
+    ...(streams !== undefined && {
+      truncatedStreams: {
+        stdout: streams.stdout || stdout.truncated,
+        stderr: streams.stderr || stderr.truncated,
+      },
+    }),
   };
 }
 
-function sanitizeStream(
+export function sanitizeStream(
   value: string,
   bound: StreamBound,
   redaction: Redaction,
@@ -294,7 +304,9 @@ function isProperMemberSuffix(
   );
 }
 
-function longestMemberLength(protectedValues: ReadonlyArray<string>): number {
+export function longestMemberLength(
+  protectedValues: ReadonlyArray<string>,
+): number {
   let longest = 0;
 
   for (const member of protectedValues) {

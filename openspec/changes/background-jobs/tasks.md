@@ -126,8 +126,8 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 This layer separates the executor's output capture from the registry that consumes it.
 The split preserves the approved behavior and keeps runtime plus its unit proof within budget.
 
-- [ ] 3a.1 Add output subscriptions, cached redacted snapshots, and per-stream truncation to the managed handle; test credential overlaps, split credentials, Unicode boundaries, and full-sanitizer equivalence.
-- [ ] 3a.2 Run the executor lint, typecheck, build, and focused suites, including a real child whose snapshot grows while it runs; self-review before ready.
+- [x] 3a.1 Add output subscriptions, cached redacted snapshots, and per-stream truncation to the managed handle; test credential overlaps, split credentials, Unicode boundaries, and full-sanitizer equivalence.
+- [x] 3a.2 Run the executor lint, typecheck, build, and focused suites, including a real child whose snapshot grows while it runs; self-review before ready. The exact previously reviewed implementation passed 126 package tests, lint, typecheck, and build. A live child produced snapshots `first`, then `firstsecond`.
 - [ ] 3a.3 Run the GitHub review and CI loop on the published head.
 
 ## 3b. Job persistence (`background-jobs/job-persistence`)

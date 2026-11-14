@@ -396,6 +396,11 @@ a descendant that calls `setsid` leaves it. The
 [bash-execution spec](openspec/specs/bash-execution/spec.md) owns command
 inputs, output handling, bounds, and result shapes.
 
+The managed handle exposes output-activity subscriptions and bounded redacted
+snapshots while its child runs. Incremental snapshots reuse only a safe prefix:
+credential occurrences and Unicode surrogate pairs cannot cross the cached
+boundary. Each stream keeps its own truncation flag, including a timeout result.
+
 ## 14. Provider and model configuration
 
 Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.jsonc`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The optional `knowledge.root` is one absolute operator-owned process-local path; configuration loading validates its shape without probing the filesystem. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
