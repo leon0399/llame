@@ -3168,6 +3168,53 @@ describe('RunExecutionService executeRun', () => {
     );
   });
   it.each([
+    ['initial', { currentJobId: null, wakeGeneration: 0 }],
+    ['wake', { currentJobId: 'wake-job-4', wakeGeneration: 4 }],
+  ] as const)(
+    'claims a current %s queue identity at the execution seam',
+    async (_kind, expectedQueueIdentity) => {
+      const repositories = mockNormalExecutionRepositories();
+      const execution = makeExecutionService();
+
+      const result = await execution.service.executeRun({
+        ...executionInput(execution.client),
+        expectedQueueIdentity,
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(repositories.markStarted).toHaveBeenCalledWith(runId, userId, {
+        expectedQueueIdentity,
+      });
+    },
+  );
+
+  it.each([
+    ['initial', { currentJobId: null, wakeGeneration: 0 }],
+    ['wake', { currentJobId: 'wake-job-4', wakeGeneration: 4 }],
+  ] as const)(
+    'does not claim or terminalize a stale %s queue identity',
+    async (_kind, expectedQueueIdentity) => {
+      const repositories = mockNormalExecutionRepositories();
+      repositories.markStarted.mockResolvedValue(undefined);
+      const markFinished = repositories.markFinished;
+      const appended = recordAppendedEvents();
+      const execution = makeExecutionService();
+
+      await expect(
+        execution.service.executeRun({
+          ...executionInput(execution.client),
+          expectedQueueIdentity,
+        }),
+      ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+      expect(repositories.markStarted).toHaveBeenCalledWith(runId, userId, {
+        expectedQueueIdentity,
+      });
+      expect(markFinished).not.toHaveBeenCalled();
+      expect(appended).toEqual([]);
+    },
+  );
+  it.each([
     ['trimmed', '  hello \n', 'hello'],
     [
       'whole, however long, without file parts',
