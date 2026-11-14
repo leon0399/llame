@@ -625,10 +625,6 @@ describe('real host async jobs', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
-      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-        RunWaitService,
-        'wakeInTransaction'
-      >,
     );
 
     expect(await chats.deleteChat(owner, context.chatId)).toBe(true);

@@ -1,4 +1,3 @@
-import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * Chat deletion on a live DB (RLS + FK cascade):
  * - owner delete removes the chat AND cascades its messages;
@@ -110,11 +109,11 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
   });
 
   it.each(['running_model', 'awaiting_jobs'] as const)(
-    'deleteChat cancels and removes a %s Run while wake dispatch is unavailable',
+    'deleteChat cancels and removes a %s Run without queue wake',
     async (status) => {
       const chat = await newChat(a);
       const runId = crypto.randomUUID();
-      // Seed a running run as the owner (RLS admits it inside runAs).
+      // Seed an active Run as the owner (RLS admits it inside runAs).
       await tenantDb.runAs(a, (tx) =>
         tx.insert(schema.runs).values({
           id: runId,
@@ -136,10 +135,6 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
-        {
-          wakeInTransaction: () =>
-            Promise.reject(new Error('Queue unavailable')),
-        } satisfies Pick<RunWaitService, 'wakeInTransaction'>,
       );
 
       let deleted: boolean;

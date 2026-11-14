@@ -7715,10 +7715,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           noopReindexDispatch(),
           noopEmbedDispatch(),
           noopQueryEmbedder(),
-          { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-            RunWaitService,
-            'wakeInTransaction'
-          >,
         );
 
         const forked = await chats.forkChat(seeded.chatId, userId);

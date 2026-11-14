@@ -1,4 +1,3 @@
-import type { RunWaitService } from '../runs/run-wait.service';
 import { readFileSync } from 'node:fs';
 
 import { NotFoundException } from '@nestjs/common';
@@ -147,10 +146,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
-      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-        RunWaitService,
-        'wakeInTransaction'
-      >,
     );
     a = crypto.randomUUID();
     b = crypto.randomUUID();

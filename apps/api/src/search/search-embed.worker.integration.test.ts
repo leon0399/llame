@@ -1,4 +1,3 @@
-import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * SearchEmbedWorker.embedChat on a live DB (RLS), chat-search-embeddings
  * design D5/D7/D15/D16, task 6.6-6.11, and identical-input reuse (#597):
@@ -1018,10 +1017,6 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
-        { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-          RunWaitService,
-          'wakeInTransaction'
-        >,
       );
 
       const fork = await chats.forkChat(source, u);

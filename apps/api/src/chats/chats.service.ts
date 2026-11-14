@@ -34,7 +34,6 @@ import { RunsRepository } from '../runs/runs-repository';
 import { pgErrorCode } from '../db/pg-error';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { notifyRunControl } from '../runs/run-control';
-import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
 import {
   toSharedChatResponse,
@@ -97,8 +96,6 @@ export class ChatsService {
     private readonly embedDispatch: ChatEmbedDispatcher,
     @Inject(ChatSearchQueryEmbedder)
     private readonly queryEmbedder: QueryEmbedderPort,
-    @Inject(RunWaitService)
-    private readonly runWait: Pick<RunWaitService, 'wakeInTransaction'>,
   ) {}
 
   /**

@@ -1,4 +1,3 @@
-import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * Chat sharing on a live DB — the SECURITY-critical negatives for a feature
  * that relaxes tenant isolation:
@@ -148,10 +147,6 @@ describeIfDb('chat sharing — RLS relaxation is safe', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
-      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-        RunWaitService,
-        'wakeInTransaction'
-      >,
     );
     owner = crypto.randomUUID();
     other = crypto.randomUUID();

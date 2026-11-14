@@ -1,4 +1,3 @@
-import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * RLS integration tests — requires a real PostgreSQL connection.
  *
@@ -1026,10 +1025,6 @@ describeIfDb(
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
-        { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-          RunWaitService,
-          'wakeInTransaction'
-        >,
       );
 
       userAId = crypto.randomUUID();

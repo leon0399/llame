@@ -9,7 +9,6 @@
  */
 
 import { sql } from 'drizzle-orm';
-import { RunWaitService } from './run-wait.service';
 
 import { MessagesRepository } from '../chats/chats-repository';
 import { createRunForMessage } from '../chats/run-creation';
@@ -148,7 +147,6 @@ describe('run control across processes', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
-      api.moduleRef.get(RunWaitService),
     );
 
     await expect(chats.deleteChat(userId, seed.chatId)).resolves.toBe(true);

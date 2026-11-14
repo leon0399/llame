@@ -11,7 +11,6 @@ import { RunsRepository } from '../runs/runs-repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import type { RunWaitService } from '../runs/run-wait.service';
 
 describe('ChatsService.searchChats', () => {
   it('maps internal ranked candidates to the public web result shape', async () => {
@@ -45,10 +44,6 @@ describe('ChatsService.searchChats', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
-      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-        RunWaitService,
-        'wakeInTransaction'
-      >,
     );
 
     await expect(service.searchChats('user-1', 'matching', 5)).resolves.toEqual(
@@ -143,10 +138,6 @@ describe('ChatsService.getChatMessages targetSeq', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
-      { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-        RunWaitService,
-        'wakeInTransaction'
-      >,
     );
   }
 
@@ -285,11 +276,7 @@ describe('ChatsService message windows, updates and forks', () => {
     };
   }
 
-  function makeService(
-    runWait: Pick<RunWaitService, 'wakeInTransaction'> = {
-      wakeInTransaction: () => Promise.resolve(false),
-    },
-  ) {
+  function makeService() {
     const db: Db = drizzle.mock({ schema });
 
     const tenantDb = new TenantDbService({
@@ -316,7 +303,6 @@ describe('ChatsService message windows, updates and forks', () => {
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
-        runWait,
       ),
       runAs,
     };
@@ -900,7 +886,7 @@ describe('ChatsService message windows, updates and forks', () => {
       modelId: 'system:openai:public-model',
       effort: null,
       permissionMode: 'default' as const,
-      status: 'running_model',
+      status: 'awaiting_jobs',
       workerId: null,
       activeAttemptId: null,
       completedAttemptId: null,
@@ -935,7 +921,10 @@ describe('ChatsService message windows, updates and forks', () => {
         .spyOn(RunsRepository.prototype, 'requestCancel')
         .mockResolvedValue(activeRun);
 
-      vi.spyOn(ChatsRepository.prototype, 'deleteById').mockResolvedValue(true);
+      const deleteById = vi
+        .spyOn(ChatsRepository.prototype, 'deleteById')
+        .mockResolvedValue(true);
+
       const { service } = makeService();
 
       await expect(service.deleteChat(ownerUserId, chat.id)).resolves.toBe(
@@ -943,34 +932,7 @@ describe('ChatsService message windows, updates and forks', () => {
       );
 
       expect(requestCancel).toHaveBeenCalledWith(activeRun.id, ownerUserId);
-    });
-    it('wakes a waiting Run when deleting its Chat', async () => {
-      const waitingRun = {
-        ...activeRun,
-        status: 'awaiting_jobs' as const,
-        wakeGeneration: 4,
-      };
-
-      vi.spyOn(
-        RunsRepository.prototype,
-        'findActiveByChatId',
-      ).mockResolvedValue(waitingRun);
-      vi.spyOn(RunsRepository.prototype, 'requestCancel').mockResolvedValue({
-        ...waitingRun,
-        cancelRequestedAt: new Date(),
-      });
-      vi.spyOn(ChatsRepository.prototype, 'deleteById').mockResolvedValue(true);
-      const wakeInTransaction = vi.fn().mockResolvedValue(true);
-      const { service } = makeService({ wakeInTransaction });
-
-      await service.deleteChat(ownerUserId, chat.id);
-
-      expect(wakeInTransaction).toHaveBeenCalledWith(expect.anything(), {
-        runId: waitingRun.id,
-        userId: ownerUserId,
-        generation: waitingRun.wakeGeneration,
-        cause: 'cancelled',
-      });
+      expect(deleteById).toHaveBeenCalledWith(chat.id, ownerUserId);
     });
 
     it('deletes a chat with no in-flight run without touching the cancel path', async () => {

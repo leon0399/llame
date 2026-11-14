@@ -1,4 +1,3 @@
-import type { RunWaitService } from '../runs/run-wait.service';
 /**
  * The job store on a live database (background-jobs, job-store layer): the
  * three tables and their policies, first-writer-wins settlement, the dead-worker
@@ -1062,10 +1061,6 @@ describe('job store', () => {
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
-        { wakeInTransaction: () => Promise.resolve(false) } satisfies Pick<
-          RunWaitService,
-          'wakeInTransaction'
-        >,
       ).forkChat(live, owner);
 
       expect(fork.id).not.toBe(live);

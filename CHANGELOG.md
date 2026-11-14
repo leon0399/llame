@@ -86,6 +86,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   no `wait` tool. Deadline wake eligibility uses the database clock, so
   worker clock skew cannot strand the persisted deadline job.
 
+- **State the stop proof boundary (#1657).** The model-facing description and
+  tool reference promise termination of the managed process group, without
+  claiming that detached descendants are also stopped.
+
+- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
+  the standard timeout header, measured duration and captured output before the
+  explanation that job promotion failed.
+
 - **Start host Runs for background-job results (#1657).** Eligible settlements
   on idle, unarchived Chats commit the trigger, Run, notices, and queue job
   together. The first pending notice supplies settings; unavailable settings
