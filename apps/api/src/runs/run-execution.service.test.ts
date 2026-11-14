@@ -21071,6 +21071,89 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(output['message']).toContain('first-wait');
   });
 
+  it('allows a valid wait after an invalid wait call in the same step', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = {
+      ...settledBashJob(48),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('wait tool-loop callbacks were not captured');
+    }
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'invalid-wait',
+      toolName: 'wait',
+      input: { jobs: ['not-a-job-locator'] },
+    });
+    options.onToolCall({
+      toolCallId: 'valid-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-48'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(suspend).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'valid-wait' }),
+    );
+
+    const invalidCompletion = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'invalid-wait',
+    );
+
+    if (!invalidCompletion || !isRecord(invalidCompletion.payload)) {
+      throw new Error('Expected the invalid wait call completion.');
+    }
+
+    const output = invalidCompletion.payload['output'];
+
+    if (!isRecord(output)) {
+      throw new Error('Expected the invalid wait call output.');
+    }
+
+    expect(output['type']).toBe('invalid_input');
+  });
   it('claims a resumed wait and completes it before continuing', async () => {
     registerTestOnlyTool(waitTool);
 

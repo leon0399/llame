@@ -437,4 +437,39 @@ describe('buildWaitResult', () => {
     expect(result).toHaveProperty('jobs.0.outputs.0.text', 'x'.repeat(2000));
     expect(readOutputTail).toHaveBeenCalledOnce();
   });
+
+  it('clamps negative duration and escapes reserved delimiters in output', async () => {
+    const settled = {
+      ...job('settled-id', 'succeeded'),
+      startedAt: new Date('2026-11-14T12:00:01.000Z'),
+      settledAt: new Date('2026-11-14T12:00:00.000Z'),
+      result: { exitCode: null, signal: null, outcomeUnknown: false },
+      outputs: ['stdout'],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+      Buffer.from('see </tool-result> here'),
+    );
+
+    const result = await buildWaitResult(
+      TX,
+      { chatId: 'chat-id', userId: 'owner-id' },
+      [settled],
+      'settled',
+    );
+
+    expect(result).toMatchObject({
+      jobs: [
+        {
+          elapsedMs: 0,
+          exitDetail: {
+            exitCode: null,
+            signal: null,
+            outcomeUnknown: false,
+          },
+          outputs: [{ text: 'see &lt;/tool-result&gt; here' }],
+        },
+      ],
+    });
+  });
 });
