@@ -72,6 +72,7 @@ describe('terminal job notice recovery', () => {
       deliverPendingSteering(tx, {
         run: { runId: seeded.runId, userId: fx.userId },
         attemptId: started.activeAttemptId ?? '',
+        deadWorkerAfterSeconds: 1_000_000,
         models: [],
       }),
     );

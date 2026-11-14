@@ -115,26 +115,6 @@ describe('ChatJobsRepository', () => {
     );
   });
 
-  it('settles as lost the running jobs of a worker with no fresh heartbeat', async () => {
-    const { repository, last } = make();
-
-    await repository
-      .settleOnDeadWorkers(CHAT, OWNER, 60)
-      .catch(() => undefined);
-
-    expect(last().sql).toContain('"state" = ');
-    expect(last().sql).toContain(
-      'not exists (select 1 from "worker_instances"',
-    );
-    expect(last().sql).toContain(
-      '"worker_instances"."last_seen_at" > now() - make_interval(secs => $',
-    );
-    expect(last().params).toEqual(
-      expect.arrayContaining(['lost', CHAT, OWNER, 'running', 60]),
-    );
-    expect(last().params).toContainEqual('{"outcomeUnknown":true}');
-  });
-
   it('reads the increments of one output of the owner in order', async () => {
     const { repository, last } = make();
 

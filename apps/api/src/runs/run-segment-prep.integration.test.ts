@@ -511,6 +511,7 @@ describe('run steering segment preparation', () => {
       deliverPendingSteering(tx, {
         run: { runId: seeded.runId, userId },
         attemptId: started?.activeAttemptId ?? '',
+        deadWorkerAfterSeconds: 1_000_000,
         models: [],
       }),
     );
@@ -952,6 +953,7 @@ describe('run steering segment preparation', () => {
           deliverPendingSteering(tx, {
             run: { runId: seeded.runId, userId },
             attemptId: attemptId ?? '',
+            deadWorkerAfterSeconds: 1_000_000,
             models: [],
             baselines,
           }),
@@ -1014,6 +1016,7 @@ describe('run steering segment preparation', () => {
           deliverPendingSteering(tx, {
             run: { runId: seeded.runId, userId },
             attemptId,
+            deadWorkerAfterSeconds: 1_000_000,
             models: [],
             baselines: baselines(compiledOn),
           }),

@@ -4,6 +4,8 @@ import { isString } from '@workspace/runtime-safety';
 
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { RunsRepository } from '../runs/runs-repository';
 import { ChatsRepository } from '../chats/chats-repository';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
@@ -113,6 +115,13 @@ describe('stop lifecycle', () => {
       configuredCredentials: [],
       tenantDb,
     };
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'insertJobNotice',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+      undefined,
+    );
     vi.spyOn(
       ChatJobsRepository.prototype,
       'settleOnDeadWorkers',

@@ -27,6 +27,8 @@ import {
   type ChatJobStopper,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { ChatsRepository } from '../chats/chats-repository';
+import { recordJobSettlementNotice } from './job-notices';
 
 export type NewChatJob = {
   readonly id?: string;
@@ -197,32 +199,50 @@ export class ChatJobsRepository {
    * (background-jobs D9). One owner and one Chat only, so no process scans the
    * jobs of more than one owner. Stored output stays readable.
    */
-  settleOnDeadWorkers(
+  async settleOnDeadWorkers(
     chatId: string,
     ownerUserId: string,
     deadAfterSeconds: number,
   ): Promise<Array<ChatJob>> {
-    return this.db
+    const deadRunningJob = and(
+      inChat(chatId, ownerUserId),
+      eq(chatJobs.state, 'running'),
+      notExists(
+        this.db
+          .select({ one: sql`1` })
+          .from(workerInstances)
+          .where(
+            and(
+              eq(workerInstances.id, chatJobs.workerInstanceId),
+              workerAlive(deadAfterSeconds),
+            ),
+          ),
+      ),
+    );
+
+    const [candidate] = await this.db
+      .select({ id: chatJobs.id })
+      .from(chatJobs)
+      .where(deadRunningJob)
+      .limit(1);
+
+    if (candidate === undefined) return [];
+
+    if (
+      (await new ChatsRepository(this.db).lock(chatId, ownerUserId)) ===
+      undefined
+    )
+      return [];
+
+    const settled = await this.db
       .update(chatJobs)
       .set({ state: 'lost', result: LOST_RESULT, settledAt: sql`now()` })
-      .where(
-        and(
-          inChat(chatId, ownerUserId),
-          eq(chatJobs.state, 'running'),
-          notExists(
-            this.db
-              .select({ one: sql`1` })
-              .from(workerInstances)
-              .where(
-                and(
-                  eq(workerInstances.id, chatJobs.workerInstanceId),
-                  workerAlive(deadAfterSeconds),
-                ),
-              ),
-          ),
-        ),
-      )
+      .where(deadRunningJob)
       .returning();
+
+    for (const job of settled) await recordJobSettlementNotice(this.db, job);
+
+    return settled;
   }
 
   /**

@@ -21,6 +21,7 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { isRecord } from '@workspace/runtime-safety';
+import { and, eq } from 'drizzle-orm';
 
 import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
@@ -715,7 +716,7 @@ describeIfDb(
         ),
       );
 
-      const stateAtRequest: Array<string | undefined> = [];
+      const statesAtRequest: Array<string | undefined> = [];
 
       const model = new MockLanguageModelV3({
         doStream: async () => {
@@ -723,7 +724,7 @@ describeIfDb(
             new ChatJobsRepository(tx).findById(chatId, userId, crashed.id),
           );
 
-          stateAtRequest.push(job?.state);
+          statesAtRequest.push(job?.state);
 
           return {
             stream: simulateReadableStream({ chunks: answerChunks('Done.') }),
@@ -735,7 +736,28 @@ describeIfDb(
         const result = await execute(turn, scriptedClient(model));
         await result.consumeStream?.();
         await waitForEvent(turn.runId, 'run.completed');
-        expect(stateAtRequest).toEqual(['lost']);
+
+        const settled = await tenantDb.runAs(userId, (tx) =>
+          new ChatJobsRepository(tx).findById(chatId, userId, crashed.id),
+        );
+
+        const notices = await tenantDb.runAs(userId, (tx) =>
+          tx
+            .select({ id: schema.chatDeliveries.id })
+            .from(schema.chatDeliveries)
+            .where(
+              and(
+                eq(schema.chatDeliveries.chatId, chatId),
+                eq(schema.chatDeliveries.ownerUserId, userId),
+                eq(schema.chatDeliveries.producer, 'job'),
+                eq(schema.chatDeliveries.senderRef, crashed.id),
+              ),
+            ),
+        );
+
+        expect(settled?.state).toBe('lost');
+        expect(notices).toHaveLength(1);
+        expect(statesAtRequest[0]).toBe('lost');
       } finally {
         await sql`DELETE FROM worker_instances WHERE id = ${deadWorker}`;
       }

@@ -45,12 +45,22 @@ the stop. A worker that is dead settles its jobs as `lost`.
 Host termination proof covers the job's managed process group. Detached
 descendants that leave that group are outside the proof.
 
+A successful recorded result consumes, atomically with its `tool.completed`
+event, only the pending notices for jobs reported in settled states. The event
+keeps the exact consumed notice ids as server-private metadata; they are not
+part of the tool output. A job reported as `running` consumes no notice. A
+Run cancelled before the result is persisted consumes none. If the stored
+result is discarded, restoration returns only those exact previously consumed
+notices that still exist; an owner-withdrawn notice is not recreated. Reading
+a job never consumes its notice. See the
+[job locator](../locators/job.md#pending-notices) for notice delivery and
+context behavior.
+
 A repeated call requests the stop again. `stop` records no native attempt.
 
 The `execute_code` classification and the host-capability gate apply: the tool
 needs a trusted host identity, its own `tools.allowed` entry, and its own
-`tools.permissions` group, and a `read-only` Run refuses it. Notice
-consumption for a reported settlement is added with the notice layer.
+`tools.permissions` group, and a `read-only` Run refuses it.
 
 ## Errors
 

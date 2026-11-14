@@ -20,7 +20,7 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { chatDeliveries } from '../db/schema';
+import { chatDeliveries, chatJobs } from '../db/schema';
 import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
@@ -42,6 +42,7 @@ import { newChatJob } from '../testing/chat-job-rows';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { settleBashJob } from '../jobs/bash-job-store';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -233,6 +234,161 @@ describe('chat deliveries — the queue mode', () => {
 
   const settle = (runId: string, status: TerminalRunStatus) =>
     executor.settleTerminalRun({ userId: userAId, runId, status });
+
+  describe('settled job notices over HTTP', () => {
+    async function produceNotice(chatId: string, seq: number) {
+      const job = await tenantDb.runAs(userAId, (tx) =>
+        new ChatJobsRepository(tx).insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userAId,
+            seq,
+            workerInstanceId: crypto.randomUUID(),
+            artifactReadable: false,
+          }),
+        ),
+      );
+
+      await settleBashJob(
+        tenantDb,
+        job,
+        {
+          output: {
+            stdout: 'settled output',
+            stderr: '',
+            truncated: false,
+            truncatedStreams: { stdout: false, stderr: false },
+          },
+          settlement: { state: 'succeeded', result: { exitCode: 0 } },
+          offsets: { stdout: 0, stderr: 0 },
+        },
+        { maxBytes: 65_536, hostFiles: false },
+      );
+
+      const notice = (await itemsOf(chatId)).find(
+        ({ senderRef }) => senderRef === job.id,
+      );
+
+      if (!notice) throw new Error('Settlement producer created no notice');
+
+      return { job, notice };
+    }
+
+    it('lists the pending notice and its producer job through the owner API', async () => {
+      const chatId = await createChat();
+      const { job, notice } = await produceNotice(chatId, 21);
+
+      const response = await request(http)
+        .get(`/api/v1/chats/${chatId}/deliveries`)
+        .set('Cookie', cookieA);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        items: [
+          {
+            id: notice.id,
+            producer: 'job',
+            job: `job://bash-${job.seq}`,
+            jobState: 'succeeded',
+            mode: 'notice',
+            state: 'pending',
+          },
+        ],
+      });
+    });
+
+    it('rejects changing a produced notice to interrupt without changing its Run or state', async () => {
+      const { chatId } = await chatWithLiveRun();
+      const { notice } = await produceNotice(chatId, 22);
+      const beforeRuns = await runsOf(chatId);
+
+      const response = await request(http)
+        .patch(`/api/v1/chats/${chatId}/deliveries/${notice.id}`)
+        .set('Cookie', cookieA)
+        .send({ mode: 'interrupt' });
+
+      expect(response.status).toBe(400);
+      expect(await runsOf(chatId)).toEqual(beforeRuns);
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, producer: 'job', mode: 'notice', state: 'pending' },
+      ]);
+    });
+
+    it('rejects reuse of a produced notice id and forged notice delivery without mutations', async () => {
+      const chatId = await createChat();
+      const { notice } = await produceNotice(chatId, 23);
+      const itemsBefore = await itemsOf(chatId);
+      const runsBefore = await runsOf(chatId);
+      const messagesBefore = await messagesOf(chatId);
+
+      const reused = await send(chatId, { id: notice.id });
+
+      const forged = await send(chatId, {
+        id: crypto.randomUUID(),
+        delivery: 'notice',
+      });
+
+      expect(reused.status).toBe(409);
+      expect(forged.status).toBe(400);
+      expect(await itemsOf(chatId)).toEqual(itemsBefore);
+      expect(await runsOf(chatId)).toEqual(runsBefore);
+      expect(await messagesOf(chatId)).toEqual(messagesBefore);
+    });
+
+    it('withdraws the produced notice without changing the settled job result or stop authority', async () => {
+      const chatId = await createChat();
+      const { job, notice } = await produceNotice(chatId, 24);
+
+      const beforeJob = await tenantDb.runAs(userAId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(chatJobs)
+          .where(eq(chatJobs.id, job.id));
+
+        return row;
+      });
+
+      expect(beforeJob).toMatchObject({
+        state: 'succeeded',
+        result: { exitCode: 0 },
+        stoppedBy: null,
+        stopRequestedAt: null,
+        stopRequestedBy: null,
+      });
+
+      const response = await request(http)
+        .delete(`/api/v1/chats/${chatId}/deliveries/${notice.id}`)
+        .set('Cookie', cookieA);
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        id: notice.id,
+        producer: 'job',
+        job: `job://bash-${job.seq}`,
+        jobState: 'succeeded',
+        state: 'withdrawn',
+      });
+      expect(await itemsOf(chatId)).toMatchObject([
+        {
+          id: notice.id,
+          mode: 'notice',
+          state: 'withdrawn',
+          senderRef: job.id,
+        },
+      ]);
+
+      const afterJob = await tenantDb.runAs(userAId, async (tx) => {
+        const [row] = await tx
+          .select()
+          .from(chatJobs)
+          .where(eq(chatJobs.id, job.id));
+
+        return row;
+      });
+
+      expect(afterJob).toEqual(beforeJob);
+    });
+  });
 
   describe('seeded job notices', () => {
     async function seedNotice(chatId: string, jobChatId: string, seq = 7) {

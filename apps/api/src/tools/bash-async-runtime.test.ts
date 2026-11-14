@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { BashProcessLimiter } from '@workspace/bash-executor';
 
 import { ChatsRepository } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type ChatJob } from '../db/schema';
 import { type MockInstance } from 'vitest';
 import { type Db } from '../db/tenant-db.service';
@@ -16,7 +17,7 @@ import {
 } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { NativeReceiptsRepository } from '../runs/native-receipts-repository';
-import { RunEventsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import * as hostFiles from './artifacts/host-files';
@@ -148,6 +149,14 @@ describe('async host bash through the tool', () => {
         // eslint-disable-next-line typescript/no-unsafe-type-assertion
         {} as never,
       );
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'insertJobNotice',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+      undefined,
+    );
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
       (job) => {
         // SAFETY: the row echoes the fields the registry reads.
@@ -165,12 +174,14 @@ describe('async host bash through the tool', () => {
       },
     );
     vi.spyOn(ChatJobsRepository.prototype, 'settle').mockImplementation(
-      (_c, _o, _j, settlement) => {
+      (_c, _o, jobId, settlement) => {
         settlements.push(settlement);
 
-        // SAFETY: the store checks only that a row came back.
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        return Promise.resolve({} as ChatJob);
+        const job = inserted.find(({ id }) => id === jobId);
+
+        return Promise.resolve(
+          job === undefined ? undefined : { ...job, state: settlement.state },
+        );
       },
     );
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);

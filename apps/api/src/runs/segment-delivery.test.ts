@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import * as schema from '../db/schema';
 import {
@@ -165,6 +166,10 @@ describe('deliverPendingSteering', () => {
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([]);
+    vi.spyOn(
+      ChatJobsRepository.prototype,
+      'settleOnDeadWorkers',
+    ).mockResolvedValue([]);
 
     const lockForDelivery = vi
       .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
@@ -265,6 +270,7 @@ describe('deliverPendingSteering', () => {
       attemptId,
       models,
       live,
+      deadWorkerAfterSeconds: 60,
       ...extra,
     });
   }
@@ -635,6 +641,10 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     ).mockResolvedValue(run);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
+      ChatJobsRepository.prototype,
+      'settleOnDeadWorkers',
+    ).mockResolvedValue([]);
+    vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'lockPendingBoundary',
     ).mockResolvedValue(items);
@@ -685,10 +695,12 @@ describe('deliverPendingSteering closing usage and baselines', () => {
   /** Delivers with a closing reply that answers `inReplyTo`. */
   async function deliver(inReplyTo = messageId) {
     const telemetry = { ...closingTelemetry };
+
     await deliverPendingSteering(tx, {
       run: { runId, userId },
       attemptId,
       models,
+      deadWorkerAfterSeconds: 60,
       live: {
         chatId,
         inReplyTo,

@@ -70,11 +70,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Activate background-job settlement notices at Run boundaries (#1657).**
+  Each winning settlement, including a lost-on-touch settlement, creates one
+  pending notice. Jobless dead-worker checks take no Chat lock; actual lost
+  settlement rechecks its candidate under the Chat lock. An executing Run
+  receives notices in ordered boundary delivery with steer and interrupt
+  items; a notice-only delivery uses a host trigger
+  whose job context is authored at dispatch. Successful recorded `stop` results
+  consume only their settled-job notices atomically with `tool.completed`, and
+  discarded results restore only the exact notices they consumed. Idle
+  host-started Runs, held-notice admission, and `wait` remain inactive. See
+  [job://](docs/product/reference/locators/job.md#pending-notices) and
+  [stop](docs/product/reference/tools/stop.md#behavior).
+
 - **Restore Regenerate receipts through Continue checkpoints (#1696).**
   Recovery follows only tool results retained by each Continue checkpoint and
   restores each notice against the Run that consumed it. Unrelated ancestor
   receipts remain excluded, and owner-withdrawn notices remain withdrawn.
-
 - **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
   seeded job notices beside owner steering, preserve the earlier reply, and
   persist job context only at dispatch. Stop-result recording consumes exact
