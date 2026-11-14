@@ -38,8 +38,9 @@ import {
   RUNS_QUEUE,
   type RunJob,
 } from './run-queues';
-import { RunsRepository } from './runs-repository';
+import { RunsRepository, RunEventsRepository } from './runs-repository';
 import { isTerminalRunStatus } from './run-status';
+import { RunWaitService } from './run-wait.service';
 import { retryRunTransaction } from './run-transaction';
 import {
   CanonicalSearchCoverageService,
@@ -92,6 +93,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     private readonly tenantDb: TenantRunner,
     @Inject(RunAbortRegistry)
     private readonly aborts: RunAbortRegistrar,
+    @Inject(RunWaitService)
+    private readonly runWait: Pick<RunWaitService, 'wakeInTransaction'>,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -174,31 +177,103 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // prior holder stopped beating, so any non-terminal run is a legitimate
     // claim to attempt. markStarted (in executeRun) is the final guard and
     // also rejects cancellation that wins this pickup/claim TOCTOU.
-    const pickup = await this.tenantDb.runAs(job.userId, async (tx) => {
-      const run = await new RunsRepository(tx).findById(job.runId, job.userId);
+    const budgetSeconds = runTimeoutSeconds(this.instanceConfig.config);
 
-      if (!run || isTerminalRunStatus(run.status)) {
-        return { skip: true as const, settleCancellation: false as const };
-      }
+    const pickup = await retryRunTransaction(() =>
+      this.tenantDb.runAs(job.userId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        let run = await runs.findById(job.runId, job.userId);
 
-      if (run.cancelRequestedAt === null) {
+        if (!run)
+          return { skip: true as const, settleCancellation: false as const };
+
+        const current =
+          job.wake === undefined
+            ? run.currentJobId === null
+            : run.currentJobId === job.wake.jobId &&
+              run.wakeGeneration === job.wake.generation;
+
+        if (!current || isTerminalRunStatus(run.status)) {
+          return { skip: true as const, settleCancellation: false as const };
+        }
+
+        if (run.status === 'awaiting_jobs') {
+          if (!job.wake) {
+            return { skip: true as const, settleCancellation: false as const };
+          }
+
+          const woke = await this.runWait.wakeInTransaction(tx, {
+            runId: job.runId,
+            userId: job.userId,
+            generation: job.wake.generation,
+            cause: 'timeout',
+            deadlineJobId: job.wake.jobId,
+          });
+
+          if (!woke)
+            return { skip: true as const, settleCancellation: false as const };
+          run = await runs.findById(job.runId, job.userId);
+
+          if (!run || isTerminalRunStatus(run.status)) {
+            return { skip: true as const, settleCancellation: false as const };
+          }
+        }
+
+        if (run.cancelRequestedAt !== null) {
+          return { skip: true as const, settleCancellation: true as const };
+        }
+
+        const started =
+          budgetSeconds === null
+            ? undefined
+            : await new RunEventsRepository(tx).findFirstByType(
+                job.runId,
+                job.userId,
+                'run.started',
+              );
+
+        const remainingBudgetMs =
+          budgetSeconds === null || !started
+            ? null
+            : budgetSeconds * 1000 - (Date.now() - started.createdAt.getTime());
+
+        if (remainingBudgetMs !== null && remainingBudgetMs <= 0) {
+          return {
+            skip: true as const,
+            settleCancellation: false as const,
+            expiredBudget: true as const,
+          };
+        }
+
         return {
           skip: false as const,
           modelId: run.modelId,
           followUpAction: run.followUpAction,
+          remainingBudgetMs,
         };
-      }
+      }),
+    );
 
-      return { skip: true as const, settleCancellation: true as const };
-    });
+    if ('expiredBudget' in pickup && pickup.expiredBudget) {
+      const message = 'Run timed out: exceeded its wall-clock budget.';
+      await retryRunTransaction(() =>
+        this.runExecution.settleTerminalRun({
+          runId: job.runId,
+          userId: job.userId,
+          status: 'expired',
+          runPayload: { status: 'expired', message },
+          error: { message },
+        }),
+      );
+
+      return;
+    }
 
     if (pickup.skip && pickup.settleCancellation) {
       await this.settleCancelledBeforeStart(job);
     }
 
-    if (pickup.skip) {
-      return;
-    }
+    if (pickup.skip) return;
 
     let client: ReturnType<ModelsService['createClient']>;
 
@@ -211,13 +286,15 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       ) {
         // Settled like retry exhaustion: a redelivered Run's reply is
         // finalized in place, then the chat is touched and reindexed.
-        await this.runExecution.settleTerminalRun({
-          runId: job.runId,
-          userId: job.userId,
-          status: 'failed',
-          runPayload: { status: 'failed', message: error.message },
-          error: { message: error.message },
-        });
+        await retryRunTransaction(() =>
+          this.runExecution.settleTerminalRun({
+            runId: job.runId,
+            userId: job.userId,
+            status: 'failed',
+            runPayload: { status: 'failed', message: error.message },
+            error: { message: error.message },
+          }),
+        );
 
         return;
       }
@@ -247,7 +324,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     );
 
     if (cancelledMeanwhile) {
-      this.aborts.unregister(job.runId);
+      this.aborts.unregister(job.runId, abort);
       await this.settleCancelledBeforeStart(job);
 
       return;
@@ -265,8 +342,10 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // rejects one at or above the ceiling), so the ceiling only decides the
     // run's fate when NO budget is configured — and it carries its own reason,
     // so the recorded message never names a budget the operator did not set.
-    const budgetSeconds = runTimeoutSeconds(this.instanceConfig.config);
-    const limitMs = (budgetSeconds ?? RUN_EXECUTION_CEILING_SECONDS) * 1000;
+    const limitMs =
+      budgetSeconds === null
+        ? RUN_EXECUTION_CEILING_SECONDS * 1000
+        : (pickup.remainingBudgetMs ?? budgetSeconds * 1000);
 
     const timeoutTimer = setTimeout(() => {
       abort.abort(
@@ -301,9 +380,21 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         new RunsRepository(tx).findById(job.runId, job.userId),
       );
 
-      if (persisted && !isTerminalRunStatus(persisted.status)) {
+      const jobStillCurrent =
+        persisted !== undefined &&
+        (job.wake === undefined
+          ? persisted.currentJobId === null
+          : persisted.currentJobId === job.wake.jobId &&
+            persisted.wakeGeneration === job.wake.generation);
+
+      if (
+        persisted &&
+        jobStillCurrent &&
+        !isTerminalRunStatus(persisted.status) &&
+        persisted.status !== 'awaiting_jobs'
+      ) {
         throw new Error(
-          `Run ${job.runId} stream drained without a durable terminal state.`,
+          `Run ${job.runId} stream drained without a durable terminal or suspension state.`,
         );
       }
     } catch (error) {
@@ -334,7 +425,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       throw error;
     } finally {
       clearTimeout(timeoutTimer);
-      this.aborts.unregister(job.runId);
+      this.aborts.unregister(job.runId, abort);
     }
   }
 
@@ -349,12 +440,14 @@ export class RunsWorkerService implements OnApplicationBootstrap {
 
   private async settleCancelledBeforeStart(job: RunJob): Promise<void> {
     const message = 'Run was cancelled before this worker attempt started.';
-    await this.runExecution.settleTerminalRun({
-      runId: job.runId,
-      userId: job.userId,
-      status: 'cancelled',
-      runPayload: { status: 'cancelled', message },
-      error: { message },
-    });
+    await retryRunTransaction(() =>
+      this.runExecution.settleTerminalRun({
+        runId: job.runId,
+        userId: job.userId,
+        status: 'cancelled',
+        runPayload: { status: 'cancelled', message },
+        error: { message },
+      }),
+    );
   }
 }

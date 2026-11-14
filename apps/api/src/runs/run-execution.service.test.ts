@@ -1,4 +1,5 @@
 import { type DecisionJudge } from '../decisions/decisions.service';
+import * as jobNoticeRecovery from './job-notice-recovery';
 import type {
   LanguageModelV3Message,
   LanguageModelV3StreamPart,
@@ -794,10 +795,7 @@ function mockNormalExecutionRepositories() {
     undefined,
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
-  vi.spyOn(
-    RunEventsRepository.prototype,
-    'discardedJobNoticeIds',
-  ).mockResolvedValue([]);
+  vi.spyOn(jobNoticeRecovery, 'discardedJobNoticeIds').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
@@ -4331,13 +4329,31 @@ function durableEventsFrom(
   }));
 }
 
+/** Applies the event-type and attempt filters used by durable suspension reads. */
+function filterDurableEvents(
+  events: Array<RunEvent>,
+  options: Parameters<RunEventsRepository['listByRunId']>[2],
+): Array<RunEvent> {
+  return events.filter(
+    (event) =>
+      (options?.eventTypes === undefined ||
+        options.eventTypes.some((type) => type === event.eventType)) &&
+      (options?.attemptId === undefined ||
+        (isRecord(event.payload) &&
+          event.payload['attemptId'] === options.attemptId)),
+  );
+}
+
 /** Replays whatever `recordAppendedEvents` captured back through `listByRunId`,
  * so `finishRun`'s durable reconstruction sees the run's real event log. */
 function replayAppendedEvents(
   appended: Array<{ type: RunEventType; payload: unknown }>,
 ) {
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-    () => Promise.resolve(durableEventsFrom(appended)),
+    (_runId, _userId, options) =>
+      Promise.resolve(
+        filterDurableEvents(durableEventsFrom(appended), options),
+      ),
   );
 }
 
@@ -13291,6 +13307,82 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
 
+  it('does not terminalize an attempt with its own suspension receipt', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const suspendedAttemptId = testAttemptId;
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: suspendedAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === suspendedAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'stale answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(repositories.markFinished).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    expect(appended.map(({ type }) => type)).not.toContain('model.completed');
+  });
+
+  it('does not treat another attempt’s suspension receipt as its own', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: '6a6a6a6a-6a6a-4a6a-8a6a-6a6a6a6a6a6a' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            (options.attemptId === undefined ||
+              options.attemptId === suspensionEvent.payload.attemptId)
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'current answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+    expect(appended.map(({ type }) => type)).toContain('run.completed');
+  });
+
   it('finalizes its own running reply when another writer cancelled the run', async () => {
     const spies = mockNormalExecutionRepositories();
     spies.markFinished.mockResolvedValue(undefined);
@@ -13913,10 +14005,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     let state: 'withdrawn' | 'pending' = 'withdrawn';
     const order: Array<string> = [];
 
-    vi.spyOn(
-      RunEventsRepository.prototype,
-      'discardedJobNoticeIds',
-    ).mockResolvedValue(deliveryIds);
+    vi.spyOn(jobNoticeRecovery, 'discardedJobNoticeIds').mockResolvedValue(
+      deliveryIds,
+    );
 
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
@@ -20762,6 +20853,57 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
   });
 
+  it('stops after a tool-call step whose attempt has a suspension receipt', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: testAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === testAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+
+    const stepEndSignal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model call was not captured');
+
+    await executeBoundTool(options, { q: 'first' }, 'suspended-step-call');
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    await options?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    expect(segment.calls).toHaveLength(1);
+    expect(appended.filter(({ type }) => type === 'tool.started')).toHaveLength(
+      1,
+    );
+    expect(stepEndSignal).not.toHaveBeenCalled();
+    expect(spies.markFinished).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('model.completed');
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+  });
+
   it('keeps the Run live when the final answer meets a pending item', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -21543,7 +21685,10 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     // The attempt's own `running` reply, rebuilt from the log it left.
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-      () => Promise.resolve(durableEventsFrom(appended)),
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          filterDurableEvents(durableEventsFrom(appended), options),
+        ),
     );
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,

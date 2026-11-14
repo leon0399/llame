@@ -191,7 +191,7 @@ describe('real host async jobs', () => {
           query`UPDATE runs SET active_attempt_id = ${attemptId} WHERE id = ${runId}`,
         ),
       );
-      runAborts.register(runId, owner);
+      const runAbort = runAborts.register(runId, owner);
       const segment = runAborts.beginSegment(runId, attemptId);
 
       if (segment === undefined) throw new Error('Missing active segment');
@@ -248,7 +248,7 @@ describe('real host async jobs', () => {
         { result: { backgrounded: true, cause: 'message' } },
         { result: { backgrounded: true, cause: 'message' } },
       ]);
-      runAborts.unregister(runId);
+      runAborts.unregister(runId, runAbort);
     },
   );
 

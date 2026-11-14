@@ -49,6 +49,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- **Prepare durable Run suspension (#1657).** Internal suspension commits
+  `awaiting_jobs`, its open-call state, generation, and deadline queue job
+  atomically, then releases the worker slot without releasing Chat exclusivity.
+  Wake jobs carry their own identity; admission checks that recorded job and
+  the Run budget includes waiting time from the first claim. Owner cancellation
+  can wake a suspended Run for cancellation without a model request.
+  The model-facing `wait` tool remains inactive.
+
 - **Prepare wait wake routing (#1657).** Owner steering, interruption,
   cancellation and job settlement can wake an internally suspended Run through
   its tenant transaction. Chat admission, deletion and settlement use bounded

@@ -34,7 +34,6 @@ import {
 } from '../db/schema';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type Db } from '../db/tenant-db.service';
-import { discardedJobNoticeIds as readDiscardedJobNoticeIds } from './job-notice-recovery';
 import { notifyRunControl } from './run-control';
 import {
   markFinishedPredicate,
@@ -659,6 +658,7 @@ export class RunEventsRepository {
     options?: {
       afterSequence?: number;
       eventTypes?: ReadonlyArray<RunEventType>;
+      attemptId?: string;
       limit?: number;
     },
   ): Promise<Array<RunEvent>> {
@@ -666,6 +666,12 @@ export class RunEventsRepository {
 
     if (options?.afterSequence !== undefined) {
       predicates.push(gt(runEvents.sequence, options.afterSequence));
+    }
+
+    if (options?.attemptId !== undefined) {
+      predicates.push(
+        sql`${runEvents.payload}->>'attemptId' = ${options.attemptId}`,
+      );
     }
 
     if (options?.eventTypes !== undefined) {
@@ -685,17 +691,5 @@ export class RunEventsRepository {
         : await query.limit(options.limit);
 
     return rows.map((r) => r.run_events);
-  }
-  discardedJobNoticeIds(
-    runId: string,
-    ownerUserId: string,
-    attemptId: string,
-  ): Promise<Array<string>> {
-    return readDiscardedJobNoticeIds({
-      tx: this.db,
-      runId,
-      ownerUserId,
-      attemptId,
-    });
   }
 }

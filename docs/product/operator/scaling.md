@@ -111,18 +111,28 @@ issue 207 tracks cross-process abort.
 
 A Run has no default time or step limit: `runs.timeoutSeconds` and
 `tools.maxStepsPerRun` are `null` (unlimited) unless the operator sets them.
-Liveness uses pg-boss heartbeat/retry and dead-letter terminalization. Each Run
-is enqueued as the job named by its own id, and the `runs` queue declares a job
-duration of 86,399 s, so pg-boss never expires a live Run at its 900 s default.
-The worker ends any Run still executing 23 h 55 m into its current attempt as
-`run.expired`, before that duration elapses, and a model request that streams
-nothing for 300 s fails its Run with `model_stream_idle`. Admission judges a
-blocking Run by its job's state: queued, retrying, or active blocks with 409;
-a job that is absent (after one heartbeat window) or settled lets the next
-message expire the Run. Enqueue is not transactional with the Run row: failure
-marks the Run failed best-effort, and a crash between row commit and enqueue
-leaves a job-less Run that the next message expires. A deploy stops workers
-after a 30 s drain, and pg-boss retries their Runs from the beginning.
+Liveness uses pg-boss heartbeat/retry and dead-letter terminalization. The
+first queue job uses the Run id; later wake jobs use the Run's recorded
+`current_job_id` and generation. The `runs` queue declares a job duration of
+86,399 s, so pg-boss never expires a live Run at its 900 s default. Without an
+operator budget, the worker ends an executing attempt after 23 h 55 m. With
+`runs.timeoutSeconds`, the budget starts at the first claim and includes time
+spent waiting. A model request that streams nothing for 300 s fails its Run
+with `model_stream_idle`.
+
+Admission judges a blocking Run by its current queue job: queued, retrying, or
+active blocks with 409. An absent recorded wake job is stuck immediately; the
+first job retains its one-heartbeat enqueue grace. Owner-started first enqueue
+is not transactional with the Run row: failure marks the Run failed
+best-effort, and a crash between row commit and enqueue leaves a job-less Run
+that the next message expires. Host-started first enqueue is transactional.
+A deploy stops workers after a 30 s drain, and pg-boss retries their Runs.
+
+The internal suspension service persists `awaiting_jobs` and its delayed
+deadline job together, then releases the Run worker slot. Suspension keeps the
+Chat's single-flight slot. Settlement, steering, cancellation, or the deadline
+can queue one generation-fenced wake; a replacement worker reads its state
+from Postgres. This layer prepares that lifecycle but exposes no `wait` tool.
 
 Per-Chat ordering is exclusivity, not queueing: one nonterminal Run per Chat;
 concurrent new messages get 409 and same-message retry supersedes.

@@ -255,6 +255,7 @@ describe('chat deliveries — the steer mode', () => {
       executor,
       tenantDb,
       app.get(RunAbortRegistry, { strict: false }),
+      app.get(RunWaitService, { strict: false }),
     ).onApplicationBootstrap();
 
     if (!handler) throw new Error('runs.dead consumer not registered');

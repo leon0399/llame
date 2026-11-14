@@ -41,6 +41,8 @@ import { getRegisteredToolIds } from '../tools/registry';
 import { type PermissionGroup } from '../tools/permissions/types';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { workerInstances, type ChatJob } from '../db/schema';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
@@ -99,6 +101,11 @@ type HarnessOverrides = {
   heartbeatSeconds?: number;
   /** Explicit tool rules used to configure the worker boot. */
   allowedTools?: ReadonlyArray<string>;
+  /**
+   * Configure the scripted model service after graph compilation but before
+   * module initialization starts queue consumers.
+   */
+  beforeInit?: (models: ScriptedModelsService) => void;
   /**
    * Extra permission groups merged OVER the permissive allow-all this harness
    * grants every registered tool. Suites that must exercise a real permission
@@ -244,6 +251,8 @@ export async function bootWorkerHarness(
     .useValue({ assertReady: () => Promise.resolve() });
   const moduleRef = await builder.compile();
 
+  overrides?.beforeInit?.(models);
+
   await moduleRef.init();
 
   const tenantDb = moduleRef.get(TenantDbService, { strict: false });
@@ -347,6 +356,32 @@ export async function seedRun(input: {
         parts,
       },
     };
+  });
+}
+
+/** Seed the live Chat job used to suspend a seeded Run in integration tests. */
+export async function seedLiveChatJob(input: {
+  tx: Db;
+  userId: string;
+  modelId: string;
+  run: { chatId: string; runId: string };
+}): Promise<ChatJob> {
+  const workerInstanceId = crypto.randomUUID();
+  const toolCallId = `wait-${crypto.randomUUID()}`;
+
+  await input.tx.insert(workerInstances).values({ id: workerInstanceId });
+
+  return new ChatJobsRepository(input.tx).insert({
+    chatId: input.run.chatId,
+    ownerUserId: input.userId,
+    executor: 'bash',
+    seq: 1,
+    runId: input.run.runId,
+    toolCallId,
+    workerInstanceId,
+    outputs: ['stdout', 'stderr'],
+    artifactReadable: false,
+    settings: { modelId: input.modelId, permissionMode: 'default' },
   });
 }
 
