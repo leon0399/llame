@@ -148,6 +148,7 @@ import {
   isPromptImportsPayload,
   promptImportMediaKey,
 } from '../chats/prompt-imports-item';
+import { createJobNoticeItem } from '../chats/job-context-item';
 import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
@@ -13403,32 +13404,60 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     );
   });
 
-  it('restores notices consumed by the attempt before dispatching its retry', async () => {
-    mockNormalExecutionRepositories();
+  it('restores withdrawn notices before retry dispatch and the next model request', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const deliveryId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const deliveryIds = [deliveryId];
+    let state: 'withdrawn' | 'pending' = 'withdrawn';
+    const order: Array<string> = [];
 
-    const deliveryIds = ['dddddddd-dddd-4ddd-8ddd-dddddddddddd'];
     vi.spyOn(
       RunEventsRepository.prototype,
       'discardedJobNoticeIds',
     ).mockResolvedValue(deliveryIds);
 
-    const restoreJobNotices = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'restoreJobNotices')
-      .mockResolvedValue(undefined);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'restoreJobNotices',
+    ).mockImplementation((input) => {
+      if (
+        input.chatId === chatId &&
+        input.ownerUserId === userId &&
+        input.runId === runId &&
+        input.deliveryIds.includes(deliveryId)
+      ) {
+        state = 'pending';
+        order.push('restored');
+      }
 
-    const execution = makeExecutionService();
-
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
-    );
-
-    await expect(result.text).resolves.toBe('answer');
-    expect(restoreJobNotices).toHaveBeenCalledWith({
-      chatId,
-      ownerUserId: userId,
-      runId,
-      deliveryIds,
+      return Promise.resolve();
     });
+
+    repositories.storeAtDispatch.mockImplementation(() => {
+      expect(state).toBe('pending');
+      order.push('dispatched');
+
+      return Promise.resolve({ applied: true });
+    });
+
+    const capturing = makeCapturingClient();
+
+    const client: ModelClient = {
+      ...capturing.client,
+      streamText: (options) => {
+        expect(state).toBe('pending');
+        order.push('model-requested');
+
+        return capturing.client.streamText(options);
+      },
+    };
+
+    const execution = makeExecutionService(client);
+
+    await execution.service.executeRun(executionInput(client));
+
+    expect(state).toBe('pending');
+    expect(order).toEqual(['restored', 'dispatched', 'model-requested']);
   });
 
   it('stages the items with their form and commits the observed availability', async () => {
@@ -13680,6 +13709,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     function retryAgainstStoredTrigger(
       repositories: ReturnType<typeof mockNormalExecutionRepositories>,
       record: Array<TurnToolAvailabilityEntry>,
+      retryTrigger: Message = trigger,
     ) {
       repositories.findById.mockResolvedValue({
         ...run,
@@ -13690,32 +13720,15 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         { ...event, eventType: 'model.requested' },
       ]);
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-        trigger,
+        retryTrigger,
       ]);
     }
 
-    it('does not add the delivered job output again on a retry', async () => {
+    it('retains the delivered job output exactly once on a retry', async () => {
       const repositories = mockNormalExecutionRepositories();
-      retryAgainstStoredTrigger(repositories, []);
       const jobId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
-      const jobNotice = chatDeliveryRow({
-        chatId,
-        ownerUserId: userId,
-        producer: 'job',
-        senderRef: jobId,
-        mode: 'notice',
-        parts: [],
-        state: 'delivered',
-        deliveredMessageId: messageId,
-        runId,
-      });
-
-      const listDeliveredJobNotices = vi
-        .spyOn(ChatDeliveriesRepository.prototype, 'listDeliveredJobNotices')
-        .mockResolvedValue([jobNotice]);
-
-      vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue({
+      const settledJob: ChatJob = {
         id: jobId,
         chatId,
         ownerUserId: userId,
@@ -13737,8 +13750,44 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         artifactId: null,
         artifactReadable: false,
         settings: { modelId: 'fake-model', permissionMode: 'default' },
+      };
+
+      const storedJobItem = createJobNoticeItem({
+        runId,
+        job: settledJob,
+        outputs: [{ name: 'stdout', text: 'already delivered output' }],
       });
 
+      const retryTrigger: Message = {
+        ...trigger,
+        parts: [
+          ...trigger.parts.slice(0, 1),
+          storedJobItem,
+          ...trigger.parts.slice(1),
+        ],
+      };
+
+      retryAgainstStoredTrigger(repositories, [], retryTrigger);
+
+      const jobNotice = chatDeliveryRow({
+        chatId,
+        ownerUserId: userId,
+        producer: 'job',
+        senderRef: jobId,
+        mode: 'notice',
+        parts: [],
+        state: 'delivered',
+        deliveredMessageId: messageId,
+        runId,
+      });
+
+      const listDeliveredJobNotices = vi
+        .spyOn(ChatDeliveriesRepository.prototype, 'listDeliveredJobNotices')
+        .mockResolvedValue([jobNotice]);
+
+      vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+        settledJob,
+      );
       vi.spyOn(
         ChatJobsRepository.prototype,
         'readOutputTail',
@@ -13748,12 +13797,26 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
       await execution.service.executeRun(executionInput(capturing.client));
 
-      const stored = stagedPartsOf(repositories.storeAtDispatch, trigger.parts);
-
-      expect(producersOf(stored)).not.toContain('job');
-      expect(JSON.stringify(capturing.streamOptions().messages)).not.toContain(
-        'already delivered output',
+      const stored = stagedPartsOf(
+        repositories.storeAtDispatch,
+        retryTrigger.parts,
       );
+
+      const jobItems = stored
+        .filter(isContextItemPart)
+        .filter((item) => item.data.producer === 'job');
+
+      const request = capturing.streamOptions().messages.at(-1);
+
+      const requestText = JSON.stringify(request);
+
+      expect(jobItems).toHaveLength(1);
+      expect(jobItems[0]?.data.text).toContain('already delivered output');
+      expect(request).toEqual({
+        role: 'user',
+        content: userPartsToModelContent(stored),
+      });
+      expect(requestText.split('already delivered output')).toHaveLength(2);
       expect(listDeliveredJobNotices).not.toHaveBeenCalled();
     });
 
