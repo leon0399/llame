@@ -473,4 +473,170 @@ describe('wakeStateFromEvents', () => {
 
     expect(wakeStateFromEvents(outsideAttempt, 'wake-attempt')).toBeUndefined();
   });
+
+  it('selects the wait completion by event type, call id, and tool name', () => {
+    const events = firstWakeEvents();
+    events.splice(
+      5,
+      0,
+      event(6, 'tool.completed', null),
+      event(7, 'tool.requested', {
+        toolCallId: 'wait-1',
+        toolName: 'wait',
+        output: { status: 'success', value: 'not-completed' },
+      }),
+      event(8, 'tool.completed', {
+        toolCallId: 'other-call',
+        toolName: 'wait',
+        output: { status: 'success', value: 'wrong-call' },
+      }),
+      event(9, 'tool.completed', {
+        toolCallId: 'wait-1',
+        toolName: 'search',
+        output: { status: 'success', value: 'wrong-tool' },
+      }),
+    );
+
+    expect(wakeStateFromEvents(events, 'wake-attempt')?.parts[1]).toMatchObject(
+      {
+        type: 'tool-wait',
+        output: { value: 'settled' },
+        outcome: 'success',
+      },
+    );
+  });
+
+  it('does not take wait metadata from after the suspension', () => {
+    const events = firstWakeEvents().filter(
+      (entry) =>
+        entry.eventType !== 'tool.requested' &&
+        entry.eventType !== 'tool.started',
+    );
+
+    const suspensionIndex = events.findIndex(
+      (entry) => entry.eventType === 'run.suspended',
+    );
+
+    events.splice(
+      suspensionIndex + 1,
+      0,
+      event(4, 'tool.requested', {
+        toolCallId: 'wait-1',
+        toolName: 'wait',
+        permission: { policyId: 'future-policy', decision: 'deny' },
+        providerMetadata: { provider: { marker: 'future' } },
+      }),
+      event(5, 'tool.started', {
+        toolCallId: 'wait-1',
+        classification: 'write',
+      }),
+    );
+
+    const activity = wakeStateFromEvents(events, 'wake-attempt')?.parts[1];
+
+    expect(activity).not.toHaveProperty('permission');
+    expect(activity).not.toHaveProperty('providerMetadata');
+    expect(activity).toHaveProperty('classification', null);
+  });
+
+  it('selects the matching wait request rather than a same-call other tool request', () => {
+    const events = firstWakeEvents();
+    events.splice(
+      0,
+      0,
+      event(0, 'tool.requested', {
+        toolCallId: 'wait-1',
+        toolName: 'search',
+        permission: { policyId: 'wrong-policy', decision: 'deny' },
+        providerMetadata: { provider: { marker: 'wrong' } },
+      }),
+    );
+
+    expect(wakeStateFromEvents(events, 'wake-attempt')?.parts[1]).toMatchObject(
+      {
+        permission: {
+          policyId: 'policy-1',
+          decision: 'allow',
+          reason: 'permission_mode_bypass',
+          reference: null,
+        },
+        providerMetadata: { provider: { marker: 'preserve' } },
+      },
+    );
+  });
+
+  it('keeps the restored wait activity name and omits an absent timeout', () => {
+    const activity = wakeStateFromEvents(firstWakeEvents([]), 'wake-attempt')
+      ?.parts[0];
+
+    expect(activity).toHaveProperty('type', 'tool-wait');
+    expect(activity).toHaveProperty('input', {
+      jobs: ['job://executor-1'],
+    });
+    expect(activity).not.toHaveProperty('input.timeout');
+  });
+
+  it('uses the suspension before resume, not a later same-generation event', () => {
+    const events = firstWakeEvents();
+    events.splice(
+      4,
+      0,
+      event(8, 'run.suspended', {
+        generation: 1,
+        toolCallId: 'later-wait',
+        parts: [{ type: 'text', text: 'later checkpoint' }],
+        steps: {},
+        awaiting: {
+          toolCallId: 'later-wait',
+          toolInput: { jobs: ['job://executor-2'] },
+          jobIds: ['job://executor-2'],
+          deadline: '2026-10-10T01:00:00.000Z',
+        },
+      }),
+    );
+
+    expect(wakeStateFromEvents(events, 'wake-attempt')).toMatchObject({
+      toolCallId: 'wait-1',
+      parts: [
+        { type: 'text', text: 'before', step: 2 },
+        { type: 'tool-wait', toolCallId: 'wait-1' },
+      ],
+    });
+  });
+
+  it('uses the numeric fallback step for an inherited checkpoint key', () => {
+    const events = [
+      event(1, 'tool.requested', {
+        toolCallId: 'constructor',
+        toolName: 'wait',
+      }),
+      event(2, 'tool.started', { toolCallId: 'constructor' }),
+      event(3, 'run.suspended', {
+        generation: 1,
+        toolCallId: 'constructor',
+        parts: [{ type: 'text', text: 'kept', step: 4 }],
+        steps: {},
+        awaiting: {
+          toolCallId: 'constructor',
+          toolInput: { jobs: ['job://executor-1'] },
+          jobIds: ['job://executor-1'],
+          deadline: '2026-10-10T01:00:00.000Z',
+        },
+      }),
+      event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
+      event(5, 'run.started', { attemptId: 'wake-attempt' }),
+      event(6, 'tool.completed', {
+        toolCallId: 'constructor',
+        toolName: 'wait',
+        output: { status: 'success', value: 'settled' },
+      }),
+    ];
+
+    expect(wakeStateFromEvents(events, 'wake-attempt')?.parts[1]).toMatchObject(
+      {
+        toolCallId: 'constructor',
+        step: 5,
+      },
+    );
+  });
 });

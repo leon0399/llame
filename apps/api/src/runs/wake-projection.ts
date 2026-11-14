@@ -261,9 +261,13 @@ function assembleWakeState(
     checkpoint.toolCallId,
   );
 
-  const step =
-    checkpoint.steps?.[checkpoint.toolCallId] ??
-    continueStepOffset({ parts: checkpoint.parts });
+  const storedStep =
+    checkpoint.steps !== undefined &&
+    Object.hasOwn(checkpoint.steps, checkpoint.toolCallId)
+      ? checkpoint.steps[checkpoint.toolCallId]
+      : undefined;
+
+  const step = storedStep ?? continueStepOffset({ parts: checkpoint.parts });
 
   const part = toolActivityPart({
     toolCallId: checkpoint.toolCallId,
