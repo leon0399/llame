@@ -66,6 +66,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- **Prepare durable wait continuation (#1657).** Deferred provider call seams
+  drain sibling tools without a synthetic wait result. Internal wake claims
+  atomically store the real result and exact notice receipts, then preserve
+  the checkpoint once in provider history and finalization. Pre-dispatch
+  failures retain the committed result. This prerequisite does not register
+  or advertise the model-facing `wait` tool.
+
 - **Wait for background jobs without holding a worker (#1657).** The read-only
   `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
   It returns settled results immediately, or suspends and durably resumes the
