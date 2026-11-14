@@ -18,6 +18,7 @@ import {
   isUuid,
   keysMatch,
 } from "./context-item-envelope";
+import { isJobNoticePart, type JobNoticePart } from "./job-notice";
 
 export type ChatMessageResponse = {
   id: string;
@@ -459,30 +460,15 @@ export function isRegenerateNoticePart(
   );
 }
 
-/** The `regenerate` notice a user turn carries, or null when it carries none. */
-export function regenerateNoticePart(message: {
-  parts: ReadonlyArray<unknown>;
-}): RegenerateNoticePart | null {
-  return message.parts.find(isRegenerateNoticePart) ?? null;
-}
-
 export function isInterruptedNoticePart(
   value: unknown,
 ): value is InterruptedNoticePart {
   return isNonNullObject(contextItemEnvelope(value, "interrupted")?.payload);
 }
 
-/** The `interrupted` notice a delivered user message carries, or null. */
-export function interruptedNoticePart(message: {
-  parts: ReadonlyArray<unknown>;
-}): InterruptedNoticePart | null {
-  return message.parts.find(isInterruptedNoticePart) ?? null;
-}
-
 /** Whether this app renders a server context item on that role: the
- *  model-switch marker, the prompt-imports disclosure, the regenerate
- *  and interrupted notices that ride a user message, and the instructions item, which rides
- *  either role. A type predicate, so the caller keeps the narrowed part. */
+ *  model-switch marker, prompt-imports disclosure, regenerate, interrupted,
+ *  and job notices on user messages, and instructions on either role. */
 function isRenderableControlPart(
   role: UIMessage["role"],
   part: unknown,
@@ -491,28 +477,27 @@ function isRenderableControlPart(
   | InstructionsPart
   | PromptImportsPart
   | RegenerateNoticePart
-  | InterruptedNoticePart {
+  | InterruptedNoticePart
+  | JobNoticePart {
   return role === "user"
     ? isModelSwitchPart(part) ||
         isInstructionsPart(part) ||
         isPromptImportsPart(part) ||
         isRegenerateNoticePart(part) ||
-        isInterruptedNoticePart(part)
+        isInterruptedNoticePart(part) ||
+        isJobNoticePart(part)
     : isInstructionsPart(part);
 }
 
 /**
  * The control parts a server-fetched message is trusted to overlay, each with
  * its stored position: exactly the producers this app renders from stored
- * parts — the model-switch marker and the prompt-imports disclosure the rail
- * stages on a user message, and the instructions item, which rides the
- * assistant turn of an in-Run load and the
- * triggering user turn of the accepted-turn load (design D5, D9). Every other
- * producer stays invisible, and a part no server message vouches for is
- * dropped.
+ * parts. This includes model-switch and prompt-import disclosures staged on a
+ * user message, instructions on user or assistant messages, and regenerate,
+ * interrupted, and job notices on user messages. Every other producer stays
+ * invisible, and a part no server message vouches for is dropped.
  *
- * Server order is kept: a turn the rail both switched models on and loaded
- * instructions for carries both parts, in the order the api stored them.
+ * Server order is kept for multiple accepted items on one message.
  */
 function trustedContextParts(message: {
   role: UIMessage["role"];
@@ -527,7 +512,8 @@ function trustedContextParts(message: {
       | InstructionsPart
       | PromptImportsPart
       | RegenerateNoticePart
-      | InterruptedNoticePart;
+      | InterruptedNoticePart
+      | JobNoticePart;
   }> = [];
 
   let index = 0;
@@ -577,7 +563,14 @@ export function mergeTrustedModelContextParts(
 ): Array<UIMessage> {
   const trustedByMessageId = new Map(
     serverMessages.map(
-      (message) => [message.id, trustedContextParts(message)] as const,
+      (message) =>
+        [
+          message.id,
+          trustedContextParts({
+            role: message.role,
+            parts: message.parts,
+          }),
+        ] as const,
     ),
   );
 
@@ -666,9 +659,12 @@ export function toChatUiMessages(response: {
     // carries per-turn usage into message metadata so the UI shows it on
     // historical turns exactly as it does live (the run bridge emits the
     // same `{ usage }` shape as a message-metadata chunk at completion).
+    const host =
+      message.role === "user" && message.senderUserId === null && message.host;
+
     const metadata = message.usage
-      ? { seq: message.seq, host: message.host, usage: message.usage }
-      : { seq: message.seq, host: message.host };
+      ? { seq: message.seq, host, usage: message.usage }
+      : { seq: message.seq, host };
 
     return {
       id: message.id,
@@ -692,4 +688,13 @@ export function messageSeqFromMetadata(metadata: unknown): number | null {
   const seq = (metadata as { seq?: unknown }).seq;
 
   return isNumber(seq) && Number.isSafeInteger(seq) && seq > 0 ? seq : null;
+}
+
+/** Whether message metadata marks a server-authored host message. */
+export function isHostMessageMetadata(
+  metadata: unknown,
+): metadata is object & { host: true } {
+  return (
+    isNonNullObject(metadata) && "host" in metadata && metadata.host === true
+  );
 }

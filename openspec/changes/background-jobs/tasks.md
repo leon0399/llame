@@ -432,13 +432,18 @@ acceptance and model-visible activation remain together in `wait-tool`.
 
 ## 13. Web controls (`background-jobs/web-controls`)
 
-- [ ] 13.2 Add the Jobs section of the Session details panel; stories and tests cover "Stop all with no live Run" and "The composer Stop leaves jobs alone".
-- [ ] 13.3 Render a pending notice and a host message; stories and tests cover "A host message in the transcript", the delete-only row, and the web half of "A held notice alone does not label a paused queue".
-- [ ] 13.4 Add transcript rows for `wait`, `stop`, and the `backgrounded` result, with the `BashTool` output schema; run the Storybook MCP tests and return the preview URLs.
-- [ ] 13.5 Add one focused product E2E: an `async` command, a notice that starts a Run, and a stop from the panel.
-- [ ] 13.6 Remove the shipped items from `ROADMAP.md` and add the `CHANGELOG.md` entry; `pnpm lint:markdown` passes.
-- [ ] 13.7 Run the web lint and typecheck; self-review before ready.
+- [x] 13.2 Add the Jobs section of the Session details panel; stories and tests cover "Stop all with no live Run" and "The composer Stop leaves jobs alone".
+- [x] 13.3 Render a pending notice and a host message; stories and tests cover "A host message in the transcript", the delete-only row, and the web half of "A held notice alone does not label a paused queue".
+- [x] 13.4 Add transcript rows for `wait`, `stop`, and the `backgrounded` result, with the `BashTool` output schema; run the Storybook MCP tests and return the preview URLs.
+- [x] 13.5 Add one focused product E2E: an `async` command, a notice that starts a Run, and a stop from the panel.
+- [x] 13.6 Remove the shipped items from `ROADMAP.md` and add the `CHANGELOG.md` entry; `pnpm lint:markdown` passes.
+- [x] 13.7 Run the web lint and typecheck; self-review before ready.
 - [ ] 13.8 Run the GitHub review and CI loop on the published head.
+
+Storybook MCP returned preview URLs but could not start Vitest. Focused browser
+stories pass through the workspace CLI, and Chromium verifies the rendered Jobs,
+notice and sidebar surfaces. The focused product E2E passed against the complete
+UI union; the final integrated stack retains its own end-to-end verification.
 
 ## 14. Finalize (`background-jobs/finalize`)
 

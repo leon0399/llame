@@ -61,6 +61,7 @@ export type NoticeProducer =
   | "effective-context-change"
   | "interrupted"
   | "instructions"
+  | "job"
   | "prompt-imports"
   | "regenerate";
 

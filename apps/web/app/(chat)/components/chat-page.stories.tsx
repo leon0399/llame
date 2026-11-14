@@ -12,14 +12,22 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { useState, type ComponentProps } from "react";
-import { expect, screen, userEvent, waitFor, within } from "storybook/test";
+import {
+  expect,
+  fn,
+  mocked,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "storybook/test";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
-import { vi, type Mock } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
 import type {
   ChatDeliveryResponse,
+  ChatJobResponse,
   ChatListItemResponse,
   GitStateOkResponse,
 } from "@/lib/api/generated/models";
@@ -47,8 +55,7 @@ import type { PermissionModesResponse } from "@/lib/services/permission-modes/qu
 import {
   emptyResponse,
   jsonResponse,
-  stubFetch,
-} from "@/lib/test-support/fetch-stub";
+} from "@/lib/test-support/fetch-responses";
 import { ChatHeader } from "./chat-header";
 import { SessionDetailsProvider } from "./session-details/details-state";
 import { SessionDetails } from "./session-details";
@@ -59,23 +66,24 @@ import {
   type ChatMarkdownRenderers,
 } from "./use-chat-markdown-ready";
 
-const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
+const useModelsQuery = mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
 
-const usePermissionModesQuery = vi.mocked(
+const usePermissionModesQuery = mocked(
   permissionModeQueries.usePermissionModesQuery,
   { partial: true },
 );
 
-const runIdToCancel = vi.mocked(runs.runIdToCancel);
-const cancelRun = vi.mocked(runs.cancelRun);
+const runIdToCancel = mocked(runs.runIdToCancel);
+const cancelRun = mocked(runs.cancelRun);
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 const HISTORY_ROUTE = `GET /api/v1/chats/${CHAT_ID}/messages`;
 const RESUME_ROUTE = `GET /api/v1/chats/${CHAT_ID}/stream`;
 const SEND_ROUTE = `POST /api/v1/chats/${CHAT_ID}/messages`;
 const DELIVERIES_ROUTE = `GET /api/v1/chats/${CHAT_ID}/deliveries`;
+const JOBS_ROUTE = `GET /api/v1/chats/${CHAT_ID}/jobs`;
 
 // The server page seeds an opened chat's history into the query cache, so the
 // browser only probes for a run to resume (204: none) and re-reads history
@@ -169,13 +177,12 @@ async function chunkLoad(attempt: number) {
   return load;
 }
 
-// The resume probe and the history re-read run through the REAL hooks against
-// a stubbed fetch, answering as the api does for a chat with no active run. A
-// send is held unanswered: the stories assert only what it carries. A story
-// can answer more routes with `routeAlso`. Any other request is recorded and
-// the meta's afterEach fails the story on it: the throw alone only becomes a
-// query error.
-let fetchMock: Mock<typeof fetch>;
+// The resume probe, history re-read, delivery list, and jobs list run through
+// the REAL hooks against a stubbed fetch. A send is held unanswered: the
+// stories assert only what it carries. A story can answer more routes with
+// `routeAlso`. Any other request is recorded and the meta's afterEach fails
+// the story on it: the throw alone only becomes a query error.
+const fetchMock = fn<typeof fetch>();
 let unrouted: Array<string> = [];
 
 /** The Request a fetch call carries. */
@@ -204,7 +211,9 @@ function routeOpenChat(
   latestRun: ChatLatestRunResponse | null,
   pending: Array<ChatDeliveryResponse>,
 ) {
-  fetchMock = stubFetch();
+  const originalFetch = globalThis.fetch;
+  fetchMock.mockReset();
+  globalThis.fetch = fetchMock;
   unrouted = [];
   fetchMock.mockImplementation((input) => {
     const key = routeOf(input);
@@ -219,6 +228,10 @@ function routeOpenChat(
       return Promise.resolve(jsonResponse({ items: pending }));
     }
 
+    if (key === JOBS_ROUTE) {
+      return Promise.resolve(jsonResponse({ items: [] }));
+    }
+
     if (key === SEND_ROUTE) return new Promise<Response>(() => {});
 
     if (DRAFT_CATALOG_ROUTES.includes(key)) {
@@ -230,7 +243,7 @@ function routeOpenChat(
   });
 
   return () => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   };
 }
 
@@ -254,12 +267,14 @@ function everyRoute() {
 }
 
 /** "METHOD /path" of every request the chat sent so far, in order. The
- *  pending-item read is left out like the catalog: it answers empty unless a
- *  story names items, and the stories are about what the chat itself sends. */
+ *  pending-item and jobs reads are left out like the catalog: these stories
+ *  are about chat behavior, not background activity polling. */
 function sentRoutes() {
   return everyRoute().filter(
     (route) =>
-      !DRAFT_CATALOG_ROUTES.includes(route) && !route.endsWith("/deliveries"),
+      !DRAFT_CATALOG_ROUTES.includes(route) &&
+      route !== JOBS_ROUTE &&
+      !route.endsWith("/deliveries"),
   );
 }
 
@@ -547,7 +562,7 @@ export const SendsWithDefaultModel: Story = {
   },
 };
 
-const uploadAttachment = vi.mocked(uploads.uploadAttachment);
+const uploadAttachment = mocked(uploads.uploadAttachment);
 
 const VISION: AvailableModel = {
   id: "system:openai:vision",
@@ -3063,7 +3078,7 @@ export const EditPutsTheTextBack: Story = {
     pending: [EDITABLE_ITEM],
   } satisfies ChatPageParameters,
   beforeEach: () => {
-    vi.mocked(uploads.fetchMediaDescriptor).mockResolvedValue(
+    mocked(uploads.fetchMediaDescriptor).mockResolvedValue(
       uploaded(EDITABLE_MEDIA_ID, "notes.png"),
     );
     routeAlso({
@@ -3357,6 +3372,77 @@ export const EscTwiceStopsEverything: Story = {
     await expect(
       sentRoutes().filter((route) => route.startsWith("PATCH ")),
     ).toHaveLength(1);
+  },
+};
+
+/**
+ * Both Stop controls belong to the live Run, not to independently running
+ * background jobs in session details.
+ *
+ * @summary composer Stop and Esc leave background jobs running
+ */
+export const ComposerStopAndEscapeLeaveJobsRunning: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    ...HEADED_CHAT,
+    latestRun: liveRun(),
+  } satisfies ChatPageParameters & typeof HEADED_CHAT,
+  render: (args) => <ChatUnderHeader {...args} />,
+  beforeEach: () => {
+    serveChatCard(false);
+
+    const job: ChatJobResponse = {
+      id: "job-1",
+      chatId: CHAT_ID,
+      locator: "job://bash-1",
+      executor: "bash",
+      state: "running",
+      stoppedBy: null,
+      startedAt: "2026-11-12T09:00:00.000Z",
+      settledAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      outputs: [],
+      truncated: [],
+      exitCode: null,
+      signal: null,
+      outcomeUnknown: false,
+      artifact: null,
+    };
+
+    let state = job.state;
+    const stopRoute = `PATCH /api/v1/chats/${CHAT_ID}/jobs/${job.id}`;
+
+    routeAlso({
+      [JOBS_ROUTE]: () =>
+        Promise.resolve(jsonResponse({ items: [{ ...job, state }] })),
+      [stopRoute]: () => {
+        state = "cancelled";
+
+        return Promise.resolve(jsonResponse({ ...job, state }));
+      },
+    });
+    runIdToCancel.mockReturnValue(null);
+    cancelRun.mockResolvedValue(undefined);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await openedLiveRun(canvasElement);
+    const details = within(canvas.getByLabelText("Session details"));
+
+    await expect(await details.findByText("Running")).toBeVisible();
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Stop generation" }),
+    );
+    await userEvent.click(input);
+    await userEvent.keyboard("{Escape}");
+
+    await expect(cancelRun).toHaveBeenCalledTimes(2);
+    await expect(
+      everyRoute().filter((route) => route.includes("/jobs/")),
+    ).toEqual([]);
+    await expect(details.getByText("Running")).toBeVisible();
+    await expect(details.queryByText("Cancelled")).toBeNull();
   },
 };
 

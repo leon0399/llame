@@ -10,6 +10,7 @@ import { activeRunsQueryKeys } from "../chat/active-runs";
 import { chatQueryKeys, type ChatResponse } from "../chat/queries";
 import type { ChatSearchResult } from "../chat/search";
 import type { ChatDeliveriesResponse } from "../../api/generated/models";
+import { chatJobsQueryKeys } from "../jobs/queries";
 import { machinesQueryKeys } from "../machines/queries";
 import { pinQueryKeys } from "../pins/queries";
 import type { PinnedItem } from "../pins/types";
@@ -191,6 +192,7 @@ describe("applyLiveMessage", () => {
 
   it("updates a chat in place, re-sorts, and refreshes detail, search, and pin cards", () => {
     const client = seeded();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     client.setQueryData(pinQueryKeys.list(), [pin(ID.a, "Chat 1")]);
     client.setQueryData<Array<ChatSearchResult>>(
       chatQueryKeys.search({ q: "chat" }),
@@ -209,6 +211,10 @@ describe("applyLiveMessage", () => {
     });
 
     applyLiveMessage(client, { type: "chat.upserted", chat: updated });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: chatJobsQueryKeys.chat(ID.a),
+      exact: true,
+    });
 
     expect(ids(client, chatQueryKeys.infinite())).toEqual([ID.a, ID.b]);
     expect(
@@ -279,7 +285,6 @@ describe("applyLiveMessage", () => {
       queryKey: pinnedKey,
       exact: true,
     });
-    expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
   it("places a chat in pin-filtered lists from the cached pin state, keeping pin order", () => {
@@ -480,7 +485,7 @@ describe("applyLiveMessage", () => {
     ).toEqual(["devl", "box"]);
   });
 
-  it("refetches every owner list on resync and ignores run messages", () => {
+  it("refetches owner lists and jobs on resync and ignores run messages", () => {
     const client = new QueryClient();
     const invalidate = vi.spyOn(client, "invalidateQueries");
 
@@ -496,6 +501,7 @@ describe("applyLiveMessage", () => {
     applyLiveMessage(client, { type: "resync" });
     expect(invalidate.mock.calls.map(([f]) => f?.queryKey)).toEqual([
       chatQueryKeys.all,
+      chatJobsQueryKeys.all,
       machinesQueryKeys.list(),
       pinQueryKeys.list(),
       projectQueryKeys.lists(),

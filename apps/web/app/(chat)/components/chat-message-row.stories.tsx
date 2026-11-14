@@ -12,9 +12,14 @@ import type { UIMessage } from "ai";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import { toChatUiMessages } from "@/lib/services/chat/history";
+import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
+
+import { ChatMessageRow } from "./chat-message-row";
+import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
 
 // Import via the REAL specifiers: sb.mock (preview.tsx) redirects them to the
 // __mocks__ modules, so these are the SAME hooks the selector reads.
@@ -26,9 +31,6 @@ const usePermissionModesQueryMock = mocked(
   permissionModeQueries.usePermissionModesQuery,
   { partial: true },
 );
-
-import { ChatMessageRow } from "./chat-message-row";
-import { ChatMarkdownProvider } from "./use-chat-markdown-ready";
 
 /** A summary run persisted before part identity was recorded: two headings
  *  the wire glued into one `****` run. */
@@ -2086,5 +2088,109 @@ export const RegenerateNoticeOnUserMessage: Story = {
 
     await expect(notice).toBeVisible();
     expect(canvas.queryByText(/system-reminder/)).toBeNull();
+  },
+};
+
+/** A persisted host-authored job result projected from the history API row. */
+const HOST_JOB_NOTICE_MESSAGE = toChatUiMessages({
+  messages: [
+    rawChatMessage({
+      id: "host-job-notice",
+      seq: 42,
+      role: "user",
+      senderUserId: null,
+      host: true,
+      parts: [
+        {
+          type: "data-context",
+          data: {
+            v: 1,
+            producer: "job",
+            form: "notice",
+            runId: "11111111-1111-4111-8111-111111111111",
+            payload: {
+              locator: "job://bash-7",
+              state: "succeeded",
+            },
+            text: "Host-authored model-only settlement text",
+          },
+        },
+        {
+          type: "data-context",
+          data: {
+            v: 1,
+            producer: "job",
+            form: "notice",
+            runId: "11111111-1111-4111-8111-111111111111",
+            payload: {
+              locator: "job://bash-8",
+              state: "failed",
+            },
+            text: "Second model-only settlement",
+          },
+        },
+      ],
+    }),
+  ],
+})[0]!;
+
+/**
+ * A persisted host user row projects through the same history adapter as the
+ * consumer, then renders only validated job data and no owner message actions.
+ *
+ * @summary host-authored user rows render as notices, not owner messages
+ */
+export const HostJobNotice: Story = {
+  args: { renderKey: "host-job-notice", message: HOST_JOB_NOTICE_MESSAGE },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("job://bash-7 succeeded")).toBeVisible();
+    await expect(canvas.getByText("job://bash-8 failed")).toBeVisible();
+    await expect(canvas.getAllByText(/job:\/\/bash-/)).toHaveLength(2);
+    await expect(
+      canvas.queryByText("Host-authored model-only settlement text"),
+    ).toBeNull();
+    await expect(canvas.queryByRole("button")).toBeNull();
+  },
+};
+
+/** A forged host flag on an owner-sender row projects back to owner metadata. */
+const MIXED_OWNER_JOB_NOTICE_MESSAGE = toChatUiMessages({
+  messages: [
+    rawChatMessage({
+      id: "owner-job-notice",
+      seq: 43,
+      role: "user",
+      senderUserId: "owner-id",
+      host: true,
+      parts: [
+        ...HOST_JOB_NOTICE_MESSAGE.parts,
+        { type: "text", text: "Owner content stays visible." },
+      ],
+    }),
+  ],
+})[0]!;
+
+/**
+ * A job notice and owner text on one message keep both parts visible.
+ *
+ * @summary mixed owner content and a job notice both render
+ */
+export const MixedOwnerJobNotice: Story = {
+  args: {
+    renderKey: "owner-job-notice",
+    message: MIXED_OWNER_JOB_NOTICE_MESSAGE,
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("job://bash-7 succeeded")).toBeVisible();
+    await expect(
+      canvas.getByText("Owner content stays visible."),
+    ).toBeVisible();
+
+    const fork = await waitFor(
+      () => canvas.getByRole("button", { name: "Fork from here" }),
+      { timeout: 15_000 },
+    );
+
+    await expect(fork).toBeInTheDocument();
   },
 };
