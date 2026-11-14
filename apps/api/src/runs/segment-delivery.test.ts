@@ -422,10 +422,11 @@ describe('deliverPendingSteering', () => {
   ] as const)(
     'delivers $label with its cause and closing telemetry',
     async ({ items, cause, expectedUsage }) => {
-      serve({ items: [...items] });
-      vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
-        storedMessage({ senderUserId: null, parts: [] }),
-      );
+      const spies = serve({ items: [...items] });
+
+      const createSystemMessage = vi
+        .spyOn(MessagesRepository.prototype, 'create')
+        .mockResolvedValue(storedMessage({ senderUserId: null, parts: [] }));
 
       const outcome = await deliver({
         modelCompleted: {
@@ -440,6 +441,18 @@ describe('deliverPendingSteering', () => {
       if (outcome.kind !== 'delivered') return;
       expect(outcome.cause).toBe(cause);
       expect(outcome.closedReply?.usage).toEqual(expectedUsage);
+
+      if (items.every((item) => item.producer === 'job')) {
+        expect(spies.createUser).not.toHaveBeenCalled();
+        expect(createSystemMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            role: 'user',
+            senderUserId: null,
+            parts: [],
+            attachments: [],
+          }),
+        );
+      }
     },
   );
 
@@ -740,6 +753,13 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     await deliver();
 
     expect(spies.setDigest).toHaveBeenCalledWith(chatId, userId, baseline, []);
+  });
+  it('does not write first-epoch baselines when a job notice joins an owner steer', async () => {
+    const spies = serve([first, jobNotice]);
+
+    await deliver();
+
+    expect(spies.setDigest).not.toHaveBeenCalled();
   });
 
   it('writes no first-epoch baseline when an interrupt is among the delivered items', async () => {
