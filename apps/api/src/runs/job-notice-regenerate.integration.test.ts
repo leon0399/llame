@@ -361,4 +361,142 @@ describe('Regenerate restores consumed job notices', () => {
       runId: source.runId,
     });
   });
+
+  it('restores only kept receipts across multiple Continues', async () => {
+    const source = await seed('Continue through retained results');
+    const trigger = source.userMessage;
+
+    const createContinue = async (
+      sourceRunId: string,
+      toolCallIds: Array<string>,
+    ): Promise<string> =>
+      db(async (tx) => {
+        const { run } = await createRunForMessage(
+          tx,
+          {
+            userId: fx.userId,
+            chatId: source.chatId,
+            modelId: source.modelId,
+            effort: undefined,
+            permissionMode: 'default',
+            targetRunId: randomUUID(),
+            followUp: {
+              action: 'continue',
+              sourceRunId,
+              replacesUsage: true,
+              keptParts: toolCallIds.map((toolCallId) => ({
+                type: 'tool-read',
+                toolCallId,
+                state: 'output-available',
+                input: { path: `/tmp/${toolCallId}` },
+                output: { status: 'success', text: toolCallId },
+              })),
+            },
+          },
+          trigger,
+        );
+
+        return run.id;
+      });
+
+    const firstContinueId = await createContinue(source.runId, [
+      'base-kept-tool',
+    ]);
+
+    const secondContinueId = await createContinue(firstContinueId, [
+      'first-kept-tool',
+      'base-kept-tool',
+    ]);
+
+    await db(async (tx) => {
+      const log = new RunEventsRepository(tx);
+      await log.append(source.runId, 'tool.completed', {
+        toolCallId: 'base-kept-tool',
+        consumedJobNoticeIds: ['base-kept-receipt'],
+      });
+      await log.append(source.runId, 'tool.completed', {
+        toolCallId: 'base-discarded-tool',
+        consumedJobNoticeIds: ['base-discarded-receipt'],
+      });
+      await log.append(firstContinueId, 'tool.completed', {
+        toolCallId: 'first-kept-tool',
+        consumedJobNoticeIds: ['first-kept-receipt'],
+      });
+      await log.append(firstContinueId, 'tool.completed', {
+        toolCallId: 'first-discarded-tool',
+        consumedJobNoticeIds: ['first-discarded-receipt'],
+      });
+    });
+
+    const receipts = await db((tx) =>
+      sourceSegmentJobNoticeIds({
+        tx,
+        sourceRunId: secondContinueId,
+        chatId: source.chatId,
+        ownerUserId: fx.userId,
+      }),
+    );
+
+    expect(receipts).toEqual([
+      { runId: firstContinueId, deliveryIds: ['first-kept-receipt'] },
+      { runId: source.runId, deliveryIds: ['base-kept-receipt'] },
+    ]);
+  });
+
+  it('terminates when Continue checkpoints form a cycle', async () => {
+    const source = await seed('Stop traversing a cyclic Continue history');
+
+    const continuedRunId = await db(async (tx) => {
+      const { run } = await createRunForMessage(
+        tx,
+        {
+          userId: fx.userId,
+          chatId: source.chatId,
+          modelId: source.modelId,
+          effort: undefined,
+          permissionMode: 'default',
+          targetRunId: randomUUID(),
+          followUp: {
+            action: 'continue',
+            sourceRunId: source.runId,
+            replacesUsage: true,
+            keptParts: [
+              {
+                type: 'tool-read',
+                toolCallId: 'cycle-kept-tool',
+                state: 'output-available',
+                input: { path: '/tmp/cycle-kept-tool' },
+                output: { status: 'success', text: 'kept result' },
+              },
+            ],
+          },
+        },
+        source.userMessage,
+      );
+
+      await new RunEventsRepository(tx).append(source.runId, 'tool.completed', {
+        toolCallId: 'cycle-kept-tool',
+        consumedJobNoticeIds: ['cycle-receipt'],
+      });
+      await new RunEventsRepository(tx).append(source.runId, 'run.continued', {
+        sourceRunId: run.id,
+        parts: [{ toolCallId: 'cycle-kept-tool' }],
+      });
+
+      return run.id;
+    });
+
+    const receipts = await db((tx) =>
+      sourceSegmentJobNoticeIds({
+        tx,
+        sourceRunId: continuedRunId,
+        chatId: source.chatId,
+        ownerUserId: fx.userId,
+      }),
+    );
+
+    expect(receipts).toEqual([
+      { runId: source.runId, deliveryIds: ['cycle-receipt'] },
+    ]);
+  }, 5000);
 });
