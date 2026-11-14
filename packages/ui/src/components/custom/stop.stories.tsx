@@ -31,7 +31,11 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** A stop result reports the settled state and any recorded stop owner. */
+/**
+ * A stop result reports the settled state and any recorded stop owner.
+ *
+ * @summary stopped job state and recorded stop owner
+ */
 export const Stopped: Story = {
   tags: ["ai-generated"],
   play: async ({ canvas, userEvent }) => {
@@ -41,7 +45,11 @@ export const Stopped: Story = {
   },
 };
 
-/** Unknown or error result shapes remain available through the fallback. */
+/**
+ * Unknown or error result shapes remain available through the fallback.
+ *
+ * @summary unknown stop output uses the generic fallback
+ */
 export const UnknownOutput: Story = {
   tags: ["ai-generated"],
   args: { output: { status: "success", jobs: [{ locator: "job://bash-4" }] } },
@@ -55,7 +63,11 @@ export const UnknownOutput: Story = {
   },
 };
 
-/** A stop can return before settlement and report that a job is still running. */
+/**
+ * A stop can return before settlement and report that a job is still running.
+ *
+ * @summary stop returns while the job is still running
+ */
 export const StillRunning: Story = {
   tags: ["ai-generated"],
   args: {
