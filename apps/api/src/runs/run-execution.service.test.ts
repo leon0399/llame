@@ -5634,6 +5634,7 @@ describe('RunExecutionService executeRun — queue promotion', () => {
       ),
     );
     await execution.service.executeRun(executionInput(capturing.client));
+    lock.mockClear();
 
     return {
       streamOptions: capturing.streamOptions(),
@@ -5711,6 +5712,7 @@ describe('RunExecutionService executeRun — queue promotion', () => {
       error: new Error('provider exploded'),
     });
 
+    expect(started.lock).not.toHaveBeenCalled();
     expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
   });

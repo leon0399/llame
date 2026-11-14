@@ -3880,10 +3880,11 @@ export class RunExecutionService {
               (result) => result.status === 'rejected',
             );
 
-            if (failed?.status === 'rejected') throw failed.reason;
             endWorkspaceAttempt();
             removeParentAbortListener();
             closeSegment();
+
+            if (failed?.status === 'rejected') throw failed.reason;
 
             if (parentAbortSettlement) {
               await parentAbortSettlement;
