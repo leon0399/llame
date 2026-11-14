@@ -97,9 +97,9 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
   /** The Chat's pending items, as `GET /api/v1/chats/:chatId/deliveries` lists them. */
   deliveries(owner: string, chatId: string) {
     return this.tenantDb.runAs(owner, async (tx) =>
-      (await new ChatDeliveriesRepository(tx).listPending(chatId, owner)).map(
-        toChatDeliveryResponse,
-      ),
+      (
+        await new ChatDeliveriesRepository(tx).listPendingViews(chatId, owner)
+      ).map(toChatDeliveryResponse),
     );
   }
 

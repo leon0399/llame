@@ -1223,6 +1223,30 @@ describe('ChatLoopService.createDeliveryMessage', () => {
     expect(createRun).not.toHaveBeenCalled();
   });
 
+  it('refuses a job-produced item of the same Chat', async () => {
+    const { service, findStoredItem, createRun } = makeService();
+    findStoredItem.mockResolvedValue(
+      chatDeliveryRow({
+        id: ids.id,
+        chatId: chat.id,
+        producer: 'job',
+        mode: 'notice',
+      }),
+    );
+
+    await expect(
+      service.createDeliveryMessage({
+        ...input,
+        message: ids,
+        delivery: 'queue',
+      }),
+    ).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'Message id already exists',
+    });
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
   it('refuses an id held by an item of another Chat', async () => {
     const { service, findStoredItem, createRun } = makeService();
     findStoredItem.mockResolvedValue(

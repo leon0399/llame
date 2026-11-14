@@ -17,23 +17,25 @@ import { toChatDeliveryResponse } from './chat-deliveries.dto';
 
 describe('toChatDeliveryResponse', () => {
   it('includes selected effort and omits it when none was selected', () => {
-    const withEffort = toChatDeliveryResponse(
-      chatDeliveryRow({
+    const withEffort = toChatDeliveryResponse({
+      item: chatDeliveryRow({
         settings: {
           modelId: 'model-id',
           effort: 'high',
           permissionMode: 'default',
         },
       }),
-    );
+      job: null,
+    });
 
     expect(withEffort.effort).toBe('high');
 
-    const withoutEffort = toChatDeliveryResponse(
-      chatDeliveryRow({
+    const withoutEffort = toChatDeliveryResponse({
+      item: chatDeliveryRow({
         settings: { modelId: 'model-id', permissionMode: 'default' },
       }),
-    );
+      job: null,
+    });
 
     expect(withoutEffort).not.toHaveProperty('effort');
   });

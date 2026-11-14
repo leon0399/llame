@@ -13,4 +13,5 @@ export const ChatDeliveryResponseMode = {
   steer: "steer",
   interrupt: "interrupt",
   queue: "queue",
+  notice: "notice",
 } as const;

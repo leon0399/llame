@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { type Chat, type Run } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
@@ -12,6 +16,7 @@ import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatDeliveriesService } from './chat-deliveries.service';
 import { ChatsRepository } from './chats-repository';
 import { MessagesRepository } from './messages-repository';
+import { toChatDeliveryResponse } from './dto/chat-deliveries.dto';
 
 const chatId = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
 const otherChatId = '9b2f1c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d';
@@ -50,12 +55,17 @@ function makeService() {
     execute,
     models,
     findChat: vi.spyOn(ChatsRepository.prototype, 'findById'),
-    listPending: vi.spyOn(ChatDeliveriesRepository.prototype, 'listPending'),
+    listPending: vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPendingViews',
+    ),
     withdrawPending: vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'withdrawPending',
     ),
-    findItem: vi.spyOn(ChatDeliveriesRepository.prototype, 'findById'),
+    findItem: vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'findById')
+      .mockResolvedValue(item),
     findActiveRun: vi.spyOn(RunsRepository.prototype, 'findActiveByChatId'),
     createMessage: vi.spyOn(
       MessagesRepository.prototype,
@@ -74,17 +84,6 @@ afterEach(() => {
 });
 
 describe('ChatDeliveriesService.listPending', () => {
-  it('lists the pending items of a Chat the owner can see', async () => {
-    const { service, findChat, listPending } = makeService();
-    findChat.mockResolvedValue(asDouble<Chat>({ id: chatId }));
-    listPending.mockResolvedValue([item]);
-
-    await expect(service.listPending(chatId, userId)).resolves.toEqual([item]);
-
-    expect(findChat).toHaveBeenCalledWith(chatId, userId);
-    expect(listPending).toHaveBeenCalledWith(chatId, userId);
-  });
-
   it('answers 404 naming the Chat, and reads no items, for a Chat the owner cannot see', async () => {
     const { service, findChat, listPending } = makeService();
     findChat.mockResolvedValue(undefined);
@@ -98,17 +97,74 @@ describe('ChatDeliveriesService.listPending', () => {
 });
 
 describe('ChatDeliveriesService.withdraw', () => {
-  it('returns the withdrawn item without looking for a reason', async () => {
-    const { service, withdrawPending, findItem } = makeService();
-    withdrawPending.mockResolvedValue({ ...item, state: 'withdrawn' });
+  it.each(['owner', 'job'] as const)(
+    'returns a safe withdrawn %s delivery on the wire',
+    async (producer) => {
+      const { service, withdrawPending } = makeService();
 
-    await expect(service.withdraw(chatId, item.id, userId)).resolves.toEqual({
-      ...item,
-      state: 'withdrawn',
-    });
+      const withdrawn = chatDeliveryRow({
+        chatId,
+        ownerUserId: userId,
+        producer,
+        mode: producer === 'job' ? 'notice' : 'queue',
+        state: 'withdrawn',
+        senderRef: 'private-sender-reference',
+        parts:
+          producer === 'job'
+            ? []
+            : [
+                {
+                  type: 'text',
+                  text: 'Visible text',
+                  providerMetadata: { private: 'credential' },
+                },
+              ],
+      });
 
-    expect(withdrawPending).toHaveBeenCalledWith(chatId, item.id, userId);
-    expect(findItem).not.toHaveBeenCalled();
+      const job =
+        producer === 'job'
+          ? { executor: 'bash', seq: 7, state: 'failed' as const }
+          : null;
+
+      withdrawPending.mockResolvedValue(withdrawn);
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'findView',
+      ).mockResolvedValue({ item: withdrawn, job });
+
+      const response = toChatDeliveryResponse(
+        await service.withdraw(chatId, withdrawn.id, userId),
+      );
+
+      expect(response.state).toBe('withdrawn');
+      expect(response).not.toHaveProperty('senderRef');
+      expect(JSON.stringify(response)).not.toContain('credential');
+
+      if (producer === 'job') {
+        expect(response.parts).toEqual([]);
+        expect(response.job).toBe('job://bash-7');
+        expect(response.jobState).toBe('failed');
+      } else {
+        expect(response.parts).toEqual([
+          { type: 'text', text: 'Visible text' },
+        ]);
+        expect(response).not.toHaveProperty('job');
+      }
+    },
+  );
+
+  it('answers 404 rather than returning a withdrawn notice with an unresolved job', async () => {
+    const { service, withdrawPending } = makeService();
+    withdrawPending.mockResolvedValue(
+      chatDeliveryRow({ producer: 'job', mode: 'notice', state: 'withdrawn' }),
+    );
+    vi.spyOn(ChatDeliveriesRepository.prototype, 'findView').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      service.withdraw(chatId, item.id, userId),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('answers 409 when the item of this Chat is no longer pending', async () => {
@@ -145,6 +201,57 @@ describe('ChatDeliveriesService.withdraw', () => {
 });
 
 describe('ChatDeliveriesService.changeMode', () => {
+  it.each(['steer', 'interrupt'] as const)(
+    'refuses a job notice mode change to %s before admission',
+    async (mode) => {
+      const {
+        service,
+        lockChat,
+        findItem,
+        findActiveRun,
+        changePendingMode,
+        dispatcher,
+      } = makeService();
+
+      lockChat.mockResolvedValue(
+        asDouble<Chat>({ id: chatId, archivedAt: null }),
+      );
+      findItem.mockResolvedValue(
+        chatDeliveryRow({
+          chatId,
+          ownerUserId: userId,
+          producer: 'job',
+          mode: 'notice',
+        }),
+      );
+      findActiveRun.mockResolvedValue(asDouble<Run>({ id: 'live-run' }));
+      changePendingMode.mockResolvedValue(undefined);
+
+      await expect(
+        service.changeMode(chatId, item.id, mode, userId),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(findActiveRun).not.toHaveBeenCalled();
+      expect(changePendingMode).not.toHaveBeenCalled();
+      expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([undefined, { ...item, chatId: otherChatId }])(
+    'refuses an absent or foreign-Chat item before admission',
+    async (existing) => {
+      const { service, lockChat, findItem, findActiveRun } = makeService();
+      lockChat.mockResolvedValue(
+        asDouble<Chat>({ id: chatId, archivedAt: null }),
+      );
+      findItem.mockResolvedValue(existing);
+
+      await expect(
+        service.changeMode(chatId, item.id, 'steer', userId),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(findActiveRun).not.toHaveBeenCalled();
+    },
+  );
+
   it('answers 404 naming the Chat, and changes nothing, for a Chat the owner cannot see', async () => {
     const { service, lockChat, findActiveRun, changePendingMode } =
       makeService();
@@ -176,9 +283,7 @@ describe('ChatDeliveriesService.changeMode', () => {
     const changed = { ...item, mode: 'steer' as const };
     changePendingMode.mockResolvedValue(changed);
 
-    await expect(
-      service.changeMode(chatId, item.id, 'steer', userId),
-    ).resolves.toBe(changed);
+    await service.changeMode(chatId, item.id, 'steer', userId);
 
     expect(changePendingMode).toHaveBeenCalledWith(
       chatId,

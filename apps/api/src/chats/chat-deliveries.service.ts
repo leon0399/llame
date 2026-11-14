@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -6,7 +7,6 @@ import {
 } from '@nestjs/common';
 
 import { assertNotArchived } from '../db/assert-not-archived';
-import { type ChatDelivery } from '../db/schema';
 import {
   TenantDbService,
   type Db,
@@ -27,7 +27,10 @@ import {
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
 import { claimActiveRunSlot, notifyLiveRunSteering } from './chat-admission';
-import { ChatDeliveriesRepository } from './chat-deliveries.repository';
+import {
+  ChatDeliveriesRepository,
+  type ChatDeliveryView,
+} from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
 
@@ -50,11 +53,14 @@ export class ChatDeliveriesService {
   ) {}
 
   /** The pending items of the Chat, first to deliver first. */
-  listPending(chatId: string, userId: string): Promise<Array<ChatDelivery>> {
+  listPending(
+    chatId: string,
+    userId: string,
+  ): Promise<Array<ChatDeliveryView>> {
     return this.tenantDb.runAs(userId, async (tx) => {
       await this.requireChat(new ChatsRepository(tx), chatId, userId);
 
-      return new ChatDeliveriesRepository(tx).listPending(chatId, userId);
+      return new ChatDeliveriesRepository(tx).listPendingViews(chatId, userId);
     });
   }
 
@@ -68,12 +74,20 @@ export class ChatDeliveriesService {
     chatId: string,
     deliveryId: string,
     userId: string,
-  ): Promise<ChatDelivery> {
+  ): Promise<ChatDeliveryView> {
     return this.tenantDb.runAs(userId, async (tx) => {
       const items = new ChatDeliveriesRepository(tx);
       const withdrawn = await items.withdrawPending(chatId, deliveryId, userId);
 
-      if (withdrawn) return withdrawn;
+      if (withdrawn) {
+        if (withdrawn.producer === 'owner')
+          return { item: withdrawn, job: null };
+        const view = await items.findView(deliveryId, userId);
+
+        if (view) return view;
+        throw new NotFoundException(`Delivery ${deliveryId} not found`);
+      }
+
       throw await this.missOf(items, chatId, deliveryId, userId);
     });
   }
@@ -92,17 +106,24 @@ export class ChatDeliveriesService {
     deliveryId: string,
     mode: ChangeableDeliveryMode,
     userId: string,
-  ): Promise<ChatDelivery> {
+  ): Promise<ChatDeliveryView> {
     const { item, job } = await this.tenantDb.runAs(userId, async (tx) => {
       const chat = await new ChatsRepository(tx).lock(chatId, userId);
 
       if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
       assertNotArchived(chat);
+      const items = new ChatDeliveriesRepository(tx);
+      const existing = await items.findById(deliveryId, userId);
+
+      if (existing?.chatId !== chatId)
+        throw new NotFoundException(`Delivery ${deliveryId} not found`);
+
+      if (existing.producer === 'job')
+        throw new BadRequestException('A job notice cannot change mode');
       // The slot comes before the change: expiring a stuck Run pauses the
       // queue behind it, which would move the item changed here back to
       // `queue`.
       const slot = await this.claimSlot(tx, chatId, userId);
-      const items = new ChatDeliveriesRepository(tx);
 
       const changed = await items.changePendingMode(
         chatId,
@@ -133,7 +154,7 @@ export class ChatDeliveriesService {
 
     if (job) await this.dispatch.dispatch(job);
 
-    return item;
+    return { item, job: null };
   }
 
   private claimSlot(tx: Db, chatId: string, userId: string) {

@@ -291,6 +291,7 @@ components:
             items:
               - id: 7a1d4c2e-8b35-4f60-a9d7-3e5c1b0f8264
                 chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+                producer: owner
                 mode: queue
                 state: pending
                 parts:
@@ -299,6 +300,23 @@ components:
                 modelId: gpt-5.5
                 permissionMode: default
                 createdAt: '2026-10-16T09:12:30.004Z'
+        - name: jobNotice
+          summary: A job notice names its job and state and permits deletion only.
+          payload:
+            type: chat.deliveries
+            chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+            items:
+              - id: 96483e29-85ef-4276-8f66-e8225498083e
+                chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+                producer: job
+                mode: notice
+                state: pending
+                job: job://bash-7
+                jobState: failed
+                parts: []
+                modelId: gpt-5.5
+                permissionMode: default
+                createdAt: '2026-11-12T09:12:30.004Z'
     runUpdated:
       name: run.updated
       title: Run created or status changed

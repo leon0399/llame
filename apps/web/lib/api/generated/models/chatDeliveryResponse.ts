@@ -5,15 +5,21 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { ChatDeliveryResponseJobState } from "./chatDeliveryResponseJobState";
 import type { ChatDeliveryResponseMode } from "./chatDeliveryResponseMode";
 import type { ChatDeliveryResponsePartsItem } from "./chatDeliveryResponsePartsItem";
 import type { ChatDeliveryResponsePermissionMode } from "./chatDeliveryResponsePermissionMode";
+import type { ChatDeliveryResponseProducer } from "./chatDeliveryResponseProducer";
 import type { ChatDeliveryResponseState } from "./chatDeliveryResponseState";
 
 export interface ChatDeliveryResponse {
-  /** The client message id the item was sent with. */
+  /** The delivery id; also the client message id for owner items. */
   id: string;
   chatId: string;
+  producer: ChatDeliveryResponseProducer;
+  /** The job locator of a notice. */
+  job?: string;
+  jobState?: ChatDeliveryResponseJobState;
   mode: ChatDeliveryResponseMode;
   state: ChatDeliveryResponseState;
   parts: ChatDeliveryResponsePartsItem[];

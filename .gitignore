@@ -56,3 +56,4 @@ coverage/
 **/reports/mutation/
 stryker.changed-lines.json
 stryker.log
+apps/api/stryker-sql-fixtures-*/

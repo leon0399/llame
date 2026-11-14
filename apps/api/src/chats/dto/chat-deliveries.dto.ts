@@ -4,10 +4,14 @@ import { IsIn } from 'class-validator';
 import {
   chatDeliveryModes,
   chatDeliveryStates,
-  type ChatDelivery,
+  chatJobStates,
+  type ChatDeliveryProducer,
+  type ChatJobState,
   type ChatDeliveryMode,
   type ChatDeliveryState,
 } from '../../db/schema';
+import { formatJobLocator } from '../../jobs/job-locator';
+import { type ChatDeliveryView } from '../chat-deliveries.repository';
 import {
   PERMISSION_MODES,
   type PermissionMode,
@@ -42,12 +46,21 @@ export class ChangeChatDeliveryDto {
 export class ChatDeliveryResponse {
   @ApiProperty({
     format: 'uuid',
-    description: 'The client message id the item was sent with.',
+    description: 'The delivery id; also the client message id for owner items.',
   })
   id!: string;
 
   @ApiProperty({ format: 'uuid' })
   chatId!: string;
+
+  @ApiProperty({ enum: ['owner', 'job'] })
+  producer!: ChatDeliveryProducer;
+
+  @ApiPropertyOptional({ description: 'The job locator of a notice.' })
+  job?: string;
+
+  @ApiPropertyOptional({ enum: chatJobStates })
+  jobState?: ChatJobState;
 
   @ApiProperty({ enum: chatDeliveryModes })
   mode!: ChatDeliveryMode;
@@ -82,12 +95,18 @@ export class ChatDeliveriesResponse {
   items!: Array<ChatDeliveryResponse>;
 }
 
-export function toChatDeliveryResponse(
-  item: ChatDelivery,
-): ChatDeliveryResponse {
+export function toChatDeliveryResponse({
+  item,
+  job,
+}: ChatDeliveryView): ChatDeliveryResponse {
   return {
     id: item.id,
     chatId: item.chatId,
+    producer: item.producer,
+    ...(job && {
+      job: formatJobLocator(job.executor, job.seq),
+      jobState: job.state,
+    }),
     mode: item.mode,
     state: item.state,
     // The same egress as the history response: retained bytes and provider
