@@ -1,0 +1,1 @@
+CREATE INDEX "chat_deliveries_delivered_job_message_idx" ON "chat_deliveries" USING btree ("chat_id","delivered_message_id","position") WHERE "chat_deliveries"."producer" = 'job' and "chat_deliveries"."mode" = 'notice' and "chat_deliveries"."state" = 'delivered';

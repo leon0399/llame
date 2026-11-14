@@ -29,8 +29,8 @@ import {
   ModelsService,
 } from '../models/models.service';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type TerminalRunStatus } from '../runs/run-status';
-import { RunsRepository } from '../runs/runs-repository';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
   FakeModelsService,
@@ -235,7 +235,7 @@ describe('chat deliveries — the queue mode', () => {
     executor.settleTerminalRun({ userId: userAId, runId, status });
 
   describe('seeded job notices', () => {
-    async function seedNotice(chatId: string, jobChatId: string) {
+    async function seedNotice(chatId: string, jobChatId: string, seq = 7) {
       return tenantDb.runAs(userAId, async (tx) => {
         const jobs = new ChatJobsRepository(tx);
 
@@ -243,30 +243,38 @@ describe('chat deliveries — the queue mode', () => {
           newChatJob({
             chatId: jobChatId,
             ownerUserId: userAId,
-            seq: 7,
+            seq,
             workerInstanceId: crypto.randomUUID(),
           }),
         );
 
-        await jobs.settle(jobChatId, userAId, job.id, { state: 'failed' });
+        const settled = await jobs.settle(jobChatId, userAId, job.id, {
+          state: 'failed',
+        });
 
-        const [notice] = await tx
-          .insert(chatDeliveries)
-          .values({
-            id: crypto.randomUUID(),
-            chatId,
-            ownerUserId: userAId,
-            producer: 'job',
-            senderRef: job.id,
-            mode: 'notice',
-            parts: [],
-            settings: job.settings,
-          })
-          .returning();
+        if (!settled) throw new Error('Job fixture was not settled');
+
+        const notice = await new ChatDeliveriesRepository(tx).insertJobNotice(
+          settled,
+        );
 
         if (!notice) throw new Error('Notice fixture was not inserted');
 
-        return { job, notice };
+        if (chatId !== jobChatId) {
+          // Keep the job reference but misbind the recipient Chat to exercise
+          // the repository's owner/Chat defense against a forged notice row.
+          const [forged] = await tx
+            .update(chatDeliveries)
+            .set({ chatId })
+            .where(eq(chatDeliveries.id, notice.id))
+            .returning();
+
+          if (!forged) throw new Error('Forged notice fixture was not updated');
+
+          return { job: settled, notice: forged };
+        }
+
+        return { job: settled, notice };
       });
     }
 
@@ -283,6 +291,331 @@ describe('chat deliveries — the queue mode', () => {
       expect(await itemsOf(chatId)).toEqual(itemsBefore);
       expect(await runsOf(chatId)).toEqual(runsBefore);
       expect(await messagesOf(chatId)).toEqual(messagesBefore);
+    });
+
+    it('inserts one notice per job and selects notices at the owner boundary', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { job, notice } = await seedNotice(chatId, chatId);
+
+      const duplicate = await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).insertJobNotice(job),
+      );
+
+      const signals = await tenantDb.runAs(userAId, async (tx) => ({
+        pending: await new ChatDeliveriesRepository(tx).hasPendingSteering(
+          chatId,
+          userAId,
+        ),
+        end: await new ChatDeliveriesRepository(tx).stepEndSignal({
+          chatId,
+          runId,
+          userId: userAId,
+        }),
+      }));
+
+      const steerId = crypto.randomUUID();
+      const queueId = crypto.randomUUID();
+      await send(chatId, { delivery: 'steer', id: steerId });
+      await send(chatId, { delivery: 'queue', id: queueId });
+
+      const boundary = await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).lockPendingBoundary(chatId, userAId),
+      );
+
+      expect(duplicate).toBeUndefined();
+      expect(boundary.map(({ id }) => id)).toEqual([notice.id, steerId]);
+      expect(boundary.map(({ mode }) => mode)).toEqual(['notice', 'steer']);
+      expect(signals).toEqual({ pending: true, end: 'delivery' });
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, state: 'pending', mode: 'notice' },
+        { id: steerId, state: 'pending', mode: 'steer' },
+        { id: queueId, state: 'pending', mode: 'queue' },
+      ]);
+    });
+
+    it('does not consume or restore a notice for a running job', async () => {
+      const chatId = await createChat();
+      const runId = crypto.randomUUID();
+
+      const { job, notice } = await tenantDb.runAs(userAId, async (tx) => {
+        const job = await new ChatJobsRepository(tx).insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userAId,
+            seq: 7,
+            workerInstanceId: crypto.randomUUID(),
+          }),
+        );
+
+        const notice = await new ChatDeliveriesRepository(tx).insertJobNotice(
+          job,
+        );
+
+        if (!notice) throw new Error('Notice fixture was not inserted');
+
+        return { job, notice };
+      });
+
+      const consumed = await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).consumeJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          jobIds: [job.id],
+        }),
+      );
+
+      expect(consumed).toEqual([]);
+      expect(
+        (await itemsOf(chatId)).find(({ id }) => id === notice.id),
+      ).toMatchObject({
+        state: 'pending',
+        runId: null,
+      });
+
+      await tenantDb.runAs(userAId, async (tx) => {
+        await tx
+          .update(chatDeliveries)
+          .set({ state: 'withdrawn', runId })
+          .where(eq(chatDeliveries.id, notice.id));
+
+        await new ChatDeliveriesRepository(tx).restoreJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          deliveryIds: [notice.id],
+        });
+      });
+
+      expect(
+        (await itemsOf(chatId)).find(({ id }) => id === notice.id),
+      ).toMatchObject({
+        state: 'withdrawn',
+        runId,
+      });
+    });
+
+    it('consumes only settled job notices belonging to the requested owner and Chat', async () => {
+      const chatId = await createChat();
+      const otherChatId = await createChat();
+      const runId = crypto.randomUUID();
+      const local = await seedNotice(chatId, chatId);
+      const foreignChat = await seedNotice(chatId, otherChatId);
+      const ownerBChat = await createChat(userBId);
+
+      const foreignOwner = await tenantDb.runAs(userBId, async (tx) => {
+        const jobs = new ChatJobsRepository(tx);
+
+        const job = await jobs.insert(
+          newChatJob({
+            chatId: ownerBChat,
+            ownerUserId: userBId,
+            seq: 9,
+            workerInstanceId: crypto.randomUUID(),
+          }),
+        );
+
+        const settled = await jobs.settle(ownerBChat, userBId, job.id, {
+          state: 'failed',
+        });
+
+        if (!settled) throw new Error('Owner B job fixture was not settled');
+
+        const notice = await new ChatDeliveriesRepository(tx).insertJobNotice(
+          settled,
+        );
+
+        if (!notice) throw new Error('Owner B notice fixture was not inserted');
+
+        return { job: settled, notice };
+      });
+
+      const consumed = await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).consumeJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          jobIds: [local.job.id, foreignChat.job.id, foreignOwner.job.id],
+        }),
+      );
+
+      const foreignOwnerRows = await tenantDb.runAs(userBId, (tx) =>
+        tx
+          .select()
+          .from(chatDeliveries)
+          .where(eq(chatDeliveries.id, foreignOwner.notice.id)),
+      );
+
+      expect(foreignOwnerRows).toMatchObject([
+        { state: 'pending', runId: null },
+      ]);
+
+      expect(consumed).toEqual([local.notice.id]);
+      const targetRowsAfterConsume = await itemsOf(chatId);
+      expect(
+        targetRowsAfterConsume.find(({ id }) => id === local.notice.id),
+      ).toMatchObject({ state: 'withdrawn', runId });
+      expect(
+        targetRowsAfterConsume.find(({ id }) => id === foreignChat.notice.id),
+      ).toMatchObject({ state: 'pending', runId: null });
+
+      await tenantDb.runAs(userAId, async (tx) => {
+        await tx
+          .update(chatDeliveries)
+          .set({ state: 'withdrawn', runId })
+          .where(eq(chatDeliveries.id, foreignChat.notice.id));
+        await new ChatDeliveriesRepository(tx).restoreJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          deliveryIds: [foreignChat.notice.id],
+        });
+      });
+
+      const foreignJobRow = (await itemsOf(chatId)).find(
+        ({ id }) => id === foreignChat.notice.id,
+      );
+
+      expect(foreignJobRow).toMatchObject({
+        state: 'withdrawn',
+        runId,
+      });
+
+      await tenantDb.runAs(userBId, async (tx) => {
+        await tx
+          .update(chatDeliveries)
+          .set({ state: 'withdrawn', runId })
+          .where(eq(chatDeliveries.id, foreignOwner.notice.id));
+      });
+      await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).restoreJobNotices({
+          chatId: ownerBChat,
+          ownerUserId: userAId,
+          runId,
+          deliveryIds: [foreignOwner.notice.id],
+        }),
+      );
+
+      const ownerBRows = await tenantDb.runAs(userBId, (tx) =>
+        tx
+          .select()
+          .from(chatDeliveries)
+          .where(eq(chatDeliveries.id, foreignOwner.notice.id)),
+      );
+
+      expect(ownerBRows).toMatchObject([{ state: 'withdrawn', runId }]);
+    });
+
+    it('lists only delivered job notices for the message in that owner Chat', async () => {
+      const chatId = await createChat();
+      const otherChatId = await createChat();
+      const messageId = crypto.randomUUID();
+      const local = await seedNotice(chatId, chatId);
+      const otherChat = await seedNotice(otherChatId, otherChatId);
+      const wrongMessage = await seedNotice(chatId, chatId, 8);
+      await seedNotice(chatId, chatId, 9);
+      await tenantDb.runAs(userAId, async (tx) => {
+        const deliveries = new ChatDeliveriesRepository(tx);
+        await deliveries.markDelivered(local.notice.id, userAId, {
+          messageId,
+          runId: crypto.randomUUID(),
+        });
+        await deliveries.markDelivered(otherChat.notice.id, userAId, {
+          messageId,
+          runId: crypto.randomUUID(),
+        });
+        await deliveries.markDelivered(wrongMessage.notice.id, userAId, {
+          messageId: crypto.randomUUID(),
+          runId: crypto.randomUUID(),
+        });
+
+        expect(
+          (
+            await deliveries.listDeliveredJobNotices(chatId, userAId, messageId)
+          ).map(({ id }) => id),
+        ).toEqual([local.notice.id]);
+        expect(
+          (
+            await deliveries.listDeliveredJobNotices(
+              otherChatId,
+              userAId,
+              messageId,
+            )
+          ).map(({ id }) => id),
+        ).toEqual([otherChat.notice.id]);
+        expect(
+          await deliveries.listDeliveredJobNotices(chatId, userBId, messageId),
+        ).toEqual([]);
+      });
+    });
+
+    it('does not restore owner withdrawals or consumed notices with empty ids', async () => {
+      const chatId = await createChat();
+      const ownerWithdrawn = await seedNotice(chatId, chatId);
+      const consumedNotice = await seedNotice(chatId, chatId, 8);
+      const runId = crypto.randomUUID();
+      await tenantDb.runAs(userAId, async (tx) => {
+        const deliveries = new ChatDeliveriesRepository(tx);
+        await deliveries.withdrawPending(
+          chatId,
+          ownerWithdrawn.notice.id,
+          userAId,
+        );
+
+        const ids = await deliveries.consumeJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          jobIds: [ownerWithdrawn.job.id, consumedNotice.job.id],
+        });
+
+        expect(ids).toEqual([consumedNotice.notice.id]);
+        await deliveries.restoreJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          deliveryIds: [ownerWithdrawn.notice.id],
+        });
+        await deliveries.restoreJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          deliveryIds: [],
+        });
+      });
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: ownerWithdrawn.notice.id, state: 'withdrawn', runId: null },
+        { id: consumedNotice.notice.id, state: 'withdrawn', runId },
+      ]);
+    });
+
+    it('restores only the settled notice consumed by this Run', async () => {
+      const chatId = await createChat();
+      const notice = await seedNotice(chatId, chatId);
+      const runId = crypto.randomUUID();
+      await tenantDb.runAs(userAId, async (tx) => {
+        const deliveries = new ChatDeliveriesRepository(tx);
+
+        const ids = await deliveries.consumeJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          jobIds: [notice.job.id],
+        });
+
+        expect(ids).toEqual([notice.notice.id]);
+        await deliveries.restoreJobNotices({
+          chatId,
+          ownerUserId: userAId,
+          runId,
+          deliveryIds: ids,
+        });
+      });
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.notice.id, state: 'pending', runId: null },
+      ]);
     });
 
     it('lists a job locator and state, permits delete only, and never starts a Run', async () => {
@@ -479,6 +812,113 @@ describe('chat deliveries — the queue mode', () => {
       expect(pgErrorCode(duplicate)).toBe('23505');
       expect(await itemsOf(chatId)).toMatchObject([
         { id: notice.id, state: 'withdrawn' },
+      ]);
+    });
+
+    it('returns a notice when its receiving segment never dispatched', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+
+      const run = await tenantDb.runAs(userAId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        const found = await runs.findById(runId, userAId);
+
+        if (!found) throw new Error('seeded Run was not stored');
+
+        await tx
+          .update(chatDeliveries)
+          .set({
+            state: 'delivered',
+            runId,
+            deliveredMessageId: found.messageId,
+          })
+          .where(eq(chatDeliveries.id, notice.id));
+
+        return found;
+      });
+
+      await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).returnUndispatchedJobNotices(run),
+      );
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        { id: notice.id, state: 'pending', deliveredMessageId: null },
+      ]);
+    });
+
+    it('keeps a notice delivered after its receiving segment dispatched', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+
+      const run = await tenantDb.runAs(userAId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        const events = new RunEventsRepository(tx);
+        const found = await runs.findById(runId, userAId);
+
+        if (!found) throw new Error('seeded Run was not stored');
+
+        await events.append(runId, 'run.delivered', {
+          messageId: found.messageId,
+        });
+        await events.append(runId, 'model.requested', { modelId: MODEL });
+        await tx
+          .update(chatDeliveries)
+          .set({
+            state: 'delivered',
+            runId,
+            deliveredMessageId: found.messageId,
+          })
+          .where(eq(chatDeliveries.id, notice.id));
+
+        return found;
+      });
+
+      await tenantDb.runAs(userAId, (tx) =>
+        new ChatDeliveriesRepository(tx).returnUndispatchedJobNotices(run),
+      );
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        {
+          id: notice.id,
+          state: 'delivered',
+          runId,
+          deliveredMessageId: run.messageId,
+        },
+      ]);
+    });
+
+    it('does not restore a delivered notice owned by another user', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const { notice } = await seedNotice(chatId, chatId);
+
+      const run = await tenantDb.runAs(userAId, async (tx) => {
+        const found = await new RunsRepository(tx).findById(runId, userAId);
+
+        if (!found) throw new Error('seeded Run was not stored');
+
+        await tx
+          .update(chatDeliveries)
+          .set({
+            state: 'delivered',
+            runId,
+            deliveredMessageId: found.messageId,
+          })
+          .where(eq(chatDeliveries.id, notice.id));
+
+        return found;
+      });
+
+      await tenantDb.runAs(userBId, (tx) =>
+        new ChatDeliveriesRepository(tx).returnUndispatchedJobNotices(run),
+      );
+
+      expect(await itemsOf(chatId)).toMatchObject([
+        {
+          id: notice.id,
+          state: 'delivered',
+          runId,
+          deliveredMessageId: run.messageId,
+        },
       ]);
     });
   });
