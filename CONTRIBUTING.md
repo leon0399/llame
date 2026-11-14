@@ -39,19 +39,20 @@ implicit.
 
 ## Review budget
 
-Plan and review each layer within about 2,000 **authored** added-plus-deleted
-lines against its immediate parent, not `master`. Tests, specs, docs, and
-mechanical codemods count as authored. Reproducible generated output counts
+Prefer about 2,000 **authored** added-plus-deleted lines per layer, measured
+against its immediate parent, not `master`. This is a review target, not a
+publication limit. Tests, specs, docs, and mechanical codemods count as
+authored. Reproducible generated output counts
 zero — Drizzle metadata snapshots, generated OpenAPI documents and clients,
 lockfiles, and equivalent outputs — but report its churn separately, and still
 verify regeneration, migration safety, and any hand-authored SQL or security
 step. Use rename detection for pure moves.
 
-The budget covers every PR, including proposal, finalize, and chores that skip
-OpenSpec. Re-estimate at each layer boundary and before publication. Split a
-growing concern, or request a named exception with its reason and evidence
-before publishing an oversized layer; never split an atomic safety invariant to
-satisfy the number.
+The target applies to every PR, including proposal, finalize, and chores that
+skip OpenSpec. Re-estimate at each layer boundary and before publication. Split
+a growing concern when it improves review or creates a safe merge point; no
+exception is required to exceed the target. Never split an atomic safety
+invariant or its required tests to satisfy the number.
 
 ## Project tracking
 
@@ -115,11 +116,11 @@ Before editing, read the issue, dependencies, current code, shipped specs,
 `SPEC.md`, and relevant recent commits. Resolve material product/security
 ambiguity. Data/auth/tenancy work states threats and includes a negative test.
 
-Reference the issue from every stack PR. Put `Closes #N` on the implementation
-layer whose merge enables the functionality and satisfies the issue's acceptance
-criteria. Earlier partial implementation layers only reference the issue.
-Do not defer issue closure to a later spec-sync or archive-only finalize layer;
-that layer remains required delivery work after the feature issue closes.
+Reference the issue from every stack PR. Put `Closes #N` on the PR whose merge
+satisfies that issue's acceptance criteria, even if later implementation or
+finalize layers remain. Earlier partial layers only reference the issue. Do not
+defer issue closure to a later spec-sync or archive-only finalize layer; that
+layer remains required delivery work after the feature issue closes.
 
 ### 2. Proposal layer
 
@@ -132,11 +133,14 @@ own that ordering. Run `$openspec-propose`; the proposal branch owns only
 master <- <change>/proposal <- <change>/<implementation> <- <change>/finalize
 ```
 
-Split implementation by dependency and reviewable responsibility. Each layer
-has one sentence of ownership and an authored size estimated within the
-[review budget](#review-budget). `tasks.md` must contain:
+Split implementation by dependency and reviewable responsibility. Prefer
+independently mergeable layers and identify intermediate merge boundaries;
+keep inseparable behavior together. Give each layer one sentence of ownership
+and an authored size estimate against the [review target](#review-budget).
+`tasks.md` must contain:
 
 - the exact delivery stack;
+- safe intermediate merge boundaries and any layers that must merge together;
 - `$gh-stack` and `$openspec-apply-change` requirements;
 - every task assigned to one layer with focused verification;
 - `- [ ]` tracking and the issue-closing owner;
@@ -190,9 +194,9 @@ For each layer:
 5. Complete SR, update the PR body, mark ready, run the GR/monitoring loop, then
    add the next layer.
 
-The PR that ships work adds its relevant operator documentation, dated
-`CHANGELOG.md` entry, and completed `ROADMAP.md` removals. Unplanned
-fixes/chores go directly to the changelog.
+The PR that ships work updates its affected documentation, adds a dated
+`CHANGELOG.md` entry, and removes completed `ROADMAP.md` items in that same
+layer. Unplanned fixes/chores go directly to the changelog.
 
 Fix a lower-layer defect on its owning branch with `$gh-stack` and replay the
 stack upward; never repair a lower concern in the top PR.
@@ -266,10 +270,10 @@ failures separately from repository defects.
 ## PR contract
 
 Confirm every PR's immediate base and ownership; a stack layer does so with
-`$gh-stack`. Choose a single PR or a stack by the change: dependent layers and
-feature delivery stack, while a self-contained fix or chore within the review
-budget is one PR against `master`. The body contains the one concern, issues
-served, stack position, and commands actually run. Use `Closes #N` only for completed issues. Do not add a `Test plan`
+`$gh-stack`. Feature delivery uses a stack. For a fix or chore, choose one PR
+against `master` or a stack based on reviewability and safe merge boundaries.
+The body contains the one concern, issues served, stack position, and commands
+actually run. Use `Closes #N` only for completed issues. Do not add a `Test plan`
 section or mention agent tooling unless asked.
 
 Start the body from

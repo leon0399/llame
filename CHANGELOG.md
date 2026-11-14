@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-14
+
+- Prefer independently mergeable stack layers and explicit intermediate merge
+  boundaries. Treat 2,000 authored lines as a review target, not a limit.
+
 # 2026-11-13
 
 - **Bound pending background-job output snapshots (#1657).** A slow database
