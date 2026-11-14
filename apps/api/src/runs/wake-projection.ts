@@ -162,6 +162,13 @@ function parseWakeCheckpoint(
 
   if (toolInput === undefined) return undefined;
 
+  if (
+    !Array.isArray(suspension['parts']) ||
+    !suspension['parts'].every(isRecord)
+  ) {
+    return undefined;
+  }
+
   const { parts, steps } = checkpointParts(
     suspension['parts'],
     suspension['steps'],
@@ -203,7 +210,7 @@ function parseAwaitingToolInput(
 }
 
 function checkpointParts(
-  value: RunEvent['payload'],
+  value: ReadonlyArray<unknown>,
   stepsValue: RunEvent['payload'],
 ): Pick<WakeCheckpoint, 'parts' | 'steps'> {
   const steps = isRecord(stepsValue)
@@ -214,7 +221,7 @@ function checkpointParts(
       )
     : undefined;
 
-  const parts = Array.isArray(value) ? toMessageParts(value) : [];
+  const parts = toMessageParts(value);
 
   return {
     parts: steps === undefined ? parts : withKeptSteps(parts, steps),
