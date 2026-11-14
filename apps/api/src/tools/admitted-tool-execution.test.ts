@@ -158,12 +158,15 @@ describe('executeAdmittedTool', () => {
 
   it('does not treat bash-shaped arguments as host bash for another tool', async () => {
     const abort = new AbortController();
+    const onHostPromotionStarted = vi.fn();
 
     const { promise: execution, resolve } = Promise.withResolvers<ToolResult>();
 
-    const onHostPromotionStarted = vi.fn();
+    let executionContext: ToolContext | undefined;
 
-    const execute = vi.fn(() => {
+    const execute = vi.fn((context: ToolContext) => {
+      executionContext = context;
+
       abort.abort();
 
       return execution;
@@ -196,7 +199,13 @@ describe('executeAdmittedTool', () => {
     resolve({ status: 'success', stdout: 'done' });
     const result = await resultPromise;
 
-    expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(result).toEqual({
+      status: 'error',
+      type: 'cancelled',
+      message: 'Tool "custom" was cancelled.',
+    });
+    expect(executionContext?.timeoutSignal).toBeDefined();
+    expect(executionContext?.moveDeadlineAt).toBeUndefined();
     expect(onHostPromotionStarted).not.toHaveBeenCalled();
     expect(execute).toHaveBeenCalledOnce();
   });
