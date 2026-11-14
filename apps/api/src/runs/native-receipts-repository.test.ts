@@ -203,6 +203,31 @@ describe('NativeReceiptsRepository (PostgreSQL)', () => {
       toolCallId: 'attempt-only',
     });
 
+    const sameOwnerRunId = await newRun(ownerId, 'other run for same owner');
+
+    for (const toolCallId of [
+      'prior-call-1',
+      'prior-call-2',
+      'prior-call-3',
+      'prior-call-4',
+      'prior-call-5',
+    ]) {
+      await append({
+        userId: ownerId,
+        runId: sameOwnerRunId,
+        type: 'native.attempt',
+        toolCallId,
+      });
+    }
+
+    await append({
+      userId: ownerId,
+      runId: sameOwnerRunId,
+      type: 'native.result',
+      toolCallId: 'call-1',
+      result: { status: 'other-run' },
+    });
+
     const own = await tenantDb.runAs(ownerId, (tx) =>
       new NativeReceiptsRepository(tx).findNativeResult(
         runId,
@@ -235,6 +260,7 @@ describe('NativeReceiptsRepository (PostgreSQL)', () => {
       ),
     );
 
+    expect(own?.runId).toBe(runId);
     expect(own?.payload).toMatchObject({
       toolCallId: 'call-1',
       result: { status: 'latest' },
