@@ -184,6 +184,7 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   reconstructDurableAssistant,
@@ -830,12 +831,14 @@ function mockNormalExecutionRepositories() {
     RunRowFenceRepository.prototype,
     'lockHostPromotionRecovery',
   ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
-  vi.spyOn(RunEventsRepository.prototype, 'findNativeResult').mockResolvedValue(
-    undefined,
-  );
-  vi.spyOn(RunEventsRepository.prototype, 'hasNativeAttempt').mockResolvedValue(
-    false,
-  );
+  vi.spyOn(
+    NativeReceiptsRepository.prototype,
+    'findNativeResult',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(
+    NativeReceiptsRepository.prototype,
+    'hasNativeAttempt',
+  ).mockResolvedValue(false);
 
   const findByOwnedRun = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByOwnedRun')
@@ -6827,7 +6830,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
       const appended = recordAppendedEvents();
@@ -6924,7 +6927,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
       const appended = recordAppendedEvents();
@@ -7013,7 +7016,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
 
@@ -7070,7 +7073,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       const controller = new AbortController();
       mockNormalExecutionRepositories();
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
       const recoveryError = new Error('recovery permission denied');
@@ -7127,7 +7130,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       mockNormalExecutionRepositories();
 
       vi.spyOn(
-        RunEventsRepository.prototype,
+        NativeReceiptsRepository.prototype,
         'hasNativeAttempt',
       ).mockResolvedValue(true);
 

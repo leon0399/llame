@@ -9,6 +9,7 @@ import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
+import { NativeReceiptsRepository } from '../runs/native-receipts-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { BashJobLifecycle } from './bash-job-lifecycle';
@@ -319,7 +320,7 @@ describe('BashJobRegistry', () => {
       payload: null,
       createdAt: STARTED,
     } satisfies RunEvent);
-    vi.spyOn(RunEventsRepository.prototype, 'findNativeResult')
+    vi.spyOn(NativeReceiptsRepository.prototype, 'findNativeResult')
       .mockResolvedValueOnce(undefined)
       .mockResolvedValue({
         sequence: 2,
@@ -378,7 +379,7 @@ describe('BashJobRegistry', () => {
     } as const;
 
     const findReceipt = vi
-      .spyOn(RunEventsRepository.prototype, 'findNativeResult')
+      .spyOn(NativeReceiptsRepository.prototype, 'findNativeResult')
       .mockResolvedValue({
         sequence: 2,
         runId: 'run-1',

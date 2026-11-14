@@ -9,6 +9,7 @@ import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { type Chat, type Run, type RunEvent } from '../db/schema';
 import { ChatsRepository } from '../chats/chats-repository';
+import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { NativeFilesRepository } from './native-files-repository';
@@ -170,12 +171,12 @@ describe('NativeFilesRepository host-promotion recovery', () => {
       .mockResolvedValue(lockedRun);
 
     vi.spyOn(
-      RunEventsRepository.prototype,
+      NativeReceiptsRepository.prototype,
       'findNativeResult',
     ).mockResolvedValue(prior);
 
     vi.spyOn(
-      RunEventsRepository.prototype,
+      NativeReceiptsRepository.prototype,
       'hasNativeAttempt',
     ).mockResolvedValue(attemptExists);
 
