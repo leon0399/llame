@@ -39,6 +39,9 @@ const blockingRun: Run = {
   permissionMode: 'default',
   followUpAction: null,
   sourceRunId: null,
+  wakeGeneration: 0,
+  currentJobId: null,
+  awaiting: null,
 };
 
 function makeApi(state: JobState) {

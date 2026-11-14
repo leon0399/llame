@@ -592,6 +592,9 @@ export type RunEventType =
   | 'native.attempt'
   | 'native.result'
   | 'run.step_cap_reached'
+  // A background-job wait suspends and resumes the same Run.
+  | 'run.suspended'
+  | 'run.resumed'
   // A delivery moved the Run to a new user message and attempt (run-steering
   // D4): appended in the delivery transaction, after the closed reply's usage.
   | 'run.delivered';

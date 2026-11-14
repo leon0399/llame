@@ -74,8 +74,9 @@ channels:
     address: runs
     title: Chat Runs
     description: |
-      One job per Run attempt. Dispatch enqueues it under the Run id, so a
-      repeated enqueue of the same Run is a no-op.
+      The first job of a Run attempt uses the Run id. Jobs that resume a
+      suspended Run carry a `wake` fence with its generation and queue job id.
+      A repeated enqueue of the same Run is a no-op.
 
       The worker-liveness window (`runs.heartbeatSeconds` in the operator
       configuration) and the job expiry (86,399 seconds, pg-boss's maximum)
@@ -274,6 +275,21 @@ components:
           minLength: 1
         userMessage:
           $ref: '#/components/schemas/RunUserMessage'
+        wake:
+          $ref: '#/components/schemas/RunWake'
+    RunWake:
+      type: object
+      required:
+        - generation
+        - jobId
+      properties:
+        generation:
+          type: integer
+          minimum: 1
+        jobId:
+          type: string
+          format: uuid
+          description: The current queue job id recorded on the Run.
     RunUserMessage:
       type: object
       description: The already-persisted user message the Run executes against.
