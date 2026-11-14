@@ -6567,10 +6567,159 @@ function createMidRunAdditionTools() {
   return { adder, executeAdded, executeAddedSecond };
 }
 
+function settledBashJob(seq: number): ChatJob {
+  return {
+    id: `job-${seq}`,
+    chatId,
+    ownerUserId: userId,
+    executor: 'bash',
+    seq,
+    state: 'succeeded',
+    stoppedBy: null,
+    runId,
+    toolCallId: `bash-call-${seq}`,
+    workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    pid: null,
+    startedAt: now,
+    settledAt: now,
+    deadlineAt: null,
+    stopRequestedAt: null,
+    stopRequestedBy: null,
+    result: { exitCode: 0 },
+    outputs: ['stdout'],
+    artifactId: null,
+    artifactReadable: false,
+    settings: { modelId: 'fake-model', permissionMode: 'default' },
+  };
+}
+
 describe('RunExecutionService executeRun — tool loop', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  it('consumes notices only from a successful stop tool receipt', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = settledBashJob(41);
+
+    let noticeState: 'pending' | 'withdrawn' = 'pending';
+
+    const consumeNotices = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'consumeJobNotices')
+      .mockImplementation(({ jobIds }) => {
+        if (noticeState === 'pending' && jobIds.includes('job-41')) {
+          noticeState = 'withdrawn';
+
+          return Promise.resolve(['notice-41']);
+        }
+
+        return Promise.resolve([]);
+      });
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-success',
+            toolName: 'stop',
+            input: JSON.stringify({ jobs: ['job://bash-41'] }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('done'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+    await expect(result.text).resolves.toBe('done');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-success',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'success',
+      consumedJobNoticeIds: ['notice-41'],
+    });
+    expect(consumeNotices).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      runId,
+      jobIds: ['job-41'],
+    });
+    expect(noticeState).toBe('withdrawn');
+  });
+
+  it('does not consume notices when the stop tool rejects an unknown job', async () => {
+    mockNormalExecutionRepositories();
+
+    const appended = recordAppendedEvents();
+
+    const consumeNotices = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    );
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      undefined,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-rejected',
+            toolName: 'stop',
+            input: JSON.stringify({ jobs: ['job://bash-99'] }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('not found'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+
+    await expect(result.text).resolves.toBe('not found');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-rejected',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'error',
+      output: { type: 'not_found' },
+    });
+    expect(completed?.payload).not.toHaveProperty('consumedJobNoticeIds');
+    expect(consumeNotices).not.toHaveBeenCalled();
+  });
+
   it('executes an in-Run addition on the next model step', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();

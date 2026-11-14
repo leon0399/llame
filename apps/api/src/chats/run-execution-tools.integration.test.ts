@@ -1803,7 +1803,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     await execution.consumeStream?.();
 
-    if (noticeId === undefined) throw new Error('the notice must be recorded');
+    const recordedNoticeId = noticeId;
+
+    if (recordedNoticeId === undefined)
+      throw new Error('the notice must be recorded');
 
     const events = await tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
@@ -1817,16 +1820,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     const noticeAfter = await tenantDb.runAs(userId, (tx) =>
-      new ChatDeliveriesRepository(tx).findById(noticeId, userId),
+      new ChatDeliveriesRepository(tx).findById(recordedNoticeId, userId),
     );
 
     expect(completed?.payload).toMatchObject({
       toolName: 'stop',
       status: 'success',
-      consumedJobNoticeIds: [noticeId],
+      consumedJobNoticeIds: [recordedNoticeId],
     });
     expect(noticeAfter).toMatchObject({
-      id: noticeId,
+      id: recordedNoticeId,
       state: 'withdrawn',
       runId: seeded.run.id,
     });
@@ -1897,7 +1900,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     await execution.consumeStream?.();
 
-    if (noticeId === undefined) throw new Error('the notice must be recorded');
+    const recordedNoticeId = noticeId;
+
+    if (recordedNoticeId === undefined)
+      throw new Error('the notice must be recorded');
 
     const events = await tenantDb.runAs(userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
@@ -1911,7 +1917,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     const noticeAfter = await tenantDb.runAs(userId, (tx) =>
-      new ChatDeliveriesRepository(tx).findById(noticeId, userId),
+      new ChatDeliveriesRepository(tx).findById(recordedNoticeId, userId),
     );
 
     expect(completed?.payload).toMatchObject({
@@ -1921,7 +1927,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     });
     expect(completed?.payload).not.toHaveProperty('consumedJobNoticeIds');
     expect(noticeAfter).toMatchObject({
-      id: noticeId,
+      id: recordedNoticeId,
       state: 'delivered',
       runId: seeded.run.id,
       deliveredMessageId: expect.any(String),
