@@ -20858,7 +20858,183 @@ describe('RunExecutionService executeRun — run segments', () => {
     stepCount: 2,
   };
 
-  // eslint-disable complexity, sonarjs/cognitive-complexity
+  type WaitOutcomeCase = {
+    readonly outcome: Awaited<ReturnType<RunWaitService['suspend']>>;
+    readonly terminalStatus: 'cancelled' | 'completed' | undefined;
+    readonly expectedContinuation: boolean;
+    readonly boundaryCancelled?: boolean;
+    readonly boundaryFenced?: boolean;
+    readonly boundaryDelivered?: boolean;
+    readonly completeWaitLockMissing?: boolean;
+  };
+
+  const resumesAfterSuspend = (scenario: WaitOutcomeCase): boolean =>
+    scenario.expectedContinuation ||
+    scenario.boundaryCancelled === true ||
+    scenario.boundaryFenced === true ||
+    scenario.boundaryDelivered === true ||
+    scenario.completeWaitLockMissing === true;
+
+  /** Serves the wake claim and boundary a settled wait passes through. */
+  function arrangeWaitCompletion(
+    execution: ReturnType<typeof makeExecutionService>,
+    scenario: WaitOutcomeCase,
+    settledJob: ChatJob,
+  ): void {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockResolvedValue([]);
+    Object.defineProperty(execution.db, 'select', {
+      configurable: true,
+      value: () => ({
+        from: () => ({
+          where: () => Promise.resolve([settledJob]),
+        }),
+      }),
+    });
+
+    if (
+      scenario.boundaryCancelled === true ||
+      scenario.boundaryFenced === true
+    ) {
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue(
+        scenario.boundaryCancelled === true
+          ? { ...run, activeAttemptId: testAttemptId, cancelRequestedAt: now }
+          : undefined,
+      );
+    } else {
+      serveDelivery(scenario.boundaryDelivered === true ? [pendingItem] : [], {
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+    }
+
+    if (scenario.boundaryDelivered === true) {
+      vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+        deliveredMessage,
+      );
+    }
+
+    if (scenario.completeWaitLockMissing === true) {
+      vi.spyOn(ChatsRepository.prototype, 'lock')
+        .mockResolvedValueOnce(chat)
+        .mockResolvedValueOnce(undefined);
+    }
+  }
+
+  /** Calls wait in the first segment, finishes it, and the continuation if any. */
+  async function driveWaitCall(
+    segment: ReturnType<typeof makeSegmentClient>,
+    result: Awaited<ReturnType<RunExecutionService['executeRun']>>,
+    scenario: WaitOutcomeCase,
+  ): Promise<void> {
+    const options = segment.calls[0];
+    expect(options?.tools).toHaveProperty('wait');
+
+    if (!options?.onToolCall)
+      throw new Error('wait tool call callback was not captured');
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'wait-call',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-44'], timeout: 30 },
+    });
+
+    if (
+      scenario.boundaryFenced === true ||
+      scenario.completeWaitLockMissing === true
+    ) {
+      await expect(options.onFinish?.(finishToolCalls)).rejects.toBeInstanceOf(
+        RunNotRunnableError,
+      );
+    } else {
+      await options.onFinish?.(finishToolCalls);
+    }
+
+    await result.consumeStream();
+
+    if (!scenario.expectedContinuation) return;
+    const continuation = segment.calls[1];
+
+    if (!continuation?.onFinish || !continuation.onTextDelta) {
+      throw new Error('wait continuation was not captured');
+    }
+
+    await continuation.onStepStart?.({ messages: [], stepNumber: 0 });
+    continuation.onTextDelta('answer', '0:answer');
+    await continuation.onFinish({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+  }
+
+  /** The terminal state, reply and events each outcome must leave. */
+  function expectWaitOutcome(
+    scenario: WaitOutcomeCase,
+    spies: ReturnType<typeof mockNormalExecutionRepositories>,
+    types: ReadonlyArray<string>,
+    appended: ReturnType<typeof recordAppendedEvents>,
+  ): void {
+    if (scenario.terminalStatus === 'cancelled') {
+      expect(types).toContain('run.cancelled');
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'cancelled',
+        expect.any(Object),
+      );
+
+      return;
+    }
+
+    if (scenario.terminalStatus === 'completed') {
+      expect(types).toContain('tool.completed');
+      expect(types).toContain('run.completed');
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'completed',
+        expect.objectContaining({ attemptId: testAttemptId }),
+      );
+      expect(
+        spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts,
+      ).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-wait',
+          input: { jobs: ['job://bash-44'], timeout: 30 },
+          step: 0,
+        }),
+      );
+      expect(
+        appended.find(({ type }) => type === 'model.delta')?.payload,
+      ).toMatchObject({ text: 'answer', stepNumber: 2 });
+
+      return;
+    }
+
+    expect(types).not.toContain('run.completed');
+    expect(spies.markFinished).not.toHaveBeenCalled();
+
+    const boundaryReached =
+      scenario.boundaryCancelled === true ||
+      scenario.boundaryFenced === true ||
+      scenario.boundaryDelivered === true;
+
+    if (boundaryReached) expect(types).toContain('tool.completed');
+    else expect(types).not.toContain('tool.completed');
+  }
+
   it.each([
     {
       outcome: { kind: 'suspended' as const },
@@ -20899,17 +21075,9 @@ describe('RunExecutionService executeRun — run segments', () => {
       expectedContinuation: false,
       boundaryDelivered: true,
     },
-  ])(
+  ] satisfies ReadonlyArray<WaitOutcomeCase>)(
     'records wait suspension outcome $outcome.kind',
-    async ({
-      outcome,
-      terminalStatus,
-      expectedContinuation,
-      boundaryCancelled,
-      boundaryFenced,
-      boundaryDelivered,
-      completeWaitLockMissing,
-    }) => {
+    async (scenario) => {
       registerTestOnlyTool(waitTool);
 
       const spies = mockNormalExecutionRepositories();
@@ -20929,7 +21097,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
       const suspend = vi
         .fn<RunWaitService['suspend']>()
-        .mockResolvedValue(outcome);
+        .mockResolvedValue(scenario.outcome);
 
       const segment = makeSegmentClient();
 
@@ -20944,113 +21112,20 @@ describe('RunExecutionService executeRun — run segments', () => {
         },
       );
 
-      const settledJob = {
-        ...job,
-        state: 'succeeded' as const,
-        settledAt: new Date(now.getTime() + 1000),
-        result: { exitCode: 0 },
-      };
-
-      if (
-        expectedContinuation ||
-        boundaryCancelled ||
-        boundaryFenced ||
-        boundaryDelivered ||
-        completeWaitLockMissing
-      ) {
-        vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
-          ...run,
-          activeAttemptId: testAttemptId,
+      if (resumesAfterSuspend(scenario)) {
+        arrangeWaitCompletion(execution, scenario, {
+          ...job,
+          state: 'succeeded' as const,
+          settledAt: new Date(now.getTime() + 1000),
+          result: { exitCode: 0 },
         });
-        vi.spyOn(
-          ChatDeliveriesRepository.prototype,
-          'consumeJobNotices',
-        ).mockResolvedValue([]);
-        Object.defineProperty(execution.db, 'select', {
-          configurable: true,
-          value: () => ({
-            from: () => ({
-              where: () => Promise.resolve([settledJob]),
-            }),
-          }),
-        });
-
-        if (boundaryCancelled || boundaryFenced) {
-          vi.spyOn(
-            RunRowFenceRepository.prototype,
-            'lockForDelivery',
-          ).mockResolvedValue(
-            boundaryCancelled
-              ? {
-                  ...run,
-                  activeAttemptId: testAttemptId,
-                  cancelRequestedAt: now,
-                }
-              : undefined,
-          );
-        } else {
-          serveDelivery(boundaryDelivered ? [pendingItem] : [], {
-            ...run,
-            activeAttemptId: testAttemptId,
-          });
-        }
-
-        if (boundaryDelivered) {
-          vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
-            deliveredMessage,
-          );
-        }
-
-        if (completeWaitLockMissing) {
-          vi.spyOn(ChatsRepository.prototype, 'lock')
-            .mockResolvedValueOnce(chat)
-            .mockResolvedValueOnce(undefined);
-        }
       }
 
       const result = await execution.service.executeRun(
         executionInput(segment.client),
       );
 
-      const options = segment.calls[0];
-      expect(options?.tools).toHaveProperty('wait');
-
-      if (!options?.onToolCall)
-        throw new Error('wait tool call callback was not captured');
-
-      await options.onStepStart?.({ messages: [], stepNumber: 0 });
-      options.onToolCall({
-        toolCallId: 'wait-call',
-        toolName: 'wait',
-        input: { jobs: ['job://bash-44'], timeout: 30 },
-      });
-
-      if (boundaryFenced || completeWaitLockMissing) {
-        await expect(
-          options.onFinish?.(finishToolCalls),
-        ).rejects.toBeInstanceOf(RunNotRunnableError);
-      } else {
-        await options.onFinish?.(finishToolCalls);
-      }
-
-      await result.consumeStream();
-
-      if (expectedContinuation) {
-        const continuation = segment.calls[1];
-
-        if (!continuation?.onFinish || !continuation.onTextDelta) {
-          throw new Error('wait continuation was not captured');
-        }
-
-        await continuation.onStepStart?.({ messages: [], stepNumber: 0 });
-        continuation.onTextDelta('answer', '0:answer');
-        await continuation.onFinish({
-          text: 'answer',
-          usage: ZERO_USAGE,
-          finishReason: 'stop',
-          stepCount: 1,
-        });
-      }
+      await driveWaitCall(segment, result, scenario);
 
       expect(suspend).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -21064,60 +21139,17 @@ describe('RunExecutionService executeRun — run segments', () => {
           steps: { 'wait-call': 0 },
         }),
       );
-      expect(appended.map(({ type }) => type)).toContain('tool.requested');
 
-      if (terminalStatus === 'cancelled') {
-        expect(appended.map(({ type }) => type)).toContain('run.cancelled');
-        expect(spies.markFinished).toHaveBeenCalledWith(
-          runId,
-          userId,
-          'cancelled',
-          expect.any(Object),
-        );
-      } else if (terminalStatus === 'completed') {
-        expect(appended.map(({ type }) => type)).toContain('tool.completed');
-        expect(appended.map(({ type }) => type)).toContain('run.completed');
-        expect(spies.markFinished).toHaveBeenCalledWith(
-          runId,
-          userId,
-          'completed',
-          expect.objectContaining({ attemptId: testAttemptId }),
-        );
+      const types = appended.map(({ type }) => type);
+      expect(types).toContain('tool.requested');
+      expectWaitOutcome(scenario, spies, types, appended);
 
-        const completedReply =
-          spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
-
-        expect(completedReply?.parts).toContainEqual(
-          expect.objectContaining({
-            type: 'tool-wait',
-            input: { jobs: ['job://bash-44'], timeout: 30 },
-            step: 0,
-          }),
-        );
-        expect(
-          appended.find(({ type }) => type === 'model.delta')?.payload,
-        ).toMatchObject({ text: 'answer', stepNumber: 2 });
-      } else {
-        expect(appended.map(({ type }) => type)).not.toContain('run.completed');
-
-        if (boundaryCancelled || boundaryFenced || boundaryDelivered) {
-          expect(appended.map(({ type }) => type)).toContain('tool.completed');
-        } else {
-          expect(appended.map(({ type }) => type)).not.toContain(
-            'tool.completed',
-          );
-        }
-
-        expect(spies.markFinished).not.toHaveBeenCalled();
-      }
-
-      if (boundaryDelivered) {
-        expect(appended.map(({ type }) => type)).toContain('run.delivered');
+      if (scenario.boundaryDelivered === true) {
+        expect(types).toContain('run.delivered');
         expect(segment.calls).toHaveLength(2);
       }
     },
   );
-  // eslint-enable complexity, sonarjs/cognitive-complexity
 
   it('does not suspend when the wait request belongs to another tool call', async () => {
     registerTestOnlyTool(waitTool);
