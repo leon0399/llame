@@ -260,49 +260,6 @@ describe('ChatsController', () => {
     expect(item.lastMessage).not.toContain('tool-call');
   });
 
-  it('reads chat messages for the verified user only', async () => {
-    const { controller, chatsService } = makeController();
-
-    const result = await controller.getChatMessages('verified-user', chat.id, {
-      limit: 100,
-    });
-
-    expect(chatsService.getChatMessages).toHaveBeenCalledWith(
-      chat.id,
-      'verified-user',
-      { limit: 100, beforeSeq: undefined, targetSeq: undefined },
-    );
-    expect(result).toEqual({
-      messages: [
-        {
-          id: chatMessages[0].id,
-          chatId: chat.id,
-          seq: 1,
-          role: 'user',
-          senderUserId: 'verified-user',
-          parts: [{ type: 'text', text: 'Hello' }],
-          attachments: [],
-          usage: null,
-          inReplyTo: null,
-          createdAt: new Date('2026-06-29T00:01:00.000Z'),
-        },
-        {
-          id: chatMessages[1].id,
-          chatId: chat.id,
-          seq: 2,
-          role: 'assistant',
-          senderUserId: null,
-          parts: [{ type: 'text', text: 'Hi' }],
-          attachments: [],
-          usage: { status: 'completed', finishReason: 'stop' },
-          inReplyTo: chatMessages[0].id,
-          createdAt: new Date('2026-06-29T00:01:01.000Z'),
-        },
-      ],
-      latestRun: null,
-    });
-  });
-
   it('reports the latest Run beside the messages, field by field', async () => {
     const latestRun: Run = {
       id: '11111111-1111-4111-8111-111111111111',

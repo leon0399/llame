@@ -480,6 +480,11 @@ export class ChatMessageResponse {
   senderUserId!: string | null;
 
   @ApiProperty({
+    description: 'A host-authored user row with no owner sender.',
+  })
+  host!: boolean;
+
+  @ApiProperty({
     type: 'array',
     items: { type: 'object', additionalProperties: true },
   })
@@ -552,6 +557,7 @@ export function toChatMessageResponse(
     seq: message.seq,
     role: message.role,
     senderUserId: message.senderUserId,
+    host: message.role === 'user' && message.senderUserId === null,
     // Retained bytes stay on the server (retain-read-media D4), and so does
     // the opaque provider metadata of a text part or a tool call (design A7):
     // replay reads the stored row, never this response.
@@ -626,6 +632,8 @@ export function toSharedChatResponse(
     messages: messages.flatMap((m) => {
       // Only the conversation (user + assistant) is public — never system/tool.
       if (m.role !== 'user' && m.role !== 'assistant') return [];
+
+      if (m.role === 'user' && m.senderUserId === null) return [];
 
       return [
         {

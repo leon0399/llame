@@ -17,6 +17,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Preserve the preceding assistant reply when a textless host trigger adds
+  staged context to a model request.
+
 - Synchronize streamed usage timing tests with consumption and the monotonic clock.
 
 - Stop heartbeat checks from reading job rows after worker shutdown starts.
@@ -66,6 +69,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The datastore permits one notice per job even after withdrawal; owner and
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
+
+- **Preserve host history without public job context (#1657).** Owner-history
+  responses identify host-authored user turns. Public pagination and shared
+  forks omit them; owner forks retain literal context and reply relationships.
+  Recency selects the first owner-authored turn, and an empty host trigger
+  preserves the earlier assistant reply in provider history. Context-only host
+  rows supply no title, preview or search evidence. This prerequisite does not
+  yet create settlement notices or notice-started Runs.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
