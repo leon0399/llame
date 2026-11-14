@@ -6760,7 +6760,9 @@ describe('RunExecutionService executeRun — tool loop', () => {
       vi.spyOn(
         ChatDeliveriesRepository.prototype,
         'consumeJobNotices',
-      ).mockResolvedValue(['notice-43']);
+      ).mockImplementation(({ jobIds }) =>
+        Promise.resolve(jobIds.includes('job-43') ? ['notice-43'] : []),
+      );
       vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
         job,
       );
@@ -6802,26 +6804,45 @@ describe('RunExecutionService executeRun — tool loop', () => {
     },
   );
 
-  it('does not consume notices when a settled job changes state before the result transaction', async () => {
+  it('does not consume notices for a reported-running job or a missing re-read job', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
-    const initialJob = settledBashJob(44);
-    let reads = 0;
+    const runningJob = { ...settledBashJob(45), state: 'running' as const };
+    const reportedRunningJob = settledBashJob(45);
+    const settledJob = settledBashJob(46);
+    let runningReads = 0;
+    let settledReads = 0;
 
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'consumeJobNotices',
     ).mockImplementation(({ jobIds }) =>
-      Promise.resolve(jobIds.includes('job-44') ? ['notice-44'] : []),
+      Promise.resolve(
+        jobIds.some((jobId) => jobId === 'job-45' || jobId === 'job-46')
+          ? ['notice-45-or-46']
+          : [],
+      ),
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'requestStop').mockResolvedValue(
+      undefined,
     );
     vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockImplementation(
-      () => {
-        reads += 1;
+      (_chatId, _userId, _executor, seq) => {
+        if (seq === 45) {
+          runningReads += 1;
 
-        return Promise.resolve(
-          reads === 1 ? initialJob : { ...initialJob, state: 'failed' },
-        );
+          return Promise.resolve(
+            runningReads === 1 ? runningJob : reportedRunningJob,
+          );
+        }
+
+        settledReads += 1;
+
+        return Promise.resolve(settledReads === 1 ? settledJob : undefined);
       },
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+      runningJob,
     );
 
     const { client } = createToolLoopClient([
@@ -6829,9 +6850,11 @@ describe('RunExecutionService executeRun — tool loop', () => {
         [
           {
             type: 'tool-call',
-            toolCallId: 'stop-state-changed',
+            toolCallId: 'stop-running-and-missing',
             toolName: 'stop',
-            input: JSON.stringify({ jobs: ['job://bash-44'] }),
+            input: JSON.stringify({
+              jobs: ['job://bash-45', 'job://bash-46'],
+            }),
           },
         ],
         'tool-calls',
@@ -6845,20 +6868,27 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
 
     const result = await execution.service.executeRun(executionInput(client));
+
     await expect(result.text).resolves.toBe('done');
 
     const completed = appended.find(
       ({ type, payload }) =>
         type === 'tool.completed' &&
         isRecord(payload) &&
-        payload['toolCallId'] === 'stop-state-changed',
+        payload['toolCallId'] === 'stop-running-and-missing',
     );
 
     expect(completed?.payload).toMatchObject({
       status: 'success',
+      output: {
+        jobs: [
+          { job: 'job://bash-45', state: 'running' },
+          { job: 'job://bash-46', state: 'succeeded' },
+        ],
+      },
       consumedJobNoticeIds: [],
     });
-  });
+  }, 10_000);
 
   it('does not consume notices when the stop tool rejects an unknown job', async () => {
     mockNormalExecutionRepositories();
