@@ -88,7 +88,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   out of title, preview, recency, search evidence, public history, and shared
   forks. Durable `wait` remains inactive.
 
-
 - **Prepare transactional Run enqueue (#1657).** Internal producers can insert
   a Run's queue job through their existing Drizzle transaction, using the
   public pg-boss adapter with postgres.js result normalization. Queue writes
