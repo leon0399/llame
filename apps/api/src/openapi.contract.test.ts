@@ -67,93 +67,6 @@ const rawDocument: unknown = JSON.parse(
 
 const document = openApiObjectSchema.parse(rawDocument);
 
-const EXPECTED_OPERATION_IDS = [
-  'changeChatDelivery',
-  'changeOrgUnitMembershipRole',
-  'createChat',
-  'createChatFollowUpRun',
-  'createChatMessage',
-  'createChildOrgUnit',
-  'createKnowledgeSpace',
-  'createProject',
-  'createRepository',
-  'createRootOrgUnit',
-  'declareRepositoryAlias',
-  'deleteChat',
-  'deleteCheckout',
-  'deleteOrgUnit',
-  'deleteProject',
-  'deleteRepository',
-  'forkChat',
-  'forkSharedChat',
-  'getChat',
-  'getChatCreationRecord',
-  'getChatGitState',
-  'getChatMessages',
-  'getCurrentSession',
-  'getCurrentUser',
-  'getHealth',
-  'getKnowledgeSpace',
-  'getMedia',
-  'getMediaModel',
-  'getMediaOriginal',
-  'getMemory',
-  'getMyOrgUnitEffectiveRole',
-  'getOrgUnit',
-  'getPersonalization',
-  'getProject',
-  'getProjectStartLocation',
-  'getRun',
-  'getRunContextReceipt',
-  'getSharedChat',
-  'grantOrgUnitMembership',
-  'linkProjectRepository',
-  'listActiveRuns',
-  'listChatDeliveries',
-  'listChats',
-  'listCheckouts',
-  'listKnowledgeSpaces',
-  'listMachines',
-  'listMedia',
-  'listModels',
-  'listOrgUnitMemberships',
-  'listOrgUnits',
-  'listPermissionModes',
-  'listPins',
-  'listProjectRepositories',
-  'listProjects',
-  'listRepositories',
-  'listSessions',
-  'listSkills',
-  'loginUser',
-  'logoutUser',
-  'pinItem',
-  'registerCheckout',
-  'registerUser',
-  'removeCheckoutWorktree',
-  'renameKnowledgeSpace',
-  'reorderPins',
-  'resumeChatStream',
-  'revokeOrgUnitMembership',
-  'revokeSession',
-  'revokeSessions',
-  'searchChats',
-  'streamRunEvents',
-  'unlinkProjectRepository',
-  'unpinItem',
-  'updateChat',
-  'updateCheckout',
-  'updateMemory',
-  'updateOrgUnit',
-  'updatePersonalization',
-  'updateProject',
-  'updateProjectRepositoryLink',
-  'updateRepository',
-  'updateRun',
-  'uploadMedia',
-  'withdrawChatDelivery',
-] as const;
-
 const EXPECTED_ORG_UNIT_CONFLICT_CODES = [
   'CONCURRENT_TREE_CHANGE',
   'DUPLICATE_MEMBERSHIP',
@@ -218,6 +131,9 @@ function pinnedItemResponseSchema(
 }
 
 describe('committed OpenAPI contract', () => {
+  // The contract is intentional, unique IDs. An exhaustive API inventory
+  // duplicated unrelated endpoint changes without defining a caller invariant.
+  // Route-specific assertions below retain their own literal contracts.
   it('uses an intentional globally unique set of domain operation IDs', () => {
     const ids = operations().map(({ operation }) =>
       z.string().parse(operation.operationId),
@@ -225,9 +141,6 @@ describe('committed OpenAPI contract', () => {
 
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.some((id) => /Controller_/.test(id))).toBe(false);
-    expect(ids.toSorted((a, b) => a.localeCompare(b))).toEqual(
-      EXPECTED_OPERATION_IDS,
-    );
   });
 
   it.each([

@@ -2151,6 +2151,7 @@ function chatCard(workspaceRoot: string): ChatListItemResponse {
     projectId: null,
     workspaceRoot,
     lastMessage: null,
+    runningJobs: 0,
   };
 }
 
@@ -3516,6 +3517,12 @@ export const NextSegmentAttachesAfterDelivery: Story = {
   },
 };
 
+let releaseFirstDelivery!: () => void;
+let firstDelivery: Promise<void>;
+let releaseDeliveredHistory!: () => void;
+let deliveredHistory: Promise<void>;
+let deliveredHistoryStarted: Promise<void>;
+let currentDeliveries: Array<ChatDeliveryResponse>;
 /**
  * The steer item's id is not its delivered message's id. When the live list
  * drops the item after the stream named the message but before history is
@@ -3523,6 +3530,7 @@ export const NextSegmentAttachesAfterDelivery: Story = {
  *
  * @summary the next segment attaches when the live update comes first
  */
+
 export const LiveUpdateBeforeHistoryStillAttaches: Story = {
   tags: ["ai-generated"],
   parameters: {
@@ -3530,9 +3538,21 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
     pending: [pendingItem("s1", "steer", "steer message")],
   } satisfies ChatPageParameters,
   beforeEach: () => {
-    let delivered = false;
-    let listShrunk = false;
     let resumes = 0;
+    let delivered = false;
+    let announceHistoryStarted!: () => void;
+
+    firstDelivery = new Promise<void>((resolve) => {
+      releaseFirstDelivery = resolve;
+    });
+    deliveredHistory = new Promise<void>((resolve) => {
+      releaseDeliveredHistory = resolve;
+    });
+    deliveredHistoryStarted = new Promise<void>((resolve) => {
+      announceHistoryStarted = resolve;
+    });
+    currentDeliveries = [pendingItem("s1", "steer", "steer message")];
+
     routeAlso({
       [RESUME_ROUTE]: () => {
         resumes += 1;
@@ -3541,7 +3561,8 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
           resumes === 1
             ? segmentStream("first segment reply", {
                 messageId: "m2",
-                before: () => {
+                before: async () => {
+                  await firstDelivery;
                   delivered = true;
                 },
               })
@@ -3551,27 +3572,61 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
       [HISTORY_ROUTE]: async () => {
         if (!delivered) return liveHistory(HISTORY);
 
-        if (!listShrunk) {
-          listShrunk = true;
-          applyLiveMessage(queryClient, {
-            type: "chat.deliveries",
-            chatId: CHAT_ID,
-            items: [],
-          });
-        }
+        announceHistoryStarted();
 
-        // The page reacts to the live update before this read is adopted.
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await deliveredHistory;
 
         return liveHistory(historyAfterDelivery("steer message"), "m2");
       },
+      [DELIVERIES_ROUTE]: () =>
+        Promise.resolve(jsonResponse({ items: currentDeliveries })),
     });
   },
   play: async ({ canvasElement }) => {
-    await readyComposer(canvasElement);
-    await transcriptShows(canvasElement, "second segment reply");
-    await expect(
-      sentRoutes().filter((route) => route === RESUME_ROUTE),
-    ).toHaveLength(2);
+    const canvas = within(canvasElement);
+
+    try {
+      await openedLiveRun(canvasElement);
+      await transcriptShows(canvasElement, "first segment reply");
+
+      const initialPending = await canvas.findByRole("region", PENDING_REGION);
+      await expect(
+        within(initialPending).getByText("steer message"),
+      ).toBeVisible();
+
+      releaseFirstDelivery();
+      await deliveredHistoryStarted;
+
+      currentDeliveries = [];
+      applyLiveMessage(queryClient, {
+        type: "chat.deliveries",
+        chatId: CHAT_ID,
+        items: [],
+      });
+      await waitFor(() => {
+        const pending = canvas.queryByRole("region", PENDING_REGION);
+        expect(
+          pending ? within(pending).queryByText("steer message") : null,
+        ).toBeNull();
+      });
+      await expect(
+        sentRoutes().filter((route) => route === RESUME_ROUTE),
+      ).toHaveLength(1);
+
+      releaseDeliveredHistory();
+      await transcriptShows(canvasElement, "second segment reply");
+      await expect(
+        precedes(
+          transcriptText(canvasElement, "steer message"),
+          transcriptText(canvasElement, "second segment reply"),
+        ),
+      ).toBe(true);
+      await expect(
+        sentRoutes().filter((route) => route === RESUME_ROUTE),
+      ).toHaveLength(2);
+    } finally {
+      releaseFirstDelivery();
+      releaseDeliveredHistory();
+    }
   },
 };

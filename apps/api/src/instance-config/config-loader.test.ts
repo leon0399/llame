@@ -1044,6 +1044,106 @@ describe('loadInstanceConfig — tools.artifacts bound (tool-result-artifacts D1
   });
 });
 
+describe('loadInstanceConfig — tools.bash.maxProcesses (background-jobs D7)', () => {
+  it('defaults to 64 when the object or the key is absent', () => {
+    writeConfig('{ "tools": { "allowed": [] } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 64 });
+    writeConfig('{ "tools": { "bash": null } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 64 });
+    writeConfig('{ "tools": { "bash": {} } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 64 });
+  });
+
+  it('takes the bound from the file and from an interpolation token', () => {
+    writeConfig('{ "tools": { "bash": { "maxProcesses": 1 } } }');
+    expect(loadInstanceConfig().tools.bash).toEqual({ maxProcesses: 1 });
+
+    writeConfig(
+      '{ "tools": { "bash": { "maxProcesses": "{env:IC_PROCS}" } } }',
+    );
+    expect(loadInstanceConfig({ IC_PROCS: '8' }).tools.bash).toEqual({
+      maxProcesses: 8,
+    });
+  });
+
+  it.each([null, 0, -3, 1.5, 9_007_199_254_740_992])(
+    'refuses %s, naming the path',
+    (value) => {
+      writeConfig(`{ "tools": { "bash": { "maxProcesses": ${value} } } }`);
+      expect(() => loadInstanceConfig()).toThrow(
+        /tools[./]bash[./]maxProcesses/,
+      );
+    },
+  );
+
+  it('refuses a token that resolves to an unusable value', () => {
+    writeConfig(
+      '{ "tools": { "bash": { "maxProcesses": "{env:IC_PROCS}" } } }',
+    );
+
+    for (const value of ['', '0', '2.5', '9007199254740993'])
+      expect(() => loadInstanceConfig({ IC_PROCS: value })).toThrow(
+        'tools.bash.maxProcesses',
+      );
+  });
+
+  it('refuses an unknown key, naming the path', () => {
+    writeConfig('{ "tools": { "bash": { "timeoutSeconds": 5 } } }');
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]bash[./]timeoutSeconds/,
+    );
+  });
+});
+
+describe('loadInstanceConfig — tools.jobs.maxSeconds', () => {
+  it.each(['{}', '{"tools":{"jobs":null}}', '{"tools":{"jobs":{}}}'])(
+    'defaults to 7200 for %s',
+    (text) => {
+      writeConfig(text);
+      expect(loadInstanceConfig().tools.jobs).toEqual({ maxSeconds: 7200 });
+    },
+  );
+  it('accepts the floor and an interpolation token', () => {
+    writeConfig('{"tools":{"jobs":{"maxSeconds":60}}}');
+    expect(loadInstanceConfig().tools.jobs.maxSeconds).toBe(60);
+    writeConfig('{"tools":{"jobs":{"maxSeconds":"{env:IC_LIFETIME}"}}}');
+    expect(
+      loadInstanceConfig({ IC_LIFETIME: '9000' }).tools.jobs.maxSeconds,
+    ).toBe(9000);
+  });
+  it.each([0, 10, 59, -1, 60.5, 8_000_000_001, 9_007_199_254_740_992])(
+    'refuses %s naming the path',
+    (value) => {
+      writeConfig(`{"tools":{"jobs":{"maxSeconds":${value}}}}`);
+      expect(() => loadInstanceConfig()).toThrow(/tools[./]jobs[./]maxSeconds/);
+    },
+  );
+  it.each(['59', '60.5', '9007199254740993'])(
+    'refuses unusable token value %s',
+    (value) => {
+      writeConfig('{"tools":{"jobs":{"maxSeconds":"{env:IC_LIFETIME}"}}}');
+      expect(() => loadInstanceConfig({ IC_LIFETIME: value })).toThrow(
+        'tools.jobs.maxSeconds',
+      );
+    },
+  );
+  it('refuses a token that resolves to an empty value as a user error', () => {
+    writeConfig('{"tools":{"jobs":{"maxSeconds":"{env:IC_LIFETIME}"}}}');
+    expect(() => loadInstanceConfig({ IC_LIFETIME: '' })).toThrow(
+      /tools[./]jobs[./]maxSeconds/,
+    );
+    expect(() => loadInstanceConfig({ IC_LIFETIME: '' })).not.toThrow(
+      /internal error/,
+    );
+  });
+  it('refuses unknown keys', () => {
+    writeConfig('{"tools":{"jobs":{"timeoutSeconds":60}}}');
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]jobs[./]timeoutSeconds/,
+    );
+  });
+});
+
 describe('loadInstanceConfig — tools.webAdapters', () => {
   type RewriteEntryOverrides = Partial<{
     readonly id: string;

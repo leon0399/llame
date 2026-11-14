@@ -5,14 +5,17 @@ import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
   admitManagedBash,
   sanitizeKnownResultAtBound,
-  type BashResult,
+  type AdmittedBashExecution,
+  type BashTimedOutResult,
+  type BashUnavailableResult,
+  type ManagedProcessSlot,
   type StreamBound,
 } from '@workspace/bash-executor';
 import { parsePathScheme } from '@workspace/native-file-tools';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { isNativeFileTool } from './native-files';
 import { isWorkspaceTool } from './workspace';
-import { managedBashContext } from './bash-limits';
+import { acquireBashSlot, managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
 import { reconcileArtifactFiles } from './artifacts/host-files';
 import { spillBashResult } from './bash-spill';
@@ -49,11 +52,6 @@ const MACHINE_BASH_STREAM_BOUND: StreamBound = {
   kind: 'code-units',
   limit: BASH_BOUNDS.outputBound,
 };
-
-type AdmittedBashExecution = Extract<
-  ReturnType<typeof admitManagedBash>,
-  { readonly run: () => Promise<BashResult> }
->;
 
 type AdmittedBashContext = ToolContext &
   Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
@@ -301,12 +299,12 @@ function machineBashExecution(
 async function runAdmittedBash(
   context: AdmittedBashContext,
   admitted: AdmittedBashExecution,
+  slot: ManagedProcessSlot,
 ): Promise<ToolResult> {
   const { runId, userId, nativeExecutorId, toolCallId } = context;
-  const onAbort = () => admitted.release();
+  const onAbort = () => slot.release();
 
-  if (context.abortSignal?.aborted) admitted.release();
-  else context.abortSignal?.addEventListener('abort', onAbort, { once: true });
+  context.abortSignal?.addEventListener('abort', onAbort);
 
   try {
     const prior = await context.tenantDb.runAs(userId, (db) =>
@@ -323,6 +321,7 @@ async function runAdmittedBash(
     );
 
     if (prior) return prior;
+    context.abortSignal?.removeEventListener('abort', onAbort);
     // A host command always runs on the llame host, so the notice names the
     // directory: in a Machine Workspace every spilled call is a Machine one
     // (the projection sends it there), so no host-only case is reachable here.
@@ -337,7 +336,7 @@ async function runAdmittedBash(
     return result;
   } finally {
     context.abortSignal?.removeEventListener('abort', onAbort);
-    admitted.release();
+    slot.release();
   }
 }
 
@@ -382,6 +381,33 @@ function routedBashExecution(
   return executeSshBash(context, { ...input, cwd: input.cwd });
 }
 
+/**
+ * Always wrap in bash -c: the managed allowlist only admits basenames like
+ * `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
+ */
+function admitHostCommand(
+  context: ToolContext,
+  input: BashInput,
+  toolCallId: string,
+): AdmittedBashExecution | BashUnavailableResult | BashTimedOutResult {
+  return admitManagedBash(
+    {
+      command: 'bash',
+      args: ['-c', input.command],
+      cwd: input.cwd,
+      env: input.env,
+    },
+    managedBashContext(context),
+    {
+      signal: context.abortSignal,
+      timeoutSignal: context.timeoutSignal,
+      timeoutMs: context.timeoutMs,
+      toolCallId,
+      protectedValues: context.configuredCredentials,
+    },
+  );
+}
+
 /** The llame host branch, fenced as a native attempt. */
 async function runHostBash(
   context: ToolContext,
@@ -405,30 +431,24 @@ async function runHostBash(
     });
   }
 
-  // Always wrap in bash -c: the managed allowlist only admits basenames like
-  // `bash`, not `ls`/`cat`. Models pass ordinary shell text here.
-  const admitted = admitManagedBash(
-    {
-      command: 'bash',
-      args: ['-c', input.command],
-      cwd: input.cwd,
-      env: input.env,
-    },
-    managedBashContext(context),
-    {
-      signal: context.abortSignal,
-      timeoutSignal: context.timeoutSignal,
-      timeoutMs: context.timeoutMs,
-      toolCallId,
-      protectedValues: context.configuredCredentials,
-    },
-  );
+  // The slot comes before the executor, so a refused call records no attempt
+  // and starts no process (background-jobs D7).
+  const slot = acquireBashSlot(context);
 
-  if ('type' in admitted) return toToolResult(admitted);
+  if ('status' in slot) return slot;
+
+  const admitted = admitHostCommand(context, input, toolCallId);
+
+  if ('type' in admitted) {
+    slot.release();
+
+    return toToolResult(admitted);
+  }
 
   return runAdmittedBash(
     { ...context, runId, userId, nativeExecutorId, toolCallId },
     admitted,
+    slot,
   );
 }
 

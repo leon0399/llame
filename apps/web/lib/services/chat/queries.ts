@@ -31,13 +31,17 @@ import {
 } from "./history";
 import { CHAT_HISTORY_PAGE_SIZE } from "./paginate-messages";
 
-/** Component-facing chat shape, based on the generated list contract. */
+/**
+ * Component-facing chat shape, based on the generated list contract. A
+ * single-Chat read carries no job count, so `runningJobs` is optional here.
+ */
 export type ChatResponse = Omit<
   ChatListItemResponse,
-  "lastMessage" | "ownerUserId"
+  "lastMessage" | "ownerUserId" | "runningJobs"
 > & {
   lastMessage?: string | null;
   ownerUserId?: string;
+  runningJobs?: number;
 };
 
 // NOTE: no pinnedAt field here. Pin state lives only in the pins subsystem

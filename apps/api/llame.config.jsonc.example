@@ -1006,6 +1006,19 @@
     // "artifacts": {
     //   "maxBytes": 8388608
     // },
+    // The most managed commands one worker process runs at one time. It counts
+    // foreground host commands and `ssh://` commands. Unset (as here) means 64.
+    // An integer of at least 1, or a {env:...}/{path:...} token; a smaller
+    // value, a fraction, an unsafe integer, or an unknown key fails boot. A
+    // call past the bound gets `limit_reached`.
+    // "bash": {
+    //   "maxProcesses": 64
+    // },
+    // Lifetime of a job from command start, in seconds. Default: 7200.
+    // A safe integer of at least 60, or a whole-value interpolation token.
+    // "jobs": {
+    //   "maxSeconds": 7200
+    // },
   },
 
   // Optional remote Machines (experimental). Declaring one makes

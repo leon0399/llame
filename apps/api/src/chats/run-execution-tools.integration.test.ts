@@ -692,6 +692,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
           callTimeoutSeconds: BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
           grep: BUILT_IN_DEFAULTS.tools.grep,
           artifacts: BUILT_IN_DEFAULTS.tools.artifacts,
+          bash: BUILT_IN_DEFAULTS.tools.bash,
+          jobs: BUILT_IN_DEFAULTS.tools.jobs,
         },
       },
     };

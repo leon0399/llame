@@ -1,10 +1,103 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-13
+
+- **Bound pending background-job output snapshots (#1657).** A slow database
+  keeps one pending flush instead of retaining each cumulative output snapshot.
+  The next flush captures the latest output and preserves stored suffix offsets.
+
 # 2026-11-12
 
 - Preserve the SSH subprocess's exit classification when it closes stdin
   before accepting all input. A broken input pipe no longer escapes as an
   uncaught stream error during a bounded SSH read or command.
+
+- Synchronize browser checks with the surfaces they exercise: Esc waits for
+  menus and the command palette to close, Knowledge expansion waits for the
+  reloaded composer, and action-row reveal waits for its opacity transition.
+  Each interaction remains a single action, with the original final assertions.
+  The live-before-history handoff story uses explicit stream and history
+  gates, so it observes the pending item before removing it and adopting the
+  delivered history; no time-based delay chooses the event order.
+
+- Skip product CI stages for documentation, OpenSpec and harness-instruction-only
+  pull requests and pushes. Runtime prompts and unknown paths still run product
+  checks; scheduled and manual behavior is unchanged. Scope detection uses the
+  pinned Node runtime and rejects empty or malformed detector output.
+
+- Add strict OpenSpec validation inside the required `Lint` CI check for active
+  proposals and canonical specs, with the CLI pinned to the repository's
+  workflow-compatible version
+
+- Rebase the active tool-search proposal's permission and replay deltas on the
+  current canonical specs, retaining owner-media admission and the checkpoint-only
+  replay boundary so strict all-items validation passes without exclusions.
+
+# 2026-11-11
+
+- **Recover hosted jobs at each worker heartbeat (#1657).** The registry retries
+  failed settlements, then checks hosted work under each owner's identity.
+  Missing records, durable stop requests and already-settled records stop the
+  corresponding command without rewriting its terminal facts. One failed read
+  does not starve other jobs, and shutdown detaches the heartbeat hook.
+- **Add atomic background-job persistence (#1657).** Job settlement locks the
+  Chat first and retries transaction conflicts. Output stores only uncommitted
+  suffixes. Large output becomes a reserved-number artifact inside a savepoint;
+  failed artifact writes retain committed increments, and host files are written
+  only after commit. Direct database proof covers rollback, reserved numbers,
+  and the full output after a failed write. No tool starts a job in this layer.
+- **Add incremental managed-command output capture (#1657).** A managed handle
+  reports output activity and returns redacted snapshots without rescanning its
+  stable prefix. Credential overlaps, split credentials, and Unicode boundaries
+  retain the full sanitizer's output. Truncation is tracked per stream, including
+  timed-out commands. This prepares capture for the worker job registry without
+  starting background jobs from a tool.
+- **Add the worker-owned job runtime (#1657).** A managed handle can be
+  promoted to a job with a reserved artifact number and the starting Run's
+  identity, permissions, settings, and output policy. Output flushes at 16 KiB
+  or one second after the first unflushed byte, with safe credential cuts and
+  no idle writes. Chat-first settlement retries transaction conflicts and
+  records exit codes, signals, or an unknown outcome. Long readable output
+  becomes a whole-job artifact in a savepoint; failed writes preserve output
+  increments, and host files are written only after commit. The new operator
+  setting `tools.jobs.maxSeconds` defaults to 7,200 and accepts an integer of
+  at least 60 or an interpolation token. A lifetime ends work with a proven
+  timeout, and orderly shutdown stops jobs before the queue closes. No tool
+  starts jobs or emits job notices yet.
+- **Bound the commands of a worker with `tools.bash.maxProcesses` (#1657).**
+  A worker process used to run one managed `bash` command at a time, and the
+  refusal for a second one was `unavailable`. One limiter now counts the host
+  commands and the `ssh://` commands of a worker, and `tools.bash.maxProcesses`
+  sets its bound (an integer of at least 1, default 64). A call past the bound
+  returns `limit_reached`, which names the bound and says that a later call can
+  succeed; the call records no attempt and starts no process. Cancellation is
+  checked before admission; cancellation during a pending durable admission
+  releases its slot without starting work. Two commands that the model calls
+  in one step now run together. The Machine daemon keeps its own
+  bound of one and its `unavailable` refusal. The executor package also gains
+  `startManagedBash`, a handle with no deadline that a later change uses for
+  background jobs; no tool calls it yet. See
+  [bash](docs/product/reference/tools/bash.md#errors).
+  An admitted execution remains single-use, including concurrent calls. A
+  settled handle's snapshot and a later stop retain its final sanitized output,
+  including an incomplete protected-value prefix from a natural exit.
+- **Add the job store for background jobs (#1657).** New tables `chat_jobs`,
+  `chat_job_chunks`, and `worker_instances` hold one record for each job of a
+  Chat, its stored output increments, and the heartbeat of each worker process.
+  The two job tables have forced owner row-level security. A worker that
+  consumes runs takes a new random identity at each start and records a
+  heartbeat every `runs.heartbeatSeconds`; a worker with no heartbeat for four
+  intervals is dead, and a read of a job or an owner API request settles its
+  running jobs as `lost`. Native `read` accepts a `job://` locator: the record
+  of a job, the stored text of one output, or a bare list of the jobs of the
+  Chat. The owner lists the jobs with `GET /api/v1/chats/:chatId/jobs` and
+  records a stop request with `PATCH /api/v1/chats/:chatId/jobs/:jobId`
+  (200 for a repeat, 409 for a job that settled otherwise, 404 for another
+  owner). Owner job responses name only declared cut outputs in `truncated`,
+  in their declared order, or `[]` when none were cut. The chat list and the
+  live Chat record carry `runningJobs`. No tool starts a job yet, and no worker
+  acts on a stop request yet. See
+  [job://](docs/product/reference/locators/job.md).
 
 # 2026-11-10
 

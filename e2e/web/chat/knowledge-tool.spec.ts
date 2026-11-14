@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
+import { readyComposer } from "../../support/composer";
 import {
   expect,
   expectProtectedShell,
@@ -357,6 +358,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expectErroredTool(log, "Knowledge Space was not found.", 2);
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await readyComposer(page);
 
     const reloadedSearch = log
       .getByRole("button")
@@ -446,6 +448,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     ).toBeVisible({ timeout: 30_000 });
 
     await page.reload({ waitUntil: "domcontentloaded" });
+    await readyComposer(page);
 
     const reloadedCard = log
       .getByRole("button")

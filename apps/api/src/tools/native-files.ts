@@ -54,6 +54,8 @@ import { executeSshNative } from './ssh-files';
 import { SSH_SCHEME } from '../ssh/ssh-locator';
 import { readArtifact } from './artifacts/artifact-reader';
 import { ARTIFACT_SCHEME } from './artifacts/locator';
+import { JOB_SCHEME } from '../jobs/job-locator';
+import { readJob } from '../jobs/job-reader';
 import { placeListingSelector } from './listing-window';
 
 type NativeCall =
@@ -162,6 +164,8 @@ const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
         : executeSshNative(context, call.operation, call.input.path),
     [ARTIFACT_SCHEME]: (context, call) =>
       readArtifact(context, call.operation, call.input.path),
+    [JOB_SCHEME]: (context, call) =>
+      readJob(context, call.operation, call.input.path),
   } satisfies Record<string, LocatorReader>),
 );
 

@@ -15,10 +15,8 @@ import type { PermissionMode } from '../tools/permissions/permission-mode';
 import type { MachinesConfig, RawMachinesConfig } from './machines-config';
 import type * as Rerank from './rerank-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
-import type {
-  RawToolRerankConfig,
-  ToolRerankConfig,
-} from './tool-rerank-config';
+import type { ToolRerankConfig } from './tool-rerank-config';
+import type { RawToolsConfig } from './raw-tools-config';
 import type { RawWebSearchConfig, WebSearchConfig } from './web-search-config';
 
 /**
@@ -521,24 +519,6 @@ export type RawWebAdapterEntry =
         | 'linkedin';
     };
 
-/** Schema-validated composite fields consumed from the raw tools block. */
-export type RawToolsConfig = {
-  webAdapters?: Array<RawWebAdapterEntry>;
-  /** The raw `tools.artifacts` object; absent means the built-in bound. */
-  artifacts?: {
-    readonly maxBytes?: unknown;
-  } | null;
-  /** The raw `tools.grep` object; an absent or null object bounds nothing,
-   *  and each leaf stays unknown until its resolver narrows it. */
-  grep?: {
-    readonly maxFilesExamined?: unknown;
-    readonly maxEntriesListed?: unknown;
-    readonly maxBytesRead?: unknown;
-    readonly maxFileBytes?: unknown;
-    readonly rerank?: RawToolRerankConfig;
-  } | null;
-};
-
 /**
  * The operator's `grep` settings: the walk bounds (grep-scan-throughput D1) and
  * the tool's own rerank block. Every bound field takes the nullable numeric
@@ -764,6 +744,10 @@ export type LlameConfig = {
     grep: GrepBoundsConfig;
     /** The one byte bound on every stored tool-result artifact part. */
     artifacts: ArtifactBoundsConfig;
+    /** Operator bounds on host `bash` (background-jobs D7): worker process bound. */
+    bash: { readonly maxProcesses: number };
+    /** Maximum command lifetime, measured from spawn (background-jobs D8). */
+    jobs: { readonly maxSeconds: number };
     /** Instance-wide tool description file overrides. Keys are registered llame-owned tool IDs; null falls through to packaged defaults. */
     promptFiles?: Readonly<Record<string, string | null>>;
     /** Ordered operator-configured web adapters. Absent means no adapters. */
@@ -886,6 +870,8 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
       maxFileBytes: null,
     },
     artifacts: { maxBytes: 8_388_608 },
+    bash: { maxProcesses: 64 },
+    jobs: { maxSeconds: 7200 },
     promptFiles: {},
     webAdapters: [],
   },

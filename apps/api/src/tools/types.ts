@@ -1,3 +1,4 @@
+import { type BashProcessLimiter } from '@workspace/bash-executor';
 import { type ToolResult, type UnknownRecord } from '@workspace/runtime-safety';
 import { type z } from 'zod';
 
@@ -195,10 +196,22 @@ export interface ToolContext {
    */
   readonly artifactHostFiles?: boolean;
   /**
+   * The one limiter of this worker process, built from `tools.bash.maxProcesses`
+   * (background-jobs D7). A host or `ssh://` `bash` call takes a slot from it
+   * before it calls the executor. Absent means this context cannot run `bash`.
+   */
+  readonly bashProcessLimiter?: BashProcessLimiter;
+  /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.
    */
   readonly callTimeoutSeconds?: number;
+  /**
+   * Seconds without a heartbeat after which a worker is dead, four intervals of
+   * `runs.heartbeatSeconds` (background-jobs D9). A `job://` read settles the
+   * running jobs of a dead worker as `lost`. Absent means the built-in value.
+   */
+  readonly workerDeadAfterSeconds?: number;
   /**
    * Trusted model-client factory for model-hosted web search engines, never
    * model supplied. A host double that only validates selections leaves

@@ -181,10 +181,30 @@ e2e       (e2e.yml)       Playwright; builds the web app itself
 dast      (dast.yml)      build API -> Schemathesis legs, ZAP
 ```
 
-Every stage starts at once; only the scanners wait, for their own API build.
+On pull requests and pushes, a lightweight change-scope job runs before the
+product stages. The detector uses `.node-version` without installing workspace
+dependencies, and empty or malformed output fails the scope job rather than
+disabling checks. Documentation (`docs/`, root Markdown), OpenSpec, harness
+configuration and instruction files alone skip typecheck, tests, mutation,
+build, E2E and DAST. Unknown paths, runtime prompts under
+`apps/api/src/prompts/`, dependencies and build configuration keep those gates
+enabled. Renames inspect both old and new paths, and pushes inspect the entire
+push rather than only its last commit. Scheduled and manual runs retain their
+existing product stages. Once admitted, stages start together; only the scanners
+wait for their own API build.
+The required fixed-name checks report skipped. Required workspace matrix checks
+retain their names through lightweight jobs with all steps and browser
+containers disabled; skipping a whole reusable workflow would omit those names
+and block the repository's required-check ruleset.
 
 - Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
-  jscpd, and Halstead difficulty.
+  jscpd, Halstead difficulty, and strict OpenSpec validation inside the required
+  `Lint` job, using the root manifest's pinned CLI.
+  `pnpm exec openspec validate --all --strict
+  --no-interactive` validates all active proposals and canonical specs after
+  modification, synchronization or archive; it does not require active proposal
+  tasks to be complete or revalidate historical archived deltas. These static
+  checks still run for documentation-only changes.
 - Workflow lint: actionlint, zizmor, pinact.
 - CI: typecheck; a `test` stage with one leg per workspace running its
   `test:coverage` (thresholds, and CRAP where the script adds it), with the

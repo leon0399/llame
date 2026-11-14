@@ -57,6 +57,7 @@ import {
 } from '../tools/native-files';
 import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -838,6 +839,12 @@ function mockNormalExecutionRepositories() {
   const hasMutation = vi
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
+
+  // The claim settles jobs of dead workers; none exist here.
+  vi.spyOn(
+    ChatJobsRepository.prototype,
+    'settleOnDeadWorkers',
+  ).mockResolvedValue([]);
 
   // No pending steer or interrupt, and no recorded cancellation: a step end
   // stops nothing and a completion delivers nothing (run-steering D3/D5).

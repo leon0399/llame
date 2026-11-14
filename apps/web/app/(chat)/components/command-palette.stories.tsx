@@ -25,6 +25,7 @@ function recentChat(
     projectId: null,
     workspaceRoot: null,
     lastMessage: null,
+    runningJobs: 0,
     ...overrides,
   };
 }

@@ -43,6 +43,7 @@ function chat(
     projectId: null,
     workspaceRoot: null,
     lastMessage: "hi",
+    runningJobs: 0,
     ...overrides,
   };
 }

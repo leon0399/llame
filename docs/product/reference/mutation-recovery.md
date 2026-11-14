@@ -49,6 +49,20 @@ replacement worker may admit a new bash command beside it. The durable attempt
 record still prevents Run recovery from replaying the unfinished command, and
 that recovery path terminates the Run with `outcome_unknown`.
 
+## Job settlement
+
+A managed command that becomes a [job](locators/job.md) keeps its original
+attempt identity; reading its stored output from another worker does not adopt
+or execute the command. A known natural exit records success or failure, and a
+signal exit names the signal. If the worker cannot prove its process group
+empty, the job is `lost`, not a known failure.
+
+An orderly worker shutdown stops its hosted jobs and preserves captured output.
+A proven shutdown stop records `cancelled` with stopper `worker`; an unproven
+stop records `lost`. A lifetime stop follows the same proof rule and records
+`timed_out` only after proof. Stored output remains readable even if an artifact
+write fails. No tool starts a job in the current release.
+
 ## Configured by
 
 [native files](../operator/native-files.md) enables the host executor and the

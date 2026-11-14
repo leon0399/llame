@@ -31,17 +31,18 @@ import {
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
-  getSchemaPath,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { ChatLoopService, type ChatMessageStream } from './chat-loop.service';
 import { FollowUpAdmissionService } from './follow-up-admission.service';
+import { ChatJobsService } from './chat-jobs.service';
 import { FollowUpRunBodyPipe } from './follow-up-run-body.pipe';
 import {
   ContinueFollowUpRunDto,
   type CreateFollowUpRunDto,
+  followUpRunBodySchema,
   RegenerateFollowUpRunDto,
 } from './dto/follow-up-run.dto';
 import { ChatsService } from './chats.service';
@@ -83,29 +84,6 @@ import {
   CreateTextMessagePartDto,
 } from './dto/message-parts.dto';
 
-/**
- * The follow-up request body as a discriminated union on `action`: each variant
- * declares only the fields its action accepts, so a schema-valid `continue`
- * never carries a model or an effort, and a schema-valid `regenerate` always
- * names its model. A further action adds its variant to the same `oneOf` and
- * its own `mapping` entry.
- */
-function followUpRunBodySchema() {
-  return {
-    oneOf: [
-      { $ref: getSchemaPath(ContinueFollowUpRunDto) },
-      { $ref: getSchemaPath(RegenerateFollowUpRunDto) },
-    ],
-    discriminator: {
-      propertyName: 'action',
-      mapping: {
-        continue: getSchemaPath(ContinueFollowUpRunDto),
-        regenerate: getSchemaPath(RegenerateFollowUpRunDto),
-      },
-    },
-  };
-}
-
 export type ChatsControllerService = Pick<
   ChatsService,
   | 'listChatsWithLastMessage'
@@ -141,6 +119,8 @@ export class ChatsController {
       FollowUpAdmissionService,
       'admitFollowUpRun'
     >,
+    @Inject(ChatJobsService)
+    private readonly chatJobs: Pick<ChatJobsService, 'runningCounts'>,
   ) {}
 
   /**
@@ -234,14 +214,17 @@ export class ChatsController {
     @CurrentUser() userId: string,
     @Query() query: ListChatsQueryDto,
   ): Promise<Array<ChatListItemResponse>> {
-    const chats = await this.chatsService.listChatsWithLastMessage(userId, {
-      projectId: query.projectId,
-      archived: query.archived,
-      pinned: query.pinned,
-    });
+    const [chats, running] = await Promise.all([
+      this.chatsService.listChatsWithLastMessage(userId, {
+        projectId: query.projectId,
+        archived: query.archived,
+        pinned: query.pinned,
+      }),
+      this.chatJobs.runningCounts(userId),
+    ]);
 
     return chats.map(({ chat, lastMessage }) =>
-      toChatListItemResponse(chat, lastMessage),
+      toChatListItemResponse(chat, lastMessage, running.get(chat.id) ?? 0),
     );
   }
 
