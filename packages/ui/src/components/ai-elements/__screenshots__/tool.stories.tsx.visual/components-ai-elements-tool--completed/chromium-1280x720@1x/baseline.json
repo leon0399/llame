@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "baselineSha256": "84c1324774b065ba5560012cb8cde77aa2517aae63529893f97fd0e14d60ea23",
+  "baselineSha256": "1bf87f05e491227604d263aa971b374e2130e8545166d2ec4cd136d48f1f74f4",
   "browser": {
     "name": "chromium",
-    "version": "138.0.7204.23",
-    "playwrightVersion": "1.53.2"
+    "version": "140.0.7339.186",
+    "playwrightVersion": "1.55.1"
   },
   "platform": "linux",
   "viewport": {
