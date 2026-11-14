@@ -151,6 +151,7 @@ async function settleAdmittedExecution(
     if (result === WAIT_SUSPENSION) return result;
 
     notifyUnknownOutcome(tool, context, result);
+
     return await capToolResult(tool, context, result);
   } catch (error) {
     const result = classifyAdmittedFailure(error, {

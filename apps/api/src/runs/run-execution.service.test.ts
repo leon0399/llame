@@ -6769,14 +6769,6 @@ describe('RunExecutionService executeRun — tool loop', () => {
         },
       );
 
-      vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
-        Promise.resolve(
-          fenceState === 'chat-lock-unavailable' && activeFenceUpdates >= 3
-            ? undefined
-            : chat,
-        ),
-      );
-
       vi.spyOn(
         ChatDeliveriesRepository.prototype,
         'consumeJobNotices',
@@ -6804,6 +6796,14 @@ describe('RunExecutionService executeRun — tool loop', () => {
         allowed: ['stop'],
         permissionPolicy: compileTestPermissionPolicy(['stop']),
       });
+
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
+        Promise.resolve(
+          fenceState === 'chat-lock-unavailable' && activeFenceUpdates >= 3
+            ? undefined
+            : chat,
+        ),
+      );
 
       const result = await execution.service.executeRun(executionInput(client));
       await expect(result.text).resolves.toBe('done');
