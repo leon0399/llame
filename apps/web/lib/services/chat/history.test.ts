@@ -7,7 +7,7 @@ import {
   type ReplacementContext,
 } from "./history-adoption";
 import {
-  interruptedNoticePart,
+  isInterruptedNoticePart,
   isInstructionsPart,
   isPromptImportsPart,
   messageRenderKey,
@@ -151,6 +151,58 @@ describe("toChatUiMessages", () => {
       }),
     ).toEqual([]);
   });
+  it("projects host provenance only for senderless user rows", () => {
+    const projected = toChatUiMessages({
+      messages: [
+        {
+          id: "host-user-message",
+          chatId: "chat-1",
+          seq: 2,
+          role: "user",
+          senderUserId: null,
+          host: true,
+          parts: [],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: "2026-07-01T12:00:01.000Z",
+        },
+        {
+          id: "owner-message",
+          chatId: "chat-1",
+          seq: 3,
+          role: "user",
+          senderUserId: "owner-id",
+          host: true,
+          parts: [],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: "2026-07-01T12:00:02.000Z",
+        },
+        {
+          id: "assistant-message",
+          chatId: "chat-1",
+          seq: 4,
+          role: "assistant",
+          senderUserId: null,
+          host: true,
+          parts: [],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: "2026-07-01T12:00:03.000Z",
+        },
+      ],
+    });
+
+    expect(projected.map((message) => message.metadata)).toEqual([
+      { seq: 2, host: true },
+      { seq: 3, host: false },
+      { seq: 4, host: false },
+    ]);
+  });
+
   it("drops checkpoint rows instead of rendering their rail text as messages", () => {
     expect(
       toChatUiMessages({
@@ -415,14 +467,15 @@ describe("trusted model-context projection", () => {
 
     const [user, assistant] = mergeTrustedModelContextParts(live, server);
 
-    expect(interruptedNoticePart({ parts: user?.parts ?? [] })).toEqual(notice);
+    expect(user?.parts.some(isInterruptedNoticePart)).toBe(true);
     expect(user?.parts.at(0)).toEqual(notice);
     expect(assistant?.parts).toEqual([text]);
     expect(
-      interruptedNoticePart({
-        parts: [{ ...notice, data: { ...notice.data, payload: "x" } }],
+      isInterruptedNoticePart({
+        ...notice,
+        data: { ...notice.data, payload: "x" },
       }),
-    ).toBeNull();
+    ).toBe(false);
   });
 
   it("reads the owner-only run id from completed assistant metadata", () => {

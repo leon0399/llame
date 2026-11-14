@@ -147,6 +147,8 @@ const NATIVE_READ_TOOL_ID = "read";
 const BASH_PROMPT_MARKER = "host bash output fidelity e2e";
 const BASH_OUTPUT_PATH = "/tmp/llame-e2e-bash-output";
 
+const BACKGROUND_JOB_TOKEN_RE = /BACKGROUND_JOB_TOKEN:([A-Za-z0-9_-]+)/u;
+
 // Permission-gate acceptance: a rejected Bash call, then an allowed read.
 const PERMISSION_PROMPT_MARKER = "permission rejection e2e";
 const PERMISSION_DENIED_COMMAND = "e2e-permission-denied";
@@ -1151,6 +1153,47 @@ function tryStdioFixtureFirstTurn(ctx: ChunkContext): boolean {
   return true;
 }
 
+function tryBackgroundJobFirstTurn(ctx: ChunkContext): boolean {
+  const token = BACKGROUND_JOB_TOKEN_RE.exec(ctx.lastUserContent)?.[1];
+
+  if (token === undefined || !ctx.hasBashTool || ctx.hasCurrentTurnToolResult) {
+    return false;
+  }
+
+  const stopping = ctx.lastUserContent.includes("background jobs stop e2e");
+  const suffix = stopping ? "second-started" : "first-started";
+
+  const release = stopping
+    ? `/tmp/llame-e2e-background-${token}-second-release`
+    : `/tmp/llame-e2e-background-${token}-release`;
+
+  const command = [
+    `printf started > '/tmp/llame-e2e-background-${token}-${suffix}'`,
+    `while [ ! -e '${release}' ]; do sleep 0.05; done`,
+    "printf completed",
+  ].join("; ");
+
+  writeToolCall(ctx.res, {
+    id: `call_background_job_${suffix}_e2e`,
+    name: BASH_TOOL_ID,
+    arguments: { command, async: true },
+  });
+
+  return true;
+}
+
+function tryBackgroundJobHostAnswer(ctx: ChunkContext): boolean {
+  const token = BACKGROUND_JOB_TOKEN_RE.exec(ctx.raw)?.[1];
+
+  if (token === undefined || !ctx.raw.includes("Background job job://bash-")) {
+    return false;
+  }
+
+  writeAnswer(ctx, [`BACKGROUND_JOB_HOST_RUN_E2E:${token}`]);
+
+  return true;
+}
+
 // Host bash acceptance first turn. The marker and exact allowlist gate keep
 // this deterministic tool call isolated from the other browser fixtures.
 function tryBashFirstTurn(ctx: ChunkContext): boolean {
@@ -1167,6 +1210,14 @@ function tryBashFirstTurn(ctx: ChunkContext): boolean {
   });
 
   return true;
+}
+
+function tryHostBashTurn(ctx: ChunkContext): boolean {
+  return (
+    tryBashFirstTurn(ctx) ||
+    tryBackgroundJobFirstTurn(ctx) ||
+    tryBackgroundJobHostAnswer(ctx)
+  );
 }
 
 function tryStdioFixtureResultAnswer(ctx: ChunkContext): boolean {
@@ -1494,7 +1545,7 @@ async function respondToChatCompletion(
 
   if (tryMcpFixtureFirstTurn(ctx)) return;
 
-  if (tryBashFirstTurn(ctx)) return;
+  if (tryHostBashTurn(ctx)) return;
 
   if (tryStdioFixtureFirstTurn(ctx)) return;
 
