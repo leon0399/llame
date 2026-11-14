@@ -699,8 +699,9 @@ describe('finalizeRunReply', () => {
     });
   });
 
-  it('does not duplicate a wake prefix item already present in the reply snapshot', async () => {
+  it('deduplicates a wake prefix item and retains a distinct new item', async () => {
     const item = contextItem('wake instructions');
+    const distinctItem = contextItem('new instructions');
 
     const running = runningReplyUsage({
       runId,
@@ -725,8 +726,7 @@ describe('finalizeRunReply', () => {
         event(3, 'run.suspended', {
           generation: 1,
           toolCallId: 'wait-call',
-          parts: [item],
-          steps: {},
+          parts: [item, distinctItem],
           awaiting: {
             toolCallId: 'wait-call',
             toolInput: { jobs: ['job://executor-1'] },
@@ -736,6 +736,11 @@ describe('finalizeRunReply', () => {
         }),
         event(4, 'run.resumed', { generation: 1, cause: 'settled' }),
         event(5, 'run.started', { attemptId: 'wake' }),
+        event(6, 'tool.completed', {
+          toolCallId: 'wait-call',
+          toolName: 'wait',
+          output: { status: 'success', value: 'finished' },
+        }),
       ],
       reply: reply({ usage: running, parts: [item] }),
     });
@@ -748,7 +753,7 @@ describe('finalizeRunReply', () => {
     });
 
     expect(update.mock.calls[0]?.[0]?.parts?.filter(isContextItemPart)).toEqual(
-      [item],
+      [item, distinctItem],
     );
   });
 

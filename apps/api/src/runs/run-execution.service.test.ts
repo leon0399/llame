@@ -21009,6 +21009,9 @@ describe('RunExecutionService executeRun — run segments', () => {
         ).toMatchObject({ text: 'answer', stepNumber: 2 });
       } else {
         expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+        expect(appended.map(({ type }) => type)).not.toContain(
+          'tool.completed',
+        );
         expect(spies.markFinished).not.toHaveBeenCalled();
       }
     },
@@ -21286,6 +21289,7 @@ describe('RunExecutionService executeRun — run segments', () => {
           'wait',
           toolDeclaration.id,
         ]),
+        maxStepsPerRun: 10,
       },
     );
 
@@ -21315,6 +21319,8 @@ describe('RunExecutionService executeRun — run segments', () => {
     const result = await execution.service.executeRun(
       executionInput(segment.client),
     );
+
+    expect(segment.calls[0]?.maxSteps).toBe(5);
 
     const options = segment.calls[0];
 

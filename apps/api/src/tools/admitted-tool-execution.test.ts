@@ -1,13 +1,39 @@
 import { type TenantRunner } from '../db/tenant-db.service';
 import { bashTool } from './bash';
 import { executeAdmittedTool } from './admitted-tool-execution';
-import { type ToolContext, type ToolResult } from './types';
+import { type Tool, type ToolContext, type ToolResult } from './types';
+import { WAIT_SUSPENSION } from './wait-suspension';
 
 describe('executeAdmittedTool', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
+  it('passes a wait suspension sentinel through without rendering it', async () => {
+    const execute = vi.fn(() => WAIT_SUSPENSION);
+
+    const tool: Tool = {
+      id: 'wait',
+      description: 'Wait for background jobs.',
+      classification: 'read_only',
+      inputSchema: { type: 'object' },
+      execute,
+    };
+
+    const context: ToolContext = {
+      userId: 'owner',
+      chatId: 'chat',
+      configuredCredentials: [],
+      tenantDb: {
+        runAs: <T>() => Promise.reject<T>(new Error('unused tenant DB')),
+      } satisfies TenantRunner,
+    };
+
+    await expect(executeAdmittedTool(tool, {}, context, 1)).resolves.toBe(
+      WAIT_SUSPENSION,
+    );
+    expect(execute).toHaveBeenCalledOnce();
+  });
   it('classifies an aborted host bash call before command start as cancelled', async () => {
     const abort = new AbortController();
     const { promise: execution } = Promise.withResolvers<ToolResult>();
