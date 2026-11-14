@@ -81,6 +81,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   state even when no job is currently running. Pinned Chat summaries load in
   one shared request, including on a fresh admin route; the rail shows 30 pins
   and keeps Administration above the user footer as pins scroll.
+
 # 2026-11-12
 
 - **Prepare background-job transcript components (#1657).** Bash rows display
