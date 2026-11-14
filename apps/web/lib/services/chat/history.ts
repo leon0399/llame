@@ -466,13 +466,6 @@ export function isInterruptedNoticePart(
   return isNonNullObject(contextItemEnvelope(value, "interrupted")?.payload);
 }
 
-/** The `interrupted` notice a delivered user message carries, or null. */
-export function interruptedNoticePart(message: {
-  parts: ReadonlyArray<unknown>;
-}): InterruptedNoticePart | null {
-  return message.parts.find(isInterruptedNoticePart) ?? null;
-}
-
 /** Whether this app renders a server context item on that role: the
  *  model-switch marker, prompt-imports disclosure, regenerate, interrupted,
  *  and job notices on user messages, and instructions on either role. */
