@@ -59,14 +59,13 @@ function finiteQueryDb(responses: Array<QueryResponse>) {
 }
 
 describe('job notice recovery', () => {
-  it('returns only receipts consumed after delivery and before the attempt', async () => {
+  it('returns only string notice IDs found in consumed receipt rows', async () => {
     const queries = finiteQueryDb([
       { selection: 'sequence', rows: [{ sequence: 5 }] },
       { selection: 'sequence', rows: [{ sequence: 2 }] },
-      // Rows returned by the segment-bounded query, ordered by sequence.
       {
         selection: 'receipts',
-        rows: [{ receipts: ['discarded-a', 12, 'discarded-b'] }],
+        rows: [{ receipts: ['notice-a', 12, 'notice-b'] }],
       },
     ]);
 
@@ -77,7 +76,7 @@ describe('job notice recovery', () => {
         ownerUserId: 'owner',
         attemptId: 'attempt-current',
       }),
-    ).resolves.toEqual(['discarded-a', 'discarded-b']);
+    ).resolves.toEqual(['notice-a', 'notice-b']);
     expect(queries.queryCount()).toBe(3);
   });
 
