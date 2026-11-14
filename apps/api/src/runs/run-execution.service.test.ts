@@ -21383,6 +21383,114 @@ describe('RunExecutionService executeRun — run segments', () => {
     });
     expect(spies.markStarted).toHaveBeenCalledWith(runId, userId);
   });
+  it('does not defer an ordinary declared tool call as a wait', async () => {
+    mockNormalExecutionRepositories();
+
+    const execute = vi.fn(() => ({
+      status: 'success' as const,
+      value: 'ordinary result',
+    }));
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      {
+        ...withDeclaredTool(),
+        allowed: [toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+        runWait: asDouble<RunWaitService>({
+          suspend: vi.fn<RunWaitService['suspend']>(),
+        }),
+      },
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('tool-loop callbacks were not captured');
+    }
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'ordinary-call',
+      toolName: toolDeclaration.id,
+      input: { q: 'ordinary' },
+    });
+    await executeBoundTool(options, { q: 'ordinary' }, 'ordinary-call');
+    await options.onFinish({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(segment.calls).toHaveLength(1);
+  });
+
+  it('propagates a failed durable wait instead of completing the Run', async () => {
+    registerTestOnlyTool(waitTool);
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const failure = new Error('wait persistence failed');
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockRejectedValue(failure);
+
+    const job = {
+      ...settledBashJob(49),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('wait callbacks were not captured');
+    }
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'failed-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-49'] },
+    });
+    await expect(options.onFinish(finishToolCalls)).rejects.toBe(failure);
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    expect(spies.markFinished).not.toHaveBeenCalled();
+  });
 
   it('stops the call when the step end finds a pending item and not otherwise', async () => {
     mockNormalExecutionRepositories();
