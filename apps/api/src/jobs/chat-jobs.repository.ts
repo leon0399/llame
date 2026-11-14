@@ -215,9 +215,9 @@ export class ChatJobsRepository {
   }
 
   /**
-   * The running jobs of each Chat on a worker that is not dead, for the chat
-   * list. It joins the job to its worker and settles nothing. `chatId` narrows
-   * the count to one Chat (a live update).
+   * Live-worker counts for Chats with stored running jobs, including zero
+   * when every worker is dead. This display read settles nothing; `chatId`
+   * narrows it to one Chat.
    */
   async countRunning(
     ownerUserId: string,
@@ -225,9 +225,9 @@ export class ChatJobsRepository {
     chatId?: string,
   ): Promise<Map<string, number>> {
     const rows = await this.db
-      .select({ chatId: chatJobs.chatId, running: count() })
+      .select({ chatId: chatJobs.chatId, running: count(workerInstances.id) })
       .from(chatJobs)
-      .innerJoin(
+      .leftJoin(
         workerInstances,
         and(
           eq(workerInstances.id, chatJobs.workerInstanceId),

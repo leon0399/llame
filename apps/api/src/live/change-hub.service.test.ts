@@ -15,6 +15,7 @@ import {
   livePinRecords,
   liveRunRecord,
 } from '../testing/live-records';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 
 /** A listener that records the hub's callbacks so tests can drive them. */
 function makeListener() {
@@ -41,6 +42,7 @@ function makeLoader(overrides: Partial<LiveRecordLoader> = {}) {
     project: vi.fn(() => Promise.resolve(undefined)),
     pins: vi.fn(() => Promise.resolve(livePinRecords())),
     run: vi.fn(() => Promise.resolve(liveRunRecord())),
+    runningJobs: vi.fn(() => Promise.resolve(new Map<string, number>())),
     ...overrides,
   } satisfies LiveRecordLoader;
 }
@@ -87,10 +89,12 @@ const machineRemoval = JSON.stringify({
   deleted: true,
 });
 
+const instanceConfig = { config: BUILT_IN_DEFAULTS };
+
 describe('ChangeHubService', () => {
   it('reads a changed record as its owner and sends it in wire form', async () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     const { received } = connect(hub);
 
     hub.dispatch(chatUpdate);
@@ -117,7 +121,7 @@ describe('ChangeHubService', () => {
 
   it('reads nothing for an owner without connections', async () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     connect(hub, 'someone-else');
 
     hub.dispatch(chatUpdate);
@@ -139,7 +143,7 @@ describe('ChangeHubService', () => {
       run: vi.fn(() => gate.then(() => liveRunRecord())),
     });
 
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     const { received } = connect(hub);
 
     const runChange = notify({
@@ -165,7 +169,12 @@ describe('ChangeHubService', () => {
   });
 
   it('keeps a deletion after the reads queued before it', async () => {
-    const hub = new ChangeHubService(makeListener(), makeLoader());
+    const hub = new ChangeHubService(
+      makeListener(),
+      makeLoader(),
+      instanceConfig,
+    );
+
     const { received } = connect(hub);
 
     hub.dispatch(chatUpdate);
@@ -182,6 +191,7 @@ describe('ChangeHubService', () => {
     const hub = new ChangeHubService(
       makeListener(),
       makeLoader({ chat: vi.fn(() => Promise.resolve(undefined)) }),
+      instanceConfig,
     );
 
     const { received } = connect(hub);
@@ -199,6 +209,7 @@ describe('ChangeHubService', () => {
       makeLoader({
         chat: vi.fn(() => Promise.reject(new Error('database unavailable'))),
       }),
+      instanceConfig,
     );
 
     const { received } = connect(hub);
@@ -212,7 +223,7 @@ describe('ChangeHubService', () => {
 
   it('sends run progress without a read, even before any record', () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     const { received } = connect(hub);
 
     hub.dispatch(
@@ -238,7 +249,7 @@ describe('ChangeHubService', () => {
 
   it('drops a malformed notification and stops delivering after unsubscribe', async () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     const { received, unsubscribe } = connect(hub);
 
     hub.dispatch('{not json');
@@ -255,7 +266,7 @@ describe('ChangeHubService', () => {
 
   it('sends an instance-wide Machine record to every instance subscriber', async () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     const first = connect(hub);
     const second = connect(hub, 'user-b');
     const instances = [connectInstance(hub), connectInstance(hub)];
@@ -286,7 +297,7 @@ describe('ChangeHubService', () => {
 
   it('announces a removed Machine to every instance subscriber without a read', async () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     const instance = connectInstance(hub);
 
     hub.dispatch(machineRemoval);
@@ -301,7 +312,7 @@ describe('ChangeHubService', () => {
 
   it('reads nothing for an instance record without instance subscribers', async () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     connect(hub);
 
     hub.dispatch(machineUpdate);
@@ -312,7 +323,7 @@ describe('ChangeHubService', () => {
 
   it('stops delivering instance records after unsubscribe', async () => {
     const loader = makeLoader();
-    const hub = new ChangeHubService(makeListener(), loader);
+    const hub = new ChangeHubService(makeListener(), loader, instanceConfig);
     const instance = connectInstance(hub);
 
     instance.unsubscribe();
@@ -324,7 +335,12 @@ describe('ChangeHubService', () => {
   });
 
   it('serializes a message once and sends the same frame to every socket', async () => {
-    const hub = new ChangeHubService(makeListener(), makeLoader());
+    const hub = new ChangeHubService(
+      makeListener(),
+      makeLoader(),
+      instanceConfig,
+    );
+
     const first = connect(hub);
     const second = connect(hub);
 
@@ -335,7 +351,12 @@ describe('ChangeHubService', () => {
   });
 
   it('isolates a subscriber that throws from the others', async () => {
-    const hub = new ChangeHubService(makeListener(), makeLoader());
+    const hub = new ChangeHubService(
+      makeListener(),
+      makeLoader(),
+      instanceConfig,
+    );
+
     hub.subscribe(LIVE_OWNER, () => {
       throw new Error('socket gone');
     });
@@ -370,7 +391,7 @@ describe('toWireMessage', () => {
 describe('ChangeHubService listener lifecycle', () => {
   it('listens on init, asks owners to resync after a reconnect, and closes on destroy', async () => {
     const listener = makeListener();
-    const hub = new ChangeHubService(listener, makeLoader());
+    const hub = new ChangeHubService(listener, makeLoader(), instanceConfig);
     await hub.onModuleInit();
     const { received } = connect(hub);
 
@@ -406,7 +427,9 @@ describe('ChangeHubService diagnostics', () => {
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
 
-    new ChangeHubService(makeListener(), makeLoader()).dispatch('{');
+    new ChangeHubService(makeListener(), makeLoader(), instanceConfig).dispatch(
+      '{',
+    );
     expect(warn).toHaveBeenCalledWith(
       'Dropped malformed live change notification',
     );
@@ -422,6 +445,7 @@ describe('ChangeHubService diagnostics', () => {
       makeLoader({
         chat: vi.fn(() => Promise.reject(new Error('database unavailable'))),
       }),
+      instanceConfig,
     );
 
     connect(hub);
@@ -438,7 +462,12 @@ describe('ChangeHubService diagnostics', () => {
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => {});
 
-    const hub = new ChangeHubService(makeListener(), makeLoader());
+    const hub = new ChangeHubService(
+      makeListener(),
+      makeLoader(),
+      instanceConfig,
+    );
+
     hub.subscribe(LIVE_OWNER, () => {
       throw new Error('socket gone');
     });
@@ -460,6 +489,7 @@ describe('ChangeHubService diagnostics', () => {
           Promise.resolve(liveChatRecord({ id: 'not-a-uuid' })),
         ),
       }),
+      instanceConfig,
     );
 
     const { received } = connect(hub);
@@ -472,7 +502,12 @@ describe('ChangeHubService diagnostics', () => {
   });
 
   it('keeps delivering to the remaining socket after another unsubscribes', async () => {
-    const hub = new ChangeHubService(makeListener(), makeLoader());
+    const hub = new ChangeHubService(
+      makeListener(),
+      makeLoader(),
+      instanceConfig,
+    );
+
     const first = connect(hub);
     const second = connect(hub);
     first.unsubscribe();

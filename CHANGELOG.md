@@ -78,6 +78,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   rows supply no title, preview or search evidence. This prerequisite does not
   yet create settlement notices or notice-started Runs.
 
+- **Refresh live background-job counts (#1657).** Job changes notify only the
+  owning Chat's subscribers. Connected API processes also refresh owner-scoped
+  counts on the worker heartbeat cadence, including lease expiry and revival
+  with no job-row write. Full Chat upserts retain the last sent count across
+  notifications; zero-count running groups remain observable until settlement.
+  A record read that crosses the last unsubscribe requests a resync instead of
+  sending its stale snapshot to a later subscriber. Refreshes stop after the
+  last unsubscribe or shutdown and never settle jobs, deliver notices or start
+  Runs.
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.

@@ -135,23 +135,6 @@ describe('ChatJobsRepository', () => {
     expect(last().params).toContainEqual('{"outcomeUnknown":true}');
   });
 
-  it('counts running jobs of the owner on a live worker, narrowed to a Chat on request', async () => {
-    const { repository, last } = make();
-
-    await repository.countRunning(OWNER, 60).catch(() => undefined);
-
-    expect(last().sql).toContain('inner join "worker_instances"');
-    expect(last().sql).toContain('group by "chat_jobs"."chat_id"');
-    expect(last().sql).not.toContain('"chat_jobs"."chat_id" = $');
-
-    await repository.countRunning(OWNER, 60, CHAT).catch(() => undefined);
-
-    expect(last().sql).toContain('"chat_jobs"."chat_id" = $');
-    expect(last().params).toEqual(
-      expect.arrayContaining([OWNER, 'running', CHAT]),
-    );
-  });
-
   it('reads the increments of one output of the owner in order', async () => {
     const { repository, last } = make();
 

@@ -371,7 +371,7 @@ describe('job store', () => {
         jobs.countRunning(owner, DEAD_AFTER, onlyDead),
       );
 
-      expect(narrowed.get(onlyDead) ?? 0).toBe(0);
+      expect(narrowed.get(onlyDead)).toBe(0);
 
       // The count settles nothing.
       const [still] = await withJobs(owner, (jobs) =>
@@ -379,6 +379,29 @@ describe('job store', () => {
       );
 
       expect(still.state).toBe('running');
+    });
+
+    it('retains zero groups for missing workers and omits Chats without running rows', async () => {
+      const missingWorkerChat = await freshChat();
+      const settledChat = await freshChat();
+      const emptyChat = await freshChat();
+
+      await startJob(missingWorkerChat, 1, {
+        workerInstanceId: crypto.randomUUID(),
+      });
+      const settled = await startJob(settledChat, 1);
+
+      await withJobs(owner, (jobs) =>
+        jobs.settle(settledChat, owner, settled.id, { state: 'succeeded' }),
+      );
+
+      const counts = await withJobs(owner, (jobs) =>
+        jobs.countRunning(owner, DEAD_AFTER),
+      );
+
+      expect(counts.get(missingWorkerChat)).toBe(0);
+      expect(counts.has(settledChat)).toBe(false);
+      expect(counts.has(emptyChat)).toBe(false);
     });
 
     // Scenario: A lost job keeps its stored output

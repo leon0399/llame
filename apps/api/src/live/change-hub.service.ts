@@ -46,6 +46,11 @@ import {
   LIVE_RECORD_LOADER,
   type LiveRecordLoader,
 } from './live-record-loader';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
+import { heartbeatSeconds } from '../runs/run-queues';
 
 /** Receives one serialized, schema-valid message frame. */
 type LiveSubscriber = (frame: string) => void;
@@ -66,6 +71,13 @@ export type ChangeHubSubscriptions = Pick<
 
 type SendQueue = { jobs: Array<RecordJob>; waiting: Set<string> };
 
+type JobProjectionRefresh = {
+  generation: number;
+  busy: boolean;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  lastSentCounts: Map<string, number>;
+};
+
 /** The wire form of a message, or `undefined` when it violates the schema. */
 export function toWireMessage(
   message: ServerLiveMessage,
@@ -83,6 +95,7 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
   private readonly instanceSubscribers = new Set<LiveSubscriber>();
   private readonly tracker = new RunProgressTracker();
   private readonly queues = new Map<Audience, SendQueue>();
+  private readonly jobProjections = new Map<string, JobProjectionRefresh>();
   private listenCount = 0;
 
   constructor(
@@ -90,6 +103,8 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     private readonly listener: ChangeListener,
     @Inject(LIVE_RECORD_LOADER)
     private readonly loader: LiveRecordLoader,
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -103,6 +118,10 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     this.subscribers.clear();
     this.instanceSubscribers.clear();
     this.queues.clear();
+
+    for (const owner of this.jobProjections.keys())
+      this.stopJobProjection(owner);
+    this.jobProjections.clear();
     await this.listener.close();
   }
 
@@ -111,11 +130,15 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     const set = this.subscribers.get(ownerId) ?? new Set<LiveSubscriber>();
     set.add(subscriber);
     this.subscribers.set(ownerId, set);
+    this.seedJobProjection(ownerId, true);
 
     return () => {
       set.delete(subscriber);
 
-      if (set.size === 0) this.subscribers.delete(ownerId);
+      if (set.size === 0) {
+        this.subscribers.delete(ownerId);
+        this.stopJobProjection(ownerId);
+      }
     };
   }
 
@@ -155,6 +178,9 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
 
     // Records are read only for an owner someone is listening to.
     if (!this.subscribers.has(notification.owner)) return;
+
+    if (notification.k === 'chat_jobs')
+      this.seedJobProjection(notification.owner, false);
     const job = recordJobFor(notification);
 
     if (job) this.enqueue(notification.owner, job);
@@ -190,10 +216,27 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     for (let job = queue.jobs.shift(); job; job = queue.jobs.shift()) {
       if (job.key !== undefined) queue.waiting.delete(job.key);
 
+      const subscribers =
+        audience === INSTANCE_AUDIENCE
+          ? undefined
+          : this.subscribers.get(audience);
+
       try {
         const message = await job.load(this.loader);
 
-        if (message) this.send(audience, message);
+        const currentSubscribers =
+          audience === INSTANCE_AUDIENCE
+            ? undefined
+            : this.subscribers.get(audience);
+
+        if (
+          message?.type === 'chat.upserted' &&
+          subscribers !== currentSubscribers
+        ) {
+          this.send(audience, { type: 'resync' });
+        } else if (message) {
+          this.send(audience, message);
+        }
       } catch (error) {
         this.logger.warn(
           `Live record read failed; requesting resync: ${error instanceof Error ? error.message : 'unknown'}`,
@@ -215,7 +258,88 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     // instance-wide lists on any `resync`, so the owner stream covers it.
     for (const owner of this.subscribers.keys()) {
       this.send(owner, { type: 'resync' });
+      this.seedJobProjection(owner, true);
     }
+  }
+
+  private seedJobProjection(owner: string, resetBaseline: boolean): void {
+    if (!this.subscribers.has(owner)) return;
+
+    const state = this.jobProjections.get(owner) ?? {
+      generation: 0,
+      busy: false,
+      timer: undefined,
+      lastSentCounts: new Map<string, number>(),
+    };
+
+    clearTimeout(state.timer);
+    state.timer = undefined;
+    state.generation += 1;
+
+    if (resetBaseline) state.lastSentCounts.clear();
+    this.jobProjections.set(owner, state);
+
+    if (!state.busy) void this.refreshJobProjection(owner, state);
+  }
+
+  private async refreshJobProjection(
+    owner: string,
+    state: JobProjectionRefresh,
+  ): Promise<void> {
+    state.busy = true;
+    const generation = state.generation;
+
+    const nextRefreshAt =
+      performance.now() + heartbeatSeconds(this.instanceConfig.config) * 1000;
+
+    let repeat = true;
+
+    try {
+      const counts = await this.loader.runningJobs(owner);
+
+      if (state.generation !== generation || !this.subscribers.has(owner))
+        return;
+      repeat = counts.size > 0;
+
+      for (const [chat, count] of counts) {
+        if (state.lastSentCounts.get(chat) === count) continue;
+        const job = recordJobFor({ k: 'chat_jobs', owner, chat });
+
+        if (job) this.enqueue(owner, job);
+      }
+    } catch {
+      if (state.generation === generation && this.subscribers.has(owner))
+        this.send(owner, { type: 'resync' });
+    } finally {
+      state.busy = false;
+
+      if (!this.subscribers.has(owner)) {
+        this.jobProjections.delete(owner);
+      } else if (state.generation !== generation) {
+        void this.refreshJobProjection(owner, state);
+      } else if (repeat) {
+        state.timer = setTimeout(
+          () => {
+            state.timer = undefined;
+            void this.refreshJobProjection(owner, state);
+          },
+          Math.max(0, nextRefreshAt - performance.now()),
+        );
+      }
+    }
+  }
+
+  private stopJobProjection(owner: string): void {
+    const state = this.jobProjections.get(owner);
+
+    if (!state) return;
+    state.generation += 1;
+    clearTimeout(state.timer);
+    state.timer = undefined;
+    state.lastSentCounts.clear();
+
+    // Keep an in-flight read until it releases busy, including a resubscribe.
+    if (!state.busy) this.jobProjections.delete(owner);
   }
 
   private send(audience: Audience, message: ServerLiveMessage): void {
@@ -236,6 +360,14 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
       if (message.type !== 'resync') this.send(audience, { type: 'resync' });
 
       return;
+    }
+
+    if (audience !== INSTANCE_AUDIENCE) {
+      const counts = this.jobProjections.get(audience)?.lastSentCounts;
+
+      if (wire.type === 'chat.upserted')
+        counts?.set(wire.chat.id, wire.chat.runningJobs);
+      else if (wire.type === 'chat.deleted') counts?.delete(wire.chatId);
     }
 
     // Serialized once per audience, not once per socket.
