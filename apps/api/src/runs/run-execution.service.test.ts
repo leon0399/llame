@@ -255,6 +255,7 @@ import {
 } from '../tools/registry';
 import { RunWaitService } from './run-wait.service';
 import { waitTool } from '../tools/wait';
+import { WAIT_SUSPENSION } from '../tools/wait-suspension';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -20857,6 +20858,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     stepCount: 2,
   };
 
+  // eslint-disable complexity, sonarjs/cognitive-complexity
   it.each([
     {
       outcome: { kind: 'suspended' as const },
@@ -20873,9 +20875,41 @@ describe('RunExecutionService executeRun — run segments', () => {
       terminalStatus: 'completed' as const,
       expectedContinuation: true,
     },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: 'cancelled' as const,
+      expectedContinuation: false,
+      boundaryCancelled: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+      boundaryFenced: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+      completeWaitLockMissing: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+      boundaryDelivered: true,
+    },
   ])(
     'records wait suspension outcome $outcome.kind',
-    async ({ outcome, terminalStatus, expectedContinuation }) => {
+    async ({
+      outcome,
+      terminalStatus,
+      expectedContinuation,
+      boundaryCancelled,
+      boundaryFenced,
+      boundaryDelivered,
+      completeWaitLockMissing,
+    }) => {
       registerTestOnlyTool(waitTool);
 
       const spies = mockNormalExecutionRepositories();
@@ -20917,7 +20951,13 @@ describe('RunExecutionService executeRun — run segments', () => {
         result: { exitCode: 0 },
       };
 
-      if (expectedContinuation) {
+      if (
+        expectedContinuation ||
+        boundaryCancelled ||
+        boundaryFenced ||
+        boundaryDelivered ||
+        completeWaitLockMissing
+      ) {
         vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
           ...run,
           activeAttemptId: testAttemptId,
@@ -20934,7 +20974,38 @@ describe('RunExecutionService executeRun — run segments', () => {
             }),
           }),
         });
-        serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+
+        if (boundaryCancelled || boundaryFenced) {
+          vi.spyOn(
+            RunRowFenceRepository.prototype,
+            'lockForDelivery',
+          ).mockResolvedValue(
+            boundaryCancelled
+              ? {
+                  ...run,
+                  activeAttemptId: testAttemptId,
+                  cancelRequestedAt: now,
+                }
+              : undefined,
+          );
+        } else {
+          serveDelivery(boundaryDelivered ? [pendingItem] : [], {
+            ...run,
+            activeAttemptId: testAttemptId,
+          });
+        }
+
+        if (boundaryDelivered) {
+          vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+            deliveredMessage,
+          );
+        }
+
+        if (completeWaitLockMissing) {
+          vi.spyOn(ChatsRepository.prototype, 'lock')
+            .mockResolvedValueOnce(chat)
+            .mockResolvedValueOnce(undefined);
+        }
       }
 
       const result = await execution.service.executeRun(
@@ -20953,7 +21024,15 @@ describe('RunExecutionService executeRun — run segments', () => {
         toolName: 'wait',
         input: { jobs: ['job://bash-44'], timeout: 30 },
       });
-      await options.onFinish?.(finishToolCalls);
+
+      if (boundaryFenced || completeWaitLockMissing) {
+        await expect(
+          options.onFinish?.(finishToolCalls),
+        ).rejects.toBeInstanceOf(RunNotRunnableError);
+      } else {
+        await options.onFinish?.(finishToolCalls);
+      }
+
       await result.consumeStream();
 
       if (expectedContinuation) {
@@ -21004,18 +21083,111 @@ describe('RunExecutionService executeRun — run segments', () => {
           'completed',
           expect.objectContaining({ attemptId: testAttemptId }),
         );
+
+        const completedReply =
+          spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+
+        expect(completedReply?.parts).toContainEqual(
+          expect.objectContaining({
+            type: 'tool-wait',
+            input: { jobs: ['job://bash-44'], timeout: 30 },
+            step: 0,
+          }),
+        );
         expect(
           appended.find(({ type }) => type === 'model.delta')?.payload,
         ).toMatchObject({ text: 'answer', stepNumber: 2 });
       } else {
         expect(appended.map(({ type }) => type)).not.toContain('run.completed');
-        expect(appended.map(({ type }) => type)).not.toContain(
-          'tool.completed',
-        );
+
+        if (boundaryCancelled || boundaryFenced || boundaryDelivered) {
+          expect(appended.map(({ type }) => type)).toContain('tool.completed');
+        } else {
+          expect(appended.map(({ type }) => type)).not.toContain(
+            'tool.completed',
+          );
+        }
+
         expect(spies.markFinished).not.toHaveBeenCalled();
+      }
+
+      if (boundaryDelivered) {
+        expect(appended.map(({ type }) => type)).toContain('run.delivered');
+        expect(segment.calls).toHaveLength(2);
       }
     },
   );
+  // eslint-enable complexity, sonarjs/cognitive-complexity
+
+  it('does not suspend when the wait request belongs to another tool call', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    vi.spyOn(waitTool, 'execute').mockImplementation((context) => {
+      if (context.onWaitRequested === undefined) {
+        throw new Error('wait request callback was not supplied');
+      }
+
+      context.onWaitRequested({
+        toolCallId: 'other-wait-call',
+        toolInput: { jobs: ['job://bash-50'] },
+        jobIds: ['job-50'],
+        deadline: '2026-11-14T12:30:00.000Z',
+      });
+
+      return Promise.resolve(WAIT_SUSPENSION);
+    });
+
+    const suspend = vi.fn<RunWaitService['suspend']>();
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('wait callbacks were not captured');
+    }
+
+    serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'wait-call',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-50'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('run.suspended');
+
+    const waitCompletion = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'wait-call',
+    );
+
+    expect(waitCompletion).toBeDefined();
+    expect(segment.calls).toHaveLength(2);
+  });
 
   it('keeps the first valid wait request when the model requests wait twice in one step', async () => {
     registerTestOnlyTool(waitTool);
@@ -21185,204 +21357,251 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     expect(output['type']).toBe('invalid_input');
   });
-  it('claims a resumed wait and completes it before continuing', async () => {
-    registerTestOnlyTool(waitTool);
+  it.each(['nothing-pending', 'cancelled', 'delivered', 'fenced'] as const)(
+    'claims a resumed wait before the %s steering boundary',
+    async (boundaryKind) => {
+      registerTestOnlyTool(waitTool);
 
-    const spies = mockNormalExecutionRepositories();
-    const appended = recordAppendedEvents();
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
 
-    const awaiting = {
-      toolCallId: 'wake-wait',
-      toolInput: { jobs: ['job://bash-45'], timeout: 30 },
-      jobIds: ['job-45'],
-      deadline: '2026-11-14T12:30:00.000Z',
-    };
+      const awaiting = {
+        toolCallId: 'wake-wait',
+        toolInput: { jobs: ['job://bash-45'], timeout: 30 },
+        jobIds: ['job-45'],
+        deadline: '2026-11-14T12:30:00.000Z',
+      };
 
-    const claimed = {
-      ...run,
-      activeAttemptId: testAttemptId,
-      awaiting,
-      wakeGeneration: 1,
-    };
+      const claimed = {
+        ...run,
+        activeAttemptId: testAttemptId,
+        awaiting,
+        wakeGeneration: 1,
+      };
 
-    spies.markStarted.mockResolvedValue(claimed);
+      spies.markStarted.mockResolvedValue(claimed);
 
-    const settledJob = {
-      ...settledBashJob(45),
-      settledAt: new Date(now.getTime() + 1000),
-      outputs: [],
-    };
+      const settledJob = {
+        ...settledBashJob(45),
+        settledAt: new Date(now.getTime() + 1000),
+        outputs: [],
+      };
 
-    const wakeEvents: Array<RunEvent> = [
-      {
-        ...event,
-        sequence: 1,
-        eventType: 'run.suspended',
-        payload: {
-          attemptId: 'suspended-attempt',
-          generation: 1,
-          toolCallId: awaiting.toolCallId,
-          awaiting,
-          parts: [{ type: 'text', text: 'before wait', step: 4 }],
-          steps: { [awaiting.toolCallId]: 4 },
+      const wakeEvents: Array<RunEvent> = [
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: 'suspended-attempt',
+            generation: 1,
+            toolCallId: awaiting.toolCallId,
+            awaiting,
+            parts: [{ type: 'text', text: 'before wait', step: 4 }],
+            steps: { [awaiting.toolCallId]: 4 },
+          },
         },
-      },
-      {
-        ...event,
-        sequence: 2,
-        eventType: 'run.resumed',
-        payload: { generation: 1, cause: 'settled' },
-      },
-      {
-        ...event,
-        sequence: 3,
-        eventType: 'run.started',
-        payload: { attemptId: testAttemptId },
-      },
-      {
-        ...event,
-        sequence: 4,
-        eventType: 'tool.completed',
-        payload: {
-          toolCallId: awaiting.toolCallId,
-          toolName: 'wait',
-          output: { status: 'success', ended: 'settled', jobs: [] },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.resumed',
+          payload: { generation: 1, cause: 'settled' },
         },
-      },
-    ];
+        {
+          ...event,
+          sequence: 3,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 4,
+          eventType: 'tool.completed',
+          payload: {
+            toolCallId: awaiting.toolCallId,
+            toolName: 'wait',
+            output: { status: 'success', ended: 'settled', jobs: [] },
+          },
+        },
+      ];
 
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-      (_runId, _userId, options) =>
-        Promise.resolve(
-          wakeEvents.filter(
-            ({ eventType }) =>
-              options?.eventTypes === undefined ||
-              options.eventTypes.some((type) => type === eventType),
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+        (_runId, _userId, options) =>
+          Promise.resolve(
+            wakeEvents.filter(
+              ({ eventType }) =>
+                options?.eventTypes === undefined ||
+                options.eventTypes.some((type) => type === eventType),
+            ),
           ),
-        ),
-    );
-    vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'consumeJobNotices',
-    ).mockResolvedValue([]);
+      );
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockResolvedValue([]);
 
-    serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+      if (boundaryKind === 'fenced') {
+        vi.spyOn(
+          RunRowFenceRepository.prototype,
+          'lockForDelivery',
+        ).mockResolvedValue(undefined);
+      } else {
+        serveDelivery(boundaryKind === 'delivered' ? [pendingItem] : [], {
+          ...run,
+          activeAttemptId: testAttemptId,
+          cancelRequestedAt: boundaryKind === 'cancelled' ? now : null,
+        });
+      }
 
-    const segment = makeSegmentClient();
+      if (boundaryKind === 'delivered') {
+        vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+          deliveredMessage,
+        );
+      }
 
-    const executor: Tool = {
-      id: toolDeclaration.id,
-      description: toolDeclaration.description,
-      classification: 'unverified',
-      inputSchema: toolDeclaration.inputSchema,
-      execute: () => ({ status: 'success' as const, value: 'continued' }),
-    };
+      const segment = makeSegmentClient();
 
-    const execution = makeExecutionService(
-      segment.client,
-      makeDynamicResolver(executor),
-      undefined,
-      {
-        ...withDeclaredTool(),
-        allowed: ['wait', toolDeclaration.id],
-        permissionPolicy: compileTestPermissionPolicy([
-          'wait',
-          toolDeclaration.id,
-        ]),
-        maxStepsPerRun: 10,
-      },
-    );
+      const executor: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => ({ status: 'success' as const, value: 'continued' }),
+      };
 
-    const latest = [
-      {
-        eventType: 'run.resumed',
-        payload: { generation: 1, cause: 'settled' },
-      },
-    ];
+      const execution = makeExecutionService(
+        segment.client,
+        makeDynamicResolver(executor),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          allowed: ['wait', toolDeclaration.id],
+          permissionPolicy: compileTestPermissionPolicy([
+            'wait',
+            toolDeclaration.id,
+          ]),
+          maxStepsPerRun: 10,
+        },
+      );
 
-    Object.defineProperty(execution.db, 'select', {
-      configurable: true,
-      value: () => ({
-        from: () => ({
-          innerJoin: () => ({
-            where: () => ({
-              orderBy: () => ({
-                limit: () => Promise.resolve(latest),
+      const latest = [
+        {
+          eventType: 'run.resumed',
+          payload: { generation: 1, cause: 'settled' },
+        },
+      ];
+
+      Object.defineProperty(execution.db, 'select', {
+        configurable: true,
+        value: () => ({
+          from: () => ({
+            innerJoin: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  limit: () => Promise.resolve(latest),
+                }),
               }),
             }),
+            where: () => Promise.resolve([settledJob]),
           }),
-          where: () => Promise.resolve([settledJob]),
         }),
-      }),
-    });
+      });
 
-    const result = await execution.service.executeRun(
-      executionInput(segment.client),
-    );
+      if (boundaryKind === 'cancelled' || boundaryKind === 'fenced') {
+        await expect(
+          execution.service.executeRun(executionInput(segment.client)),
+        ).rejects.toBeInstanceOf(RunNotRunnableError);
+        expect(segment.calls).toHaveLength(0);
 
-    expect(segment.calls[0]?.maxSteps).toBe(5);
+        if (boundaryKind === 'cancelled') {
+          expect(appended.map(({ type }) => type)).toContain('run.cancelled');
+          expect(
+            appended.find(({ type }) => type === 'run.cancelled')?.payload,
+          ).toEqual({ status: 'cancelled' });
+        } else {
+          expect(appended.map(({ type }) => type)).not.toContain(
+            'run.cancelled',
+          );
+        }
 
-    const options = segment.calls[0];
+        return;
+      }
 
-    if (!options?.onToolCall)
-      throw new Error('wake tool-loop callback was not captured');
+      const result = await execution.service.executeRun(
+        executionInput(segment.client),
+      );
 
-    await options.onStepStart?.({ messages: [], stepNumber: 0 });
-    options.onToolCall({
-      toolCallId: 'after-wake',
-      toolName: toolDeclaration.id,
-      input: { q: 'continue' },
-    });
-    await executeBoundTool(options, { q: 'continue' }, 'after-wake');
-    await options.onStepStart?.({ messages: [], stepNumber: 1 });
-    await options.onFinish?.(finishToolCalls);
-    await result.consumeStream();
+      if (boundaryKind === 'delivered') {
+        expect(appended.map(({ type }) => type)).toContain('run.delivered');
+        expect(segment.calls).toHaveLength(1);
 
-    const completed = appended.findIndex(
-      (entry) =>
-        entry.type === 'tool.completed' &&
-        isRecord(entry.payload) &&
-        entry.payload['toolCallId'] === 'wake-wait',
-    );
+        return;
+      }
 
-    const continued = appended.findIndex(
-      (entry) =>
-        entry.type === 'tool.requested' &&
-        isRecord(entry.payload) &&
-        entry.payload['toolCallId'] === 'after-wake',
-    );
+      expect(segment.calls[0]?.maxSteps).toBe(5);
 
-    const modelRequest = appended.findIndex(
-      (entry) => entry.type === 'model.requested',
-    );
+      const options = segment.calls[0];
 
-    expect(completed).toBeGreaterThanOrEqual(0);
-    expect(continued).toBeGreaterThan(completed);
-    expect(modelRequest).toBeGreaterThan(completed);
-    expect(appended[completed]?.payload).toMatchObject({
-      output: {
-        jobs: [expect.objectContaining({ locator: 'job://bash-45' })],
-      },
-    });
+      if (!options?.onToolCall)
+        throw new Error('wake tool-loop callback was not captured');
 
-    expect(
-      appended.find((entry) => entry.type === 'tool.completed'),
-    ).toMatchObject({
-      payload: {
-        toolCallId: 'wake-wait',
-        toolName: 'wait',
-      },
-    });
-    expect(
-      appended.find((entry) => entry.type === 'tool.requested'),
-    ).toMatchObject({
-      payload: {
+      await options.onStepStart?.({ messages: [], stepNumber: 0 });
+      options.onToolCall({
         toolCallId: 'after-wake',
-        stepNumber: 0,
-      },
-    });
-    expect(spies.markStarted).toHaveBeenCalledWith(runId, userId);
-  });
+        toolName: toolDeclaration.id,
+        input: { q: 'continue' },
+      });
+      await executeBoundTool(options, { q: 'continue' }, 'after-wake');
+      await options.onStepStart?.({ messages: [], stepNumber: 1 });
+      await options.onFinish?.(finishToolCalls);
+      await result.consumeStream();
+
+      const completed = appended.findIndex(
+        (entry) =>
+          entry.type === 'tool.completed' &&
+          isRecord(entry.payload) &&
+          entry.payload['toolCallId'] === 'wake-wait',
+      );
+
+      const continued = appended.findIndex(
+        (entry) =>
+          entry.type === 'tool.requested' &&
+          isRecord(entry.payload) &&
+          entry.payload['toolCallId'] === 'after-wake',
+      );
+
+      const modelRequest = appended.findIndex(
+        (entry) => entry.type === 'model.requested',
+      );
+
+      expect(completed).toBeGreaterThanOrEqual(0);
+      expect(continued).toBeGreaterThan(completed);
+      expect(modelRequest).toBeGreaterThan(completed);
+      expect(appended[completed]?.payload).toMatchObject({
+        output: {
+          jobs: [expect.objectContaining({ locator: 'job://bash-45' })],
+        },
+      });
+
+      expect(
+        appended.find((entry) => entry.type === 'tool.completed'),
+      ).toMatchObject({
+        payload: {
+          toolCallId: 'wake-wait',
+          toolName: 'wait',
+        },
+      });
+      expect(
+        appended.find((entry) => entry.type === 'tool.requested'),
+      ).toMatchObject({
+        payload: {
+          toolCallId: 'after-wake',
+          stepNumber: 0,
+        },
+      });
+      expect(spies.markStarted).toHaveBeenCalledWith(runId, userId);
+    },
+  );
   it('does not defer an ordinary declared tool call as a wait', async () => {
     mockNormalExecutionRepositories();
 
