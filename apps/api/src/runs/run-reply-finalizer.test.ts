@@ -617,6 +617,11 @@ describe('finalizeRunReply', () => {
         toolCallId: 'other-call',
       }),
     ]);
+    expect(update.mock.calls[0]?.[0]?.usage).toMatchObject({
+      status: 'error',
+      complete: false,
+      attemptId: 'prior',
+    });
   });
 
   it('keeps wake reply usage to the seeded attempt, not the suspended attempt', async () => {
