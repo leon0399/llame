@@ -4,7 +4,7 @@ Tracks [#1657](https://github.com/leon0399/llame/issues/1657), and resolves
 
 ## Delivery stack
 
-Follow [CONTRIBUTING.md](../../../CONTRIBUTING.md). Create each branch with `$gh-stack` from the
+Follow [CONTRIBUTING.md](../../../../CONTRIBUTING.md). Create each branch with `$gh-stack` from the
 current stack top, only after the proposal is approved. Implement each layer with
 `$openspec-apply-change`.
 
