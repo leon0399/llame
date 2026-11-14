@@ -7,7 +7,7 @@
  */
 import { simulateReadableStream, type TextStreamPart, type ToolSet } from 'ai';
 
-import { consumeStreamParts } from './stream-parts';
+import { consumeStreamParts, forwardChunk } from './stream-parts';
 import { createToolCallGate } from './tool-call-gate';
 
 type Delivery = [string, string | undefined, unknown];
@@ -173,6 +173,13 @@ describe('consumeStreamParts', () => {
     const metadata = { openai: { itemId: 'fc_1' } };
 
     const reported: Array<[string, unknown]> = [];
+
+    const reportedCalls: Array<{
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+    }> = [];
+
     await consumeStreamParts(
       simulateReadableStream<TextStreamPart<ToolSet>>({
         chunks: [
@@ -181,7 +188,7 @@ describe('consumeStreamParts', () => {
             type: 'tool-call',
             toolCallId: 'call-1',
             toolName: 'echo',
-            input: {},
+            input: { value: 'hello' },
             providerMetadata: metadata,
           },
         ],
@@ -191,12 +198,43 @@ describe('consumeStreamParts', () => {
           order.push('metadata');
           reported.push([toolCallId, providerMetadata]);
         },
+        onToolCall: (call) => {
+          order.push('tool');
+          reportedCalls.push(call);
+        },
       },
       gate,
     );
 
-    expect(order).toEqual(['metadata', 'call']);
+    expect(order).toEqual(['metadata', 'tool', 'call']);
     expect(reported).toEqual([['call-1', metadata]]);
+    expect(reportedCalls).toEqual([
+      { toolCallId: 'call-1', toolName: 'echo', input: { value: 'hello' } },
+    ]);
+  });
+
+  it('reports a streamed tool call to the model callback', () => {
+    const reportedCalls: Array<unknown> = [];
+    const metadata: Array<unknown> = [];
+
+    forwardChunk(
+      {
+        type: 'tool-call',
+        toolCallId: 'call-2',
+        toolName: 'echo',
+        input: { value: 'world' },
+        providerMetadata: { openai: { itemId: 'fc_2' } },
+      },
+      {
+        onToolCall: (call) => reportedCalls.push(call),
+        onToolCallMetadata: (_id, value) => metadata.push(value),
+      },
+    );
+
+    expect(reportedCalls).toEqual([
+      { toolCallId: 'call-2', toolName: 'echo', input: { value: 'world' } },
+    ]);
+    expect(metadata).toEqual([{ openai: { itemId: 'fc_2' } }]);
   });
 
   it('ends quietly when the stream fails, leaving the error to the caller’s own consumption', async () => {

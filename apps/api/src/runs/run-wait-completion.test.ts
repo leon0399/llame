@@ -153,19 +153,27 @@ describe('completeWaitInTransaction', () => {
   });
 
   it.each([
-    ['attempt fence lost', undefined],
-    ['cancellation requested', { ...run(), cancelRequestedAt: new Date(0) }],
-  ])('rejects completion when the %s', async (_case, fenced) => {
+    [
+      'attempt fence loss',
+      undefined,
+      'The resumed wait lost its active attempt.',
+    ],
+    [
+      'cancellation request',
+      { ...run(), cancelRequestedAt: new Date(0) },
+      'The resumed wait lost its active attempt.',
+    ],
+  ])('rejects completion after %s', async (_case, fenced, message) => {
     vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
       Buffer.alloc(0),
     );
     vi.spyOn(RunsRepository.prototype, 'updateForAttempt').mockResolvedValue(
       fenced,
     );
-    vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'consumeJobNotices',
-    ).mockResolvedValue([]);
+
+    const consumeNotices = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'consumeJobNotices')
+      .mockResolvedValue([]);
 
     await expect(
       completeWaitInTransaction(
@@ -174,7 +182,23 @@ describe('completeWaitInTransaction', () => {
         { toolCallId: 'call-id', jobIds: ['settled-id'] },
         'settled',
       ),
-    ).rejects.toThrow(Error);
+    ).rejects.toThrow(message);
+    expect(consumeNotices).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['terminal', { status: 'completed' as const }],
+    ['finished', { finishedAt: new Date(0) }],
+    ['without an active attempt', { activeAttemptId: null }],
+  ])('rejects a %s Run before reading jobs', async (_case, overrides) => {
+    await expect(
+      completeWaitInTransaction(
+        db([]),
+        run(overrides),
+        { toolCallId: 'call-id', jobIds: ['settled-id'] },
+        'settled',
+      ),
+    ).rejects.toThrow('A wait result requires its active Run attempt.');
   });
 });
 
@@ -224,13 +248,18 @@ describe('pendingWakeInTransaction', () => {
     ['stale generation', { generation: 1, cause: 'settled' }],
     ['malformed receipt', null],
     ['invalid cause', { generation: 2, cause: 'unknown' }],
-  ])('rejects a resumed wake with a %s', async (_case, payload) => {
+  ])('rejects a resumed wake with a %s', async (caseName, payload) => {
+    const expected =
+      caseName === 'invalid cause'
+        ? 'The current Run wake cause is invalid.'
+        : 'The current Run wake receipt is invalid.';
+
     await expect(
       pendingWakeInTransaction(
         db([{ eventType: 'run.resumed', payload, sequence: 2 }]),
         run(),
       ),
-    ).rejects.toThrow(Error);
+    ).rejects.toThrow(expected);
   });
 
   it('does not inspect wake events when the Run is not awaiting jobs', async () => {

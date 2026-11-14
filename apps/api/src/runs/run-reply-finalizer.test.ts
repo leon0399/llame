@@ -474,6 +474,8 @@ describe('finalizeRunReply', () => {
         inputTokens: 17,
         outputTokens: 5,
         totalTokens: 22,
+        status: 'completed' as const,
+        complete: true,
       };
 
       const { update } = serve({
@@ -540,7 +542,7 @@ describe('finalizeRunReply', () => {
               providerMetadata: { provider: { marker: 'kept' } },
             },
           ],
-          usage: measured,
+          usage: { ...measured, status: 'error', complete: false },
         }),
       );
     },

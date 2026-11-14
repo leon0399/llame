@@ -4,9 +4,9 @@ import { type ChatJob } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { type ToolContext } from './types';
-import { waitTool } from './wait';
+import { buildWaitResult, waitTool } from './wait';
 import { WAIT_SUSPENSION } from './wait-suspension';
+import { type ToolContext } from './types';
 
 const TX: Db = drizzle.mock({ schema });
 
@@ -139,5 +139,113 @@ describe('waitTool', () => {
       }),
     ).resolves.toMatchObject({ status: 'error', type: 'invalid_input' });
     expect(tools.onWaitRequested).not.toHaveBeenCalled();
+  });
+
+  it('returns cancellation before resolving any locator', async () => {
+    const tools = setup({ 'job://bash-3': job('job-id') });
+    const controller = new AbortController();
+    controller.abort();
+    const context = { ...tools.context, abortSignal: controller.signal };
+
+    await expect(
+      waitTool.execute(context, { jobs: ['job://bash-3'] }),
+    ).resolves.toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(tools.findByLocator).not.toHaveBeenCalled();
+  });
+
+  it('returns timeout if the call stops while resolving its jobs', async () => {
+    const tools = setup({ 'job://bash-3': job('job-id') });
+    const controller = new AbortController();
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockImplementation(
+      () => {
+        controller.abort();
+
+        return Promise.resolve(job('job-id'));
+      },
+    );
+    const context = { ...tools.context, timeoutSignal: controller.signal };
+
+    await expect(
+      waitTool.execute(context, { jobs: ['job://bash-3'] }),
+    ).resolves.toMatchObject({ status: 'error', type: 'timeout' });
+    expect(tools.onWaitRequested).not.toHaveBeenCalled();
+  });
+
+  it('does not suspend when the call has no durable wait context', async () => {
+    const tools = setup({ 'job://bash-3': job('job-id') });
+    const context = { ...tools.context, toolCallId: undefined };
+
+    await expect(
+      waitTool.execute(context, { jobs: ['job://bash-3'] }),
+    ).resolves.toMatchObject({ status: 'error', type: 'no_context' });
+    expect(tools.onWaitRequested).not.toHaveBeenCalled();
+  });
+
+  it('uses the requested timeout to set the durable deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-14T12:00:00.000Z'));
+    const tools = setup({ 'job://bash-3': job('job-id') });
+
+    await waitTool.execute(tools.context, {
+      jobs: ['job://bash-3'],
+      timeout: 12,
+    });
+
+    expect(tools.onWaitRequested).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deadline: '2026-11-14T12:00:12.000Z',
+      }),
+    );
+    vi.useRealTimers();
+  });
+});
+
+describe('buildWaitResult', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('returns each job state, settled details, bounded output, and the running promise', async () => {
+    const startedAt = new Date('2026-11-14T12:00:00.000Z');
+
+    const running = {
+      ...job('running-id'),
+      seq: 4,
+      startedAt,
+      outputs: ['stdout'],
+    };
+
+    const settled = {
+      ...job('settled-id', 'succeeded'),
+      startedAt,
+      settledAt: new Date(startedAt.getTime() + 2500),
+      outputs: ['stdout'],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+      Buffer.from('settled output'),
+    );
+
+    const result = await buildWaitResult(
+      TX,
+      { chatId: 'chat-id', userId: 'owner-id' },
+      [running, settled],
+      'timeout',
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      ended: 'timeout',
+      promise:
+        'The jobs continue in the background. You get a notice when one of them settles.',
+      jobs: [
+        { locator: 'job://bash-4', state: 'running' },
+        {
+          locator: 'job://bash-3',
+          state: 'succeeded',
+          elapsedMs: 2500,
+          exitDetail: { exitCode: 0 },
+          outputs: [{ name: 'stdout', text: 'settled output' }],
+        },
+      ],
+    });
   });
 });
