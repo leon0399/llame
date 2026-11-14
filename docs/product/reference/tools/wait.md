@@ -9,8 +9,6 @@ configured_by: ../../operator/background-jobs.md
 
 # wait
 
-This tool is not yet available. This page describes the planned behavior.
-
 ## Purpose
 
 `wait` suspends the current Run while one or more jobs continue in the background.
@@ -46,4 +44,7 @@ this Chat is `not_found`; the Run does not wait.
 
 ## Configured by
 
-The wait tool cannot be enabled yet.
+Add `wait` to `tools.allowed` and give it an explicit `wait` permission group in
+`tools.permissions`. The recommended portable policy in
+`apps/api/llame.config.jsonc.example` contains `{ "allow": true }` for `wait`.
+A `read-only` Run may use it when enabled.
