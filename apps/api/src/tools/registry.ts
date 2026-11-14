@@ -8,6 +8,7 @@ import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import { nativeGrepTool } from './grep';
 import { stopTool } from './stop';
+import { waitTool } from './wait';
 import { searchConversationsTool } from './search-conversations';
 import { conversationReadTool } from './conversation-read';
 import { webSearchTool } from './web-search/tool';
@@ -33,6 +34,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
   nativeGrepTool,
   bashTool,
   stopTool,
+  waitTool,
   enterWorkspaceTool,
   exitWorkspaceTool,
   searchConversationsTool,

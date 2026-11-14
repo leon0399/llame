@@ -402,15 +402,15 @@ acceptance and model-visible activation remain together in `wait-tool`.
 
 ## 12. Wait (`background-jobs/wait-tool`)
 
-- [ ] 12.1 Add the `wait` tool with its sentinel, its prompt file, its reference page, and its permission group; tests cover both scenarios of `The wait tool names its jobs and a timeout`, "A settled job returns at once", "A wait result is one JSON object", "Two wait calls in one step", "A wait beside a read in one step", "A Run in read-only mode waits", and "A tool call cannot name a job of another owner" for `wait`.
-- [ ] 12.2 Seed the first attempt after a wake with the `wait` tool part, in the collector, the request builder, the finalizer, and the step offset; integration tests cover "A wake does not restart the segment", "A build fails while the Run waits", the resumed step of "A settlement and a steer arrive together", a provider request that holds the `wait` call and its result, and a reload that shows the earlier steps once.
-- [ ] 12.3 Compute the `wait` result and withdraw consumed notices in the transaction that records its tool result; integration tests cover "One of three jobs fails", "A steer ends a wait", "Another job ends a wait", "A waited job gives no notice", "The worker of a waited job crashes", "A Run that waits ends its wait at the deadline", and "A cancellation after a waited job settled keeps the notice".
-- [ ] 12.4 Apply the retry rules after a wake; integration tests cover "A retry after a wake restarts a read-only segment", "A worker stops after the wake", "A worker stops after the wake of a segment with a command", and "A worker stops after a wait returned".
+- [x] 12.1 Add the `wait` tool with its sentinel, its prompt file, its reference page, and its permission group; tests cover both scenarios of `The wait tool names its jobs and a timeout`, "A settled job returns at once", "A wait result is one JSON object", "Two wait calls in one step", "A wait beside a read in one step", "A Run in read-only mode waits", and "A tool call cannot name a job of another owner" for `wait`.
+- [x] 12.2 Seed the first attempt after a wake with the `wait` tool part, in the collector, the request builder, the finalizer, and the step offset; integration tests cover "A wake does not restart the segment", "A build fails while the Run waits", the resumed step of "A settlement and a steer arrive together", a provider request that holds the `wait` call and its result, and a reload that shows the earlier steps once.
+- [x] 12.3 Compute the `wait` result and withdraw consumed notices in the transaction that records its tool result; integration tests cover "One of three jobs fails", "A steer ends a wait", "Another job ends a wait", "A waited job gives no notice", "The worker of a waited job crashes", "A Run that waits ends its wait at the deadline", and "A cancellation after a waited job settled keeps the notice".
+- [x] 12.4 Apply the retry rules after a wake; integration tests cover "A retry after a wake restarts a read-only segment", "A worker stops after the wake", "A worker stops after the wake of a segment with a command", and "A worker stops after a wait returned".
       Restore exactly the recorded consumed delivery ids; an owner-deleted notice stays withdrawn.
       Cover "A kept result does not restore its notice", plus budget, model-unavailable and dead-letter endings before wake pickup.
-- [ ] 12.5 Pin the usage of a woken reply; a test proves that it sums the requests of the seeded attempt and is `complete: false`, and that the segment budget counts the earlier steps.
-- [ ] 12.6 Update `docs/product/reference/tools/wait.md`, `tools/index.md`, `SPEC.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 12.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
+- [x] 12.5 Pin the usage of a woken reply; a test proves that it sums the requests of the seeded attempt and is `complete: false`, and that the segment budget counts the earlier steps.
+- [x] 12.6 Update `docs/product/reference/tools/wait.md`, `tools/index.md`, `SPEC.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
+- [x] 12.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
 - [ ] 12.8 Run the GitHub review and CI loop on the published head.
 
 ## 13. Web (`background-jobs/web`)
