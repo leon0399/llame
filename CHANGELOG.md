@@ -66,13 +66,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
-- **Prepare durable wait continuation (#1657).** Deferred provider call seams
-  drain sibling tools without a synthetic wait result. Internal wake claims
-  atomically store the real result and exact notice receipts, then preserve
-  the checkpoint once in provider history and finalization. Pre-dispatch
-  failures retain the committed result. This prerequisite does not register
-  or advertise the model-facing `wait` tool.
-
 - **Wait for background jobs without holding a worker (#1657).** The read-only
   `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
   It returns settled results immediately, or suspends and durably resumes the
@@ -81,6 +74,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   real result together with exact notice consumption. Cancellation leaves jobs
   running, and retries never replay native mutations. See
   [wait](docs/product/reference/tools/wait.md).
+
+- **Prepare durable wait continuation (#1657).** Deferred provider call seams
+  drain sibling tools without a synthetic wait result. Internal wake claims
+  atomically store the real result and exact notice receipts, then preserve
+  the checkpoint once in provider history and finalization. Pre-dispatch
+  failures retain the committed result. This prerequisite does not register
+  or advertise the model-facing `wait` tool.
 
 - **Prepare durable Run suspension (#1657).** Internal suspension commits
   `awaiting_jobs`, its open-call state, generation, and deadline queue job
