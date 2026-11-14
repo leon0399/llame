@@ -200,13 +200,25 @@ function withSelector(canonical: string, selector: string | undefined): string {
 /**
  * The evaluator projection for a tool: native file tools match their `path` as
  * a logical locator, and a `read` matches it without the selector that
- * windowed the call; every other tool and field is passed through. The same
+ * windowed the call; `stop` matches each `jobs` entry with a lower-case
+ * scheme; every other tool and field is passed through. The same
  * projection applies when all-fields rejection visits the native `path`.
  */
 export function nativeFileProjection(
   toolId: string,
   workspaceRoot?: string,
 ): (field: string, value: string) => string {
+  if (toolId === 'stop') {
+    // Each `jobs` entry matches with its scheme in lower case.
+    return (field, value) => {
+      const scheme = field === 'jobs' ? parsePathScheme(value) : undefined;
+
+      return scheme?.scheme === JOB_SCHEME
+        ? `${JOB_SCHEME}://${scheme.rest}`
+        : value;
+    };
+  }
+
   if (!NATIVE_FILE_PERMISSION_TOOL_IDS.has(toolId)) {
     return (_field, value) => value;
   }

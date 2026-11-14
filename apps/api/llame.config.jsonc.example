@@ -761,7 +761,7 @@
     // "permissionModes": ["default", "read-only", "bypass"],
     // Optional whole-file replacements for llame-owned tool descriptions,
     // keyed by registered tool id (bash, conversation_read, edit, enter_workspace,
-    // exit_workspace, knowledge_search, read, search_conversations, write); MCP ids are
+    // exit_workspace, knowledge_search, read, search_conversations, stop, write); MCP ids are
     // rejected. A models[].toolPromptFiles entry above wins over this one,
     // which wins over the packaged default. Paths are literal, resolve against
     // this file, and are read when an execution process starts — editing one
@@ -975,6 +975,11 @@
         ],
       },
       "exit_workspace": {
+        "allow": true,
+      },
+      // Ends background jobs of the Chat; the `jobs` locators match as
+      // lower-case `job://` text. Without this group the model cannot stop jobs.
+      "stop": {
         "allow": true,
       },
     },

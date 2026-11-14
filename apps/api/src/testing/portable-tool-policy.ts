@@ -105,8 +105,5 @@ export const PORTABLE_TOOL_PERMISSIONS: ToolPermissionMap = {
   conversation_read: { allow: true },
   enter_workspace: { allow: [ENTRY_ALLOW], reject: ENTRY_REJECTS },
   exit_workspace: { allow: true },
+  stop: { allow: true },
 };
-
-export const PORTABLE_PERMISSION_TOOL_IDS: ReadonlyArray<string> = Object.keys(
-  PORTABLE_TOOL_PERMISSIONS,
-);
