@@ -12,7 +12,7 @@
 import {
   renderBashText,
   type BashKnownResult,
-  type BashResult,
+  type BashToolResult,
   type BashTimedOutResult,
   type BashUnavailableResult,
   type BashUnknownResult,
@@ -70,9 +70,11 @@ function commandFailedResult(
 
 /** The observation the model reads, with the exit code and streams it holds. */
 export function toToolResult(
-  result: BashResult,
+  result: BashToolResult,
   spill?: BashSpill,
 ): ToolResult {
+  if ('backgrounded' in result) return { ...result };
+
   if (result.status === 'success') {
     return {
       status: 'success',

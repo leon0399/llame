@@ -8,12 +8,9 @@ import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
-import {
-  BashJobRegistry,
-  JobPromotionError,
-  type BashJobFacts,
-} from './bash-job-registry';
+import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
+import { JobPromotionError } from './job-promotion-error';
 
 /** The fakes implement only the members the registry and the store call. */
 // SAFETY: see above.
@@ -162,7 +159,10 @@ function setup(maxSeconds = 7200) {
   const config = {
     config: {
       ...BUILT_IN_DEFAULTS,
-      tools: { ...BUILT_IN_DEFAULTS.tools, jobs: { maxSeconds } },
+      tools: {
+        ...BUILT_IN_DEFAULTS.tools,
+        jobs: { ...BUILT_IN_DEFAULTS.tools.jobs, maxSeconds },
+      },
     },
   };
 
@@ -847,5 +847,31 @@ describe('BashJobRegistry', () => {
       ).rejects.toBeInstanceOf(JobPromotionError);
       expect(command.stop).toHaveBeenCalledWith('run');
     });
+  });
+});
+
+describe('BashJobRegistry.recheckJobs', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('checks the later jobs after one job check fails', async () => {
+    const registry = new BashJobRegistry(
+      { runAs: vi.fn() },
+      { instanceId: crypto.randomUUID(), jobCheck: undefined },
+      { config: BUILT_IN_DEFAULTS },
+    );
+
+    for (const id of ['a', 'b', 'c']) {
+      // SAFETY: the loop reads only keys; recheckJob is stubbed below.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      registry['jobs'].set(id, {} as never);
+    }
+
+    const check = vi
+      .spyOn(registry, 'recheckJob')
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockResolvedValue(undefined);
+
+    await expect(registry.recheckJobs()).resolves.toBeUndefined();
+    expect(check.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c']);
   });
 });

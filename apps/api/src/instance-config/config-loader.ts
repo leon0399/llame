@@ -472,6 +472,7 @@ function resolveJobBounds(
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.jobs;
 
   return {
+    allowUnlimited: bounds.allowUnlimited === true,
     maxSeconds: requireResolvedNumber(
       resolveNumeric({
         configPath: 'tools.jobs.maxSeconds',

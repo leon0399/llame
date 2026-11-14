@@ -20,11 +20,13 @@ command on that remote host instead. It is not tenant isolation.
 
 ## Arguments
 
-| Argument  | Meaning                                      |
-| --------- | -------------------------------------------- |
-| `command` | the shell text to run under `bash -c`        |
-| `cwd`     | optional literal working directory           |
-| `env`     | optional string-record environment additions |
+| Argument    | Meaning                                                                     |
+| ----------- | --------------------------------------------------------------------------- |
+| `command`   | the shell text to run under `bash -c`                                       |
+| `cwd`       | optional literal working directory                                          |
+| `env`       | optional string-record environment additions                                |
+| `async`     | optional boolean; start a host command as a background job                  |
+| `unlimited` | optional boolean; request no job lifetime, only when the operator allows it |
 
 ## Result
 
@@ -36,6 +38,12 @@ the stderr when it is non-empty. A result with both streams empty says
 and a bracketed cap notice can end the text; a result only the global result cap
 shortened ends with its notice and no such marker. A stored result without a
 wall time renders the bare header.
+
+An asynchronous host command returns immediately with a `job://bash-<n>`
+locator, cause `async`, and elapsed time. Its text has no exit header:
+“The command continues in the background as job://bash-7. You get a notice
+when it settles. Do not poll it.” The durable
+[job record](../locators/job.md) holds its eventual state and captured outputs.
 
 A stream that does not fit its inline share keeps its first lines, one
 `[lines <a>-<b> omitted; …]` line, and its last lines. When the Run can read
@@ -58,6 +66,15 @@ measured one. The stored result keeps the exit code, both bounded streams, the
 operation or the executor.
 
 ## Behavior
+
+`async: true` is host-only. SSH and Machine directories reject either background
+field, even when false; a Machine Workspace's omitted working directory is a
+Machine target too. An unlimited request is refused before spawn unless the
+operator permits it. The model cannot provide a duration or override a bound.
+
+A background job survives completion, failure, and cancellation of its starting
+Run. The composer's Stop leaves it running. The owner jobs API and Chat deletion
+can stop it, and its hosting worker stops it on orderly shutdown.
 
 `bash` accepts an optional literal `cwd` and string-record `env`. An absolute
 `cwd` is used as given; a relative `cwd` resolves from the Workspace root while
@@ -134,6 +151,11 @@ Each stream is bounded at the operator-configured byte bound
 `ssh://` command, whose buffers take that byte count as it is. A Machine keeps
 the 32,000-unit stream bound of the Machine protocol. A cut stream is reported
 as `[output cut at the bound]`.
+
+Background jobs instead use the operator's job lifetime, measured from spawn.
+An allowed unlimited job has no lifetime. See
+[background jobs](../../operator/background-jobs.md) for operator settings,
+stop controls, and deployment behavior.
 
 When the Run can read artifacts and the write succeeds, a stream over its inline
 share is stored as one artifact part named `stdout` or `stderr` in one artifact,

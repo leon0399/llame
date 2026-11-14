@@ -1082,7 +1082,7 @@
           "properties": {
             "maxProcesses": {
               "$ref": "#/$defs/bashMaxProcessesOrToken",
-              "description": "The most managed commands one worker process runs at one time, counting foreground host commands and `ssh://` commands. An integer of at least 1, or a whole-value interpolation token. Default: 64."
+              "description": "The most managed commands one worker process runs at one time, counting foreground host commands, background jobs, and `ssh://` commands. An integer of at least 1, or a whole-value interpolation token. Default: 64."
             }
           }
         },
@@ -1094,6 +1094,10 @@
             "maxSeconds": {
               "$ref": "#/$defs/jobsMaxSecondsOrToken",
               "description": "Maximum job lifetime from command start, in seconds. Default: 7200."
+            },
+            "allowUnlimited": {
+              "type": "boolean",
+              "description": "Allow unlimited host jobs without a lifetime timer. Default: false."
             }
           }
         },

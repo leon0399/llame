@@ -167,6 +167,19 @@ export class ChatJobsRepository {
     return row;
   }
 
+  /** The ids of the running jobs of the Chat; the Chat delete cascades the rows. */
+  async runningIdsInChat(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Array<string>> {
+    const rows = await this.db
+      .select({ id: chatJobs.id })
+      .from(chatJobs)
+      .where(and(inChat(chatId, ownerUserId), eq(chatJobs.state, 'running')));
+
+    return rows.map((row) => row.id);
+  }
+
   /**
    * Settle as `lost` every running job of the Chat whose worker is dead: its
    * row has no heartbeat within `deadAfterSeconds`, or no row at all

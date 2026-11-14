@@ -16,6 +16,7 @@ import {
 import { RunAbortRegistry } from './run-abort-registry';
 import { parseRunControl, RUN_CONTROL_LISTENER } from './run-control';
 import { RunsRepository } from './runs-repository';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
 
 /**
  * The run-control listener (run-steering D6): one LISTEN connection per
@@ -37,6 +38,8 @@ export class RunControlListenerService
   implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(RunControlListenerService.name);
+  @Inject(BashJobRegistry)
+  private readonly jobs!: Pick<BashJobRegistry, 'recheckJob' | 'recheckJobs'>;
 
   constructor(
     @Inject(RUN_CONTROL_LISTENER)
@@ -72,6 +75,14 @@ export class RunControlListenerService
       return;
     }
 
+    if (message.kind === 'job-stop') {
+      await this.jobs
+        .recheckJob(message.jobId)
+        .catch(() => this.logger.warn('Job-control check failed.'));
+
+      return;
+    }
+
     const userId = this.aborts.ownerOf(message.runId);
 
     if (userId === undefined) return;
@@ -84,10 +95,17 @@ export class RunControlListenerService
   }
 
   private async recheckExecuting(): Promise<void> {
+    // Independent of the Run checks: a slow job check must not delay them.
+    const jobs = this.jobs
+      .recheckJobs()
+      .catch(() => this.logger.warn('Job-control reconnect check failed.'));
+
     for (const { runId, userId } of this.aborts.executing()) {
       await this.abortIfCancelled(runId, userId);
       await this.interruptIfPending(runId, userId);
     }
+
+    await jobs;
   }
 
   /**

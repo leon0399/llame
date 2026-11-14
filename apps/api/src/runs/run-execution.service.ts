@@ -1,3 +1,4 @@
+import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { realpath, stat } from 'node:fs/promises';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
@@ -1083,6 +1084,9 @@ export class RunExecutionService {
     @Optional()
     @Inject(RunAbortRegistry)
     private readonly segmentAborts?: RunSegmentRegistrar,
+    @Optional()
+    @Inject(BashJobRegistry)
+    private readonly bashJobs?: BashJobRegistry,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1879,6 +1883,13 @@ export class RunExecutionService {
       grepBounds: this.instanceConfig.config.tools.grep,
       ...this.artifactReadContext(),
       bashProcessLimiter: this.hostBashLimiter(),
+      bashJobs: this.bashJobs,
+      jobSettings: {
+        modelId: client.model,
+        effort,
+        permissionMode: effectivePermissionMode,
+      },
+      allowUnlimitedJobs: this.instanceConfig.config.tools.jobs.allowUnlimited,
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
       workerDeadAfterSeconds: workerDeadAfterSeconds(
         this.instanceConfig.config,

@@ -7,6 +7,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- Select the latest API test report per shard on partial CI reruns, so an
+  earlier failed attempt cannot override a passing retry in the aggregate.
+
 - **Bound pending background-job output snapshots (#1657).** A slow database
   keeps one pending flush instead of retaining each cumulative output snapshot.
   The next flush captures the latest output and preserves stored suffix offsets.
@@ -16,6 +19,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Preserve the SSH subprocess's exit classification when it closes stdin
   before accepting all input. A broken input pipe no longer escapes as an
   uncaught stream error during a bounded SSH read or command.
+
+- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
+  the standard timeout header, measured duration and captured output before the
+  explanation that job promotion failed.
 
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
@@ -57,6 +64,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   retain the full sanitizer's output. Truncation is tracked per stream, including
   timed-out commands. This prepares capture for the worker job registry without
   starting background jobs from a tool.
+- **Start host bash commands as background jobs (#1657).** `async: true`
+  returns a durable `job://` locator while the command continues independently
+  of its Run. Backgrounded results carry their cause and elapsed time, and
+  render without an exit line. The worker retains the starting model, effort,
+  permission mode, credential set, and artifact policy. SSH and Machine targets
+  reject background fields after Workspace projection. `unlimited: true`
+  requires the new operator setting `tools.jobs.allowUnlimited`, default false.
+  Owner stop requests now signal the hosting worker, which confirms the request
+  under the job owner's identity; heartbeat re-checks recover lost signals.
+  Chat deletion requests termination before its job rows cascade away. See
+  [background jobs](docs/product/operator/background-jobs.md).
 - **Add the worker-owned job runtime (#1657).** A managed handle can be
   promoted to a job with a reserved artifact number and the starting Run's
   identity, permissions, settings, and output policy. Output flushes at 16 KiB

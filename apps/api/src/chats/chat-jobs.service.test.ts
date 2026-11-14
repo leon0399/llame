@@ -67,6 +67,17 @@ const OWNED_CHAT: Chat = {
 
 function makeService() {
   const db = drizzle.mock({ schema });
+
+  vi.spyOn(db, 'execute').mockResolvedValue(
+    Object.assign([], {
+      columns: [],
+      count: 0,
+      command: 'SELECT',
+      statement: { name: '', string: '', types: [], columns: [] },
+      state: { status: 'I', pid: 0, secret: 0 },
+    }),
+  );
+
   const runAs: TenantRunner['runAs'] = (_user, fn) => fn(db);
 
   return new ChatJobsService({ runAs }, { config: BUILT_IN_DEFAULTS });

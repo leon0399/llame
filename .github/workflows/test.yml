@@ -169,7 +169,7 @@ jobs:
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: api-vitest-blob-${{ matrix.shard }}
+          name: api-vitest-blob-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: apps/api/.vitest-reports/
           include-hidden-files: true
           retention-days: 1
@@ -193,9 +193,30 @@ jobs:
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          pattern: api-vitest-blob-*
-          path: apps/api/.vitest-reports
-          merge-multiple: true
+          pattern: api-vitest-blob-*-attempt-*
+          path: api-vitest-blobs
+
+      # A partial rerun creates a new artifact only for the retried shard.
+      # Merge its latest attempt with the last attempt of each other shard.
+      - run: |
+          mkdir -p apps/api/.vitest-reports
+          for shard in 1 2 3 4; do
+            latest=0
+            selected=
+            for dir in api-vitest-blobs/api-vitest-blob-"$shard"-attempt-*; do
+              [ -d "$dir" ] || continue
+              attempt=${dir##*-}
+              if (( attempt > latest )); then
+                latest=$attempt
+                selected=$dir
+              fi
+            done
+            if [ -z "$selected" ]; then
+              echo "Missing Vitest report for shard $shard" >&2
+              exit 1
+            fi
+            cp -a "$selected/." apps/api/.vitest-reports/
+          done
 
       # Replays every shard's results and merges their coverage, then applies
       # the thresholds and CRAP to the whole suite.

@@ -61,7 +61,9 @@ An orderly worker shutdown stops its hosted jobs and preserves captured output.
 A proven shutdown stop records `cancelled` with stopper `worker`; an unproven
 stop records `lost`. A lifetime stop follows the same proof rule and records
 `timed_out` only after proof. Stored output remains readable even if an artifact
-write fails. No tool starts a job in the current release.
+write fails. A host `async` command returns a job locator; that job survives
+completion, failure, or cancellation of the Run that started it. An owner job
+stop or Chat deletion still ends the command under the same proof rule.
 
 ## Configured by
 

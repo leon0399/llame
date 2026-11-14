@@ -81,6 +81,17 @@ export type BashResult =
   | BashUnknownResult
   | BashUnavailableResult;
 
+/** Tool-call settlement after ownership transfers to a background job. */
+export type BashBackgroundedResult = {
+  readonly status: "success";
+  readonly backgrounded: true;
+  readonly job: string;
+  readonly cause: "async" | "time" | "message";
+  readonly wallTimeMs: number;
+};
+
+export type BashToolResult = BashResult | BashBackgroundedResult;
+
 /** Why the caller stops a managed command: the registry maps each to a state. */
 export type ManagedStopCause =
   | "run"
