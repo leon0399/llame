@@ -96,10 +96,10 @@ rules:
     - >-
       Put Closes #N on the PR whose merge satisfies that issue's acceptance,
       even when later implementation or finalize layers remain. Earlier partial
-      layers reference the issue without closing it. Each layer updates its
-      affected documentation, dated CHANGELOG.md entry, and completed ROADMAP.md
-      removals. Finalize owns spec synchronization, task records, and archive
-      movement, not deferred documentation or issue closure.
+      layers reference the issue without closing it. Each layer that ships work
+      updates its affected documentation, dated CHANGELOG.md entry, and
+      completed ROADMAP.md removals. Finalize owns spec synchronization, task
+      records, and archive movement, not deferred documentation or issue closure.
     - >-
       Include final-layer spec-sync and archive-readiness tasks. Require entry
       to <change>/finalize with $gh-stack before $openspec-sync-specs writes.
