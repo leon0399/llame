@@ -1104,6 +1104,20 @@ describe('RunExecutionService executeRun', () => {
     ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
   }
 
+  it('executes a normal attempt when no native mutation needs recovery', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
+      false,
+    );
+
+    const execution = makeExecutionService();
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await execution.service.executeRun(executionInput(execution.client));
+
+    expect(stream).toHaveBeenCalledOnce();
+  });
+
   it('does not execute after the Chat lock cannot be acquired', async () => {
     mockNormalExecutionRepositories();
 
