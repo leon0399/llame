@@ -6,8 +6,8 @@ import { HostJobNotices } from "./job-notice-part";
 
 const message: UIMessage = {
   id: "host-jobs",
-  role: "assistant",
-  metadata: { host: true },
+  role: "user",
+  metadata: { seq: 42, host: true },
   parts: [
     {
       type: "data-context",
