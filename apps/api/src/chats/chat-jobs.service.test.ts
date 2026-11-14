@@ -65,7 +65,9 @@ const OWNED_CHAT: Chat = {
   workspaceDetachReason: null,
 };
 
-function makeService() {
+function makeService(
+  wakeForChatInTransaction = vi.fn().mockResolvedValue(false),
+) {
   const db = drizzle.mock({ schema });
 
   vi.spyOn(db, 'execute').mockResolvedValue(
@@ -83,7 +85,7 @@ function makeService() {
   return new ChatJobsService(
     { runAs },
     { config: BUILT_IN_DEFAULTS },
-    { wakeForChatInTransaction: vi.fn().mockResolvedValue(false) },
+    { wakeForChatInTransaction },
   );
 }
 
@@ -119,6 +121,23 @@ describe('ChatJobsService', () => {
 
     expect(rows.map((row) => row.id)).toEqual(['b', 'd', 'a', 'c']);
     expect(s.settle).toHaveBeenCalledWith(CHAT, USER, DEAD_AFTER);
+  });
+
+  it('wakes the waiting Run when a dead-worker job is settled', async () => {
+    const s = script();
+    const wakeForChatInTransaction = vi.fn().mockResolvedValue(true);
+
+    s.settle.mockResolvedValue([job({ id: 'dead-job', state: 'lost' })]);
+    s.list.mockResolvedValue([]);
+
+    await makeService(wakeForChatInTransaction).list(CHAT, USER);
+
+    expect(wakeForChatInTransaction).toHaveBeenCalledWith(expect.anything(), {
+      chatId: CHAT,
+      userId: USER,
+      jobId: 'dead-job',
+      kind: 'settlement',
+    });
   });
 
   it('answers not found for a Chat that the owner does not hold, and touches nothing', async () => {
