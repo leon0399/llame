@@ -434,8 +434,12 @@ queue module is destroyed. Winning settlements create one pending notice,
 including lost-on-touch settlement. A live Run receives pending notices at its
 next ordered boundary with steer and interrupt items; only that executing Run
 receives the signal. Stop-result consumption and exact restoration are atomic
-with persistence. Idle host-started Runs, held-notice admission, and `wait`
-remain inactive. See
+with persistence. An eligible settlement on an idle, unarchived Chat whose
+latest Run completed creates a host trigger, Run, notice attachments, and first
+queue job in the same transaction. The first pending notice supplies settings;
+invalid settings leave notices pending. Lost and cancelled jobs start no Run.
+Owner send, promotion, mode change, and follow-up admission adopt held notices;
+an ending Run returns notices it never dispatched. `wait` remains inactive. See
 [job locators](docs/product/reference/locators/job.md#pending-notices),
 [stop](docs/product/reference/tools/stop.md#behavior), and the
 [operator boundary](docs/product/operator/background-jobs.md#runtime-boundary).

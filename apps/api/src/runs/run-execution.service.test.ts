@@ -674,6 +674,7 @@ function makeExecutionService(
       tenantDb,
       { instanceId: crypto.randomUUID() },
       instanceConfig,
+      { startOnSettlement: vi.fn() },
     ),
   );
 
@@ -807,6 +808,10 @@ function mockNormalExecutionRepositories() {
     ChatDeliveriesRepository.prototype,
     'lockPendingBoundary',
   ).mockResolvedValue([]);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'deliverPendingJobNotices',
+  ).mockResolvedValue(undefined);
 
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')

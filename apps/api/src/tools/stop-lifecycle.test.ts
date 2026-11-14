@@ -105,6 +105,7 @@ describe('stop lifecycle', () => {
       tenantDb,
       { instanceId: crypto.randomUUID() },
       { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
     );
     context = {
       userId: 'owner',

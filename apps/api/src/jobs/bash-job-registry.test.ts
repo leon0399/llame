@@ -3,16 +3,15 @@ import {
   type BashResult,
 } from '@workspace/bash-executor';
 
-import { ChatsRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { RunsRepository } from '../runs/runs-repository';
+import { ChatsRepository } from '../chats/chats-repository';
 import { type ChatJob, type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
 import { NativeReceiptsRepository } from '../runs/native-receipts-repository';
-import { RunEventsRepository } from '../runs/runs-repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { BashJobLifecycle } from './bash-job-lifecycle';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
@@ -180,6 +179,7 @@ function setup(maxSeconds = 7200) {
     tenantDb,
     { instanceId: crypto.randomUUID() },
     config,
+    { startOnSettlement: vi.fn() },
   );
 
   vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(7);
@@ -1308,6 +1308,7 @@ describe('BashJobLifecycle.recheckJobs', () => {
     const lifecycle = new BashJobLifecycle(
       { runAs: vi.fn() },
       { warn: vi.fn(), error: vi.fn() },
+      { startOnSettlement: vi.fn() },
     );
 
     const command = fakeHandle();

@@ -45,6 +45,10 @@ import { FollowUpAdmissionService } from './follow-up-admission.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import type { FollowUpRequestInput } from './follow-up-admission.service';
 
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { deliverPendingSteering } from '../runs/segment-delivery';
+
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
 
@@ -191,8 +195,9 @@ describeIfDb('follow-up admission', () => {
     effort?: string | null;
     permissionMode?: PermissionMode;
     replyParts?: Array<unknown>;
-    /** Items an earlier Run of this turn stored on the trigger. */
     triggerItems?: Array<unknown>;
+    /** A code-authored host trigger has role user and no sender. */
+    hostTrigger?: boolean;
     replyUsageStatus?: 'error' | 'aborted' | 'completed' | 'running';
     reply?: boolean;
     followUpAction?: FollowUpAction;
@@ -222,7 +227,7 @@ describeIfDb('follow-up admission', () => {
       const userMessage = await messagesRepo.create({
         chatId: chat.id,
         role: 'user',
-        senderUserId: ownerUserId,
+        senderUserId: options.hostTrigger === true ? null : ownerUserId,
         parts: [
           { type: 'text', text: 'Do the work' },
           ...(options.triggerItems ?? []),
@@ -435,6 +440,191 @@ describeIfDb('follow-up admission', () => {
       expect(events[1]?.payload).toEqual({
         sourceRunId: fixture.runId,
         parts: settledCall('call-1'),
+      });
+    });
+    it('admits Continue from a senderless host trigger', async () => {
+      const fixture = await seedTurn({
+        status: 'failed',
+        effort: 'high',
+        hostTrigger: true,
+        replyParts: settledCall('host-call-1'),
+      });
+
+      const admitted = await admit(fixture, {
+        action: 'continue',
+        permissionMode: 'bypass',
+      });
+
+      expect(admitted.userMessage.id).toBe(fixture.messageId);
+      expect(await runById(admitted.runId)).toMatchObject({
+        chatId: fixture.chatId,
+        messageId: fixture.messageId,
+        userId: api.userId,
+        followUpAction: 'continue',
+        status: 'queued',
+      });
+    });
+
+    it('delivers held notices at the first Continue boundary', async () => {
+      const fixture = await seedTurn({
+        status: 'failed',
+        replyParts: settledCall('continue-call-1'),
+      });
+
+      const notice = await api.tenantDb.runAs(api.userId, async (tx) => {
+        const jobs = new ChatJobsRepository(tx);
+
+        const job = await jobs.insert({
+          chatId: fixture.chatId,
+          ownerUserId: api.userId,
+          executor: 'bash',
+          seq: 73,
+          runId: fixture.runId,
+          toolCallId: crypto.randomUUID(),
+          workerInstanceId: crypto.randomUUID(),
+          startedAt: new Date(),
+          outputs: [],
+          artifactReadable: false,
+          settings: { modelId: MODEL_ID, permissionMode: 'default' },
+        });
+
+        const settled = await jobs.settle(fixture.chatId, api.userId, job.id, {
+          state: 'failed',
+          result: { exitCode: 2 },
+        });
+
+        if (!settled) throw new Error('Test job did not settle.');
+
+        const inserted = await new ChatDeliveriesRepository(tx).insertJobNotice(
+          settled,
+        );
+
+        if (!inserted) throw new Error('Test job notice was not inserted.');
+
+        return inserted;
+      });
+
+      const admitted = await admit(fixture, {
+        action: 'continue',
+        permissionMode: 'bypass',
+      });
+
+      expect(
+        await api.tenantDb.runAs(api.userId, (tx) =>
+          new ChatDeliveriesRepository(tx).findById(notice.id, api.userId),
+        ),
+      ).toMatchObject({ state: 'pending', runId: null });
+
+      const started = await api.tenantDb.runAs(api.userId, (tx) =>
+        new RunsRepository(tx).markStarted(admitted.runId, api.userId),
+      );
+
+      if (!started?.activeAttemptId)
+        throw new Error('Continue Run did not start.');
+
+      const delivery = await api.tenantDb.runAs(api.userId, (tx) =>
+        deliverPendingSteering(tx, {
+          run: { runId: admitted.runId, userId: api.userId },
+          attemptId: started.activeAttemptId!,
+          deadWorkerAfterSeconds: 1_000_000,
+          models: [],
+        }),
+      );
+
+      if (delivery.kind !== 'delivered' || delivery.cause !== 'notice')
+        throw new Error('Continue Run did not deliver the notice boundary.');
+
+      expect(
+        await api.tenantDb.runAs(api.userId, (tx) =>
+          new ChatDeliveriesRepository(tx).findById(notice.id, api.userId),
+        ),
+      ).toMatchObject({
+        state: 'delivered',
+        runId: admitted.runId,
+        deliveredMessageId: delivery.message.id,
+      });
+    });
+
+    it('admits Continue on a senderless boundary-created trigger', async () => {
+      const fixture = await seedTurn({
+        status: 'running_model',
+        runningAttempt: true,
+        replyUsageStatus: 'running',
+      });
+
+      const running = await runById(fixture.runId);
+
+      if (!running?.activeAttemptId) throw new Error('Base Run did not start.');
+      await api.tenantDb.runAs(api.userId, async (tx) => {
+        const jobs = new ChatJobsRepository(tx);
+
+        const job = await jobs.insert({
+          chatId: fixture.chatId,
+          ownerUserId: api.userId,
+          executor: 'bash',
+          seq: 74,
+          runId: fixture.runId,
+          toolCallId: crypto.randomUUID(),
+          workerInstanceId: crypto.randomUUID(),
+          startedAt: new Date(),
+          outputs: [],
+          artifactReadable: false,
+          settings: { modelId: MODEL_ID, permissionMode: 'default' },
+        });
+
+        const settled = await jobs.settle(fixture.chatId, api.userId, job.id, {
+          state: 'failed',
+          result: { exitCode: 2 },
+        });
+
+        if (!settled) throw new Error('Test job did not settle.');
+
+        const notice = await new ChatDeliveriesRepository(tx).insertJobNotice(
+          settled,
+        );
+
+        if (!notice) throw new Error('Test job notice was not inserted.');
+      });
+
+      const boundary = await api.tenantDb.runAs(api.userId, (tx) =>
+        deliverPendingSteering(tx, {
+          run: { runId: fixture.runId, userId: api.userId },
+          attemptId: running.activeAttemptId!,
+          deadWorkerAfterSeconds: 1_000_000,
+          models: [],
+        }),
+      );
+
+      if (boundary.kind !== 'delivered' || boundary.cause !== 'notice')
+        throw new Error('The notice did not create a boundary trigger.');
+      expect(boundary.message.senderUserId).toBeNull();
+
+      await api.tenantDb.runAs(api.userId, async (tx) => {
+        await new MessagesRepository(tx).createAssistantReplyIfAbsent({
+          chatId: fixture.chatId,
+          inReplyTo: boundary.message.id,
+          parts: [{ type: 'text', text: 'A partial host reply.' }],
+          usage: { status: 'error', runId: fixture.runId, modelId: MODEL_ID },
+        });
+        await new RunsRepository(tx).markFinished(
+          fixture.runId,
+          api.userId,
+          'failed',
+        );
+      });
+
+      const continued = await api.admission.admitFollowUpRun({
+        chatId: fixture.chatId,
+        userId: api.userId,
+        userMessageId: boundary.message.id,
+        request: { action: 'continue', permissionMode: 'bypass' },
+      });
+
+      expect(await runById(continued.runId)).toMatchObject({
+        messageId: boundary.message.id,
+        followUpAction: 'continue',
+        sourceRunId: fixture.runId,
+        status: 'queued',
       });
     });
 

@@ -27,8 +27,14 @@ import { bashTool } from './bash';
 import { runTool } from './runner';
 import { stopTool } from './stop';
 import { type ToolContext } from './types';
+import { FakeModelsService } from '../testing/fake-streaming-model-client';
+import { JobNoticeRunService } from '../runs/job-notice-run.service';
 
 const config = { config: BUILT_IN_DEFAULTS };
+
+const noticeRuns = new JobNoticeRunService(new FakeModelsService(), config, {
+  enqueueInTransaction: async () => {},
+});
 
 describe('real host async jobs', () => {
   let sql: Sql;
@@ -54,7 +60,7 @@ describe('real host async jobs', () => {
     heartbeat = new WorkerHeartbeatService(drizzle(sql, { schema }), config, {
       concurrencyFor: () => 1,
     });
-    registry = new BashJobRegistry(tenant, heartbeat, config);
+    registry = new BashJobRegistry(tenant, heartbeat, config, noticeRuns);
     registry.onModuleInit();
     await heartbeat.beat();
 

@@ -16,6 +16,11 @@ import { loadProductUserAgent } from '../instance-config/product-identity';
 import { ModelsService } from '../models/models.service';
 import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RunsRepository } from '../runs/runs-repository';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { settleBashJob } from '../jobs/bash-job-store';
+import { JobNoticeRunService } from '../runs/job-notice-run.service';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
+import { bootWorkerHarness, type WorkerHarness } from '../runs/worker-harness';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { SearchIndexService } from '../search/search-index.service';
 import {
@@ -24,7 +29,7 @@ import {
   FakeModelsService,
   waitFor,
 } from '../testing/support';
-import { toRunUserMessage } from './chat-message-parts';
+import { toMessageParts, toRunUserMessage } from './chat-message-parts';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 
@@ -62,6 +67,7 @@ describe('seeded host history boundaries', () => {
   let ownerCookie: string;
   let visitorCookie: string;
   const models = new FakeModelsService();
+  let worker: WorkerHarness;
 
   beforeAll(async () => {
     process.env['POSTGRES_URL'] = databaseUrl;
@@ -112,10 +118,12 @@ describe('seeded host history boundaries', () => {
     const second = await register('visitor');
     visitor = second.id;
     visitorCookie = second.cookie;
+    worker = await bootWorkerHarness({ runsConcurrency: null });
   });
 
   afterAll(async () => {
     await app?.close();
+    await worker?.close();
   });
   beforeEach(() => {
     models.client.turns.length = 0;
@@ -130,7 +138,7 @@ describe('seeded host history boundaries', () => {
     );
 
   async function seedHistory() {
-    return tenantDb.runAs(owner, async (tx) => {
+    const seed = await tenantDb.runAs(owner, async (tx) => {
       const chat = await new ChatsRepository(tx).create({
         ownerUserId: owner,
         title: 'Host history',
@@ -153,33 +161,126 @@ describe('seeded host history boundaries', () => {
         inReplyTo: question.id,
       });
 
-      const host = await messages.create({
+      const priorRun = await new RunsRepository(tx).create({
         chatId: chat.id,
-        role: 'user',
-        parts: noticeParts,
+        messageId: question.id,
+        userId: owner,
+        modelId: 'system:openai:gpt-5.5',
       });
 
-      const reply = await messages.create({
-        chatId: chat.id,
-        role: 'assistant',
-        parts: [{ type: 'text', text: 'Notice answer' }],
-        inReplyTo: host.id,
-      });
+      await new RunsRepository(tx).markFinished(
+        priorRun.id,
+        owner,
+        'completed',
+      );
 
-      // A hidden tail must not consume the public page's limit.
-      await messages.create({
-        chatId: chat.id,
-        role: 'user',
-        parts: noticeParts,
-      });
-      await messages.create({
-        chatId: chat.id,
-        role: 'user',
-        parts: noticeParts,
-      });
-
-      return { chat, question, answer, host, reply };
+      return { chat, question, answer, priorRun };
     });
+
+    const job = await worker.tenantDb.runAs(owner, (tx) =>
+      new ChatJobsRepository(tx).insert({
+        chatId: seed.chat.id,
+        ownerUserId: owner,
+        executor: 'bash',
+        seq: 1,
+        runId: seed.priorRun.id,
+        toolCallId: randomUUID(),
+        workerInstanceId: randomUUID(),
+        outputs: ['stdout', 'stderr'],
+        artifactReadable: false,
+        settings: {
+          modelId: 'system:openai:gpt-5.5',
+          permissionMode: 'default',
+        },
+      }),
+    );
+
+    await settleBashJob(
+      worker.tenantDb,
+      job,
+      {
+        output: {
+          stdout: 'PRIVATE_JOB_OUTPUT_TOKEN',
+          stderr: '',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'failed', result: { exitCode: 1 } },
+        offsets: { stdout: 0, stderr: 0 },
+      },
+      {
+        maxBytes: 65_536,
+        hostFiles: false,
+        noticeRuns: worker.moduleRef.get(JobNoticeRunService),
+      },
+    );
+
+    const host = await tenantDb.runAs(owner, async (tx) => {
+      const messages = new MessagesRepository(tx);
+      const chatMessages = await messages.findByChatId(seed.chat.id, owner);
+
+      const trigger = chatMessages.find(
+        (message) => message.role === 'user' && message.senderUserId === null,
+      );
+
+      if (!trigger)
+        throw new Error('Job settlement did not create a host trigger.');
+
+      const run = (
+        await new RunsRepository(tx).findByChatId(seed.chat.id, owner)
+      ).find((candidate) => candidate.messageId === trigger.id);
+
+      if (!run) throw new Error('Job settlement did not create its host Run.');
+
+      return { trigger, run };
+    });
+
+    await dispatch.dispatch({
+      chatId: seed.chat.id,
+      runId: host.run.id,
+      userId: owner,
+      modelId: host.run.modelId,
+      userMessage: toRunUserMessage(host.trigger),
+    });
+    await waitFor(
+      async () =>
+        (await dispatch.jobState(host.run.id)) === 'completed'
+          ? true
+          : undefined,
+      20_000,
+      'settlement-created host Run completion',
+    );
+
+    const produced = await tenantDb.runAs(owner, async (tx) => {
+      const messages = await new MessagesRepository(tx).findByChatId(
+        seed.chat.id,
+        owner,
+      );
+
+      const trigger = messages.find(
+        (message) => message.id === host.trigger.id,
+      );
+
+      const reply = messages.find(
+        (message) =>
+          message.role === 'assistant' && message.inReplyTo === host.trigger.id,
+      );
+
+      if (!trigger || !reply)
+        throw new Error(
+          'The host Run did not persist its owner-history reply.',
+        );
+
+      return { trigger, reply };
+    });
+
+    return {
+      chat: seed.chat,
+      question: seed.question,
+      answer: seed.answer,
+      host: produced.trigger,
+      reply: produced.reply,
+    };
   }
 
   it('marks owner history, preserves assistant identity, and denies foreign owner history', async () => {
@@ -199,6 +300,19 @@ describe('seeded host history boundaries', () => {
         expect.arrayContaining([expect.objectContaining(row)]),
       );
     }
+
+    expect(JSON.stringify(body)).toContain('PRIVATE_JOB_OUTPUT_TOKEN');
+
+    const delivered = await worker.tenantDb.runAs(owner, (tx) =>
+      new ChatDeliveriesRepository(tx).listDeliveredJobNotices(
+        chat.id,
+        owner,
+        host.id,
+      ),
+    );
+
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]?.parts).toEqual([]);
 
     const foreign = await request(http).get(url).set('Cookie', visitorCookie);
     expect(foreign.status).toBe(404);
@@ -232,11 +346,20 @@ describe('seeded host history boundaries', () => {
 
     if (!shared) throw new Error('Public fork was not created');
     const sharedRows = await rows(shared.id, visitor);
-    expect(sharedRows.map((row) => row.parts)).toEqual([
-      question.parts,
-      answer.parts,
-      reply.parts,
+
+    const visibleText = (parts: Array<unknown>) =>
+      toMessageParts(parts)
+        .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+        .join('');
+
+    expect(sharedRows.map((row) => row.role)).toEqual([
+      'user',
+      'assistant',
+      'assistant',
     ]);
+    expect(sharedRows.map((row) => visibleText(row.parts))).toEqual(
+      [question, answer, reply].map((row) => visibleText(row.parts)),
+    );
     expect(sharedRows[1]?.inReplyTo).toBe(sharedRows[0]?.id);
     expect(sharedRows[2]?.inReplyTo).toBeNull();
     expect(
@@ -369,6 +492,110 @@ describe('seeded host history boundaries', () => {
 
     expect(titled).toBe('Generated Title');
     expect(models.createClientCalls).toContainEqual({
+      modelId: 'system:openai:gpt-5.4-nano',
+    });
+  });
+
+  it('does not generate a title for a real settlement-created host trigger', async () => {
+    const seed = await tenantDb.runAs(owner, async (tx) => {
+      const chat = await new ChatsRepository(tx).create({ ownerUserId: owner });
+
+      const question = await new MessagesRepository(tx).create({
+        chatId: chat.id,
+        role: 'user',
+        senderUserId: owner,
+        parts: [{ type: 'text', text: 'Earlier owner turn' }],
+      });
+
+      const priorRun = await new RunsRepository(tx).create({
+        chatId: chat.id,
+        messageId: question.id,
+        userId: owner,
+        modelId: 'system:openai:gpt-5.5',
+      });
+
+      await new RunsRepository(tx).markFinished(
+        priorRun.id,
+        owner,
+        'completed',
+      );
+
+      return { chat, priorRun };
+    });
+
+    const job = await worker.tenantDb.runAs(owner, (tx) =>
+      new ChatJobsRepository(tx).insert({
+        chatId: seed.chat.id,
+        ownerUserId: owner,
+        executor: 'bash',
+        seq: 1,
+        runId: seed.priorRun.id,
+        toolCallId: randomUUID(),
+        workerInstanceId: randomUUID(),
+        outputs: ['stdout', 'stderr'],
+        artifactReadable: false,
+        settings: {
+          modelId: 'system:openai:gpt-5.5',
+          permissionMode: 'default',
+        },
+      }),
+    );
+
+    await settleBashJob(
+      worker.tenantDb,
+      job,
+      {
+        output: {
+          stdout: 'PRIVATE_JOB_OUTPUT_TOKEN',
+          stderr: '',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'succeeded', result: { exitCode: 0 } },
+        offsets: { stdout: 0, stderr: 0 },
+      },
+      {
+        maxBytes: 65_536,
+        hostFiles: false,
+        noticeRuns: worker.moduleRef.get(JobNoticeRunService),
+      },
+    );
+
+    const host = await tenantDb.runAs(owner, async (tx) => {
+      const message = (
+        await new MessagesRepository(tx).findByChatId(seed.chat.id, owner)
+      ).find((row) => row.role === 'user' && row.senderUserId === null);
+
+      if (!message)
+        throw new Error('Settlement did not create a host trigger.');
+
+      const run = (
+        await new RunsRepository(tx).findByChatId(seed.chat.id, owner)
+      ).find((candidate) => candidate.messageId === message.id);
+
+      if (!run) throw new Error('Settlement did not create its host Run.');
+
+      return { message, run };
+    });
+
+    await dispatch.dispatch({
+      chatId: seed.chat.id,
+      runId: host.run.id,
+      userId: owner,
+      modelId: host.run.modelId,
+      userMessage: toRunUserMessage(host.message),
+    });
+    await waitFor(
+      async () =>
+        (await dispatch.jobState(host.run.id)) === 'completed'
+          ? true
+          : undefined,
+      20_000,
+      'real host Run completion',
+    );
+
+    expect((await chats.getChatById(seed.chat.id, owner))?.title).toBeNull();
+    expect(models.createClientCalls).not.toContainEqual({
       modelId: 'system:openai:gpt-5.4-nano',
     });
   });

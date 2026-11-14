@@ -25,6 +25,7 @@ import { type JobStopCause, BashJobLifecycle } from './bash-job-lifecycle';
 import { JobPromotionError } from './job-promotion-error';
 import { BashJobPromotion } from './bash-job-promotion';
 import { WorkerHeartbeatService } from './worker-heartbeat.service';
+import { JobNoticeRunService } from '../runs/job-notice-run.service';
 
 export type BashJobFacts = {
   readonly ownerUserId: string;
@@ -60,8 +61,14 @@ export class BashJobRegistry implements OnModuleInit {
     >,
     @Inject(InstanceConfigService)
     private readonly config: InstanceConfigReader,
+    @Inject(JobNoticeRunService)
+    private readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>,
   ) {
-    this.lifecycle = new BashJobLifecycle(this.tenantDb, this.logger);
+    this.lifecycle = new BashJobLifecycle(
+      this.tenantDb,
+      this.logger,
+      this.noticeRuns,
+    );
     this.promotion = new BashJobPromotion({
       tenantDb: this.tenantDb,
       workerInstanceId: this.worker.instanceId,

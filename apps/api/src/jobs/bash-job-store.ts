@@ -10,6 +10,7 @@ import { writeArtifactHostFiles } from '../tools/artifacts/host-files';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { recordJobSettlementNotice } from './job-notices';
 import { type NewArtifactPart } from '../tools/artifacts/artifacts-repository';
+import { type JobNoticeRunService } from '../runs/job-notice-run.service';
 
 type JobCompletion = {
   readonly output: ManagedOutput;
@@ -23,9 +24,10 @@ type JobArtifact = {
   parts: Array<NewArtifactPart>;
 };
 
-export type JobArtifactPolicy = {
+export type JobSettlementContext = {
   readonly maxBytes: number;
   readonly hostFiles: boolean;
+  readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>;
 };
 
 const OUTPUTS = ['stdout', 'stderr'] as const;
@@ -56,15 +58,15 @@ export async function settleBashJob(
   tenantDb: TenantRunner,
   job: ChatJob,
   completion: JobCompletion,
-  policy: JobArtifactPolicy,
+  context: JobSettlementContext,
 ): Promise<void> {
   const artifact = await retryJobTransaction(() =>
     tenantDb.runAs(job.ownerUserId, (tx) =>
-      settleInTransaction(tx, job, completion, policy),
+      settleInTransaction(tx, job, completion, context),
     ),
   );
 
-  if (artifact !== undefined && policy.hostFiles) {
+  if (artifact !== undefined && context.hostFiles) {
     await writeArtifactHostFiles({
       chatId: job.chatId,
       toolName: 'bash',
@@ -79,7 +81,7 @@ async function settleInTransaction(
   tx: Db,
   job: ChatJob,
   completion: JobCompletion,
-  policy: JobArtifactPolicy,
+  context: JobSettlementContext,
 ): Promise<JobArtifact | undefined> {
   // Chat first (D6); `settle` then locks the job row and only moves a running one.
   if (
@@ -105,7 +107,7 @@ async function settleInTransaction(
     OUTPUTS.some((name) => completion.output[name].length > 2000)
   ) {
     try {
-      artifact = await writeJobArtifact(tx, job, completion, policy.maxBytes);
+      artifact = await writeJobArtifact(tx, job, completion, context.maxBytes);
     } catch (error) {
       // Deadlocks/serialization failures must retry the whole transaction.
       if (isRetryableJobError(error)) throw error;
@@ -113,6 +115,7 @@ async function settleInTransaction(
   }
 
   await recordJobSettlementNotice(tx, settled);
+  await context.noticeRuns.startOnSettlement(tx, settled);
 
   return artifact;
 }

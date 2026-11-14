@@ -13,7 +13,13 @@ import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 
 const OWNER = 'owner';
 const NO_CUT = { stdout: false, stderr: false };
-const POLICY = { maxBytes: 1_000_000, hostFiles: false };
+
+const POLICY = {
+  maxBytes: 1_000_000,
+  hostFiles: false,
+  noticeRuns: { startOnSettlement: vi.fn() },
+};
+
 const BIG = { stdout: 'o'.repeat(3000), stderr: 'e'.repeat(10) };
 
 function row(over: Partial<ChatJob> = {}): ChatJob {
@@ -140,7 +146,10 @@ function setup() {
         settlement,
         offsets: over.offsets ?? NO_OFFSETS,
       },
-      { ...POLICY, maxBytes: over.maxBytes ?? POLICY.maxBytes },
+      {
+        ...POLICY,
+        maxBytes: over.maxBytes ?? POLICY.maxBytes,
+      },
     );
 
   return {
