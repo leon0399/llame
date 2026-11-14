@@ -12420,6 +12420,127 @@ describe('RunExecutionService settleTerminalRun', () => {
     expect(execution.searchIndex.reindexChat).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      label: 'the Run disappeared before the wake was handled',
+      candidate: [],
+      current: [],
+      chatLocked: true,
+      finalStatus: undefined,
+    },
+    {
+      label: 'the Chat lock was unavailable',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [],
+      chatLocked: false,
+      finalStatus: run.status,
+    },
+    {
+      label: 'the Run disappeared after the Chat lock',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [],
+      chatLocked: true,
+      finalStatus: undefined,
+    },
+    {
+      label: 'the Run is already terminal',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [
+        {
+          ...run,
+          status: 'completed' as const,
+          currentJobId: 'job-current',
+          wakeGeneration: 7,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: 'completed',
+    },
+    {
+      label: 'the Run has already finished',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [
+        {
+          ...run,
+          finishedAt: now,
+          currentJobId: 'job-current',
+          wakeGeneration: 7,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: run.status,
+    },
+    {
+      label: 'a newer queue job replaced the wake',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [
+        {
+          ...run,
+          currentJobId: 'job-newer',
+          wakeGeneration: 7,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: run.status,
+    },
+    {
+      label: 'a newer wake generation replaced the wake',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 8 }],
+      current: [
+        {
+          ...run,
+          currentJobId: 'job-current',
+          wakeGeneration: 8,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: run.status,
+    },
+  ])(
+    'does not terminalize a queue wake when $label',
+    async ({ candidate, current, chatLocked, finalStatus }) => {
+      const responses = [candidate, current];
+      let queryIndex = 0;
+
+      const select = vi.fn(() => {
+        const rows = responses[queryIndex++] ?? [];
+
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue(rows),
+              for: vi.fn().mockResolvedValue(rows),
+            })),
+          })),
+        };
+      });
+
+      const execution = makeExecutionService();
+      Object.assign(execution.db, asDouble<Pick<Db, 'select'>>({ select }));
+
+      const markFinished = vi
+        .spyOn(RunsRepository.prototype, 'markFinished')
+        .mockResolvedValue({ ...run, status: 'expired' });
+
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
+        chatLocked ? chat : undefined,
+      );
+
+      const settlement = await execution.service.settleTerminalRun({
+        userId,
+        runId,
+        status: 'expired',
+        expectedQueueIdentity: {
+          currentJobId: 'job-current',
+          wakeGeneration: 7,
+        },
+      });
+
+      expect(settlement).toEqual({ outcome: 'lost', finalStatus });
+      expect(markFinished).not.toHaveBeenCalled();
+    },
+  );
+
   it('keeps synthesized telemetry complete when the run has no triggering message', async () => {
     mockNormalExecutionRepositories();
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({

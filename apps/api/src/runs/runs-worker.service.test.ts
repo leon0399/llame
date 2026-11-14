@@ -211,6 +211,62 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     );
   });
 
+  it('settles a dead-lettered wake with the payload queue identity in the Run owner scope', async () => {
+    const tx = makeFakeTx();
+
+    const settleTerminalRun = vi
+      .fn<RunExecutor['settleTerminalRun']>()
+      .mockResolvedValue({ outcome: 'won' });
+
+    const { service, consumeSpy } = makeService(tx, {
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
+
+    await service.onApplicationBootstrap();
+
+    const deadLetterCall = consumeSpy.mock.calls.find(
+      ([definition]) => definition.name === 'runs.dead',
+    );
+
+    if (!deadLetterCall) {
+      throw new Error('runs.dead consumer was never registered');
+    }
+
+    await deadLetterCall[1]({
+      runId: 'run-1',
+      chatId: 'chat-1',
+      userId: 'owner-1',
+      modelId: 'system:openai:gpt-5.4-mini',
+      userMessage: { id: 'message-1', seq: 1, parts: [] },
+      wake: {
+        jobId: 'e13c2b4e-a70a-48f5-a2f7-28dd4d74e71b',
+        generation: 7,
+      },
+    });
+
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: 'run-1',
+      userId: 'owner-1',
+      status: 'expired',
+      expectedQueueIdentity: {
+        currentJobId: 'e13c2b4e-a70a-48f5-a2f7-28dd4d74e71b',
+        wakeGeneration: 7,
+      },
+      runPayload: {
+        status: 'expired',
+        message:
+          'Run retries exhausted: the worker repeatedly failed to complete it.',
+      },
+      error: {
+        message:
+          'Run retries exhausted: the worker repeatedly failed to complete it.',
+      },
+    });
+  });
+
   it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
     hostTmpdir();
 
