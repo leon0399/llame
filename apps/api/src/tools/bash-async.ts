@@ -12,10 +12,16 @@ import { type BashInput } from './bash-target';
 import { managedBashContext } from './bash-limits';
 import { artifactMaxBytes } from './artifacts/spill';
 import { toToolResult } from './bash-result';
+import { loadPackagedTemplate } from '../prompts/template-engine';
 import { type ToolContext, type ToolResult } from './types';
 
 type AsyncContext = ToolContext &
   Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
+
+const renderPromotionFailure = loadPackagedTemplate<{
+  proved: boolean;
+  timedOutText: string;
+}>(__dirname, 'bash-promotion-failure');
 
 const CANCELLED_BEFORE_START: ToolResult = {
   status: 'error',
@@ -134,23 +140,31 @@ function promotionFailure(
   stopped: ManagedStopResult,
   startedAt: Date,
 ): ToolResult {
-  if (!stopped.proved)
+  const proved = stopped.proved;
+
+  const message = renderPromotionFailure({
+    proved,
+    timedOutText: proved
+      ? renderBashText({
+          ...stopped,
+          type: 'timed_out',
+          wallTimeMs: Date.now() - startedAt.getTime(),
+          cut: stopped.truncated,
+        })
+      : '',
+  });
+
+  if (!proved)
     return {
       status: 'error',
       type: 'outcome_unknown',
-      message:
-        'The move to a job failed and the process group could not be proven empty. Inspect the workspace before another attempt.',
+      message,
     };
 
   return {
     status: 'error',
     type: 'timed_out',
-    message: `${renderBashText({
-      ...stopped,
-      type: 'timed_out',
-      wallTimeMs: Date.now() - startedAt.getTime(),
-      cut: stopped.truncated,
-    })}\nThe move to a background job failed; the command was stopped.`,
+    message,
   };
 }
 
