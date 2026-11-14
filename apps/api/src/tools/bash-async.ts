@@ -4,12 +4,16 @@ import {
   type ManagedBashHandle,
   type ManagedStopResult,
 } from '@workspace/bash-executor';
-import { NativeFilesRepository } from '../runs/native-files-repository';
-import { RunEventsRepository } from '../runs/runs-repository';
-import { JobPromotionError } from '../jobs/job-promotion-error';
+import { type ChatJob } from '../db/schema';
+import { type BashJobFacts } from '../jobs/bash-job-registry';
 import { formatJobLocator } from '../jobs/job-locator';
+import { NativeFilesRepository } from '../runs/native-files-repository';
 import { type BashInput } from './bash-target';
-import { BASH_SETTLEMENT_GRACE_MS, managedBashContext } from './bash-limits';
+import {
+  managedBashContext,
+  messageMoveWindow,
+  settlementGraceMs,
+} from './bash-limits';
 import { artifactMaxBytes } from './artifacts/spill';
 import { toToolResult } from './bash-result';
 import { loadPackagedTemplate } from '../prompts/template-engine';
@@ -17,20 +21,37 @@ import { spillBashResult } from './bash-spill';
 import { type ToolContext, type ToolResult } from './types';
 
 type AsyncContext = ToolContext &
-  Required<Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId'>>;
+  Required<
+    Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId' | 'attemptId'>
+  >;
 
 const renderPromotionFailure = loadPackagedTemplate<{
   proved: boolean;
   timedOutText: string;
 }>(__dirname, 'bash-promotion-failure');
 
-type Move = { readonly startedAt: Date; readonly cause: 'async' | 'time' };
+type Move = {
+  readonly startedAt: Date;
+  readonly cause: 'async' | 'time' | 'message';
+};
 
-type Started =
-  | { readonly result: ToolResult }
-  | { readonly handle: ManagedBashHandle; readonly startedAt: Date };
+type PromotionReceipt = {
+  readonly result: ToolResult;
+  readonly receiptCommitted: boolean;
+  readonly recoveryWon: boolean;
+  readonly recordResult: boolean;
+};
+
+type ForegroundResult = {
+  readonly result: ToolResult;
+  readonly recordResult: boolean;
+};
 
 type SpawnGate = { readonly signal: AbortSignal; spawned: boolean };
+
+type Started =
+  | { readonly handle: ManagedBashHandle; readonly startedAt: Date }
+  | { readonly result: ToolResult };
 
 const CANCELLED_BEFORE_START = {
   status: 'error',
@@ -64,10 +85,11 @@ async function startHostCommand(
   let timer: NodeJS.Timeout | undefined;
 
   const onMove = () => {
-    const remaining =
-      context.moveDeadlineAt === undefined
-        ? BASH_SETTLEMENT_GRACE_MS
-        : context.moveDeadlineAt - performance.now();
+    const deadline =
+      messageMoveWindow(context.moveSignal)?.deadlineAt ??
+      context.moveDeadlineAt;
+
+    const remaining = settlementGraceMs(deadline);
 
     if (remaining <= 0) closeGate();
     else timer = setTimeout(closeGate, remaining);
@@ -116,9 +138,10 @@ async function fenceAndSpawn(
   if (prior) return { result: prior };
   const startedAt = new Date();
 
-  const expired =
-    context.moveDeadlineAt !== undefined &&
-    performance.now() >= context.moveDeadlineAt;
+  const deadline =
+    messageMoveWindow(context.moveSignal)?.deadlineAt ?? context.moveDeadlineAt;
+
+  const expired = deadline !== undefined && performance.now() >= deadline;
 
   const started =
     gate.signal.aborted || expired
@@ -133,9 +156,12 @@ async function fenceAndSpawn(
           },
         );
 
-  gate.spawned = 'pid' in started;
+  if ('pid' in started) {
+    gate.spawned = true;
+    context.onHostCommandStarted?.();
 
-  if ('pid' in started) return { handle: started, startedAt };
+    return { handle: started, startedAt };
+  }
 
   return { result: await recordResult(context, toToolResult(started)) };
 }
@@ -151,54 +177,72 @@ export async function runAsyncBash(
 
   if ('result' in started) return started.result;
 
-  return recordResult(
-    context,
-    await promoteCommand(context, started.handle, input, {
-      startedAt: started.startedAt,
-      cause: 'async',
-    }),
-  );
+  const promoted = await promoteCommand(context, started.handle, input, {
+    startedAt: started.startedAt,
+    cause: 'async',
+  });
+
+  return promoted.recordResult
+    ? recordResult(context, promoted.result)
+    : promoted.result;
 }
 
 async function promoteCommand(
   context: AsyncContext,
   handle: ManagedBashHandle,
   input: BashInput,
-  { startedAt, cause }: Move,
-): Promise<ToolResult> {
+  move: Move,
+): Promise<PromotionReceipt> {
   const registry = context.bashJobs;
+
+  if (registry === undefined) throw new Error('Missing worker job authority');
+
+  const facts = promotionFacts(context, input, move.startedAt);
+  context.onHostPromotionStarted?.();
+
+  const promoted = await registry.promoteWithReceipt(
+    handle,
+    facts,
+    (job) => promotionJobResult(job, move),
+    (stopped) => promotionFailure(stopped, move.startedAt),
+  );
+
+  return { ...promoted, recordResult: false };
+}
+
+function promotionFacts(
+  context: AsyncContext,
+  input: BashInput,
+  startedAt: Date,
+): BashJobFacts {
   const settings = context.jobSettings;
 
-  if (registry === undefined || settings === undefined)
-    throw new Error('Missing worker job authority');
+  if (settings === undefined) throw new Error('Missing worker job settings');
 
-  try {
-    const job = await registry.promote(handle, {
-      ownerUserId: context.userId,
-      chatId: context.chatId,
-      runId: context.runId,
-      toolCallId: context.toolCallId,
-      startedAt,
-      settings,
-      maxBytes: artifactMaxBytes(context),
-      configuredCredentials: context.configuredCredentials,
-      artifactReadable: context.artifactReadable === true,
-      hostFiles: context.artifactHostFiles === true,
-      unlimited: input.unlimited === true,
-    });
+  return {
+    ownerUserId: context.userId,
+    chatId: context.chatId,
+    runId: context.runId,
+    attemptId: context.attemptId,
+    toolCallId: context.toolCallId,
+    startedAt,
+    settings,
+    maxBytes: artifactMaxBytes(context),
+    configuredCredentials: context.configuredCredentials,
+    artifactReadable: context.artifactReadable === true,
+    hostFiles: context.artifactHostFiles === true,
+    unlimited: input.unlimited === true,
+  };
+}
 
-    return toToolResult({
-      status: 'success',
-      backgrounded: true,
-      job: formatJobLocator('bash', job.seq),
-      cause,
-      wallTimeMs: Date.now() - startedAt.getTime(),
-    });
-  } catch (error) {
-    if (!(error instanceof JobPromotionError)) throw error;
-
-    return promotionFailure(error.stopped, startedAt);
-  }
+function promotionJobResult(job: ChatJob, move: Move): ToolResult {
+  return toToolResult({
+    status: 'success',
+    backgrounded: true,
+    job: formatJobLocator('bash', job.seq),
+    cause: move.cause,
+    wallTimeMs: Date.now() - move.startedAt.getTime(),
+  });
 }
 
 function beginHostCommand(
@@ -255,28 +299,31 @@ async function recordResult(
   context: AsyncContext,
   result: ToolResult,
 ): Promise<ToolResult> {
-  await context.tenantDb.runAs(context.userId, (db) =>
-    new RunEventsRepository(db).append(context.runId, 'native.result', {
-      toolCallId: context.toolCallId,
-      result,
-    }),
-  );
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const receipt = await context.tenantDb.runAs(context.userId, (db) =>
+        new NativeFilesRepository(db).recoverHostPromotion({
+          runId: context.runId,
+          userId: context.userId,
+          attemptId: context.attemptId,
+          toolCallId: context.toolCallId,
+          result,
+        }),
+      );
 
-  return result;
+      return receipt.result;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await waitForReceiptRetry();
+    }
+  }
 }
 
-/** One `native.result` for each call: the first writer wins. */
-function onceRecorder(
-  context: AsyncContext,
-): (result: ToolResult) => Promise<ToolResult> {
-  let claimed = false;
-
-  return (result) => {
-    if (claimed) return Promise.resolve(result);
-    claimed = true;
-
-    return recordResult(context, result);
-  };
+async function waitForReceiptRetry(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 250);
+    timer.unref();
+  });
 }
 
 /**
@@ -293,36 +340,26 @@ export async function runForegroundBash(
   const started = await startHostCommand(context, input, cwd, slot);
 
   if ('result' in started) return started.result;
-  const record = onceRecorder(context);
 
-  return record(await foregroundResult(context, started, input, record));
+  const moved = await foregroundResult(context, started, input);
+
+  return moved.recordResult
+    ? recordResult(context, moved.result)
+    : moved.result;
 }
 
 async function foregroundResult(
   context: AsyncContext,
   started: { readonly handle: ManagedBashHandle; readonly startedAt: Date },
   input: BashInput,
-  record: (result: ToolResult) => Promise<ToolResult>,
-): Promise<ToolResult> {
+): Promise<ForegroundResult> {
   const { handle } = started;
 
   const { promise: trigger, resolve } = Promise.withResolvers<
-    'move' | 'abort'
+    'abort' | 'move'
   >();
 
-  const abort = context.abortSignal;
-  const bound = context.moveSignal;
-  const onAbort = () => resolve('abort');
-  const onMove = () => resolve('move');
-
-  // The Run abort is registered first, so it wins when both have fired.
-  for (const [signal, fire] of [
-    [abort, onAbort],
-    [bound, onMove],
-  ] as const) {
-    if (signal?.aborted === true) fire();
-    else signal?.addEventListener('abort', fire, { once: true });
-  }
+  const dispose = listenForegroundSignals(context, resolve);
 
   try {
     const first = await Promise.race([
@@ -330,62 +367,79 @@ async function foregroundResult(
       trigger,
     ]);
 
-    if (first === 'move')
-      return await moveInWindow(context, started, input, record);
+    // A settled result is already foreground-owned. Spill may await durable
+    // artifact writes, but a later move signal must not claim promotion.
+    dispose();
+
+    if (first === 'move') {
+      const promoted = await moveInWindow(context, started, input);
+
+      return {
+        result: promoted.result,
+        recordResult: promoted.recordResult,
+      };
+    }
 
     if (first === 'abort') await handle.stop('run');
 
-    return await spillBashResult(
-      context,
-      first === 'abort' ? await handle.settled : first.result,
-    );
+    return {
+      result: await spillBashResult(
+        context,
+        first === 'abort' ? await handle.settled : first.result,
+      ),
+      recordResult: true,
+    };
   } finally {
-    abort?.removeEventListener('abort', onAbort);
-    bound?.removeEventListener('abort', onMove);
+    dispose();
   }
 }
 
+function listenForegroundSignals(
+  context: AsyncContext,
+  resolve: (signal: 'abort' | 'move') => void,
+): () => void {
+  const bindings = [
+    [context.abortSignal, () => resolve('abort')],
+    [
+      context.moveSignal,
+      () => {
+        context.onHostPromotionStarted?.();
+        resolve('move');
+      },
+    ],
+  ] as const;
+
+  for (const [signal, fire] of bindings) {
+    if (signal?.aborted === true) fire();
+    else signal?.addEventListener('abort', fire, { once: true });
+  }
+
+  return () => {
+    for (const [signal, fire] of bindings)
+      signal?.removeEventListener('abort', fire);
+  };
+}
+
 /**
- * The promotion and its `native.result` share one window. A move that fails
- * inside it carries its stop proof; one that is not recorded inside it leaves
- * an ordinary job and one unknown result. The command is never signalled for a
- * pending promotion, and a late settlement appends nothing more.
+ * Promotion and the exact native.result commit in one Run-fenced transaction.
+ * The move window controls when promotion starts, not how long its receipt may
+ * take: while the transaction is pending, no competing unknown is recorded.
  */
 async function moveInWindow(
   context: AsyncContext,
   started: { readonly handle: ManagedBashHandle; readonly startedAt: Date },
   input: BashInput,
-  record: (result: ToolResult) => Promise<ToolResult>,
-): Promise<ToolResult> {
-  let expired = false;
+): Promise<PromotionReceipt> {
+  context.onHostPromotionStarted?.();
+  const window = messageMoveWindow(context.moveSignal);
 
-  const moved = promoteCommand(context, started.handle, input, {
+  const promoted = await promoteCommand(context, started.handle, input, {
     startedAt: started.startedAt,
-    cause: 'time',
-  }).then((result) => (expired ? result : record(result)));
+    cause: window?.cause ?? 'time',
+  });
 
-  const { promise: late, resolve: onLate } = Promise.withResolvers<undefined>();
-
-  const timer = setTimeout(() => {
-    expired = true;
-    onLate(undefined);
-  }, BASH_SETTLEMENT_GRACE_MS);
-
-  try {
-    const timely = await Promise.race([moved, late]);
-
-    if (timely !== undefined) return timely;
-    // A late failure stops the command inside the registry; it cannot replace
-    // the unknown result the caller records now.
-    moved.catch(() => undefined);
-
-    return {
-      status: 'error',
-      type: 'outcome_unknown',
-      message:
-        'The move to a background job did not finish in time. The command may continue as a job; check its job record before another attempt. It will not be repeated automatically.',
-    };
-  } finally {
-    clearTimeout(timer);
-  }
+  return {
+    ...promoted,
+    recordResult: !promoted.receiptCommitted && !promoted.recoveryWon,
+  };
 }

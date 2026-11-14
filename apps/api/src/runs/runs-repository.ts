@@ -543,34 +543,6 @@ export class RunsRepository {
 
     return updated;
   }
-
-  /**
-   * Lock a Run for a delivery (run-steering D4): the row, behind the fences of
-   * the delivering attempt and a non-terminal status. Undefined when the
-   * attempt was superseded or the Run is terminal; a recorded cancellation is
-   * left on the returned row for the caller to read. The first lock of the
-   * Run-then-chat order.
-   */
-  async lockForDelivery(
-    runId: string,
-    userId: string,
-    attemptId: string,
-  ): Promise<Run | undefined> {
-    const [locked] = await this.db
-      .select()
-      .from(runs)
-      .where(
-        and(
-          eq(runs.id, runId),
-          eq(runs.userId, userId),
-          eq(runs.activeAttemptId, attemptId),
-          nonTerminalRun(),
-        ),
-      )
-      .for('update');
-
-    return locked;
-  }
 }
 
 /**
@@ -636,6 +608,55 @@ export class RunEventsRepository {
       .returning();
 
     return created;
+  }
+
+  /** The newest native.result for one tool call, without treating a bare
+   * native.attempt as a committed receipt. Used to reconcile an ambiguous
+   * promotion-transaction acknowledgement without inventing an outcome. */
+  async findNativeResult(
+    runId: string,
+    userId: string,
+    toolCallId: string,
+  ): Promise<RunEvent | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(runEvents)
+      .innerJoin(runs, eq(runEvents.runId, runs.id))
+      .where(
+        and(
+          eq(runEvents.runId, runId),
+          eq(runs.userId, userId),
+          eq(runEvents.eventType, 'native.result'),
+          sql`${runEvents.payload}->>'toolCallId' = ${toolCallId}`,
+        ),
+      )
+      .orderBy(desc(runEvents.sequence))
+      .limit(1);
+
+    return row?.run_events;
+  }
+
+  /** Whether one call has the native.attempt that authorizes recovery. */
+  async hasNativeAttempt(
+    runId: string,
+    userId: string,
+    toolCallId: string,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ sequence: runEvents.sequence })
+      .from(runEvents)
+      .innerJoin(runs, eq(runEvents.runId, runs.id))
+      .where(
+        and(
+          eq(runEvents.runId, runId),
+          eq(runs.userId, userId),
+          eq(runEvents.eventType, 'native.attempt'),
+          sql`${runEvents.payload}->>'toolCallId' = ${toolCallId}`,
+        ),
+      )
+      .limit(1);
+
+    return row !== undefined;
   }
 
   /**

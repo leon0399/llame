@@ -131,8 +131,8 @@ export function useSegmentsFixture(
           settings: { modelId: 'ignored-by-steer', permissionMode: 'default' },
         });
 
-        if (notifyRunId !== undefined) {
-          await notifyRunControl(tx, { runId: notifyRunId, kind: 'interrupt' });
+        if (notifyRunId !== undefined && mode !== 'queue') {
+          await notifyRunControl(tx, { runId: notifyRunId, kind: mode });
         }
       });
       ids.push(id);

@@ -26,7 +26,7 @@ import {
   RunDispatchService,
   type RunDispatcher,
 } from '../runs/run-dispatch.service';
-import { claimActiveRunSlot, notifyLiveRunInterrupt } from './chat-admission';
+import { claimActiveRunSlot, notifyLiveRunSteering } from './chat-admission';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
@@ -114,8 +114,7 @@ export class ChatDeliveriesService {
       if (!changed) throw await this.missOf(items, chatId, deliveryId, userId);
 
       if (slot === 'blocked') {
-        if (mode === 'interrupt')
-          await notifyLiveRunInterrupt(tx, { chatId, userId });
+        await notifyLiveRunSteering(tx, { chatId, userId }, mode);
 
         return { item: changed };
       }

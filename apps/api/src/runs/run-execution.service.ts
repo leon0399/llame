@@ -10,6 +10,7 @@ import {
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
 import { isBashTool } from '../tools/bash';
+import { isHostBashCall } from '../tools/bash-target';
 import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { isCancelledBeforeExecution } from '../tools/cancelled-before-execution';
 import { interruptFateOf } from '../tools/registry';
@@ -17,6 +18,7 @@ import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import {
   INTERRUPT_ABORT_REASON,
+  newSegmentControl,
   RunAbortRegistry,
   type RunSegmentRegistrar,
 } from './run-abort-registry';
@@ -59,6 +61,7 @@ import {
 
 import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { errorMessageWithoutParams, loggableError } from '../db/loggable-error';
+import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type Chat,
@@ -958,6 +961,44 @@ type InstanceConfigWithIdentity = InstanceConfigReader &
 type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
 /**
+ * Retry a complete transaction only when Postgres guarantees that it aborted.
+ * Re-running `work` opens a fresh transaction; connection failures are not
+ * retried because their commit outcome can be ambiguous.
+ */
+async function retryRunTransaction<T>(work: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await work();
+    } catch (error) {
+      const code = pgErrorCode(error);
+
+      if (attempt >= 2 || (code !== '40P01' && code !== '40001')) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function recoverHostPromotionWithRetry(
+  tenantDb: TenantDbService,
+  input: {
+    runId: string;
+    userId: string;
+    attemptId: string;
+    toolCallId: string;
+    result: ToolResult;
+  },
+): Promise<ToolResult> {
+  return (
+    await retryRunTransaction(() =>
+      tenantDb.runAs(input.userId, (tx) =>
+        new NativeFilesRepository(tx).recoverHostPromotion(input),
+      ),
+    )
+  ).result;
+}
+
+/**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
  * assembly, the model call, and every durable side effect (assistant turn,
  * run lifecycle + model.delta events, pre-step checkpointing and titling).
@@ -968,6 +1009,7 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
  * HTTP types, and the caller supplies the ModelClient after resolving the run's
  * stored model id.
  */
+
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
@@ -1961,6 +2003,8 @@ export class RunExecutionService {
         classification?: ToolClassification;
         /** The signal an owner interrupt aborts, for a call whose fate is `cancel`. */
         interruptSignal?: AbortSignal;
+        /** What an interrupt does to this call, decided from its target. */
+        fate?: InterruptFate;
         /** `tool.requested` was emitted for the call. */
         requested?: true;
         /** The call recorded its MCP `native.attempt`, so it was sent. */
@@ -2159,25 +2203,43 @@ export class RunExecutionService {
      * Runs through recordToolCompleted so each settlement emits its durable
      * `tool.completed` event AND fills its reserved part — the live stream,
      * the event log and history then agree. Host bash calls stay open during
-     * the bounded parent-abort grace so a known result can win; the fallback
-     * from toolTerminationResult records unknown effects after that grace.
+     * the bounded parent-abort grace so a known result can win; after it, a
+     * Run-row-fenced `native.result` arbitrates with any pending promotion
+     * before the tool activity is completed.
      * The part collector ignores a genuine late result for an already-settled
      * call.
      */
-    const settleOpenToolCalls = (
+    const settleOpenToolCalls = async (
       status: 'cancelled' | 'expired' | 'failed',
       shouldSettle: (toolName: string) => boolean = () => true,
     ) => {
       // recordToolCompleted deletes the current key; removing the entry being
       // visited is well-defined for a Map iterator.
-      for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
+      for (const [
+        toolCallId,
+        { toolName, toolInput, classification },
+      ] of openToolCalls) {
         if (!shouldSettle(toolName)) continue;
-        recordToolCompleted(
-          toolCallId,
-          toolName,
-          toolInput,
-          toolTerminationResult(status, toolName),
-        );
+
+        let result = toolTerminationResult(status, toolName);
+
+        if (
+          toolName === 'bash' &&
+          classification !== undefined &&
+          isRecord(toolInput) &&
+          isHostBashCall(toolInput, toolContext)
+        ) {
+          await deltaWrites;
+          result = await recoverHostPromotionWithRetry(this.tenantDb, {
+            runId: input.runId,
+            userId: input.userId,
+            attemptId,
+            toolCallId,
+            result,
+          });
+        }
+
+        recordToolCompleted(toolCallId, toolName, toolInput, result);
       }
     };
 
@@ -2185,7 +2247,7 @@ export class RunExecutionService {
       status: Exclude<TerminalRunStatus, 'completed'>,
       telemetry: AssistantTurnTelemetry,
     ): Promise<boolean> => {
-      settleOpenToolCalls(status);
+      await settleOpenToolCalls(status);
       // settleOpenToolCalls enqueued new events via recordToolCompleted.
       // Without this await, finishRun's terminal event can commit before the
       // settlement events, and a process kill in that window permanently loses them.
@@ -2305,20 +2367,20 @@ export class RunExecutionService {
     // The controller of the model call in flight; every call that follows a
     // withdrawn interrupt gets a new one.
     let segment: AbortController | undefined;
+    // The yield signal of the same model call (background-jobs D13).
+    let segmentYield: AbortSignal | undefined;
     let interruptSettlement: Promise<void> | undefined;
     // The `bash` and MCP calls that started and that the interrupt stopped.
     const stoppedCalls: Array<StoppedCall> = [];
     // `native.result` writes of MCP calls whose attempt committed mid-interrupt.
     const lateMcpWrites: Array<Promise<void>> = [];
 
-    const fateOf = (toolName: string): InterruptFate => {
-      const executor = toolAdditions.executorFor(toolName);
-
-      return executor === undefined ? 'cancel' : interruptFateOf(executor);
-    };
-
     const settleInterrupted = (
-      shouldSettle: (call: { toolName: string; started: boolean }) => boolean,
+      shouldSettle: (call: {
+        toolName: string;
+        started: boolean;
+        fate?: InterruptFate;
+      }) => boolean,
       mcpWrites: Array<Promise<void>>,
     ) => {
       for (const [toolCallId, call] of openToolCalls) {
@@ -2326,7 +2388,10 @@ export class RunExecutionService {
         if (call.origin !== undefined) continue;
         const started = call.classification !== undefined;
 
-        if (!shouldSettle({ toolName: call.toolName, started })) continue;
+        if (
+          !shouldSettle({ toolName: call.toolName, started, fate: call.fate })
+        )
+          continue;
 
         const { result, stopped } = interruptSettlementOf({
           toolName: call.toolName,
@@ -2369,34 +2434,38 @@ export class RunExecutionService {
 
     /**
      * Settles the open calls once, by fate: a call that never started, and each
-     * started `cancel` call but bash, at once; a `finish` call after it
-     * completes; bash after its bounded grace, so a proven result can win.
+     * started `cancel` call but bash, at once; a `finish` or `background` call
+     * after it completes (a host command returns when its segment yields);
+     * bash after its bounded grace, so a proven result can win.
      */
     const settleOnInterrupt = (): Promise<void> =>
       (interruptSettlement ??= (async () => {
         const mcpWrites: Array<Promise<void>> = [];
         settleInterrupted(
-          ({ toolName, started }) =>
-            fateOf(toolName) === 'cancel' && (toolName !== 'bash' || !started),
+          (call) =>
+            (call.fate ?? 'cancel') === 'cancel' &&
+            (call.toolName !== 'bash' || !call.started),
           mcpWrites,
         );
         await Promise.all(
-          [...openToolCalls.values()].flatMap(({ toolName, done }) =>
-            done !== undefined && fateOf(toolName) === 'finish' ? [done] : [],
+          [...openToolCalls.values()].flatMap((call) =>
+            call.done !== undefined && (call.fate ?? 'cancel') !== 'cancel'
+              ? [call.done]
+              : [],
           ),
         );
 
         if (
           [...openToolCalls.values()].some(
-            ({ origin, toolName }) =>
-              origin === undefined && fateOf(toolName) === 'cancel',
+            (call) =>
+              call.origin === undefined && (call.fate ?? 'cancel') === 'cancel',
           )
         ) {
           await new Promise<void>((resolve) => {
             setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
           });
           settleInterrupted(
-            ({ toolName }) => fateOf(toolName) === 'cancel',
+            (call) => (call.fate ?? 'cancel') === 'cancel',
             mcpWrites,
           );
         }
@@ -2415,7 +2484,6 @@ export class RunExecutionService {
       // it, so drain both buffers before the call's events.
       persistReasoning(reasoningDeltas.flush());
       persistDelta(deltas.flush());
-      reserveToolRequest(toolCallId, declaration.id, args);
       const executor = toolAdditions.executorFor(declaration.id);
 
       if (executor === undefined) {
@@ -2426,8 +2494,16 @@ export class RunExecutionService {
       // separate from the Run's cancellation (run-steering D7).
       const open = openToolCalls.get(toolCallId);
 
-      const interruptSignal =
-        interruptFateOf(executor) === 'cancel' ? segment?.signal : undefined;
+      // The fate is decided from the call's own target, never from its tool
+      // name: a host command yields, and a remote one is stopped (D13).
+      const fate = interruptFateOf(executor, args, {
+        ...toolContext,
+        toolCallId,
+      });
+
+      const interruptSignal = fate === 'cancel' ? segment?.signal : undefined;
+
+      if (open !== undefined) open.fate = fate;
 
       if (open !== undefined && interruptSignal !== undefined) {
         open.interruptSignal = interruptSignal;
@@ -2439,6 +2515,7 @@ export class RunExecutionService {
         {
           ...toolContext,
           toolCallId,
+          yieldSignal: segmentYield,
           abortSignal: callAbortSignal(input.abortSignal, interruptSignal),
           onDerivedDecision: (decision) =>
             recordDerivedDecision(toolCallId, decision),
@@ -2596,18 +2673,18 @@ export class RunExecutionService {
           args: unknown,
           { toolCallId }: { toolCallId: string },
         ) => {
-          const running = executeBoundTool(declaration, args, toolCallId).then(
-            ({ executor, result }) =>
-              settleBoundTool(declaration, args, toolCallId, executor, result),
-          );
-
-          // An interrupt waits for each call whose fate is `finish`; the call's
-          // entry exists once `executeBoundTool` has reserved it.
+          reserveToolRequest(toolCallId, declaration.id, args);
+          const completion = Promise.withResolvers<void>();
           const open = openToolCalls.get(toolCallId);
 
-          if (open !== undefined) open.done = running.then(noop, noop);
+          // Reserve completion before execution can signal an interrupt.
+          if (open !== undefined) open.done = completion.promise;
 
-          return running;
+          return executeBoundTool(declaration, args, toolCallId)
+            .then(({ executor, result }) =>
+              settleBoundTool(declaration, args, toolCallId, executor, result),
+            )
+            .finally(completion.resolve);
         },
         toModelOutput: ({
           input: call,
@@ -2679,15 +2756,17 @@ export class RunExecutionService {
         ({ toolName }) => toolName === 'bash',
       );
 
-      settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
       parentAbortSettlement = (async () => {
+        await settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
+
         if (hasBashCall) {
           await new Promise<void>((resolve) => {
             setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
           });
         }
 
-        settleOpenToolCalls(status);
+        await settleOpenToolCalls(status);
+
         await deltaWrites;
 
         if (progressWriteFailed) {
@@ -2778,16 +2857,21 @@ export class RunExecutionService {
 
       // This call's segment controller: the run-control listener aborts it on an
       // owner interrupt while the call is in flight (run-steering D7).
-      const callSegment =
+      const callControl =
         this.segmentAborts?.beginSegment(input.runId, attemptId) ??
-        new AbortController();
+        newSegmentControl();
 
+      const callSegment = callControl.abort;
       segment = callSegment;
+      segmentYield = callControl.yield.signal;
       interruptSettlement = undefined;
       stoppedCalls.length = 0;
       const callSignal = callAbortSignal(input.abortSignal, callSegment.signal);
 
       const onInterrupt = () => {
+        // The yield comes first, so a host command returns before the
+        // settlement waits for it.
+        callControl.yield.abort();
         settleOnInterrupt().catch(noop);
       };
 
@@ -2795,7 +2879,7 @@ export class RunExecutionService {
 
       const closeSegment = () => {
         callSegment.signal.removeEventListener('abort', onInterrupt);
-        this.segmentAborts?.endSegment(input.runId, callSegment);
+        this.segmentAborts?.endSegment(input.runId, callControl);
       };
 
       const stoppedByInterrupt = (): boolean =>
@@ -2824,20 +2908,22 @@ export class RunExecutionService {
       ) => {
         const { telemetry } = modelCompleted;
 
-        const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.runId, userId: input.userId },
-            attemptId,
-            modelCompleted,
-            live: {
-              chatId: input.chatId,
-              inReplyTo: input.userMessage.id,
-              parts: assistantPartCollector.parts(),
-              telemetry,
-            },
-            models: this.instanceConfig.config.models,
-            ...extra,
-          }),
+        const boundary = await retryRunTransaction(() =>
+          this.tenantDb.runAs(input.userId, (tx) =>
+            deliverPendingSteering(tx, {
+              run: { runId: input.runId, userId: input.userId },
+              attemptId,
+              modelCompleted,
+              live: {
+                chatId: input.chatId,
+                inReplyTo: input.userMessage.id,
+                parts: assistantPartCollector.parts(),
+                telemetry,
+              },
+              models: this.instanceConfig.config.models,
+              ...extra,
+            }),
+          ),
         );
 
         if (boundary.kind === 'delivered') {
@@ -2933,6 +3019,19 @@ export class RunExecutionService {
       stopCause = undefined;
 
       try {
+        // A steer that was admitted before this call began has no segment to
+        // signal, so the call reads the pending item itself (level trigger).
+        if (this.segmentAborts !== undefined) {
+          const pending = await this.tenantDb.runAs(input.userId, (tx) =>
+            new ChatDeliveriesRepository(tx).hasPendingSteering(
+              input.chatId,
+              input.userId,
+            ),
+          );
+
+          if (pending) callControl.yield.abort();
+        }
+
         const result = client.streamText({
           onRequestUsage: (usage, requestGenerationMs) => {
             requestUsageReceipts.push(usage);
@@ -5085,8 +5184,10 @@ export class RunExecutionService {
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
     try {
-      return await this.tenantDb.runAs(input.userId, (tx) =>
-        this.finishRunInTransaction(tx, input),
+      return await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          this.finishRunInTransaction(tx, input),
+        ),
       );
     } catch (error) {
       this.logger.error(

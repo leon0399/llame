@@ -539,13 +539,13 @@ describe('run steering interrupts', () => {
   });
 
   describe('a tool call', () => {
-    it('An interrupt kills a long command', async () => {
+    it('A host command continues after an interrupt without an interrupt marker', async () => {
       const pidFile = join(fx.directory, `pid-${randomUUID()}`);
       const seeded = await seed();
 
       const started = await launch(seeded, [
         call('slow', 'bash', slowBash(pidFile)),
-        answer('after the kill'),
+        answer('after the yield'),
       ]);
 
       await bashStarted(seeded, pidFile);
@@ -557,9 +557,9 @@ describe('run steering interrupts', () => {
       expect(Date.now() - begun).toBeLessThan(30_000);
       expect(finished.status).toBe('completed');
       const pid = Number((await readFile(pidFile, 'utf8')).trim());
-      expect(() => process.kill(pid, 0)).toThrow('ESRCH');
+      expect(process.kill(pid, 0)).toBe(true);
 
-      // The call settled once, marked, and the notice names it.
+      // The call returned its durable job before the interrupt was delivered.
       const completed = (await events(seeded.runId)).filter(
         (event) => event.eventType === 'tool.completed',
       );
@@ -567,28 +567,28 @@ describe('run steering interrupts', () => {
       expect(completed).toHaveLength(1);
       expect(completed[0]?.payload).toMatchObject({
         toolCallId: 'slow',
-        interrupted: true,
+        output: { backgrounded: true, cause: 'message' },
       });
+      expect(completed[0]?.payload).not.toHaveProperty('interrupted');
       const [, firstReply, delivered] = await messages(seeded.chatId);
       expect(firstReply?.parts).toMatchObject([
         {
           type: 'tool-bash',
           toolCallId: 'slow',
-          resultProviderMetadata: { llame: { interrupted: true } },
+          output: { backgrounded: true, cause: 'message' },
         },
       ]);
       expect(await deliveredEvent(seeded.runId)).toMatchObject({
-        stoppedCalls: [{ toolName: 'bash', toolCallId: 'slow' }],
+        stoppedCalls: [],
       });
-      const notice = JSON.stringify(delivered?.parts);
-      expect(notice).toContain('`bash`, call id \\"slow\\"');
-      expect(notice).toContain('Their effects are unknown');
+      expect(JSON.stringify(delivered?.parts)).not.toContain(
+        'Their effects are unknown',
+      );
       // The Run carried on with the interrupt.
       expect((started.prompts()[1] ?? []).at(-1)).toBe('user:stop that');
     });
 
-    it('Two calls of one step, one started', async () => {
-      // The read finishes on its own; the long command is the one stopped.
+    it('An interrupt yields the host command and retains the completed read', async () => {
       const pidFile = join(fx.directory, `pid-${randomUUID()}`);
       const seeded = await seed();
       await launch(seeded, [
@@ -639,9 +639,12 @@ describe('run steering interrupts', () => {
       expect(completed).toHaveLength(2);
       expect(byId('r1')).toMatchObject({ status: 'success' });
       expect(byId('r1')).not.toHaveProperty('interrupted');
-      expect(byId('slow')).toMatchObject({ interrupted: true });
+      expect(byId('slow')).toMatchObject({
+        output: { backgrounded: true, cause: 'message' },
+      });
+      expect(byId('slow')).not.toHaveProperty('interrupted');
       expect(await deliveredEvent(seeded.runId)).toMatchObject({
-        stoppedCalls: [{ toolName: 'bash', toolCallId: 'slow' }],
+        stoppedCalls: [],
       });
     });
 
@@ -787,22 +790,17 @@ describe('run steering interrupts', () => {
       await interruptWithdrawnAtDelivery(seeded);
       await terminal(seeded.runId);
 
-      // The step was cut and a command killed: the delivery is an interrupt,
-      // names the killed call, and the model gets the notice.
+      // The model call was cut, but its command now has a durable job and
+      // is not listed among calls with unknown effects.
       expect(await deliveredEvent(seeded.runId)).toMatchObject({
         cause: 'interrupt',
-        stoppedCalls: [{ toolName: 'bash', toolCallId: 'slow' }],
+        stoppedCalls: [],
       });
       const [, reply, delivered] = await messages(seeded.chatId);
       expect(reply?.usage).toMatchObject({
         status: 'aborted',
         complete: false,
       });
-      expect(partKinds(delivered)).toEqual([
-        'data-context:interrupted',
-        'data-context:temporal',
-        'text',
-      ]);
       expect(textOf(delivered)).toBe('a steer');
     });
   });

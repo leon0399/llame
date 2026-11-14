@@ -12,17 +12,17 @@ import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { type ChatJob } from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { type BashJobFacts, BashJobRegistry } from '../jobs/bash-job-registry';
 import { formatJobLocator } from '../jobs/job-locator';
-import { foregroundBoundMs } from './bash-limits';
 import { JobPromotionError } from '../jobs/job-promotion-error';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { bashTool } from './bash';
+import { foregroundBoundMs, messageMoveWindow } from './bash-limits';
 import { runAsyncBash } from './bash-async';
+import { bashTool } from './bash';
 import { runTool } from './runner';
-import { type ToolContext } from './types';
+import { type ToolContext, type ToolResult } from './types';
 
 const EMPTY: ManagedOutput = {
   stdout: '',
@@ -101,18 +101,41 @@ class StubRegistry extends BashJobRegistry {
   command = new Command();
   readonly promoteCalls: Array<{ handle: ManagedBashHandle; stdout: string }> =
     [];
-  promotion: () => Promise<ChatJob> = () => Promise.resolve(jobRow(7));
+  readonly receipts: Array<{ toolCallId: string; result: ToolResult }> = [];
+  jobAdmission: () => Promise<ChatJob> = () => Promise.resolve(jobRow(7));
   override start(): ManagedBashHandle {
     return this.command;
   }
-  override promote(handle: ManagedBashHandle): Promise<ChatJob> {
+  override promoteWithReceipt(
+    handle: ManagedBashHandle,
+    facts: BashJobFacts,
+    resultForJob: (job: ChatJob) => ToolResult,
+    resultForStop: (stopped: ManagedStopResult) => ToolResult,
+  ): Promise<{
+    result: ToolResult;
+    receiptCommitted: boolean;
+    recoveryWon: boolean;
+  }> {
     this.promoteCalls.push({ handle, stdout: handle.snapshot().stdout });
 
-    return this.promotion();
+    return this.jobAdmission()
+      .then((job) => {
+        const result = resultForJob(job);
+        this.receipts.push({ toolCallId: facts.toolCallId, result });
+
+        return { result, receiptCommitted: true, recoveryWon: false };
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof JobPromotionError)) throw error;
+        const result = resultForStop(error.stopped);
+        this.receipts.push({ toolCallId: facts.toolCallId, result });
+
+        return { result, receiptCommitted: true, recoveryWon: true };
+      });
   }
 }
 
-/** A promotion that failed: the registry stops the command, then rejects. */
+/** A failed promotion stops the command and supplies a receipt fallback. */
 function failingMove(command: Command, proved: boolean, stdout = '') {
   return async (): Promise<ChatJob> => {
     command.output = { ...EMPTY, stdout };
@@ -133,6 +156,20 @@ describe('foreground bound', () => {
   });
 });
 
+describe('message move window', () => {
+  it('accepts only a finite window tagged as a message yield', () => {
+    const controller = new AbortController();
+    const reason = { cause: 'message', deadlineAt: 123 };
+    controller.abort(reason);
+
+    expect(messageMoveWindow(controller.signal)).toEqual(reason);
+
+    const unrelated = new AbortController();
+    unrelated.abort({ cause: 'cancel', deadlineAt: 123 });
+    expect(messageMoveWindow(unrelated.signal)).toBeUndefined();
+  });
+});
+
 describe('foreground host bash move', () => {
   let registry: StubRegistry;
   let moved: AbortController;
@@ -147,6 +184,7 @@ describe('foreground host bash move', () => {
       userId: 'owner',
       chatId: 'chat',
       runId: 'run',
+      attemptId: 'attempt-1',
       toolCallId: 'call-1',
       nativeExecutorId: 'host',
       nativeDeliverySequence: 1,
@@ -175,6 +213,17 @@ describe('foreground host bash move', () => {
     begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
       .mockResolvedValue(undefined);
+    vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    ).mockImplementation(async (input) => {
+      await append(input.runId, 'native.result', {
+        toolCallId: input.toolCallId,
+        result: input.result,
+      });
+
+      return { disposition: 'recovery_won', result: input.result };
+    });
     append.mockReset();
     vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
       append,
@@ -195,7 +244,13 @@ describe('foreground host bash move', () => {
     vi.restoreAllMocks();
   });
 
-  const results = () => append.mock.calls.map((call) => call[2]);
+  const results = () => [
+    ...append.mock.calls.map((call) => call[2]),
+    ...registry.receipts.map((receipt) => ({
+      toolCallId: receipt.toolCallId,
+      result: receipt.result,
+    })),
+  ];
 
   it('does not spawn an async command when the Run signal already fired', async () => {
     const abort = new AbortController();
@@ -214,6 +269,7 @@ describe('foreground host bash move', () => {
           runId: 'run',
           nativeExecutorId: 'host',
           toolCallId: 'call-1',
+          attemptId: 'attempt',
         },
         { command: 'make test', async: true },
         process.cwd(),
@@ -384,6 +440,23 @@ describe('foreground host bash move', () => {
     },
   );
 
+  it.each(['bashJobs', 'jobSettings'] as const)(
+    'rejects an async command before recording a native attempt when %s is absent',
+    async (missing) => {
+      const result = await bashTool.execute(
+        contextFor({ [missing]: undefined }),
+        { command: 'make test', async: true },
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'executor_unavailable',
+      });
+      expect(begin).not.toHaveBeenCalled();
+      expect(results()).toEqual([]);
+    },
+  );
+
   it('returns a natural foreground exit without stopping the command', async () => {
     const call = bashTool.execute(contextFor(), { command: 'make test' });
 
@@ -398,6 +471,43 @@ describe('foreground host bash move', () => {
     expect(results()).toMatchObject([{ result: { status: 'success' } }]);
   });
 
+  it('retries receipt recovery before returning the foreground result', async () => {
+    const recovery = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockRejectedValueOnce(new Error('first unavailable'))
+      .mockRejectedValueOnce(new Error('second unavailable'));
+
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(0);
+    registry.command.exit(0);
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(call).resolves.toMatchObject({ status: 'success' });
+    expect(recovery).toHaveBeenCalledTimes(3);
+    expect(results()).toMatchObject([{ result: { status: 'success' } }]);
+  });
+
+  it('surfaces the last receipt recovery failure after bounded retries', async () => {
+    const recovery = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockRejectedValue(new Error('receipt storage remains unavailable'));
+
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    const rejected = Promise.resolve(call).catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(0);
+    registry.command.exit(0);
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(await rejected).toEqual(
+      new Error('receipt storage remains unavailable'),
+    );
+    expect(recovery).toHaveBeenCalledTimes(3);
+    expect(results()).toEqual([]);
+  });
+
   it('A long test suite passes the bound and is not stopped', async () => {
     const call = bashTool.execute(contextFor(), { command: 'make test' });
 
@@ -410,6 +520,7 @@ describe('foreground host bash move', () => {
       backgrounded: true,
       cause: 'time',
       job: formatJobLocator('bash', 7),
+      wallTimeMs: 10_000,
     });
     expect(registry.command.stop).not.toHaveBeenCalled();
     expect(results()).toHaveLength(1);
@@ -423,8 +534,177 @@ describe('foreground host bash move', () => {
     ).resolves.toMatchObject({ backgrounded: true });
   });
 
+  it.each([false, true])(
+    'a segment yield moves a host call with message cause (already pending=%s)',
+    async (pending) => {
+      const yielded = new AbortController();
+
+      if (pending) yielded.abort();
+
+      const call = runTool(
+        bashTool,
+        { command: 'make test' },
+        contextFor({ moveSignal: undefined, yieldSignal: yielded.signal }),
+        120,
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      yielded.abort();
+      await expect(call).resolves.toMatchObject({
+        status: 'success',
+        backgrounded: true,
+        cause: 'message',
+        job: 'job://bash-7',
+      });
+      expect(registry.command.stop).not.toHaveBeenCalled();
+      expect(results()).toMatchObject([
+        { result: { backgrounded: true, cause: 'message' } },
+      ]);
+    },
+  );
+
+  it('a message yield closes a hung admission at its own 750 ms deadline', async () => {
+    const admission = Promise.withResolvers<undefined>();
+    const entered = Promise.withResolvers<void>();
+    const yielded = new AbortController();
+    const limiter = new BashProcessLimiter(1);
+    const start = vi.spyOn(registry, 'start');
+    begin.mockImplementation(() => {
+      entered.resolve();
+
+      return admission.promise;
+    });
+
+    const call = runTool(
+      bashTool,
+      { command: 'make test' },
+      contextFor({
+        moveSignal: undefined,
+        yieldSignal: yielded.signal,
+        bashProcessLimiter: limiter,
+      }),
+      120,
+    );
+
+    await entered.promise;
+    await vi.advanceTimersByTimeAsync(10_000);
+    yielded.abort();
+    await vi.advanceTimersByTimeAsync(749);
+    expect(limiter.tryAcquire()).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(call).resolves.toMatchObject({ type: 'cancelled' });
+    const released = limiter.tryAcquire();
+    expect(released).not.toBeNull();
+    released?.release();
+    admission.resolve(undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(start).not.toHaveBeenCalled();
+    expect(results()).toMatchObject([{ result: { type: 'cancelled' } }]);
+  });
+
+  it('waits past the message deadline for the fenced promotion receipt', async () => {
+    const committed = Promise.withResolvers<ChatJob>();
+    registry.jobAdmission = () => committed.promise;
+
+    const call = bashTool.execute(
+      contextFor({ moveDeadlineAt: performance.now() + 120_000 }),
+      { command: 'make test' },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort({ cause: 'message', deadlineAt: performance.now() + 300 });
+    vi.advanceTimersByTime(750);
+    expect(await Promise.race([call, Promise.resolve('pending')])).toBe(
+      'pending',
+    );
+    expect(results()).toEqual([]);
+    expect(registry.command.stop).not.toHaveBeenCalled();
+
+    committed.resolve(jobRow(7));
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      cause: 'message',
+      job: 'job://bash-7',
+    });
+    expect(results()).toMatchObject([
+      {
+        result: { status: 'success', backgrounded: true, job: 'job://bash-7' },
+      },
+    ]);
+  });
+  it('waits for a promotion even when the message window was already expired', async () => {
+    const committed = Promise.withResolvers<ChatJob>();
+    registry.jobAdmission = () => committed.promise;
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort({ cause: 'message', deadlineAt: performance.now() });
+    expect(await Promise.race([call, Promise.resolve('pending')])).toBe(
+      'pending',
+    );
+
+    committed.resolve(jobRow(7));
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      job: 'job://bash-7',
+    });
+    expect(results()).toHaveLength(1);
+  });
+
+  it('records the atomic receipt when an already-expired promotion finishes immediately', async () => {
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort({ cause: 'message', deadlineAt: performance.now() });
+
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
+    });
+    expect(results()).toMatchObject([
+      { result: { status: 'success', backgrounded: true } },
+    ]);
+    expect(results()).toHaveLength(1);
+  });
+
+  it('a late message promotion commits its one exact native receipt', async () => {
+    const committed = Promise.withResolvers<ChatJob>();
+    const yielded = new AbortController();
+    registry.jobAdmission = () => committed.promise;
+
+    const call = runTool(
+      bashTool,
+      { command: 'make test' },
+      contextFor({ moveSignal: undefined, yieldSignal: yielded.signal }),
+      120,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    yielded.abort();
+    vi.advanceTimersByTime(750);
+    expect(await Promise.race([call, Promise.resolve('pending')])).toBe(
+      'pending',
+    );
+    expect(results()).toEqual([]);
+    committed.resolve(jobRow(7));
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      job: 'job://bash-7',
+    });
+    expect(results()).toMatchObject([
+      {
+        result: { status: 'success', backgrounded: true, job: 'job://bash-7' },
+      },
+    ]);
+    expect(results()).toHaveLength(1);
+    expect(registry.command.stop).not.toHaveBeenCalled();
+  });
+
   it('The job record cannot be written: a proved stop is a timed_out result with the output', async () => {
-    registry.promotion = failingMove(registry.command, true, 'partial');
+    registry.jobAdmission = failingMove(registry.command, true, 'partial');
     moved.abort();
     const result = await bashTool.execute(contextFor(), { command: 'x' });
 
@@ -439,7 +719,7 @@ describe('foreground host bash move', () => {
   });
 
   it('A failed move with an unproved stop is unknown', async () => {
-    registry.promotion = failingMove(registry.command, false);
+    registry.jobAdmission = failingMove(registry.command, false);
     moved.abort();
 
     await expect(
@@ -448,63 +728,92 @@ describe('foreground host bash move', () => {
     expect(results()).toHaveLength(1);
   });
 
-  it('A move recorded late returns one unknown result and keeps the command running', async () => {
+  it('a promotion still pending after its timer returns the eventual receipt', async () => {
     const commit = Promise.withResolvers<ChatJob>();
-    registry.promotion = () => commit.promise;
+    registry.jobAdmission = () => commit.promise;
     moved.abort();
     const call = bashTool.execute(contextFor(), { command: 'x' });
+    let settled = false;
+    void Promise.resolve(call).then(() => {
+      settled = true;
+    });
+
     await vi.advanceTimersByTimeAsync(0);
-    // The commit completes after the deadline but before its continuations run.
     vi.advanceTimersByTime(750);
+    expect(settled).toBe(false);
+    expect(results()).toEqual([]);
     commit.resolve(jobRow(7));
-    const result = await call;
-    expect(result).toMatchObject({
-      status: 'error',
-      type: 'outcome_unknown',
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      job: 'job://bash-7',
     });
-    await vi.advanceTimersByTimeAsync(0);
+    expect(results()).toMatchObject([
+      {
+        result: { status: 'success', backgrounded: true, job: 'job://bash-7' },
+      },
+    ]);
     expect(results()).toHaveLength(1);
-    expect(results()[0]).toMatchObject({
-      toolCallId: 'call-1',
-      result: { status: 'error', type: 'outcome_unknown' },
-    });
     expect(registry.command.stop).not.toHaveBeenCalled();
   });
 
-  it('A late failure stops the command and keeps the recorded unknown result', async () => {
+  it('returns the durable receipt winner without recording a competing result', async () => {
+    const durableWinner: ToolResult = {
+      status: 'error',
+      type: 'timed_out',
+      message: 'The durable receipt already won.',
+    };
+
+    vi.spyOn(registry, 'promoteWithReceipt').mockResolvedValue({
+      result: durableWinner,
+      receiptCommitted: false,
+      recoveryWon: true,
+    });
+    moved.abort();
+
+    await expect(
+      bashTool.execute(contextFor(), { command: 'x' }),
+    ).resolves.toEqual(durableWinner);
+    expect(append).not.toHaveBeenCalled();
+    expect(registry.receipts).toHaveLength(0);
+  });
+
+  it('a late known promotion failure returns its proved stop result', async () => {
     const lateFailure = Promise.withResolvers<void>();
     const fail = failingMove(registry.command, true, 'late');
 
-    registry.promotion = async () => {
+    registry.jobAdmission = async () => {
       await lateFailure.promise;
 
       return fail();
     };
 
-    moved.abort();
     const call = bashTool.execute(contextFor(), { command: 'x' });
-    await vi.advanceTimersByTimeAsync(750);
-    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    await vi.advanceTimersByTimeAsync(0);
+    moved.abort();
+    vi.advanceTimersByTime(750);
+    expect(await Promise.race([call, Promise.resolve('pending')])).toBe(
+      'pending',
+    );
     lateFailure.resolve();
-    await vi.advanceTimersByTimeAsync(10);
+    await expect(call).resolves.toMatchObject({ type: 'timed_out' });
     expect(registry.command.stop).toHaveBeenCalledWith('run');
     expect(results()).toHaveLength(1);
-    expect(results()[0]).toMatchObject({ result: { type: 'outcome_unknown' } });
+    expect(results()[0]).toMatchObject({ result: { type: 'timed_out' } });
   });
 
-  it('A hung append after a timely promotion is bounded and appends once', async () => {
-    append.mockImplementation(() => new Promise(() => undefined));
+  it('does not append a separate native result after promotion commits', async () => {
     moved.abort();
-    const call = bashTool.execute(contextFor(), { command: 'x' });
-    await vi.advanceTimersByTimeAsync(750);
-
-    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
-    expect(append).toHaveBeenCalledTimes(1);
+    await expect(
+      bashTool.execute(contextFor(), { command: 'x' }),
+    ).resolves.toMatchObject({ status: 'success', backgrounded: true });
+    expect(append).not.toHaveBeenCalled();
+    expect(registry.receipts).toHaveLength(1);
   });
 
   it('returns the job when the command exits during a timely promotion', async () => {
     const commit = Promise.withResolvers<ChatJob>();
-    registry.promotion = () => commit.promise;
+    registry.jobAdmission = () => commit.promise;
     moved.abort();
 
     const call = bashTool.execute(contextFor(), { command: 'make test' });
@@ -523,7 +832,7 @@ describe('foreground host bash move', () => {
   it('A Run abort during a pending promotion leaves the job and the command alone', async () => {
     const abort = new AbortController();
     const commit = Promise.withResolvers<ChatJob>();
-    registry.promotion = () => commit.promise;
+    registry.jobAdmission = () => commit.promise;
     moved.abort();
 
     const call = bashTool.execute(contextFor({ abortSignal: abort.signal }), {
@@ -532,10 +841,15 @@ describe('foreground host bash move', () => {
 
     await vi.advanceTimersByTimeAsync(1);
     abort.abort();
-    await vi.advanceTimersByTimeAsync(750);
-    await expect(call).resolves.toMatchObject({ type: 'outcome_unknown' });
+    vi.advanceTimersByTime(750);
+    expect(await Promise.race([call, Promise.resolve('pending')])).toBe(
+      'pending',
+    );
     commit.resolve(jobRow(7));
-    await vi.advanceTimersByTimeAsync(10);
+    await expect(call).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
+    });
     expect(registry.command.stop).not.toHaveBeenCalled();
     expect(results()).toHaveLength(1);
   });
@@ -633,7 +947,7 @@ describe('foreground host bash move', () => {
     expect(registry.command.stop).not.toHaveBeenCalled();
   });
 
-  it('a hung result append and a hung begin resolve through the runner backstop', async () => {
+  it('a pending atomic promotion stays open while a hung begin uses the backstop', async () => {
     // Native AbortSignal timers do not use Vitest's clock.
     vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
       const controller = new AbortController();
@@ -641,9 +955,11 @@ describe('foreground host bash move', () => {
 
       return controller.signal;
     });
-    append.mockImplementation(() => new Promise(() => undefined));
+    const committed = Promise.withResolvers<ChatJob>();
+    registry.jobAdmission = () => committed.promise;
+    moved.abort();
 
-    const hungAppend = runTool(
+    const pendingPromotion = runTool(
       bashTool,
       { command: 'make test' },
       contextFor({ moveSignal: undefined }),
@@ -651,10 +967,15 @@ describe('foreground host bash move', () => {
     );
 
     await vi.advanceTimersByTimeAsync(800);
+    expect(
+      await Promise.race([pendingPromotion, Promise.resolve('pending')]),
+    ).toBe('pending');
+    expect(append).not.toHaveBeenCalled();
 
-    await expect(hungAppend).resolves.toMatchObject({
-      status: 'error',
-      type: 'outcome_unknown',
+    committed.resolve(jobRow(7));
+    await expect(pendingPromotion).resolves.toMatchObject({
+      status: 'success',
+      backgrounded: true,
     });
 
     begin.mockImplementation(() => new Promise(() => undefined));

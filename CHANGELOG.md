@@ -5,7 +5,25 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Prefer independently mergeable stack layers and explicit intermediate merge
   boundaries. Treat 2,000 authored lines as a review target, not a limit.
 
+- Preserve a shutdown stop's proven outcome when a pending promotion commits,
+  and wait for its job settlement before worker teardown.
+
+- Retry rolled-back steering delivery and terminal transactions after Postgres
+  deadlock or serialization conflicts.
+
+- Stop managed commands during worker shutdown even when a promotion receipt is
+  still pending. A late steering signal no longer marks a completed command as
+  promoting while its output spills.
+
 # 2026-11-13
+
+- Stop heartbeat checks from reading job rows after worker shutdown starts.
+
+- Commit host command promotion and its result together. A pending database
+  outcome now delays the Run instead of publishing a conflicting unknown result.
+
+- Bind pending interrupt and steering checks to the exact segment they read, so
+  a delayed database response cannot control a same-attempt replacement.
 
 - Keep a spawned host command's process slot until settlement when cancellation
   races with spawn. A foreground bound also releases a stalled output spill to
@@ -60,6 +78,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   replay boundary so strict all-items validation passes without exclusions.
 
 # 2026-11-11
+
+- **Yield foreground host commands on steering (#1657).** A steer or interrupt
+  moves each host command of the current step into a durable job and returns a
+  `backgrounded` result with cause `message`, without stopping its process or
+  marking its result interrupted. Pending steering is level-triggered when a
+  segment starts; reconnects re-read the owner's pending items. Promotion and
+  its result share one 750 ms window, including a command blocked on admission.
+  Normal steering leaves reads and `grep` running until their results; an
+  interrupt still cancels SSH and Machine commands. See
+  [bash](docs/product/reference/tools/bash.md).
 
 - **Add the `stop` tool for background jobs (#1657).** The model can end
   running jobs of the current Chat with `stop({ jobs })`, 1 to 16 `job://`

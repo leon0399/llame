@@ -1,15 +1,11 @@
 import { isBashTool } from './bash';
-import { isHostBashCall } from './bash-target';
-import { BASH_SETTLEMENT_GRACE_MS } from './bash-limits';
 import { isNativeFileTool } from './native-files';
-import { Logger } from '@nestjs/common';
 
 import {
   isRecord,
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-import { capToolResult } from './artifacts/spill';
 import { safeParseArgs } from './schema-utils';
 import { hasValidTrustedTimeout } from './turn-tool-catalog';
 import { cancelledBeforeExecution } from './cancelled-before-execution';
@@ -45,72 +41,12 @@ import {
   type EvaluatePermissionOptions,
   type PermissionDecision,
 } from './permissions/types';
-import {
-  prepareToolExecution,
-  type PreparedToolExecution,
-} from './tool-execution-signals';
+import { executeAdmittedTool } from './admitted-tool-execution';
 
-const logger = new Logger('ToolRunner');
-
-class ToolAbortError extends Error {}
+export { unknownMcpExecution } from './admitted-tool-execution';
 
 /** The admission of a call that names no `ssh://` destination. */
 const NO_SSH: SshAdmission = { kind: 'none' };
-
-/**
- * Race an execution against the exact signal passed to the tool. Cooperative
- * tools can stop work when it aborts; tools that ignore it still produce a
- * bounded result for the caller. The underlying work cannot be forcibly
- * cancelled. Native mutations check the signal before publication, and an
- * interrupted native mutation returns an unknown outcome rather than retrying.
- */
-function withAbort<T>(
-  promise: Promise<T>,
-  signal: AbortSignal,
-  abortGraceMs = 0,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let settled = false;
-    let graceTimer: NodeJS.Timeout | undefined;
-
-    const cleanup = () => {
-      signal.removeEventListener('abort', onAbort);
-
-      if (graceTimer !== undefined) clearTimeout(graceTimer);
-    };
-
-    const finish = (settle: () => void) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      settle();
-    };
-
-    const onAbort = () => {
-      if (abortGraceMs === 0) {
-        finish(() => reject(new ToolAbortError('Tool call aborted')));
-
-        return;
-      }
-
-      if (graceTimer !== undefined) return;
-      graceTimer = setTimeout(() => {
-        finish(() => reject(new ToolAbortError('Tool call aborted')));
-      }, abortGraceMs);
-    };
-
-    promise.then(
-      (value) => finish(() => resolve(value)),
-      (error: unknown) =>
-        finish(() =>
-          reject(error instanceof Error ? error : new Error(String(error))),
-        ),
-    );
-
-    if (signal.aborted) onAbort();
-    else signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
 
 /** Structured refusal for a tool the model requested but is unavailable (D3/D6). */
 export function refusalResult(toolName: string): ToolResult {
@@ -439,154 +375,6 @@ export async function runTool(
     ssh.kind === 'decided' ? ssh.context : validContext,
     callTimeoutSeconds,
   );
-}
-
-/** Run an admitted tool under its composed timeout/abort signal and map any
- *  failure to a structured result. Never throws. An abort that landed during
- *  the awaited admission write must not reach an executor. */
-async function executeAdmittedTool(
-  tool: Tool,
-  validArgs: UnknownRecord,
-  context: ToolContext,
-  callTimeoutSeconds: number,
-): Promise<ToolResult> {
-  if (context.abortSignal?.aborted) return cancelledBeforeExecution(tool.id);
-
-  const prepared = prepareToolExecution(
-    tool,
-    context,
-    callTimeoutSeconds,
-    isBashTool(tool) && isHostBashCall(validArgs, context),
-  );
-
-  return settleAdmittedExecution(tool, validArgs, context, prepared);
-}
-
-async function settleAdmittedExecution(
-  tool: Tool,
-  validArgs: UnknownRecord,
-  context: ToolContext,
-  prepared: PreparedToolExecution,
-): Promise<ToolResult> {
-  let mcpDispatchRecorded = false;
-
-  const executionContext = {
-    ...prepared.context,
-    onMcpDispatchRecorded: () => {
-      mcpDispatchRecorded = true;
-      context.onMcpDispatchRecorded?.();
-    },
-  };
-
-  try {
-    const result = await withAbort(
-      Promise.resolve(tool.execute(executionContext, validArgs)),
-      prepared.composedSignal,
-      isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
-    );
-
-    notifyUnknownOutcome(tool, context, result);
-
-    return await capToolResult(tool, context, result);
-  } catch (error) {
-    const result = classifyToolExecutionError(
-      error,
-      context,
-      prepared.timeoutSignal,
-      tool,
-      mcpDispatchRecorded,
-    );
-
-    notifyUnknownOutcome(tool, context, result);
-
-    return await capToolResult(tool, context, result);
-  }
-}
-
-export function unknownMcpExecution(): ToolResult {
-  return {
-    status: 'error',
-    type: 'outcome_unknown',
-    message:
-      'The MCP operation may have executed; inspect the current state before retrying. It will not be repeated automatically.',
-  };
-}
-
-/** Abort only uncertain native file mutations. Live bash/MCP unknowns are
- * observations; the model keeps the structured result and the Run continues. */
-function notifyUnknownOutcome(
-  tool: Tool,
-  context: ToolContext,
-  result: ToolResult,
-): void {
-  if (result.status !== 'error' || result.type !== 'outcome_unknown') {
-    return;
-  }
-
-  if (!isNativeFileTool(tool) || tool.id === 'read') {
-    return;
-  }
-
-  context.onNativeMutationUnknown?.();
-}
-
-function unknownNativeExecution(tool: Tool): ToolResult {
-  return {
-    status: 'error',
-    type: 'outcome_unknown',
-    message: isBashTool(tool)
-      ? 'Command outcome could not be established; inspect the workspace before retrying. The attempt will not be replayed automatically.'
-      : 'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
-  };
-}
-
-/** How a caught `tool.execute` failure resolves: the caller's own
- * cancellation, this call's own timeout, or an unexplained throw — never
- * leaking stack traces or config values into the recorded result (same
- * redaction posture as instance-config); logged server-side only. */
-function classifyToolExecutionError(
-  error: unknown,
-  context: ToolContext,
-  timeoutSignal: AbortSignal,
-  tool: Tool,
-  mcpDispatchRecorded: boolean,
-): ToolResult {
-  if (tool.id.startsWith('mcp__') && mcpDispatchRecorded) {
-    return unknownMcpExecution();
-  }
-
-  if (isBashTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
-    return unknownNativeExecution(tool);
-  }
-
-  const toolId = tool.id;
-
-  if (context.abortSignal?.aborted) {
-    return {
-      status: 'error',
-      type: 'cancelled',
-      message: `Tool "${toolId}" was cancelled.`,
-    };
-  }
-
-  if (timeoutSignal.aborted) {
-    return {
-      status: 'error',
-      type: 'timeout',
-      message: `Tool "${toolId}" timed out.`,
-    };
-  }
-
-  logger.error(
-    `Tool "${toolId}" threw`,
-    error instanceof Error ? error.stack : String(error),
-  );
-
-  return {
-    status: 'error',
-    type: 'execution_failed',
-    message: 'The tool failed to execute.',
-  };
 }
 
 type AdmittedArguments = {

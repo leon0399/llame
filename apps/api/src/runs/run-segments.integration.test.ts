@@ -27,6 +27,7 @@ import {
 } from '../testing/run-segments.test-fixture';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import { createUser } from './worker-harness';
 
 if (!process.env['TEST_DATABASE_URL']) {
@@ -61,7 +62,7 @@ describe('run steering segments', () => {
   } = fx;
 
   describe('the step end check and the delivery', () => {
-    it('A steer during a tool call waits for the result', async () => {
+    it('A lost steer signal delays delivery until the command finishes', async () => {
       // The call blocks on a gate file, so the item is stored while it runs.
       const gate = join(fx.directory, `gate-${randomUUID()}`);
 
@@ -817,7 +818,7 @@ describe('run steering segments', () => {
           chatId: seeded.chatId,
           userId: owner,
         }),
-        locked: await new RunsRepository(tx).lockForDelivery(
+        locked: await new RunRowFenceRepository(tx).lockForDelivery(
           seeded.runId,
           owner,
           attemptId,

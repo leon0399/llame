@@ -7,6 +7,7 @@ import { type WorkerHeartbeatService } from './worker-heartbeat.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatsRepository } from '../chats/chats-repository';
+import { BashJobPromotion } from './bash-job-promotion';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 
@@ -216,6 +217,57 @@ describe('the heartbeat check of live jobs', () => {
     ]);
   });
 
+  it('stops live commands before waiting for a stalled promotion receipt', async () => {
+    const job = await live();
+    const promoting = await live();
+
+    const promotion = Promise.withResolvers<{
+      result: { status: 'error'; type: 'unavailable'; message: string };
+      receiptCommitted: boolean;
+      recoveryWon: boolean;
+    }>();
+
+    vi.spyOn(BashJobPromotion.prototype, 'promote').mockReturnValue(
+      promotion.promise,
+    );
+
+    const result = {
+      status: 'error' as const,
+      type: 'unavailable' as const,
+      message: 'stopped',
+    };
+
+    const pendingPromotion = registry.promoteWithReceipt(
+      promoting.handle,
+      { ...facts, attemptId: 'attempt' },
+      () => result,
+      () => result,
+    );
+
+    const shutdown = registry.shutdown();
+
+    try {
+      await vi.waitFor(() => {
+        expect(job.stop).toHaveBeenCalledWith('worker');
+        expect(promoting.stop).toHaveBeenCalledWith('worker');
+        expect(settlements).toMatchObject([
+          { state: 'cancelled', stoppedBy: 'worker' },
+          { state: 'cancelled', stoppedBy: 'worker' },
+        ]);
+        expect(settle).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      promotion.resolve({
+        result,
+        receiptCommitted: false,
+        recoveryWon: true,
+      });
+      await Promise.all([pendingPromotion, shutdown]);
+    }
+
+    expect(settle).toHaveBeenCalledTimes(2);
+  });
+
   it('does not read job rows when shutdown starts during a heartbeat check', async () => {
     const job = await live();
     rows.set(job.id, { state: 'running', stopRequestedBy: null });
@@ -252,6 +304,99 @@ describe('the heartbeat check of live jobs', () => {
     }
 
     expect(settlements).toMatchObject([
+      { state: 'cancelled', stoppedBy: 'worker' },
+    ]);
+  });
+
+  it('stops checking after shutdown begins while a row lookup is pending', async () => {
+    const a = await live();
+    const b = await live();
+
+    const { promise: rowReadStarted, resolve: markRowReadStarted } =
+      Promise.withResolvers<void>();
+
+    const { promise: rowRead, resolve: releaseRowRead } =
+      Promise.withResolvers<void>();
+
+    const { promise: stopsReleased, resolve: releaseStops } =
+      Promise.withResolvers<void>();
+
+    const { promise: stopsStarted, resolve: markStopsStarted } =
+      Promise.withResolvers<void>();
+
+    let startedStops = 0;
+
+    rows.set(a.id, { state: 'running', stopRequestedBy: null });
+    rows.set(b.id, { state: 'running', stopRequestedBy: null });
+    findById.mockImplementationOnce(async (_chat, _owner, id) => {
+      lookups.push(id);
+      markRowReadStarted();
+      await rowRead;
+
+      // SAFETY: the mock returns only the fields consumed by the recheck.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      return rows.get(id) as ChatJob | undefined;
+    });
+
+    a.stop.mockImplementation(async () => {
+      if (++startedStops === 2) markStopsStarted();
+      await stopsReleased;
+      a.finish({
+        status: 'success',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      });
+
+      return {
+        proved: true,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
+      };
+    });
+    b.stop.mockImplementation(async () => {
+      if (++startedStops === 2) markStopsStarted();
+      await stopsReleased;
+      b.finish({
+        status: 'success',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+      });
+
+      return {
+        proved: true,
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
+      };
+    });
+
+    const checking = registry.recheckJobs();
+    await rowReadStarted;
+    const shutdown = registry.shutdown();
+    await stopsStarted;
+
+    try {
+      expect(a.stop).toHaveBeenCalledWith('worker');
+      expect(b.stop).toHaveBeenCalledWith('worker');
+
+      releaseRowRead();
+      await checking;
+
+      expect(lookups).toEqual([a.id]);
+    } finally {
+      releaseStops();
+      await shutdown;
+    }
+
+    expect(settlements).toMatchObject([
+      { state: 'cancelled', stoppedBy: 'worker' },
       { state: 'cancelled', stoppedBy: 'worker' },
     ]);
   });

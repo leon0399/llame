@@ -8,6 +8,11 @@ import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 const context: ToolContext = {
   userId: 'owner',
   chatId: 'chat',
+  runId: 'run',
+  attemptId: 'attempt-1',
+  nativeExecutorId: 'host',
+  nativeDeliverySequence: 1,
+  toolCallId: 'call-1',
   configuredCredentials: [],
   permissionPolicy: compileTestPermissionPolicy(),
   tenantDb: {

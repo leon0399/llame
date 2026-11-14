@@ -31,6 +31,7 @@ import {
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { bashTool } from '../tools/bash';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -70,6 +71,12 @@ import {
   type RunSegmentRegistrar,
 } from './run-abort-registry';
 import { createRunEventTranslator } from './run-stream-bridge';
+
+function interruptCurrent(aborts: RunAbortRegistry, runId: string): boolean {
+  const segment = aborts.segmentOf(runId);
+
+  return segment === undefined ? false : aborts.interrupt(runId, segment);
+}
 
 // The real SDK without a client, with the three calls a Run makes observable.
 vi.mock('@sentry/nestjs', async (importOriginal) => ({
@@ -177,6 +184,7 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   reconstructDurableAssistant,
   toolActivityPart,
@@ -780,6 +788,10 @@ function mockNormalExecutionRepositories() {
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'hasPendingSteering',
+  ).mockResolvedValue(false);
 
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
@@ -800,6 +812,18 @@ function mockNormalExecutionRepositories() {
   const findById = vi
     .spyOn(RunsRepository.prototype, 'findById')
     .mockResolvedValue(run);
+
+  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+  vi.spyOn(
+    RunRowFenceRepository.prototype,
+    'lockHostPromotionRecovery',
+  ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+  vi.spyOn(RunEventsRepository.prototype, 'findNativeResult').mockResolvedValue(
+    undefined,
+  );
+  vi.spyOn(RunEventsRepository.prototype, 'hasNativeAttempt').mockResolvedValue(
+    false,
+  );
 
   const findByOwnedRun = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByOwnedRun')
@@ -859,9 +883,10 @@ function mockNormalExecutionRepositories() {
     ChatDeliveriesRepository.prototype,
     'stepEndSignal',
   ).mockResolvedValue(undefined);
-  vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValue(
-    undefined,
-  );
+  vi.spyOn(
+    RunRowFenceRepository.prototype,
+    'lockForDelivery',
+  ).mockResolvedValue(undefined);
   vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue(
     undefined,
   );
@@ -6284,7 +6309,7 @@ async function executeBoundTool(
 
 async function executeBoundBash(
   options: StreamOptions,
-  args: { command: string; cwd?: string },
+  args: { command: string; cwd?: string; async?: boolean },
   toolCallId: string,
 ): Promise<ToolResult> {
   const bound = options.tools?.bash;
@@ -6783,6 +6808,462 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
   });
 
+  it('records the recovery winner before terminally settling an unresolved host bash call', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const appended = recordAppendedEvents();
+      replayAppendedEvents(appended);
+      vi.spyOn(
+        NativeFilesRepository.prototype,
+        'recoverHostPromotion',
+      ).mockImplementation(({ toolCallId, result }) => {
+        appended.push({
+          type: 'native.result',
+          payload: { toolCallId, result },
+        });
+
+        return Promise.resolve({ disposition: 'recovery_won', result });
+      });
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const result = Promise.withResolvers<ToolResult>();
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return result.promise;
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+      const options = capturing.streamOptions();
+
+      const call = executeBoundBash(
+        options,
+        { command: 'sleep 30', async: true },
+        'bash-recovery',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+      await vi.waitFor(() =>
+        expect(appended.some(({ type }) => type === 'run.cancelled')).toBe(
+          true,
+        ),
+      );
+
+      const receiptIndex = appended.findIndex(
+        ({ type, payload }) =>
+          type === 'native.result' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-recovery',
+      );
+
+      const completedIndex = appended.findIndex(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-recovery',
+      );
+
+      expect(receiptIndex).toBeGreaterThanOrEqual(0);
+      expect(receiptIndex).toBeLessThan(completedIndex);
+      expect(appended[receiptIndex]?.payload).toMatchObject({
+        toolCallId: 'bash-recovery',
+        result: { status: 'error', type: 'outcome_unknown' },
+      });
+
+      result.resolve({
+        status: 'success',
+        backgrounded: true,
+        job: 'job://bash-9',
+      });
+      await expect(call).resolves.toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('retries host bash recovery after a serialization failure', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const appended = recordAppendedEvents();
+
+      replayAppendedEvents(appended);
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('serialization failure'), {
+            code: '40001',
+          }),
+        )
+        .mockImplementation(({ result }) =>
+          Promise.resolve({ disposition: 'recovery_won', result }),
+        );
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-retry',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+
+      controller.abort();
+
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      const retryResult = await call;
+
+      expect(retryResult.status).toBe('error');
+      expect(retryResult.type).toBe('outcome_unknown');
+
+      expect(recovery).toHaveBeenCalledTimes(2);
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-retry',
+      );
+
+      if (!completed || !isRecord(completed.payload)) {
+        throw new Error('Retry recovery did not complete the bash call.');
+      }
+
+      const output = completed.payload.output;
+
+      if (!isRecord(output)) {
+        throw new Error('Retry recovery wrote a malformed bash result.');
+      }
+
+      expect(output.status).toBe('error');
+
+      expect(output.type).toBe('outcome_unknown');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('bounds host bash recovery retries after repeated serialization failures', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+
+      const recoveryError = Object.assign(new Error('serialization failure'), {
+        code: '40001',
+      });
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValue(recoveryError);
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-recovery-retry-limit',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      const rejected = call.catch((error: unknown) => error);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      expect(await rejected).toBe(recoveryError);
+      expect(recovery).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('does not retry host bash recovery after a non-serialization failure', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const recoveryError = new Error('recovery permission denied');
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValue(recoveryError);
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-recovery-permanent-error',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      const rejected = call.catch((error: unknown) => error);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      expect(await rejected).toBe(recoveryError);
+      expect(recovery).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles other calls immediately but gives an interrupted host bash call its grace period', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+
+      mockNormalExecutionRepositories();
+
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+
+      const appended = recordAppendedEvents();
+
+      replayAppendedEvents(appended);
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockImplementation(({ result }) =>
+          Promise.resolve({ disposition: 'recovery_won', result }),
+        );
+
+      const capturing = makeCapturingClient();
+
+      const otherExecute = vi
+        .spyOn(nativeReadTool, 'execute')
+        .mockImplementation((context) => {
+          const signal = context.abortSignal;
+
+          if (signal === undefined) {
+            throw new Error('The read call has no abort signal.');
+          }
+
+          const { promise, resolve } = Promise.withResolvers<{
+            status: 'success';
+            output: string;
+          }>();
+
+          const finish = () => resolve({ status: 'success', output: 'late' });
+
+          if (signal.aborted) finish();
+          else signal.addEventListener('abort', finish, { once: true });
+
+          return promise;
+        });
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        { allowed: ['bash', 'read'] },
+      );
+
+      const bashExecute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const options = capturing.streamOptions();
+
+      const bashCall = executeBoundBash(
+        options,
+        { command: 'sleep 30', async: true },
+        'bash-grace',
+      );
+
+      const otherCall = executeBoundNative(
+        options,
+        'read',
+        { path: '/native/file' },
+        'other-cancel',
+      );
+
+      await vi.waitFor(() => {
+        expect(bashExecute).toHaveBeenCalled();
+        expect(otherExecute).toHaveBeenCalled();
+      });
+
+      controller.abort();
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      const readCompletion = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'other-cancel',
+      );
+
+      if (!readCompletion || !isRecord(readCompletion.payload)) {
+        throw new Error('Parent abort did not complete the read call.');
+      }
+
+      const readOutput = readCompletion.payload.output;
+
+      if (!isRecord(readOutput)) {
+        throw new Error('Parent abort wrote a malformed read result.');
+      }
+
+      expect(readOutput.status).toBe('error');
+      expect(readOutput.type).toBe('cancelled');
+      expect(readOutput.message).toBe(
+        'The run was cancelled before this tool finished.',
+      );
+
+      const bashCompletedBeforeGrace = appended.some(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-grace',
+      );
+
+      expect(bashCompletedBeforeGrace).toBe(false);
+      expect(recovery).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      const bashResult = await bashCall;
+
+      expect(bashResult.status).toBe('error');
+      expect(bashResult.type).toBe('outcome_unknown');
+
+      await otherCall;
+
+      expect(recovery).toHaveBeenCalledTimes(1);
+
+      const bashCompletion = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-grace',
+      );
+
+      if (!bashCompletion || !isRecord(bashCompletion.payload)) {
+        throw new Error('Bash recovery did not complete the host call.');
+      }
+
+      const bashOutput = bashCompletion.payload.output;
+
+      if (!isRecord(bashOutput)) {
+        throw new Error('Bash recovery wrote a malformed result.');
+      }
+
+      expect(bashOutput.status).toBe('error');
+      expect(bashOutput.type).toBe('outcome_unknown');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('An interrupt during a pending admission writes the request before the completion', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -6828,7 +7309,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'pending-bash',
     );
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     await vi.waitFor(() =>
       expect(appended.map(({ type }) => type)).toContain('tool.completed'),
     );
@@ -6892,7 +7373,11 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
     const execute = vi
       .spyOn(bashTool, 'execute')
-      .mockImplementation(() => new Promise<ToolResult>(() => {}));
+      .mockImplementation((context) => {
+        context.onHostCommandStarted?.();
+
+        return new Promise<ToolResult>(() => {});
+      });
 
     const capturing = makeCapturingClient();
 
@@ -6934,6 +7419,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
     expect(appended.at(-1)?.type).toBe('run.cancelled');
   });
+
   it('records a settled bash result that arrives after the parent abort', async () => {
     const controller = new AbortController();
     mockNormalExecutionRepositories();
@@ -19345,9 +19831,10 @@ describe('RunExecutionService executeRun — run segments', () => {
     items: Array<ChatDelivery>,
     locked: Run | undefined = { ...run, activeAttemptId: testAttemptId },
   ) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      locked,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(locked);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
 
     const lockPending = vi
@@ -19597,7 +20084,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       'stepEndSignal',
     );
 
-    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const lock = vi.spyOn(RunRowFenceRepository.prototype, 'lockForDelivery');
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
@@ -19677,9 +20164,10 @@ describe('RunExecutionService executeRun — run segments', () => {
     signal.mockResolvedValueOnce('delivery');
     await options?.stopWhenExtra?.();
     // Another attempt superseded this one: its row lock finds no live Run.
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      undefined,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(undefined);
     await options?.onFinish?.(finishToolCalls);
     await result.consumeStream();
 
@@ -19700,7 +20188,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       'stepEndSignal',
     );
 
-    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const lock = vi.spyOn(RunRowFenceRepository.prototype, 'lockForDelivery');
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
@@ -20413,9 +20901,10 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     items: Array<ChatDelivery>,
     locked: Run = { ...run, activeAttemptId: testAttemptId },
   ) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      locked,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(locked);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
@@ -20463,6 +20952,44 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
   const NOT_RUN =
     'This call did not run. The owner interrupted the step before it started. Run it again if you still need it.';
 
+  it('passes an already-pending steering yield to the first tool call', async () => {
+    const yieldStates: Array<boolean> = [];
+
+    const { start } = interruptRig({
+      execute: (context) => {
+        yieldStates.push(context.yieldSignal?.aborted === true);
+
+        return Promise.resolve({ status: 'success' });
+      },
+    });
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'hasPendingSteering',
+    ).mockResolvedValueOnce(true);
+
+    const { options } = await start();
+
+    await executeBoundTool(options, { q: 'x' }, 'pre-steered');
+
+    expect(yieldStates).toEqual([true]);
+  });
+
+  it('fails and releases the segment when its pending-steering read fails', async () => {
+    const { aborts, start, appended } = interruptRig({ native: ['read'] });
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'hasPendingSteering',
+    ).mockRejectedValueOnce(new Error('pending read unavailable'));
+
+    await expect(start()).rejects.toThrow('pending read unavailable');
+    expect(aborts.segmentOf(runId)).toBeUndefined();
+    expect(payloadOf(appended, 'run.failed')).toMatchObject({
+      status: 'failed',
+      message: 'pending read unavailable',
+    });
+  });
+
   it('settles a dispatched MCP call as unknown, records its result, and names it in the delivery', async () => {
     const { appended, aborts, start } = interruptRig({
       execute: async (context) => {
@@ -20486,7 +21013,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       5,
     );
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20549,7 +21076,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       );
     }
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
 
@@ -20571,7 +21098,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const call = executeBoundTool(options, { q: 'x' }, 'mcp-1');
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20606,7 +21133,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20647,7 +21174,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     serveInterrupt([interruptItem]);
     const failed = options.onError?.({ error: new Error('aborted') });
     // The edit is still running: nothing settles it and nothing is delivered.
@@ -20671,7 +21198,42 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     expect(delivered(appended)).toMatchObject({ stoppedCalls: [] });
   });
 
-  it('kills a bash call that proves its own result and names it in the delivery', async () => {
+  it('yields a host bash call without cancelling its execution signal', async () => {
+    let moveSignal: AbortSignal | undefined;
+    let abortSignal: AbortSignal | undefined;
+    vi.spyOn(bashTool, 'execute').mockImplementation(async (context) => {
+      moveSignal = context.moveSignal;
+      abortSignal = context.abortSignal;
+      await untilAborted(context.moveSignal);
+
+      return { status: 'success', stdout: 'command finished' };
+    });
+    const { appended, aborts, start } = interruptRig({ native: ['bash'] });
+    const { options } = await start();
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9' },
+      'bash-host-1',
+    );
+
+    await waitForType(appended, 'tool.started');
+    expect(moveSignal?.aborted).toBe(false);
+    expect(abortSignal?.aborted).not.toBe(true);
+
+    expect(interruptCurrent(aborts, runId)).toBe(true);
+    await call;
+    serveInterrupt([interruptItem]);
+    await options.onError?.({ error: new Error('aborted') });
+
+    expect(moveSignal?.aborted).toBe(true);
+    expect(abortSignal?.aborted).not.toBe(true);
+    expect(payloadOf(appended, 'tool.completed', 'bash-host-1')).toMatchObject({
+      output: { status: 'success', stdout: 'command finished' },
+    });
+  });
+
+  it('cancels a remote bash call that proves its result and names it in the delivery', async () => {
     const proven: ToolResult = {
       status: 'error',
       type: 'cancelled',
@@ -20685,10 +21247,16 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     });
     const { appended, aborts, start } = interruptRig({ native: ['bash'] });
     const { options } = await start();
-    const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
+
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20708,10 +21276,16 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     );
     const { appended, aborts, start } = interruptRig({ native: ['bash'] });
     const { options } = await start();
-    const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
+
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     serveInterrupt([interruptItem]);
     const failed = options.onError?.({ error: new Error('aborted') });
     // Inside the grace nothing settles the call.
@@ -20736,12 +21310,16 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const record = append.getMockImplementation();
     append.mockImplementation((...args) => {
       // The stop lands while the call's admission is being recorded.
-      if (args[1] === 'tool.started') aborts.interrupt(runId, testAttemptId);
+      if (args[1] === 'tool.started') interruptCurrent(aborts, runId);
 
       return record?.(...args) ?? Promise.reject(new Error('no append'));
     });
     const { options } = await start();
-    await executeBoundBash(options, { command: 'ls' }, 'bash-1');
+    await executeBoundBash(
+      options,
+      { command: 'ls', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
 
@@ -20759,7 +21337,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
     const record = append.getMockImplementation();
     append.mockImplementation((...args) => {
-      if (args[1] === 'tool.started') aborts.interrupt(runId, testAttemptId);
+      if (args[1] === 'tool.started') interruptCurrent(aborts, runId);
 
       return record?.(...args) ?? Promise.reject(new Error('no append'));
     });
@@ -20788,7 +21366,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const started = await rig.start();
     const call = executeBoundTool(started.options, { q: 'x' }, toolCallId);
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     await call;
 
     return started;
@@ -20886,7 +21464,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const { options } = await rig.start(controller.signal);
     const call = executeBoundTool(options, { q: 'x' }, 'mcp-1');
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     controller.abort();
     await call;
     serveInterrupt([interruptItem]);
@@ -20973,7 +21551,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await options.onError?.({ error: new Error('aborted') });
 
-    expect(rig.aborts.segmentAttemptOf(runId)).toBeUndefined();
+    expect(rig.aborts.segmentOf(runId)).toBeUndefined();
   });
 
   it('records the result of an MCP call whose request was committed after the stop settled it', async () => {
@@ -21056,7 +21634,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const { options } = await rig.start();
     const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
     await call;
@@ -21101,7 +21679,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       'pending-bash',
     );
 
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     await waitForType(rig.appended, 'tool.completed');
 
     resolving.resolve({

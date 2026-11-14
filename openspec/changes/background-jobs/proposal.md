@@ -90,8 +90,8 @@ Assumptions that follow from those decisions and were not asked:
 - A `bash` call on an `ssh://` or `machine://` directory refuses `async` and `unlimited`, and
   keeps its present timeout and interrupt behavior until #1660.
 - An archived Chat is not idle, so a notice starts no Run in it.
-- A failed move stops the command. A proved stop within the settlement window returns
-  `timed_out` with captured output; an unproved stop or late move returns `outcome_unknown`.
+- A failed move stops the command. A proved stop returns `timed_out` with captured output; an
+  unproved stop returns `outcome_unknown`. A pending durable promotion delays final settlement.
 - The usage of a reply that continues after a `wait` is a lower bound. It sums the requests
   after the wake and is marked `complete: false`, as `run-usage-accounting` requires when a
   second attempt serves one message. A full sum needs a change of that capability or the cost
@@ -129,10 +129,10 @@ Leo must confirm these three points.
 
 ### Modified Capabilities
 
-- `bash-execution`: MODIFIED `Alpha host bash uses the native executor gate` (two new input
-  fields) and `Unknown command effects are never replayed automatically` (no per-call deadline
-  on the host). ADDED requirements for the background triggers, the `backgrounded` result, the
-  settlement from the exit code, the process bound, and the tool description.
+- `bash-execution`: MODIFIED `Alpha host bash uses the native executor gate`, `Command results
+  are bounded and explicit`, and `Unknown command effects are never replayed automatically`.
+  ADDED requirements for background triggers, the `backgrounded` result, settlement from the
+  exit code, the process bound, and the tool description.
 - `run-steering`: MODIFIED `A pending item records a producer and a sender`,
   `Steer delivers at the next step boundary`,
   `The items delivered at one boundary form one user message`,
@@ -148,8 +148,9 @@ Leo must confirm these three points.
 - `context-injection`: MODIFIED `Co-occurring items have a total author-time order` (the `job`
   producer) and `Server-authored context is injected as discrete items on one rail` (a `job`
   item is never an in-Run item, and a host message can carry it).
-- `tool-calling`: MODIFIED `No mid-run tool-state checkpointing` (a wake is not a retry). ADDED
-  requirements for the open `wait` call, the tools that yield, and the classification of `stop`.
+- `tool-calling`: MODIFIED `No mid-run tool-state checkpointing`, `Tool failure is an observation,
+  not a crash`, and `Cooperative cancellation reaches tool execution`. ADDED requirements for
+  the open `wait` call, the tools that yield, and the classification of `stop`.
 - `tool-result-rendering`: MODIFIED `A bash result renders a status header and its streams`
   (the `backgrounded` text). ADDED requirements for job reads and for `wait` and `stop`.
 - `ssh-locator`: MODIFIED `Remote bash uses the local bounds` (the time bound differs).
@@ -169,22 +170,9 @@ Leo must confirm these three points.
 
 Each bullet names the reading under which the canonical text still holds.
 
-- `bash-execution` / `Command results are bounded and explicit`: "Each bash call MUST enforce
-  finite … duration" bounds the call. A host call settles within 750 ms after its foreground bound.
-  The job lifetime bounds the command, except an `unlimited` job that the operator allows. The
-  50 ms drain after a proven stop also applies to a lifetime end.
 - `tool-calling` / `Multi-step tool-calling run loop`: "MUST continue the same Run until the
   model gives a final answer" holds, because a Run in `awaiting_jobs` is the same Run and
   continues when it wakes.
-- `tool-calling` / `Tool failure is an observation, not a crash`: "Tool execution SHALL be
-  bounded by the global `tools.callTimeoutSeconds`" bounds the time in which a worker executes
-  a call. Its foreground bound does not exceed that value. A host call has the existing
-  750 ms bash settlement grace after the bound.
-  A `wait` call executes until the Run enters `awaiting_jobs`, and again when the Run wakes. No
-  worker executes it between those two points.
-- `tool-calling` / `Cooperative cancellation reaches tool execution`: the "effective per-call
-  timeout" of host `bash` is its foreground bound. The call returns `backgrounded` within the
-  settlement grace, or `outcome_unknown` if settlement exceeds it. Neither kills a recorded job.
 - `run-usage-accounting` / `Message usage aggregates every model request of its attempt` and
   `Usage records whether it is complete`: the attempt after a wake is "the Run attempt that
   produced" the reply, and "another attempt for the same message of the Run reached prompt

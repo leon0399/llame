@@ -1,4 +1,6 @@
-import { RunEventsRepository } from './runs-repository';
+import { ChatsRepository } from '../chats/chats-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import { and, desc, eq, gt, isNull, max, or, sql } from 'drizzle-orm';
 import {
   isRecord,
@@ -6,7 +8,7 @@ import {
   type ToolResult,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-import { runEvents, runs } from '../db/schema';
+import { runEvents, runs, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { nonTerminalRun } from './run-status';
 import { isArtifactLocator } from '../tools/artifacts/locator';
@@ -16,9 +18,103 @@ export type NativeFenceMode =
   | { readonly bound: true; readonly executorId: string }
   | { readonly bound: false };
 
+export type HostPromotionRecoveryResult = {
+  readonly disposition: 'recovery_won' | 'receipt' | 'fenced';
+  readonly result: ToolResult;
+};
+
 /** Uses the existing owner-scoped Run row and append-only event log. */
 export class NativeFilesRepository {
   constructor(private readonly db: Db) {}
+
+  private async lockRecoveryRun(input: {
+    runId: string;
+    userId: string;
+    attemptId: string;
+  }): Promise<Run | undefined> {
+    const runs = new RunsRepository(this.db);
+    const candidate = await runs.findById(input.runId, input.userId);
+
+    if (candidate === undefined) return undefined;
+
+    const chat = await new ChatsRepository(this.db).lock(
+      candidate.chatId,
+      input.userId,
+    );
+
+    if (chat === undefined) return undefined;
+
+    return new RunRowFenceRepository(this.db).lockHostPromotionRecovery(
+      input.runId,
+      input.userId,
+      input.attemptId,
+    );
+  }
+
+  private async recordedHostPromotionReceipt(
+    events: RunEventsRepository,
+    input: {
+      runId: string;
+      userId: string;
+      toolCallId: string;
+      result: ToolResult;
+    },
+  ): Promise<ToolResult | undefined> {
+    const prior = await events.findNativeResult(
+      input.runId,
+      input.userId,
+      input.toolCallId,
+    );
+
+    if (prior === undefined) return undefined;
+
+    const stored =
+      isRecord(prior.payload) && isRecord(prior.payload.result)
+        ? recordedResult(prior.payload.result)
+        : undefined;
+
+    return stored ?? input.result;
+  }
+
+  /**
+   * Terminal recovery and host promotion arbitrate on the Run row. Take the
+   * Chat lock first, then the current Run lock. If recovery acquires it first,
+   * append the fallback receipt before releasing the lock; a later promotion
+   * then finds that receipt and cannot create a job.
+   */
+  async recoverHostPromotion(input: {
+    runId: string;
+    userId: string;
+    attemptId: string;
+    toolCallId: string;
+    result: ToolResult;
+  }): Promise<HostPromotionRecoveryResult> {
+    const run = await this.lockRecoveryRun(input);
+    const events = new RunEventsRepository(this.db);
+    const prior = await this.recordedHostPromotionReceipt(events, input);
+
+    if (prior !== undefined) {
+      return { disposition: 'receipt', result: prior };
+    }
+
+    if (
+      run === undefined ||
+      !(await events.hasNativeAttempt(
+        input.runId,
+        input.userId,
+        input.toolCallId,
+      ))
+    ) {
+      return { disposition: 'fenced', result: input.result };
+    }
+
+    await events.append(input.runId, 'native.result', {
+      toolCallId: input.toolCallId,
+      result: input.result,
+    });
+
+    return { disposition: 'recovery_won', result: input.result };
+  }
 
   /**
    * Whether this delivery of the Run is the current one, under the Run row

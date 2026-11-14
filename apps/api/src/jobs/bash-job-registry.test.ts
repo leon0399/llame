@@ -4,11 +4,16 @@ import {
 } from '@workspace/bash-executor';
 
 import { ChatsRepository } from '../chats/chats-repository';
-import { type ChatJob } from '../db/schema';
+import { type ChatJob, type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
+import { RunEventsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import { BashJobLifecycle } from './bash-job-lifecycle';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
+import { jobSequence, toolResultFromReceipt } from './bash-promotion-receipt';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { JobPromotionError } from './job-promotion-error';
 
@@ -261,6 +266,336 @@ describe('BashJobRegistry', () => {
     ]);
   });
 
+  it('reconciles a committed job receipt when the transaction acknowledgement is lost', async () => {
+    const { registry, tenantDb } = setup();
+    const command = fakeHandle({ stdout: 'captured output', stderr: '' });
+
+    const receipt = {
+      toolCallId: 'call-1',
+      result: { status: 'success', job: 'job://bash-7' },
+    };
+
+    const runAs = tenantDb.runAs;
+    let loseAcknowledgement = true;
+
+    vi.spyOn(tenantDb, 'runAs').mockImplementation(async (owner, operation) => {
+      const committed = await runAs(owner, operation);
+
+      if (loseAcknowledgement) {
+        loseAcknowledgement = false;
+        throw new Error('connection lost after commit');
+      }
+
+      return committed;
+    });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockResolvedValue({
+      id: 'run-1',
+      chatId: CHAT,
+      messageId: 'message-1',
+      userId: OWNER,
+      modelId: 'model-1',
+      activeAttemptId: 'attempt-1',
+      completedAttemptId: null,
+      turnToolAvailability: null,
+      status: 'running_model',
+      workerId: null,
+      cancelRequestedAt: null,
+      error: null,
+      createdAt: STARTED,
+      startedAt: STARTED,
+      finishedAt: null,
+      effort: null,
+      permissionMode: 'default',
+      followUpAction: null,
+      sourceRunId: null,
+    } satisfies Run);
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      sequence: 1,
+      runId: 'run-1',
+      eventType: 'native.result',
+      payload: null,
+      createdAt: STARTED,
+    } satisfies RunEvent);
+    vi.spyOn(RunEventsRepository.prototype, 'findNativeResult')
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({
+        sequence: 2,
+        runId: 'run-1',
+        eventType: 'native.result',
+        payload: receipt,
+        createdAt: STARTED,
+      } satisfies RunEvent);
+
+    const findJob = vi
+      .spyOn(ChatJobsRepository.prototype, 'findByLocator')
+      .mockResolvedValue(
+        jobRow({
+          chatId: CHAT,
+          ownerUserId: OWNER,
+          executor: 'bash',
+          seq: 7,
+          runId: 'run-1',
+          toolCallId: 'call-1',
+          workerInstanceId: 'worker',
+          pid: 42,
+          startedAt: STARTED,
+          outputs: ['stdout', 'stderr'],
+          artifactReadable: true,
+          settings: facts().settings,
+        }),
+      );
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => ({ status: 'error', type: 'unavailable', message: 'stopped' }),
+    );
+
+    expect(promoted).toEqual({
+      result: receipt.result,
+      receiptCommitted: true,
+      recoveryWon: false,
+    });
+    expect(findJob).toHaveBeenCalledWith(CHAT, OWNER, 'bash', 7);
+    expect(command.stop).not.toHaveBeenCalled();
+
+    await registry.shutdown();
+    expect(command.stop).toHaveBeenCalledWith('worker');
+  });
+
+  it('returns an existing failure receipt after recovery loses its acknowledgement', async () => {
+    const { registry, tenantDb } = setup();
+    const command = fakeHandle();
+
+    const prior = {
+      status: 'error',
+      type: 'cancelled',
+      message: 'A stop receipt was already recorded.',
+    } as const;
+
+    const findReceipt = vi
+      .spyOn(RunEventsRepository.prototype, 'findNativeResult')
+      .mockResolvedValue({
+        sequence: 2,
+        runId: 'run-1',
+        eventType: 'native.result',
+        payload: { toolCallId: 'call-1', result: prior },
+        createdAt: STARTED,
+      } satisfies RunEvent);
+
+    const recover = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockResolvedValue({ disposition: 'recovery_won', result: prior });
+
+    const runAs = tenantDb.runAs;
+    let calls = 0;
+
+    vi.spyOn(tenantDb, 'runAs').mockImplementation(async (owner, operation) => {
+      calls += 1;
+      const result = await runAs(owner, operation);
+
+      if (calls === 2)
+        throw new Error('recovery committed; acknowledgement lost');
+
+      return result;
+    });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockRejectedValue(new Error('database unavailable'));
+    command.stop.mockRejectedValueOnce(new Error('could not prove stop'));
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => ({ status: 'error', type: 'cancelled', message: 'stopped' }),
+    );
+
+    expect(promoted).toEqual({
+      result: prior,
+      receiptCommitted: true,
+      recoveryWon: true,
+    });
+    expect(recover.mock.calls[0]?.[0]).toMatchObject({
+      runId: 'run-1',
+      userId: OWNER,
+      attemptId: 'attempt-1',
+      toolCallId: 'call-1',
+      result: { type: 'outcome_unknown' },
+    });
+    expect(findReceipt).toHaveBeenCalledWith('run-1', OWNER, 'call-1');
+    expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
+  it('does not attempt a Run fence after the Chat lock is missing', async () => {
+    const { registry, lock, inserted } = setup();
+    const command = fakeHandle();
+
+    const runFence = vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    );
+
+    lock.mockResolvedValue(undefined);
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => ({ status: 'error', type: 'cancelled', message: 'stopped' }),
+    );
+
+    expect(promoted).toMatchObject({
+      result: { status: 'error', type: 'outcome_unknown' },
+      receiptCommitted: false,
+      recoveryWon: true,
+    });
+    expect(lock).toHaveBeenCalledWith(CHAT, OWNER);
+    expect(runFence).not.toHaveBeenCalled();
+    expect(inserted).not.toHaveBeenCalled();
+    expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
+  it('rejects receipt promotion without an owning Run attempt', async () => {
+    const { registry, lock, inserted } = setup();
+    const command = fakeHandle();
+
+    await expect(
+      registry.promoteWithReceipt(
+        command.handle,
+        facts(),
+        () => ({ status: 'success' }),
+        () => ({ status: 'error', type: 'cancelled', message: 'stopped' }),
+      ),
+    ).rejects.toThrow('Host promotion requires its Run attempt.');
+
+    expect(lock).not.toHaveBeenCalled();
+    expect(inserted).not.toHaveBeenCalled();
+    expect(command.stop).not.toHaveBeenCalled();
+  });
+
+  it('accepts only a complete tool result from a promotion receipt', () => {
+    expect(
+      toolResultFromReceipt({
+        result: { status: 'error', type: 'timed_out', message: 'deadline' },
+      }),
+    ).toEqual({ status: 'error', type: 'timed_out', message: 'deadline' });
+    expect(
+      toolResultFromReceipt({ result: { status: 'error', type: 'timed_out' } }),
+    ).toBeUndefined();
+    expect(
+      toolResultFromReceipt({
+        result: { status: 'pending', job: 'job://bash-7' },
+      }),
+    ).toBeUndefined();
+  });
+
+  it('accepts only complete bash job locators from a receipt', () => {
+    expect(jobSequence({ status: 'success', job: 'job://bash-123' })).toBe(123);
+
+    for (const job of [
+      'job://bash-1x',
+      'xjob://bash-1',
+      'job://bash-a',
+      'job://ssh-1',
+    ]) {
+      expect(jobSequence({ status: 'success', job })).toBeUndefined();
+    }
+
+    expect(jobSequence({ status: 'success' })).toBeUndefined();
+  });
+
+  it('returns the durable stop receipt when recovery wins the Run lock', async () => {
+    const { registry } = setup();
+    const command = fakeHandle({ stdout: 'before recovery', stderr: '' });
+
+    const stopped = {
+      status: 'error',
+      type: 'unavailable',
+      message: 'Run ended before promotion',
+    } as const;
+
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockResolvedValue(undefined);
+
+    const recover = vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    );
+
+    recover.mockResolvedValue({ disposition: 'recovery_won', result: stopped });
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => stopped,
+    );
+
+    expect(promoted).toEqual({
+      result: stopped,
+      receiptCommitted: true,
+      recoveryWon: true,
+    });
+    expect(recover).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-1',
+        userId: OWNER,
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+      }),
+    );
+    expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
+  it('does not claim a durable receipt when recovery is fenced', async () => {
+    const { registry } = setup();
+    const command = fakeHandle({ stdout: 'before fencing', stderr: '' });
+
+    const unavailable = {
+      status: 'error',
+      type: 'unavailable',
+      message: 'Run no longer owns this attempt',
+    } as const;
+
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockResolvedValue(undefined);
+
+    const recover = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockResolvedValue({ disposition: 'fenced', result: unavailable });
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => unavailable,
+    );
+
+    expect(promoted).toEqual({
+      result: unavailable,
+      receiptCommitted: false,
+      recoveryWon: true,
+    });
+    expect(recover).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-1',
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+      }),
+    );
+    expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
   it('stores no deadline for an unlimited job', async () => {
     const { registry, inserted } = setup(120);
     const command = fakeHandle();
@@ -394,6 +729,24 @@ describe('BashJobRegistry', () => {
         {},
       ),
     ).toMatchObject({ status: 'error', type: 'unavailable' });
+  });
+
+  it('refuses receipt promotion after shutdown without entering persistence', async () => {
+    const { registry, inserted, lock } = setup();
+    const command = fakeHandle();
+    await registry.shutdown();
+
+    expect(() =>
+      registry.promoteWithReceipt(
+        command.handle,
+        facts({ attemptId: 'attempt-1' }),
+        () => ({ status: 'success' }),
+        () => ({ status: 'error', type: 'unavailable', message: 'stopped' }),
+      ),
+    ).toThrow('The worker is shutting down.');
+    expect(inserted).not.toHaveBeenCalled();
+    expect(lock).not.toHaveBeenCalled();
+    expect(command.stop).not.toHaveBeenCalled();
   });
 
   it('settles once when a stop races the natural end', async () => {
@@ -831,6 +1184,74 @@ describe('BashJobRegistry', () => {
       expect(result.status === 'success' && result.exitCode === 0).toBe(false);
     });
 
+    it('persists a shutdown stop after pending promotion and awaits settlement', async () => {
+      vi.useRealTimers();
+      const { registry, inserted, settle, settlements, chunks } = setup();
+      const insertion = Promise.withResolvers<void>();
+      const releaseInsertion = Promise.withResolvers<void>();
+      inserted.mockImplementation(async (values) => {
+        insertion.resolve();
+        await releaseInsertion.promise;
+
+        return jobRow(values);
+      });
+
+      const command = real(registry, "printf 'before-stop'; sleep 30");
+      await vi.waitFor(() =>
+        expect(command.snapshot().stdout).toBe('before-stop'),
+      );
+      const promotion = registry.promote(command, facts());
+      await insertion.promise;
+
+      const unrelated = real(registry, 'sleep 30');
+      let shutdownFinished = false;
+
+      const shutdown = registry.shutdown().then(() => {
+        shutdownFinished = true;
+      });
+
+      await Promise.all([command.settled, unrelated.settled]);
+      expect(shutdownFinished).toBe(false);
+
+      const settlement = Promise.withResolvers<ChatJob>();
+      settle.mockImplementationOnce((_chat, _owner, _job, value) => {
+        settlements.push(value);
+
+        return settlement.promise;
+      });
+      releaseInsertion.resolve();
+      await promotion;
+      await vi.waitFor(() => expect(settle).toHaveBeenCalledTimes(1));
+
+      expect(shutdownFinished).toBe(false);
+      expect(settle.mock.calls[0]?.slice(0, 3)).toEqual([CHAT, OWNER, 'job-1']);
+      expect(settlements).toMatchObject([
+        { state: 'cancelled', stoppedBy: 'worker' },
+      ]);
+      expect(chunks).toEqual([
+        { output: 'stdout', content: 'before-stop', position: 0 },
+      ]);
+
+      settlement.resolve(
+        jobRow({
+          chatId: CHAT,
+          ownerUserId: OWNER,
+          executor: 'bash',
+          seq: 7,
+          runId: 'run-1',
+          toolCallId: 'call-1',
+          workerInstanceId: 'worker',
+          pid: command.pid,
+          startedAt: STARTED,
+          outputs: ['stdout', 'stderr'],
+          artifactReadable: false,
+          settings: facts().settings,
+        }),
+      );
+      await shutdown;
+      expect(shutdownFinished).toBe(true);
+    });
+
     it('stops a promoted command once at shutdown, through its job', async () => {
       vi.useRealTimers();
       const { registry } = setup();
@@ -870,28 +1291,46 @@ describe('BashJobRegistry', () => {
   });
 });
 
-describe('BashJobRegistry.recheckJobs', () => {
+describe('BashJobLifecycle.recheckJobs', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('checks the later jobs after one job check fails', async () => {
-    const registry = new BashJobRegistry(
+    const lifecycle = new BashJobLifecycle(
       { runAs: vi.fn() },
-      { instanceId: crypto.randomUUID(), jobCheck: undefined },
-      { config: BUILT_IN_DEFAULTS },
+      { warn: vi.fn(), error: vi.fn() },
     );
 
-    for (const id of ['a', 'b', 'c']) {
-      // SAFETY: the loop reads only keys; recheckJob is stubbed below.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      registry['jobs'].set(id, {} as never);
-    }
+    const command = fakeHandle();
+
+    const job = jobRow({
+      chatId: CHAT,
+      ownerUserId: OWNER,
+      executor: 'bash',
+      seq: 1,
+      runId: 'run-1',
+      toolCallId: 'call-1',
+      workerInstanceId: 'worker-1',
+      pid: 42,
+      startedAt: STARTED,
+      outputs: ['stdout', 'stderr'],
+      artifactReadable: true,
+      settings: facts().settings,
+    });
+
+    for (const id of ['a', 'b', 'c'])
+      lifecycle.trackJob(command.handle, { ...job, id }, facts(), {
+        stdout: '',
+        stderr: '',
+        truncated: false,
+        truncatedStreams: { stdout: false, stderr: false },
+      });
 
     const check = vi
-      .spyOn(registry, 'recheckJob')
+      .spyOn(lifecycle, 'recheckJob')
       .mockRejectedValueOnce(new Error('db down'))
       .mockResolvedValue(undefined);
 
-    await expect(registry.recheckJobs()).resolves.toBeUndefined();
+    await expect(lifecycle.recheckJobs()).resolves.toBeUndefined();
     expect(check.mock.calls.map(([id]) => id)).toEqual(['a', 'b', 'c']);
   });
 });

@@ -1,11 +1,16 @@
+import { drizzle } from 'drizzle-orm/postgres-js';
 import { type SQL } from 'drizzle-orm';
 import { PgDialect, type SelectedFields } from 'drizzle-orm/pg-core';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { describe, expect, it, vi } from 'vitest';
+
+import { asDouble } from '../testing/support';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { asDouble } from '../testing/support';
+import { type Chat, type Run, type RunEvent } from '../db/schema';
+import { ChatsRepository } from '../chats/chats-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import { NativeFilesRepository } from './native-files-repository';
 
 type StoredEvent = { eventType: string; payload: unknown };
@@ -134,6 +139,146 @@ describe('NativeFilesRepository prior outcomes', () => {
       exitCode: 0,
       artifact: 'artifact://bash-4/stdout',
     });
+  });
+});
+
+describe('NativeFilesRepository host-promotion recovery', () => {
+  const fallback = {
+    status: 'error',
+    type: 'outcome_unknown',
+    message: 'The host command is still unresolved.',
+  } as const;
+
+  afterEach(() => vi.restoreAllMocks());
+
+  function setup(
+    lockedRun: Run | undefined,
+    prior: RunEvent | undefined,
+    attemptExists = true,
+  ) {
+    const db: Db = drizzle.mock({ schema });
+    const candidate = asDouble<Run>({ chatId: 'chat-1' });
+
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(candidate);
+
+    const chatLock = vi
+      .spyOn(ChatsRepository.prototype, 'lock')
+      .mockResolvedValue(asDouble<Chat>({}));
+
+    const lock = vi
+      .spyOn(RunRowFenceRepository.prototype, 'lockHostPromotionRecovery')
+      .mockResolvedValue(lockedRun);
+
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findNativeResult',
+    ).mockResolvedValue(prior);
+
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'hasNativeAttempt',
+    ).mockResolvedValue(attemptExists);
+
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue(asDouble<RunEvent>({}));
+
+    return {
+      repository: new NativeFilesRepository(db),
+      chatLock,
+      lock,
+      append,
+    };
+  }
+
+  it('publishes the fallback as recovery winner while holding the current Run lock', async () => {
+    const run = asDouble<Run>({ activeAttemptId: 'attempt-1' });
+    const { repository, chatLock, lock, append } = setup(run, undefined);
+
+    await expect(
+      repository.recoverHostPromotion({
+        runId: 'run-1',
+        userId: 'owner-1',
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+        result: fallback,
+      }),
+    ).resolves.toEqual({ disposition: 'recovery_won', result: fallback });
+
+    expect(lock).toHaveBeenCalledWith('run-1', 'owner-1', 'attempt-1');
+    expect(chatLock).toHaveBeenCalledWith('chat-1', 'owner-1');
+    expect(chatLock.mock.invocationCallOrder[0]).toBeLessThan(
+      lock.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+    expect(append).toHaveBeenCalledWith('run-1', 'native.result', {
+      toolCallId: 'call-1',
+      result: fallback,
+    });
+  });
+
+  it('does not create a native.result without a prior native.attempt', async () => {
+    const run = asDouble<Run>({ activeAttemptId: 'attempt-1' });
+    const { repository, append } = setup(run, undefined, false);
+
+    await expect(
+      repository.recoverHostPromotion({
+        runId: 'run-1',
+        userId: 'owner-1',
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+        result: fallback,
+      }),
+    ).resolves.toEqual({ disposition: 'fenced', result: fallback });
+
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('returns the promotion receipt rather than replacing it', async () => {
+    const run = asDouble<Run>({ activeAttemptId: 'attempt-1' });
+
+    const prior: RunEvent = {
+      sequence: 1,
+      runId: 'run-1',
+      eventType: 'native.result',
+      payload: {
+        toolCallId: 'call-1',
+        result: { status: 'success', backgrounded: true, job: 'job://bash-7' },
+      },
+      createdAt: new Date(),
+    };
+
+    const { repository, append } = setup(run, prior);
+
+    await expect(
+      repository.recoverHostPromotion({
+        runId: 'run-1',
+        userId: 'owner-1',
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+        result: fallback,
+      }),
+    ).resolves.toEqual({
+      disposition: 'receipt',
+      result: { status: 'success', backgrounded: true, job: 'job://bash-7' },
+    });
+
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('does not append when the Run was already terminal or reclaimed', async () => {
+    const { repository, append } = setup(undefined, undefined);
+
+    await expect(
+      repository.recoverHostPromotion({
+        runId: 'run-1',
+        userId: 'owner-1',
+        attemptId: 'attempt-1',
+        toolCallId: 'call-1',
+        result: fallback,
+      }),
+    ).resolves.toEqual({ disposition: 'fenced', result: fallback });
+
+    expect(append).not.toHaveBeenCalled();
   });
 });
 

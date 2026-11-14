@@ -80,14 +80,23 @@ running as a job, and the output captured before the move is the start of its
 stored output. The call timeout never stops, rejects, or marks unknown a host
 command.
 
-The move has its own 750 ms window. A failed move stops the command: a proved
-stop is a `timed_out` result with the captured output and a message that names
-the failed move, and an unproved stop is `outcome_unknown`. The move and its recorded result share that window. A move not recorded
-after the window returns one `outcome_unknown` result, and the job continues
-and settles normally. A Run cancellation stops a command that is still in the
-foreground, and never one that already moved. A host call whose attempt or result cannot be stored within 750 ms of the
-bound also returns `outcome_unknown`, and no command is stopped. A command on
-an `ssh://` or `machine://` directory keeps its call deadline and does not move.
+A steer or interrupt received during a foreground host command also moves it
+to the background, with cause `message`. The model receives the authoritative
+tool result before the new message is delivered. The
+command keeps running, and its result carries no interrupt marker. One message
+can move every host command in the current step. A pending message also applies
+to a host command that starts before the step delivers it. Reads and `grep`
+continue to their results on a steer; an interrupt still cancels them. SSH and
+Machine commands keep their interrupt cancellation behavior, including a
+Machine Workspace call whose `cwd` is omitted.
+
+A failed move stops the command: a proved stop is a `timed_out` result with the
+captured output and a message that names the failed move, and an unproved stop is
+`outcome_unknown`. If the promotion's database outcome remains unresolved, the
+Run waits for its durable result, even beyond 750 ms. A committed promotion
+returns `backgrounded`. A Run cancellation stops a command that is still in
+the foreground, and never one that already moved. A command on an `ssh://` or
+`machine://` directory keeps its call deadline and does not move.
 
 A background job survives completion, failure, and cancellation of its starting
 Run. The composer's Stop leaves it running. The owner jobs API and Chat deletion

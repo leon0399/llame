@@ -50,7 +50,7 @@ import { resolveOwnerFileParts, toRunUserMessage } from './chat-message-parts';
 import {
   claimActiveRunSlot,
   clearActiveRunSlot,
-  notifyLiveRunInterrupt,
+  notifyLiveRunSteering,
 } from './chat-admission';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { type SendableDeliveryMode } from './dto/chat-deliveries.dto';
@@ -454,8 +454,8 @@ export class ChatLoopService {
 
     if (!created) throw new ConflictException('Message id already exists');
 
-    if (input.delivery === 'interrupt') {
-      await notifyLiveRunInterrupt(tx, input);
+    if (input.delivery === 'interrupt' || input.delivery === 'steer') {
+      await notifyLiveRunSteering(tx, input, input.delivery);
     }
 
     return { delivery: created };

@@ -144,19 +144,20 @@ export async function clearActiveRunSlot(
 }
 
 /**
- * Tells the process that executes the Chat's live Run about a pending
- * `interrupt` item. Called in the transaction that stores or changes the item,
- * so the pointer is delivered on commit only; the listener confirms the item
- * itself (run-steering D6).
+ * Tells the process that executes the Chat's live Run about a pending `steer`
+ * or `interrupt` item. Called in the transaction that stores or changes the
+ * item, so the pointer is delivered on commit only; the listener confirms the
+ * item itself (run-steering D6).
  */
-export async function notifyLiveRunInterrupt(
+export async function notifyLiveRunSteering(
   tx: Db,
   chat: { chatId: string; userId: string },
+  kind: 'steer' | 'interrupt',
 ): Promise<void> {
   const live = await new RunsRepository(tx).findActiveByChatId(
     chat.chatId,
     chat.userId,
   );
 
-  if (live) await notifyRunControl(tx, { runId: live.id, kind: 'interrupt' });
+  if (live) await notifyRunControl(tx, { runId: live.id, kind });
 }

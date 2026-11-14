@@ -124,6 +124,25 @@ export class ChatDeliveriesRepository {
     return row.pending ? 'delivery' : undefined;
   }
 
+  /** Whether the Chat holds a pending `steer` or `interrupt` item. */
+  async hasPendingSteering(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: chatDeliveries.id })
+      .from(chatDeliveries)
+      .where(
+        and(
+          this.pendingOf(chatId, ownerUserId),
+          inArray(chatDeliveries.mode, ['steer', 'interrupt']),
+        ),
+      )
+      .limit(1);
+
+    return row !== undefined;
+  }
+
   /** Whether the Chat holds a pending `interrupt` item. */
   async hasPendingInterrupt(
     chatId: string,

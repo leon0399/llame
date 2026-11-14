@@ -23,6 +23,7 @@ import {
   type BillingCatalog,
 } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import { finalizeUsageCompleteness } from './usage-completeness';
 
 /**
@@ -319,7 +320,7 @@ export async function deliverPendingSteering(
   tx: Db,
   input: DeliveryInput,
 ): Promise<BoundaryDelivery> {
-  const locked = await new RunsRepository(tx).lockForDelivery(
+  const locked = await new RunRowFenceRepository(tx).lockForDelivery(
     input.run.runId,
     input.run.userId,
     input.attemptId,
