@@ -13,6 +13,7 @@ import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type BashJobFacts } from './bash-job-registry';
 import { BashJobLifecycle } from './bash-job-lifecycle';
 import { ChatJobsRepository } from './chat-jobs.repository';
+import * as jobNotices from './job-notices';
 
 const OWNER = 'owner';
 
@@ -171,6 +172,7 @@ describe('bash job lifecycle', () => {
     settle = vi
       .spyOn(ChatJobsRepository.prototype, 'settle')
       .mockResolvedValue(job());
+    vi.spyOn(jobNotices, 'recordJobSettlementNotice').mockResolvedValue();
   });
 
   afterEach(() => {
