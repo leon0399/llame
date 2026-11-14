@@ -38,6 +38,10 @@ type LiveJob = {
 export class BashJobLifecycle {
   private readonly jobs = new Map<string, LiveJob>();
   private readonly commands = new Set<ManagedBashHandle>();
+  private readonly commandStops = new Map<
+    ManagedBashHandle,
+    Promise<ManagedStopResult>
+  >();
   private checking = true;
 
   constructor(
@@ -112,6 +116,19 @@ export class BashJobLifecycle {
         Buffer.byteLength(current.stderr.slice(output.stderr.length)),
     );
 
+    this.registerCompletion(live, handle);
+  }
+
+  private registerCompletion(live: LiveJob, handle: ManagedBashHandle): void {
+    const stopped = this.commandStops.get(handle);
+    this.commandStops.delete(handle);
+
+    if (stopped !== undefined) {
+      this.registerStoppedCompletion(live, handle, stopped);
+
+      return;
+    }
+
     void handle.settled.then((result) => {
       if (live.completion !== undefined) return;
       live.completion = this.persistCompletion(
@@ -121,6 +138,31 @@ export class BashJobLifecycle {
       );
       this.observe(live.completion);
     });
+  }
+
+  private registerStoppedCompletion(
+    live: LiveJob,
+    handle: ManagedBashHandle,
+    stopped: Promise<ManagedStopResult>,
+  ): void {
+    live.completion = stopped.then(async (stopOutput) => {
+      const result = await handle.settled;
+
+      const completedNaturally =
+        'exitCode' in result ||
+        ('type' in result && result.type === 'timed_out');
+
+      const output = 'stdout' in result ? outputOfResult(result) : stopOutput;
+
+      await this.persistCompletion(
+        live,
+        completedNaturally
+          ? naturalSettlement(result)
+          : stoppedSettlement('worker', stopOutput),
+        output,
+      );
+    });
+    this.observe(live.completion);
   }
 
   private outputArrived(live: LiveJob, bytes: number): void {
@@ -252,7 +294,7 @@ export class BashJobLifecycle {
   async shutdown(): Promise<void> {
     const stopped = await Promise.allSettled([
       ...[...this.jobs.keys()].map((id) => this.stop(id, 'worker')),
-      ...[...this.commands].map((handle) => handle.stop('worker')),
+      ...[...this.commands].map((handle) => this.stopCommand(handle, 'worker')),
     ]);
 
     for (const outcome of stopped)
@@ -260,6 +302,28 @@ export class BashJobLifecycle {
         this.logger.error(
           `Stopping a command at shutdown failed: ${String(outcome.reason)}`,
         );
+  }
+
+  async waitForCompletions(): Promise<void> {
+    await Promise.allSettled(
+      [...this.jobs.values()].flatMap((live) =>
+        live.completion === undefined ? [] : [live.completion],
+      ),
+    );
+  }
+
+  private stopCommand(
+    handle: ManagedBashHandle,
+    cause: JobStopCause,
+  ): Promise<ManagedStopResult> {
+    const existing = this.commandStops.get(handle);
+
+    if (existing !== undefined) return existing;
+
+    const stopping = handle.stop(cause);
+    this.commandStops.set(handle, stopping);
+
+    return stopping;
   }
 
   private observe(work: Promise<void>): void {

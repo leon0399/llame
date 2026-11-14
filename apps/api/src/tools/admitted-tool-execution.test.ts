@@ -155,4 +155,49 @@ describe('executeAdmittedTool', () => {
     expect(onNativeMutationUnknown).not.toHaveBeenCalled();
     expect(execute).toHaveBeenCalledOnce();
   });
+
+  it('does not treat bash-shaped arguments as host bash for another tool', async () => {
+    const abort = new AbortController();
+
+    const { promise: execution, resolve } = Promise.withResolvers<ToolResult>();
+
+    const onHostPromotionStarted = vi.fn();
+
+    const execute = vi.fn(() => {
+      abort.abort();
+
+      return execution;
+    });
+
+    const tool = {
+      ...bashTool,
+      id: 'custom',
+      execute,
+    };
+
+    const context: ToolContext = {
+      userId: 'owner',
+      chatId: 'chat',
+      configuredCredentials: [],
+      tenantDb: {
+        runAs: <T>() => Promise.reject<T>(new Error('unused tenant DB')),
+      } satisfies TenantRunner,
+      abortSignal: abort.signal,
+      onHostPromotionStarted,
+    };
+
+    const resultPromise = executeAdmittedTool(
+      tool,
+      { command: 'printf not-bash', cwd: '/tmp' },
+      context,
+      1,
+    );
+
+    resolve({ status: 'success', stdout: 'done' });
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(onHostPromotionStarted).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledOnce();
+  });
 });

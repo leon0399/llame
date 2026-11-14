@@ -1184,6 +1184,74 @@ describe('BashJobRegistry', () => {
       expect(result.status === 'success' && result.exitCode === 0).toBe(false);
     });
 
+    it('persists a shutdown stop after pending promotion and awaits settlement', async () => {
+      vi.useRealTimers();
+      const { registry, inserted, settle, settlements, chunks } = setup();
+      const insertion = Promise.withResolvers<void>();
+      const releaseInsertion = Promise.withResolvers<void>();
+      inserted.mockImplementation(async (values) => {
+        insertion.resolve();
+        await releaseInsertion.promise;
+
+        return jobRow(values);
+      });
+
+      const command = real(registry, "printf 'before-stop'; sleep 30");
+      await vi.waitFor(() =>
+        expect(command.snapshot().stdout).toBe('before-stop'),
+      );
+      const promotion = registry.promote(command, facts());
+      await insertion.promise;
+
+      const unrelated = real(registry, 'sleep 30');
+      let shutdownFinished = false;
+
+      const shutdown = registry.shutdown().then(() => {
+        shutdownFinished = true;
+      });
+
+      await Promise.all([command.settled, unrelated.settled]);
+      expect(shutdownFinished).toBe(false);
+
+      const settlement = Promise.withResolvers<ChatJob>();
+      settle.mockImplementationOnce((_chat, _owner, _job, value) => {
+        settlements.push(value);
+
+        return settlement.promise;
+      });
+      releaseInsertion.resolve();
+      await promotion;
+      await vi.waitFor(() => expect(settle).toHaveBeenCalledTimes(1));
+
+      expect(shutdownFinished).toBe(false);
+      expect(settle.mock.calls[0]?.slice(0, 3)).toEqual([CHAT, OWNER, 'job-1']);
+      expect(settlements).toMatchObject([
+        { state: 'cancelled', stoppedBy: 'worker' },
+      ]);
+      expect(chunks).toEqual([
+        { output: 'stdout', content: 'before-stop', position: 0 },
+      ]);
+
+      settlement.resolve(
+        jobRow({
+          chatId: CHAT,
+          ownerUserId: OWNER,
+          executor: 'bash',
+          seq: 7,
+          runId: 'run-1',
+          toolCallId: 'call-1',
+          workerInstanceId: 'worker',
+          pid: command.pid,
+          startedAt: STARTED,
+          outputs: ['stdout', 'stderr'],
+          artifactReadable: false,
+          settings: facts().settings,
+        }),
+      );
+      await shutdown;
+      expect(shutdownFinished).toBe(true);
+    });
+
     it('stops a promoted command once at shutdown, through its job', async () => {
       vi.useRealTimers();
       const { registry } = setup();

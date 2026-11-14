@@ -63,6 +63,19 @@ function command(initial: ManagedOutput = emptyOutput()) {
   let current = initial;
   let stopResult: ManagedStopResult = { ...initial, proved: true };
 
+  const stop = vi.fn((_cause: ManagedStopCause) => {
+    completion.resolve({
+      status: 'success',
+      exitCode: 0,
+      stdout: current.stdout,
+      stderr: current.stderr,
+      truncated: current.truncated,
+      truncatedStreams: current.truncatedStreams,
+    });
+
+    return Promise.resolve(stopResult);
+  });
+
   const handle: ManagedBashHandle = {
     pid: 1,
     settled: completion.promise,
@@ -74,22 +87,12 @@ function command(initial: ManagedOutput = emptyOutput()) {
         listeners.delete(listener);
       };
     },
-    stop: vi.fn((_cause: ManagedStopCause) => {
-      completion.resolve({
-        status: 'success',
-        exitCode: 0,
-        stdout: current.stdout,
-        stderr: current.stderr,
-        truncated: current.truncated,
-        truncatedStreams: current.truncatedStreams,
-      });
-
-      return Promise.resolve(stopResult);
-    }),
+    stop,
   };
 
   return {
     handle,
+    stop,
     finish: completion.resolve,
     emit(stream: 'stdout' | 'stderr', text: string) {
       current = { ...current, [stream]: current[stream] + text };
@@ -112,7 +115,11 @@ function emptyOutput(): ManagedOutput {
   };
 }
 
-function setup(chunks: Array<StoredChunk>, initial?: ManagedOutput) {
+function setup(
+  chunks: Array<StoredChunk>,
+  initial?: ManagedOutput,
+  trackJob = true,
+) {
   const db = {
     insert: () => ({
       values: (value: {
@@ -138,7 +145,10 @@ function setup(chunks: Array<StoredChunk>, initial?: ManagedOutput) {
   const logger = { warn: vi.fn(), error: vi.fn() };
   const lifecycle = new BashJobLifecycle(tenantDb, logger);
   const cmd = command(initial);
-  lifecycle.trackJob(cmd.handle, job(), facts, initial ?? emptyOutput());
+
+  if (trackJob) {
+    lifecycle.trackJob(cmd.handle, job(), facts, initial ?? emptyOutput());
+  }
 
   return { lifecycle, cmd, logger };
 }
@@ -290,6 +300,43 @@ describe('bash job lifecycle', () => {
 
       expect(chunks).toEqual([
         { output: 'stdout', content: 'captured before stop', position: 0 },
+      ]);
+    },
+  );
+
+  it.each([
+    { exitCode: 0, state: 'succeeded' },
+    { exitCode: 7, state: 'failed' },
+  ] as const)(
+    'preserves natural $state when shutdown wins before handle cleanup',
+    async ({ exitCode, state }) => {
+      const { lifecycle, cmd } = setup(chunks, undefined, false);
+      lifecycle.trackCommand(cmd.handle);
+      cmd.finish({
+        status: 'success',
+        exitCode,
+        stdout: 'natural output',
+        stderr: 'natural error',
+        truncated: false,
+      });
+
+      const shutdown = lifecycle.shutdown();
+      await shutdown;
+      lifecycle.trackJob(cmd.handle, job(), facts, emptyOutput());
+      await lifecycle.waitForCompletions();
+
+      expect(cmd.stop).toHaveBeenCalledWith('worker');
+      expect(settle.mock.calls[0]?.[3]).toEqual({
+        state,
+        result: {
+          exitCode,
+          signal: undefined,
+          truncated: { stdout: false, stderr: false },
+        },
+      });
+      expect(chunks).toEqual([
+        { output: 'stdout', content: 'natural output', position: 0 },
+        { output: 'stderr', content: 'natural error', position: 0 },
       ]);
     },
   );

@@ -6994,6 +6994,63 @@ describe('RunExecutionService executeRun — tool loop', () => {
       vi.useRealTimers();
     }
   });
+  it('bounds host bash recovery retries after repeated serialization failures', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+
+      const recoveryError = Object.assign(new Error('serialization failure'), {
+        code: '40001',
+      });
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValue(recoveryError);
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-recovery-retry-limit',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      const rejected = call.catch((error: unknown) => error);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      expect(await rejected).toBe(recoveryError);
+      expect(recovery).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('does not retry host bash recovery after a non-serialization failure', async () => {
     vi.useFakeTimers();
 
