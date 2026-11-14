@@ -367,6 +367,118 @@ describe('BashJobRegistry', () => {
     expect(command.stop).toHaveBeenCalledWith('worker');
   });
 
+  it('returns an existing failure receipt after recovery loses its acknowledgement', async () => {
+    const { registry, tenantDb } = setup();
+    const command = fakeHandle();
+
+    const prior = {
+      status: 'error',
+      type: 'cancelled',
+      message: 'A stop receipt was already recorded.',
+    } as const;
+
+    const findReceipt = vi
+      .spyOn(RunEventsRepository.prototype, 'findNativeResult')
+      .mockResolvedValue({
+        sequence: 2,
+        runId: 'run-1',
+        eventType: 'native.result',
+        payload: { toolCallId: 'call-1', result: prior },
+        createdAt: STARTED,
+      } satisfies RunEvent);
+
+    const recover = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockResolvedValue({ disposition: 'recovery_won', result: prior });
+
+    const runAs = tenantDb.runAs;
+    let calls = 0;
+
+    vi.spyOn(tenantDb, 'runAs').mockImplementation(async (owner, operation) => {
+      calls += 1;
+      const result = await runAs(owner, operation);
+
+      if (calls === 2)
+        throw new Error('recovery committed; acknowledgement lost');
+
+      return result;
+    });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    ).mockRejectedValue(new Error('database unavailable'));
+    command.stop.mockRejectedValueOnce(new Error('could not prove stop'));
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => ({ status: 'error', type: 'cancelled', message: 'stopped' }),
+    );
+
+    expect(promoted).toEqual({
+      result: prior,
+      receiptCommitted: true,
+      recoveryWon: true,
+    });
+    expect(recover.mock.calls[0]?.[0]).toMatchObject({
+      runId: 'run-1',
+      userId: OWNER,
+      attemptId: 'attempt-1',
+      toolCallId: 'call-1',
+      result: { type: 'outcome_unknown' },
+    });
+    expect(findReceipt).toHaveBeenCalledWith('run-1', OWNER, 'call-1');
+    expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
+  it('does not attempt a Run fence after the Chat lock is missing', async () => {
+    const { registry, lock, inserted } = setup();
+    const command = fakeHandle();
+
+    const runFence = vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockHostPromotion',
+    );
+
+    lock.mockResolvedValue(undefined);
+
+    const promoted = await registry.promoteWithReceipt(
+      command.handle,
+      facts({ attemptId: 'attempt-1' }),
+      (job) => ({ status: 'success', job: `job://bash-${job.seq}` }),
+      () => ({ status: 'error', type: 'cancelled', message: 'stopped' }),
+    );
+
+    expect(promoted).toMatchObject({
+      result: { status: 'error', type: 'outcome_unknown' },
+      receiptCommitted: false,
+      recoveryWon: true,
+    });
+    expect(lock).toHaveBeenCalledWith(CHAT, OWNER);
+    expect(runFence).not.toHaveBeenCalled();
+    expect(inserted).not.toHaveBeenCalled();
+    expect(command.stop).toHaveBeenCalledWith('run');
+  });
+
+  it('rejects receipt promotion without an owning Run attempt', async () => {
+    const { registry, lock, inserted } = setup();
+    const command = fakeHandle();
+
+    await expect(
+      registry.promoteWithReceipt(
+        command.handle,
+        facts(),
+        () => ({ status: 'success' }),
+        () => ({ status: 'error', type: 'cancelled', message: 'stopped' }),
+      ),
+    ).rejects.toThrow('Host promotion requires its Run attempt.');
+
+    expect(lock).not.toHaveBeenCalled();
+    expect(inserted).not.toHaveBeenCalled();
+    expect(command.stop).not.toHaveBeenCalled();
+  });
+
   it('accepts only a complete tool result from a promotion receipt', () => {
     expect(
       toolResultFromReceipt({

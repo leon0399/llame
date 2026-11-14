@@ -5,6 +5,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Prefer independently mergeable stack layers and explicit intermediate merge
   boundaries. Treat 2,000 authored lines as a review target, not a limit.
 
+- Retry rolled-back steering delivery and terminal transactions after Postgres
+  deadlock or serialization conflicts.
+
+- Stop managed commands during worker shutdown even when a promotion receipt is
+  still pending. A late steering signal no longer marks a completed command as
+  promoting while its output spills.
+
 # 2026-11-13
 
 - Stop heartbeat checks from reading job rows after worker shutdown starts.

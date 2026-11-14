@@ -240,7 +240,7 @@ export class BashJobRegistry implements OnModuleInit {
     this.accepting = false;
     this.lifecycle.stopChecks();
     this.worker.jobCheck = undefined;
-    await Promise.allSettled(this.promotions);
     await this.lifecycle.shutdown();
+    await Promise.allSettled(this.promotions);
   }
 }

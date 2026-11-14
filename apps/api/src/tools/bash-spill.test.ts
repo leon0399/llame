@@ -16,6 +16,10 @@ import { type Db } from '../db/tenant-db.service';
 import {
   BashProcessLimiter,
   type BashKnownResult,
+  type BashResult,
+  type ManagedBashHandle,
+  type ManagedOutput,
+  type ManagedStopResult,
 } from '@workspace/bash-executor';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -23,6 +27,7 @@ import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { runForegroundBash } from './bash-async';
 import { runTool } from './runner';
 import { executeSshBash } from './ssh-bash';
 import { type SshClient, type SshRunOutcome } from '../ssh/ssh-client';
@@ -667,6 +672,104 @@ describe('the bash tool spill on the host and over ssh', () => {
         expect.stringContaining('full result: artifact://bash-5/stdout'),
       );
     } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does not promote after completion wins while output spill is held', async () => {
+    const move = new AbortController();
+    const abort = new AbortController();
+    const spawned = Promise.withResolvers<void>();
+    const settled = Promise.withResolvers<BashResult>();
+    const spillStarted = Promise.withResolvers<void>();
+    const finishSpill = Promise.withResolvers<void>();
+    const promotionStarted = vi.fn();
+
+    const output: ManagedOutput = {
+      stdout: longLog(),
+      stderr: '',
+      truncated: false,
+      truncatedStreams: { stdout: false, stderr: false },
+    };
+
+    const handle: ManagedBashHandle = {
+      pid: 4242,
+      settled: settled.promise,
+      stop: vi.fn((): Promise<ManagedStopResult> =>
+        Promise.resolve({ ...output, proved: true }),
+      ),
+      snapshot: () => output,
+      onOutput: () => () => undefined,
+    };
+
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result',
+        payload: null,
+        createdAt: new Date(),
+      });
+
+    const context = {
+      ...testContext({
+        abortSignal: abort.signal,
+        moveSignal: move.signal,
+        onHostCommandStarted: () => spawned.resolve(),
+        onHostPromotionStarted: promotionStarted,
+      }),
+      runId: 'run',
+      nativeExecutorId: 'host',
+      toolCallId: 'call-1',
+      attemptId: 'attempt-1',
+    };
+
+    const jobs = context.bashJobs;
+
+    if (jobs === undefined) throw new Error('Missing bash job registry');
+    vi.spyOn(jobs, 'start').mockReturnValue(handle);
+    const slot = context.bashProcessLimiter?.tryAcquire();
+
+    if (slot === null || slot === undefined)
+      throw new Error('Missing bash process slot');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    insertWrites.insertParts.mockImplementation(async () => {
+      spillStarted.resolve();
+      await finishSpill.promise;
+    });
+
+    try {
+      const pending = runForegroundBash(
+        context,
+        { command: 'echo' },
+        tmpdir(),
+        slot,
+      );
+
+      await spawned.promise;
+      settled.resolve(success(output.stdout));
+      await spillStarted.promise;
+      move.abort({ cause: 'message', deadlineAt: performance.now() + 750 });
+      abort.abort();
+      finishSpill.resolve();
+
+      const result = await pending;
+
+      expect(result.status).toBe('success');
+      expect(JSON.stringify(result)).toContain('full result not stored');
+      expect(result).not.toHaveProperty('artifact');
+      expect(promotionStarted).not.toHaveBeenCalled();
+      expect(append).toHaveBeenCalledTimes(1);
+      expect(append.mock.calls[0]?.[1]).toBe('native.result');
+      expect(JSON.stringify(append.mock.calls[0]?.[2])).toContain(
+        'full result not stored',
+      );
+    } finally {
+      finishSpill.resolve();
       vi.unstubAllEnvs();
     }
   });

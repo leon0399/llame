@@ -440,6 +440,23 @@ describe('foreground host bash move', () => {
     },
   );
 
+  it.each(['bashJobs', 'jobSettings'] as const)(
+    'rejects an async command before recording a native attempt when %s is absent',
+    async (missing) => {
+      const result = await bashTool.execute(
+        contextFor({ [missing]: undefined }),
+        { command: 'make test', async: true },
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'executor_unavailable',
+      });
+      expect(begin).not.toHaveBeenCalled();
+      expect(results()).toEqual([]);
+    },
+  );
+
   it('returns a natural foreground exit without stopping the command', async () => {
     const call = bashTool.execute(contextFor(), { command: 'make test' });
 
@@ -471,6 +488,26 @@ describe('foreground host bash move', () => {
     expect(results()).toMatchObject([{ result: { status: 'success' } }]);
   });
 
+  it('surfaces the last receipt recovery failure after bounded retries', async () => {
+    const recovery = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockRejectedValue(new Error('receipt storage remains unavailable'));
+
+    const call = bashTool.execute(contextFor(), { command: 'make test' });
+
+    const rejected = Promise.resolve(call).catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(0);
+    registry.command.exit(0);
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(await rejected).toEqual(
+      new Error('receipt storage remains unavailable'),
+    );
+    expect(recovery).toHaveBeenCalledTimes(3);
+    expect(results()).toEqual([]);
+  });
+
   it('A long test suite passes the bound and is not stopped', async () => {
     const call = bashTool.execute(contextFor(), { command: 'make test' });
 
@@ -483,6 +520,7 @@ describe('foreground host bash move', () => {
       backgrounded: true,
       cause: 'time',
       job: formatJobLocator('bash', 7),
+      wallTimeMs: 10_000,
     });
     expect(registry.command.stop).not.toHaveBeenCalled();
     expect(results()).toHaveLength(1);

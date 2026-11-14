@@ -960,6 +960,25 @@ type InstanceConfigWithIdentity = InstanceConfigReader &
  */
 type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
+/**
+ * Retry a complete transaction only when Postgres guarantees that it aborted.
+ * Re-running `work` opens a fresh transaction; connection failures are not
+ * retried because their commit outcome can be ambiguous.
+ */
+async function retryRunTransaction<T>(work: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await work();
+    } catch (error) {
+      const code = pgErrorCode(error);
+
+      if (attempt >= 2 || (code !== '40P01' && code !== '40001')) {
+        throw error;
+      }
+    }
+  }
+}
+
 async function recoverHostPromotionWithRetry(
   tenantDb: TenantDbService,
   input: {
@@ -969,27 +988,14 @@ async function recoverHostPromotionWithRetry(
     toolCallId: string;
     result: ToolResult;
   },
-  attemptsRemaining = 3,
 ): Promise<ToolResult> {
-  try {
-    return (
-      await tenantDb.runAs(input.userId, (tx) =>
+  return (
+    await retryRunTransaction(() =>
+      tenantDb.runAs(input.userId, (tx) =>
         new NativeFilesRepository(tx).recoverHostPromotion(input),
-      )
-    ).result;
-  } catch (error) {
-    const code = pgErrorCode(error);
-
-    if (attemptsRemaining === 1 || (code !== '40P01' && code !== '40001')) {
-      throw error;
-    }
-
-    return recoverHostPromotionWithRetry(
-      tenantDb,
-      input,
-      attemptsRemaining - 1,
-    );
-  }
+      ),
+    )
+  ).result;
 }
 
 /**
@@ -2902,20 +2908,22 @@ export class RunExecutionService {
       ) => {
         const { telemetry } = modelCompleted;
 
-        const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.runId, userId: input.userId },
-            attemptId,
-            modelCompleted,
-            live: {
-              chatId: input.chatId,
-              inReplyTo: input.userMessage.id,
-              parts: assistantPartCollector.parts(),
-              telemetry,
-            },
-            models: this.instanceConfig.config.models,
-            ...extra,
-          }),
+        const boundary = await retryRunTransaction(() =>
+          this.tenantDb.runAs(input.userId, (tx) =>
+            deliverPendingSteering(tx, {
+              run: { runId: input.runId, userId: input.userId },
+              attemptId,
+              modelCompleted,
+              live: {
+                chatId: input.chatId,
+                inReplyTo: input.userMessage.id,
+                parts: assistantPartCollector.parts(),
+                telemetry,
+              },
+              models: this.instanceConfig.config.models,
+              ...extra,
+            }),
+          ),
         );
 
         if (boundary.kind === 'delivered') {
@@ -5176,8 +5184,10 @@ export class RunExecutionService {
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
     try {
-      return await this.tenantDb.runAs(input.userId, (tx) =>
-        this.finishRunInTransaction(tx, input),
+      return await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          this.finishRunInTransaction(tx, input),
+        ),
       );
     } catch (error) {
       this.logger.error(

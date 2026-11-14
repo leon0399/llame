@@ -7,6 +7,7 @@ import { type WorkerHeartbeatService } from './worker-heartbeat.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatsRepository } from '../chats/chats-repository';
+import { BashJobPromotion } from './bash-job-promotion';
 import { BashJobRegistry, type BashJobFacts } from './bash-job-registry';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 
@@ -214,6 +215,57 @@ describe('the heartbeat check of live jobs', () => {
     expect(settlements).toMatchObject([
       { state: 'cancelled', stoppedBy: 'owner' },
     ]);
+  });
+
+  it('stops live commands before waiting for a stalled promotion receipt', async () => {
+    const job = await live();
+    const promoting = await live();
+
+    const promotion = Promise.withResolvers<{
+      result: { status: 'error'; type: 'unavailable'; message: string };
+      receiptCommitted: boolean;
+      recoveryWon: boolean;
+    }>();
+
+    vi.spyOn(BashJobPromotion.prototype, 'promote').mockReturnValue(
+      promotion.promise,
+    );
+
+    const result = {
+      status: 'error' as const,
+      type: 'unavailable' as const,
+      message: 'stopped',
+    };
+
+    const pendingPromotion = registry.promoteWithReceipt(
+      promoting.handle,
+      { ...facts, attemptId: 'attempt' },
+      () => result,
+      () => result,
+    );
+
+    const shutdown = registry.shutdown();
+
+    try {
+      await vi.waitFor(() => {
+        expect(job.stop).toHaveBeenCalledWith('worker');
+        expect(promoting.stop).toHaveBeenCalledWith('worker');
+        expect(settlements).toMatchObject([
+          { state: 'cancelled', stoppedBy: 'worker' },
+          { state: 'cancelled', stoppedBy: 'worker' },
+        ]);
+        expect(settle).toHaveBeenCalledTimes(2);
+      });
+    } finally {
+      promotion.resolve({
+        result,
+        receiptCommitted: false,
+        recoveryWon: true,
+      });
+      await Promise.all([pendingPromotion, shutdown]);
+    }
+
+    expect(settle).toHaveBeenCalledTimes(2);
   });
 
   it('does not read job rows when shutdown starts during a heartbeat check', async () => {

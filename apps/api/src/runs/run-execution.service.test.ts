@@ -6994,6 +6994,60 @@ describe('RunExecutionService executeRun — tool loop', () => {
       vi.useRealTimers();
     }
   });
+  it('does not retry host bash recovery after a non-serialization failure', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const recoveryError = new Error('recovery permission denied');
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValue(recoveryError);
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-recovery-permanent-error',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      const rejected = call.catch((error: unknown) => error);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      expect(await rejected).toBe(recoveryError);
+      expect(recovery).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('settles other calls immediately but gives an interrupted host bash call its grace period', async () => {
     vi.useFakeTimers();
@@ -20840,6 +20894,29 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
   const NOT_RUN =
     'This call did not run. The owner interrupted the step before it started. Run it again if you still need it.';
+
+  it('passes an already-pending steering yield to the first tool call', async () => {
+    const yieldStates: Array<boolean> = [];
+
+    const { start } = interruptRig({
+      execute: (context) => {
+        yieldStates.push(context.yieldSignal?.aborted === true);
+
+        return Promise.resolve({ status: 'success' });
+      },
+    });
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'hasPendingSteering',
+    ).mockResolvedValueOnce(true);
+
+    const { options } = await start();
+
+    await executeBoundTool(options, { q: 'x' }, 'pre-steered');
+
+    expect(yieldStates).toEqual([true]);
+  });
 
   it('fails and releases the segment when its pending-steering read fails', async () => {
     const { aborts, start, appended } = interruptRig({ native: ['read'] });

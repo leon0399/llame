@@ -209,6 +209,15 @@ describe('bash job lifecycle', () => {
     await lifecycle.shutdown();
   });
 
+  it('does not schedule a flush for an empty output notification', async () => {
+    vi.useFakeTimers();
+    const { lifecycle, cmd } = setup(chunks);
+
+    cmd.emit('stdout', '');
+    expect(vi.getTimerCount()).toBe(0);
+    await lifecycle.shutdown();
+  });
+
   it('retries a failed final settlement with the original output and outcome', async () => {
     settle
       .mockRejectedValueOnce(new Error('database unavailable'))

@@ -367,6 +367,10 @@ async function foregroundResult(
       trigger,
     ]);
 
+    // A settled result is already foreground-owned. Spill may await durable
+    // artifact writes, but a later move signal must not claim promotion.
+    dispose();
+
     if (first === 'move') {
       const promoted = await moveInWindow(context, started, input);
 
