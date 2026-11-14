@@ -114,8 +114,8 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [x] 1.2 Write `proposal.md`, `design.md`, the delta specs, and this file; `pnpm exec openspec validate background-jobs --strict` passes.
 - [x] 1.3 Run two rounds of `$iterative-review-refinement` with two independent reviewers each, verify each finding, and commit each round apart; the revision history in `design.md` names each round.
 - [x] 1.4 Run `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; all pass.
-- [ ] 1.5 Self-review the draft PR diff against `REVIEW_GUIDE.md` and fix findings with new commits before the PR is marked ready. Leo waived the additional proposal review round.
-- [ ] 1.6 Run the GitHub review and CI loop on the published head until every expected reviewer completes and CI passes.
+- [x] 1.5 Self-review the draft PR diff against `REVIEW_GUIDE.md` and fix findings with new commits before the PR is marked ready. Leo waived the additional proposal review round.
+- [x] 1.6 Run the GitHub review and CI loop on the published head until every expected reviewer completes and CI passes.
 - [ ] 1.7 Obtain Leo's approval of the published revision, of the three deviations, of the usage trade-off, and of the budget exception.
 
 ## 2. Job store (`background-jobs/job-store`)
@@ -130,7 +130,7 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [x] 2.7 Add the negative isolation tests: "Another owner reads a job", "A query without an identity finds no job", "A query without an identity finds no stored output", "Another owner cannot stop a job", and a foreign `job://` read through the tool.
 - [x] 2.8 Add `docs/product/reference/locators/job.md`, the row in `locators/index.md`, the `read.md` locator row, and a dated `CHANGELOG.md` entry; `pnpm lint:markdown` passes.
 - [x] 2.9 Run the API lint, typecheck, and the focused suites; self-review the draft PR diff and fix findings before ready. Independent correctness and simplify reviews closed their material findings. Local changed-lines mutation scored 94.39%.
-- [ ] 2.10 Run the GitHub review and CI loop on the published head.
+- [x] 2.10 Run the GitHub review and CI loop on the published head.
 
 ## 3. Executor handle (`background-jobs/bash-executor`)
 
@@ -139,7 +139,7 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [x] 3.3 Replace the module counter with `BashProcessLimiter` for the host and the `ssh://` path, and keep a limiter of `context.maxProcesses` inside `executeManagedBash`. Remove `resetManagedExecutorForTests` and move `execute.test.ts`, `recovery.test.ts`, `contract.test.ts`, `watch.test.ts`, `file-context.test.ts`, `acceptance.test.ts`, `apps/api/src/tools/bash.test.ts`, `ssh-bash.test.ts`, and `ssh-bash-execution.test.ts` to their own limiters.
 - [x] 3.4 Add `tools.bash.maxProcesses` to the type, the loader, the JSON Schema, and the example, and return `limit_reached` at the acquire site of the API; tests cover "Two commands in one step both run", "A call past the bound is refused", and the `maxProcesses` half of `Operator configuration bounds host commands`. Replace the pinned "Managed process limit reached." assertion. A Machine test proves that the daemon still answers `unavailable`.
 - [x] 3.5 Update `docs/product/reference/tools/bash.md` (bounds and errors) and `CHANGELOG.md`; run the package and API lint, typecheck, and `test:coverage` for `packages/bash-executor`; self-review before ready.
-- [ ] 3.6 Run the GitHub review and CI loop on the published head.
+- [x] 3.6 Run the GitHub review and CI loop on the published head.
 
 ## 3a. Output capture (`background-jobs/output-capture`)
 
@@ -148,7 +148,7 @@ The split preserves the approved behavior and keeps runtime plus its unit proof 
 
 - [x] 3a.1 Add output subscriptions, cached redacted snapshots, and per-stream truncation to the managed handle; test credential overlaps, split credentials, Unicode boundaries, and full-sanitizer equivalence.
 - [x] 3a.2 Run the executor lint, typecheck, build, and focused suites, including a real child whose snapshot grows while it runs; self-review before ready. The exact previously reviewed implementation passed 126 package tests, lint, typecheck, and build. A live child produced snapshots `first`, then `firstsecond`.
-- [ ] 3a.3 Run the GitHub review and CI loop on the published head.
+- [x] 3a.3 Run the GitHub review and CI loop on the published head.
 
 ## 3b. Job persistence (`background-jobs/job-persistence`)
 
@@ -158,7 +158,7 @@ No tool starts a job here.
 - [x] 3b.1 Add `appendJobOutput`, `settleBashJob`, and bounded transaction retry; direct unit tests prove suffix offsets, first-writer-wins, Chat deletion, both retry classes, and exhaustion.
 - [x] 3b.2 Write the reserved job artifact in a savepoint and host files only after commit; direct real-database tests cover "A job artifact after the Run ended", "A short output creates no artifact", "A failed write keeps the stored increments", and "A record of a failed job".
 - [x] 3b.3 Run focused persistence unit and integration tests, API lint and typecheck; update `CHANGELOG.md`, then self-review the draft diff before ready.
-- [ ] 3b.4 Run the GitHub review and CI loop on the published head.
+- [x] 3b.4 Run the GitHub review and CI loop on the published head.
 
 ## 4. Job runtime (`background-jobs/job-runtime`)
 
@@ -172,7 +172,7 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 - [x] 4.6 Add `WorkerShutdownService` in a non-global module; tests cover "A deploy ends a job", "A shutdown with a pending settlement", "Shutdown cannot commit the known settlement", a command that arrives after shutdown began, and destroy order before the queue.
 - [x] 4.7 Update `SPEC.md`, `docs/product/reference/mutation-recovery.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [x] 4.8 Run the API lint, typecheck, and the focused suites; self-review before ready.
-- [ ] 4.9 Run the GitHub review and CI loop on the published head.
+- [x] 4.9 Run the GitHub review and CI loop on the published head.
 
 ## 4a. Worker recovery (`background-jobs/job-recovery`)
 
@@ -181,7 +181,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 4a.1 Install and detach the registry's heartbeat hook; retry pending immutable settlements before owner-scoped job checks, and keep checking other jobs after one read fails.
 - [x] 4a.2 Stop hosted work when its row is missing, has a recorded request, or is already settled; preserve an authoritative lost result. Unit tests cover healthy jobs, absent local handles, each stop cause, pending retries, and shutdown.
 - [x] 4a.3 Run focused recovery tests, API lint and typecheck; document the heartbeat behavior and self-review the draft diff before ready.
-- [ ] 4a.4 Run the GitHub review and CI loop on the published head.
+- [x] 4a.4 Run the GitHub review and CI loop on the published head.
 
 ## 5. Async start (`background-jobs/bash-async`)
 
@@ -193,7 +193,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 5.6 Add the `job-stop` signal on top of heartbeat recovery; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", a lost signal that the heartbeat finds, and "A worker resumes after its row was settled lost".
 - [x] 5.7 End each live job when a Chat is deleted: take the Chat row lock explicitly before the select of the live job ids, send the stop pointers in the deletion transaction, and stamp no request field, because the cascade removes the record; a test covers "A deleted Chat leaves no process".
 - [ ] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
-- [ ] 5.9 Run the GitHub review and CI loop on the published head.
+- [x] 5.9 Run the GitHub review and CI loop on the published head.
 
 ## 6. Foreground move (`background-jobs/bash-move`)
 
@@ -205,7 +205,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command". Also cover "A cancellation during a pending move", "A cancellation before the move starts", and "A command exits during the move".
 - [x] 6.5 Update `docs/product/reference/tools/bash.md`, `docs/product/operator/native-files.md`, `docs/product/operator/background-jobs.md`, `docs/product/operator/scaling.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 6.6 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
-- [ ] 6.7 Run the GitHub review and CI loop on the published head.
+- [x] 6.7 Run the GitHub review and CI loop on the published head.
 
 ## 7. Stop (`background-jobs/job-stop`)
 
@@ -213,7 +213,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 7.4 Add the isolation test "A tool call cannot name a job of another owner" for `stop`.
 - [x] 7.5 Update `docs/product/reference/tools/index.md`, `stop.md`, `permission-modes.md`, `tool-call-permissions.md`, `tool-prompts.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [ ] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
-- [ ] 7.7 Run the GitHub review and CI loop on the published head.
+- [x] 7.7 Run the GitHub review and CI loop on the published head.
 
 ## 8. Yield (`background-jobs/yield`)
 
@@ -225,7 +225,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
       pending beyond 750 ms delays delivery until the winner is known. No model step advances before
       the winner is known, and the command is never executed again.
 - [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
-- [ ] 8.5 Run the GitHub review and CI loop on the published head.
+- [x] 8.5 Run the GitHub review and CI loop on the published head.
 
 ## 8a. Notice storage (`background-jobs/notice-store`)
 
@@ -236,7 +236,7 @@ storage, API and consumer contracts.
 - [x] 8a.1 Admit producer `job` and mode `notice`, generate the partial unique index with `pnpm db:generate`, and pass `db:check`. Prepare the owner-scoped pending-item read model and the exclusions in `pauseBehind`, `firstPendingQueueItem` and `changePendingMode`. Keep owner send/change DTO modes closed. Real-DB negative tests prove foreign references stay inaccessible, owner deletion works, mode changes cannot convert a job notice and failed Runs leave notice mode unchanged.
 - [x] 8a.2 Add producer and job locator/state fields to `ChatDeliveryResponse`; regenerate OpenAPI, web client and both live-protocol copies, and prove a clean second generation. Migrate every affected handwritten consumer, fixture and story in the same layer, including the notice label and producer-safe pending-item actions; no placeholder, shim or live notice producer.
 - [x] 8a.3 Update the pending-item reference and `CHANGELOG.md`; run focused API/web lint, typecheck, build and unit/DB checks plus an actual pending-notice surface smoke. Self-review the parent-relative draft, including independent code, simplify and ponytail review, before ready.
-- [ ] 8a.4 Run the published-head ordinary-CI and GitHub review loop; ordinary tests gate the next layer while mutation and review processing continue concurrently under Leo's delivery instruction.
+- [x] 8a.4 Run the published-head ordinary-CI and GitHub review loop; ordinary tests gate the next layer while mutation and review processing continue concurrently under Leo's delivery instruction.
 
 ## 8b. Host history (`background-jobs/host-history`)
 
@@ -247,7 +247,7 @@ to `host-runs` after task 10.1.
 - [x] 8b.1 Define the host predicate as role `user` and no sender. Keep an empty host trigger in its model-history position without replacing the earlier reply; skip host rows in title input, list preview, recency, public projection and shared fork. Preserve literal owner forks, reply-target remapping and search's text-only evidence. Add `ChatMessageResponse.host`, regenerate OpenAPI and the web client, and migrate every handwritten caller/fixture.
 - [x] 8b.2 Add seeded-row context-order, title/recency, public paging, shared-fork and negative isolation proof. Verify owner-history host marking and absence from search evidence through real database reads. Update the relevant reference and `CHANGELOG.md`; do not mark complete the notice-started scenario of task 9.4.
 - [x] 8b.3 Run focused API/web lint, typecheck, build and tests, prove clean regeneration, and self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
-- [ ] 8b.4 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
+- [x] 8b.4 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
 
 ## 8c. Live job projection (`background-jobs/job-projection`)
 
@@ -257,7 +257,7 @@ notice, host message or Run.
 - [x] 9.5 Restate `llame_notify_change()` for `chat_jobs` in a manual migration with its header comment; an integration test receives `chat.upserted` with the new `runningJobs` and proves that another owner receives nothing. Also cover, with no job-row write, "An open socket sees a lease expire" (an explicit regression: the owner subscribes BEFORE the job starts), "A late heartbeat restores the count", "Only the remaining workers count", and "Another owner gets no projection", and a regression where a `NOTIFY` sends count 2, the lease then expires to 1, and the previous refresh value was also 1 (this fails with a wrong baseline), for the periodic projection refresh of `ChangeHub`. Add the operator note on its cost to `docs/product/operator/scaling.md`.
 
 - [x] 8c.1 Verify task 9.5 with real owner-scoped database/socket proof, focused API lint/typecheck/build, Markdown and migration checks; self-review the parent-relative draft with independent code, simplify and ponytail review before ready.
-- [ ] 8c.2 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
+- [x] 8c.2 Run the published-head ordinary-CI and GitHub review loop under the same concurrent mutation/review instruction.
 
 ## 8d. Notice transitions (`background-jobs/notice-transitions`)
 
@@ -292,7 +292,7 @@ task 9 acceptance.
 
 - [x] 8g.1 Preserve the consuming Run identity for job notices inherited through Continue checkpoints; Regenerate restores only receipts for retained tool results in its discarded final segment.
 - [x] 8g.2 Prove exact restoration, owner withdrawal and unrelated-receipt exclusion with two database regressions, including a preserved segment boundary. Run API lint/typecheck and independent correctness and minimalism reviews before ready.
-- [ ] 8g.3 Publish the receipt-recovery layer and drive ordinary CI green; process mutation and bot feedback concurrently without blocking subsequent development.
+- [x] 8g.3 Publish the receipt-recovery layer and drive ordinary CI green; process mutation and bot feedback concurrently without blocking subsequent development.
 
 ## 9. Notices (`background-jobs/notices`)
 
@@ -311,7 +311,7 @@ No prerequisite may insert a live settlement notice. Task 9.4 is assigned to
 - [x] 9.4 Prove the full host-message acceptance after task 10.1, using the history/privacy implementation from task 8b and the host-message storage from task 9.2: "A host message in the history", "A host message is not search evidence", "A shared Chat shows no job output", "A host message is not copied into a shared fork", and "A fork during a live job". Verify title, preview, recency, public and shared-fork exclusions through these actual produced rows.
 - [x] 9.6 Update `docs/product/reference`, `SPEC.md`, and `CHANGELOG.md` for notices and host messages; `pnpm lint:markdown` passes.
 - [x] 9.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
-- [ ] 9.8 Run the GitHub review and CI loop on the published head.
+- [x] 9.8 Run the GitHub review and CI loop on the published head.
 
 ## 9a. Transactional Run enqueue (`background-jobs/run-enqueue`)
 
@@ -321,7 +321,7 @@ It changes no existing owner-started dispatch path.
 - [x] 9a.1 Add `EnqueueOptions.tx` and `RunDispatchService.enqueueInTransaction`; reuse the installed public pg-boss adapter with a compatible postgres.js row projection. Preserve parameter binding and throw when `send` returns `null`.
 - [x] 9a.2 Prove with real Postgres that rollback leaves no queue job, commit preserves the delayed start, and a duplicate id rejects instead of silently committing a missing enqueue.
 - [x] 9a.3 Run focused queue tests, API lint and typecheck; update `CHANGELOG.md` and self-review the parent-relative draft diff before ready.
-- [ ] 9a.4 Run the GitHub review and CI loop on the published head.
+- [x] 9a.4 Run the GitHub review and CI loop on the published head.
 
 ## 10. Host-started Runs (`background-jobs/host-runs`)
 
@@ -333,7 +333,7 @@ notice-started Run. Its checkbox remains in group 9 to preserve its stable id.
 - [x] 10.3 Accept a follow-up Run on a host message; a test covers "A Continue after a host-started Run failed" and a Continue on a host message that a boundary delivered.
 - [x] 10.4 Update `docs/product/operator/background-jobs.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [x] 10.5 Run the API lint, typecheck, and the focused suites; self-review before ready.
-- [ ] 10.6 Run the GitHub review and CI loop on the published head.
+- [x] 10.6 Run the GitHub review and CI loop on the published head.
 
 ## 10a. Durable wait state (`background-jobs/wait-state`)
 
@@ -344,7 +344,7 @@ and entry-point proof remain in `wait-suspend`.
 
 - [x] 11.1 Add `awaiting_jobs` in a migration of its own, then `wake_generation`, `current_job_id`, and `awaiting` on `runs`; regenerate `openapi.json`, the web client, and both live-protocol copies; `pnpm --filter api db:check` passes.
 - [x] 10a.1 Prepare the owner-scoped suspension/wake transactions, deadline queue identity, typed enqueue collision retry, and recorded-job admission. Prove atomic rollback, fresh-id retry after an actual queue collision, listed versus unrelated settlement precedence, terminal immutability, stale dead-letter fencing, cancellation preparation, and durable wake publication through the real database.
-- [ ] 10a.2 Run focused state/database and generated-contract checks, self-review the parent-relative diff, and publish. Ordinary CI controls readiness; mutation testing and external reviews continue concurrently.
+- [x] 10a.2 Run focused state/database and generated-contract checks, self-review the parent-relative diff, and publish. Ordinary CI controls readiness; mutation testing and external reviews continue concurrently.
 
 ## 10b. Wait wake routing (`background-jobs/wait-routing`)
 
@@ -356,7 +356,7 @@ over budget after duplicate test setup and mock-only forwarding tests were remov
 
 - [x] 10b.1 Wire owner steering, interruption, cancellation and job settlement to the prepared wait transaction; use the shared bounded retry at Chat transaction boundaries and migrate affected service callers without compatibility paths.
 - [x] 10b.2 Verify the isolated routing candidate with focused caller and database suites, API lint/typecheck, Markdown and strict proposal checks; self-review with correctness, simplify and ponytail review before publication.
-- [ ] 10b.3 Publish the routing prerequisite and drive ordinary CI to readiness; mutation tests and external review remain concurrent with worker lifecycle development.
+- [x] 10b.3 Publish the routing prerequisite and drive ordinary CI to readiness; mutation tests and external review remain concurrent with worker lifecycle development.
 
 ## 11. Suspension (`background-jobs/wait-suspend`)
 
@@ -372,7 +372,7 @@ No tool suspends a Run in this layer. Its tests suspend a Run through the prepar
 - [x] 11.5 Anchor the budget at the first claim; a test covers "A Run passes its budget while it waits".
 - [x] 11.6 Update `docs/product/operator/scaling.md` and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [x] 11.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
-- [ ] 11.8 Run the GitHub review and CI loop on the published head.
+- [x] 11.8 Run the GitHub review and CI loop on the published head.
 
 ## 11c. Queue claim fencing (`background-jobs/wait-claim`)
 
@@ -382,7 +382,7 @@ review budget. The model-facing wait tool remains inactive.
 - [x] 11c.1 Carry the worker's observed queue identity into the atomic execution claim and fence stale preclaim terminal writes. A real database regression rejects the old claim and cancellation after the next generation becomes queued, then accepts the current claim with its worker identity.
 - [x] 11c.2 Preserve the original absolute Run deadline across awaited cancellation reads and clean up registered abort controllers when model creation fails. Focused worker, repository and execution suites pass, including the expired-pickup and registry cleanup regressions.
 - [x] 11c.3 Verify focused API unit and suspension database cases, lint, types and formatting; review the complete parent-relative repair for correctness, simplification and unnecessary structure.
-- [ ] 11c.4 Publish the repair before wait activation and drive ordinary CI to readiness; process mutations and external review concurrently.
+- [x] 11c.4 Publish the repair before wait activation and drive ordinary CI to readiness; process mutations and external review concurrently.
 
 ## 11d. Wake projection (`background-jobs/wake-projection`)
 
@@ -391,7 +391,7 @@ concerns within the review budget. No tool, worker, or runtime caller is added.
 
 - [x] 11d.1 Prepare checkpoint and correlated wait-result reconstruction with attempt and delivery boundaries, preserving original tool activity metadata, timeout and step indices.
 - [x] 11d.2 Prove the actual predecessor tree with API types, focused projection cases and lint; independently review correctness, simplification and unnecessary structure. Malformed receipts must retain a matching generation so the validation under test is reached.
-- [ ] 11d.3 Publish the prerequisite and drive ordinary CI green while runtime wiring and mutations continue concurrently.
+- [x] 11d.3 Publish the prerequisite and drive ordinary CI green while runtime wiring and mutations continue concurrently.
 
 ## 11a. Wait runtime preparation (`background-jobs/wait-resume`)
 
@@ -402,7 +402,7 @@ acceptance and model-visible activation remain together in `wait-tool`.
 
 - [x] 11a.1 Prepare deferred SDK tool-call observation, sibling draining, atomic wait completion, exact notice receipts, first-wake replay, and pre-dispatch finalization without advertising the tool.
 - [x] 11a.2 Prove the isolated preparation with runtime unit and existing worker/restart/race suites, API lint/types/build, packaged prompt checks, Markdown and strict OpenSpec validation; self-review with independent code, simplify and ponytail reviewers.
-- [ ] 11a.3 Publish the preparation and drive ordinary CI to readiness while tool activation proceeds; mutation tests and bot review remain concurrent.
+- [x] 11a.3 Publish the preparation and drive ordinary CI to readiness while tool activation proceeds; mutation tests and bot review remain concurrent.
 
 ## 12. Wait (`background-jobs/wait-tool`)
 
@@ -415,20 +415,20 @@ acceptance and model-visible activation remain together in `wait-tool`.
 - [x] 12.5 Pin the usage of a woken reply; a test proves that it sums the requests of the seeded attempt and is `complete: false`, and that the segment budget counts the earlier steps.
 - [x] 12.6 Update `docs/product/reference/tools/wait.md`, `tools/index.md`, `SPEC.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [x] 12.7 Run the API lint, typecheck, and the focused suites; self-review before ready.
-- [ ] 12.8 Run the GitHub review and CI loop on the published head.
+- [x] 12.8 Run the GitHub review and CI loop on the published head.
 
 ## 13a. Tool presentation (`background-jobs/web`)
 
 - [x] 13a.1 Prepare the dedicated shared wait and stop rows and the backgrounded Bash result, including actual payload parsing and generic historical fallbacks. This layer does not connect wait or stop to Chat dispatch.
 - [x] 13a.2 Verify the shared UI types and lint, 16 focused browser stories, and actual rendered preview. Review with independent correctness, simplify and ponytail reviewers before ready; use CLI while Storybook MCP is disconnected.
-- [ ] 13a.3 Publish the tool-presentation layer and drive ordinary CI green; process mutations and bot claims concurrently without blocking owner-controls development.
+- [x] 13a.3 Publish the tool-presentation layer and drive ordinary CI green; process mutations and bot claims concurrently without blocking owner-controls development.
 
 ## 13b. Sidebar activity (`background-jobs/web-activity`)
 
 - [x] 13.1 Add the `background` sidebar state; component tests and stories cover "A monitor with no live Run" and "A Run that waits".
 - [x] 13b.1 Fetch pinned Chat summaries once on a cold cache, derive their job counts once, and preserve the authoritative awaiting-Run state even with zero running jobs. The admin sidebar uses the same active-Run provider.
 - [x] 13b.2 Verify web lint/types, focused unit and browser stories, actual rendered previews, and independent correctness, simplify and ponytail reviews.
-- [ ] 13b.3 Publish the activity layer and drive ordinary CI green while Jobs and transcript controls proceed; mutations and external reviews remain concurrent.
+- [x] 13b.3 Publish the activity layer and drive ordinary CI green while Jobs and transcript controls proceed; mutations and external reviews remain concurrent.
 
 ## 13. Web controls (`background-jobs/web-controls`)
 
@@ -438,7 +438,7 @@ acceptance and model-visible activation remain together in `wait-tool`.
 - [x] 13.5 Add one focused product E2E: an `async` command, a notice that starts a Run, and a stop from the panel.
 - [x] 13.6 Remove the shipped items from `ROADMAP.md` and add the `CHANGELOG.md` entry; `pnpm lint:markdown` passes.
 - [x] 13.7 Run the web lint and typecheck; self-review before ready.
-- [ ] 13.8 Run the GitHub review and CI loop on the published head.
+- [x] 13.8 Run the GitHub review and CI loop on the published head.
 
 Storybook MCP returned preview URLs but could not start Vitest. Focused browser
 stories pass through the workspace CLI, and Chromium verifies the rendered Jobs,
