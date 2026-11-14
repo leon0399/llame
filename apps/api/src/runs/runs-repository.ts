@@ -394,6 +394,8 @@ export class RunsRepository {
     return rows[0];
   }
 
+  /** Redelivery can reclaim a Run after worker heartbeat loss. Suspended Runs
+   * and jobs with stale queue identity cannot claim it. */
   async markStarted(
     runId: string,
     userId: string,
