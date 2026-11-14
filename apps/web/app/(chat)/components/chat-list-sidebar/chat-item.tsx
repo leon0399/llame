@@ -242,18 +242,19 @@ function ChatItemDialogs({
   );
 }
 
-/** The chat's run activity. Optional provider: pinned projects nest these
- *  rows in the main rail, which the admin shell mounts without the runs
- *  provider — there nothing runs. */
-function useChatActivity(chatId: string) {
+function useChatActivity(chat: ChatResponse) {
   const runs = useOptionalActiveRuns();
+  const live = runs?.activeChatIds.has(chat.id) ?? false;
+  const awaitingJobs = runs?.runStatusByChatId.get(chat.id) === "awaiting_jobs";
+  const processing = live && !awaitingJobs;
 
   return {
     activityStatus: resolveChatActivityStatus({
-      processing: runs?.activeChatIds.has(chatId) ?? false,
-      outcome: runs?.unseenRunOutcomes.get(chatId),
+      processing,
+      background: awaitingJobs || (!live && (chat.runningJobs ?? 0) > 0),
+      outcome: runs?.unseenRunOutcomes.get(chat.id),
     }),
-    runPhase: runs?.runPhaseByChatId.get(chatId),
+    runPhase: processing ? runs?.runPhaseByChatId.get(chat.id) : undefined,
   };
 }
 
@@ -265,7 +266,7 @@ function useChatItemRow(
   isPinned: boolean,
   isActive: boolean,
 ) {
-  const { activityStatus, runPhase } = useChatActivity(chat.id);
+  const { activityStatus, runPhase } = useChatActivity(chat);
   const dialogs = useChatItemDialogs();
   const pinMutation = usePinItem();
   const unpinMutation = useUnpinItem();

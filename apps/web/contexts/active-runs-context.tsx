@@ -16,7 +16,6 @@ import {
 
 import { useRouter } from "next/navigation";
 import {
-  useQueries,
   useQuery,
   useQueryClient,
   type QueryClient,
@@ -28,7 +27,6 @@ import {
   activeRunsQueryKeys,
   activeRunsToTrackArgs,
   fetchActiveRuns,
-  fetchRun,
   type Run,
 } from "@/lib/services/chat/active-runs";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
@@ -37,9 +35,12 @@ import {
   resolveTerminalRun,
 } from "@/lib/services/chat/run-notifications";
 import type { RunMessage, RunPhase } from "@/lib/services/live/live-messages";
-import { useOptionalLiveUpdates } from "@/contexts/live-updates-context";
-
-const POLL_MS = 4000;
+import {
+  useActiveRunQueries,
+  useOptionalLiveUpdates,
+  useRunStatusesByChat,
+  type ActiveRunQuery,
+} from "@/contexts/active-run-queries";
 
 type TrackedRun = { chatId: string; title: string };
 
@@ -66,8 +67,11 @@ type ActiveRunsContextValue = {
   unseenRunOutcomes: ReadonlyMap<string, UnseenRunOutcome>;
   markChatSeen: (chatId: string) => void;
   /** Chats with a currently-tracked, not-yet-terminal run (drives the sidebar's
-   *  "processing" activity indicator). */
+   *  processing indicator except while the live Run awaits jobs). */
   activeChatIds: ReadonlySet<string>;
+  /** Status of each tracked live Run. The sidebar uses `awaiting_jobs` to
+   *  distinguish background work from a Run generating a reply. */
+  runStatusByChatId: ReadonlyMap<string, Run["status"]>;
   /** Live phase of each chat's in-flight run (only while the live socket is
    *  connected); drives the sidebar indicator's label. */
   runPhaseByChatId: ReadonlyMap<string, RunPhase>;
@@ -290,38 +294,6 @@ function useRehydrateActiveRuns(
   }, [isFetchedAfterMount, rehydratedRuns, trackRun]);
 }
 
-// Poll every tracked run until it reaches a terminal status. One query per
-// run (queued/dropped as `active` changes), each on its own POLL_MS
-// interval that self-stops once its data is terminal (or the run is gone) —
-// `refetchIntervalInBackground: true` is required here (not React Query's
-// default): the whole point of this feature is noticing completion while
-// the tab is backgrounded, so polling must NOT pause on blur/hidden the way
-// refetchInterval does by default.
-function useActiveRunQueries(activeEntries: ReadonlyArray<ActiveEntry>) {
-  const liveConnected = useOptionalLiveUpdates()?.connected ?? false;
-
-  return useQueries({
-    queries: activeEntries.map(([runId]) => ({
-      queryKey: activeRunsQueryKeys.run(runId),
-      queryFn: () => fetchRun(runId),
-      staleTime: 0,
-      refetchInterval: (query: { state: { data?: Run | null } }) => {
-        const data = query.state.data;
-
-        if (data === undefined) return POLL_MS; // no result yet — keep polling
-
-        if (data === null) return false; // 404: gone, nothing left to poll
-
-        // The live socket pushes status changes; poll only without it.
-        if (liveConnected) return false;
-
-        return isTerminalRunStatus(data.status) ? false : POLL_MS;
-      },
-      refetchIntervalInBackground: true,
-    })),
-  });
-}
-
 type TerminalRunHandlerDeps = {
   handledRunIds: MutableRefObject<Set<string>>;
   drop: (runId: string) => void;
@@ -401,8 +373,18 @@ function notifyTerminalRun(
   });
 }
 
-/** Polls every tracked run and fires the completion/failure toast + badge +
- *  cache-invalidation side effects once each one reaches a terminal status. */
+/** Handles terminal results for currently tracked runs. */
+function processRunQueries(
+  activeEntries: ReadonlyArray<ActiveEntry>,
+  runQueries: ReadonlyArray<ActiveRunQuery>,
+  deps: TerminalRunHandlerDeps,
+): void {
+  activeEntries.forEach(([runId, meta], index) => {
+    handleTerminalRun(runId, meta, runQueries[index]?.data, deps);
+  });
+}
+
+/** Polls tracked runs and handles terminal notification/cache side effects. */
 function useRunCompletionEffects(params: {
   activeEntries: ReadonlyArray<ActiveEntry>;
   drop: (runId: string) => void;
@@ -410,7 +392,7 @@ function useRunCompletionEffects(params: {
   viewedChatIdRef: MutableRefObject<string | null>;
   routerRef: MutableRefObject<ReturnType<typeof useRouter>>;
   setOutcomes: Dispatch<SetStateAction<UnseenRuns>>;
-}): void {
+}): ReadonlyMap<string, Run["status"]> {
   const {
     activeEntries,
     drop,
@@ -421,24 +403,18 @@ function useRunCompletionEffects(params: {
   } = params;
 
   const runQueries = useActiveRunQueries(activeEntries);
+  const runStatusByChatId = useRunStatusesByChat(activeEntries, runQueries);
 
-  // Guards against firing a completion notification more than once for the
-  // same run: `runQueries` is a NEW array every render (React Query's own
-  // contract for useQueries), so this effect can re-run before `drop()`'s
-  // state update has removed the run from `active` — without this ref, that
-  // window could double-notify the same terminal result.
   const handledRunIds = useRef(new Set<string>());
 
   useEffect(() => {
-    activeEntries.forEach(([runId, meta], index) => {
-      handleTerminalRun(runId, meta, runQueries[index]?.data, {
-        handledRunIds,
-        drop,
-        queryClient,
-        setOutcomes,
-        viewedChatIdRef,
-        routerRef,
-      });
+    processRunQueries(activeEntries, runQueries, {
+      handledRunIds,
+      drop,
+      queryClient,
+      setOutcomes,
+      viewedChatIdRef,
+      routerRef,
     });
   }, [
     activeEntries,
@@ -449,32 +425,19 @@ function useRunCompletionEffects(params: {
     viewedChatIdRef,
     routerRef,
   ]);
+
+  return runStatusByChatId;
 }
 
-/** Stable ref to the latest router, so effects can read it without depending
- *  on the router identity itself. The mirror is written in a layout effect —
- *  reading it happens after a commit (a notification's `onView`, a run
- *  effect), never during render, and a render-phase write is not allowed. */
 function useRouterRef(): MutableRefObject<ReturnType<typeof useRouter>> {
   const router = useRouter();
   const routerRef = useRef(router);
+
   useLayoutEffect(() => {
     routerRef.current = router;
   }, [router]);
 
   return routerRef;
-}
-
-/** The active-run entries plus the derived set of chats with an active run. */
-function useActiveEntries(active: Map<string, TrackedRun>) {
-  const activeEntries = useMemo(() => [...active.entries()], [active]);
-
-  const activeChatIds = useMemo(
-    () => new Set(activeEntries.map(([, meta]) => meta.chatId)),
-    [activeEntries],
-  );
-
-  return { activeEntries, activeChatIds };
 }
 
 function useContextValue(params: {
@@ -484,36 +447,29 @@ function useContextValue(params: {
   unseenRunOutcomes: ReadonlyMap<string, UnseenRunOutcome>;
   markChatSeen: ActiveRunsContextValue["markChatSeen"];
   activeChatIds: ReadonlySet<string>;
+  runStatusByChatId: ReadonlyMap<string, Run["status"]>;
   runPhaseByChatId: ReadonlyMap<string, RunPhase>;
 }): ActiveRunsContextValue {
-  const {
-    trackRun,
-    untrackChat,
-    registerViewedChat,
-    unseenRunOutcomes,
-    markChatSeen,
-    activeChatIds,
-    runPhaseByChatId,
-  } = params;
-
   return useMemo(
     () => ({
-      trackRun,
-      untrackChat,
-      registerViewedChat,
-      unseenRunOutcomes,
-      markChatSeen,
-      activeChatIds,
-      runPhaseByChatId,
+      trackRun: params.trackRun,
+      untrackChat: params.untrackChat,
+      registerViewedChat: params.registerViewedChat,
+      unseenRunOutcomes: params.unseenRunOutcomes,
+      markChatSeen: params.markChatSeen,
+      activeChatIds: params.activeChatIds,
+      runStatusByChatId: params.runStatusByChatId,
+      runPhaseByChatId: params.runPhaseByChatId,
     }),
     [
-      trackRun,
-      untrackChat,
-      registerViewedChat,
-      unseenRunOutcomes,
-      markChatSeen,
-      activeChatIds,
-      runPhaseByChatId,
+      params.trackRun,
+      params.untrackChat,
+      params.registerViewedChat,
+      params.unseenRunOutcomes,
+      params.markChatSeen,
+      params.activeChatIds,
+      params.runStatusByChatId,
+      params.runPhaseByChatId,
     ],
   );
 }
@@ -604,47 +560,50 @@ function useLiveRunProgress(
 
 const EMPTY_PHASES: ReadonlyMap<string, RunPhase> = new Map();
 
+function useActiveRunsProviderValue(): ActiveRunsContextValue {
+  const routerRef = useRouterRef();
+  const queryClient = useQueryClient();
+  const tracked = useTrackedRuns();
+
+  useRehydrateActiveRuns(tracked.trackRun);
+
+  const activeEntries = useMemo(
+    () => [...tracked.active.entries()],
+    [tracked.active],
+  );
+
+  const activeChatIds = useMemo(
+    () => new Set(activeEntries.map(([, meta]) => meta.chatId)),
+    [activeEntries],
+  );
+
+  const runPhaseByChatId = useLiveRunProgress(tracked.trackRun, queryClient);
+
+  const runStatusByChatId = useRunCompletionEffects({
+    activeEntries,
+    drop: tracked.drop,
+    queryClient,
+    viewedChatIdRef: tracked.viewedChatIdRef,
+    routerRef,
+    setOutcomes: tracked.setOutcomes,
+  });
+
+  return useContextValue({
+    trackRun: tracked.trackRun,
+    untrackChat: tracked.untrackChat,
+    registerViewedChat: tracked.registerViewedChat,
+    unseenRunOutcomes: tracked.unseenRunOutcomes,
+    markChatSeen: tracked.markChatSeen,
+    activeChatIds,
+    runStatusByChatId,
+    runPhaseByChatId,
+  });
+}
+
 type ActiveRunsProviderProps = { children: React.ReactNode };
 
 export function ActiveRunsProvider({ children }: ActiveRunsProviderProps) {
-  const routerRef = useRouterRef();
-  const queryClient = useQueryClient();
-
-  const {
-    active,
-    unseenRunOutcomes,
-    setOutcomes,
-    viewedChatIdRef,
-    registerViewedChat,
-    trackRun,
-    untrackChat,
-    markChatSeen,
-    drop,
-  } = useTrackedRuns();
-
-  useRehydrateActiveRuns(trackRun);
-
-  const { activeEntries, activeChatIds } = useActiveEntries(active);
-  const runPhaseByChatId = useLiveRunProgress(trackRun, queryClient);
-
-  useRunCompletionEffects({
-    activeEntries,
-    drop,
-    queryClient,
-    viewedChatIdRef,
-    routerRef,
-    setOutcomes,
-  });
-
-  const value = useContextValue({
-    trackRun,
-    untrackChat,
-    registerViewedChat,
-    unseenRunOutcomes,
-    markChatSeen,
-    activeChatIds,
-    runPhaseByChatId,
-  });
+  const value = useActiveRunsProviderValue();
 
   return (
     <ActiveRunsContext.Provider value={value}>

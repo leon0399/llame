@@ -12,17 +12,24 @@ import {
 
 describe("resolveChatActivityStatus", () => {
   it.each([
-    [false, undefined, null],
-    [false, "completed", "unread"],
-    [false, "failed", "failed"],
-    [true, undefined, "processing"],
+    [false, false, undefined, null],
+    [false, false, "completed", "unread"],
+    [false, false, "failed", "failed"],
+    [true, false, undefined, "processing"],
     // A generating reply has no outcome yet, whatever the last run did.
-    [true, "completed", "processing"],
-    [true, "failed", "processing"],
+    [true, false, "completed", "processing"],
+    [true, false, "failed", "processing"],
+    [false, true, undefined, "background"],
+    [false, true, "completed", "background"],
+    [false, true, "failed", "background"],
+    // Active replies outrank background jobs; background work outranks outcomes.
+    [true, true, "failed", "processing"],
   ] as const)(
-    "processing=%s, outcome=%s → %s",
-    (processing, outcome, status) => {
-      expect(resolveChatActivityStatus({ processing, outcome })).toBe(status);
+    "processing=%s, background=%s, outcome=%s → %s",
+    (processing, background, outcome, status) => {
+      expect(
+        resolveChatActivityStatus({ processing, background, outcome }),
+      ).toBe(status);
     },
   );
 });

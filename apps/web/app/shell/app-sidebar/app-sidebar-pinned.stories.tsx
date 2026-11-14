@@ -1,31 +1,59 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { ChatListItemResponse } from "@/lib/api/generated/models";
+
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
-import { expect, screen, userEvent, waitFor, within } from "storybook/test";
-import { vi, type Mock } from "vitest";
+import {
+  expect,
+  fn,
+  mocked,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "storybook/test";
 
 // Import the pins hooks via the REAL specifier: sb.mock (preview.tsx) redirects
 // them to the __mocks__ module, which keeps pin/unpin/reorder off the network.
 // The stable `unpinMutate` control comes from that manual mock and is injected
-// into the redirected hook in `beforeEach`, so component and story share it.
 import * as pinsMutations from "@/lib/services/pins/mutations";
 import { unpinMutate } from "@/lib/services/pins/__mocks__/mutations";
 import { usePins } from "@/lib/services/pins/queries";
 import type { PinnedItem } from "@/lib/services/pins/types";
+
+import * as activeRunsContext from "@/contexts/active-runs-context";
+import { emptyActiveRuns } from "@/contexts/__mocks__/active-runs-context";
 import {
   emptyResponse,
   jsonResponse,
-  stubFetch,
-} from "@/lib/test-support/fetch-stub";
+} from "@/lib/test-support/fetch-responses";
 import { AppSidebarPinned } from "./app-sidebar-pinned";
 
-const useUnpinItem = vi.mocked(pinsMutations.useUnpinItem, { partial: true });
+const useUnpinItem = mocked(pinsMutations.useUnpinItem, { partial: true });
+
+const useActiveRuns = mocked(activeRunsContext.useActiveRuns, {
+  partial: true,
+});
 
 const chatPin: PinnedItem = {
   itemType: "chat",
   itemId: "c1",
   pinnedAt: "2026-01-01T00:00:00.000Z",
   item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
+};
+
+const backgroundChat: ChatListItemResponse = {
+  id: "c1",
+  ownerUserId: "u1",
+  title: "Trip to Lisbon",
+  visibility: "private",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-02T00:00:00.000Z",
+  archivedAt: null,
+  projectId: null,
+  workspaceRoot: null,
+  lastMessage: null,
+  runningJobs: 1,
 };
 
 const projectPin: PinnedItem = {
@@ -53,24 +81,33 @@ const archivedProjectPin: PinnedItem = {
 // when `holdPins` is set). An archive PATCH succeeds and the stub server then
 // holds only that item, archived, so the refetch it triggers returns the
 // archived pin. An unrouted request fails the story.
-let fetchMock: Mock<typeof fetch>;
+const fetchMock = fn<typeof fetch>();
 let serverPins: Array<PinnedItem>;
+let serverChats: Array<ChatListItemResponse>;
 let releasePins: () => void;
 
 /** The project's description as the server holds it now; undefined makes
  *  the project's read fail. */
 let serverDescription: string | undefined;
 
-type PinsParameters = { pins?: Array<PinnedItem>; holdPins?: boolean };
+type PinsParameters = {
+  pins?: Array<PinnedItem>;
+  holdPins?: boolean;
+  chats?: Array<ChatListItemResponse>;
+};
 
 function routeFetch() {
   return ({ parameters }: { parameters: PinsParameters }) => {
     serverPins = parameters.pins ?? [];
+    serverChats = parameters.chats ?? [];
     serverDescription = "Everything about the relaunch";
+    useActiveRuns.mockReturnValue(emptyActiveRuns());
     const holdPins = parameters.holdPins === true;
     unpinMutate.mockClear();
     useUnpinItem.mockReturnValue({ mutate: unpinMutate, isPending: false });
-    fetchMock = stubFetch();
+    const originalFetch = globalThis.fetch;
+    fetchMock.mockClear();
+    globalThis.fetch = fetchMock;
     fetchMock.mockImplementation((input) => {
       const request = input instanceof Request ? input : new Request(input);
       const key = `${request.method} ${new URL(request.url).pathname}`;
@@ -83,6 +120,19 @@ function routeFetch() {
         }
 
         return Promise.resolve(jsonResponse(serverPins));
+      }
+
+      if (key === "GET /api/v1/chats") {
+        const url = new URL(request.url);
+
+        if (
+          url.searchParams.get("pinned") !== "only" ||
+          url.searchParams.get("archived") !== "with"
+        ) {
+          throw new Error(`unexpected chat list filters: ${url.search}`);
+        }
+
+        return Promise.resolve(jsonResponse(serverChats));
       }
 
       if (key === "PATCH /api/v1/chats/c1") {
@@ -119,7 +169,7 @@ function routeFetch() {
     });
 
     return () => {
-      vi.unstubAllGlobals();
+      globalThis.fetch = originalFetch;
     };
   };
 }
@@ -259,7 +309,57 @@ export const Basic: Story = {
     ]);
     await expect(rows[0]).toHaveAttribute("href", "/projects/p1");
     await expect(rows[1]).toHaveAttribute("href", "/chat/c1");
-    await expect(sentRoutes()).toEqual(["GET /api/v1/pins"]);
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/chats",
+    ]);
+  },
+};
+
+/**
+ * On a cold route outside the chat page, a pinned job count is read from the
+ * one batch pinned-chat query. No live Run is required for the indicator.
+ *
+ * @summary cold pinned chat shows background work without a Run
+ */
+export const ColdCacheBackgroundJobWithoutRun: Story = {
+  tags: ["ai-generated"],
+  parameters: { pins: [chatPin], chats: [backgroundChat] },
+  render: () => <PinnedSlot />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(await canvas.findByLabelText("Background work")).toBeVisible();
+    await expect(canvas.queryByLabelText("Generating response")).toBeNull();
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/chats",
+    ]);
+  },
+};
+
+/**
+ * An awaiting-jobs Run keeps the pinned indicator visible when its batch chat
+ * result says there are no currently running jobs.
+ *
+ * @summary awaiting-jobs pinned chat with no running jobs
+ */
+export const AwaitingJobsWithoutRunningJobs: Story = {
+  parameters: {
+    pins: [chatPin],
+    chats: [{ ...backgroundChat, runningJobs: 0 }],
+  },
+  beforeEach: () => {
+    useActiveRuns.mockReturnValue({
+      ...emptyActiveRuns(),
+      activeChatIds: new Set(["c1"]),
+      runStatusByChatId: new Map([["c1", "awaiting_jobs" as const]]),
+    });
+  },
+  render: () => <PinnedSlot />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(await canvas.findByLabelText("Background work")).toBeVisible();
+    await expect(canvas.queryByLabelText("Generating response")).toBeNull();
   },
 };
 
@@ -269,6 +369,7 @@ export const Basic: Story = {
  *
  * @summary an untitled pinned chat shows "New chat"
  */
+
 export const UntitledChat: Story = {
   tags: ["ai-generated"],
   parameters: {
@@ -345,7 +446,9 @@ export const ChatArchive: Story = {
     ).toBeVisible();
     await expect(sentRoutes()).toEqual([
       "GET /api/v1/pins",
+      "GET /api/v1/chats",
       "PATCH /api/v1/chats/c1",
+      "GET /api/v1/chats",
       "GET /api/v1/pins",
     ]);
     await expect(sentBody("PATCH /api/v1/chats/c1")).resolves.toEqual({
@@ -371,7 +474,10 @@ export const ChatRename: Story = {
     await expect(dialog.getByLabelText("Chat title")).toHaveValue(
       "Trip to Lisbon",
     );
-    await expect(sentRoutes()).toEqual(["GET /api/v1/pins"]);
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/chats",
+    ]);
   },
 };
 
@@ -394,7 +500,10 @@ export const ChatDelete: Story = {
     await expect(
       dialog.getByRole("button", { name: "Delete" }),
     ).toBeInTheDocument();
-    await expect(sentRoutes()).toEqual(["GET /api/v1/pins"]);
+    await expect(sentRoutes()).toEqual([
+      "GET /api/v1/pins",
+      "GET /api/v1/chats",
+    ]);
   },
 };
 
