@@ -85,14 +85,19 @@ describe('transactional run enqueue with PostgreSQL', () => {
     );
 
     const earlier = job(crypto.randomUUID());
+    let earlierEnqueued = false;
+
     await expect(
       db.transaction(async (tx) => {
         await dispatch.enqueueInTransaction(tx, earlier);
+        earlierEnqueued = true;
         await dispatch.enqueueInTransaction(tx, job(crypto.randomUUID()), {
           id,
         });
       }),
     ).rejects.toThrow(Error);
+
+    expect(earlierEnqueued).toBe(true);
 
     expect(await boss.boss.getJobById('runs', earlier.runId)).toBeNull();
     expect(await boss.boss.getJobById('runs', id)).toMatchObject({
