@@ -1095,6 +1095,55 @@ describe('loadInstanceConfig — tools.bash.maxProcesses (background-jobs D7)', 
   });
 });
 
+describe('loadInstanceConfig — tools.jobs.maxSeconds', () => {
+  it.each(['{}', '{"tools":{"jobs":null}}', '{"tools":{"jobs":{}}}'])(
+    'defaults to 7200 for %s',
+    (text) => {
+      writeConfig(text);
+      expect(loadInstanceConfig().tools.jobs).toEqual({ maxSeconds: 7200 });
+    },
+  );
+  it('accepts the floor and an interpolation token', () => {
+    writeConfig('{"tools":{"jobs":{"maxSeconds":60}}}');
+    expect(loadInstanceConfig().tools.jobs.maxSeconds).toBe(60);
+    writeConfig('{"tools":{"jobs":{"maxSeconds":"{env:IC_LIFETIME}"}}}');
+    expect(
+      loadInstanceConfig({ IC_LIFETIME: '9000' }).tools.jobs.maxSeconds,
+    ).toBe(9000);
+  });
+  it.each([0, 10, 59, -1, 60.5, 8_000_000_001, 9_007_199_254_740_992])(
+    'refuses %s naming the path',
+    (value) => {
+      writeConfig(`{"tools":{"jobs":{"maxSeconds":${value}}}}`);
+      expect(() => loadInstanceConfig()).toThrow(/tools[./]jobs[./]maxSeconds/);
+    },
+  );
+  it.each(['59', '60.5', '9007199254740993'])(
+    'refuses unusable token value %s',
+    (value) => {
+      writeConfig('{"tools":{"jobs":{"maxSeconds":"{env:IC_LIFETIME}"}}}');
+      expect(() => loadInstanceConfig({ IC_LIFETIME: value })).toThrow(
+        'tools.jobs.maxSeconds',
+      );
+    },
+  );
+  it('refuses a token that resolves to an empty value as a user error', () => {
+    writeConfig('{"tools":{"jobs":{"maxSeconds":"{env:IC_LIFETIME}"}}}');
+    expect(() => loadInstanceConfig({ IC_LIFETIME: '' })).toThrow(
+      /tools[./]jobs[./]maxSeconds/,
+    );
+    expect(() => loadInstanceConfig({ IC_LIFETIME: '' })).not.toThrow(
+      /internal error/,
+    );
+  });
+  it('refuses unknown keys', () => {
+    writeConfig('{"tools":{"jobs":{"timeoutSeconds":60}}}');
+    expect(() => loadInstanceConfig()).toThrow(
+      /tools[./]jobs[./]timeoutSeconds/,
+    );
+  });
+});
+
 describe('loadInstanceConfig — tools.webAdapters', () => {
   type RewriteEntryOverrides = Partial<{
     readonly id: string;

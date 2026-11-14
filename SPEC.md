@@ -400,6 +400,30 @@ The managed handle exposes output-activity subscriptions and bounded redacted
 snapshots while its child runs. Incremental snapshots reuse only a safe prefix:
 credential occurrences and Unicode surrogate pairs cannot cross the cached
 boundary. Each stream keeps its own truncation flag, including a timeout result.
+The worker's `BashJobRegistry` can promote a managed handle to a durable job.
+No tool starts jobs yet. Promotion reserves the Chat's artifact number and
+stores the starting owner, Chat, Run, tool call, worker identity, pid, settings,
+deadline, artifact permission, and captured output. The registry retains the
+starting credential set and host-file decision after the tool context ends.
+An unsuccessful promotion stops the command.
+
+Output uses the executor's bounded, safely redacted snapshots: a trailing
+credential prefix stays withheld until a later capture resolves it. New bytes
+flush at 16 KiB or one second after the first unflushed byte, with no idle
+writes. Settlement locks the Chat before the job, conditionally settles once,
+and retries deadlocks and serialization failures. An output over 2,000
+characters produces one whole-job artifact under the reserved number when
+artifact reads are admitted. Its write and chunk deletion use a savepoint;
+a failed artifact write leaves the settlement and stored increments intact.
+Host files are materialized only after commit under the starting Run's policy.
+
+The registry stops jobs at `tools.jobs.maxSeconds` from command start (default
+7,200; integer at least 60). A proven stop is `timed_out`; unproved process-group
+termination is `lost`. Natural exits map to `succeeded` or `failed`, with a
+nonzero code or terminating signal recorded. The non-global worker shutdown
+provider refuses commands and promotions, stops hosted work, and stores its
+output as `cancelled` / `worker` (or `lost` without proof) before the global
+queue module is destroyed. No settlement notices or Run wakes ship here.
 
 ## 14. Provider and model configuration
 
