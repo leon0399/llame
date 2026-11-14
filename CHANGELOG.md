@@ -70,6 +70,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Prepare bounded job notice context (#1657).** The packaged renderer frames
+  settled-job facts and output suffixes as data. Owner-scoped database reads
+  transfer only bounded output tails; verified existing artifact caches can
+  supply a host-directory hint without putting it in semantic metadata.
+  Owner event projections omit private consumed-notice identifiers. A delivered
+  notice is authored only by its receiving Run; later dispatches reuse its
+  stored item verbatim while newly delivered notices remain eligible. This
+  prerequisite creates no live notice and activates no Run-boundary delivery.
+
 - **Prepare background-job notice transitions (#1657).** Owner-scoped
   repository operations select ordered boundary notices, consume exact settled
   notices, and restore only notices consumed by the matching Run. Terminal

@@ -667,6 +667,43 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('keeps the original tool output while omitting consumed job notice ids from live chunks', () => {
+    const t = createRunEventTranslator('run-notices');
+    const output = { status: 'success', content: 'Job finished.' };
+
+    const chunks = t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'call-notice',
+        toolName: 'wait',
+        input: { jobs: ['job-1'] },
+      },
+    });
+
+    chunks.push(
+      ...t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'call-notice',
+          toolName: 'wait',
+          status: 'success',
+          output,
+          consumedJobNoticeIds: ['delivery-1'],
+        },
+      }),
+    );
+
+    expect(
+      chunks.find((chunk) => chunk.type === 'tool-output-available'),
+    ).toEqual({
+      type: 'tool-output-available',
+      toolCallId: 'call-notice',
+      output,
+      dynamic: true,
+    });
+    expect(JSON.stringify(chunks)).not.toContain('consumedJobNoticeIds');
+  });
+
   it('translates a tool call between text into ordered parts (text → tool → text)', () => {
     const t = createRunEventTranslator('run-9');
 
