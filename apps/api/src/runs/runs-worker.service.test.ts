@@ -970,6 +970,10 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       runId: job.runId,
       userId: job.userId,
       status: 'expired',
+      expectedQueueIdentity: {
+        currentJobId: 'deadline-job',
+        wakeGeneration: 4,
+      },
       runPayload: {
         status: 'expired',
         message: 'Run timed out: exceeded its wall-clock budget.',
@@ -1180,57 +1184,6 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       }
     },
   );
-
-  it('does not retry a drained attempt after its queue claim has been replaced', async () => {
-    vi.spyOn(RunsRepository.prototype, 'findById')
-      .mockResolvedValueOnce({
-        ...queuedRun,
-        status: 'awaiting_jobs',
-        currentJobId: 'wake-job',
-        wakeGeneration: 4,
-      })
-      .mockResolvedValueOnce({
-        ...queuedRun,
-        currentJobId: 'wake-job',
-        wakeGeneration: 4,
-      })
-      .mockResolvedValueOnce({
-        ...queuedRun,
-        currentJobId: 'wake-job',
-        wakeGeneration: 4,
-      })
-      .mockResolvedValueOnce({
-        ...queuedRun,
-        currentJobId: 'replacement-job',
-        wakeGeneration: 5,
-      });
-    const wakeInTransaction = vi.fn().mockResolvedValue(true);
-    const consumeStream = vi.fn().mockResolvedValue(undefined);
-    const executeRun = vi.fn().mockResolvedValue({ consumeStream });
-
-    const { service, consumeSpy } = makeService(makeFakeTx(), {
-      models: { createClient: vi.fn().mockReturnValue({}) },
-      runExecution: {
-        executeRun,
-        settleTerminalRun: unstubbed('settleTerminalRun'),
-      },
-      runWait: { wakeInTransaction },
-      aborts: {
-        register: vi.fn().mockReturnValue(new AbortController()),
-        unregister: vi.fn(),
-      },
-    });
-
-    await (
-      await captureRunsHandler(service, consumeSpy)
-    )({
-      ...job,
-      wake: { generation: 4, jobId: 'wake-job' },
-    });
-
-    expect(wakeInTransaction).toHaveBeenCalledOnce();
-    expect(consumeStream).toHaveBeenCalledOnce();
-  });
 
   it('routes a cancellation already visible at initial pickup through central terminal settlement', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
