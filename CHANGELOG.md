@@ -59,10 +59,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
 
-- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
-  the standard timeout header, measured duration and captured output before the
-  explanation that job promotion failed.
-
 # 2026-11-11
 
 - **Add the `stop` tool for background jobs (#1657).** The model can end
