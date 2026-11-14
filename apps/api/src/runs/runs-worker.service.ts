@@ -232,12 +232,12 @@ export class RunsWorkerService implements OnApplicationBootstrap {
                 'run.started',
               );
 
-        const remainingBudgetMs =
+        const budgetDeadlineMs =
           budgetSeconds === null || !started
             ? null
-            : budgetSeconds * 1000 - (Date.now() - started.createdAt.getTime());
+            : started.createdAt.getTime() + budgetSeconds * 1000;
 
-        if (remainingBudgetMs !== null && remainingBudgetMs <= 0) {
+        if (budgetDeadlineMs !== null && budgetDeadlineMs <= Date.now()) {
           return {
             skip: true as const,
             settleCancellation: false as const,
@@ -249,22 +249,17 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           skip: false as const,
           modelId: run.modelId,
           followUpAction: run.followUpAction,
-          remainingBudgetMs,
+          budgetDeadlineMs,
+          expectedQueueIdentity: {
+            currentJobId: job.wake?.jobId ?? null,
+            wakeGeneration: job.wake?.generation ?? 0,
+          },
         };
       }),
     );
 
     if ('expiredBudget' in pickup && pickup.expiredBudget) {
-      const message = 'Run timed out: exceeded its wall-clock budget.';
-      await retryRunTransaction(() =>
-        this.runExecution.settleTerminalRun({
-          runId: job.runId,
-          userId: job.userId,
-          status: 'expired',
-          runPayload: { status: 'expired', message },
-          error: { message },
-        }),
-      );
+      await this.expireBudget(job);
 
       return;
     }
@@ -274,33 +269,6 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }
 
     if (pickup.skip) return;
-
-    let client: ReturnType<ModelsService['createClient']>;
-
-    try {
-      client = this.models.createClient(pickup.modelId);
-    } catch (error) {
-      if (
-        error instanceof ModelNotAvailableError ||
-        error instanceof ModelConfigurationError
-      ) {
-        // Settled like retry exhaustion: a redelivered Run's reply is
-        // finalized in place, then the chat is touched and reindexed.
-        await retryRunTransaction(() =>
-          this.runExecution.settleTerminalRun({
-            runId: job.runId,
-            userId: job.userId,
-            status: 'failed',
-            runPayload: { status: 'failed', message: error.message },
-            error: { message: error.message },
-          }),
-        );
-
-        return;
-      }
-
-      throw error;
-    }
 
     // Mid-flight cancellation: the run-control listener aborts this controller
     // when a cancellation is recorded, in any topology; executeRun's abort path records the cancelled
@@ -330,6 +298,16 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       return;
     }
 
+    if (
+      pickup.budgetDeadlineMs !== null &&
+      pickup.budgetDeadlineMs <= Date.now()
+    ) {
+      this.aborts.unregister(job.runId, abort);
+      await this.expireBudget(job);
+
+      return;
+    }
+
     // In-process wall-clock abort (design D7 mechanism 1): while THIS worker
     // is alive, a run exceeding its limit is aborted here and tagged with the
     // reason RunExecutionService (classifyAbortedRun) reads, so a budget
@@ -345,7 +323,11 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     const limitMs =
       budgetSeconds === null
         ? RUN_EXECUTION_CEILING_SECONDS * 1000
-        : (pickup.remainingBudgetMs ?? budgetSeconds * 1000);
+        : Math.max(
+            0,
+            (pickup.budgetDeadlineMs ?? Date.now() + budgetSeconds * 1000) -
+              Date.now(),
+          );
 
     const timeoutTimer = setTimeout(() => {
       abort.abort(
@@ -356,6 +338,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }, limitMs);
 
     try {
+      const client = this.models.createClient(pickup.modelId);
+
       const result = await this.runExecution.executeRun({
         runId: job.runId,
         chatId: job.chatId,
@@ -365,6 +349,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         abortSignal: abort.signal,
         // The worker already read the Run row; a Continue Run is the only one
         // that resumes kept parts.
+        expectedQueueIdentity: pickup.expectedQueueIdentity,
         followUpAction: pickup.followUpAction,
       });
 
@@ -412,6 +397,24 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       }
 
       if (
+        error instanceof ModelNotAvailableError ||
+        error instanceof ModelConfigurationError
+      ) {
+        await retryRunTransaction(() =>
+          this.runExecution.settleTerminalRun({
+            runId: job.runId,
+            userId: job.userId,
+            status: 'failed',
+            expectedQueueIdentity: pickup.expectedQueueIdentity,
+            runPayload: { status: 'failed', message: error.message },
+            error: { message: error.message },
+          }),
+        );
+
+        return;
+      }
+
+      if (
         error instanceof ModelContextExecutionError &&
         (await this.isRunSettledDurably(job))
       ) {
@@ -438,6 +441,23 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     return persisted !== undefined && isTerminalRunStatus(persisted.status);
   }
 
+  private async expireBudget(job: RunJob): Promise<void> {
+    const message = 'Run timed out: exceeded its wall-clock budget.';
+    await retryRunTransaction(() =>
+      this.runExecution.settleTerminalRun({
+        runId: job.runId,
+        userId: job.userId,
+        status: 'expired',
+        expectedQueueIdentity: {
+          currentJobId: job.wake?.jobId ?? null,
+          wakeGeneration: job.wake?.generation ?? 0,
+        },
+        runPayload: { status: 'expired', message },
+        error: { message },
+      }),
+    );
+  }
+
   private async settleCancelledBeforeStart(job: RunJob): Promise<void> {
     const message = 'Run was cancelled before this worker attempt started.';
     await retryRunTransaction(() =>
@@ -446,6 +466,10 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         userId: job.userId,
         status: 'cancelled',
         runPayload: { status: 'cancelled', message },
+        expectedQueueIdentity: {
+          currentJobId: job.wake?.jobId ?? null,
+          wakeGeneration: job.wake?.generation ?? 0,
+        },
         error: { message },
       }),
     );
