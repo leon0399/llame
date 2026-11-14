@@ -332,6 +332,13 @@
         { "$ref": "#/$defs/interpolationToken" }
       ]
     },
+    "bashMaxProcessesOrToken": {
+      "description": "The process bound of one worker: a safe integer of at least 1, or a whole-value interpolation token that resolves to one.",
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+        { "$ref": "#/$defs/interpolationToken" }
+      ]
+    },
     "heartbeatSecondsOrToken": {
       "description": "The job-queue's native worker-liveness window: a positive integer >= 10 (pg-boss's own floor for queue heartbeatSeconds), or a whole-value interpolation token that resolves to one.",
       "oneOf": [
@@ -1058,6 +1065,17 @@
             "maxBytes": {
               "$ref": "#/$defs/artifactMaxBytesOrToken",
               "description": "The largest one artifact part may be, in UTF-8 bytes, from 131072 to 268435456. A producer that streams stops at the bound and marks its result incomplete; a whole result above it is not stored. Default: 8388608 (8 MiB)."
+            }
+          }
+        },
+        "bash": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Optional bounds on host `bash`. Absent or null takes the built-in bound. An unknown key fails startup naming the path.",
+          "properties": {
+            "maxProcesses": {
+              "$ref": "#/$defs/bashMaxProcessesOrToken",
+              "description": "The most managed commands one worker process runs at one time, counting foreground host commands and `ssh://` commands. An integer of at least 1, or a whole-value interpolation token. Default: 64."
             }
           }
         },

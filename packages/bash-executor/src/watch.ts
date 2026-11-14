@@ -1,7 +1,12 @@
 import type { ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
-import type { BashResult } from "./types";
+import type {
+  BashResult,
+  ManagedOutput,
+  ManagedStopCause,
+  ManagedStopResult,
+} from "./types";
 import { completeAttemptUnknown } from "./attempt-ledger";
 import {
   stopProcessGroup,
@@ -21,6 +26,8 @@ const OUTPUT_DRAIN_BUDGET_MS = 50;
 export type WatchRequest = {
   readonly context: BashExecutorContext;
   readonly attemptId: string;
+  /** False for a handle: the caller arms the deadline and calls `stop`. */
+  readonly deadline: boolean;
   readonly options: {
     readonly signal?: AbortSignal;
     readonly timeoutSignal?: AbortSignal;
@@ -88,46 +95,137 @@ function emptyStream(): CapturedStream {
   };
 }
 
-/** One call's streams, each with its own decoder and its measure used so far. */
-function emptyStreams(): StreamState {
-  return { stdout: emptyStream(), stderr: emptyStream() };
+/** What a caller of the watcher can do while the child runs. */
+export type ManagedWatch = {
+  readonly settled: Promise<BashResult>;
+  snapshot(): ManagedOutput;
+  stop(cause: ManagedStopCause): Promise<ManagedStopResult>;
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return { promise, resolve };
 }
+
+const NO_OUTPUT: ManagedOutput = { stdout: "", stderr: "", truncated: false };
 
 export function watchManagedChild(
   child: ChildProcess,
   request: WatchRequest,
-  resolve: (result: BashResult) => void,
-): void {
+  resolve: (result: BashResult) => void = () => undefined,
+): ManagedWatch {
   const controls: WatchControls = { settling: false };
-  const streams = emptyStreams();
-  const finish = once(resolve, () => clearWatch(request, controls));
+  const { promise: settled, resolve: resolveSettled } = deferred<BashResult>();
+  let settledOutput: ManagedOutput | undefined;
+
+  const finish = once(
+    (result) => {
+      if ("stdout" in result) settledOutput = outputOf(result);
+      resolve(result);
+      resolveSettled(result);
+    },
+    () => clearWatch(request, controls),
+  );
+
   const pgid = child.pid;
 
-  if (pgid === undefined) {
-    child.once("error", () => {});
-    finish({
-      status: "error",
-      type: "unavailable",
-      message: "Configured tool could not be started.",
-    });
-
-    return;
-  }
+  if (pgid === undefined) return unstartedWatch(child, finish, settled);
 
   const session: WatchSession = {
     child,
     pgid,
     request,
     startedAtMs: performance.now(),
-    streams,
+    streams: { stdout: emptyStream(), stderr: emptyStream() },
     controls,
     finish,
   };
 
   armAbort(session);
-  armDeadline(session);
+
+  if (request.deadline) armDeadline(session);
   attachStreams(session);
   armExit(session);
+
+  return {
+    settled,
+    snapshot: () =>
+      settledOutput ?? outputOf(knownCloseResult(0, session, true)),
+    stop: (cause) => stopSession(session, cause, settled),
+  };
+}
+
+/** A child with no pid never started: it settles as unavailable at once. */
+function unstartedWatch(
+  child: ChildProcess,
+  finish: (result: BashResult) => void,
+  settled: Promise<BashResult>,
+): ManagedWatch {
+  child.once("error", () => {});
+  finish({
+    status: "error",
+    type: "unavailable",
+    message: "Configured tool could not be started.",
+  });
+
+  return {
+    settled,
+    snapshot: () => NO_OUTPUT,
+    stop: () => Promise.resolve({ proved: true, ...NO_OUTPUT }),
+  };
+}
+
+function outputOf({ stdout, stderr, truncated }: ManagedOutput): ManagedOutput {
+  return { stdout, stderr, truncated };
+}
+
+/**
+ * The deadline's settle path for a caller that owns the deadline: kill the
+ * group, prove it empty, drain for the budget, and return the streams. A stop
+ * that finds the command already settling waits for that settlement.
+ */
+async function stopSession(
+  session: WatchSession,
+  cause: ManagedStopCause,
+  done: Promise<BashResult>,
+): Promise<ManagedStopResult> {
+  if (session.controls.settling) {
+    const result = await done;
+    const proved = !("type" in result && result.type === "outcome_unknown");
+
+    return {
+      proved,
+      ...outputOf(
+        "stdout" in result ? result : knownCloseResult(1, session, true),
+      ),
+    };
+  }
+
+  session.controls.settling = true;
+
+  if (!(await stopProcessGroup(session.pgid))) {
+    session.finish(completeAttemptUnknown(session.request.attemptId));
+
+    return {
+      proved: false,
+      ...outputOf(knownCloseResult(1, session, true)),
+    };
+  }
+
+  await drainOutput(session);
+  const output = outputOf(knownCloseResult(1, session, true));
+  session.finish({
+    status: "error",
+    type: "cancelled",
+    message: `Command was stopped (${cause}).`,
+  });
+
+  return { proved: true, ...output };
 }
 
 function clearWatch(
@@ -476,13 +574,11 @@ function appendCapture(
   const size = boundedLength(text, capture);
 
   if (used + size <= capture.limit) {
-    const exact: CapturedChunk = {
+    return {
       text: current + text,
       used: used + size,
       overflow: false,
     };
-
-    return exact;
   }
 
   const remainder: StreamBound = {
@@ -490,13 +586,11 @@ function appendCapture(
     limit: capture.limit - used,
   };
 
-  const clipped: CapturedChunk = {
+  return {
     text: current + cutToBound(text, remainder),
     used: capture.limit,
     overflow: true,
   };
-
-  return clipped;
 }
 
 function knownCloseResult(

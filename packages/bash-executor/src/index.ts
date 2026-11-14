@@ -6,6 +6,10 @@ export type {
   BashResult,
   BashTimedOutResult,
   BashUnavailableResult,
+  ManagedBashHandle,
+  ManagedOutput,
+  ManagedStopCause,
+  ManagedStopResult,
   BashUnknownResult,
 } from "./types";
 
@@ -40,9 +44,16 @@ export {
   admitManagedBash,
   executeManagedBash,
   measureManagedInput,
-  resetManagedExecutorForTests,
-  reserveManagedProcessSlot,
+  startManagedBash,
   unusableWorkingDirectory,
 } from "./execute";
 
-export type { ExecuteManagedBashOptions, ManagedProcessSlot } from "./execute";
+export type {
+  AdmittedBashExecution,
+  ExecuteManagedBashOptions,
+  StartManagedBashOptions,
+} from "./execute";
+
+export { BashProcessLimiter } from "./limiter";
+
+export type { ManagedProcessSlot } from "./limiter";

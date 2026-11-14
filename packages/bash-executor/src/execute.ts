@@ -8,13 +8,13 @@ import type {
   BashResult,
   BashTimedOutResult,
   BashUnavailableResult,
+  ManagedBashHandle,
 } from "./types";
+import { BashProcessLimiter } from "./limiter";
 import { managedChildEnvironment, managedEnvironmentCollision } from "./env";
 import { requireManagedBoundary } from "./sanitize";
 import { resolveConfiguredTool } from "./tools";
 import { watchManagedChild } from "./watch";
-
-let activeProcesses = 0;
 
 export type ExecuteManagedBashOptions = {
   readonly signal?: AbortSignal;
@@ -25,6 +25,8 @@ export type ExecuteManagedBashOptions = {
   readonly protectedValues?: ReadonlyArray<string>;
   /** Opaque model tool-call identity; never invents a replay. */
   readonly toolCallId?: string;
+  /** The limiter `executeManagedBash` takes its slot from; default: one per bound. */
+  readonly limiter?: BashProcessLimiter;
 };
 
 type RunRequest = {
@@ -37,41 +39,25 @@ type RunRequest = {
   readonly options: ExecuteManagedBashOptions;
 };
 
-export function resetManagedExecutorForTests(): void {
-  activeProcesses = 0;
-}
+/** One limiter per bound for `executeManagedBash` callers that pass none. */
+const defaultLimiters = new Map<number, BashProcessLimiter>();
 
-/** One reserved unit of the managed process slot. */
-export type ManagedProcessSlot = {
-  readonly release: () => void;
-};
+function defaultLimiter(maxProcesses: number): BashProcessLimiter {
+  let limiter = defaultLimiters.get(maxProcesses);
+
+  if (limiter === undefined) {
+    limiter = new BashProcessLimiter(maxProcesses);
+    defaultLimiters.set(maxProcesses, limiter);
+  }
+
+  return limiter;
+}
 
 function processLimitReached(): BashUnavailableResult {
   return {
     status: "error",
     type: "unavailable",
     message: "Managed process limit reached.",
-  };
-}
-
-/**
- * Reserve the process slot a managed command occupies, for a caller that runs
- * the command itself (an `ssh://` bash). The counter is the one local commands
- * reserve, so a worker runs one managed bash at a time whatever its target.
- */
-export function reserveManagedProcessSlot(
-  context: BashExecutorContext,
-): ManagedProcessSlot | BashUnavailableResult {
-  if (activeProcesses >= context.maxProcesses) return processLimitReached();
-  activeProcesses += 1;
-  let released = false;
-
-  return {
-    release: () => {
-      if (released) return;
-      released = true;
-      activeProcesses -= 1;
-    },
   };
 }
 
@@ -143,8 +129,6 @@ function rejectLimits(
       message: "Command input exceeds the managed input bound.",
     };
   }
-
-  if (activeProcesses >= context.maxProcesses) return processLimitReached();
 
   if (options.timeoutSignal?.aborted) {
     return timedOutResult(context, options);
@@ -233,16 +217,28 @@ export async function executeManagedBash(
 
   if ("type" in admitted) return admitted;
 
-  return admitted.run();
+  const slot = (
+    options.limiter ?? defaultLimiter(context.maxProcesses)
+  ).tryAcquire();
+
+  if (slot === null) return processLimitReached();
+
+  try {
+    return await admitted.run();
+  } finally {
+    slot.release();
+  }
 }
 
 export type AdmittedBashExecution = {
   readonly cwd: string;
   readonly run: () => Promise<BashResult>;
-  readonly release: () => void;
 };
 
-/** Reserve a process slot before the caller commits its durable attempt. */
+/**
+ * Validate a command before the caller commits its durable attempt. It takes
+ * no process slot: the caller holds one from its own limiter. Its `run` is single-use.
+ */
 export function admitManagedBash(
   input: BashCommandInput,
   context: BashExecutorContext,
@@ -251,24 +247,19 @@ export function admitManagedBash(
   const request = admitExecution(input, context, options);
 
   if ("type" in request) return request;
-  activeProcesses += 1;
-  let reserved = true;
+
+  let consumed = false;
 
   return {
     cwd: request.cwd,
-    release: () => {
-      if (!reserved) return;
-      reserved = false;
-      activeProcesses -= 1;
-    },
     run: async () => {
-      if (!reserved)
+      if (consumed)
         return {
           status: "error",
           type: "unavailable",
           message: "Command admission has already been consumed or released.",
         };
-      reserved = false;
+      consumed = true;
 
       return runAdmitted(request);
     },
@@ -276,23 +267,19 @@ export function admitManagedBash(
 }
 
 async function runAdmitted(request: RunRequest): Promise<BashResult> {
-  try {
-    if (request.options.timeoutSignal?.aborted) {
-      return timedOutResult(request.context, request.options);
-    }
-
-    if (request.options.signal?.aborted) {
-      return {
-        status: "error",
-        type: "cancelled",
-        message: "Command was cancelled before start.",
-      };
-    }
-
-    return await spawnManaged(request);
-  } finally {
-    activeProcesses -= 1;
+  if (request.options.timeoutSignal?.aborted) {
+    return timedOutResult(request.context, request.options);
   }
+
+  if (request.options.signal?.aborted) {
+    return {
+      status: "error",
+      type: "cancelled",
+      message: "Command was cancelled before start.",
+    };
+  }
+
+  return spawnManaged(request);
 }
 
 function effectiveDeadlineMs(
@@ -316,36 +303,81 @@ function timedOutResult(
   };
 }
 
+function spawnChild(request: RunRequest): ChildProcess | BashUnavailableResult {
+  try {
+    return spawn(request.tool, [...request.args], {
+      cwd: request.cwd,
+      env: request.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+      detached: true,
+    });
+  } catch {
+    return notStarted();
+  }
+}
+
 function spawnManaged(request: RunRequest): Promise<BashResult> {
+  const child = spawnChild(request);
+
+  if ("status" in child) return Promise.resolve(child);
+
   return new Promise((resolve) => {
-    let child: ChildProcess;
-
-    try {
-      child = spawn(request.tool, [...request.args], {
-        cwd: request.cwd,
-        env: request.env,
-        stdio: ["ignore", "pipe", "pipe"],
-        shell: false,
-        detached: true,
-      });
-    } catch {
-      resolve({
-        status: "error",
-        type: "unavailable",
-        message: "Configured tool could not be started.",
-      });
-
-      return;
-    }
-
     watchManagedChild(
       child,
       {
         context: request.context,
         attemptId: request.attemptId,
+        deadline: true,
         options: request.options,
       },
       resolve,
     );
   });
+}
+
+export type StartManagedBashOptions = Pick<
+  ExecuteManagedBashOptions,
+  "protectedValues" | "toolCallId"
+>;
+
+/**
+ * Start a managed command and hand its control to the caller. The handle arms
+ * no deadline and listens to no call signal: the caller stops the command
+ * through `stop`, and takes its own process slot from a limiter.
+ */
+export function startManagedBash(
+  input: BashCommandInput,
+  context: BashExecutorContext,
+  options: StartManagedBashOptions = {},
+): ManagedBashHandle | BashUnavailableResult | BashTimedOutResult {
+  const request = admitExecution(input, context, {
+    protectedValues: options.protectedValues,
+    toolCallId: options.toolCallId,
+  });
+
+  if ("type" in request) return request;
+  const child = spawnChild(request);
+
+  if ("status" in child) return child;
+
+  const watch = watchManagedChild(child, {
+    context,
+    attemptId: request.attemptId,
+    deadline: false,
+    options: request.options,
+  });
+
+  // A child that failed to spawn has no pid and has settled as unavailable.
+  if (child.pid === undefined) return notStarted();
+
+  return { pid: child.pid, ...watch };
+}
+
+function notStarted(): BashUnavailableResult {
+  return {
+    status: "error",
+    type: "unavailable",
+    message: "Configured tool could not be started.",
+  };
 }
