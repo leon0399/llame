@@ -70,6 +70,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Chat checks bind the pending read model to its job. This storage layer does
   not yet create settlement notices.
 
+- **Restore Regenerate receipts through Continue checkpoints (#1696).**
+  Recovery follows only tool results retained by each Continue checkpoint and
+  restores each notice against the Run that consumed it. Unrelated ancestor
+  receipts remain excluded, and owner-withdrawn notices remain withdrawn.
+
 - **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
   seeded job notices beside owner steering, preserve the earlier reply, and
   persist job context only at dispatch. Stop-result recording consumes exact
