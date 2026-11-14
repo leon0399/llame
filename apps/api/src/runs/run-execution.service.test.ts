@@ -20852,6 +20852,57 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
   });
 
+  it('stops after a tool-call step whose attempt has a suspension receipt', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: testAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === testAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+
+    const stepEndSignal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model call was not captured');
+
+    await executeBoundTool(options, { q: 'first' }, 'suspended-step-call');
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    await options?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    expect(segment.calls).toHaveLength(1);
+    expect(appended.filter(({ type }) => type === 'tool.started')).toHaveLength(
+      1,
+    );
+    expect(stepEndSignal).not.toHaveBeenCalled();
+    expect(spies.markFinished).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('model.completed');
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+  });
+
   it('keeps the Run live when the final answer meets a pending item', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
