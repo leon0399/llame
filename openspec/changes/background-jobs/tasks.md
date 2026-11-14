@@ -116,7 +116,7 @@ Generated files count zero and are reported apart: the Drizzle snapshots,
 - [x] 1.4 Run `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`; all pass.
 - [x] 1.5 Self-review the draft PR diff against `REVIEW_GUIDE.md` and fix findings with new commits before the PR is marked ready. Leo waived the additional proposal review round.
 - [x] 1.6 Run the GitHub review and CI loop on the published head until every expected reviewer completes and CI passes.
-- [ ] 1.7 Obtain Leo's approval of the published revision, of the three deviations, of the usage trade-off, and of the budget exception.
+- [x] 1.7 Obtain Leo's approval of the published revision, of the three deviations, of the usage trade-off, and of the budget exception.
 
 ## 2. Job store (`background-jobs/job-store`)
 
@@ -192,7 +192,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 5.5 Update `docs/product/reference/tools/bash.md`, a new `docs/product/operator/background-jobs.md` with its link in `operator/index.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
 - [x] 5.6 Add the `job-stop` signal on top of heartbeat recovery; integration tests cover "A stop from the API reaches a dedicated worker", "The owner stops one of two jobs", "A stopped job names its stopper", "A stop that is not proved", a lost signal that the heartbeat finds, and "A worker resumes after its row was settled lost".
 - [x] 5.7 End each live job when a Chat is deleted: take the Chat row lock explicitly before the select of the live job ids, send the stop pointers in the deletion transaction, and stamp no request field, because the cascade removes the record; a test covers "A deleted Chat leaves no process".
-- [ ] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
+- [x] 5.8 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
 - [x] 5.9 Run the GitHub review and CI loop on the published head.
 
 ## 6. Foreground move (`background-jobs/bash-move`)
@@ -204,7 +204,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 6.3 Keep the remote paths: tests cover "A remote command still ends at its deadline", "Proven-stopped timeout is known", and "Unproven stop after timeout is unknown and the Run continues" on a `machine://` directory.
 - [x] 6.4 Stop a foreground command on a Run cancellation; a test covers "Stop during a foreground command". Also cover "A cancellation during a pending move", "A cancellation before the move starts", and "A command exits during the move".
 - [x] 6.5 Update `docs/product/reference/tools/bash.md`, `docs/product/operator/native-files.md`, `docs/product/operator/background-jobs.md`, `docs/product/operator/scaling.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 6.6 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
+- [x] 6.6 Run the API lint, typecheck, and the focused suites; self-review before ready. Keep the PR draft and not mergeable until the delivery gate holds (tasks 9.2 to 9.4 and task 10 complete).
 - [x] 6.7 Run the GitHub review and CI loop on the published head.
 
 ## 7. Stop (`background-jobs/job-stop`)
@@ -212,7 +212,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
 - [x] 7.1 Add the `stop` tool, its prompt file, its reference page, and its permission group in the example and the fixtures, and admit it as a host-capability tool; update the tests that count the code-owned tools. Tests cover "The model stops a monitor" (the `cancelled` entry), "A settled job keeps its state", "A stop that settles late", "Stop is advertised with bash", "Stop without host authority is not advertised", "A stop needs its own group", and a `stop` call in a Run whose mode is `read-only`.
 - [x] 7.4 Add the isolation test "A tool call cannot name a job of another owner" for `stop`.
 - [x] 7.5 Update `docs/product/reference/tools/index.md`, `stop.md`, `permission-modes.md`, `tool-call-permissions.md`, `tool-prompts.md`, and `CHANGELOG.md`; `pnpm lint:markdown` passes.
-- [ ] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
+- [x] 7.6 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
 - [x] 7.7 Run the GitHub review and CI loop on the published head.
 
 ## 8. Yield (`background-jobs/yield`)
@@ -224,7 +224,7 @@ This layer wires the existing registry to heartbeat recovery without exposing a 
       lost acknowledgement and recovery races with real Postgres; a message-triggered promotion
       pending beyond 750 ms delays delivery until the winner is known. No model step advances before
       the winner is known, and the command is never executed again.
-- [ ] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
+- [x] 8.4 Run the API lint, typecheck, and the focused suites; self-review before ready, subject to the delivery gate.
 - [x] 8.5 Run the GitHub review and CI loop on the published head.
 
 ## 8a. Notice storage (`background-jobs/notice-store`)
@@ -267,7 +267,7 @@ rows. It adds no settlement producer and does not complete task 9 acceptance.
 - [x] 8d.1 Implement the notice transition repository APIs, including owner deletion, queued/held/pending transitions and atomic restrictions; prove the state rules and isolation with seeded database rows, without creating notices from job settlement.
 - [x] 8d.2 Prepare the exact seeded-row database proof for the task 9.1 owner actions and notice-mode rules; task 9.1 stays unchecked until final activation proves the producer-dependent acceptance end to end.
 - [x] 8d.4 Prove terminal recovery with real stored receipts: return a notice whose receiving segment never dispatched, retain a notice after that segment dispatched, and reject restoration under another owner. The focused integration suite passes 50 cases and instruments every recovery-helper branch.
-- [ ] 8d.3 Run focused repository and database verification, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; do not claim a mutation gate passed until its result is recorded.
+- [x] 8d.3 Run focused repository and database verification, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; do not claim a mutation gate passed until its result is recorded.
 
 ## 8e. Notice context (`background-jobs/notice-context`)
 
@@ -276,7 +276,7 @@ It creates no live notice and does not complete task 9 acceptance.
 
 - [x] 8e.1 Add the packaged job context renderer, cache probe, delivered-item loader, and private event egress preparation; prove each with seeded notices and ensure consumed identifiers stay outside owner-visible event projections.
 - [x] 8e.2 Prepare the context proof for task 9.3 using seeded notice rows, including bounded output, the interrupted-item ordering and prior reply preservation; task 9.3 stays unchecked until the producer is live and end-to-end proof passes.
-- [ ] 8e.3 Run focused context/egress suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; record mutation results without treating readiness proof as activation.
+- [x] 8e.3 Run focused context/egress suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; record mutation results without treating readiness proof as activation.
 
 ## 8f. Notice delivery (`background-jobs/notice-delivery`)
 
@@ -286,7 +286,7 @@ task 9 acceptance.
 
 - [x] 8f.1 Implement Run-boundary delivery, dispatch integration, and atomic stop-result consumption/restoration; test exact consumed ids, restoration on discarded results, and seeded notices through real database transactions.
 - [x] 8f.2 Prepare seeded readiness proof for tasks 9.1–9.3, including boundary ordering and stop-result cases. Keep tasks 9.1–9.3 unchecked until `notices` activates the producer and its end-to-end proof succeeds; task 9.4 remains owned by `host-runs` after task 10.1.
-- [ ] 8f.3 Run focused delivery/readiness suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; readiness does not satisfy the delivery gate.
+- [x] 8f.3 Run focused delivery/readiness suites and API checks, review the parent-relative diff (SR), and verify the current head. Run ordinary CI and GitHub review concurrently with mutation testing; readiness does not satisfy the delivery gate.
 
 ## 8g. Notice receipt inheritance (`background-jobs/notice-receipts`)
 
@@ -449,7 +449,7 @@ UI union; the final integrated stack retains its own end-to-end verification.
 
 - [x] 14.1 Enter `background-jobs/finalize` with `$gh-stack` from the `web-controls` top before `$openspec-sync-specs` writes.
 - [x] 14.2 Run `$openspec-sync-specs`; `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict` pass.
-- [ ] 14.3 Confirm archive readiness: `openspec status --change background-jobs --json` reports every artifact done, and every task above is checked.
+- [x] 14.3 Confirm archive readiness: `openspec status --change background-jobs --json` reports every artifact done, and every task above is checked.
 
 ## Workflow follow-up
 
