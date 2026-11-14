@@ -205,7 +205,6 @@ describe('Run wait wake races', () => {
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
-      deleteFx.harness.moduleRef.get(RunWaitService),
     );
 
     const waiting = await deleteFx.run(seeded.runId);

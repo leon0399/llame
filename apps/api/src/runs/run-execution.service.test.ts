@@ -13929,10 +13929,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     let state: 'withdrawn' | 'pending' = 'withdrawn';
     const order: Array<string> = [];
 
-    vi.spyOn(
-      RunEventsRepository.prototype,
-      'discardedJobNoticeIds',
-    ).mockResolvedValue(deliveryIds);
+    vi.spyOn(jobNoticeRecovery, 'discardedJobNoticeIds').mockResolvedValue(
+      deliveryIds,
+    );
 
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
