@@ -7,7 +7,7 @@ import {
   type ReplacementContext,
 } from "./history-adoption";
 import {
-  interruptedNoticePart,
+  isInterruptedNoticePart,
   isInstructionsPart,
   isPromptImportsPart,
   messageRenderKey,
@@ -467,14 +467,15 @@ describe("trusted model-context projection", () => {
 
     const [user, assistant] = mergeTrustedModelContextParts(live, server);
 
-    expect(interruptedNoticePart({ parts: user?.parts ?? [] })).toEqual(notice);
+    expect(user?.parts.some(isInterruptedNoticePart)).toBe(true);
     expect(user?.parts.at(0)).toEqual(notice);
     expect(assistant?.parts).toEqual([text]);
     expect(
-      interruptedNoticePart({
-        parts: [{ ...notice, data: { ...notice.data, payload: "x" } }],
+      isInterruptedNoticePart({
+        ...notice,
+        data: { ...notice.data, payload: "x" },
       }),
-    ).toBeNull();
+    ).toBe(false);
   });
 
   it("reads the owner-only run id from completed assistant metadata", () => {

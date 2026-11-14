@@ -27,6 +27,7 @@ import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
 import type {
   ChatDeliveryResponse,
+  ChatJobResponse,
   ChatListItemResponse,
   GitStateOkResponse,
 } from "@/lib/api/generated/models";
@@ -3371,6 +3372,77 @@ export const EscTwiceStopsEverything: Story = {
     await expect(
       sentRoutes().filter((route) => route.startsWith("PATCH ")),
     ).toHaveLength(1);
+  },
+};
+
+/**
+ * Both Stop controls belong to the live Run, not to independently running
+ * background jobs in session details.
+ *
+ * @summary composer Stop and Esc leave background jobs running
+ */
+export const ComposerStopAndEscapeLeaveJobsRunning: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    ...HEADED_CHAT,
+    latestRun: liveRun(),
+  } satisfies ChatPageParameters & typeof HEADED_CHAT,
+  render: (args) => <ChatUnderHeader {...args} />,
+  beforeEach: () => {
+    serveChatCard(false);
+
+    const job: ChatJobResponse = {
+      id: "job-1",
+      chatId: CHAT_ID,
+      locator: "job://bash-1",
+      executor: "bash",
+      state: "running",
+      stoppedBy: null,
+      startedAt: "2026-11-12T09:00:00.000Z",
+      settledAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      outputs: [],
+      truncated: [],
+      exitCode: null,
+      signal: null,
+      outcomeUnknown: false,
+      artifact: null,
+    };
+
+    let state = job.state;
+    const stopRoute = `PATCH /api/v1/chats/${CHAT_ID}/jobs/${job.id}`;
+
+    routeAlso({
+      [JOBS_ROUTE]: () =>
+        Promise.resolve(jsonResponse({ items: [{ ...job, state }] })),
+      [stopRoute]: () => {
+        state = "cancelled";
+
+        return Promise.resolve(jsonResponse({ ...job, state }));
+      },
+    });
+    runIdToCancel.mockReturnValue(null);
+    cancelRun.mockResolvedValue(undefined);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await openedLiveRun(canvasElement);
+    const details = within(canvas.getByLabelText("Session details"));
+
+    await expect(await details.findByText("Running")).toBeVisible();
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Stop generation" }),
+    );
+    await userEvent.click(input);
+    await userEvent.keyboard("{Escape}");
+
+    await expect(cancelRun).toHaveBeenCalledTimes(2);
+    await expect(
+      everyRoute().filter((route) => route.includes("/jobs/")),
+    ).toEqual([]);
+    await expect(details.getByText("Running")).toBeVisible();
+    await expect(details.queryByText("Cancelled")).toBeNull();
   },
 };
 
