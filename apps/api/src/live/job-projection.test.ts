@@ -1,8 +1,11 @@
+import { type ChatListItemResponse } from '../chats/dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import {
   LIVE_CHAT_ID,
   LIVE_OWNER,
+  LIVE_RUN_ID,
   liveChatRecord,
+  liveRunRecord,
 } from '../testing/live-records';
 import { ChangeHubService } from './change-hub.service';
 import { liveMessageSchema, type LiveMessage } from './generated/live-protocol';
@@ -190,6 +193,77 @@ describe('owner job projection refresh', () => {
     replacement.resolve(grouped(1));
     await flush();
     expect(counts(frames)).toEqual([1]);
+  });
+
+  it('resyncs a new subscriber when an old chat read finishes after resubscription', async () => {
+    const { hub, loader, runningJobs, frames, subscribe } = fixture();
+    const unsubscribe = subscribe();
+    await flush();
+
+    const pending = Promise.withResolvers<ChatListItemResponse | undefined>();
+    vi.spyOn(loader, 'chat').mockReturnValueOnce(pending.promise);
+    hub.dispatch(
+      JSON.stringify({
+        k: 'chat',
+        owner: LIVE_OWNER,
+        chat: LIVE_CHAT_ID,
+        deleted: false,
+      }),
+    );
+
+    unsubscribe();
+    const secondFrames: Array<LiveMessage> = [];
+    runningJobs.mockResolvedValue(new Map());
+
+    const resubscribe = hub.subscribe(LIVE_OWNER, (frame) => {
+      const parsed: unknown = JSON.parse(frame);
+      secondFrames.push(liveMessageSchema.parse(parsed));
+    });
+
+    await flush();
+    expect(secondFrames).toEqual([]);
+
+    pending.resolve(liveChatRecord({ runningJobs: 1 }));
+    await flush();
+    expect(secondFrames).toEqual([{ type: 'resync' }]);
+    expect(counts(frames)).toEqual([1]);
+    resubscribe();
+  });
+
+  it('delivers a terminal run update after resubscription', async () => {
+    const { hub, loader, runningJobs, subscribe } = fixture();
+    const unsubscribe = subscribe();
+    await flush();
+
+    const pending =
+      Promise.withResolvers<Awaited<ReturnType<LiveRecordLoader['run']>>>();
+
+    vi.spyOn(loader, 'run').mockReturnValueOnce(pending.promise);
+    hub.dispatch(
+      JSON.stringify({
+        k: 'run',
+        owner: LIVE_OWNER,
+        run: LIVE_RUN_ID,
+        status: 'completed',
+      }),
+    );
+    unsubscribe();
+    runningJobs.mockResolvedValue(new Map());
+
+    const frames: Array<LiveMessage> = [];
+
+    const resubscribe = hub.subscribe(LIVE_OWNER, (frame) => {
+      const parsed: unknown = JSON.parse(frame);
+      frames.push(liveMessageSchema.parse(parsed));
+    });
+
+    await flush();
+    pending.resolve(liveRunRecord({ status: 'completed' }));
+    await flush();
+    expect(frames).toMatchObject([
+      { type: 'run.updated', run: { status: 'completed' } },
+    ]);
+    resubscribe();
   });
 
   it('coalesces additional subscriptions into one nonoverlapping replacement read', async () => {

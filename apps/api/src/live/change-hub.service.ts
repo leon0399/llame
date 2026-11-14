@@ -216,10 +216,27 @@ export class ChangeHubService implements OnModuleInit, OnModuleDestroy {
     for (let job = queue.jobs.shift(); job; job = queue.jobs.shift()) {
       if (job.key !== undefined) queue.waiting.delete(job.key);
 
+      const subscribers =
+        audience === INSTANCE_AUDIENCE
+          ? undefined
+          : this.subscribers.get(audience);
+
       try {
         const message = await job.load(this.loader);
 
-        if (message) this.send(audience, message);
+        const currentSubscribers =
+          audience === INSTANCE_AUDIENCE
+            ? undefined
+            : this.subscribers.get(audience);
+
+        if (
+          message?.type === 'chat.upserted' &&
+          subscribers !== currentSubscribers
+        ) {
+          this.send(audience, { type: 'resync' });
+        } else if (message) {
+          this.send(audience, message);
+        }
       } catch (error) {
         this.logger.warn(
           `Live record read failed; requesting resync: ${error instanceof Error ? error.message : 'unknown'}`,
