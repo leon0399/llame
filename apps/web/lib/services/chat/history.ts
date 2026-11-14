@@ -474,12 +474,10 @@ export function interruptedNoticePart(message: {
 }
 
 /** Whether this app renders a server context item on that role: the
- *  model-switch marker, prompt-imports disclosure, regenerate and interrupted
- *  notices on user messages, job notices on user messages or host assistant
- *  messages, and instructions on either role. */
+ *  model-switch marker, prompt-imports disclosure, regenerate, interrupted,
+ *  and job notices on user messages, and instructions on either role. */
 function isRenderableControlPart(
   role: UIMessage["role"],
-  host: boolean,
   part: unknown,
 ): part is
   | ModelSwitchPart
@@ -495,24 +493,21 @@ function isRenderableControlPart(
         isRegenerateNoticePart(part) ||
         isInterruptedNoticePart(part) ||
         isJobNoticePart(part)
-    : isInstructionsPart(part) ||
-        (role === "assistant" && host && isJobNoticePart(part));
+    : isInstructionsPart(part);
 }
 
 /**
  * The control parts a server-fetched message is trusted to overlay, each with
  * its stored position: exactly the producers this app renders from stored
  * parts. This includes model-switch and prompt-import disclosures staged on a
- * user message, instructions on user or assistant messages, job notices on
- * user messages or host-authored assistant messages, and regenerate and
- * interrupted notices on user messages. Every other producer stays
+ * user message, instructions on user or assistant messages, and regenerate,
+ * interrupted, and job notices on user messages. Every other producer stays
  * invisible, and a part no server message vouches for is dropped.
  *
  * Server order is kept for multiple accepted items on one message.
  */
 function trustedContextParts(message: {
   role: UIMessage["role"];
-  host: boolean;
   parts: ReadonlyArray<unknown>;
 }) {
   // Each part's index is the count of non-context parts before it: the merge
@@ -533,7 +528,7 @@ function trustedContextParts(message: {
   for (const part of message.parts) {
     if (!isContextItemPart(part)) {
       index += 1;
-    } else if (isRenderableControlPart(message.role, message.host, part)) {
+    } else if (isRenderableControlPart(message.role, part)) {
       placed.push({ index, part });
     }
   }
@@ -580,10 +575,6 @@ export function mergeTrustedModelContextParts(
           message.id,
           trustedContextParts({
             role: message.role,
-            host:
-              isNonNullObject(message.metadata) &&
-              "host" in message.metadata &&
-              message.metadata.host === true,
             parts: message.parts,
           }),
         ] as const,
@@ -675,9 +666,12 @@ export function toChatUiMessages(response: {
     // carries per-turn usage into message metadata so the UI shows it on
     // historical turns exactly as it does live (the run bridge emits the
     // same `{ usage }` shape as a message-metadata chunk at completion).
+    const host =
+      message.role === "user" && message.senderUserId === null && message.host;
+
     const metadata = message.usage
-      ? { seq: message.seq, host: message.host, usage: message.usage }
-      : { seq: message.seq, host: message.host };
+      ? { seq: message.seq, host, usage: message.usage }
+      : { seq: message.seq, host };
 
     return {
       id: message.id,

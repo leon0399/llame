@@ -30,11 +30,11 @@ export function JobNoticePart({ notice }: { notice: JobNotice }) {
   );
 }
 
-/** Render only validated job notices from the host-authored assistant row. */
+/** Render only validated job notices from the host-authored user row. */
 export function HostJobNotices({ message }: { message: UIMessage }) {
   const { metadata } = message;
 
-  if (!isHostMessageMetadata(metadata)) return null;
+  if (message.role !== "user" || !isHostMessageMetadata(metadata)) return null;
 
   return jobNoticeParts(message).map((notice, index) => (
     <JobNoticePart

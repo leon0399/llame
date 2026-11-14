@@ -498,8 +498,7 @@ function hostMessageRow(
   boundary: ReactNode,
   modelBoundary: ReactNode,
 ): ReactNode | null {
-  return message.role === "assistant" &&
-    isHostMessageMetadata(message.metadata) ? (
+  return message.role === "user" && isHostMessageMetadata(message.metadata) ? (
     <HostMessageRow
       message={message}
       renderKey={renderKey}
