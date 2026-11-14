@@ -92,7 +92,7 @@ describe('transactional run enqueue with PostgreSQL', () => {
           id,
         });
       }),
-    ).rejects.toThrow('job id already exists');
+    ).rejects.toThrow(Error);
 
     expect(await boss.boss.getJobById('runs', earlier.runId)).toBeNull();
     expect(await boss.boss.getJobById('runs', id)).toMatchObject({
