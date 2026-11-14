@@ -134,7 +134,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
 
-
 # 2026-11-11
 
 - **Yield foreground host commands on steering (#1657).** A steer or interrupt
