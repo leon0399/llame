@@ -3,9 +3,8 @@ summary: "wait suspends a Run until a listed background job settles, timeout, or
 read_when:
   - you need to wait for background jobs without stopping them
   - you need the accepted job locator and timeout bounds
-behavior:
-  - ../../operator/background-jobs.md
 spec: tool-calling
+configured_by: ../../operator/background-jobs.md
 ---
 
 # wait
@@ -29,10 +28,7 @@ running wait releases the worker slot.
   Output locators such as `job://bash-4/stdout` are not accepted.
 - `timeout`: optional integer seconds from 1 to 3,600; the default is 3,600.
 
-A malformed argument is `invalid_input`. A locator that does not name a job of
-this Chat is `not_found`; the Run does not wait.
-
-## Results
+## Result
 
 The result names each locator and its state. A settled entry also includes exit
 detail when present, elapsed milliseconds, bounded output previews, and its
@@ -43,6 +39,11 @@ only for entries that remain running.
 The wait result is a read-only observation. It creates no native attempt and
 exposes no job receipt or host path.
 
-## Availability
+## Errors
+
+A malformed argument is `invalid_input`. A locator that does not name a job of
+this Chat is `not_found`; the Run does not wait.
+
+## Configured by
 
 The wait tool cannot be enabled yet.
