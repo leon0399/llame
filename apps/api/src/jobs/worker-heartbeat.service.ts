@@ -40,6 +40,8 @@ export class WorkerHeartbeatService implements OnModuleInit, OnModuleDestroy {
   readonly instanceId = randomUUID();
 
   private timer: NodeJS.Timeout | undefined;
+  /** Installed by the worker registry; each read stays in one owner's scope. */
+  jobCheck?: () => Promise<void>;
 
   constructor(
     @Inject('DB_DEV')
@@ -82,5 +84,6 @@ export class WorkerHeartbeatService implements OnModuleInit, OnModuleDestroy {
         target: workerInstances.id,
         set: { lastSeenAt: sql`now()` },
       });
+    await this.jobCheck?.();
   }
 }

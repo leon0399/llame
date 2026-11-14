@@ -158,9 +158,9 @@ No tool starts a job in this layer. Its tests drive the registry directly.
 
 This layer wires the existing registry to heartbeat recovery without exposing a start tool.
 
-- [ ] 4a.1 Install and detach the registry's heartbeat hook; retry pending immutable settlements before owner-scoped job checks, and keep checking other jobs after one read fails.
-- [ ] 4a.2 Stop hosted work when its row is missing, has a recorded request, or is already settled; preserve an authoritative lost result. Unit tests cover healthy jobs, absent local handles, each stop cause, pending retries, and shutdown.
-- [ ] 4a.3 Run focused recovery tests, API lint and typecheck; document the heartbeat behavior and self-review the draft diff before ready.
+- [x] 4a.1 Install and detach the registry's heartbeat hook; retry pending immutable settlements before owner-scoped job checks, and keep checking other jobs after one read fails.
+- [x] 4a.2 Stop hosted work when its row is missing, has a recorded request, or is already settled; preserve an authoritative lost result. Unit tests cover healthy jobs, absent local handles, each stop cause, pending retries, and shutdown.
+- [x] 4a.3 Run focused recovery tests, API lint and typecheck; document the heartbeat behavior and self-review the draft diff before ready.
 - [ ] 4a.4 Run the GitHub review and CI loop on the published head.
 
 ## 5. Async start (`background-jobs/bash-async`)

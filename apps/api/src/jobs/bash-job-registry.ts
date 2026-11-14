@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import {
   startManagedBash,
   type BashCommandInput,
@@ -77,7 +77,7 @@ type LiveJob = {
 
 /** Worker-local authority over handles; stored jobs are readable on any worker. */
 @Injectable()
-export class BashJobRegistry {
+export class BashJobRegistry implements OnModuleInit {
   private readonly logger = new Logger(BashJobRegistry.name);
   private accepting = true;
   private readonly commands = new Set<ManagedBashHandle>();
@@ -88,10 +88,51 @@ export class BashJobRegistry {
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
     @Inject(WorkerHeartbeatService)
-    private readonly worker: Pick<WorkerHeartbeatService, 'instanceId'>,
+    private readonly worker: Pick<
+      WorkerHeartbeatService,
+      'instanceId' | 'jobCheck'
+    >,
     @Inject(InstanceConfigService)
     private readonly config: InstanceConfigReader,
   ) {}
+
+  onModuleInit(): void {
+    this.worker.jobCheck = () => this.recheckJobs();
+  }
+
+  async recheckJobs(): Promise<void> {
+    if (!this.accepting) return;
+
+    await this.settlePending();
+
+    if (!this.accepting) return;
+
+    // One job's failed check must not starve the stop signals of the others.
+    for (const id of this.jobs.keys()) {
+      await this.recheckJob(id).catch((error: unknown) =>
+        this.logger.warn(`Job check failed: ${String(error)}`),
+      );
+    }
+  }
+
+  async recheckJob(jobId: string): Promise<void> {
+    const live = this.jobs.get(jobId);
+
+    if (live === undefined) return;
+
+    const row = await this.tenantDb.runAs(live.facts.ownerUserId, (db) =>
+      new ChatJobsRepository(db).findById(
+        live.row.chatId,
+        live.facts.ownerUserId,
+        jobId,
+      ),
+    );
+
+    if (row === undefined) await this.stop(jobId, 'owner');
+    else if (row.stopRequestedBy !== null)
+      await this.stop(jobId, row.stopRequestedBy);
+    else if (row.state !== 'running') await this.stop(jobId, 'worker');
+  }
 
   /** Admission and spawn are synchronous, so shutdown cannot pass between them. */
   start(
@@ -391,6 +432,7 @@ export class BashJobRegistry {
 
   async shutdown(): Promise<void> {
     this.accepting = false;
+    this.worker.jobCheck = undefined;
     await Promise.allSettled(this.promotions);
 
     const stopped = await Promise.allSettled([
