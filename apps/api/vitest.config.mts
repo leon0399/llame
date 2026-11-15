@@ -50,6 +50,7 @@ const unitTest = {
     // Vitest config includes it, not the ordinary unit project.
     'src/runs/native-receipts-repository.test.ts',
     'src/runs/run-enqueue.query.unit.test.ts',
+    'src/db/migration-ledger-upgrade.query.unit.test.ts',
     // This test reads the developer's local MCP configuration. Exclude it from
     // Stryker because it fails when that configuration references an unset
     // secret; a developer's personal config is not a mutation signal.

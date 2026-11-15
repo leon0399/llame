@@ -1015,6 +1015,37 @@ describe('SearchEmbedWorker persistence accounting', () => {
     expect(harness.enqueueChatEmbed).not.toHaveBeenCalled();
   });
 
+  it('keeps paging after a terminal failure tombstones a full batch', async () => {
+    const model = { ...MODEL, batchSize: 1 };
+    const pages = [[embedRow('doc-1')], [embedRow('doc-2')], []];
+    let page = 0;
+
+    const harness = dataWorkerHarness({
+      model,
+      outstanding: [],
+      nextOutstanding: () => pages[page++] ?? [],
+      updateCounts: [1, 1],
+    });
+
+    const worker = await harness.moduleRefPromise.then((moduleRef) =>
+      moduleRef.get(SearchEmbedWorker),
+    );
+
+    const embedDocuments = vi.fn(() =>
+      Promise.reject(new EmbeddingBackendError('dimension mismatch', true)),
+    );
+
+    await worker.embedChat(
+      'chat-1',
+      'owner-1',
+      model,
+      fakeEmbeddingBackend(embedDocuments),
+    );
+
+    expect(embedDocuments).toHaveBeenCalledTimes(2);
+    expect(harness.enqueueChatEmbed).not.toHaveBeenCalled();
+  });
+
   it('warns and stops when a terminal failure tombstoned nothing', async () => {
     const warn = vi
       .spyOn(Logger.prototype, 'warn')
