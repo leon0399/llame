@@ -1,0 +1,255 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "54da4d0d-e8b2-4210-8be5-cbeb6d53da20",
+  "prevIds": ["e49f926b-7109-49b5-bffe-756490383ca0"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "memory_settings"],
+      "writes": [
+        "s|tbl|public.memory_settings",
+        "n|tbl|public.memory_settings",
+        "e|tbl|public.memory_settings",
+        "n|rel|public.memory_settings",
+        "n|type|public.memory_settings",
+        "n|rel|public.memory_settings_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "memory_settings"],
+      "writes": [
+        "s|fk|public.memory_settings.memory_settings_user_id_users_id_fk",
+        "n|fk|public.memory_settings.memory_settings_user_id_users_id_fk",
+        "e|fk|public.memory_settings.memory_settings_user_id_users_id_fk",
+        "n|con|public.memory_settings.memory_settings_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.memory_settings",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.memory_settings.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memory_settings"],
+      "writes": [
+        "s|pol|public.memory_settings.memory_settings_owner_select",
+        "n|pol|public.memory_settings.memory_settings_owner_select",
+        "e|pol|public.memory_settings.memory_settings_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.memory_settings",
+        "n|sch|public",
+        "e|rls|public.memory_settings"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memory_settings"],
+      "writes": [
+        "s|pol|public.memory_settings.memory_settings_owner_insert",
+        "n|pol|public.memory_settings.memory_settings_owner_insert",
+        "e|pol|public.memory_settings.memory_settings_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.memory_settings",
+        "n|sch|public",
+        "e|rls|public.memory_settings"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memory_settings"],
+      "writes": [
+        "s|pol|public.memory_settings.memory_settings_owner_update",
+        "n|pol|public.memory_settings.memory_settings_owner_update",
+        "e|pol|public.memory_settings.memory_settings_owner_update"
+      ],
+      "reads": [
+        "n|tbl|public.memory_settings",
+        "n|sch|public",
+        "e|rls|public.memory_settings"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memory_settings"],
+      "writes": [
+        "s|pol|public.memory_settings.memory_settings_owner_delete",
+        "n|pol|public.memory_settings.memory_settings_owner_delete",
+        "e|pol|public.memory_settings.memory_settings_owner_delete"
+      ],
+      "reads": [
+        "n|tbl|public.memory_settings",
+        "n|sch|public",
+        "e|rls|public.memory_settings"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "memory_settings",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "share_recent_chats",
+        "type": "boolean",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "false",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "memory_settings_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "memory_settings_pkey",
+        "columns": ["user_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "memory_settings_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "memory_settings_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "memory_settings_owner_update",
+        "as": "PERMISSIVE",
+        "for": "UPDATE",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": "user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memory_settings",
+        "name": "memory_settings_owner_delete",
+        "as": "PERMISSIVE",
+        "for": "DELETE",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "007faaa2-6ef1-4a03-873a-3a5aec1ee9b9",
+  "prevIds": ["71f06343-c4ea-4393-a9c0-200b50e89593"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "heartbeat_at"],
+      "writes": [
+        "s|col|public.runs.heartbeat_at",
+        "n|col|public.runs.heartbeat_at",
+        "e|col|public.runs.heartbeat_at"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "cancel_requested_at"],
+      "writes": [
+        "s|col|public.runs.cancel_requested_at",
+        "n|col|public.runs.cancel_requested_at",
+        "e|col|public.runs.cancel_requested_at"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "runs",
+        "runs_chat_inflight_unique"
+      ],
+      "writes": [
+        "s|idx|public.runs_chat_inflight_unique",
+        "n|idx|public.runs_chat_inflight_unique",
+        "e|idx|public.runs_chat_inflight_unique",
+        "n|rel|public.runs_chat_inflight_unique"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.chat_id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "heartbeat_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "cancel_requested_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_chat_inflight_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": "status NOT IN ('completed', 'failed', 'cancelled', 'expired')",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

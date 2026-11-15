@@ -14,7 +14,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
@@ -79,7 +78,7 @@ describeIfDb('llame_notify_change triggers', () => {
            daemon_protocol_version, daemon_version, roots, updated_at)
         VALUES
           (${name}, ${at}::timestamptz, ${at}::timestamptz, 1, 1, '0.4.0',
-           ${JSON.stringify(['/srv/projects'])}::jsonb, ${at}::timestamptz)
+           ${tx.json(['/srv/projects'])}::jsonb, ${at}::timestamptz)
         ON CONFLICT (name) DO UPDATE
           SET last_contact_at = EXCLUDED.last_contact_at,
               updated_at = EXCLUDED.updated_at
@@ -93,7 +92,7 @@ describeIfDb('llame_notify_change triggers', () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 3 });
     listener = connect(TEST_DB_URL!, { ssl, max: 1 });
-    const db: Db = drizzle(sql, { schema });
+    const db: Db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     a = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${a}, 'L', ${`l-${a}@t.com`})`;

@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { WorkerProfileService } from '../instance-config/worker-profile.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { Queue } from '../queue/queue';
@@ -47,7 +46,7 @@ describe('SessionCleanupService', () => {
     const ensureQueue = vi.spyOn(queue, 'ensureQueue');
     const consume = vi.spyOn(queue, 'consume');
     const schedule = vi.spyOn(queue, 'schedule');
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const sessionsRepository = new SessionsRepository(db);
 
     const deleteExpired = vi

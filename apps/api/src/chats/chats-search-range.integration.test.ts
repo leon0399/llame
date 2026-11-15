@@ -8,7 +8,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 import { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { SearchIndexService } from '../search/search-index.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -93,7 +92,7 @@ describeIfDb(
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
       sqlClient = connect(TEST_DB_URL!, { ssl, max: 3 });
-      db = drizzle(sqlClient, { schema });
+      db = drizzle({ client: sqlClient });
       tenantDb = new TenantDbService(db);
       indexService = new SearchIndexService(tenantDb);
       userA = crypto.randomUUID();

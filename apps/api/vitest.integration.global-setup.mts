@@ -104,7 +104,7 @@ async function prepareTestDatabase(
     const asApp = postgres(appUrl, { max: 1 });
 
     try {
-      await migrate(drizzle(asApp), {
+      await migrate(drizzle({ client: asApp }), {
         migrationsFolder: path.resolve(
           import.meta.dirname,
           'src/db/migrations',

@@ -1,0 +1,42 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "21f3cbee-f44d-41dd-8990-140312e8f647",
+  "prevIds": ["0bbc1a1b-9614-4e60-b2d1-163a07bdf4d5"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "search_chat_state",
+        "expected_document_count"
+      ],
+      "writes": [
+        "s|col|public.search_chat_state.expected_document_count",
+        "n|col|public.search_chat_state.expected_document_count",
+        "e|col|public.search_chat_state.expected_document_count"
+      ],
+      "reads": ["n|tbl|public.search_chat_state", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "search_chat_state",
+        "name": "expected_document_count",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

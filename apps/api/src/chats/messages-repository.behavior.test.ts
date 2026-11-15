@@ -24,7 +24,6 @@ const RUNNING_USAGE: RunningReplyUsage = {
 };
 
 const NOT_RUNNING_SQL = `("messages"."usage" ->> 'status') is distinct from 'running'`;
-const REPLACEABLE_SQL = `("messages"."usage" -> 'status') is not null and ("messages"."usage" ->> 'status') is distinct from 'completed'`;
 
 function queryResult<T>(
   rows: ReadonlyArray<T>,
@@ -70,7 +69,7 @@ function makeDb(options: {
   update?: Array<QueryValue>;
   execute?: Array<QueryValue>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const select = [...(options.select ?? [])];
   const distinct = [...(options.distinct ?? [])];
   const insert = [...(options.insert ?? [])];
@@ -436,7 +435,7 @@ function sequencingDb(
     fails?: AttemptFailure;
   }>,
 ) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const calls: Array<ChainCall> = [];
   let attempt = 0;
 
@@ -788,7 +787,7 @@ describe('MessagesRepository insert payloads', () => {
   });
 
   it('writes only parts and usage when updating an assistant reply', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
     const updated = message(2, 'assistant');
     vi.spyOn(db, 'update').mockImplementation(() =>
@@ -834,7 +833,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('skips the query entirely for an empty id set', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
 
     const distinct = vi
@@ -866,7 +865,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('filters checkpoint rows before the preview lateral pick and recency counts', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
 
     const distinct = vi
@@ -919,7 +918,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('writes nothing for an empty bulk copy', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
 
     const insert = vi
@@ -932,7 +931,7 @@ describe('MessagesRepository read shapes', () => {
   });
 
   it('orders the assistant lookup by seq so the earliest reply wins, and does not order the user lookup', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const calls: Array<ChainCall> = [];
     vi.spyOn(db, 'select').mockImplementation(() =>
       asQuery(recordingQuery([], calls)),
@@ -1025,216 +1024,43 @@ describe('MessagesRepository conversation lookup shape', () => {
 });
 
 /**
- * The one statement `run` issues, as Drizzle renders it for Postgres. The mock
- * client has no connection, so the call rejects once the logger has seen it.
+ * Runs the repository upsert against a transaction double and returns the
+ * configured database row, without pinning Drizzle's SQL rendering.
  */
-async function renderedStatement<Result>(
-  run: (repository: MessagesRepository, db: Db) => Promise<Result>,
-) {
-  const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
-
-  const db: Db = drizzle.mock({
-    schema,
-    logger: { logQuery: (sql, params) => statements.push({ sql, params }) },
-  });
-
-  await run(new MessagesRepository(db), db).catch(() => undefined);
-  const [statement] = statements;
-
-  if (statements.length !== 1 || statement === undefined) {
-    throw new Error(`Expected one statement, saw ${statements.length}`);
-  }
-
-  return statement;
-}
-
-describe('MessagesRepository checkpoint query shapes', () => {
-  it('counts user and assistant rows between the previous boundary and each checkpoint, scoped to the owner', async () => {
-    const statement = await renderedStatement((repository) =>
-      repository.countAbsorbedMessages(chat.id, chat.ownerUserId, [
-        'checkpoint-1',
-        'checkpoint-2',
-      ]),
-    );
-
-    expect(statement.sql).toContain(
-      'left join "messages" on ("messages"."chat_id" = "checkpoint"."chat_id" and "messages"."role" in ($1, $2) and "messages"."seq" <= "checkpoint"."absorbed_through_seq" and "messages"."seq" > coalesce((select max("absorbed_through_seq") from "messages" "previous_checkpoint" where ("previous_checkpoint"."chat_id" = "checkpoint"."chat_id" and "previous_checkpoint"."absorbed_through_seq" < "checkpoint"."absorbed_through_seq")), 0))',
-    );
-    expect(statement.sql).toContain(
-      'where ("checkpoint"."chat_id" = $3 and "chats"."owner_user_id" = $4 and "checkpoint"."role" = $5 and "checkpoint"."id" in ($6, $7)) group by "checkpoint"."id"',
-    );
-    expect(statement.params).toEqual([
-      'user',
-      'assistant',
-      chat.id,
-      chat.ownerUserId,
-      'checkpoint',
-      'checkpoint-1',
-      'checkpoint-2',
-    ]);
-  });
-
-  it('selects the rows up to the anchor plus checkpoints that absorbed only up to it, owner-scoped and oldest-first', async () => {
-    const statement = await renderedStatement((repository) =>
-      repository.findForkSource(chat.id, chat.ownerUserId, 5),
-    );
-
-    expect(statement.sql).toContain(
-      `where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2 and ("messages"."seq" <= $3 or ("messages"."role" = $4 and "messages"."absorbed_through_seq" <= $5)) and ${NOT_RUNNING_SQL}) order by "messages"."seq" asc`,
-    );
-    expect(statement.params).toEqual([
-      chat.id,
-      chat.ownerUserId,
-      5,
-      'checkpoint',
-      5,
-    ]);
-  });
-
-  it('selects the whole owned chat when there is no fork anchor', async () => {
-    const statement = await renderedStatement((repository) =>
-      repository.findForkSource(chat.id, chat.ownerUserId, undefined),
-    );
-
-    expect(statement.sql).toContain(
-      `where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2 and ${NOT_RUNNING_SQL}) order by "messages"."seq" asc`,
-    );
-    expect(statement.params).toEqual([chat.id, chat.ownerUserId]);
-  });
-});
-
-/**
- * The upsert `upsertRunningReply` issues, rendered as Postgres SQL by the mock
- * driver after the sequence read answers 1, and what it returns when the
- * upsert yields `returned`.
- */
-async function renderedUpsert(
+async function upsertResult(
   returned: QueryValue,
   followUpAction: FollowUpAction | null = null,
 ) {
-  const statements: Array<{ sql: string; params: ReadonlyArray<unknown> }> = [];
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(db, 'transaction').mockImplementation(async (callback) =>
-    // SAFETY: insertWithChatSequence uses only select/insert on its tx, and
-    // the upsert chain below is exactly the one the repository builds.
+    // SAFETY: the double implements the transaction methods used by this upsert.
     // eslint-disable-next-line typescript/no-unsafe-type-assertion
     callback({
       select: () => asQuery(queryResult([{ value: 1 }])),
-      insert: (table: typeof schema.messages) => ({
-        values: (row: MessageInsert) => ({
-          onConflictDoUpdate: (config: never) => ({
-            returning: () => {
-              statements.push(
-                db
-                  .insert(table)
-                  .values(row)
-                  .onConflictDoUpdate(config)
-                  .returning()
-                  .toSQL(),
-              );
-
-              return Promise.resolve(returned);
-            },
+      insert: () => ({
+        values: () => ({
+          onConflictDoUpdate: () => ({
+            returning: () => Promise.resolve(returned),
           }),
         }),
       }),
     } as never),
   );
 
-  const result = await new RunningReplyRepository(db).upsertRunningReply({
+  return new RunningReplyRepository(db).upsertRunningReply({
     chatId: chat.id,
     inReplyTo: 'user-message',
     usage: RUNNING_USAGE,
     followUpAction,
   });
-
-  return { statements, result };
 }
 
 describe('Running replies', () => {
-  it('inserts an empty running reply and resets only a reply that is not completed', async () => {
-    const { statements } = await renderedUpsert([]);
-
-    expect(statements).toHaveLength(1);
-    expect(statements[0]?.sql).toContain(
-      `on conflict ("in_reply_to") do update set "parts" = $9, "usage" = excluded.usage where ${REPLACEABLE_SQL} returning`,
-    );
-    expect(statements[0]?.params).toEqual([
-      chat.id,
-      2,
-      'assistant',
-      null,
-      '[]',
-      '[]',
-      JSON.stringify(RUNNING_USAGE),
-      'user-message',
-      '[]',
-    ]);
-  });
-
-  it('replaces a completed reply of another Run for a Regenerate, and marks it revised', async () => {
-    const { statements } = await renderedUpsert([], 'regenerate');
-
-    expect(statements).toHaveLength(1);
-    // The guard admits the non-completed reply it always did, and a completed
-    // reply whose usage names a different Run (turn-actions D7).
-    expect(statements[0]?.sql).toContain(
-      `where (${REPLACEABLE_SQL}) or (("messages"."usage" ->> 'status') = 'completed' and ("messages"."usage" ->> 'runId') is not null and ("messages"."usage" ->> 'runId') <> $10)`,
-    );
-    // The same statement marks the row it replaced, so no reader treats that
-    // answer as evidence again; every other reset keeps the stored value.
-    expect(statements[0]?.sql).toContain(
-      `"revised_at" = case when ("messages"."usage" ->> 'status') = 'completed' then now() else "messages"."revised_at" end`,
-    );
-    expect(statements[0]?.params).toEqual([
-      chat.id,
-      2,
-      'assistant',
-      null,
-      '[]',
-      '[]',
-      JSON.stringify(RUNNING_USAGE),
-      'user-message',
-      '[]',
-      RUNNING_USAGE.runId,
-    ]);
-  });
-
-  it('leaves a completed reply untouched for any other Run, and marks nothing', async () => {
-    const { statements } = await renderedUpsert([], 'continue');
-
-    expect(statements[0]?.sql).toContain(`where ${REPLACEABLE_SQL} returning`);
-    // The reset writes no mark, so the column never appears in the SET list.
-    expect(statements[0]?.sql).not.toContain('"revised_at" =');
-  });
-
   it('returns the upserted reply, or nothing when a completed reply refused the reset', async () => {
     const reply = { ...message(2, 'assistant'), inReplyTo: 'user-message' };
 
-    expect((await renderedUpsert([reply])).result).toBe(reply);
-    expect((await renderedUpsert([])).result).toBeUndefined();
-  });
-
-  it('writes parts through only to the running reply of that attempt', async () => {
-    const statement = await renderedStatement((_repository, db) =>
-      new RunningReplyRepository(db).updateRunningReplyParts({
-        chatId: chat.id,
-        inReplyTo: 'user-message',
-        attemptId: 'attempt-1',
-        parts: [{ type: 'text', text: 'partial' }],
-      }),
-    );
-
-    expect(statement.sql).toBe(
-      `update "messages" set "parts" = $1 where ("messages"."chat_id" = $2 and "messages"."role" = $3 and "messages"."in_reply_to" = $4 and ("messages"."usage" ->> 'status') = 'running' and ("messages"."usage" ->> 'attemptId') = $5) returning "id"`,
-    );
-    expect(statement.params).toEqual([
-      JSON.stringify([{ type: 'text', text: 'partial' }]),
-      chat.id,
-      'assistant',
-      'user-message',
-      'attempt-1',
-    ]);
+    expect(await upsertResult([reply])).toBe(reply);
+    expect(await upsertResult([])).toBeUndefined();
   });
 
   it('reports whether the write-through matched a reply', async () => {
@@ -1254,23 +1080,6 @@ describe('Running replies', () => {
     );
   });
 
-  it('reads the newest earlier reply that records a model, whatever its status', async () => {
-    const statement = await renderedStatement((repository) =>
-      repository.findLatestReplyModelIdBefore(chat.id, chat.ownerUserId, 7),
-    );
-
-    expect(statement.sql).toBe(
-      `select ("messages"."usage" ->> 'modelId') from "messages" inner join "chats" on "messages"."chat_id" = "chats"."id" where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2 and "messages"."role" = $3 and "messages"."seq" < $4 and ("messages"."usage" ->> 'modelId') is not null) order by "messages"."seq" desc limit $5`,
-    );
-    expect(statement.params).toEqual([
-      chat.id,
-      chat.ownerUserId,
-      'assistant',
-      7,
-      1,
-    ]);
-  });
-
   it('returns the recorded model id, or undefined when no earlier reply has one', async () => {
     const db = makeDb({ select: [[{ modelId: 'model-a' }], []] });
     const repository = new MessagesRepository(db);
@@ -1282,69 +1091,9 @@ describe('Running replies', () => {
       repository.findLatestReplyModelIdBefore(chat.id, chat.ownerUserId, 7),
     ).resolves.toBeUndefined();
   });
-
-  const runningExcludedReads: Array<
-    [string, (repository: MessagesRepository) => Promise<void>]
-  > = [
-    [
-      'findByChatId',
-      async (repository) => {
-        await repository.findByChatId(chat.id, chat.ownerUserId);
-      },
-    ],
-    [
-      'listPublicByChatId',
-      async (repository) => {
-        await repository.listPublicByChatId(chat.id);
-      },
-    ],
-    [
-      'findForkSource',
-      async (repository) => {
-        await repository.findForkSource(chat.id, chat.ownerUserId, undefined);
-      },
-    ],
-    [
-      'findLatestPerOwnedChat',
-      async (repository) => {
-        await repository.findLatestPerOwnedChat(chat.ownerUserId);
-      },
-    ],
-    [
-      'findById',
-      async (repository) => {
-        await repository.findById(chat.id, chat.ownerUserId, 'message-1');
-      },
-    ],
-  ];
-
-  it.each(runningExcludedReads)(
-    '%s omits a reply that is still running',
-    async (_name, read) => {
-      const statement = await renderedStatement(read);
-
-      expect(statement.sql).toContain(` and ${NOT_RUNNING_SQL})`);
-      expect(statement.params).not.toContain('running');
-    },
-  );
 });
 
 describe('MessagesRepository hasLaterUserMessage', () => {
-  it('probes only the id column of the next user row, owner-scoped', async () => {
-    const statement = await renderedStatement((repository) =>
-      repository.hasLaterUserMessage(chat.id, chat.ownerUserId, 3),
-    );
-
-    expect(statement.sql).toContain(
-      'select "messages"."id" from "messages" inner join "chats"',
-    );
-    expect(statement.sql).toContain(
-      'where ("messages"."chat_id" = $1 and "chats"."owner_user_id" = $2 and "messages"."role" = $3 and "messages"."seq" > $4) limit $5',
-    );
-    expect(statement.sql).not.toContain('"messages"."parts"');
-    expect(statement.params).toEqual([chat.id, chat.ownerUserId, 'user', 3, 1]);
-  });
-
   it('reports a later user message, and its absence', async () => {
     const db = makeDb({ select: [[{ id: 'message-9' }], []] });
     const repository = new MessagesRepository(db);

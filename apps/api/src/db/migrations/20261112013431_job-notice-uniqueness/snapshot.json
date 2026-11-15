@@ -1,0 +1,55 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4c4a0dce-a914-4758-9b90-8188c3f2ddd4",
+  "prevIds": ["6837f0e1-1268-462c-bb67-b3a90e467975"],
+  "footprints": [
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "chat_deliveries",
+        "chat_deliveries_job_sender_unique"
+      ],
+      "writes": [
+        "s|idx|public.chat_deliveries_job_sender_unique",
+        "n|idx|public.chat_deliveries_job_sender_unique",
+        "e|idx|public.chat_deliveries_job_sender_unique",
+        "n|rel|public.chat_deliveries_job_sender_unique"
+      ],
+      "reads": [
+        "n|tbl|public.chat_deliveries",
+        "n|sch|public",
+        "n|col|public.chat_deliveries.sender_ref"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_deliveries",
+        "name": "chat_deliveries_job_sender_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "sender_ref",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": "\"chat_deliveries\".\"producer\" = 'job'",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    }
+  ]
+}

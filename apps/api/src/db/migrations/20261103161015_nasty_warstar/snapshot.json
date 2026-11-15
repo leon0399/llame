@@ -1,0 +1,32 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "2f6f6ed9-373a-49ca-b977-83817ef69de8",
+  "prevIds": ["20292951-cc06-471b-8c87-c307f30cb8cc"],
+  "footprints": [
+    {
+      "statementType": "alter_column",
+      "statementTarget": ["column", "public", "messages", "parts"],
+      "writes": [
+        "s|colprop|public.messages.parts.type",
+        "s|colprop|public.messages.parts.default"
+      ],
+      "reads": [
+        "n|tbl|public.messages",
+        "n|sch|public",
+        "n|col|public.messages.parts"
+      ],
+      "sqlHash": "6ded9fd3ba1759df"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "columns\u0000[\"public\",\"messages\",\"parts\"]",
+      "set": {
+        "type": "json"
+      }
+    }
+  ]
+}

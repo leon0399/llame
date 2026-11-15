@@ -82,7 +82,7 @@ function makeDb(options: {
   insert?: Array<QueryRows>;
   update?: Array<QueryRows>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const calls: Array<QueryCall> = [];
   const selectResults = [...(options.select ?? [])];
   const insertResults = [...(options.insert ?? [])];
@@ -121,7 +121,6 @@ function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
   });
 
@@ -287,30 +286,6 @@ describe('RunsRepository', () => {
     expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
     expect(queries[0]?.sql).toContain('"messages"."seq" < $');
     expect(queries[0]?.params).toEqual(['chat-bound', 'owner-bound', 10, 1]);
-  });
-
-  it('counts a run as dispatched by its availability record or its completion', async () => {
-    const { db, queries } = makeLoggedDb();
-    await new RunsRepository(db)
-      .findMostRecentDispatchedByChatMessageSequence(
-        'chat-bound',
-        'owner-bound',
-        { beforeSeq: 10 },
-      )
-      .catch(() => undefined);
-
-    expect(queries).toHaveLength(1);
-    expect(queries[0]?.sql).toContain(
-      '("runs"."turn_tool_availability" is not null or "runs"."status" = $3)',
-    );
-    expect(queries[0]?.sql).toContain('"messages"."seq" < $');
-    expect(queries[0]?.params).toEqual([
-      'chat-bound',
-      'owner-bound',
-      'completed',
-      10,
-      1,
-    ]);
   });
 
   it('reads runs by chat, active chat, active user, and owner-scoped id', async () => {

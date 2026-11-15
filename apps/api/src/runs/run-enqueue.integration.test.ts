@@ -4,7 +4,6 @@ import { Test, type TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
-import * as schema from '../db/schema';
 import { type Db, TenantDbService } from '../db/tenant-db.service';
 import { QueueModule } from '../queue/queue.module';
 import { QUEUE, type Queue } from '../queue/queue';
@@ -51,7 +50,7 @@ describe('Run enqueue transaction boundary — real Postgres + pg-boss', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
     sql = postgres(TEST_DB_URL, { ssl, max: 5 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
 
     const testingModule = await Test.createTestingModule({
       imports: [

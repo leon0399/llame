@@ -24,7 +24,7 @@ import {
   toolArtifacts,
   workerInstances,
 } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -72,7 +72,7 @@ describe('job store', () => {
       ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
       max: 6,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     owner = crypto.randomUUID();
     stranger = crypto.randomUUID();
 
@@ -655,7 +655,7 @@ describe('job store', () => {
     const config: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
 
     it('takes a new identity at each start and upserts its row', async () => {
-      const db = drizzle(sql, { schema });
+      const db = drizzle({ client: sql });
       const first = new WorkerHeartbeatService(db, config, profile(1));
       const second = new WorkerHeartbeatService(db, config, profile(1));
 
@@ -685,7 +685,7 @@ describe('job store', () => {
     });
 
     it('records no heartbeat in a process that does not consume runs', async () => {
-      const db = drizzle(sql, { schema });
+      const db = drizzle({ client: sql });
       const service = new WorkerHeartbeatService(db, config, profile(null));
 
       await service.onModuleInit();

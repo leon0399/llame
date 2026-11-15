@@ -2,7 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { ChatsRepository } from '../chats/chats-repository';
 import { type ChatJob } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { asDouble } from '../testing/support';
@@ -61,7 +61,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('JobNoticeRunService.startOnSettlement', () => {
   it('does not start a duplicate notice Run when settlement wakes a waiting Run', async () => {
-    const tx = drizzle.mock({ schema });
+    const tx = drizzle.mock();
     const { run, enqueue, wake } = service(true);
 
     const lockChat = vi
@@ -81,7 +81,7 @@ describe('JobNoticeRunService.startOnSettlement', () => {
   });
 
   it('locks the Chat when a settled notice does not wake a waiting Run', async () => {
-    const tx = drizzle.mock({ schema });
+    const tx = drizzle.mock();
     const { run, enqueue, wake } = service(false);
 
     const lockChat = vi
@@ -98,7 +98,7 @@ describe('JobNoticeRunService.startOnSettlement', () => {
   it.each(['cancelled', 'lost'] as const)(
     'does not start a notice Run for a %s job',
     async (state) => {
-      const tx = drizzle.mock({ schema });
+      const tx = drizzle.mock();
       const { run, enqueue, wake } = service(false);
 
       const lockChat = vi

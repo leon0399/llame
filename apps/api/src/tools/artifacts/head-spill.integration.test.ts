@@ -13,7 +13,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { isString } from '@workspace/runtime-safety';
 
-import * as schema from '../../db/schema';
 import { TenantDbService } from '../../db/tenant-db.service';
 import { ChatsRepository } from '../../chats/chats-repository';
 import { renderToolResultText } from '../model-text';
@@ -37,7 +36,7 @@ d('head spill', () => {
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
       max: 2,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     owner = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'A', ${`a-${owner}@t.com`})`;
 

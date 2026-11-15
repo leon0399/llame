@@ -5,7 +5,6 @@ import {
   createContextItemPart,
   isContextItemPart,
 } from '../chats/context-item';
-import * as schema from '../db/schema';
 import { type Message, type Run, type RunEvent } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
@@ -224,7 +223,7 @@ describe('placeStoredContextItems', () => {
 });
 
 describe('finalizeRunReply', () => {
-  const tx: Db = drizzle.mock({ schema });
+  const tx: Db = drizzle.mock();
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -1025,7 +1024,7 @@ describe('failRunTransactionally', () => {
   });
 
   it('finalizes the reply and appends run.failed only when the terminal update wins', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const runAsCalls: Array<string> = [];
 
     const tenantDb = {

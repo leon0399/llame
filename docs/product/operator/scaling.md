@@ -78,6 +78,55 @@ becomes a job on the worker that runs it, and that worker keeps it until it
 ends. Count each such job in `tools.bash.maxProcesses`, and see
 [background jobs](background-jobs.md) before a deploy.
 
+## Drizzle v1 RC5 migration upgrade
+
+The RC5 migration runner converts the existing legacy Drizzle ledger to named
+migration entries before applying pending migrations. It matches legacy rows
+against the complete local migration history by their exact historical
+millisecond timestamps. If history is incomplete, ambiguous, out of sequence,
+or inconsistent with an existing named ledger, migration stops rather than
+guessing or replaying entries. The runner holds a PostgreSQL advisory lock
+while preparing the ledger and applying migrations.
+
+RC5 executes ordinary queries without preparing them. Parameterized queries
+require an additional protocol round trip compared with the previous driver's
+cached prepared statements. This also affects the tenant identity statement
+at the start of each request transaction. Keep database network latency in
+the deployment's performance checks; a local database measurement does not
+predict a remote database's cost.
+
+Treat this as a coordinated maintenance operation:
+
+1. Take a restorable backup of the database before changing the release or
+   schema. Include the migration ledger in that backup.
+2. Stop all API instances and workers running the old release. Quiesce new
+   requests and drain accepted Runs before stopping workers; do not run old and
+   new binaries against the database together.
+3. With every API and worker stopped, run `pnpm db:migrate` once against the
+   target database.
+4. Run the RLS provisioning step before serving traffic. In the local
+   Docker-based setup this is `pnpm db:provision-rls`; deployments that do not
+   use that compose service must run the equivalent provisioning SQL with the
+   required superuser privileges. Keep tenant tables' RLS enabled and forced;
+   do not weaken `FORCE ROW LEVEL SECURITY` to work around migration errors.
+5. Start the API and every worker on the same new release.
+
+The old release is not an automatic rollback target after this ledger-format
+upgrade. If migration or provisioning fails, keep the old API and workers
+stopped, retain the backup, and stop the rollout. Record the complete error and
+investigate the database schema and ledger against the matching migration
+history before deciding how to recover. Do not delete or re-stamp ledger rows,
+rename applied migration directories, retry by guessing, or restart the old
+release against the upgraded ledger. Restore from the pre-upgrade backup only
+through the deployment's reviewed recovery procedure.
+
+`pnpm db:provision-rls` runs the repository's SQL that transfers selected
+cross-tenant discovery functions to `app_rls` and restores their execute grants;
+it does not replace the migration's `ENABLE`/`FORCE ROW LEVEL SECURITY`
+statements or grant `app` membership in `app_rls`. See
+[`apps/api/src/db/AGENTS.md`](../../../apps/api/src/db/AGENTS.md) for the
+migration and provisioning invariants.
+
 ## Capacity
 
 A Run holds an application-pool connection during each `runAs` transaction.

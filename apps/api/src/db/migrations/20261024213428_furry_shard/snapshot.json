@@ -1,0 +1,763 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "f7417bbb-7281-437a-bd84-43b19d00c90d",
+  "prevIds": ["9a0b03dc-bcb0-4418-9e0f-b81c88fb129d"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "chat_creation_records"],
+      "writes": [
+        "s|tbl|public.chat_creation_records",
+        "n|tbl|public.chat_creation_records",
+        "e|tbl|public.chat_creation_records",
+        "n|rel|public.chat_creation_records",
+        "n|type|public.chat_creation_records",
+        "n|rel|public.chat_creation_records_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "project_repository_defaults"],
+      "writes": [
+        "s|tbl|public.project_repository_defaults",
+        "n|tbl|public.project_repository_defaults",
+        "e|tbl|public.project_repository_defaults",
+        "n|rel|public.project_repository_defaults",
+        "n|type|public.project_repository_defaults",
+        "n|rel|public.project_repository_defaults_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "projects",
+        "default_executor_id"
+      ],
+      "writes": [
+        "s|col|public.projects.default_executor_id",
+        "n|col|public.projects.default_executor_id",
+        "e|col|public.projects.default_executor_id"
+      ],
+      "reads": ["n|tbl|public.projects", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "chat_creation_records",
+        "chat_creation_records_owner_chat_uidx"
+      ],
+      "writes": [
+        "s|idx|public.chat_creation_records_owner_chat_uidx",
+        "n|idx|public.chat_creation_records_owner_chat_uidx",
+        "e|idx|public.chat_creation_records_owner_chat_uidx",
+        "n|rel|public.chat_creation_records_owner_chat_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.chat_creation_records",
+        "n|sch|public",
+        "n|col|public.chat_creation_records.owner_user_id",
+        "n|col|public.chat_creation_records.chat_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "project_repository_defaults",
+        "project_repository_defaults_owner_link_executor_uidx"
+      ],
+      "writes": [
+        "s|idx|public.project_repository_defaults_owner_link_executor_uidx",
+        "n|idx|public.project_repository_defaults_owner_link_executor_uidx",
+        "e|idx|public.project_repository_defaults_owner_link_executor_uidx",
+        "n|rel|public.project_repository_defaults_owner_link_executor_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.project_repository_defaults",
+        "n|sch|public",
+        "n|col|public.project_repository_defaults.owner_user_id",
+        "n|col|public.project_repository_defaults.project_repository_id",
+        "n|col|public.project_repository_defaults.executor_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "project_repository_defaults",
+        "project_repository_defaults_owner_link_idx"
+      ],
+      "writes": [
+        "s|idx|public.project_repository_defaults_owner_link_idx",
+        "n|idx|public.project_repository_defaults_owner_link_idx",
+        "e|idx|public.project_repository_defaults_owner_link_idx",
+        "n|rel|public.project_repository_defaults_owner_link_idx"
+      ],
+      "reads": [
+        "n|tbl|public.project_repository_defaults",
+        "n|sch|public",
+        "n|col|public.project_repository_defaults.owner_user_id",
+        "n|col|public.project_repository_defaults.project_repository_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "project_repository_defaults",
+        "project_repository_defaults_owner_checkout_idx"
+      ],
+      "writes": [
+        "s|idx|public.project_repository_defaults_owner_checkout_idx",
+        "n|idx|public.project_repository_defaults_owner_checkout_idx",
+        "e|idx|public.project_repository_defaults_owner_checkout_idx",
+        "n|rel|public.project_repository_defaults_owner_checkout_idx"
+      ],
+      "reads": [
+        "n|tbl|public.project_repository_defaults",
+        "n|sch|public",
+        "n|col|public.project_repository_defaults.owner_user_id",
+        "n|col|public.project_repository_defaults.checkout_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "chat_creation_records"],
+      "writes": [
+        "s|fk|public.chat_creation_records.chat_creation_records_owner_user_id_users_id_fk",
+        "n|fk|public.chat_creation_records.chat_creation_records_owner_user_id_users_id_fk",
+        "e|fk|public.chat_creation_records.chat_creation_records_owner_user_id_users_id_fk",
+        "n|con|public.chat_creation_records.chat_creation_records_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.chat_creation_records",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.chat_creation_records.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "chat_creation_records"],
+      "writes": [
+        "s|fk|public.chat_creation_records.chat_creation_records_chat_owner_fk",
+        "n|fk|public.chat_creation_records.chat_creation_records_chat_owner_fk",
+        "e|fk|public.chat_creation_records.chat_creation_records_chat_owner_fk",
+        "n|con|public.chat_creation_records.chat_creation_records_chat_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.chat_creation_records",
+        "n|sch|public",
+        "n|tbl|public.chats",
+        "n|sch|public",
+        "n|col|public.chat_creation_records.chat_id",
+        "n|col|public.chat_creation_records.owner_user_id",
+        "n|col|public.chats.id",
+        "n|col|public.chats.owner_user_id",
+        "e|uniqueness|public.chats.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "project_repository_defaults"],
+      "writes": [
+        "s|fk|public.project_repository_defaults.project_repository_defaults_owner_user_id_users_id_fk",
+        "n|fk|public.project_repository_defaults.project_repository_defaults_owner_user_id_users_id_fk",
+        "e|fk|public.project_repository_defaults.project_repository_defaults_owner_user_id_users_id_fk",
+        "n|con|public.project_repository_defaults.project_repository_defaults_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.project_repository_defaults",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.project_repository_defaults.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "project_repository_defaults"],
+      "writes": [
+        "s|fk|public.project_repository_defaults.project_repository_defaults_link_owner_fk",
+        "n|fk|public.project_repository_defaults.project_repository_defaults_link_owner_fk",
+        "e|fk|public.project_repository_defaults.project_repository_defaults_link_owner_fk",
+        "n|con|public.project_repository_defaults.project_repository_defaults_link_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.project_repository_defaults",
+        "n|sch|public",
+        "n|tbl|public.project_repositories",
+        "n|sch|public",
+        "n|col|public.project_repository_defaults.owner_user_id",
+        "n|col|public.project_repository_defaults.project_repository_id",
+        "n|col|public.project_repositories.owner_user_id",
+        "n|col|public.project_repositories.id",
+        "e|uniqueness|public.project_repositories.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "project_repository_defaults"],
+      "writes": [
+        "s|fk|public.project_repository_defaults.project_repository_defaults_checkout_owner_fk",
+        "n|fk|public.project_repository_defaults.project_repository_defaults_checkout_owner_fk",
+        "e|fk|public.project_repository_defaults.project_repository_defaults_checkout_owner_fk",
+        "n|con|public.project_repository_defaults.project_repository_defaults_checkout_owner_fk"
+      ],
+      "reads": [
+        "n|tbl|public.project_repository_defaults",
+        "n|sch|public",
+        "n|tbl|public.checkouts",
+        "n|sch|public",
+        "n|col|public.project_repository_defaults.owner_user_id",
+        "n|col|public.project_repository_defaults.checkout_id",
+        "n|col|public.checkouts.owner_user_id",
+        "n|col|public.checkouts.id",
+        "e|uniqueness|public.checkouts.id.owner_user_id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "chat_creation_records"],
+      "writes": [
+        "s|pol|public.chat_creation_records.chat_creation_records_owner",
+        "n|pol|public.chat_creation_records.chat_creation_records_owner",
+        "e|pol|public.chat_creation_records.chat_creation_records_owner"
+      ],
+      "reads": [
+        "n|tbl|public.chat_creation_records",
+        "n|sch|public",
+        "e|rls|public.chat_creation_records"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "project_repository_defaults"],
+      "writes": [
+        "s|pol|public.project_repository_defaults.project_repository_defaults_owner",
+        "n|pol|public.project_repository_defaults.project_repository_defaults_owner",
+        "e|pol|public.project_repository_defaults.project_repository_defaults_owner"
+      ],
+      "reads": [
+        "n|tbl|public.project_repository_defaults",
+        "n|sch|public",
+        "e|rls|public.project_repository_defaults"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "chat_creation_records",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "project_repository_defaults",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "chat_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "attempts",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'[]'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "executor_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "checkout_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "projects",
+        "name": "default_executor_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "chat_creation_records_owner_chat_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "chat_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_owner_link_executor_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "project_repository_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "executor_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_owner_link_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "project_repository_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_owner_checkout_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "checkout_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "chat_creation_records_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "chat_creation_records_chat_owner_fk",
+        "nameExplicit": true,
+        "columns": ["chat_id", "owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "chats",
+        "columnsTo": ["id", "owner_user_id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_link_owner_fk",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "project_repository_id"],
+        "schemaTo": "public",
+        "tableTo": "project_repositories",
+        "columnsTo": ["owner_user_id", "id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_checkout_owner_fk",
+        "nameExplicit": true,
+        "columns": ["owner_user_id", "checkout_id"],
+        "schemaTo": "public",
+        "tableTo": "checkouts",
+        "columnsTo": ["owner_user_id", "id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "chat_creation_records_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "chat_creation_records_attempts_check",
+        "value": "jsonb_typeof(\"chat_creation_records\".\"attempts\") = 'array'",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_creation_records",
+        "name": "chat_creation_records_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "project_repository_defaults",
+        "name": "project_repository_defaults_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true) AND project_repository_id IN (SELECT id FROM project_repositories WHERE owner_user_id = current_setting('app.current_user_id', true))",
+        "withCheck": "owner_user_id = current_setting('app.current_user_id', true) AND project_repository_id IN (SELECT id FROM project_repositories WHERE owner_user_id = current_setting('app.current_user_id', true))",
+        "entityType": "policies"
+      }
+    }
+  ]
+}

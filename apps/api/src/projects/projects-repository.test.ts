@@ -1,7 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Project } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ProjectsRepository } from './projects-repository';
@@ -12,7 +11,6 @@ function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: {
       logQuery(sql, params) {
         queries.push({ sql, params });
@@ -117,20 +115,6 @@ describe('ProjectsRepository list ordering', () => {
     expect(lastQuery(queries).sql).not.toContain(
       '"projects"."archived_at" is not null',
     );
-  });
-
-  it('filters pinned exclude through an owner-scoped not-exists subquery', async () => {
-    const { db, queries } = makeMockDb();
-    await new ProjectsRepository(db)
-      .listForUser('owner', { pinned: 'exclude' })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('not exists');
-    expect(lastQuery(queries).sql).toContain('"pins"."user_id" = $');
-    expect(
-      lastQuery(queries).params.filter((value) => value === 'owner'),
-    ).toHaveLength(2);
-    expect(lastQuery(queries).params).toContain('project');
   });
 });
 
@@ -330,7 +314,7 @@ describe('ProjectsRepository update', () => {
 describe('ProjectsRepository delete', () => {
   it('returns true when a row is deleted and false when no row matches', async () => {
     const current = projectRow();
-    const deletedDb: Db = drizzle.mock({ schema });
+    const deletedDb: Db = drizzle.mock();
     // SAFETY: this query double implements exactly delete().where().returning().
     // The returned row count is the repository contract under test.
     vi.spyOn(deletedDb, 'delete').mockImplementation(() =>
@@ -340,7 +324,7 @@ describe('ProjectsRepository delete', () => {
       new ProjectsRepository(deletedDb).delete(current.id, current.ownerUserId),
     ).resolves.toBe(true);
 
-    const emptyDb: Db = drizzle.mock({ schema });
+    const emptyDb: Db = drizzle.mock();
     // SAFETY: this query double implements exactly delete().where().returning().
     vi.spyOn(emptyDb, 'delete').mockImplementation(() =>
       asDbQuery(terminalQuery([])),

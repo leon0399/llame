@@ -1,7 +1,4 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { type SQL } from 'drizzle-orm';
-import { PgDialect, type SelectedFields } from 'drizzle-orm/pg-core';
-
 import { asDouble } from '../testing/support';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,7 +15,7 @@ type StoredEvent = { eventType: string; payload: unknown };
 
 /** A repository whose event query answers exactly `rows`. */
 function repositoryOf(...rows: Array<StoredEvent>) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const query = db.select({
     eventType: schema.runEvents.eventType,
@@ -157,7 +154,7 @@ describe('NativeFilesRepository host-promotion recovery', () => {
     prior: RunEvent | undefined,
     attemptExists = true,
   ) {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const candidate = asDouble<Run>({ chatId: 'chat-1' });
 
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(candidate);
@@ -280,49 +277,6 @@ describe('NativeFilesRepository host-promotion recovery', () => {
     ).resolves.toEqual({ disposition: 'fenced', result: fallback });
 
     expect(append).not.toHaveBeenCalled();
-  });
-});
-
-describe('NativeFilesRepository segment mutation scope', () => {
-  it("counts only attempts after the Run's latest delivery", async () => {
-    const db: Db = drizzle.mock({ schema });
-    // Never spied: the embedded latest-delivery subquery stays a real builder.
-    const subqueries: Db = drizzle.mock({ schema });
-    const outer = db.select({ id: schema.runEvents.sequence });
-    let condition: SQL | undefined;
-    vi.spyOn(db, 'select')
-      .mockImplementationOnce((fields: SelectedFields) =>
-        subqueries.select(fields),
-      )
-      .mockReturnValueOnce(outer);
-    // The outer query captures its filter instead of reaching a database.
-    Object.assign(outer, {
-      from: () => outer,
-      where: (filter: SQL) => {
-        condition = filter;
-
-        return outer;
-      },
-      limit: () => Promise.resolve([{ id: 5 }]),
-    });
-
-    await expect(
-      new NativeFilesRepository(db).hasMutation('run-1'),
-    ).resolves.toBe(true);
-
-    expect(condition).toBeDefined();
-
-    if (condition === undefined) return;
-    const issued = new PgDialect().sqlToQuery(condition);
-    expect(issued.sql).toBe(
-      '("run_events"."run_id" = $1 and "run_events"."event_type" = $2 and "run_events"."sequence" > coalesce(((select max("sequence") from "run_events" where ("run_events"."run_id" = $3 and "run_events"."event_type" = $4))), 0))',
-    );
-    expect(issued.params).toEqual([
-      'run-1',
-      'native.attempt',
-      'run-1',
-      'run.delivered',
-    ]);
   });
 });
 

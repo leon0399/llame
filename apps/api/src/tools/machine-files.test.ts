@@ -6,7 +6,6 @@ import {
 } from '@workspace/machine-protocol';
 import { type MediaReadHook } from '@workspace/native-file-tools';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
@@ -86,7 +85,7 @@ function context(
   connector: MachineConnector,
   overrides: Partial<ToolContext> = {},
 ): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner',

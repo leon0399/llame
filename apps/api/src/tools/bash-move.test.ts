@@ -8,7 +8,6 @@ import {
   type ManagedStopResult,
 } from '@workspace/bash-executor';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { type ChatJob } from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -177,7 +176,7 @@ describe('foreground host bash move', () => {
   const append = vi.fn<RunEventsRepository['append']>();
 
   function contextFor(overrides: Partial<ToolContext> = {}): ToolContext {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
 
     return {
       configuredCredentials: [],

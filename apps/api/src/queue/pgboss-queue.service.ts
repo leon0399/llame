@@ -23,6 +23,19 @@ import {
   type QueueOptions,
 } from './queue';
 
+// pg-boss send() binds its whole job batch as JSON.stringify([job]). Drizzle
+// v1 expects JSON values, not pre-encoded text. Decode only this enqueue
+// adapter's parameter; sql.param keeps the batch array in one placeholder.
+const pgBossSql = Object.assign(
+  (strings: TemplateStringsArray, ...values: Array<unknown>) =>
+    sql(strings, ...values),
+  {
+    param(value: string) {
+      return sql.param(JSON.parse(value));
+    },
+  },
+);
+
 /**
  * pg-boss's own job states mapped onto the engine-neutral `JobState`. The
  * engine keeps a retrying job in `retry` and a not-yet-claimed one in
@@ -168,16 +181,15 @@ export class PgBossQueueService implements Queue {
       // this CommonJS API build.
       const { fromDrizzle } = await import('pg-boss');
 
-      // postgres.js returns a RowList from execute(), while pg-boss's Drizzle
-      // adapter expects { rows }. Keep the query itself in Drizzle so its SQL
-      // tag and parameter binding remain intact.
+      // Retain the caller's Drizzle transaction and pg-boss's parameter binding.
+      // postgres.js returns rows directly; pg-boss expects a { rows } result.
       const db = fromDrizzle(
         {
           async execute(query: Parameters<Db['execute']>[0]) {
             return { rows: await tx.execute(query) };
           },
         },
-        sql,
+        pgBossSql,
       );
 
       sendOptions.db = db;

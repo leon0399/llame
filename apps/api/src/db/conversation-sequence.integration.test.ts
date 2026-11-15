@@ -11,11 +11,10 @@
 
 import { sql as dsql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Sql } from 'postgres';
 
-import * as schema from './schema';
 import { TenantDbService, type Db } from './tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 
@@ -34,8 +33,20 @@ type SqlClient = Sql;
 
 const textPart = (text: string) => [{ type: 'text', text }];
 
+const migrationsDirectory = join(__dirname, 'migrations');
+
+const sequenceMigrationDirectory = readdirSync(migrationsDirectory, {
+  withFileTypes: true,
+}).find(
+  (entry) => entry.isDirectory() && entry.name.endsWith('_flowery_nitro'),
+);
+
+if (!sequenceMigrationDirectory) {
+  throw new Error('flowery_nitro migration directory not found');
+}
+
 const sequenceMigrationStatements = readFileSync(
-  join(__dirname, 'migrations', '20260828123726_flowery_nitro.sql'),
+  join(migrationsDirectory, sequenceMigrationDirectory.name, 'migration.sql'),
   'utf8',
 )
   .split('--> statement-breakpoint')
@@ -53,7 +64,7 @@ describe('conversation message sequence database invariants', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL) ? 'require' : false;
     sqlClient = connect(TEST_DB_URL, { ssl, max: 3 });
-    const db: Db = drizzle(sqlClient, { schema });
+    const db: Db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     ownerUserId = crypto.randomUUID();
     otherUserId = crypto.randomUUID();
@@ -222,16 +233,14 @@ describe('conversation message sequence database invariants', () => {
       for (let i = 0; i < 4; i++) {
         await tx`
           INSERT INTO messages (id, chat_id, parts)
-          VALUES (${messagesB[i]}, ${chatB}, ${JSON.stringify([])}::jsonb)
+          VALUES (${messagesB[i]}, ${chatB}, ${tx.json([])})
         `;
         await tx`
           INSERT INTO messages (id, chat_id, parts)
           VALUES (
             ${messagesA[i]},
             ${chatA},
-            ${JSON.stringify(
-              i === 3 && locatorSource === 'message' ? legacyPart : [],
-            )}::jsonb
+            ${tx.json(i === 3 && locatorSource === 'message' ? legacyPart : [])}
           )
         `;
       }
@@ -254,7 +263,7 @@ describe('conversation message sequence database invariants', () => {
           ${laterCompactionId},
           ${chatA},
           8,
-          ${JSON.stringify(compactionHistory)}::jsonb
+          ${tx.json(compactionHistory)}
         )
       `;
       await tx`
@@ -270,10 +279,10 @@ describe('conversation message sequence database invariants', () => {
       if (locatorSource === 'event') {
         await tx`
           INSERT INTO run_events (payload)
-          VALUES (${JSON.stringify({
+          VALUES (${tx.json({
             toolName: 'search_conversations',
             output: { results: [{ messageSeq: 3 }] },
-          })}::jsonb)
+          })})
         `;
       }
     });
@@ -451,7 +460,7 @@ describe('conversation message sequence database invariants', () => {
               ${first.seq},
               'user',
               ${ownerUserId},
-              ${JSON.stringify(textPart('duplicate'))}::jsonb
+              ${dsql.param(textPart('duplicate'))}::jsonb
             )
           `),
         ),
@@ -478,7 +487,7 @@ describe('conversation message sequence database invariants', () => {
             ${chatId},
             (SELECT coalesce(max(seq), 0) + 1 FROM messages WHERE chat_id = ${chatId}),
             ${role}::message_role,
-            ${JSON.stringify(textPart('row'))}::jsonb,
+            ${dsql.param(textPart('row'))}::jsonb,
             ${boundary}
           )
         `),

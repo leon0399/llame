@@ -1,0 +1,73 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "baa9f8af-901b-478b-b0ef-0d9771c23e1d",
+  "prevIds": ["4ab6139a-6d00-4a56-bbd9-07c5eafbc0a7"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "skill_catalog_baseline"
+      ],
+      "writes": [
+        "s|col|public.chats.skill_catalog_baseline",
+        "n|col|public.chats.skill_catalog_baseline",
+        "e|col|public.chats.skill_catalog_baseline"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "skill_catalog_rebaked_from"
+      ],
+      "writes": [
+        "s|col|public.chats.skill_catalog_rebaked_from",
+        "n|col|public.chats.skill_catalog_rebaked_from",
+        "e|col|public.chats.skill_catalog_rebaked_from"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "skill_catalog_baseline",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "skill_catalog_rebaked_from",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   discardedJobNoticeIds,
@@ -41,7 +40,7 @@ function asQuery(value: ReturnType<typeof queryResult>): never {
 
 function finiteQueryDb(responses: Array<QueryResponse>) {
   let nextResponse = 0;
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const select = vi.spyOn(db, 'select').mockImplementation((selection) => {
     const response = responses[nextResponse++];

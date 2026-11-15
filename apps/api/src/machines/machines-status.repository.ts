@@ -21,7 +21,6 @@ import { eq, inArray, notInArray, sql } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 
-import * as schema from '../db/schema';
 import { machinesStatus } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 
@@ -107,7 +106,7 @@ function contactUpdate(
 export class MachinesStatusRepository {
   constructor(
     @Inject('DB_DEV')
-    private readonly db: PostgresJsDatabase<typeof schema>,
+    private readonly db: PostgresJsDatabase,
     private readonly tenantDb: TenantDbService,
   ) {}
 

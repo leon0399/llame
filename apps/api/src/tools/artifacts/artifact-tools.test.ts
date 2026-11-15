@@ -5,7 +5,6 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { compileTestPermissionPolicy } from '../../testing/tool-permission-policy';
 import { ArtifactsRepository } from './artifacts-repository';
@@ -17,7 +16,7 @@ const CHAT_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = 'owner-1';
 
 function contextOf(): ToolContext {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
 
   return {

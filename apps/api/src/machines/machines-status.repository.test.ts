@@ -20,7 +20,6 @@ import { type SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { machinesStatus } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type MachineContact, type MachineStatusRow } from './machines-status';
@@ -97,7 +96,7 @@ function statusDb(
   const deletes: Array<RecordedDelete> = [];
   const count = options.count;
 
-  const scoped = drizzle.mock({ schema });
+  const scoped = drizzle.mock();
   Object.assign(scoped, {
     execute: (statement: SQL) => {
       events.push('execute');
@@ -151,7 +150,7 @@ function statusDb(
     },
   });
 
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   Object.assign(db, {
     transaction: <T>(fn: (tx: Db) => Promise<T>) => fn(scoped),
   });

@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { type Db } from '../db/tenant-db.service';
 import {
   BashProcessLimiter,
@@ -66,7 +66,7 @@ type ArtifactWrites = {
 let insertWrites: ArtifactWrites;
 
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = {
     runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>

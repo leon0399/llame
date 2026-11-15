@@ -4,7 +4,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { AppModule } from '../app.module';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { type Db } from '../db/tenant-db.service';
-import * as schema from '../db/schema';
+
 import { MemoryController } from './memory.controller';
 import { MemoryModule } from './memory.module';
 import { MemoryRepository } from './memory-repository';
@@ -47,7 +47,7 @@ describe('MemoryService', () => {
   });
 
   it('uses the caller transaction for the dedicated binding read', async () => {
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const findForOwnerForBinding = vi
       .spyOn(MemoryRepository.prototype, 'findForOwnerForBinding')

@@ -72,7 +72,7 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
     const migrator = postgres(appUrl.href, { max: 1 });
 
     try {
-      await migrate(drizzle(migrator), {
+      await migrate(drizzle({ client: migrator }), {
         migrationsFolder: path.resolve(process.cwd(), 'src/db/migrations'),
       });
     } finally {
@@ -93,7 +93,7 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
     }
 
     client = postgres(appUrl.href, { max: 4 });
-    db = drizzle(client, { schema });
+    db = drizzle({ client });
     tenantDb = new TenantDbService(db);
   });
 

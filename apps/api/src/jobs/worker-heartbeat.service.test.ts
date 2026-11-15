@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { WorkerHeartbeatService } from './worker-heartbeat.service';
@@ -9,7 +8,6 @@ function make(concurrency: number | null, heartbeatSeconds = 15) {
   const statements: Array<{ sql: string; params: Array<unknown> }> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: {
       logQuery: (sql, params) => void statements.push({ sql, params }),
     },

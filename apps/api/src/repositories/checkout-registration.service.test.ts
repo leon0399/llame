@@ -6,7 +6,6 @@ import type * as NodeFsPromises from 'node:fs/promises';
 import type { MockInstance } from 'vitest';
 import { z } from 'zod';
 
-import * as schema from '../db/schema';
 import {
   type Checkout,
   type Repository,
@@ -144,7 +143,7 @@ function makeService(options: {
   readonly group?: PermissionGroup;
   readonly inspection?: GitInspectResult;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

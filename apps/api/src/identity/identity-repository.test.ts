@@ -2,7 +2,6 @@ import { is, SQL } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import type { ExternalIdentity, Membership, OrgUnit } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
@@ -105,7 +104,7 @@ function makeDb(options: {
   update?: Array<QueryRows>;
   delete?: Array<QueryRows>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const selectResults = [...(options.select ?? [])];
   const insertResults = [...(options.insert ?? [])];
   const updateResults = [...(options.update ?? [])];
@@ -143,7 +142,6 @@ function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
   });
 
@@ -583,7 +581,6 @@ describe('OrgUnitsRepository subtree rebase SQL', () => {
     const queries: Array<LoggedQuery> = [];
 
     const db: Db = drizzle.mock({
-      schema,
       logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
     });
 

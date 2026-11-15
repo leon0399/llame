@@ -99,7 +99,7 @@ import type {
   SkillCatalogBaseline,
   TurnToolAvailabilityEntry,
 } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -553,7 +553,7 @@ function makeExecutionService(
 ) {
   vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
 
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

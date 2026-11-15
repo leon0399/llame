@@ -1,0 +1,331 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "789a6470-4e15-4b0a-b325-bddd8e214c92",
+  "prevIds": ["ac4b7846-5ab7-42d2-808e-83feb7d157db"],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": ["enum", "public", "pin_item_type"],
+      "writes": [
+        "s|enum|public.pin_item_type",
+        "n|enum|public.pin_item_type",
+        "e|enum|public.pin_item_type",
+        "n|type|public.pin_item_type"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": [
+        "s|tbl|public.pins",
+        "n|tbl|public.pins",
+        "e|tbl|public.pins",
+        "n|rel|public.pins",
+        "n|type|public.pins",
+        "n|rel|public.pins_user_id_item_type_item_id_pk"
+      ],
+      "reads": ["n|sch|public", "n|enum|public.pin_item_type"]
+    },
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "chats",
+        "chats_owner_pinned_updated_idx"
+      ],
+      "writes": [
+        "s|idx|public.chats_owner_pinned_updated_idx",
+        "n|idx|public.chats_owner_pinned_updated_idx",
+        "e|idx|public.chats_owner_pinned_updated_idx",
+        "n|rel|public.chats_owner_pinned_updated_idx"
+      ],
+      "reads": [
+        "e|tbl|public.chats",
+        "n|sch|public",
+        "e|col|public.chats.owner_user_id",
+        "e|col|public.chats.pinned_at",
+        "e|col|public.chats.updated_at"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": ["column", "public", "chats", "pinned_at"],
+      "writes": [
+        "s|col|public.chats.pinned_at",
+        "n|col|public.chats.pinned_at",
+        "e|col|public.chats.pinned_at"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "pins", "pins_user_pinned_idx"],
+      "writes": [
+        "s|idx|public.pins_user_pinned_idx",
+        "n|idx|public.pins_user_pinned_idx",
+        "e|idx|public.pins_user_pinned_idx",
+        "n|rel|public.pins_user_pinned_idx"
+      ],
+      "reads": [
+        "n|tbl|public.pins",
+        "n|sch|public",
+        "n|col|public.pins.user_id",
+        "n|col|public.pins.pinned_at",
+        "n|col|public.pins.item_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": [
+        "s|fk|public.pins.pins_user_id_users_id_fk",
+        "n|fk|public.pins.pins_user_id_users_id_fk",
+        "e|fk|public.pins.pins_user_id_users_id_fk",
+        "n|con|public.pins.pins_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.pins",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.pins.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": [
+        "s|pol|public.pins.pins_owner_select",
+        "n|pol|public.pins.pins_owner_select",
+        "e|pol|public.pins.pins_owner_select"
+      ],
+      "reads": ["n|tbl|public.pins", "n|sch|public", "e|rls|public.pins"]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": [
+        "s|pol|public.pins.pins_owner_delete",
+        "n|pol|public.pins.pins_owner_delete",
+        "e|pol|public.pins.pins_owner_delete"
+      ],
+      "reads": ["n|tbl|public.pins", "n|sch|public", "e|rls|public.pins"]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": [
+        "s|pol|public.pins.pins_owner_insert",
+        "n|pol|public.pins.pins_owner_insert",
+        "e|pol|public.pins.pins_owner_insert"
+      ],
+      "reads": ["n|tbl|public.pins", "n|sch|public", "e|rls|public.pins"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "pins",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "pin_item_type",
+        "values": ["chat", "project"],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "item_type",
+        "type": "pin_item_type",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "item_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pinned_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_user_pinned_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "pinned_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "item_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_user_id_item_type_item_id_pk",
+        "columns": ["user_id", "item_type", "item_id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_owner_delete",
+        "as": "PERMISSIVE",
+        "for": "DELETE",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "user_id = current_setting('app.current_user_id', true) AND (\n        (item_type = 'chat' AND item_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true)))\n        OR (item_type = 'project' AND item_id IN (SELECT id FROM projects WHERE owner_user_id = current_setting('app.current_user_id', true)))\n      )",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chats\",\"pinned_at\"]"
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"chats_owner_pinned_updated_idx\"]"
+    }
+  ]
+}

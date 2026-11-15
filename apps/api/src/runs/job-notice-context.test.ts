@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type ChatDelivery, type ChatJob } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import * as hostFiles from '../tools/artifacts/host-files';
@@ -72,7 +72,7 @@ function setup(input: {
   chunkText?: string;
   artifactTexts?: Readonly<Record<number, string | null>>;
 }) {
-  const tx = drizzle.mock({ schema });
+  const tx = drizzle.mock();
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
     'listDeliveredJobNotices',

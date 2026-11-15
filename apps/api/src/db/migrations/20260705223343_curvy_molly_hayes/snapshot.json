@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "f33542bf-89a7-445e-9c3a-cf91544aa65c",
+  "prevIds": ["f338e800-651a-4e42-a86c-cfb5a21ddfb7"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "pinned_at"],
+      "writes": [
+        "s|col|public.chats.pinned_at",
+        "n|col|public.chats.pinned_at",
+        "e|col|public.chats.pinned_at"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "pinned_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

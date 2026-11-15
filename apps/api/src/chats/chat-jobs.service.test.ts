@@ -1,7 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Chat, type ChatJob } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -68,7 +67,7 @@ const OWNED_CHAT: Chat = {
 function makeService(
   wakeForChatInTransaction = vi.fn().mockResolvedValue(false),
 ) {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
 
   vi.spyOn(db, 'execute').mockResolvedValue(
     Object.assign([], {

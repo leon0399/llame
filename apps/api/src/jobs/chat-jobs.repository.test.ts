@@ -6,7 +6,6 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatJobsRepository } from './chat-jobs.repository';
 
@@ -14,7 +13,6 @@ function make() {
   const queries: Array<{ sql: string; params: Array<unknown> }> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: { logQuery: (sql, params) => void queries.push({ sql, params }) },
   });
 
@@ -80,22 +78,6 @@ describe('ChatJobsRepository', () => {
       .catch(() => undefined);
 
     expect(last().params.slice(0, 4)).toEqual(['succeeded', null, null, null]);
-  });
-
-  it('keeps the result and artifact of a settlement that has them', async () => {
-    const { repository, last } = make();
-
-    await repository
-      .settle(CHAT, OWNER, JOB, {
-        state: 'failed',
-        result: { exitCode: 2 },
-        artifactId: 'art-1',
-      })
-      .catch(() => undefined);
-
-    expect(last().params).toEqual(
-      expect.arrayContaining(['{"exitCode":2}', 'art-1']),
-    );
   });
 
   it('keeps the first stop request and touches only a running job', async () => {

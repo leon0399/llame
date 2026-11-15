@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { type ChatJob } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
@@ -8,7 +8,7 @@ import { buildWaitResult, waitTool } from './wait';
 import { WAIT_SUSPENSION } from './wait-suspension';
 import { type ToolContext } from './types';
 
-const TX: Db = drizzle.mock({ schema });
+const TX: Db = drizzle.mock();
 
 function job(id: string, state: ChatJob['state'] = 'running'): ChatJob {
   const now = new Date();

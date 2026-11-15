@@ -60,13 +60,13 @@ describe('real host async jobs', () => {
 
     if (!url) throw new Error('Integration database was not provisioned.');
     sql = postgres(url, { max: 6 });
-    tenant = new TenantDbService(drizzle(sql, { schema }));
+    tenant = new TenantDbService(drizzle({ client: sql }));
     owner = crypto.randomUUID();
     await sql`INSERT INTO users(id,name,email) VALUES (${owner}, 'Async', ${`${owner}@test.com`})`;
   });
   beforeEach(async () => {
     runAborts = new RunAbortRegistry();
-    heartbeat = new WorkerHeartbeatService(drizzle(sql, { schema }), config, {
+    heartbeat = new WorkerHeartbeatService(drizzle({ client: sql }), config, {
       concurrencyFor: () => 1,
     });
     registry = new BashJobRegistry(tenant, heartbeat, config, noticeRuns);

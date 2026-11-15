@@ -113,7 +113,7 @@ describe('BashJobRegistry', () => {
     }
 
     client = postgres(url, { max: 5 });
-    tenant = new TenantDbService(drizzle(client, { schema }));
+    tenant = new TenantDbService(drizzle({ client }));
     owner = crypto.randomUUID();
     worker = { instanceId: crypto.randomUUID() };
     await client`INSERT INTO users (id,name,email) VALUES (${owner}, 'Runtime', ${`${owner}@test.com`})`;
@@ -170,11 +170,9 @@ describe('BashJobRegistry', () => {
   }
 
   it('a worker heartbeat stops a real command from its durable owner request', async () => {
-    const heartbeat = new WorkerHeartbeatService(
-      drizzle(client, { schema }),
-      config,
-      { concurrencyFor: () => 1 },
-    );
+    const heartbeat = new WorkerHeartbeatService(drizzle({ client }), config, {
+      concurrencyFor: () => 1,
+    });
 
     registry = new BashJobRegistry(tenant, heartbeat, config, noticeRuns);
     registry.onModuleInit();

@@ -2,7 +2,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -96,7 +95,7 @@ function context(
   remoteClient: Remote,
   overrides: Partial<ToolContext> = {},
 ): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner',

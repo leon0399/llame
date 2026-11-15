@@ -23,6 +23,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-13
 
+- **Drizzle v1 RC5 migration upgrade.** Convert the existing legacy migration
+  ledger to named migration entries using exact historical timestamps; unsafe,
+  incomplete, or ambiguous ledger history stops migration rather than being
+  guessed. Before upgrading, back up the database and stop the old API and
+  workers. After `pnpm db:migrate`, run `pnpm db:provision-rls` before starting
+  the matching release. Do not automatically roll back to the old release or
+  edit/re-stamp ledger rows after a failure; investigate the ledger and restore
+  from backup if required.
+  Transactional pg-boss publication decodes its serialized JSON batch before
+  Drizzle binds it, preserving job payloads and caller transaction rollback.
+
 - **Keep Chat stories in sync with background-job polling (#1657).** Open
   Chat stories serve an empty jobs list while retaining the strict unrouted
   request guard; incidental request assertions ignore that background poll.

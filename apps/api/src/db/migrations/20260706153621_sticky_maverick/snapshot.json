@@ -1,0 +1,1185 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9e7d4f8f-3bb7-4111-a018-4207469ad036",
+  "prevIds": ["2e8861f5-a606-47ca-84e4-eb1184ddcb72"],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": ["enum", "public", "org_role"],
+      "writes": [
+        "s|enum|public.org_role",
+        "n|enum|public.org_role",
+        "e|enum|public.org_role",
+        "n|type|public.org_role"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_enum",
+      "statementTarget": ["enum", "public", "org_unit_type"],
+      "writes": [
+        "s|enum|public.org_unit_type",
+        "n|enum|public.org_unit_type",
+        "e|enum|public.org_unit_type",
+        "n|type|public.org_unit_type"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "external_identities"],
+      "writes": [
+        "s|tbl|public.external_identities",
+        "n|tbl|public.external_identities",
+        "e|tbl|public.external_identities",
+        "n|rel|public.external_identities",
+        "n|type|public.external_identities",
+        "n|rel|public.external_identities_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|tbl|public.memberships",
+        "n|tbl|public.memberships",
+        "e|tbl|public.memberships",
+        "n|rel|public.memberships",
+        "n|type|public.memberships",
+        "n|rel|public.memberships_pkey"
+      ],
+      "reads": ["n|sch|public", "n|enum|public.org_role"]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|tbl|public.org_units",
+        "n|tbl|public.org_units",
+        "e|tbl|public.org_units",
+        "n|rel|public.org_units",
+        "n|type|public.org_units",
+        "n|rel|public.org_units_pkey"
+      ],
+      "reads": ["n|sch|public", "n|enum|public.org_unit_type"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "external_identities",
+        "external_identities_provider_subject_unique"
+      ],
+      "writes": [
+        "s|idx|public.external_identities_provider_subject_unique",
+        "n|idx|public.external_identities_provider_subject_unique",
+        "e|idx|public.external_identities_provider_subject_unique",
+        "n|rel|public.external_identities_provider_subject_unique"
+      ],
+      "reads": [
+        "n|tbl|public.external_identities",
+        "n|sch|public",
+        "n|col|public.external_identities.provider",
+        "n|col|public.external_identities.external_subject"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "external_identities",
+        "external_identities_user_idx"
+      ],
+      "writes": [
+        "s|idx|public.external_identities_user_idx",
+        "n|idx|public.external_identities_user_idx",
+        "e|idx|public.external_identities_user_idx",
+        "n|rel|public.external_identities_user_idx"
+      ],
+      "reads": [
+        "n|tbl|public.external_identities",
+        "n|sch|public",
+        "n|col|public.external_identities.user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "memberships",
+        "memberships_user_unit_unique"
+      ],
+      "writes": [
+        "s|idx|public.memberships_user_unit_unique",
+        "n|idx|public.memberships_user_unit_unique",
+        "e|idx|public.memberships_user_unit_unique",
+        "n|rel|public.memberships_user_unit_unique"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "n|col|public.memberships.user_id",
+        "n|col|public.memberships.org_unit_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "memberships",
+        "memberships_unit_idx"
+      ],
+      "writes": [
+        "s|idx|public.memberships_unit_idx",
+        "n|idx|public.memberships_unit_idx",
+        "e|idx|public.memberships_unit_idx",
+        "n|rel|public.memberships_unit_idx"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "n|col|public.memberships.org_unit_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "org_units",
+        "org_units_path_unique"
+      ],
+      "writes": [
+        "s|idx|public.org_units_path_unique",
+        "n|idx|public.org_units_path_unique",
+        "e|idx|public.org_units_path_unique",
+        "n|rel|public.org_units_path_unique"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "n|col|public.org_units.path"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "org_units",
+        "org_units_parent_idx"
+      ],
+      "writes": [
+        "s|idx|public.org_units_parent_idx",
+        "n|idx|public.org_units_parent_idx",
+        "e|idx|public.org_units_parent_idx",
+        "n|rel|public.org_units_parent_idx"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "n|col|public.org_units.parent_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "external_identities"],
+      "writes": [
+        "s|fk|public.external_identities.external_identities_user_id_users_id_fk",
+        "n|fk|public.external_identities.external_identities_user_id_users_id_fk",
+        "e|fk|public.external_identities.external_identities_user_id_users_id_fk",
+        "n|con|public.external_identities.external_identities_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.external_identities",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.external_identities.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|fk|public.memberships.memberships_user_id_users_id_fk",
+        "n|fk|public.memberships.memberships_user_id_users_id_fk",
+        "e|fk|public.memberships.memberships_user_id_users_id_fk",
+        "n|con|public.memberships.memberships_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.memberships.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|fk|public.memberships.memberships_org_unit_id_org_units_id_fk",
+        "n|fk|public.memberships.memberships_org_unit_id_org_units_id_fk",
+        "e|fk|public.memberships.memberships_org_unit_id_org_units_id_fk",
+        "n|con|public.memberships.memberships_org_unit_id_org_units_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "n|col|public.memberships.org_unit_id",
+        "n|col|public.org_units.id",
+        "e|uniqueness|public.org_units.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|fk|public.org_units.org_units_parent_id_org_units_id_fk",
+        "n|fk|public.org_units.org_units_parent_id_org_units_id_fk",
+        "e|fk|public.org_units.org_units_parent_id_org_units_id_fk",
+        "n|con|public.org_units.org_units_parent_id_org_units_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "n|col|public.org_units.parent_id",
+        "n|col|public.org_units.id",
+        "e|uniqueness|public.org_units.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|fk|public.org_units.org_units_created_by_users_id_fk",
+        "n|fk|public.org_units.org_units_created_by_users_id_fk",
+        "e|fk|public.org_units.org_units_created_by_users_id_fk",
+        "n|con|public.org_units.org_units_created_by_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.org_units.created_by",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "external_identities"],
+      "writes": [
+        "s|pol|public.external_identities.external_identities_owner",
+        "n|pol|public.external_identities.external_identities_owner",
+        "e|pol|public.external_identities.external_identities_owner"
+      ],
+      "reads": [
+        "n|tbl|public.external_identities",
+        "n|sch|public",
+        "e|rls|public.external_identities"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|pol|public.memberships.memberships_select",
+        "n|pol|public.memberships.memberships_select",
+        "e|pol|public.memberships.memberships_select"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "e|rls|public.memberships"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|pol|public.memberships.memberships_insert",
+        "n|pol|public.memberships.memberships_insert",
+        "e|pol|public.memberships.memberships_insert"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "e|rls|public.memberships"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|pol|public.memberships.memberships_update",
+        "n|pol|public.memberships.memberships_update",
+        "e|pol|public.memberships.memberships_update"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "e|rls|public.memberships"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "memberships"],
+      "writes": [
+        "s|pol|public.memberships.memberships_delete",
+        "n|pol|public.memberships.memberships_delete",
+        "e|pol|public.memberships.memberships_delete"
+      ],
+      "reads": [
+        "n|tbl|public.memberships",
+        "n|sch|public",
+        "e|rls|public.memberships"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|pol|public.org_units.org_units_select",
+        "n|pol|public.org_units.org_units_select",
+        "e|pol|public.org_units.org_units_select"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "e|rls|public.org_units"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|pol|public.org_units.org_units_insert",
+        "n|pol|public.org_units.org_units_insert",
+        "e|pol|public.org_units.org_units_insert"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "e|rls|public.org_units"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|pol|public.org_units.org_units_update",
+        "n|pol|public.org_units.org_units_update",
+        "e|pol|public.org_units.org_units_update"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "e|rls|public.org_units"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "org_units"],
+      "writes": [
+        "s|pol|public.org_units.org_units_delete",
+        "n|pol|public.org_units.org_units_delete",
+        "e|pol|public.org_units.org_units_delete"
+      ],
+      "reads": [
+        "n|tbl|public.org_units",
+        "n|sch|public",
+        "e|rls|public.org_units"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "external_identities",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "memberships",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "org_units",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "org_role",
+        "values": [
+          "owner",
+          "admin",
+          "maintainer",
+          "member",
+          "viewer",
+          "guest",
+          "service_account"
+        ],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "org_unit_type",
+        "values": ["organization", "group", "team", "department", "project"],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "provider",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "external_subject",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "metadata",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "org_unit_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "role",
+        "type": "org_role",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'member'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "parent_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "type",
+        "type": "org_unit_type",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'group'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "path",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "created_by",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "settings",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'{}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "external_identities_provider_subject_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "provider",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "external_subject",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "external_identities_user_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_user_unit_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "org_unit_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_unit_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "org_unit_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_path_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "path",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_parent_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "parent_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "external_identities_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_org_unit_id_org_units_id_fk",
+        "nameExplicit": false,
+        "columns": ["org_unit_id"],
+        "schemaTo": "public",
+        "tableTo": "org_units",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_parent_id_org_units_id_fk",
+        "nameExplicit": false,
+        "columns": ["parent_id"],
+        "schemaTo": "public",
+        "tableTo": "org_units",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "RESTRICT",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_created_by_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["created_by"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "external_identities_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "external_identities",
+        "name": "external_identities_owner",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "(\n        user_id = current_setting('app.current_user_id', true)\n        AND role = 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND u.parent_id IS NULL\n            AND u.created_by = current_setting('app.current_user_id', true)\n        )\n      ) OR (\n        memberships.role <> 'owner'\n        AND EXISTS (\n          SELECT 1 FROM org_units u\n          WHERE u.id = memberships.org_unit_id\n            AND EXISTS (\n              SELECT 1 FROM memberships granter\n              WHERE granter.user_id = current_setting('app.current_user_id', true)\n                AND granter.role IN ('owner','admin')\n                AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n            )\n        )\n      )",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_update",
+        "as": "PERMISSIVE",
+        "for": "UPDATE",
+        "roles": ["public"],
+        "using": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )",
+        "withCheck": "EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  ) AND role <> 'owner'",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "memberships",
+        "name": "memberships_delete",
+        "as": "PERMISSIVE",
+        "for": "DELETE",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true) OR EXISTS (\n    SELECT 1 FROM org_units u\n    WHERE u.id = memberships.org_unit_id\n      AND EXISTS (\n        SELECT 1 FROM memberships granter\n        WHERE granter.user_id = current_setting('app.current_user_id', true)\n          AND granter.role IN ('owner','admin')\n          AND granter.org_unit_id::text = ANY(string_to_array(u.path, '/'))\n      )\n  )",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin','maintainer','member','viewer','guest','service_account')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ) OR created_by = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "created_by = current_setting('app.current_user_id', true) AND (parent_id IS NULL OR EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  ))",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_update",
+        "as": "PERMISSIVE",
+        "for": "UPDATE",
+        "roles": ["public"],
+        "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )",
+        "withCheck": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner','admin')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "org_units",
+        "name": "org_units_delete",
+        "as": "PERMISSIVE",
+        "for": "DELETE",
+        "roles": ["public"],
+        "using": "EXISTS (\n    SELECT 1 FROM memberships m\n    WHERE m.user_id = current_setting('app.current_user_id', true)\n      AND m.role IN ('owner')\n      AND m.org_unit_id::text = ANY(string_to_array(org_units.path, '/'))\n  )",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    }
+  ]
+}

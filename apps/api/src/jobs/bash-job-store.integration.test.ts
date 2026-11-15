@@ -38,7 +38,7 @@ describe('bash-job-store on a live database', () => {
 
     if (!url) throw new Error('Integration database was not provisioned.');
     client = postgres(url, { max: 5 });
-    tenant = new TenantDbService(drizzle(client, { schema }));
+    tenant = new TenantDbService(drizzle({ client }));
     owner = crypto.randomUUID();
     await client`INSERT INTO users (id,name,email) VALUES (${owner}, 'Store', ${`${owner}@test.com`})`;
   });

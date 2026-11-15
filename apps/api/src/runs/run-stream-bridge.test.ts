@@ -13,7 +13,6 @@ import {
 import { afterEach, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
@@ -43,7 +42,7 @@ function runEvent(
 }
 
 function bridgeFixture() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

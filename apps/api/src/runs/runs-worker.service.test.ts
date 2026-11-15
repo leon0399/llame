@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import path, { dirname } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type ConsumeOptions, type QueueConsumer } from '../queue/queue';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -50,7 +49,7 @@ beforeEach(() => {
 
 /** Native Drizzle mock; repository behavior is mocked at its public seam. */
 function makeFakeTx(): Db {
-  return drizzle.mock({ schema });
+  return drizzle.mock();
 }
 
 /** A capability the test never exercises still needs a real (throwing) member — an empty object satisfies no narrowed interface either. */

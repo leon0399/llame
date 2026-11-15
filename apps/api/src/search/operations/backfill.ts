@@ -70,7 +70,10 @@ type OutstandingRow = { chat_id: string; owner_user_id: string };
 export type CoverageQueryRunner = {
   runAsPublic<T>(
     fn: (tx: {
-      execute: (query: SQLWrapper) => Promise<Iterable<OutstandingRow>>;
+      execute: (
+        query: SQLWrapper,
+        mode: 'objects',
+      ) => Promise<Iterable<OutstandingRow>>;
     }) => Promise<T>,
   ): Promise<T>;
 };
@@ -162,10 +165,13 @@ export async function runBackfill(
   inputVersion: number,
 ): Promise<BackfillResult> {
   const rows = await tenantDb.runAsPublic((tx) =>
-    tx.execute(sql`
+    tx.execute(
+      sql`
       SELECT chat_id, owner_user_id
       FROM llame_search_embedding_coverage(${modelId}, ${inputVersion}, ${BACKFILL_MAX_ROWS})
-    `),
+    `,
+      'objects',
+    ),
   );
 
   const list = [...rows];

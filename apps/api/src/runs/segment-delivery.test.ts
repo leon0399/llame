@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import * as schema from '../db/schema';
+
 import {
   type Chat,
   type ChatDelivery,
@@ -146,7 +146,7 @@ const closingTelemetry = {
 };
 
 describe('deliverPendingSteering', () => {
-  const tx: Db = drizzle.mock({ schema });
+  const tx: Db = drizzle.mock();
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -620,7 +620,7 @@ describe('deliverPendingSteering', () => {
 });
 
 describe('deliverPendingSteering closing usage and baselines', () => {
-  const tx: Db = drizzle.mock({ schema });
+  const tx: Db = drizzle.mock();
 
   const baseline = {
     pinned: [],

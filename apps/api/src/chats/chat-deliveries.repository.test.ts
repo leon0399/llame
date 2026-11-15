@@ -36,7 +36,7 @@ function withoutStamp(sets: Array<DeliverySet>) {
 
 /** A `db.update` double that records each `set` and the row it targets. */
 function makeDb() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const sets: Array<DeliverySet> = [];
   vi.spyOn(db, 'update').mockImplementation(() => {
     const where = () => Promise.resolve([]);
@@ -162,7 +162,7 @@ describe('ChatDeliveriesRepository.pauseBehind', () => {
 
 describe('ChatDeliveriesRepository.changePendingMode', () => {
   it('writes the requested mode and returns the changed row', async () => {
-    const db: Db = drizzle.mock({ schema });
+    const db: Db = drizzle.mock();
     const changed = chatDeliveryRow({ mode: 'steer' });
     const sets: Array<DeliverySet> = [];
     vi.spyOn(db, 'update').mockImplementation(() => {
@@ -195,7 +195,7 @@ describe('ChatDeliveriesRepository.changePendingMode', () => {
 describe('ChatDeliveriesRepository.hasPendingInterrupt', () => {
   /** A repository whose select answers `rows` and records the SQL it built. */
   function repositoryAnswering(rows: Array<{ id: string }>) {
-    const real: Db = drizzle.mock({ schema });
+    const real: Db = drizzle.mock();
     const queries: Array<{ sql: string; params: Array<unknown> }> = [];
 
     // Builds the real query, but stops it at the end of the chain.

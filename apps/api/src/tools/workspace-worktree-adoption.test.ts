@@ -1,7 +1,6 @@
 import { type GitInspectSuccess } from '@workspace/git-executor';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Checkout, type Repository } from '../db/schema';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import {
@@ -25,7 +24,7 @@ const CREATED_AT = new Date('2026-10-24T00:00:00.000Z');
  * One catalog handle. Every method this suite calls is spied at its own
  * prototype seam, so the drizzle handle never reaches Postgres.
  */
-const catalogHandle = new RepositoriesRepository(drizzle.mock({ schema }));
+const catalogHandle = new RepositoriesRepository(drizzle.mock());
 
 function repositoryRow(overrides: Partial<Repository> = {}): Repository {
   return {

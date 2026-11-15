@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Personalization } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { type UpdatePersonalizationDto } from './dto/personalization.dto';
@@ -22,7 +21,7 @@ const stored: Personalization = {
 function controller(options: { row?: Personalization | undefined } = {}) {
   const row = 'row' in options ? options.row : stored;
   const updates: Array<{ userId: string; update: PersonalizationUpdate }> = [];
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const service = new PersonalizationService(
     new TenantDbService({

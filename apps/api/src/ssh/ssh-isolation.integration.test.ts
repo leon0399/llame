@@ -20,7 +20,6 @@ import postgres, { type Sql } from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { BashProcessLimiter } from '@workspace/bash-executor';
 
-import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -117,7 +116,7 @@ describe('ssh operations stay in their owner scope', () => {
 
     if (!url) throw new Error('Integration database was not provisioned.');
     sql = postgres(url, { max: 2 });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     await sql`INSERT INTO users (id, name, email) VALUES (${userA}, 'User A', ${`${userA}@test.com`}), (${userB}, 'User B', ${`${userB}@test.com`})`;
 
     fixture = await startMachineSshd();
