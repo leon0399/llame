@@ -71,7 +71,8 @@ where a smaller safe merge point appears.
 - [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
   - Evidence: before the rebase, rounds 1 (`ab29d11c`) and 2 (`258fb067`). After the rebase and redesign (`0079d3ab`), round 3 (spec 4 P1, 13 P2; feasibility 5 P1, 6 P2; fixes in `9a4c8967`) and round 4 (spec 1 P1, 9 P2; feasibility 1 P1, 6 P2; fixes in `1625012c`). design.md "Revision history" records each round. Round 4 still changed substance, so the review has not converged; the GitHub review loop is the next round.
 - [ ] 1.3 Self-review the published proposal PR diff (SR), mark it ready, and run the GitHub review loop (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
-- [ ] 1.4 Obtain Leo's approval of the published revision, including the decisions that the proposal lists as made in review.
+- [x] 1.4 Obtain Leo's approval of the published revision, including the decisions that the proposal lists as made in review.
+  - Evidence: Leo, in chat on 2026-11-16: "Spec is approved." This approves revision `d2531bd3`, including the review-made decisions D18-D23.
 
 ## 2. commands
 
