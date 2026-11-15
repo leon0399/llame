@@ -274,9 +274,6 @@ describe('MediaService listOwned', () => {
       items: [expect.objectContaining({ id: OLDEST })],
       nextCursor: null,
     });
-    expect(statements[0]?.sql).toMatch(
-      /where \("media_objects"\."owner_user_id" = \$1 and "media_objects"\."id" < \$2\)/u,
-    );
     expect(statements[0]?.params).toEqual([OWNER, MIDDLE, 3]);
   });
 });

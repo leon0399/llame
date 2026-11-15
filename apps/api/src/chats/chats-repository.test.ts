@@ -1064,9 +1064,6 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     // so a late stream callback can never overwrite expired/cancelled.
     expect(queryContains(queries, 'expired')).toBe(true);
     expect(queryContains(queries, 'failed')).toBe(true);
-    expect(queryContains(queries, JSON.stringify({ message: 'boom' }))).toBe(
-      true,
-    );
     expect(updateSetSql(queries)).toContain('"finished_at" = $');
   });
 

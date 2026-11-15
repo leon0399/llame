@@ -23,6 +23,7 @@ import postgres, { type Sql } from 'postgres';
 import { isRecord } from '@workspace/runtime-safety';
 import { and, eq } from 'drizzle-orm';
 
+import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';

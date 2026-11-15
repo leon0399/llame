@@ -556,7 +556,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       z.object({ content_hash: z.string() }),
     );
 
-    const newParts = JSON.stringify(text('rewritten distinctive wording'));
+    const newParts = sql.param(text('rewritten distinctive wording'));
     await tenantDb.runAs(u, (tx) =>
       tx.execute(
         sql`UPDATE messages SET parts = ${newParts}::jsonb WHERE id = ${msgId}`,
@@ -619,7 +619,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
 
     await tenantDb.runAs(u, (tx) =>
       tx.execute(
-        sql`UPDATE messages SET parts = ${JSON.stringify(text('a completely different embeddable phrasing'))}::jsonb WHERE id = ${msgId}`,
+        sql`UPDATE messages SET parts = ${sql.param(text('a completely different embeddable phrasing'))}::jsonb WHERE id = ${msgId}`,
       ),
     );
     await indexService.reindexChat(id, u);
@@ -856,7 +856,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
 
       await tenantDb.runAs(u, (tx) =>
         tx.execute(
-          sql`UPDATE messages SET parts = ${JSON.stringify(text('rewritten content'))}::jsonb WHERE id = ${msgId}`,
+          sql`UPDATE messages SET parts = ${sql.param(text('rewritten content'))}::jsonb WHERE id = ${msgId}`,
         ),
       );
       await indexService.reindexChat(id, u);

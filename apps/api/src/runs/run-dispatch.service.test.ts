@@ -93,7 +93,7 @@ describe('RunDispatchService', () => {
     const service = new RunDispatchService(q, config(), tenantDb());
 
     await expect(
-      service.enqueueInTransaction(drizzle.mock({ schema }), job),
+      service.enqueueInTransaction(drizzle.mock(), job),
     ).rejects.toBeInstanceOf(Error);
   });
 

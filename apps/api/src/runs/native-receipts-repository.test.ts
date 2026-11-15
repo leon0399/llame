@@ -9,7 +9,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres, { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { NativeReceiptsRepository } from './native-receipts-repository';
@@ -127,7 +126,7 @@ describe('NativeReceiptsRepository (PostgreSQL)', () => {
     const migrator = postgres(appUrl.href, { max: 1 });
 
     try {
-      await migrate(drizzle(migrator), {
+      await migrate(drizzle({ client: migrator }), {
         migrationsFolder: path.resolve(process.cwd(), 'src/db/migrations'),
       });
     } finally {
@@ -149,7 +148,7 @@ describe('NativeReceiptsRepository (PostgreSQL)', () => {
 
     const appClient = postgres(appUrl.href, { max: 4 });
     sql = appClient;
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     ownerId = crypto.randomUUID();
     otherOwnerId = crypto.randomUUID();

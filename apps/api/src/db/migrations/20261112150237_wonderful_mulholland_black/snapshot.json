@@ -3,23 +3,13 @@
   "version": "9",
   "dialect": "postgres",
   "id": "b695a338-54c2-4bac-917a-17c665b74292",
-  "prevIds": [
-    "ecd20d3a-45f9-44b1-a69f-74b7aa02a557"
-  ],
+  "prevIds": ["ecd20d3a-45f9-44b1-a69f-74b7aa02a557"],
   "footprints": [
     {
       "statementType": "alter_enum",
-      "statementTarget": [
-        "enum",
-        "public",
-        "run_status"
-      ],
-      "writes": [
-        "s|enum|public.run_status"
-      ],
-      "reads": [
-        "n|sch|public"
-      ]
+      "statementTarget": ["enum", "public", "run_status"],
+      "writes": ["s|enum|public.run_status"],
+      "reads": ["n|sch|public"]
     }
   ],
   "deltas": [

@@ -3,17 +3,11 @@
   "version": "9",
   "dialect": "postgres",
   "id": "6837f0e1-1268-462c-bb67-b3a90e467975",
-  "prevIds": [
-    "48183161-f1a3-4bb7-8da7-368b30ab13e4"
-  ],
+  "prevIds": ["48183161-f1a3-4bb7-8da7-368b30ab13e4"],
   "footprints": [
     {
       "statementType": "create_table",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_job_chunks"
-      ],
+      "statementTarget": ["table", "public", "chat_job_chunks"],
       "writes": [
         "s|tbl|public.chat_job_chunks",
         "n|tbl|public.chat_job_chunks",
@@ -22,17 +16,11 @@
         "n|type|public.chat_job_chunks",
         "n|rel|public.chat_job_chunks_pk"
       ],
-      "reads": [
-        "n|sch|public"
-      ]
+      "reads": ["n|sch|public"]
     },
     {
       "statementType": "create_table",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_jobs"
-      ],
+      "statementTarget": ["table", "public", "chat_jobs"],
       "writes": [
         "s|tbl|public.chat_jobs",
         "n|tbl|public.chat_jobs",
@@ -43,17 +31,11 @@
         "n|rel|public.chat_jobs_chat_executor_seq_unique",
         "n|rel|public.chat_jobs_id_owner_unique"
       ],
-      "reads": [
-        "n|sch|public"
-      ]
+      "reads": ["n|sch|public"]
     },
     {
       "statementType": "create_table",
-      "statementTarget": [
-        "table",
-        "public",
-        "worker_instances"
-      ],
+      "statementTarget": ["table", "public", "worker_instances"],
       "writes": [
         "s|tbl|public.worker_instances",
         "n|tbl|public.worker_instances",
@@ -62,9 +44,7 @@
         "n|type|public.worker_instances",
         "n|rel|public.worker_instances_pkey"
       ],
-      "reads": [
-        "n|sch|public"
-      ]
+      "reads": ["n|sch|public"]
     },
     {
       "statementType": "create_index",
@@ -88,11 +68,7 @@
     },
     {
       "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_job_chunks"
-      ],
+      "statementTarget": ["table", "public", "chat_job_chunks"],
       "writes": [
         "s|fk|public.chat_job_chunks.chat_job_chunks_job_id_owner_user_id_fk",
         "n|fk|public.chat_job_chunks.chat_job_chunks_job_id_owner_user_id_fk",
@@ -113,11 +89,7 @@
     },
     {
       "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_jobs"
-      ],
+      "statementTarget": ["table", "public", "chat_jobs"],
       "writes": [
         "s|fk|public.chat_jobs.chat_jobs_artifact_id_tool_artifacts_id_fk",
         "n|fk|public.chat_jobs.chat_jobs_artifact_id_tool_artifacts_id_fk",
@@ -136,11 +108,7 @@
     },
     {
       "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_jobs"
-      ],
+      "statementTarget": ["table", "public", "chat_jobs"],
       "writes": [
         "s|fk|public.chat_jobs.chat_jobs_chat_id_owner_user_id_fk",
         "n|fk|public.chat_jobs.chat_jobs_chat_id_owner_user_id_fk",
@@ -161,11 +129,7 @@
     },
     {
       "statementType": "create_policy",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_job_chunks"
-      ],
+      "statementTarget": ["table", "public", "chat_job_chunks"],
       "writes": [
         "s|pol|public.chat_job_chunks.chat_job_chunks_owner",
         "n|pol|public.chat_job_chunks.chat_job_chunks_owner",
@@ -179,11 +143,7 @@
     },
     {
       "statementType": "create_policy",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_jobs"
-      ],
+      "statementTarget": ["table", "public", "chat_jobs"],
       "writes": [
         "s|pol|public.chat_jobs.chat_jobs_owner",
         "n|pol|public.chat_jobs.chat_jobs_owner",
@@ -703,16 +663,10 @@
         "table": "chat_job_chunks",
         "name": "chat_job_chunks_job_id_owner_user_id_fk",
         "nameExplicit": true,
-        "columns": [
-          "job_id",
-          "owner_user_id"
-        ],
+        "columns": ["job_id", "owner_user_id"],
         "schemaTo": "public",
         "tableTo": "chat_jobs",
-        "columnsTo": [
-          "id",
-          "owner_user_id"
-        ],
+        "columnsTo": ["id", "owner_user_id"],
         "onUpdate": "NO ACTION",
         "onDelete": "CASCADE",
         "entityType": "fks"
@@ -725,14 +679,10 @@
         "table": "chat_jobs",
         "name": "chat_jobs_artifact_id_tool_artifacts_id_fk",
         "nameExplicit": false,
-        "columns": [
-          "artifact_id"
-        ],
+        "columns": ["artifact_id"],
         "schemaTo": "public",
         "tableTo": "tool_artifacts",
-        "columnsTo": [
-          "id"
-        ],
+        "columnsTo": ["id"],
         "onUpdate": "NO ACTION",
         "onDelete": "SET NULL",
         "entityType": "fks"
@@ -745,16 +695,10 @@
         "table": "chat_jobs",
         "name": "chat_jobs_chat_id_owner_user_id_fk",
         "nameExplicit": true,
-        "columns": [
-          "chat_id",
-          "owner_user_id"
-        ],
+        "columns": ["chat_id", "owner_user_id"],
         "schemaTo": "public",
         "tableTo": "chats",
-        "columnsTo": [
-          "id",
-          "owner_user_id"
-        ],
+        "columnsTo": ["id", "owner_user_id"],
         "onUpdate": "NO ACTION",
         "onDelete": "CASCADE",
         "entityType": "fks"
@@ -766,11 +710,7 @@
         "schema": "public",
         "table": "chat_job_chunks",
         "name": "chat_job_chunks_pk",
-        "columns": [
-          "job_id",
-          "output",
-          "position"
-        ],
+        "columns": ["job_id", "output", "position"],
         "nameExplicit": true,
         "entityType": "pks"
       }
@@ -781,9 +721,7 @@
         "schema": "public",
         "table": "chat_jobs",
         "name": "chat_jobs_pkey",
-        "columns": [
-          "id"
-        ],
+        "columns": ["id"],
         "nameExplicit": false,
         "entityType": "pks"
       }
@@ -794,9 +732,7 @@
         "schema": "public",
         "table": "worker_instances",
         "name": "worker_instances_pkey",
-        "columns": [
-          "id"
-        ],
+        "columns": ["id"],
         "nameExplicit": false,
         "entityType": "pks"
       }
@@ -808,11 +744,7 @@
         "table": "chat_jobs",
         "name": "chat_jobs_chat_executor_seq_unique",
         "nameExplicit": true,
-        "columns": [
-          "chat_id",
-          "executor",
-          "seq"
-        ],
+        "columns": ["chat_id", "executor", "seq"],
         "nullsNotDistinct": false,
         "entityType": "uniques"
       }
@@ -824,10 +756,7 @@
         "table": "chat_jobs",
         "name": "chat_jobs_id_owner_unique",
         "nameExplicit": true,
-        "columns": [
-          "id",
-          "owner_user_id"
-        ],
+        "columns": ["id", "owner_user_id"],
         "nullsNotDistinct": false,
         "entityType": "uniques"
       }
@@ -840,9 +769,7 @@
         "name": "chat_job_chunks_owner",
         "as": "PERMISSIVE",
         "for": "ALL",
-        "roles": [
-          "public"
-        ],
+        "roles": ["public"],
         "using": "owner_user_id = current_setting('app.current_user_id', true)",
         "withCheck": null,
         "entityType": "policies"
@@ -856,9 +783,7 @@
         "name": "chat_jobs_owner",
         "as": "PERMISSIVE",
         "for": "ALL",
-        "roles": [
-          "public"
-        ],
+        "roles": ["public"],
         "using": "owner_user_id = current_setting('app.current_user_id', true)",
         "withCheck": null,
         "entityType": "policies"

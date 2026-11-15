@@ -88,6 +88,13 @@ or inconsistent with an existing named ledger, migration stops rather than
 guessing or replaying entries. The runner holds a PostgreSQL advisory lock
 while preparing the ledger and applying migrations.
 
+RC5 executes ordinary queries without preparing them. Parameterized queries
+require an additional protocol round trip compared with the previous driver's
+cached prepared statements. This also affects the tenant identity statement
+at the start of each request transaction. Keep database network latency in
+the deployment's performance checks; a local database measurement does not
+predict a remote database's cost.
+
 Treat this as a coordinated maintenance operation:
 
 1. Take a restorable backup of the database before changing the release or

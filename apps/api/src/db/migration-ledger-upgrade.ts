@@ -97,6 +97,12 @@ const LEGACY_MIGRATIONS = `
 1793722215933|20261103161015_nasty_warstar
 1794168836593|20261108201356_tiny_enchantress
 1794168844624|20261108201404_chat_deliveries_notify
+1794413594567|20261111161314_thankful_cargill
+1794447271881|20261112013431_job-notice-uniqueness
+1794456788453|20261112041308_job-projection-notify
+1794482496462|20261112112136_brown_smiling_tiger
+1794495757604|20261112150237_wonderful_mulholland_black
+1794495836901|20261112150356_huge_hardball
 `.trim();
 
 const legacyMigrationByMillis = new Map<number, string>(

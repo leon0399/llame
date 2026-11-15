@@ -17,7 +17,7 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import * as schema from '../db/schema';
+
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   ChatJobsRepository,
@@ -64,7 +64,7 @@ describe('chat jobs API', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let tenantDb: TenantDbService;
-  let db: PostgresJsDatabase<typeof schema>;
+  let db: PostgresJsDatabase;
   let liveWorker: string;
   let deadWorker: string;
 
@@ -99,7 +99,7 @@ describe('chat jobs API', () => {
     await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
-    db = app.get<PostgresJsDatabase<typeof schema>>('DB_DEV', {
+    db = app.get<PostgresJsDatabase>('DB_DEV', {
       strict: false,
     });
     liveWorker = app.get(WorkerHeartbeatService, { strict: false }).instanceId;

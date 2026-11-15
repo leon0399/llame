@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
 import { type ChatJob, type Run } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { asDouble } from '../testing/support';
@@ -42,7 +42,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('recordJobSettlementNotice', () => {
   function setup(run: Run | undefined) {
-    const tx = drizzle.mock({ schema });
+    const tx = drizzle.mock();
 
     const execute = vi.spyOn(tx, 'execute').mockResolvedValue(
       Object.assign([], {

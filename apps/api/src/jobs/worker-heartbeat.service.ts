@@ -10,7 +10,6 @@ import {
 import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { sql } from 'drizzle-orm';
 
-import * as schema from '../db/schema';
 import { workerInstances } from '../db/schema';
 import {
   InstanceConfigService,
@@ -45,7 +44,7 @@ export class WorkerHeartbeatService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     @Inject('DB_DEV')
-    private readonly db: PostgresJsDatabase<typeof schema>,
+    private readonly db: PostgresJsDatabase,
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(WorkerProfileService)

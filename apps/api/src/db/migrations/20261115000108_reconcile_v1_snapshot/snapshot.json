@@ -3,18 +3,11 @@
   "version": "9",
   "dialect": "postgres",
   "id": "568dfcb4-c722-4f6f-8552-b418f72ffca5",
-  "prevIds": [
-    "b01b15c9-e56c-4e9c-b903-549b4f135018"
-  ],
+  "prevIds": ["b01b15c9-e56c-4e9c-b903-549b4f135018"],
   "footprints": [
     {
       "statementType": "alter_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "knowledge_spaces",
-        "created_at"
-      ],
+      "statementTarget": ["column", "public", "knowledge_spaces", "created_at"],
       "writes": [
         "s|colprop|public.knowledge_spaces.created_at.type",
         "s|colprop|public.knowledge_spaces.created_at.default"
@@ -28,12 +21,7 @@
     },
     {
       "statementType": "alter_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "knowledge_spaces",
-        "updated_at"
-      ],
+      "statementTarget": ["column", "public", "knowledge_spaces", "updated_at"],
       "writes": [
         "s|colprop|public.knowledge_spaces.updated_at.type",
         "s|colprop|public.knowledge_spaces.updated_at.default"
@@ -139,14 +127,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "messages"
-      ],
-      "writes": [
-        "s|ck|public.messages.messages_seq_positive"
-      ],
+      "statementTarget": ["table", "public", "messages"],
+      "writes": ["s|ck|public.messages.messages_seq_positive"],
       "reads": [
         "n|tbl|public.messages",
         "n|sch|public",
@@ -157,14 +139,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "chats"
-      ],
-      "writes": [
-        "s|ck|public.chats.chats_workspace_detach_reason_check"
-      ],
+      "statementTarget": ["table", "public", "chats"],
+      "writes": ["s|ck|public.chats.chats_workspace_detach_reason_check"],
       "reads": [
         "n|tbl|public.chats",
         "n|sch|public",
@@ -175,14 +151,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "runs"
-      ],
-      "writes": [
-        "s|ck|public.runs.runs_permission_mode_check"
-      ],
+      "statementTarget": ["table", "public", "runs"],
+      "writes": ["s|ck|public.runs.runs_permission_mode_check"],
       "reads": [
         "n|tbl|public.runs",
         "n|sch|public",
@@ -193,14 +163,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "messages"
-      ],
-      "writes": [
-        "s|ck|public.messages.messages_checkpoint_boundary_check"
-      ],
+      "statementTarget": ["table", "public", "messages"],
+      "writes": ["s|ck|public.messages.messages_checkpoint_boundary_check"],
       "reads": [
         "n|tbl|public.messages",
         "n|sch|public",
@@ -213,14 +177,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "media_objects"
-      ],
-      "writes": [
-        "s|ck|public.media_objects.media_objects_shape"
-      ],
+      "statementTarget": ["table", "public", "media_objects"],
+      "writes": ["s|ck|public.media_objects.media_objects_shape"],
       "reads": [
         "n|tbl|public.media_objects",
         "n|sch|public",
@@ -245,14 +203,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "machines_status"
-      ],
-      "writes": [
-        "s|ck|public.machines_status.machines_status_name_check"
-      ],
+      "statementTarget": ["table", "public", "machines_status"],
+      "writes": ["s|ck|public.machines_status.machines_status_name_check"],
       "reads": [
         "n|tbl|public.machines_status",
         "n|sch|public",
@@ -263,11 +215,7 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "machines_status"
-      ],
+      "statementTarget": ["table", "public", "machines_status"],
       "writes": [
         "s|ck|public.machines_status.machines_status_failure_reason_check"
       ],
@@ -281,14 +229,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "checkouts"
-      ],
-      "writes": [
-        "s|ck|public.checkouts.checkouts_kind_check"
-      ],
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_kind_check"],
       "reads": [
         "n|tbl|public.checkouts",
         "n|sch|public",
@@ -299,14 +241,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "checkouts"
-      ],
-      "writes": [
-        "s|ck|public.checkouts.checkouts_origin_check"
-      ],
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_origin_check"],
       "reads": [
         "n|tbl|public.checkouts",
         "n|sch|public",
@@ -317,14 +253,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "checkouts"
-      ],
-      "writes": [
-        "s|ck|public.checkouts.checkouts_worktree_parent_check"
-      ],
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_worktree_parent_check"],
       "reads": [
         "n|tbl|public.checkouts",
         "n|sch|public",
@@ -337,14 +267,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "checkouts"
-      ],
-      "writes": [
-        "s|ck|public.checkouts.checkouts_worktree_base_check"
-      ],
+      "statementTarget": ["table", "public", "checkouts"],
+      "writes": ["s|ck|public.checkouts.checkouts_worktree_base_check"],
       "reads": [
         "n|tbl|public.checkouts",
         "n|sch|public",
@@ -357,11 +281,7 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "project_repositories"
-      ],
+      "statementTarget": ["table", "public", "project_repositories"],
       "writes": [
         "s|ck|public.project_repositories.project_repositories_isolation_check"
       ],
@@ -375,11 +295,7 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_creation_records"
-      ],
+      "statementTarget": ["table", "public", "chat_creation_records"],
       "writes": [
         "s|ck|public.chat_creation_records.chat_creation_records_attempts_check"
       ],
@@ -393,14 +309,8 @@
     },
     {
       "statementType": "alter_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "runs"
-      ],
-      "writes": [
-        "s|ck|public.runs.runs_follow_up_action_check"
-      ],
+      "statementTarget": ["table", "public", "runs"],
+      "writes": ["s|ck|public.runs.runs_follow_up_action_check"],
       "reads": [
         "n|tbl|public.runs",
         "n|sch|public",

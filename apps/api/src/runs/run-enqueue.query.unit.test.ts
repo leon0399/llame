@@ -8,7 +8,6 @@ import { PgBossService } from '@wavezync/nestjs-pgboss';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { QUEUE, type Queue } from '../queue/queue';
@@ -38,7 +37,7 @@ describe('transactional run enqueue with PostgreSQL', () => {
     ).start();
     const url = container.getConnectionUri();
     sql = postgres(url, { max: 5 });
-    db = drizzle(sql, { schema });
+    db = drizzle({ client: sql });
     app = await Test.createTestingModule({
       imports: [
         ConfigModule.forRoot({

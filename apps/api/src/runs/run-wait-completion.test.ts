@@ -1,7 +1,7 @@
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { type ChatJob, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -83,7 +83,7 @@ function db(rows: ReadonlyArray<ChatJob | WakeEvent>): Db {
     .filter((row): row is WakeEvent => 'eventType' in row)
     .sort((left, right) => right.sequence - left.sequence);
 
-  const tx = drizzle.mock({ schema });
+  const tx = drizzle.mock();
 
   Object.defineProperty(tx, 'select', {
     value: () => ({

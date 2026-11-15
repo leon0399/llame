@@ -1,7 +1,6 @@
 import { renderReadText } from '@workspace/native-file-tools';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type ChatJob } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
@@ -14,7 +13,7 @@ const USER = 'owner-1';
 const START = new Date('2026-11-11T10:00:00.000Z');
 
 function contextOf(workerDeadAfterSeconds?: number): ToolContext {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const runAs: TenantRunner['runAs'] = (_user, fn) => fn(db);
 
   return {

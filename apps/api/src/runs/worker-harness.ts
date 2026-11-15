@@ -188,7 +188,7 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
 export async function bootWorkerHarness(
   overrides?: HarnessOverrides,
 ): Promise<WorkerHarness> {
-  // WorkerModule's DrizzlePostgresModule/PgBossModule read POSTGRES_URL
+  // WorkerModule's database providers and PgBossModule read POSTGRES_URL
   // directly (getOrThrow), not TEST_DATABASE_URL — mirror worker.module.integration.test.ts's
   // own setup rather than relying on POSTGRES_URL being ambient in the
   // caller's shell (it must not be a hard requirement for callers gated only

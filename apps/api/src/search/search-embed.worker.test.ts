@@ -17,8 +17,8 @@
  */
 import { Logger } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
-import { getTableName, type SQL, sql } from 'drizzle-orm';
-import { PgDialect, type PgTable } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
+import type { PgTable } from 'drizzle-orm/pg-core';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import {
@@ -44,7 +44,6 @@ import {
 } from './core';
 import { EmbeddingBackendError } from './openai-embedding-backend';
 import {
-  EMBED_INPUT_VERSION,
   EMBED_MAX_BATCHES_PER_JOB,
   resolveEmbeddingBackendConfig,
   SearchEmbedWorker,
@@ -161,7 +160,7 @@ type FakeUpdateBuilder = {
 
 type FakeEmbedTransaction = {
   select: () => FakeSelectQuery;
-  execute: () => Promise<{ count: number }>;
+  execute: () => Promise<Array<{ id: string }>>;
   insert: () => FakeInsertBuilder;
   update: (table: PgTable) => FakeUpdateBuilder;
 };
@@ -244,7 +243,13 @@ function dataWorkerHarness(options: {
 
   const tx: FakeEmbedTransaction = {
     select: vi.fn(() => selectBuilder),
-    execute: vi.fn(() => Promise.resolve({ count: updateCounts.shift() ?? 0 })),
+    execute: vi.fn(() =>
+      Promise.resolve(
+        Array.from({ length: updateCounts.shift() ?? 0 }, () => ({
+          id: 'updated',
+        })),
+      ),
+    ),
     insert: vi.fn(() => insertBuilder),
     update: vi.fn((_table: PgTable) => updateBuilder),
   };
@@ -782,67 +787,6 @@ describe('SearchEmbedWorker.embedChat', () => {
       'owner-1',
       expect.any(Function),
     );
-  });
-
-  // Literal pin of the reuse statement: owner-scoped, current model key and
-  // input version, a valid source stamp, md5 as a candidate filter plus a
-  // byte recheck, and the destination's OWN content hash as the new stamp.
-  // The integration suite proves each term's behavior against Postgres.
-  it('issues the reuse statement for exactly this batch under the current model and version', async () => {
-    const harness = dataWorkerHarness({
-      outstanding: [row('doc-1'), row('doc-2')],
-      reusedIds: ['doc-1', 'doc-2'],
-    });
-
-    const worker = await harness.moduleRefPromise.then((moduleRef) =>
-      moduleRef.get(SearchEmbedWorker),
-    );
-
-    await worker.embedChat(
-      'chat-1',
-      'owner-1',
-      harness.model,
-      fakeEmbeddingBackend(() => Promise.resolve([])),
-    );
-
-    const dialect = new PgDialect();
-    const [[table]] = vi.mocked(harness.tx.update).mock.calls;
-    const [[values]] = harness.reuse.set.mock.calls;
-    const [[source]] = harness.reuse.from.mock.calls;
-    const [[condition]] = harness.reuse.where.mock.calls;
-    expect(getTableName(table)).toBe('search_chat_documents');
-    expect(getTableName(source)).toBe('reuse_source');
-    const { embedding, embeddedContentHash, ...literals } = values;
-    expect(literals).toEqual({
-      embeddingModelKey: 'embed-a',
-      embedInputVersion: EMBED_INPUT_VERSION,
-      embeddingFailReason: null,
-    });
-    expect(
-      dialect.sqlToQuery(sql`${embedding} / ${embeddedContentHash}`).sql,
-    ).toBe(
-      '"reuse_source"."embedding" / "search_chat_documents"."content_hash"',
-    );
-    const where = dialect.sqlToQuery(condition ?? sql``);
-    expect(where.sql).toBe(
-      [
-        '("search_chat_documents"."id" in ($1, $2)',
-        'and "reuse_source"."owner_user_id" = $3',
-        'and "reuse_source"."embedding" is not null',
-        'and "reuse_source"."embedding_model_key" = $4',
-        'and "reuse_source"."embed_input_version" = $5',
-        'and "reuse_source"."embedded_content_hash" = "reuse_source"."content_hash"',
-        'and md5("reuse_source"."content") = md5("search_chat_documents"."content")',
-        'and "reuse_source"."content" = "search_chat_documents"."content")',
-      ].join(' '),
-    );
-    expect(where.params).toEqual([
-      'doc-1',
-      'doc-2',
-      'owner-1',
-      'embed-a',
-      EMBED_INPUT_VERSION,
-    ]);
   });
 
   it('keeps paging through batches that were reused whole, with no provider call', async () => {

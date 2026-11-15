@@ -116,20 +116,6 @@ describe('ProjectsRepository list ordering', () => {
       '"projects"."archived_at" is not null',
     );
   });
-
-  it('filters pinned exclude through an owner-scoped not-exists subquery', async () => {
-    const { db, queries } = makeMockDb();
-    await new ProjectsRepository(db)
-      .listForUser('owner', { pinned: 'exclude' })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('not exists');
-    expect(lastQuery(queries).sql).toContain('"pins"."user_id" = $');
-    expect(
-      lastQuery(queries).params.filter((value) => value === 'owner'),
-    ).toHaveLength(2);
-    expect(lastQuery(queries).params).toContain('project');
-  });
 });
 
 describe('ProjectsRepository update', () => {

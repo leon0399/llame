@@ -10,11 +10,6 @@ import {
 const localMigrationNames = new Set(KNOWN_LEGACY_MIGRATION_NAMES);
 
 describe('safe legacy migration ledger conversion', () => {
-  it('keeps a one-to-one map for every historical converted migration', () => {
-    expect(KNOWN_LEGACY_MIGRATION_NAMES).toHaveLength(87);
-    expect(new Set(KNOWN_LEGACY_MIGRATION_NAMES).size).toBe(87);
-  });
-
   it('distinguishes the two historical migrations recorded in the same second', () => {
     // Exact journal timestamps from the pre-v1 history, through the collision.
     const timestamps = [

@@ -681,7 +681,7 @@ describeIfDb('SearchEmbedWorker.embedChat', () => {
       // batch is still in flight.
       await tenantDb.runAs(u, (tx) =>
         tx.execute(
-          sql`UPDATE messages SET parts = ${JSON.stringify(text('a completely different phrasing'))}::jsonb WHERE id = ${msgId}`,
+          sql`UPDATE messages SET parts = ${sql.param(text('a completely different phrasing'))}::jsonb WHERE id = ${msgId}`,
         ),
       );
       await indexService.reindexChat(id, u);
