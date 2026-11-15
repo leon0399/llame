@@ -29,7 +29,7 @@ history read.
 A follow-up Run is a Run that an owner starts on a user message that already has a Run. The owner
 MUST start it through `POST /api/v1/chats/:chatId/messages/:userMessageId/runs`. The message MUST
 be the user message with the highest `seq` of the Chat's user messages. The newest Run of the Chat
-MUST be a turn Run of that message. No checkpoint MUST absorb that message. The Chat MUST NOT be
+MUST be a turn Run of that message. A checkpoint MUST NOT absorb that message. The Chat MUST NOT be
 archived. The answer MUST be the same UI message stream that a chat send returns.
 
 #### Scenario: A follow-up request on the latest turn starts a Run

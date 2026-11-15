@@ -118,7 +118,8 @@ boundary.
 An automatic compaction MUST NOT run before one model step after the previous compaction of the
 Run. It MUST NOT run when there is no row to absorb. Automatic compaction MUST stop for the rest of
 the Run when the first request after a compaction is still at the threshold. It MUST also stop when
-an automatic compaction fails. The stop MUST survive a new segment. An owner command MUST still
+an automatic compaction fails. The stop MUST survive a new segment, a wake, and a
+crash retry. An owner command MUST still
 compact.
 
 #### Scenario: Ten compactions in a long Run

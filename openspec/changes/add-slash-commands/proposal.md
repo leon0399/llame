@@ -49,7 +49,7 @@ keep working; OpenCode also delivers a manual `/compact` as a steer and resumes 
     and tool declarations.
   - **Failure:** a failed mid-turn compaction leaves no checkpoint, shows inline, and the Run
     continues.
-- **Automatic mid-turn compaction.** At each boundary where the Run takes another step, the worker
+- **Automatic mid-turn compaction.** After each step that called tools, the worker
   measures the next request. When the request reaches the model's compaction threshold, the Run
   compacts at that boundary. There is no count limit. A progress guard stops automatic compaction
   for the rest of the Run when a compaction leaves the next request still at the threshold. This

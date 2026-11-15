@@ -282,7 +282,11 @@ seven sites, and the Messages adapter drops the tools of a compaction request an
 `latestTurnRun` (`chats/follow-up-admission.service.ts:561-575`) answers 409 when the
 newest Run of the Chat does not belong to the latest user message. A compaction Run has no
 message, so a follow-up after any compaction Run, failed ones included, is refused with no new
-code. The turn-actions delta records this, and a test pins it.
+code. A compaction at the final answer leaves the turn Run as the newest Run, so `compact-boundary`
+adds one check after `latestTurnRun`: it answers 409 when the active checkpoint absorbs the latest
+user message. `turn-action-rules.ts` hides the actions in that case, from the checkpoint that the
+history read already returns. A pre-step compaction never absorbs its trigger message, so only a
+step-boundary compaction reaches this check.
 
 ### D10: `/compact` admission and command items in the queue
 
@@ -319,26 +323,33 @@ existing signal: `stepEndSignal` stops the loop, a foreground host command yield
 returns `interrupted`, and an interrupt aborts the step. Only delivery changes.
 
 At a boundary where the signal fired, the worker first reads the pending owner items in a short
-transaction and keeps the ids of the command items (the compaction set). With a non-empty set, it
-computes the summary (D12) outside any transaction. The fenced delivery transaction then locks the
-pending items again:
+transaction and keeps the ids of the command items (the compaction set). With a non-empty set, or
+when the automatic trigger fired (D13), it computes the summary (D12) outside any transaction. At
+the final answer this happens in `onFinish` before `finishRun`, because `finishRunInTransaction`
+runs inside a retried transaction. The fenced delivery transaction then locks the pending items
+again. With an automatic compaction and nothing locked, it uses its own branch, because
+`deliverPendingSteering` returns `nothing-pending` before it closes anything:
 
-1. When no item of the compaction set is still pending (the owner withdrew it), the summary is
-   discarded, and delivery runs as today without command items.
+1. When the compaction set was non-empty and no item of it is still locked (the owner withdrew it
+   or changed it to `queue`), the summary is discarded, and delivery runs as today without command
+   items. An item changed to `queue` later starts a compaction Run.
 2. Otherwise it closes the reply of the segment: `aborted` with `interrupted: true` when an
    interrupt stopped the step or an interrupt item is locked, and `completed` otherwise, as
    `closeSegmentAndStore` does today.
-3. It publishes the checkpoint through the closed reply, with its usage and the focus of the first
-   command item, and re-bakes the digest, skill, and Workspace epoch state with the Workspace root of
-   the live attempt.
+3. It publishes the checkpoint through the closed reply, with its usage and the focus that the
+   summary used (the first item of the compaction set), and re-bakes the digest, skill, and
+   Workspace epoch state with the Workspace root of the live attempt. `persistFirstEpochBaselines`
+   runs before the re-bake, so it cannot overwrite it.
 4. It marks the locked items of the compaction set delivered with no message. A command item that
    arrived after the first read stays pending for the next boundary; it is never stored as a
-   message.
+   message. At the final answer there is no next boundary, so the transaction marks every locked
+   command item delivered with this compaction.
 5. When message items are locked, it stores them as the owner message after the checkpoint, as
-   today. Otherwise, mid-work, it stores a host message with the `interrupted` item (for an
-   interrupt), the locked `notice` items, and one `compaction` notice item. The Run moves to the
-   delivered message. The cause follows run-steering: `interrupt`, then `steer`, then `compaction`,
-   then `notice`. `run.delivered` names the checkpoint. Existing checks on `cause === 'interrupt'`
+   today. Otherwise it stores a host message with no parts, as a host message for notices is stored
+   today. The Run moves to the delivered message. The first dispatch of the next segment authors
+   its items, as it authors `interrupted` and `job` items today: the `interrupted` item for an
+   interrupt, the `job` items, and, when the Run was mid-work, one `compaction` item. The cause
+   follows run-steering: `interrupt`, then `steer`, then `notice`, then `compaction`. `run.delivered` names the checkpoint. Existing checks on `cause === 'interrupt'`
    (`segment-delivery.ts:185`, `closedTelemetry`, `deliveredInterrupt`) keep working because an
    interrupt compaction keeps the cause `interrupt`.
 
@@ -348,11 +359,14 @@ into a host message with no `compaction` item, and the Run continues for them as
 
 A Run in `awaiting_jobs` has no live request. A command item that wakes it is delivered by the wake
 path: the woken attempt prepares its request as a resumed segment does, then compacts before its
-first model request with that prepared request (D12), and continues as above.
+first model request with that prepared request (D12), and continues as above. That attempt skips
+the pre-step automatic trigger, so one wake makes at most one summary.
 
-The segment that a compaction starts keeps the step budget of the segment before it. The step count
-of the next attempt is not changed. Instead, `run.delivered` records `stepBudgetUsed`, and the next
-attempt subtracts it from `maxStepsPerRun` when it builds its stop condition. A crash retry reads
+A delivery with the cause `compaction` keeps the step budget; any other cause starts a new one. The
+step count of the next attempt is not changed. Instead, `run.delivered` records `stepBudgetUsed`:
+the steps of the closed segment plus the `stepBudgetUsed` of the delivery that started it when that
+delivery had the cause `compaction`, and zero otherwise. The next attempt subtracts it from
+`maxStepsPerRun` when it builds its stop condition. A crash retry reads
 the same event, so it keeps the reduced budget. Receipt and step counts of each reply stay aligned,
 so usage completeness is unchanged.
 
@@ -439,7 +453,10 @@ hand-off then attaches the next segment to the host message, as for a notice. Th
 before the host message, and the host row renders the continue notice. A
 `run.compaction_failed` or `run.compaction_disabled` event becomes a persisted part of the live
 reply, as `run.step_cap_reached` does, and the stream bridge sends it, so the note survives a
-reload. The web renders it as a muted inline note.
+reload. Both events are appended before any `run.delivered` of their boundary, so they belong to
+the reply of the segment where the compaction failed or stopped. The closed event-type union, the
+transcript projection (`assistant-transcript.ts`), and the kept-parts reader (`kept-parts-events.ts`)
+learn both types. The web renders it as a muted inline note.
 
 ## Risks / Trade-offs
 
@@ -456,9 +473,10 @@ reload. The web renders it as a muted inline note.
   request; the instruction carries the task.
 - [A `/compact` sent during a job wait] → as a steer it wakes the Run; as a queue item it waits for
   the Run, as any queue item does.
-- [Layers above the review target] → `commands`, `compact-run`, and `compact-in-run` are over 2,000
-  authored lines and stay whole, because each is one mergeable behavior. CONTRIBUTING treats the
-  number as a target. Queue mode is split out as `compact-queue`.
+- [Layers above the review target] → `commands`, `run-kind`, `compact-run`, and `compact-boundary`
+  are over 2,000 authored lines and stay whole, because each is one mergeable behavior. CONTRIBUTING
+  treats the number as a target. Queue mode and the wake path are split out as `compact-queue` and
+  `compact-wake`.
 - [A compaction runs for many seconds at a boundary] → steers and notices that arrive meanwhile are
   delivered after the checkpoint at the same boundary; a new `/compact` waits for the next one.
 - [Two first sends race to one new Chat id] → accepted (D1).
@@ -468,10 +486,28 @@ reload. The web renders it as a muted inline note.
 The migration adds one defaulted column; existing Runs read as `turn`. `RunJob` keeps accepting jobs
 with `userMessage`. The `compaction` notice item and the new Run events are additive; an older web
 ignores them. Rollback: revert the layers from the top. Reverting `compact-focus` needs the data fix
-in D6 first. Reverting `compact-in-run` leaves host messages with a `compaction` notice item; the layer adds a
+in D6 first. Reverting `compact-boundary` leaves host messages with a `compaction` notice item; the layer adds a
 replay test that an item it cannot render is skipped, so the continuation reply stays readable. Drop `runs.kind` only after no compaction Run is live.
 
 ## Revision history
+
+- **r5 (2026-11-15):** Round 4, two reviewers (spec consistency: 1 P1, 9 P2; feasibility: 1 P1,
+  6 P2), each verified. Fixed:
+  - a host message holds context items only, so the turn items of the next request (the Workspace
+    snapshot) fit;
+  - the cause order puts `notice` before `compaction`, so the kept canonical scenario holds;
+  - the follow-up check after a final-answer compaction is designed;
+  - a `/compact` that arrives during a final-answer summary is taken by that compaction;
+  - the final-answer summary runs in `onFinish`;
+  - the compaction set is tested as locked, and automatic compaction has its own branch;
+  - `stepBudgetUsed` adds up across compactions;
+  - a wake makes one summary;
+  - the continue items are authored at dispatch, so the `interrupted` item is not duplicated;
+  - the new events name their reply and their persistence sites;
+  - the guard survives a wake and a retry in the spec;
+  - `compact-in-run` is split into `compact-boundary` and `compact-wake`.
+
+  Rejected: none. The review has not converged; the GitHub review loop is the next round.
 
 - **r4 (2026-11-15):** Round 3 on the redesign, two reviewers (spec consistency: 4 P1, 13 P2;
   feasibility: 5 P1, 6 P2), each verified against code. Fixed:

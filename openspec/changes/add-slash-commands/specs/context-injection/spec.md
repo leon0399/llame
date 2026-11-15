@@ -36,8 +36,8 @@ user-authored content is structural, not a text convention that user input can c
 
 A `job` item of `background-jobs` is never an in-Run item. `run-steering` delivers it at a step
 boundary in the delivered message of the owner. When that delivery has no owner message item, or
-when the host starts a Run for it, a host message carries it. A host message MUST hold only
-`interrupted`, `job`, and `compaction` context items, and no text part.
+when the host starts a Run for it, a host message carries it. A host message MUST hold
+context items only, and no text part.
 
 #### Scenario: Two items are injected on one turn
 
