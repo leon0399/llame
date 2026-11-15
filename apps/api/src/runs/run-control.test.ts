@@ -39,6 +39,19 @@ describe('parseRunControl', () => {
     });
   });
 
+  it('parses a job-stop pointer without trusting a supplied owner', () => {
+    expect(
+      parseRunControl(
+        JSON.stringify({
+          kind: 'job-stop',
+          jobId: RUN_ID,
+          ownerUserId: 'untrusted',
+        }),
+      ),
+    ).toEqual({ kind: 'job-stop', jobId: RUN_ID });
+    expect(parseRunControl('{"kind":"job-stop","jobId":1}')).toBeUndefined();
+  });
+
   it('answers undefined for text that is not JSON', () => {
     expect(parseRunControl('{not json')).toBeUndefined();
   });

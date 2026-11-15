@@ -6,7 +6,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
-import * as schema from '../../db/schema';
 import { TenantDbService } from '../../db/tenant-db.service';
 import {
   evaluateCanonicalLinePredicates,
@@ -25,7 +24,7 @@ describeIfDb('canonical search PostgreSQL line predicates', () => {
   beforeAll(() => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL!, { ssl, max: 2 });
-    tenantDb = new TenantDbService(drizzle(sqlClient, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sqlClient }));
   });
 
   afterAll(async () => {

@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { MessagesRepository } from '../chats/chats-repository';
-import * as schema from '../db/schema';
+
 import {
   type Run,
   type RunEvent,
@@ -33,6 +33,9 @@ const run: Run = {
   createdAt: now,
   startedAt: now,
   finishedAt: now,
+  wakeGeneration: 0,
+  currentJobId: null,
+  awaiting: null,
   effort: null,
   permissionMode: 'default',
   followUpAction: null,
@@ -61,7 +64,7 @@ function event(
 }
 
 describe('finalizeUsageCompleteness', () => {
-  const tx: Db = drizzle.mock({ schema });
+  const tx: Db = drizzle.mock();
 
   afterEach(() => {
     vi.restoreAllMocks();

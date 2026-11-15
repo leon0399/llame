@@ -6,7 +6,6 @@ import {
 } from '@workspace/machine-protocol';
 import { type MediaReadHook } from '@workspace/native-file-tools';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
@@ -86,7 +85,7 @@ function context(
   connector: MachineConnector,
   overrides: Partial<ToolContext> = {},
 ): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner',
@@ -1171,6 +1170,63 @@ describe('Machine bash', () => {
 
     expect(result).toMatchObject({ status: 'error', type: 'timed_out' });
     expect(JSON.stringify(result)).not.toContain('SECRET');
+  });
+
+  it('A remote command still ends at its deadline and is never backgrounded', async () => {
+    stubFence();
+
+    const { peer, connector } = fixture({
+      answers: { 'proc.bash': { hold: true } },
+    });
+
+    const startedAt = Date.now();
+
+    const result = await runTool(
+      bashTool,
+      { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
+      context(connector),
+      0.05,
+    );
+
+    expect(peer.sessions.length).toBeGreaterThan(0);
+    expect(result).toMatchObject({ status: 'error', type: 'outcome_unknown' });
+    expect(result).not.toHaveProperty('backgrounded');
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+  });
+
+  it('Proven-stopped timeout is known and the next call runs on a machine directory', async () => {
+    stubFence();
+    let answered = 0;
+
+    const { connector } = fixture({
+      answer: () =>
+        answered++ === 0
+          ? {
+              value: {
+                status: 'error',
+                type: 'timed_out',
+                durationMs: 100,
+                stdout: 'before the stop',
+                stderr: '',
+                truncated: false,
+              },
+            }
+          : { value: BASH_OK },
+    });
+
+    const call = (id: string) =>
+      runTool(
+        bashTool,
+        { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
+        context(connector, { toolCallId: id }),
+        5,
+      );
+
+    const first = await call('call-1');
+
+    expect(first).toMatchObject({ status: 'error', type: 'timed_out' });
+    expect(JSON.stringify(first)).toContain('before the stop');
+    await expect(call('call-2')).resolves.toMatchObject({ status: 'success' });
   });
 
   it('runs in the given Machine directory without a local executor', async () => {

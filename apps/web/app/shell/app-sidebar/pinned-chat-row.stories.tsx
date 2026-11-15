@@ -5,9 +5,11 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@workspace/ui/components/sidebar";
-import { expect, screen, userEvent, within } from "storybook/test";
+import { expect, mocked, screen, userEvent, within } from "storybook/test";
 import { useDragControls } from "framer-motion";
 
+import * as activeRunsContext from "@/contexts/active-runs-context";
+import { emptyActiveRuns } from "@/contexts/__mocks__/active-runs-context";
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { PinnedChatRow } from "./app-sidebar-pinned";
 
@@ -20,6 +22,10 @@ const chatPin: PinnedChat = {
   item: { id: "c1", title: "Trip to Lisbon", archivedAt: null },
 };
 
+const useActiveRuns = mocked(activeRunsContext.useActiveRuns, {
+  partial: true,
+});
+
 // The open rail menu portals and toggles aria-hidden on background siblings —
 // the documented Radix false positive. Disable only that rule.
 const menuPortalA11y = {
@@ -28,16 +34,25 @@ const menuPortalA11y = {
   },
 };
 
-function PinnedChatRowStory(props: { pin: PinnedChat }) {
+function PinnedChatRowStory(props: { pin: PinnedChat; runningJobs: number }) {
   const dragControls = useDragControls();
 
-  return <PinnedChatRow pin={props.pin} dragControls={dragControls} />;
+  return (
+    <PinnedChatRow
+      pin={props.pin}
+      dragControls={dragControls}
+      runningJobs={props.runningJobs}
+    />
+  );
 }
 
 const meta = {
   component: PinnedChatRowStory,
   tags: ["autodocs"],
-  args: { pin: chatPin },
+  args: { pin: chatPin, runningJobs: 0 },
+  beforeEach: () => {
+    useActiveRuns.mockReturnValue(emptyActiveRuns());
+  },
   decorators: [
     (Story) => (
       // Width-only frame: the row stays transparent and shows only its own
@@ -78,6 +93,42 @@ export const Basic: Story = { tags: ["ai-generated"] };
 export const Active: Story = {
   parameters: { nextjs: { navigation: { pathname: "/chat/c1" } } },
   tags: ["ai-generated"],
+};
+
+/**
+ * A pinned chat with a running background job shows its activity indicator.
+ *
+ * @summary pinned chat with background work
+ */
+export const BackgroundJobs: Story = {
+  args: { runningJobs: 1 },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByLabelText("Background work")).toBeVisible();
+    await expect(canvas.queryByLabelText("Generating response")).toBeNull();
+  },
+};
+
+/**
+ * A live Run waiting for jobs shows background activity in the pinned rail.
+ *
+ * @summary pinned chat with a Run awaiting jobs
+ */
+export const AwaitingJobs: Story = {
+  beforeEach: () => {
+    useActiveRuns.mockReturnValue({
+      ...emptyActiveRuns(),
+      activeChatIds: new Set(["c1"]),
+      runStatusByChatId: new Map([["c1", "awaiting_jobs" as const]]),
+    });
+  },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByLabelText("Background work")).toBeVisible();
+    await expect(canvas.queryByLabelText("Generating response")).toBeNull();
+  },
 };
 
 /**

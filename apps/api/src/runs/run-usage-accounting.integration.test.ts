@@ -176,24 +176,46 @@ function toolRequest(
 function providerStream(
   request: ProviderResponse,
 ): ReadableStream<LanguageModelV3StreamPart> {
-  return new ReadableStream({
-    async start(controller) {
-      controller.enqueue({ type: 'stream-start', warnings: [] });
+  const hasToolCall = request.parts.some((part) => part.type === 'tool-call');
+  let started = false;
+  let leadInComplete = false;
+  let partIndex = 0;
+  let tailComplete = false;
 
-      // A held-open stream, so a test can measure the time to the first
-      // content part and the generation window that follows it (#155).
-      if (request.leadInMs !== undefined) {
-        await holdOpen(request.leadInMs);
+  return new ReadableStream({
+    async pull(controller) {
+      if (!started) {
+        started = true;
+        controller.enqueue({ type: 'stream-start', warnings: [] });
+
+        return;
       }
 
-      const hasToolCall = request.parts.some(
-        (part) => part.type === 'tool-call',
-      );
+      if (!leadInComplete) {
+        leadInComplete = true;
 
-      for (const part of request.parts) controller.enqueue(part);
+        if (request.leadInMs !== undefined) {
+          await holdOpen(request.leadInMs);
+        }
+      }
 
-      if (request.tailMs !== undefined) {
-        await holdOpen(request.tailMs);
+      const part = request.parts[partIndex];
+
+      if (part !== undefined) {
+        partIndex += 1;
+        controller.enqueue(part);
+
+        return;
+      }
+
+      if (!tailComplete) {
+        tailComplete = true;
+
+        if (request.tailMs !== undefined) {
+          // Pull resumes only after the preceding queued part was consumed.
+          // Start the hold here so it is inside the measured generation window.
+          await holdOpen(request.tailMs);
+        }
       }
 
       controller.enqueue({
@@ -212,17 +234,16 @@ function providerStream(
 }
 
 /**
- * Holds for at least `ms` on the wall clock the run measures with. A Node timer
- * can fire a millisecond or two before `Date.now()` has advanced by `ms`, so
- * a bare `setTimeout` made the usage assertions below flaky.
+ * Holds for at least `ms` on the same monotonic clock as request accounting.
+ * Recheck the deadline after each timer because timers can fire early.
  */
 async function holdOpen(ms: number): Promise<void> {
-  const until = Date.now() + ms;
+  const until = performance.now() + ms;
 
-  for (let left = ms; left > 0; left = until - Date.now()) {
-    await new Promise((resolve) => {
-      setTimeout(resolve, left);
-    });
+  for (let left = ms; left > 0; left = until - performance.now()) {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, left);
+    await promise;
   }
 }
 
@@ -1054,50 +1075,57 @@ describe('Run usage accounting through the worker and Postgres', () => {
       .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
       .text();
 
+    const liveUsagesPromise = liveStream.then(metadataUsages);
+
     await enqueue(seed, modelId);
     await waitForStatus(seed.runId, 'completed');
 
     const reply = await waitForReply(seed.chatId, seed.userMessage.id);
-    expect(reply.usage).toMatchObject({
-      inputTokens: 120,
-      outputTokens: 300,
-      status: 'completed',
-      complete: true,
-      billing: 'usage',
-      modelId,
-      // One entry per text delta the adapter delivered.
-      chunkCount: 3,
-    });
-    // The provider held its content back for a second, so a stamp taken at the
-    // first streamed delta lands at the lead-in, not at the request's start.
-    expect(
-      numericUsageField(reply.usage, 'firstTokenMs'),
-    ).toBeGreaterThanOrEqual(1000);
-    // The generation window starts at that same delta, so the lead-in is
-    // outside it, and the ~1s the provider held its tail open is inside it.
-    const generationMs = numericUsageField(reply.usage, 'generationMs');
-    expect(generationMs).toBeGreaterThanOrEqual(1000);
-    expect(generationMs).toBeLessThan(
-      numericUsageField(reply.usage, 'latencyMs'),
-    );
-    // 300 output tokens over that window, with wall-clock tolerance for the
-    // test's own scheduling.
-    const tokensPerSecond = numericUsageField(reply.usage, 'tokensPerSecond');
-    expect(tokensPerSecond).toBeGreaterThan(150);
-    expect(tokensPerSecond).toBeLessThan(600);
-    expect(tokensPerSecond).toBeCloseTo(300 / (generationMs / 1000), 1);
 
-    const liveUsages = metadataUsages(await liveStream);
-    expect(liveUsages).toHaveLength(1);
-    expect(liveUsages[0]).toEqual(reply.usage);
+    try {
+      expect(reply.usage).toMatchObject({
+        inputTokens: 120,
+        outputTokens: 300,
+        status: 'completed',
+        complete: true,
+        billing: 'usage',
+        modelId,
+        // One entry per text delta the adapter delivered.
+        chunkCount: 3,
+      });
+      // The provider held its content back for a second, so a stamp taken at the
+      // first consumed delta lands at the lead-in, not at the request's start.
+      expect(
+        numericUsageField(reply.usage, 'firstTokenMs'),
+      ).toBeGreaterThanOrEqual(1000);
+      // The generation window starts at that same consumed delta, so the lead-in
+      // is outside it, and the tail hold after the last consumed part is inside.
+      const generationMs = numericUsageField(reply.usage, 'generationMs');
+      expect(generationMs).toBeGreaterThanOrEqual(1000);
+      expect(generationMs).toBeLessThan(
+        numericUsageField(reply.usage, 'latencyMs'),
+      );
+      // 300 output tokens over that monotonic window, with scheduling tolerance.
+      const tokensPerSecond = numericUsageField(reply.usage, 'tokensPerSecond');
+      expect(tokensPerSecond).toBeGreaterThan(150);
+      expect(tokensPerSecond).toBeLessThan(600);
+      expect(tokensPerSecond).toBeCloseTo(300 / (generationMs / 1000), 1);
 
-    const replayUsages = metadataUsages(
-      await bridge
-        .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
-        .text(),
-    );
+      const liveUsages = await liveUsagesPromise;
+      expect(liveUsages).toHaveLength(1);
+      expect(liveUsages[0]).toEqual(reply.usage);
 
-    expect(replayUsages).toHaveLength(1);
-    expect(replayUsages[0]).toEqual(liveUsages[0]);
+      const replayUsages = metadataUsages(
+        await bridge
+          .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+          .text(),
+      );
+
+      expect(replayUsages).toHaveLength(1);
+      expect(replayUsages[0]).toEqual(liveUsages[0]);
+    } finally {
+      // Settle the live response even if an assertion above fails.
+      await liveUsagesPromise;
+    }
   });
 });

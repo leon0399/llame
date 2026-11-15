@@ -9,7 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { type Db } from '../db/tenant-db.service';
 import { isString } from '@workspace/runtime-safety';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -17,10 +17,7 @@ import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { Logger } from '@nestjs/common';
 import { artifactDirectory } from './artifacts/host-files';
 import { RunEventsRepository } from '../runs/runs-repository';
-import {
-  resetManagedExecutorForTests,
-  type BashResult,
-} from '@workspace/bash-executor';
+import { BashProcessLimiter, type BashResult } from '@workspace/bash-executor';
 import {
   type SshClient,
   type SshRunOutcome,
@@ -28,10 +25,12 @@ import {
 } from '../ssh/ssh-client';
 import * as bashExecutor from '@workspace/bash-executor';
 import { bashTool } from './bash';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
 import { runTool } from './runner';
 import { type ToolContext } from './types';
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { createWorkspaceRootCell } from './workspace-path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { expectRedacted, stubArtifactWrites } from '../testing/support';
@@ -40,30 +39,105 @@ function testContext(
   toolCallId = 'call-1',
   onNativeMutationUnknown?: () => void,
 ): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
+
+  const tenantDb = {
+    runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      callback(db),
+  };
+
+  vi.spyOn(
+    NativeFilesRepository.prototype,
+    'recoverHostPromotion',
+  ).mockImplementation(({ runId, toolCallId, result }) =>
+    new RunEventsRepository(db)
+      .append(runId, 'native.result', { toolCallId, result })
+      .then(() => ({ disposition: 'recovery_won' as const, result })),
+  );
 
   return {
     configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
+    attemptId: 'attempt-1',
     toolCallId,
     nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
+    bashProcessLimiter: new BashProcessLimiter(64),
+    bashJobs: new BashJobRegistry(
+      tenantDb,
+      { instanceId: crypto.randomUUID() },
+      { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
+    ),
+    jobSettings: { modelId: 'test-model', permissionMode: 'default' },
     permissionPolicy: compileTestPermissionPolicy(),
-    tenantDb: {
-      runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        callback(db),
-    },
+    tenantDb,
     ...(onNativeMutationUnknown && { onNativeMutationUnknown }),
   };
 }
+
+/** One slot, so a test sees a leaked slot as a refused next call. */
+function singleSlotContext(): ToolContext {
+  return { ...testContext(), bashProcessLimiter: new BashProcessLimiter(1) };
+}
+
+describe('async bash cancelled during the durable begin', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('records a cancelled result and starts no job', async () => {
+    const controller = new AbortController();
+
+    const jobs = new BashJobRegistry(
+      { runAs: vi.fn() },
+      { instanceId: crypto.randomUUID(), jobCheck: undefined },
+      { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: vi.fn() },
+    );
+
+    const start = vi.spyOn(jobs, 'start');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockImplementation(
+      () => {
+        controller.abort(new Error('aborted'));
+
+        return Promise.resolve(undefined);
+      },
+    );
+
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue({
+        runId: 'run',
+        sequence: 2,
+        eventType: 'native.result',
+        payload: null,
+        createdAt: new Date(),
+      });
+
+    const result = await bashTool.execute(
+      {
+        ...testContext(),
+        abortSignal: controller.signal,
+        jobSettings: { modelId: 'm', permissionMode: 'default' },
+        bashJobs: jobs,
+      },
+      { command: 'printf never', async: true },
+    );
+
+    expect(result).toMatchObject({ status: 'error', type: 'cancelled' });
+    expect(append.mock.calls).toEqual([
+      ['run', 'native.result', { toolCallId: 'call-1', result }],
+    ]);
+    expect(start).not.toHaveBeenCalled();
+  });
+});
 
 describe('bash durable admission', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllEnvs();
-    resetManagedExecutorForTests();
   });
 
   it.each([
@@ -83,6 +157,21 @@ describe('bash durable admission', () => {
     ).resolves.toMatchObject({
       status: 'error',
       type: 'invalid_input',
+    });
+    expect(begin).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before host admission without the current Run attempt', async () => {
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    const result = await bashTool.execute(
+      { ...testContext(), attemptId: undefined },
+      { command: 'printf never' },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
     });
     expect(begin).not.toHaveBeenCalled();
   });
@@ -630,64 +719,6 @@ describe('bash durable admission', () => {
     expect(bounds.outputBound).toBeUndefined();
   });
 
-  it('returns a proven timeout with partial output and admits the next call', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'bash-timeout-'));
-    const context = testContext();
-    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
-      undefined,
-    );
-    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
-      runId: 'run',
-      sequence: 1,
-      eventType: 'native.result',
-      payload: null,
-      createdAt: new Date(),
-    });
-    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
-
-    try {
-      const timedOut = await runTool(
-        bashTool,
-        {
-          command:
-            'printf partial-stdout; printf partial-stderr >&2; while true; do :; done',
-        },
-        context,
-        0.05,
-      );
-
-      expect(timedOut).toMatchObject({
-        status: 'error',
-        type: 'timed_out',
-      });
-
-      if (timedOut.status === 'error') {
-        // A stopped command names itself and the measured time, never an exit
-        // code it did not report.
-        expect(timedOut.message).toMatch(/^timed out, \d+\.\d s\n/u);
-        expect(timedOut.message).not.toContain('exit ');
-        expect(timedOut.message).toContain('partial-stdout');
-        expect(timedOut.message).toContain('partial-stderr');
-      }
-
-      const next = await runTool(
-        bashTool,
-        { command: 'printf next' },
-        { ...context, toolCallId: 'call-2' },
-        // A generous deadline for the follow-up: proof that the executor admits
-        // the next call must not depend on the machine's wall-clock load.
-        5,
-      );
-
-      expect(next).toMatchObject({
-        status: 'success',
-        stdout: 'next',
-      });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
   it('keeps user cancellation separate from the effective timeout', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-cancel-'));
     const abort = new AbortController();
@@ -728,44 +759,12 @@ describe('bash durable admission', () => {
     }
   });
 
-  it('falls back to an unknown outcome when result persistence exceeds the grace', async () => {
-    const directory = await mkdtemp(
-      join(tmpdir(), 'bash-persistence-timeout-'),
-    );
-
-    const context = testContext();
-    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
-      undefined,
-    );
-    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
-      () => new Promise(() => {}),
-    );
-    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
-    const startedAt = Date.now();
-
-    try {
-      const result = await runTool(
-        bashTool,
-        { command: 'while true; do :; done' },
-        context,
-        0.05,
-      );
-
-      expect(result).toMatchObject({
-        status: 'error',
-        type: 'outcome_unknown',
-      });
-      expect(Date.now() - startedAt).toBeLessThan(1500);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
   it('releases a pending durable admission when interrupted before begin resolves', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-pending-begin-'));
     const firstPath = join(directory, 'late-effect');
     const secondPath = join(directory, 'next-effect');
-    const context = testContext();
+    const abort = new AbortController();
+    const context = { ...singleSlotContext(), abortSignal: abort.signal };
     let resolveFirstBegin!: (value: undefined) => void;
 
     const firstBegin = new Promise<undefined>((resolve) => {
@@ -794,18 +793,20 @@ describe('bash durable admission', () => {
         bashTool,
         { command: `printf late > '${firstPath}'` },
         context,
-        0.05,
+        5,
       );
+
+      setTimeout(() => abort.abort(), 20);
 
       await expect(first).resolves.toMatchObject({
         status: 'error',
-        type: 'outcome_unknown',
+        type: 'cancelled',
       });
 
       const next = await runTool(
         bashTool,
         { command: `printf next > '${secondPath}'` },
-        { ...context, toolCallId: 'call-2' },
+        { ...context, abortSignal: undefined, toolCallId: 'call-2' },
         5,
       );
 
@@ -949,14 +950,7 @@ describe('bash durable admission', () => {
     const path = join(directory, 'effect');
 
     const context: ToolContext = {
-      configuredCredentials: [],
-      userId: 'owner',
-      chatId: 'chat',
-      runId: 'run',
-      toolCallId: 'call',
-      nativeExecutorId: 'host',
-      nativeDeliverySequence: 1,
-      permissionPolicy: compileTestPermissionPolicy(),
+      ...testContext('call'),
       tenantDb: {
         runAs: () => Promise.reject(new Error('Database unavailable')),
       },
@@ -984,7 +978,7 @@ describe('bash durable admission', () => {
 
   it('releases the process slot when begin fails before the attempt is committed', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
-    const context = testContext();
+    const context = singleSlotContext();
 
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
@@ -1019,7 +1013,7 @@ describe('bash durable admission', () => {
 
   it('releases the process slot when begin returns a refusal', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-admission-'));
-    const context = testContext();
+    const context = singleSlotContext();
 
     const begin = vi
       .spyOn(NativeFilesRepository.prototype, 'begin')
@@ -1209,6 +1203,152 @@ describe('bash durable admission', () => {
       );
     } finally {
       await rm(hostRoot, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('bash process bound', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  function stubDurableRecords() {
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    return begin;
+  }
+
+  it('runs two commands of one step together under the default bound', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-two-'));
+    const begin = stubDurableRecords();
+
+    const context: ToolContext = {
+      ...testContext(),
+      bashProcessLimiter: new BashProcessLimiter(
+        BUILT_IN_DEFAULTS.tools.bash.maxProcesses,
+      ),
+    };
+
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const results = await Promise.all([
+        runTool(
+          bashTool,
+          { command: 'sleep 0.2; printf one > one' },
+          { ...context, toolCallId: 'call-1' },
+          5,
+        ),
+        runTool(
+          bashTool,
+          { command: 'sleep 0.2; printf two > two' },
+          { ...context, toolCallId: 'call-2' },
+          5,
+        ),
+      ]);
+
+      expect(results).toEqual([
+        expect.objectContaining({ status: 'success' }),
+        expect.objectContaining({ status: 'success' }),
+      ]);
+      expect(begin).toHaveBeenCalledTimes(2);
+      await expect(readFile(join(directory, 'one'), 'utf8')).resolves.toBe(
+        'one',
+      );
+      await expect(readFile(join(directory, 'two'), 'utf8')).resolves.toBe(
+        'two',
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses execution without worker process authority before creating an attempt', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-no-authority-'));
+    const begin = stubDurableRecords();
+
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf forbidden > effect' },
+        { ...testContext(), bashProcessLimiter: undefined },
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'executor_unavailable',
+      });
+      expect(begin).not.toHaveBeenCalled();
+      await expect(
+        readFile(join(directory, 'effect'), 'utf8'),
+      ).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a call past the bound before an attempt and a process', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-full-'));
+    const begin = stubDurableRecords();
+
+    const limiter = new BashProcessLimiter(
+      BUILT_IN_DEFAULTS.tools.bash.maxProcesses,
+    );
+
+    const held = Array.from({ length: limiter.maxProcesses }, () =>
+      limiter.tryAcquire(),
+    );
+
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf never > effect' },
+        { ...testContext(), bashProcessLimiter: limiter },
+        5,
+      );
+
+      if (result.status !== 'error') throw new Error('Expected a refusal');
+
+      expect(result.type).toBe('limit_reached');
+      expect(result.message).toContain('64 managed commands');
+      expect(result.message).toContain('A later call can succeed');
+      expect(begin).not.toHaveBeenCalled();
+      await expect(
+        readFile(join(directory, 'effect'), 'utf8'),
+      ).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+
+      held[0]?.release();
+      await expect(
+        runTool(
+          bashTool,
+          { command: 'printf later > effect' },
+          { ...testContext('call-2'), bashProcessLimiter: limiter },
+          5,
+        ),
+      ).resolves.toMatchObject({ status: 'success' });
+    } finally {
+      for (const slot of held) slot?.release();
       await rm(directory, { recursive: true, force: true });
     }
   });

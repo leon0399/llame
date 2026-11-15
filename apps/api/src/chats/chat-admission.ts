@@ -7,6 +7,7 @@
 
 import { ConflictException } from '@nestjs/common';
 
+import { type RunWaitService } from '../runs/run-wait.service';
 import { type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -38,8 +39,10 @@ async function blockerIsLive(input: {
 }): Promise<boolean> {
   let timer: NodeJS.Timeout | undefined;
 
+  const jobId = input.run.currentJobId ?? input.run.id;
+
   const state = await Promise.race([
-    input.dispatch.jobState(input.run.id),
+    input.dispatch.jobState(jobId),
     new Promise<'unreadable'>((resolve) => {
       timer = setTimeout(
         () => resolve('unreadable'),
@@ -58,6 +61,10 @@ async function blockerIsLive(input: {
       state === 'active'
     );
   }
+
+  // A recorded wake/deadline job exists from the transaction that records
+  // it. Only the initial run.id job receives the existing heartbeat grace.
+  if (input.run.currentJobId !== null) return false;
 
   const lastSignOfLife = input.run.startedAt ?? input.run.createdAt;
 
@@ -144,19 +151,33 @@ export async function clearActiveRunSlot(
 }
 
 /**
- * Tells the process that executes the Chat's live Run about a pending
- * `interrupt` item. Called in the transaction that stores or changes the item,
- * so the pointer is delivered on commit only; the listener confirms the item
- * itself (run-steering D6).
+ * Tells the process that executes the Chat's live Run about a pending `steer`
+ * or `interrupt` item. Called in the transaction that stores or changes the
+ * item, so the pointer is delivered on commit only; the listener confirms the
+ * item itself (run-steering D6).
  */
-export async function notifyLiveRunInterrupt(
+export async function notifyLiveRunSteering(
   tx: Db,
   chat: { chatId: string; userId: string },
+  kind: 'steer' | 'interrupt',
+  runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
 ): Promise<void> {
   const live = await new RunsRepository(tx).findActiveByChatId(
     chat.chatId,
     chat.userId,
   );
 
-  if (live) await notifyRunControl(tx, { runId: live.id, kind: 'interrupt' });
+  if (!live) return;
+
+  if (live.status === 'awaiting_jobs') {
+    await runWait.wakeForChatInTransaction(tx, {
+      chatId: chat.chatId,
+      userId: chat.userId,
+      kind,
+    });
+
+    return;
+  }
+
+  await notifyRunControl(tx, { runId: live.id, kind });
 }

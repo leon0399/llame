@@ -58,6 +58,7 @@ function chat(
     ownerUserId: "u1",
     title,
     lastMessage: null,
+    runningJobs: 0,
     visibility: "private",
     projectId,
     workspaceRoot: null,

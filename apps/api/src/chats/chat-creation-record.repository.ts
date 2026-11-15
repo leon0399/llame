@@ -45,7 +45,7 @@ export class ChatCreationRecordRepository {
       .onConflictDoUpdate({
         target: [chatCreationRecords.ownerUserId, chatCreationRecords.chatId],
         set: {
-          attempts: sql`${chatCreationRecords.attempts} || ${JSON.stringify([attempt])}::jsonb`,
+          attempts: sql`${chatCreationRecords.attempts} || ${sql.param([attempt])}::jsonb`,
         },
       });
   }

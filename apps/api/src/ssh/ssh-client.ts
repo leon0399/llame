@@ -359,13 +359,22 @@ function wireBoundedProcess(wiring: BoundedWiring): void {
     state.overflow ||= appended.overflow;
   });
   process.stdout.on('error', () => undefined);
-  process.onError((error) =>
+
+  const onProcessError = (error: Error) =>
     finish({
       outcome: 'failed',
       reason: isMissingClient(error) ? 'client_missing' : 'timed_out',
       diagnostic: error.message,
-    }),
-  );
+    });
+
+  process.stdin.on('error', (error: NodeJS.ErrnoException) => {
+    // A child can close stdin before ssh has consumed the complete input. Its
+    // exit event remains authoritative; other stream errors retain the
+    // existing process-error classification.
+    if (error.code === 'EPIPE') return;
+    onProcessError(error);
+  });
+  process.onError(onProcessError);
   process.onClose((code, signal) => {
     const snapshot = stderr.snapshot();
     finish({

@@ -396,6 +396,63 @@ a descendant that calls `setsid` leaves it. The
 [bash-execution spec](openspec/specs/bash-execution/spec.md) owns command
 inputs, output handling, bounds, and result shapes.
 
+The managed handle exposes output-activity subscriptions and bounded redacted
+snapshots while its child runs. Incremental snapshots reuse only a safe prefix:
+credential occurrences and Unicode surrogate pairs cannot cross the cached
+boundary. Each stream keeps its own truncation flag, including a timeout result.
+The worker's `BashJobRegistry` can promote a managed handle to a durable job.
+Host `bash` with `async: true` starts a job immediately. Promotion reserves the Chat's artifact number and
+stores the starting owner, Chat, Run, tool call, worker identity, pid, settings,
+deadline, artifact permission, and captured output. The registry retains the
+starting credential set and host-file decision after the tool context ends.
+An unsuccessful promotion stops the command.
+The projected working directory decides the target, so SSH and Machine calls
+refuse background fields, including a Machine Workspace's omitted `cwd`.
+An unlimited job needs `tools.jobs.allowUnlimited` (default false). Jobs keep
+the starting model, effort, and permission mode and survive a terminal Run.
+Owner API stops and Chat deletion record requests and notify the hosting worker;
+its control listener and heartbeat confirm each request in the owner's scope
+before stopping work. See [background jobs](docs/product/operator/background-jobs.md).
+
+Output uses the executor's bounded, safely redacted snapshots: a trailing
+credential prefix stays withheld until a later capture resolves it. New bytes
+flush at 16 KiB or one second after the first unflushed byte, with no idle
+writes. Settlement locks the Chat before the job, conditionally settles once,
+and retries deadlocks and serialization failures. An output over 2,000
+characters produces one whole-job artifact under the reserved number when
+artifact reads are admitted. Its write and chunk deletion use a savepoint;
+a failed artifact write leaves the settlement and stored increments intact.
+Host files are materialized only after commit under the starting Run's policy.
+
+The registry stops jobs at `tools.jobs.maxSeconds` from command start (default
+7,200; integer at least 60). A proven stop is `timed_out`; unproved process-group
+termination is `lost`. Natural exits map to `succeeded` or `failed`, with a
+nonzero code or terminating signal recorded. The non-global worker shutdown
+provider refuses commands and promotions, stops hosted work, and stores its
+output as `cancelled` / `worker` (or `lost` without proof) before the global
+queue module is destroyed. Winning settlements create one pending notice,
+including lost-on-touch settlement. A live Run receives pending notices at its
+next ordered boundary with steer and interrupt items; only that executing Run
+receives the signal. Stop-result consumption and exact restoration are atomic
+with persistence. An eligible settlement on an idle, unarchived Chat whose
+latest Run completed creates a host trigger, Run, notice attachments, and first
+queue job in the same transaction. The first pending notice supplies settings;
+invalid settings leave notices pending. Lost and cancelled jobs start no Run.
+Owner send, promotion, mode change, and follow-up admission adopt held notices;
+an ending Run returns notices it never dispatched. The read-only `wait` tool
+returns immediately for settled jobs or commits `awaiting_jobs` with its
+checkpoint and deadline job before releasing the worker slot. Settlement,
+steering, interruption, cancellation, or the durable deadline wakes that same
+Run. The first claimed wake records its real wait result and consumes exactly
+the listed settled-job notices in one fenced transaction. It preserves prior
+steps in the collector, provider history, and stored reply; an ordinary retry
+instead restarts a read-only segment or refuses native mutation replay as
+`outcome_unknown`. Other job notices and owner items are delivered before the
+resumed request. No open wait emits a synthetic SDK tool result. See
+[job locators](docs/product/reference/locators/job.md#pending-notices),
+[stop](docs/product/reference/tools/stop.md#behavior), and the
+[operator boundary](docs/product/operator/background-jobs.md#runtime-boundary).
+
 ## 14. Provider and model configuration
 
 Operators configure providers, models, defaults, secret references, and optional whole-file per-model system-prompt overrides in `llame.config.jsonc`. Omitted overrides use the packaged project default; invalid configured files fail startup rather than silently falling back. The optional `knowledge.root` is one absolute operator-owned process-local path; configuration loading validates its shape without probing the filesystem. The API exposes executable model metadata and routes opaque model ids without exposing host prompt paths. User BYOK does not ship. See [`instance-config`](openspec/specs/instance-config/spec.md), [`available-models`](openspec/specs/available-models/spec.md), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).

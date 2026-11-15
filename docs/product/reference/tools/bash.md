@@ -20,11 +20,13 @@ command on that remote host instead. It is not tenant isolation.
 
 ## Arguments
 
-| Argument  | Meaning                                      |
-| --------- | -------------------------------------------- |
-| `command` | the shell text to run under `bash -c`        |
-| `cwd`     | optional literal working directory           |
-| `env`     | optional string-record environment additions |
+| Argument    | Meaning                                                                     |
+| ----------- | --------------------------------------------------------------------------- |
+| `command`   | the shell text to run under `bash -c`                                       |
+| `cwd`       | optional literal working directory                                          |
+| `env`       | optional string-record environment additions                                |
+| `async`     | optional boolean; start a host command as a background job                  |
+| `unlimited` | optional boolean; request no job lifetime, only when the operator allows it |
 
 ## Result
 
@@ -36,6 +38,12 @@ the stderr when it is non-empty. A result with both streams empty says
 and a bracketed cap notice can end the text; a result only the global result cap
 shortened ends with its notice and no such marker. A stored result without a
 wall time renders the bare header.
+
+An asynchronous host command returns immediately with a `job://bash-<n>`
+locator, cause `async`, and elapsed time. Its text has no exit header:
+“The command continues in the background as job://bash-7. You get a notice
+when it settles. Do not poll it.” The durable
+[job record](../locators/job.md) holds its eventual state and captured outputs.
 
 A stream that does not fit its inline share keeps its first lines, one
 `[lines <a>-<b> omitted; …]` line, and its last lines. When the Run can read
@@ -58,6 +66,41 @@ measured one. The stored result keeps the exit code, both bounded streams, the
 operation or the executor.
 
 ## Behavior
+
+`async: true` is host-only. SSH and Machine directories reject either background
+field, even when false; a Machine Workspace's omitted working directory is a
+Machine target too. An unlimited request is refused before spawn unless the
+operator permits it. The model cannot provide a duration or override a bound.
+
+A foreground host command that runs past the foreground bound moves to the
+background. The bound is the lesser of the operator's foreground setting and
+the call timeout; see [background jobs](../../operator/background-jobs.md#bound-jobs).
+The call then returns `backgrounded` with cause `time`, the command keeps
+running as a job, and the output captured before the move is the start of its
+stored output. The call timeout never stops, rejects, or marks unknown a host
+command.
+
+A steer or interrupt received during a foreground host command also moves it
+to the background, with cause `message`. The model receives the authoritative
+tool result before the new message is delivered. The
+command keeps running, and its result carries no interrupt marker. One message
+can move every host command in the current step. A pending message also applies
+to a host command that starts before the step delivers it. Reads and `grep`
+continue to their results on a steer; an interrupt still cancels them. SSH and
+Machine commands keep their interrupt cancellation behavior, including a
+Machine Workspace call whose `cwd` is omitted.
+
+A failed move stops the command: a proved stop is a `timed_out` result with the
+captured output and a message that names the failed move, and an unproved stop is
+`outcome_unknown`. If the promotion's database outcome remains unresolved, the
+Run waits for its durable result, even beyond 750 ms. A committed promotion
+returns `backgrounded`. A Run cancellation stops a command that is still in
+the foreground, and never one that already moved. A command on an `ssh://` or
+`machine://` directory keeps its call deadline and does not move.
+
+A background job survives completion, failure, and cancellation of its starting
+Run. The composer's Stop leaves it running. The owner jobs API and Chat deletion
+can stop it, and its hosting worker stops it on orderly shutdown.
 
 `bash` accepts an optional literal `cwd` and string-record `env`. An absolute
 `cwd` is used as given; a relative `cwd` resolves from the Workspace root while
@@ -135,6 +178,11 @@ Each stream is bounded at the operator-configured byte bound
 the 32,000-unit stream bound of the Machine protocol. A cut stream is reported
 as `[output cut at the bound]`.
 
+Background jobs instead use the operator's job lifetime, measured from spawn.
+An allowed unlimited job has no lifetime. See
+[background jobs](../../operator/background-jobs.md) for operator settings,
+stop controls, and deployment behavior.
+
 When the Run can read artifacts and the write succeeds, a stream over its inline
 share is stored as one artifact part named `stdout` or `stderr` in one artifact,
 so the model reads the rest through `artifact://bash-<n>/<stream>`. The streams
@@ -144,10 +192,10 @@ bytes, and is marked incomplete when the byte bound cut it; a stream that parses
 as JSON is stored with the JSON content type.
 
 A call is a fresh process with no state carried into the next one. A Machine
-call shares the managed base, input, time, and process bounds but keeps its own
-32,000-unit stream bound. An `ssh://` command shares the host bounds: one
-`bash -s` process per call, the same stream bound, and the call's remaining
-time.
+call shares the managed base, input, and time bounds but keeps its own
+32,000-unit stream bound and its own process bound of one. An `ssh://` command
+shares the host bounds: one `bash -s` process per call, the same stream bound,
+the same process bound as a host command, and the call's remaining time.
 
 ## Errors
 
@@ -155,6 +203,14 @@ An unproven stop leaves the attempt `outcome_unknown` as a tool observation
 while the Run continues; inspect the workspace before retrying. See
 [mutation recovery](../mutation-recovery.md) for the durable attempt fence and
 crash-recovery termination.
+
+A call past the operator's worker process bound is `limit_reached`. The count
+holds foreground host commands and `ssh://` commands; see
+[managed command capacity](../../operator/native-files.md#managed-command-capacity).
+The refusal names the bound, says that a later call can succeed, and comes before
+any attempt is recorded, so the command did not run. A Machine command is not
+counted: its daemon has a separate process bound and answers `unavailable` when
+that bound is reached.
 
 A Machine command fails with `machine_not_found` for an unconfigured Machine and
 `machine_unavailable` before anything was sent; a command whose session is lost

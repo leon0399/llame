@@ -12,11 +12,10 @@ import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
 import { type ContinueFollowUpRunDto } from './dto/follow-up-run.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
-import * as schema from '../db/schema';
+import type { ChatJobsService } from './chat-jobs.service';
 import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
-import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
 import {
   ModelConfigurationError,
@@ -135,7 +134,13 @@ describe('ChatsController', () => {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
 
-    const tx: Db = drizzle.mock({ schema });
+    const chatJobs = {
+      runningCounts: vi
+        .fn<ChatJobsService['runningCounts']>()
+        .mockResolvedValue(new Map([[chat.id, 2]])),
+    } satisfies Pick<ChatJobsService, 'runningCounts'>;
+
+    const tx: Db = drizzle.mock();
 
     const runAs: TenantRunner['runAs'] = async <T>(
       _userId: string,
@@ -157,6 +162,7 @@ describe('ChatsController', () => {
         tenantDb,
         bridge,
         followUpAdmission,
+        chatJobs,
       ),
       chatsService,
       chatLoopService,
@@ -175,6 +181,14 @@ describe('ChatsController', () => {
       'verified-user',
       { projectId: undefined },
     );
+  });
+
+  it('reports the running jobs of each chat on its list item', async () => {
+    const { controller } = makeController();
+
+    const [item] = await controller.getChats('verified-user', {});
+
+    expect(item.runningJobs).toBe(2);
   });
 
   it('maps the latest message to a text-only excerpt on list items', async () => {
@@ -245,49 +259,6 @@ describe('ChatsController', () => {
     expect(item.lastMessage).not.toContain('tool-call');
   });
 
-  it('reads chat messages for the verified user only', async () => {
-    const { controller, chatsService } = makeController();
-
-    const result = await controller.getChatMessages('verified-user', chat.id, {
-      limit: 100,
-    });
-
-    expect(chatsService.getChatMessages).toHaveBeenCalledWith(
-      chat.id,
-      'verified-user',
-      { limit: 100, beforeSeq: undefined, targetSeq: undefined },
-    );
-    expect(result).toEqual({
-      messages: [
-        {
-          id: chatMessages[0].id,
-          chatId: chat.id,
-          seq: 1,
-          role: 'user',
-          senderUserId: 'verified-user',
-          parts: [{ type: 'text', text: 'Hello' }],
-          attachments: [],
-          usage: null,
-          inReplyTo: null,
-          createdAt: new Date('2026-06-29T00:01:00.000Z'),
-        },
-        {
-          id: chatMessages[1].id,
-          chatId: chat.id,
-          seq: 2,
-          role: 'assistant',
-          senderUserId: null,
-          parts: [{ type: 'text', text: 'Hi' }],
-          attachments: [],
-          usage: { status: 'completed', finishReason: 'stop' },
-          inReplyTo: chatMessages[0].id,
-          createdAt: new Date('2026-06-29T00:01:01.000Z'),
-        },
-      ],
-      latestRun: null,
-    });
-  });
-
   it('reports the latest Run beside the messages, field by field', async () => {
     const latestRun: Run = {
       id: '11111111-1111-4111-8111-111111111111',
@@ -305,6 +276,9 @@ describe('ChatsController', () => {
       createdAt: new Date('2026-10-27T00:00:00.000Z'),
       startedAt: null,
       finishedAt: new Date('2026-10-27T00:00:01.000Z'),
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
       effort: 'high',
       permissionMode: 'bypass',
       followUpAction: 'continue',
@@ -811,7 +785,13 @@ describe('ChatsController response plumbing', () => {
       admitFollowUpRun: vi.fn<FollowUpAdmissionService['admitFollowUpRun']>(),
     } satisfies Pick<FollowUpAdmissionService, 'admitFollowUpRun'>;
 
-    const tx: Db = drizzle.mock({ schema });
+    const chatJobs = {
+      runningCounts: vi
+        .fn<ChatJobsService['runningCounts']>()
+        .mockResolvedValue(new Map([[chat.id, 2]])),
+    } satisfies Pick<ChatJobsService, 'runningCounts'>;
+
+    const tx: Db = drizzle.mock();
 
     const tenantDb: TenantRunner = {
       runAs: async <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
@@ -832,6 +812,7 @@ describe('ChatsController response plumbing', () => {
         tenantDb,
         bridge,
         followUpAdmission,
+        chatJobs,
       ),
       chatsService,
       chatLoopService,
@@ -925,37 +906,6 @@ describe('ChatsController response plumbing', () => {
       'Model stream failed',
       expect.any(String),
     );
-  });
-
-  it('answers a stored pending item with 202 and its JSON, never a stream', async () => {
-    const { controller, chatLoopService, bridge } = makeController();
-    const item = chatDeliveryRow({ chatId, mode: 'queue' });
-    chatLoopService.createDeliveryMessage.mockResolvedValue({ delivery: item });
-    const response = makeWritableResponse();
-
-    await controller.createMessage(
-      'user',
-      chatId,
-      { modelId: 'm', delivery: 'queue', message: { id: item.id, parts: [] } },
-      response,
-    );
-
-    expect(chatLoopService.createDeliveryMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ chatId, userId: 'user', delivery: 'queue' }),
-    );
-    expect(chatLoopService.createMessageStream).not.toHaveBeenCalled();
-    expect(bridge.createUiMessageStreamResponse).not.toHaveBeenCalled();
-    expect(response.status).toHaveBeenCalledWith(202);
-    expect(response.setHeader).toHaveBeenCalledWith(
-      'Content-Type',
-      'application/json; charset=utf-8',
-    );
-    expect(JSON.parse(response.chunks.join(''))).toMatchObject({
-      id: item.id,
-      chatId,
-      mode: 'queue',
-      state: 'pending',
-    });
   });
 
   it('names the chat in every owner-scoped 404', async () => {

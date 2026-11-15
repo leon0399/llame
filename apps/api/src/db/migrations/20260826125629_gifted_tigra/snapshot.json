@@ -1,0 +1,167 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e11bbee0-beae-44b5-8c74-6d023f3032a5",
+  "prevIds": ["618d374b-33f9-4c8e-9055-07cdc0b33225"],
+  "footprints": [
+    {
+      "statementType": "drop_index",
+      "statementTarget": ["index", "public", "pins", "pins_user_pinned_idx"],
+      "writes": [
+        "s|idx|public.pins_user_pinned_idx",
+        "n|idx|public.pins_user_pinned_idx",
+        "e|idx|public.pins_user_pinned_idx",
+        "n|rel|public.pins_user_pinned_idx"
+      ],
+      "reads": [
+        "e|tbl|public.pins",
+        "n|sch|public",
+        "e|col|public.pins.user_id",
+        "e|col|public.pins.pinned_at",
+        "e|col|public.pins.item_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "pins", "position"],
+      "writes": [
+        "s|col|public.pins.position",
+        "n|col|public.pins.position",
+        "e|col|public.pins.position"
+      ],
+      "reads": ["n|tbl|public.pins", "n|sch|public"]
+    },
+    {
+      "statementType": "add_unique",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": [
+        "s|uq|public.pins.pins_user_position_unique",
+        "n|uq|public.pins.pins_user_position_unique",
+        "e|uq|public.pins.pins_user_position_unique",
+        "n|con|public.pins.pins_user_position_unique",
+        "n|rel|public.pins_user_position_unique"
+      ],
+      "reads": [
+        "n|tbl|public.pins",
+        "n|sch|public",
+        "n|col|public.pins.user_id",
+        "n|col|public.pins.position"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": ["index", "public", "pins", "pins_user_position_idx"],
+      "writes": [
+        "s|idx|public.pins_user_position_idx",
+        "n|idx|public.pins_user_position_idx",
+        "e|idx|public.pins_user_position_idx",
+        "n|rel|public.pins_user_position_idx"
+      ],
+      "reads": [
+        "n|tbl|public.pins",
+        "n|sch|public",
+        "n|col|public.pins.user_id",
+        "n|col|public.pins.position",
+        "n|col|public.pins.item_id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "pins"],
+      "writes": [
+        "s|pol|public.pins.pins_owner_update",
+        "n|pol|public.pins.pins_owner_update",
+        "e|pol|public.pins.pins_owner_update"
+      ],
+      "reads": ["n|tbl|public.pins", "n|sch|public", "e|rls|public.pins"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "position",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_user_position_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "position",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "item_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_user_position_unique",
+        "nameExplicit": true,
+        "columns": ["user_id", "position"],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "pins",
+        "name": "pins_owner_update",
+        "as": "PERMISSIVE",
+        "for": "UPDATE",
+        "roles": ["public"],
+        "using": "user_id = current_setting('app.current_user_id', true)",
+        "withCheck": "user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"pins_user_pinned_idx\"]"
+    }
+  ]
+}

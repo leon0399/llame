@@ -18,6 +18,7 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type ModelSelectionValidator } from '../models/models.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { heartbeatSeconds } from '../runs/run-queues';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
@@ -105,6 +106,9 @@ const run: Run = {
   createdAt: now,
   startedAt: null,
   finishedAt: null,
+  wakeGeneration: 0,
+  currentJobId: null,
+  awaiting: null,
   effort: null,
   permissionMode: 'default' as const,
   followUpAction: null,
@@ -233,6 +237,11 @@ function makeService(options?: {
     .spyOn(ChatDeliveriesRepository.prototype, 'findById')
     .mockResolvedValue(undefined);
 
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'deliverPendingJobNotices',
+  ).mockResolvedValue(undefined);
+
   const messageIdTaken = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'messageIdTaken')
     .mockResolvedValue(false);
@@ -308,6 +317,9 @@ function makeService(options?: {
     bridge,
     dispatch,
     media,
+    {
+      wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+    } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
   );
 
   return {
@@ -1220,6 +1232,30 @@ describe('ChatLoopService.createDeliveryMessage', () => {
     ).resolves.toEqual({ delivery: stored });
     expect(findStoredItem).toHaveBeenCalledWith(ids.id, chat.ownerUserId);
     expect(insertPending).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses a job-produced item of the same Chat', async () => {
+    const { service, findStoredItem, createRun } = makeService();
+    findStoredItem.mockResolvedValue(
+      chatDeliveryRow({
+        id: ids.id,
+        chatId: chat.id,
+        producer: 'job',
+        mode: 'notice',
+      }),
+    );
+
+    await expect(
+      service.createDeliveryMessage({
+        ...input,
+        message: ids,
+        delivery: 'queue',
+      }),
+    ).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'Message id already exists',
+    });
     expect(createRun).not.toHaveBeenCalled();
   });
 

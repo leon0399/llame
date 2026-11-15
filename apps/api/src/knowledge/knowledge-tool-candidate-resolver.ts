@@ -1,6 +1,7 @@
 import { isBashTool } from '../tools/bash';
 import { isGrepTool } from '../tools/grep';
 import { isNativeFileTool } from '../tools/native-files';
+import { stopTool } from '../tools/stop';
 import { Inject, Injectable } from '@nestjs/common';
 
 import { type Db } from '../db/tenant-db.service';
@@ -114,6 +115,9 @@ export class KnowledgeToolCandidateResolver {
         machines
       );
     }
+
+    // `stop` ends jobs that only a native host executor starts.
+    if (tool === stopTool) return nativeExecutorId !== undefined;
 
     if (!isNativeFileTool(tool)) return true;
 

@@ -1885,6 +1885,38 @@ describe('llame-owned tool description templates', () => {
     ).toThrow('tools.promptFiles.bash: rendered description is empty');
   });
 
+  it('Description has the background instructions; An absent tool is not recommended', () => {
+    const model = { id: 'model' };
+    const renderer = createToolPromptRenderer({ configPath, models: [model] });
+
+    const without = renderer.render({
+      toolId: 'bash',
+      model,
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['bash'],
+    }).text;
+
+    expect(without).toContain(
+      '`async: true` starts a host command as a background job',
+    );
+    expect(without).toContain(
+      'You get a notice when it settles. Do not poll it.',
+    );
+    expect(without).not.toContain('Use `wait`');
+    expect(without).not.toContain('Use `stop`');
+
+    const withTools = renderer.render({
+      toolId: 'bash',
+      model,
+      anchor: TEST_ANCHOR,
+      admittedToolIds: ['bash', 'wait', 'stop'],
+    }).text;
+
+    expect(withTools).toContain(
+      'Use `wait` to wait for job settlement. Use `stop` to end a job.',
+    );
+  });
+
   it('renders packaged cross-tool advice only when the recommended tool is admitted', () => {
     // A configured model, so the packaged files also clear the boot probe.
     const model = { id: 'model' };

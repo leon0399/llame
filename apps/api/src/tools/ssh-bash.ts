@@ -17,7 +17,6 @@
 
 import {
   measureManagedInput,
-  reserveManagedProcessSlot,
   sanitizeKnownResult,
   streamOutputBound,
   unusableWorkingDirectory,
@@ -43,7 +42,7 @@ import {
   parseSshBashFrames,
   type SshBashFrames,
 } from '../ssh/ssh-script';
-import { managedBashContext } from './bash-limits';
+import { acquireBashSlot, managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
 import { spillBashResult } from './bash-spill';
 import { sshUnavailableResult, sshUnsupportedHostResult } from './ssh-results';
@@ -415,9 +414,9 @@ async function runWithSlot(
   executorContext: BashExecutorContext,
 ): Promise<ToolResult> {
   const budgetMs = bashBudgetMs(context, executorContext);
-  const slot = reserveManagedProcessSlot(executorContext);
+  const slot = acquireBashSlot(context);
 
-  if ('type' in slot) return toToolResult(slot);
+  if ('status' in slot) return slot;
 
   try {
     const preStart = preStartResult(context, budgetMs);

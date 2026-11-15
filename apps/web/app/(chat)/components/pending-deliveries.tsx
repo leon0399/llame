@@ -15,6 +15,7 @@ const MODE_LABEL = {
   steer: "Steer",
   interrupt: "Interrupt",
   queue: "Queued",
+  notice: "Notice",
 } as const;
 
 export type PendingDeliveriesProps = {
@@ -31,6 +32,7 @@ export type PendingDeliveriesProps = {
 /** What a row shows of the item: its text, or its attachment count for a
  *  message with no text. */
 function previewText(item: ChatDeliveryResponse): string {
+  if (item.producer === "job") return `${item.job} ${item.jobState}`;
   const text = deliveryText(item);
 
   if (text !== "") return text;
@@ -93,15 +95,19 @@ function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
 
   return (
     <div className="flex shrink-0 items-center">
-      <HurryActions {...hurry} />
-      <IconButtonTooltip
-        label="Edit"
-        aria-label={actionName("Edit", item)}
-        size="icon-sm"
-        onClick={() => onEdit(item)}
-      >
-        <PencilIcon />
-      </IconButtonTooltip>
+      {item.producer === "owner" && (
+        <>
+          <HurryActions {...hurry} />
+          <IconButtonTooltip
+            label="Edit"
+            aria-label={actionName("Edit", item)}
+            size="icon-sm"
+            onClick={() => onEdit(item)}
+          >
+            <PencilIcon />
+          </IconButtonTooltip>
+        </>
+      )}
       <IconButtonTooltip
         label="Delete"
         aria-label={actionName("Delete", item)}
@@ -129,13 +135,12 @@ function PendingRow(props: RowActionsProps) {
 }
 
 /**
- * The messages the owner sent that wait for the Run (run-steering D11), above
- * the composer in delivery order. A queue item can steer or interrupt now; a
- * steer item can interrupt now; every item can be edited (withdrawn back into
- * the composer) or deleted. With no live Run nothing delivers on its own, and
- * the label says so.
+ * Pending owner messages and job notices above the composer, in delivery
+ * order. Owner items can be hurried, edited, or
+ * deleted. A job notice shows its locator and state, and offers delete only.
+ * With no live Run, pending owner items are labelled paused.
  *
- * @summary pending steer and queue items above the composer
+ * @summary producer-aware pending items above the composer
  */
 export function PendingDeliveries({
   items,
@@ -146,7 +151,7 @@ export function PendingDeliveries({
 
   return (
     <section aria-label="Pending messages" className="mb-2">
-      {paused && (
+      {paused && items.some((item) => item.producer === "owner") && (
         <p className="mb-1 px-1 text-xs text-muted-foreground">
           Paused — nothing runs until you send or steer an item
         </p>

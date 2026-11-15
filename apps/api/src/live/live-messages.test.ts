@@ -252,6 +252,7 @@ describe('recordJobFor', () => {
     run: vi.fn((o: string, id: string) =>
       Promise.resolve(o === owner && id === run ? runRecord : undefined),
     ),
+    runningJobs: vi.fn(() => Promise.resolve(new Map<string, number>())),
   };
 
   const load = (n: ChangeNotification) => {

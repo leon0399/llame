@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "f5e0bf7b-a729-49e1-bde1-1f2a60c7e3a2",
+  "prevIds": ["93fa6e8a-925c-4999-95d8-fc52b540bff1"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "context_items"],
+      "writes": [
+        "s|col|public.runs.context_items",
+        "n|col|public.runs.context_items",
+        "e|col|public.runs.context_items"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "context_items",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

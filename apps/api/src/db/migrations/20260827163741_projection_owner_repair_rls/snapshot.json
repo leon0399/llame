@@ -1,0 +1,28 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4c29b6b4-f4e9-4baf-83be-d50ef0940115",
+  "prevIds": ["f31abd23-d9aa-40c0-a211-6576bdae8b33"],
+  "footprints": [
+    {
+      "statementType": "alter_policy",
+      "statementTarget": ["table", "public", "search_chat_documents"],
+      "writes": [
+        "s|pol|public.search_chat_documents.search_chat_documents_owner"
+      ],
+      "reads": ["n|tbl|public.search_chat_documents", "n|sch|public"],
+      "sqlHash": "9245e5b5a56121db"
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "policies\u0000[\"public\",\"search_chat_documents\",\"search_chat_documents_owner\"]",
+      "set": {
+        "using": "current_setting('app.current_user_id', true) <> '' AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))",
+        "withCheck": "current_setting('app.current_user_id', true) <> '' AND owner_user_id = current_setting('app.current_user_id', true) AND chat_id IN (SELECT id FROM chats WHERE owner_user_id = current_setting('app.current_user_id', true))"
+      }
+    }
+  ]
+}

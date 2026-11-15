@@ -1,0 +1,1 @@
+ALTER TYPE "public"."run_status" ADD VALUE 'awaiting_jobs' BEFORE 'completed';

@@ -1,7 +1,13 @@
 import type { ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import type { Readable } from "node:stream";
-import type { BashResult } from "./types";
+import type {
+  BashResult,
+  ManagedBashHandle,
+  ManagedOutput,
+  ManagedStopCause,
+  ManagedStopResult,
+} from "./types";
 import { completeAttemptUnknown } from "./attempt-ledger";
 import {
   stopProcessGroup,
@@ -14,17 +20,32 @@ import {
   type StreamBound,
 } from "./output-bound";
 import { sanitizeKnownResult } from "./sanitize";
+import {
+  emptySnapshotCaches,
+  snapshotOutput,
+  type SnapshotCache,
+} from "./snapshot-cache";
 import type { BashExecutorContext, BashKnownResult } from "./types";
+import {
+  subscribeOutput,
+  captureWithActivity,
+  deferred,
+  NO_OUTPUT,
+  outputOf,
+} from "./managed-output";
 
 const OUTPUT_DRAIN_BUDGET_MS = 50;
 
 export type WatchRequest = {
   readonly context: BashExecutorContext;
   readonly attemptId: string;
+  /** Whether the caller supplies a per-call deadline or a command lifetime. */
+  readonly deadline: boolean;
   readonly options: {
     readonly signal?: AbortSignal;
     readonly timeoutSignal?: AbortSignal;
     readonly timeoutMs?: number;
+    readonly lifetimeMs?: number;
     readonly protectedValues?: ReadonlyArray<string>;
   };
 };
@@ -58,6 +79,7 @@ type WatchControls = {
 };
 
 type WatchSession = {
+  readonly snapshots: { stdout: SnapshotCache; stderr: SnapshotCache };
   readonly child: ChildProcess;
   readonly pgid: number;
   readonly request: WatchRequest;
@@ -66,6 +88,7 @@ type WatchSession = {
   readonly streams: StreamState;
   readonly controls: WatchControls;
   readonly finish: (result: BashResult) => void;
+  readonly outputListeners: Set<(bytes: number) => void>;
 };
 
 type OutputDrainState = {
@@ -88,64 +111,133 @@ function emptyStream(): CapturedStream {
   };
 }
 
-/** One call's streams, each with its own decoder and its measure used so far. */
-function emptyStreams(): StreamState {
-  return { stdout: emptyStream(), stderr: emptyStream() };
-}
+/** What a caller of the watcher can do while the child runs. */
+export type ManagedWatch = Omit<ManagedBashHandle, "pid">;
 
 export function watchManagedChild(
   child: ChildProcess,
   request: WatchRequest,
-  resolve: (result: BashResult) => void,
-): void {
+  resolve: (result: BashResult) => void = () => undefined,
+): ManagedWatch {
   const controls: WatchControls = { settling: false };
-  const streams = emptyStreams();
-  const finish = once(resolve, () => clearWatch(request, controls));
+  const { promise: settled, resolve: resolveSettled } = deferred<BashResult>();
+  let settledOutput: ManagedOutput | undefined;
+
+  const finish = once(
+    (result) => {
+      if ("stdout" in result) settledOutput = outputOf(result);
+      resolve(result);
+      resolveSettled(result);
+    },
+    () => clearWatch(request, controls),
+  );
+
   const pgid = child.pid;
 
-  if (pgid === undefined) {
-    child.once("error", () => {});
-    finish({
-      status: "error",
-      type: "unavailable",
-      message: "Configured tool could not be started.",
-    });
-
-    return;
-  }
+  if (pgid === undefined) return unstartedWatch(child, finish, settled);
 
   const session: WatchSession = {
     child,
     pgid,
     request,
     startedAtMs: performance.now(),
-    streams,
+    streams: { stdout: emptyStream(), stderr: emptyStream() },
+    snapshots: emptySnapshotCaches(),
     controls,
     finish,
+    outputListeners: new Set(),
   };
 
   armAbort(session);
-  armDeadline(session);
+
+  if (request.deadline) armDeadline(session);
   attachStreams(session);
   armExit(session);
+
+  return {
+    settled,
+    snapshot: () => settledOutput ?? snapshotOutput(session),
+    onOutput: (listener) => subscribeOutput(session.outputListeners, listener),
+    stop: (cause) => stopSession(session, cause, settled),
+  };
+}
+
+/** A child with no pid never started: it settles as unavailable at once. */
+function unstartedWatch(
+  child: ChildProcess,
+  finish: (result: BashResult) => void,
+  settled: Promise<BashResult>,
+): ManagedWatch {
+  child.once("error", () => {});
+  finish({
+    status: "error",
+    type: "unavailable",
+    message: "Configured tool could not be started.",
+  });
+
+  return {
+    settled,
+    snapshot: () => NO_OUTPUT,
+    onOutput: () => () => undefined,
+    stop: () => Promise.resolve({ proved: true, ...NO_OUTPUT }),
+  };
+}
+
+/**
+ * The deadline's settle path for a caller that owns the deadline: kill the
+ * group, prove it empty, drain for the budget, and return the streams. A stop
+ * that finds the command already settling waits for that settlement.
+ */
+async function stopSession(
+  session: WatchSession,
+  cause: ManagedStopCause,
+  done: Promise<BashResult>,
+): Promise<ManagedStopResult> {
+  if (session.controls.settling) {
+    const result = await done;
+    const proved = !("type" in result && result.type === "outcome_unknown");
+
+    return {
+      proved,
+      ...outputOf(
+        "stdout" in result ? result : knownCloseResult(1, session, true),
+      ),
+    };
+  }
+
+  session.controls.settling = true;
+
+  if (!(await stopProcessGroup(session.pgid))) {
+    session.finish(completeAttemptUnknown(session.request.attemptId));
+
+    return {
+      proved: false,
+      ...outputOf(knownCloseResult(1, session, true)),
+    };
+  }
+
+  await drainOutput(session);
+  const output = outputOf(knownCloseResult(1, session, true));
+  session.finish({
+    status: "error",
+    type: "cancelled",
+    message: `Command was stopped (${cause}).`,
+  });
+
+  return { proved: true, ...output };
 }
 
 function clearWatch(
   request: WatchRequest,
   controls: WatchSession["controls"],
 ): void {
-  if (controls.timer !== undefined) clearTimeout(controls.timer);
+  const { signal, timeoutSignal } = request.options;
+  const { timer, onAbort, onTimeout } = controls;
+  clearTimeout(timer);
 
-  if (controls.onAbort) {
-    request.options.signal?.removeEventListener("abort", controls.onAbort);
-  }
+  if (onAbort) signal?.removeEventListener("abort", onAbort);
 
-  if (controls.onTimeout) {
-    request.options.timeoutSignal?.removeEventListener(
-      "abort",
-      controls.onTimeout,
-    );
-  }
+  if (onTimeout) timeoutSignal?.removeEventListener("abort", onTimeout);
 }
 
 function armAbort(session: WatchSession): void {
@@ -189,22 +281,25 @@ async function settleAbort(session: WatchSession): Promise<void> {
 
 function armDeadline(session: WatchSession): void {
   const timeoutSignal = session.request.options.timeoutSignal;
+  const onTimeout = () => void settleDeadline(session);
+  session.controls.onTimeout = onTimeout;
+  timeoutSignal?.addEventListener("abort", onTimeout, { once: true });
 
-  if (timeoutSignal !== undefined) {
-    session.controls.onTimeout = () => {
-      void settleDeadline(session);
-    };
+  const durationMs = effectiveDeadlineMs(session);
+  const deadlineAt = session.startedAtMs + durationMs;
 
-    timeoutSignal.addEventListener("abort", session.controls.onTimeout, {
-      once: true,
-    });
-  }
+  const arm = (remaining: number) => {
+    session.controls.timer = setTimeout(
+      remaining > 2_147_483_647
+        ? () => arm(deadlineAt - performance.now())
+        : onTimeout,
+      Math.max(0, Math.min(remaining, 2_147_483_647)),
+    );
+  };
 
-  session.controls.timer = setTimeout(() => {
-    void settleDeadline(session);
-  }, effectiveDeadlineMs(session));
+  arm(durationMs);
 
-  if (timeoutSignal?.aborted) session.controls.onTimeout?.();
+  if (timeoutSignal?.aborted) onTimeout();
 }
 
 async function settleDeadline(session: WatchSession): Promise<void> {
@@ -227,16 +322,16 @@ async function settleDeadline(session: WatchSession): Promise<void> {
     ...(output.wallTimeMs !== undefined && {
       wallTimeMs: output.wallTimeMs,
     }),
-    stdout: output.stdout,
-    stderr: output.stderr,
-    truncated: output.truncated,
+    ...outputOf(output),
   });
 }
 
 function effectiveDeadlineMs(session: WatchSession): number {
-  return Math.min(
-    session.request.context.durationMs,
-    session.request.options.timeoutMs ?? session.request.context.durationMs,
+  const { context, options } = session.request;
+
+  return (
+    options.lifetimeMs ??
+    Math.min(context.durationMs, options.timeoutMs ?? context.durationMs)
   );
 }
 
@@ -386,7 +481,8 @@ async function settleExit(
     }
   }
 
-  session.finish(knownCloseResult(code, session, false));
+  const result = knownCloseResult(code, session, false);
+  session.finish(signal === null ? result : { ...result, signal });
 }
 
 function once(
@@ -409,12 +505,13 @@ function attachStreams(session: WatchSession): void {
     session.request.options.protectedValues ?? [],
   );
 
-  session.child.stdout?.on("data", (chunk: Buffer) => {
-    onStreamData(session.streams.stdout, chunk, capture);
-  });
-  session.child.stderr?.on("data", (chunk: Buffer) => {
-    onStreamData(session.streams.stderr, chunk, capture);
-  });
+  const receive = (stream: CapturedStream) =>
+    captureWithActivity(session.outputListeners, stream, (chunk) =>
+      onStreamData(stream, chunk, capture),
+    );
+
+  session.child.stdout?.on("data", receive(session.streams.stdout));
+  session.child.stderr?.on("data", receive(session.streams.stderr));
 }
 
 function onStreamData(
@@ -476,13 +573,11 @@ function appendCapture(
   const size = boundedLength(text, capture);
 
   if (used + size <= capture.limit) {
-    const exact: CapturedChunk = {
+    return {
       text: current + text,
       used: used + size,
       overflow: false,
     };
-
-    return exact;
   }
 
   const remainder: StreamBound = {
@@ -490,13 +585,11 @@ function appendCapture(
     limit: capture.limit - used,
   };
 
-  const clipped: CapturedChunk = {
+  return {
     text: current + cutToBound(text, remainder),
     used: capture.limit,
     overflow: true,
   };
-
-  return clipped;
 }
 
 function knownCloseResult(
@@ -522,6 +615,7 @@ function knownCloseResult(
     stdout: streams.stdout.text,
     stderr: streams.stderr.text,
     truncated: stdoutTruncated || stderrTruncated,
+    truncatedStreams: { stdout: stdoutTruncated, stderr: stderrTruncated },
     wallTimeMs: Math.round(performance.now() - session.startedAtMs),
   };
 

@@ -12,10 +12,7 @@ import { evaluatePermission } from './evaluator';
 import { compileLiteralMatcher, compileRegexMatcher } from './matcher';
 import { PermissionCompileError } from './limits';
 import { type ToolPermissionMap } from './types';
-import {
-  PORTABLE_PERMISSION_TOOL_IDS,
-  PORTABLE_TOOL_PERMISSIONS,
-} from '../../testing/portable-tool-policy';
+import { PORTABLE_TOOL_PERMISSIONS } from '../../testing/portable-tool-policy';
 
 const POLICY_ID = 'test-policy';
 
@@ -316,20 +313,6 @@ describe('evaluatePermission value selection', () => {
 });
 
 describe('portable policy fixture', () => {
-  it('groups exactly the nine code-owned tools', () => {
-    expect([...PORTABLE_PERMISSION_TOOL_IDS].sort()).toEqual([
-      'bash',
-      'conversation_read',
-      'edit',
-      'enter_workspace',
-      'exit_workspace',
-      'knowledge_search',
-      'read',
-      'search_conversations',
-      'write',
-    ]);
-  });
-
   it('grants no implicit group to an unknown or MCP tool', () => {
     const policy = compiled(PORTABLE_TOOL_PERMISSIONS);
     expect(

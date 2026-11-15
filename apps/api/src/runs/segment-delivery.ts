@@ -8,6 +8,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type StoppedCall } from '../chats/interrupted-notice';
 import { type ChatDelivery, type Message, type Run } from '../db/schema';
@@ -23,6 +24,7 @@ import {
   type BillingCatalog,
 } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import { finalizeUsageCompleteness } from './usage-completeness';
 
 /**
@@ -90,8 +92,8 @@ export type DeliveredBoundary = Extract<
   { kind: 'delivered' }
 >;
 
-/** What caused a delivery: an `interrupt` item among the items, or only steers. */
-export type DeliveryCause = 'steer' | 'interrupt';
+/** What caused a delivery: an interrupt, owner steer, or job notice. */
+export type DeliveryCause = 'steer' | 'interrupt' | 'notice';
 
 type DeliveryInput = {
   run: { runId: string; userId: string };
@@ -113,6 +115,8 @@ type DeliveryInput = {
    */
   stoppedCalls?: ReadonlyArray<StoppedCall>;
   models: BillingCatalog;
+  /** The configured liveness window for Chat job workers. */
+  deadWorkerAfterSeconds: number;
   /**
    * The first-epoch baselines the closing segment's attempt derived: a steer
    * closes its reply `completed`, the successful turn that establishes them.
@@ -126,12 +130,24 @@ async function storeDeliveredMessage(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<Message> {
-  const message = await new MessagesRepository(tx).createUserMessageIfAbsent({
-    id: randomUUID(),
-    chatId: locked.chatId,
-    senderUserId: locked.userId,
-    parts: items.flatMap((item) => item.parts),
-  });
+  const parts = items.flatMap((item) => item.parts);
+  const ownerAuthored = items.some((item) => item.producer === 'owner');
+
+  const message = ownerAuthored
+    ? await new MessagesRepository(tx).createUserMessageIfAbsent({
+        id: randomUUID(),
+        chatId: locked.chatId,
+        senderUserId: locked.userId,
+        parts,
+      })
+    : await new MessagesRepository(tx).create({
+        id: randomUUID(),
+        chatId: locked.chatId,
+        role: 'user',
+        senderUserId: null,
+        parts,
+        attachments: [],
+      });
 
   if (!message) {
     throw new Error(`Run ${locked.id} could not store its delivery.`);
@@ -167,7 +183,7 @@ export function closedTelemetry(
 }
 
 function closingAs(input: DeliveryInput, cause: DeliveryCause): DeliveryInput {
-  if (cause === 'steer') return input;
+  if (cause !== 'interrupt') return input;
   const { live, modelCompleted, telemetry } = input;
 
   return {
@@ -302,11 +318,12 @@ async function moveRunToDelivery(
 
 /**
  * One tenant transaction, in the Run-then-chat lock order. Locks the Run row
- * behind the attempt and cancel fences, then the chat row, then the Chat's
- * pending items. With none, it writes nothing. Otherwise it closes the current
- * segment's reply, stores the delivered message, marks the items delivered,
- * moves the Run onto that message under a fresh attempt, and appends
- * `run.delivered` (no `run.started`: the claim's delivery sequence stays
+ * behind the attempt and cancel fences, then the chat row. Settles jobs whose
+ * worker died before locking the Chat's pending items. With no pending item,
+ * it leaves the segment unchanged. Otherwise it closes the current segment's
+ * reply, stores the delivered message, marks the items delivered, moves the
+ * Run onto that message under a fresh attempt, and appends `run.delivered`
+ * (no `run.started`: the claim's delivery sequence stays
  * current). The cause is `interrupt` when the stop cut the step or an
  * `interrupt` item is among the locked items; an item the owner withdrew after
  * the step-end check cannot make that delivery an interrupt.
@@ -319,7 +336,7 @@ export async function deliverPendingSteering(
   tx: Db,
   input: DeliveryInput,
 ): Promise<BoundaryDelivery> {
-  const locked = await new RunsRepository(tx).lockForDelivery(
+  const locked = await new RunRowFenceRepository(tx).lockForDelivery(
     input.run.runId,
     input.run.userId,
     input.attemptId,
@@ -334,7 +351,13 @@ export async function deliverPendingSteering(
     return { kind: 'fenced' };
   }
 
-  const items = await new ChatDeliveriesRepository(tx).lockPendingSteering(
+  await new ChatJobsRepository(tx).settleOnDeadWorkers(
+    chatId,
+    userId,
+    input.deadWorkerAfterSeconds,
+  );
+
+  const items = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,
     userId,
   );
@@ -351,11 +374,20 @@ async function finishDelivery(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<DeliveredBoundary> {
+  const hasOwnerSteer = items.some(
+    (item) => item.producer === 'owner' && item.mode === 'steer',
+  );
+
+  const hasInterrupt = items.some(
+    (item) => item.producer === 'owner' && item.mode === 'interrupt',
+  );
+
   const cause: DeliveryCause =
-    input.stoppedCalls !== undefined ||
-    items.some((item) => item.mode === 'interrupt')
+    input.stoppedCalls !== undefined || hasInterrupt
       ? 'interrupt'
-      : 'steer';
+      : hasOwnerSteer
+        ? 'steer'
+        : 'notice';
 
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
@@ -363,7 +395,7 @@ async function finishDelivery(
     { locked, cause, items },
   );
 
-  if (cause === 'steer') {
+  if (cause === 'steer' && items.every((item) => item.producer === 'owner')) {
     await persistFirstEpochBaselines(tx, locked, input.baselines);
   }
 

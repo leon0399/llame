@@ -739,6 +739,7 @@ describe("reload parity (live message-metadata vs. history)", () => {
           seq: 2,
           role: "assistant",
           senderUserId: null,
+          host: false,
           parts: [{ type: "text", text: "hi" }],
           attachments: [],
           usage: persistedTelemetry,

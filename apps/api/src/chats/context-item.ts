@@ -49,6 +49,9 @@ export const CONTEXT_ITEM_PRODUCERS = [
   // An interrupt's notice leads its delivered message: it says the previous
   // step was cut, before any other item describes the state the model sees.
   'interrupted',
+  // A settlement notice follows the interruption marker, which explains why
+  // the previous response stopped, and precedes every other state description.
+  'job',
   'effective-context-change',
   // A Regenerate's disclosure of the calls it discarded follows the switch that
   // names the model making the new attempt, and precedes every other notice

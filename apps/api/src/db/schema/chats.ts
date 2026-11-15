@@ -24,6 +24,13 @@ import { projects } from './projects';
 import { type TurnToolAvailabilityEntry } from './model-context';
 import { type PermissionMode } from '../../tools/permissions/permission-mode';
 
+export type AwaitingJobs = {
+  toolCallId: string;
+  toolInput: { jobs: Array<string>; timeout?: number };
+  jobIds: Array<string>;
+  deadline: string;
+};
+
 export type RecencyDigestEntry = {
   title: string;
   date: string;
@@ -322,6 +329,7 @@ export const runStatus = pgEnum('run_status', [
   'running_sandbox',
   'updating_artifact',
   'summarizing',
+  'awaiting_jobs',
   'completed',
   'failed',
   'cancelled',
@@ -357,6 +365,11 @@ export const runs = pgTable(
     // system default later must not silently alter an already queued run.
     modelId: text('model_id').notNull(),
     status: runStatus('status').notNull().default('queued'),
+    // The current queue delivery that may claim or wake this Run.
+    wakeGeneration: integer('wake_generation').notNull().default(0),
+    currentJobId: uuid('current_job_id'),
+    // The open wait call and the jobs/deadline that govern its suspension.
+    awaiting: jsonb('awaiting').$type<AwaitingJobs>(),
     // Trusted native executor identity, bound by the first native file call.
     // Retained across queue claims so physical paths cannot move to another host.
     workerId: text('worker_id'),

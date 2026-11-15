@@ -130,13 +130,10 @@ export async function startItemRun(
     message,
   );
 
-  const delivered = await new ChatDeliveriesRepository(tx).markDelivered(
-    item.id,
-    item.ownerUserId,
-    { messageId: message.id, runId: run.id },
-  );
-
-  if (!delivered) throw new ItemNoLongerPending();
+  const delivered = await deliverPromotedItem(tx, item, {
+    messageId: message.id,
+    runId: run.id,
+  });
 
   return {
     delivered,
@@ -148,4 +145,28 @@ export async function startItemRun(
       userMessage: toRunUserMessage(message),
     },
   };
+}
+
+/** Commit the promoted owner item and its held results to the same trigger. */
+async function deliverPromotedItem(
+  tx: Db,
+  item: ChatDelivery,
+  target: { messageId: string; runId: string },
+): Promise<ChatDelivery> {
+  const deliveries = new ChatDeliveriesRepository(tx);
+  await deliveries.deliverPendingJobNotices(
+    item.chatId,
+    item.ownerUserId,
+    target,
+  );
+
+  const delivered = await deliveries.markDelivered(
+    item.id,
+    item.ownerUserId,
+    target,
+  );
+
+  if (!delivered) throw new ItemNoLongerPending();
+
+  return delivered;
 }

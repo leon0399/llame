@@ -6,12 +6,12 @@
  *   and the Run's progress for the owner's own changes;
  * - another owner's socket receives nothing for those changes (isolation).
  *
- * TEST_DATABASE_URL-gated; run by test:integration.
+ * Requires TEST_DATABASE_URL (throws without it); run by test:integration.
  */
 
 import { Test } from '@nestjs/testing';
 import { type INestApplication } from '@nestjs/common';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Server } from 'node:http';
 import request from 'supertest';
@@ -32,13 +32,25 @@ import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { LIVE_PATH } from './live-gateway.service';
+import { workerInstances } from '../db/schema';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
+import { newChatJob } from '../testing/chat-job-rows';
+import { ChangeHubService } from './change-hub.service';
+import { LIVE_CHANGE_LISTENER, ChangeListener } from './change-listener';
+import { LIVE_RECORD_LOADER, LiveRecordLoader } from './live-record-loader';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
-const describeIfDb = TEST_DB_URL ? describe : describe.skip;
+
+if (!TEST_DB_URL)
+  throw new Error(
+    'live-gateway.integration.test.ts requires TEST_DATABASE_URL; run pnpm --filter api test:integration',
+  );
 
 type Client = { socket: WebSocket; messages: Array<UnknownRecord> };
 
-describeIfDb('LiveGatewayService', () => {
+describe('LiveGatewayService', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let tenantDb: TenantDbService;
@@ -130,10 +142,77 @@ describeIfDb('LiveGatewayService', () => {
     return id;
   };
 
+  const jobProjection =
+    (chatId: string, count: number) => (message: UnknownRecord) =>
+      message['type'] === 'chat.upserted' &&
+      isRecord(message['chat']) &&
+      message['chat']['id'] === chatId &&
+      message['chat']['runningJobs'] === count;
+
+  async function createWorker() {
+    const id = crypto.randomUUID();
+    await tenantDb.runAs(users.a.id, (tx) =>
+      tx.insert(workerInstances).values({ id }),
+    );
+
+    return id;
+  }
+
+  function expireWorker(workerId: string) {
+    const deadAfter = workerDeadAfterSeconds(
+      app.get(InstanceConfigService).config,
+    );
+
+    return tenantDb.runAs(users.a.id, (tx) =>
+      tx
+        .update(workerInstances)
+        .set({
+          lastSeenAt: sql`now() - make_interval(secs => ${deadAfter + 1})`,
+        })
+        .where(eq(workerInstances.id, workerId)),
+    );
+  }
+
+  function storeJob(chatId: string, seq: number, workerInstanceId: string) {
+    return tenantDb.runAs(users.a.id, (tx) =>
+      new ChatJobsRepository(tx).insert(
+        newChatJob({ chatId, ownerUserId: users.a.id, seq, workerInstanceId }),
+      ),
+    );
+  }
+
+  function finishJobs(chatId: string, ids: ReadonlyArray<string>) {
+    return tenantDb.runAs(users.a.id, async (tx) => {
+      const jobs = new ChatJobsRepository(tx);
+
+      for (const id of ids)
+        await jobs.settle(chatId, users.a.id, id, { state: 'succeeded' });
+    });
+  }
+
   beforeAll(async () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
+      .overrideProvider(ChangeHubService)
+      .useFactory({
+        inject: [
+          LIVE_CHANGE_LISTENER,
+          LIVE_RECORD_LOADER,
+          InstanceConfigService,
+        ],
+        factory: (
+          listener: ChangeListener,
+          loader: LiveRecordLoader,
+          config: InstanceConfigService,
+        ) =>
+          new ChangeHubService(listener, loader, {
+            config: {
+              ...config.config,
+              runs: { ...config.config.runs, heartbeatSeconds: 0.025 },
+            },
+          }),
+      })
       .compile();
 
     app = mod.createNestApplication();
@@ -377,5 +456,88 @@ describeIfDb('LiveGatewayService', () => {
       type: 'machine.deleted',
       name,
     });
+  });
+  it('updates subscribed owner sockets on job start, lease expiry and revival without settling the job', async () => {
+    const a = await connect(users.a.cookie);
+    const b = await connect(users.b.cookie);
+    const chatId = await newChat(users.a.id);
+    const worker = await createWorker();
+    const job = await storeJob(chatId, 1, worker);
+
+    try {
+      await waitForMessage(a, jobProjection(chatId, 1));
+      a.messages.length = 0;
+      await expireWorker(worker);
+      await waitForMessage(a, jobProjection(chatId, 0));
+
+      a.messages.length = 0;
+      await tenantDb.runAs(users.a.id, (tx) =>
+        tx
+          .update(workerInstances)
+          .set({ lastSeenAt: sql`now()` })
+          .where(eq(workerInstances.id, worker)),
+      );
+      await waitForMessage(a, jobProjection(chatId, 1));
+
+      const stored = await tenantDb.runAs(users.a.id, (tx) =>
+        new ChatJobsRepository(tx).findById(chatId, users.a.id, job.id),
+      );
+
+      expect(stored).toMatchObject({ state: 'running', settledAt: null });
+      expect(JSON.stringify(b.messages)).not.toContain(chatId);
+    } finally {
+      a.socket.terminate();
+      b.socket.terminate();
+      await finishJobs(chatId, [job.id]);
+    }
+  });
+
+  it('pushes a zero projection to a new socket for jobs on an already expired worker', async () => {
+    const chatId = await newChat(users.a.id);
+    const worker = await createWorker();
+    const job = await storeJob(chatId, 1, worker);
+    await expireWorker(worker);
+    const client = await connect(users.a.cookie);
+
+    try {
+      await waitForMessage(client, jobProjection(chatId, 0));
+
+      const stored = await tenantDb.runAs(users.a.id, (tx) =>
+        new ChatJobsRepository(tx).findById(chatId, users.a.id, job.id),
+      );
+
+      expect(stored?.state).toBe('running');
+    } finally {
+      client.socket.terminate();
+      await finishJobs(chatId, [job.id]);
+    }
+  });
+
+  it('counts only jobs on the remaining worker and sends no foreign-owner projection', async () => {
+    const a = await connect(users.a.cookie);
+    const b = await connect(users.b.cookie);
+    const chatId = await newChat(users.a.id);
+    const firstWorker = await createWorker();
+    const secondWorker = await createWorker();
+    const first = await storeJob(chatId, 1, firstWorker);
+    const second = await storeJob(chatId, 2, secondWorker);
+
+    try {
+      await waitForMessage(a, jobProjection(chatId, 2));
+      a.messages.length = 0;
+      await expireWorker(firstWorker);
+      await waitForMessage(a, jobProjection(chatId, 1));
+      expect(JSON.stringify(b.messages)).not.toContain(chatId);
+
+      const stored = await tenantDb.runAs(users.a.id, (tx) =>
+        new ChatJobsRepository(tx).listByChat(chatId, users.a.id),
+      );
+
+      expect(stored.map((row) => row.state)).toEqual(['running', 'running']);
+    } finally {
+      a.socket.terminate();
+      b.socket.terminate();
+      await finishJobs(chatId, [first.id, second.id]);
+    }
   });
 });

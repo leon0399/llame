@@ -1,0 +1,68 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "aac5df4f-71cc-4c1f-bb01-f4a39a493d93",
+  "prevIds": ["54da4d0d-e8b2-4210-8be5-cbeb6d53da20"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "recency_digest_baseline"
+      ],
+      "writes": [
+        "s|col|public.chats.recency_digest_baseline",
+        "n|col|public.chats.recency_digest_baseline",
+        "e|col|public.chats.recency_digest_baseline"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "recency_digest_told"],
+      "writes": [
+        "s|col|public.chats.recency_digest_told",
+        "n|col|public.chats.recency_digest_told",
+        "e|col|public.chats.recency_digest_told"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "recency_digest_baseline",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "recency_digest_told",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

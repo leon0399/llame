@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, gt, lte, ne, or } from 'drizzle-orm';
 import { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
 import { type Session, sessions } from '../db/schema';
 
 export type SessionRecord = Session;
@@ -18,7 +17,7 @@ export type CreateSessionInput = {
 export class SessionsRepository {
   constructor(
     @Inject('DB_DEV')
-    private readonly db: PostgresJsDatabase<typeof schema>,
+    private readonly db: PostgresJsDatabase,
   ) {}
 
   async create(input: CreateSessionInput): Promise<SessionRecord> {

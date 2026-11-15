@@ -27,9 +27,8 @@ Before opening this PR (CONTRIBUTING.md, "PR contract"):
 
 ## Review budget
 
-<!-- Authored added+deleted lines against the immediate parent (target ≈2,000).
-     Report generated churn (lockfile, Drizzle snapshots, OpenAPI/client)
-     separately. Over budget: name the exception and why. -->
+<!-- Authored added+deleted lines against the immediate parent (preferred
+     target ≈2,000, not a limit). Report generated churn separately. -->
 
 ## Decisions to review
 

@@ -19,6 +19,12 @@ import {
   type ChatListItemResponse,
 } from '../chats/dto/chats.dto';
 import { MessagesRepository } from '../chats/messages-repository';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../instance-config/instance-config.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   toMachineResponse,
@@ -56,6 +62,7 @@ export type LiveRecordLoader = {
   ): Promise<ProjectResponse | undefined>;
   pins(owner: string): Promise<Array<PinnedItemResponse>>;
   run(owner: string, runId: string): Promise<RunResponse | undefined>;
+  runningJobs(owner: string): Promise<Map<string, number>>;
 };
 
 export const LIVE_RECORD_LOADER = Symbol('LIVE_RECORD_LOADER');
@@ -66,25 +73,44 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
     private readonly machines: MachinesStatusRepository,
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigReader,
   ) {}
 
   chat(owner: string, chatId: string) {
     return this.tenantDb.runAs(owner, async (tx) => {
-      const [chat, [lastMessage]] = await Promise.all([
+      const [chat, [lastMessage], running] = await Promise.all([
         new ChatsRepository(tx).findById(chatId, owner),
         new MessagesRepository(tx).findLatestPerOwnedChat(owner, chatId),
+        new ChatJobsRepository(tx).countRunning(
+          owner,
+          workerDeadAfterSeconds(this.instanceConfig.config),
+          chatId,
+        ),
       ]);
 
-      return chat ? toChatListItemResponse(chat, lastMessage) : undefined;
+      return chat
+        ? toChatListItemResponse(chat, lastMessage, running.get(chatId) ?? 0)
+        : undefined;
     });
+  }
+
+  /** Zero groups retain Chats whose stored running jobs have expired leases. */
+  runningJobs(owner: string) {
+    return this.tenantDb.runAs(owner, (tx) =>
+      new ChatJobsRepository(tx).countRunning(
+        owner,
+        workerDeadAfterSeconds(this.instanceConfig.config),
+      ),
+    );
   }
 
   /** The Chat's pending items, as `GET /api/v1/chats/:chatId/deliveries` lists them. */
   deliveries(owner: string, chatId: string) {
     return this.tenantDb.runAs(owner, async (tx) =>
-      (await new ChatDeliveriesRepository(tx).listPending(chatId, owner)).map(
-        toChatDeliveryResponse,
-      ),
+      (
+        await new ChatDeliveriesRepository(tx).listPendingViews(chatId, owner)
+      ).map(toChatDeliveryResponse),
     );
   }
 

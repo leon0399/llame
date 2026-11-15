@@ -4,7 +4,9 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import * as schema from '../db/schema';
 import { type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 
 type QueryCall = { method: string; args: Array<unknown> };
 
@@ -80,7 +82,7 @@ function makeDb(options: {
   insert?: Array<QueryRows>;
   update?: Array<QueryRows>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const calls: Array<QueryCall> = [];
   const selectResults = [...(options.select ?? [])];
   const insertResults = [...(options.insert ?? [])];
@@ -119,7 +121,6 @@ function makeLoggedDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: { logQuery: (sql, params) => queries.push({ sql, params }) },
   });
 
@@ -144,6 +145,9 @@ const run: Run = {
   createdAt: now,
   startedAt: null,
   finishedAt: null,
+  wakeGeneration: 0,
+  currentJobId: null,
+  awaiting: null,
   effort: null,
   permissionMode: 'default' as const,
   followUpAction: null,
@@ -282,30 +286,6 @@ describe('RunsRepository', () => {
     expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
     expect(queries[0]?.sql).toContain('"messages"."seq" < $');
     expect(queries[0]?.params).toEqual(['chat-bound', 'owner-bound', 10, 1]);
-  });
-
-  it('counts a run as dispatched by its availability record or its completion', async () => {
-    const { db, queries } = makeLoggedDb();
-    await new RunsRepository(db)
-      .findMostRecentDispatchedByChatMessageSequence(
-        'chat-bound',
-        'owner-bound',
-        { beforeSeq: 10 },
-      )
-      .catch(() => undefined);
-
-    expect(queries).toHaveLength(1);
-    expect(queries[0]?.sql).toContain(
-      '("runs"."turn_tool_availability" is not null or "runs"."status" = $3)',
-    );
-    expect(queries[0]?.sql).toContain('"messages"."seq" < $');
-    expect(queries[0]?.params).toEqual([
-      'chat-bound',
-      'owner-bound',
-      'completed',
-      10,
-      1,
-    ]);
   });
 
   it('reads runs by chat, active chat, active user, and owner-scoped id', async () => {
@@ -644,6 +624,22 @@ describe('RunEventsRepository reads', () => {
     expect(queries[0]?.sql).toContain('"run_events"."event_type" in (');
     expect(queries[1]?.sql).not.toContain('"run_events"."event_type" in (');
   });
+  it('filters event history to a specific attempt when requested', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunEventsRepository(db)
+      .listByRunId(run.id, run.userId, { attemptId: 'attempt-1' })
+      .catch(() => undefined);
+    await new RunEventsRepository(db)
+      .listByRunId(run.id, run.userId)
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain(
+      `"run_events"."payload"->>'attemptId' = $`,
+    );
+    expect(queries[0]?.params).toContain('attempt-1');
+    expect(queries[1]?.sql).not.toContain(`->>'attemptId'`);
+  });
 });
 
 describe('RunEventsRepository.findFirstByType ordering', () => {
@@ -660,5 +656,95 @@ describe('RunEventsRepository.findFirstByType ordering', () => {
 
     expect(queries[0]?.sql).toContain('order by "run_events"."sequence" asc');
     expect(queries[1]?.sql).toContain('order by "run_events"."sequence" desc');
+  });
+});
+
+describe('NativeReceiptsRepository.findNativeResult', () => {
+  it('queries only committed results for the owner and call', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new NativeReceiptsRepository(db)
+      .findNativeResult(run.id, run.userId, 'call-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"run_events"."event_type" = $');
+    expect(queries[0]?.sql).toContain('"run_events"."payload"');
+    expect(queries[0]?.params).toContain('call-1');
+  });
+
+  it('returns the stored result when a call has a committed receipt', async () => {
+    const nativeResult: RunEvent = {
+      ...event,
+      eventType: 'native.result',
+      payload: { toolCallId: 'call-1', result: { status: 'success' } },
+    };
+
+    const { db } = makeDb({ select: [[{ run_events: nativeResult }]] });
+
+    await expect(
+      new NativeReceiptsRepository(db).findNativeResult(
+        run.id,
+        run.userId,
+        'call-1',
+      ),
+    ).resolves.toBe(nativeResult);
+  });
+});
+
+describe('RunRowFenceRepository.lockHostPromotion', () => {
+  it('returns only an owned, current, nonterminal Run under row lock', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunRowFenceRepository(db)
+      .lockHostPromotion(run.id, run.userId, 'attempt-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."id" = $');
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"runs"."active_attempt_id" = $');
+    expect(queries[0]?.sql).toContain('for update');
+    expect(queries[0]?.params).toContain('attempt-1');
+  });
+
+  it('returns the locked Run, or no row when the fence misses', async () => {
+    const { db } = makeDb({ select: [[run], []] });
+    const repository = new RunRowFenceRepository(db);
+
+    await expect(
+      repository.lockHostPromotion(run.id, run.userId, 'attempt-1'),
+    ).resolves.toBe(run);
+    await expect(
+      repository.lockHostPromotion(run.id, run.userId, 'attempt-2'),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('RunRowFenceRepository.lockHostPromotionRecovery', () => {
+  it("locks the owner's current nonterminal Run, including after cancellation is requested", async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new RunRowFenceRepository(db)
+      .lockHostPromotionRecovery(run.id, run.userId, 'attempt-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"runs"."active_attempt_id" = $');
+    expect(queries[0]?.sql).toContain('for update');
+    expect(queries[0]?.sql).not.toContain('"runs"."cancel_requested_at"');
+  });
+});
+
+describe('NativeReceiptsRepository.hasNativeAttempt', () => {
+  it('checks the owner-scoped call attempt', async () => {
+    const { db, queries } = makeLoggedDb();
+
+    await new NativeReceiptsRepository(db)
+      .hasNativeAttempt(run.id, run.userId, 'call-1')
+      .catch(() => undefined);
+
+    expect(queries[0]?.sql).toContain('"runs"."user_id" = $');
+    expect(queries[0]?.sql).toContain('"run_events"."event_type" = $');
+    expect(queries[0]?.params).toContain('call-1');
   });
 });

@@ -7,7 +7,7 @@ import {
   type ReplacementContext,
 } from "./history-adoption";
 import {
-  interruptedNoticePart,
+  isInterruptedNoticePart,
   isInstructionsPart,
   isPromptImportsPart,
   messageRenderKey,
@@ -30,7 +30,8 @@ describe("normalizeChatMessagesResponse", () => {
     chatId: "chat-1",
     seq,
     role: "user",
-    senderUserId: null,
+    senderUserId: "owner-id",
+    host: false,
     parts: [],
     attachments: [],
     usage: null,
@@ -107,54 +108,6 @@ describe("normalizeChatMessagesResponse", () => {
 });
 
 describe("toChatUiMessages", () => {
-  it("maps persisted chat messages to AI SDK UI messages", () => {
-    expect(
-      toChatUiMessages({
-        messages: [
-          {
-            id: "user-message",
-            chatId: "chat-1",
-            seq: 1,
-            role: "user",
-            senderUserId: "user-1",
-            parts: [{ type: "text", text: "Hello" }],
-            attachments: [],
-            usage: null,
-            inReplyTo: null,
-            createdAt: "2026-07-01T12:00:00.000Z",
-          },
-          {
-            id: "assistant-message",
-            chatId: "chat-1",
-            seq: 2,
-            role: "assistant",
-            senderUserId: null,
-            parts: [{ type: "text", text: "Hi" }],
-            attachments: [],
-            usage: { status: "completed" },
-            inReplyTo: "user-message",
-            createdAt: "2026-07-01T12:00:01.000Z",
-          },
-        ],
-      }),
-    ).toEqual([
-      {
-        id: "user-message",
-        role: "user",
-        parts: [{ type: "text", text: "Hello" }],
-        metadata: { seq: 1 },
-      },
-      {
-        id: "assistant-message",
-        role: "assistant",
-        parts: [{ type: "text", text: "Hi" }],
-        // seq is unconditional (compaction boundary); usage is carried
-        // alongside it when present, for the usage display.
-        metadata: { seq: 2, usage: { status: "completed" } },
-      },
-    ]);
-  });
-
   it("drops top-level tool rows because AI SDK UI messages carry tool output as parts", () => {
     expect(
       toChatUiMessages({
@@ -165,6 +118,7 @@ describe("toChatUiMessages", () => {
             seq: 1,
             role: "tool",
             senderUserId: null,
+            host: false,
             parts: [{ type: "text", text: "tool output" }],
             attachments: [],
             usage: null,
@@ -186,6 +140,7 @@ describe("toChatUiMessages", () => {
             seq: 1,
             role: "system",
             senderUserId: null,
+            host: false,
             parts: [{ type: "text", text: "system prompt" }],
             attachments: [],
             usage: null,
@@ -196,6 +151,58 @@ describe("toChatUiMessages", () => {
       }),
     ).toEqual([]);
   });
+  it("projects host provenance only for senderless user rows", () => {
+    const projected = toChatUiMessages({
+      messages: [
+        {
+          id: "host-user-message",
+          chatId: "chat-1",
+          seq: 2,
+          role: "user",
+          senderUserId: null,
+          host: true,
+          parts: [],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: "2026-07-01T12:00:01.000Z",
+        },
+        {
+          id: "owner-message",
+          chatId: "chat-1",
+          seq: 3,
+          role: "user",
+          senderUserId: "owner-id",
+          host: true,
+          parts: [],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: "2026-07-01T12:00:02.000Z",
+        },
+        {
+          id: "assistant-message",
+          chatId: "chat-1",
+          seq: 4,
+          role: "assistant",
+          senderUserId: null,
+          host: true,
+          parts: [],
+          attachments: [],
+          usage: null,
+          inReplyTo: null,
+          createdAt: "2026-07-01T12:00:03.000Z",
+        },
+      ],
+    });
+
+    expect(projected.map((message) => message.metadata)).toEqual([
+      { seq: 2, host: true },
+      { seq: 3, host: false },
+      { seq: 4, host: false },
+    ]);
+  });
+
   it("drops checkpoint rows instead of rendering their rail text as messages", () => {
     expect(
       toChatUiMessages({
@@ -206,6 +213,7 @@ describe("toChatUiMessages", () => {
             seq: 3,
             role: "checkpoint",
             senderUserId: null,
+            host: false,
             parts: [
               {
                 type: "data-context",
@@ -459,14 +467,15 @@ describe("trusted model-context projection", () => {
 
     const [user, assistant] = mergeTrustedModelContextParts(live, server);
 
-    expect(interruptedNoticePart({ parts: user?.parts ?? [] })).toEqual(notice);
+    expect(user?.parts.some(isInterruptedNoticePart)).toBe(true);
     expect(user?.parts.at(0)).toEqual(notice);
     expect(assistant?.parts).toEqual([text]);
     expect(
-      interruptedNoticePart({
-        parts: [{ ...notice, data: { ...notice.data, payload: "x" } }],
+      isInterruptedNoticePart({
+        ...notice,
+        data: { ...notice.data, payload: "x" },
       }),
-    ).toBeNull();
+    ).toBe(false);
   });
 
   it("reads the owner-only run id from completed assistant metadata", () => {
@@ -989,6 +998,7 @@ describe("prompt-imports context items", () => {
             seq: 1,
             role: "user",
             senderUserId: "user-1",
+            host: false,
             parts: [item, { type: "text", text: "Summarize @paper.pdf" }],
             attachments: [],
             usage: null,

@@ -13,13 +13,18 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type StartedTestContainer } from 'testcontainers';
+import { BashProcessLimiter } from '@workspace/bash-executor';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
+import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { createMachineSshTransportFactory } from '../machines/machine-transport';
+import { waitFor } from '../testing/support';
 import {
   MACHINE_SSHD_SH_ALIAS,
+  MACHINE_SSHD_ROOT,
   startMachineSshd,
   type MachineSshd,
 } from '../testing/machine-sshd/machine-sshd';
@@ -34,6 +39,12 @@ import { runTool } from '../tools/runner';
 import { type ToolContext } from '../tools/types';
 import { createWorkspaceRootCell } from '../tools/workspace-path';
 
+function interruptCurrent(aborts: RunAbortRegistry, runId: string): void {
+  const segment = aborts.segmentOf(runId);
+
+  if (segment !== undefined) aborts.interrupt(runId, segment);
+}
+
 /** The call budget: enough for the containers' first SSH handshake. */
 const CALL_TIMEOUT_SECONDS = 30;
 
@@ -46,7 +57,7 @@ const INLINE_BUDGET = 16_000;
 /** The attempt ledger itself is stubbed; the context only needs a DB handle. */
 const tenantDb: TenantRunner = {
   runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-    callback(drizzle.mock({ schema })),
+    callback(drizzle.mock()),
 };
 
 const policy = compileToolPermissionMap(
@@ -109,6 +120,7 @@ describe('ssh bash over a real sshd', () => {
       runId: 'run',
       toolCallId: 'call',
       nativeDeliverySequence: 1,
+      bashProcessLimiter: new BashProcessLimiter(64),
       tenantDb,
       permissionPolicy: policy,
       sshClient,
@@ -321,8 +333,12 @@ describe('ssh bash over a real sshd', () => {
     });
   }, 60_000);
 
-  it('leaves a command cancelled after it started an unknown outcome', async () => {
-    const controller = new AbortController();
+  it('An interrupt cancels SSH bash even though its segment also yields', async () => {
+    const aborts = new RunAbortRegistry();
+    aborts.register('run', 'owner');
+    const segment = aborts.beginSegment('run', 'attempt');
+
+    if (segment === undefined) throw new Error('Missing active segment');
 
     // Cancel on the remote start marker itself, not on a guessed delay: the
     // abort lands in a microtask, after every stderr listener has the chunk,
@@ -335,7 +351,7 @@ describe('ssh bash over a real sshd', () => {
 
         if (/[0-9a-f]{32}:start/u.test(seen)) {
           seen = '';
-          queueMicrotask(() => controller.abort());
+          queueMicrotask(() => interruptCurrent(aborts, 'run'));
         }
       });
 
@@ -345,13 +361,81 @@ describe('ssh bash over a real sshd', () => {
     const result = await bash(
       { command: 'sleep 30', cwd: 'ssh://box/tmp' },
       client({ spawn }),
-      { abortSignal: controller.signal },
+      { abortSignal: segment.abort.signal, yieldSignal: segment.yield.signal },
     );
 
     expect(result).toMatchObject({
       status: 'error',
       type: 'outcome_unknown',
     });
+  }, 60_000);
+
+  it('An interrupt cancels a Machine Workspace command with omitted cwd', async () => {
+    const connection = fixture.connection();
+
+    const transport = createMachineSshTransportFactory({
+      ssh: connection.machines.ssh,
+    });
+
+    const machines = new MachineConnector({
+      machines: connection.machines,
+      hubVersion: '0.0.0-yield-test',
+      transportFactory: transport,
+    });
+
+    const aborts = new RunAbortRegistry();
+    aborts.register('run', 'owner');
+    const segment = aborts.beginSegment('run', 'attempt');
+
+    if (segment === undefined) throw new Error('Missing active segment');
+    const marker = `${MACHINE_SSHD_ROOT}/yield-${crypto.randomUUID()}`;
+
+    try {
+      const call = runTool(
+        bashTool,
+        { command: `echo $$ > ${marker}; exec sleep 30` },
+        {
+          ...context(client()),
+          machines,
+          workspaceRoot: createWorkspaceRootCell(
+            `machine://devl${MACHINE_SSHD_ROOT}`,
+          ),
+          abortSignal: segment.abort.signal,
+          yieldSignal: segment.yield.signal,
+        },
+        CALL_TIMEOUT_SECONDS,
+      );
+
+      const pid = await waitFor(
+        async () => {
+          const result = await fixture.box.exec(['cat', marker]);
+
+          return result.exitCode === 0
+            ? result.stdout.trim() || undefined
+            : undefined;
+        },
+        10_000,
+        'the Machine command to start',
+      );
+
+      interruptCurrent(aborts, 'run');
+      await expect(call).resolves.toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+      });
+      await waitFor(
+        async () => {
+          const result = await fixture.box.exec(['kill', '-0', pid]);
+
+          return result.exitCode !== 0 ? true : undefined;
+        },
+        10_000,
+        'the Machine command to stop',
+      );
+    } finally {
+      machines.onModuleDestroy();
+      transport.dispose();
+    }
   }, 60_000);
 
   it('reports an unreachable host as a known refusal', async () => {

@@ -50,10 +50,12 @@ import { resolveOwnerFileParts, toRunUserMessage } from './chat-message-parts';
 import {
   claimActiveRunSlot,
   clearActiveRunSlot,
-  notifyLiveRunInterrupt,
+  notifyLiveRunSteering,
 } from './chat-admission';
-import { ChatDeliveriesRepository } from './chat-deliveries.repository';
+import { RunWaitService } from '../runs/run-wait.service';
+import { retryRunTransaction } from '../runs/run-transaction';
 import { type SendableDeliveryMode } from './dto/chat-deliveries.dto';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { createRunForMessage } from './run-creation';
 
 /**
@@ -177,6 +179,8 @@ export class ChatLoopService {
     private readonly dispatch: RunDispatcher,
     @Inject(MediaService)
     private readonly media: MediaDescriber,
+    @Inject(RunWaitService)
+    private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
 
   /**
@@ -358,54 +362,84 @@ export class ChatLoopService {
     // opened: a file part naming media the sender does not own rejects the
     // message before any chat or message row is written. Media is immutable, so
     // reading it in its own transaction races nothing.
-    return this.tenantDb.runAs(input.userId, async (tx) => {
-      await this.takeCreationLock(tx, input);
-      const chatsRepo = new ChatsRepository(tx);
-      const messagesRepo = new MessagesRepository(tx);
+    return retryRunTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        await this.takeCreationLock(tx, input);
+        const chatsRepo = new ChatsRepository(tx);
+        const messagesRepo = new MessagesRepository(tx);
 
-      const { chat, createdByUs } = await this.resolveChat(chatsRepo, input);
-      const item = await this.findStoredItem(tx, chatsRepo, input, createdByUs);
+        const { chat, createdByUs } = await this.resolveChat(chatsRepo, input);
 
-      if (item) return { delivery: item };
+        const item = await this.findStoredItem(
+          tx,
+          chatsRepo,
+          input,
+          createdByUs,
+        );
 
-      const admittedMessage = await this.admitTurn(
-        chat,
-        createdByUs,
-        chatsRepo,
-        messagesRepo,
-        input,
-      );
+        if (item) return { delivery: item };
 
-      const pending = await this.admitToSlot(tx, input);
+        const admittedMessage = await this.admitTurn(
+          chat,
+          createdByUs,
+          chatsRepo,
+          messagesRepo,
+          input,
+        );
 
-      if (pending) return pending;
-
-      // The user message is persisted with only the caller's sanitized text
-      // and resolved file parts. Context-rail items (model-switch,
-      // availability, digest, temporal) are resolved by the executing worker
-      // and stored on this message by the attempt's dispatch transaction,
-      // before its first request.
-      const userMessage = await this.persistUserMessageIfAbsent(
-        messagesRepo,
-        admittedMessage,
-        input,
-        input.parts,
-      );
-
-      // Durable run (#48): every accepted user message becomes exactly one run
-      // (SPEC §9.3). The run row + run.created land in the SAME transaction as
-      // the user message, so a message can never exist without its execution
-      // record. Reusing a message id is rejected above; retries are a separate
-      // feature, not implicit idempotency.
-      const { run } = await createRunForMessage(tx, input, userMessage);
-
-      return {
-        runId: run.id,
-        userMessage: toRunUserMessage(userMessage),
-      };
-    });
+        return this.persistAcceptedMessageAndRun(
+          tx,
+          messagesRepo,
+          input,
+          admittedMessage,
+        );
+      }),
+    );
   }
 
+  /**
+   * Persist the accepted user message and its Run in the admission
+   * transaction, then release pending job notices to that Run.
+   */
+  private async persistAcceptedMessageAndRun(
+    tx: Db,
+    messagesRepo: MessagesRepository,
+    input: PersistUserMessageAndRunInput,
+    admittedMessage: Message | undefined,
+  ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer> {
+    const pending = await this.admitToSlot(tx, input);
+
+    if (pending) return pending;
+
+    // The user message is persisted with only the caller's sanitized text
+    // and resolved file parts. Context-rail items (model-switch,
+    // availability, digest, temporal) are resolved by the executing worker
+    // and stored on this message by the attempt's dispatch transaction,
+    // before its first request.
+    const userMessage = await this.persistUserMessageIfAbsent(
+      messagesRepo,
+      admittedMessage,
+      input,
+      input.parts,
+    );
+
+    // Durable run (#48): every accepted user message becomes exactly one run
+    // (SPEC §9.3). The run row + run.created land in the SAME transaction as
+    // the user message, so a message can never exist without its execution
+    // record. Reusing a message id is rejected above; retries are a separate
+    // feature, not implicit idempotency.
+    const { run } = await createRunForMessage(tx, input, userMessage);
+    await new ChatDeliveriesRepository(tx).deliverPendingJobNotices(
+      input.chatId,
+      input.userId,
+      { messageId: userMessage.id, runId: run.id },
+    );
+
+    return {
+      runId: run.id,
+      userMessage: toRunUserMessage(userMessage),
+    };
+  }
   /**
    * The single-flight step of admission. A send without `delivery` answers 409
    * while a live Run holds the slot. A delivery send stores the message as a
@@ -454,8 +488,8 @@ export class ChatLoopService {
 
     if (!created) throw new ConflictException('Message id already exists');
 
-    if (input.delivery === 'interrupt') {
-      await notifyLiveRunInterrupt(tx, input);
+    if (input.delivery === 'interrupt' || input.delivery === 'steer') {
+      await notifyLiveRunSteering(tx, input, input.delivery, this.runWait);
     }
 
     return { delivery: created };
@@ -510,11 +544,11 @@ export class ChatLoopService {
   }
 
   /**
-   * The pending item already stored under the message id of this send, in any
-   * state. A retry repeats the id, so the stored item answers it before the
-   * duplicate-id check would refuse the id and before any Run starts
-   * (run-steering D2); the same id held by an item of another Chat is a
-   * duplicate. A delivery send takes the Chat row lock first, which serializes
+   * The owner-produced pending item already stored under the message id of
+   * this send, in any state. A retry repeats the id, so the stored item answers
+   * it before the duplicate-id check would refuse the id and before any Run
+   * starts (run-steering D2); a job-produced item or an item of another Chat
+   * conflicts. A delivery send takes the Chat row lock first, which serializes
    * two sends of one id; a plain send keeps the lock for `touch`, as before.
    */
   private async findStoredItem(
@@ -532,7 +566,7 @@ export class ChatLoopService {
       input.userId,
     );
 
-    if (item && item.chatId !== input.chatId) {
+    if (item && (item.chatId !== input.chatId || item.producer !== 'owner')) {
       throw new ConflictException('Message id already exists');
     }
 

@@ -43,23 +43,37 @@ export function formatArtifactLocator(
 }
 
 /**
- * Parse a whole locator. The scheme check is case-insensitive, as every other
- * locator reader's is, so `ARTIFACT://grep-1` resolves like `artifact://grep-1`.
+ * Parse `<scheme>://<name>-<n>[/<member>]`. The scheme check is
+ * case-insensitive, as every other locator reader's is, so
+ * `ARTIFACT://grep-1` resolves like `artifact://grep-1`. The `job://` grammar
+ * is this one with another scheme.
  */
-export function parseArtifactLocatorText(
+export function parseNumberedLocator(
+  expectedScheme: string,
   text: string,
-): ArtifactLocator | undefined {
+): { name: string; seq: number; member: string | undefined } | undefined {
   const scheme = parsePathScheme(text);
 
-  if (scheme?.scheme !== ARTIFACT_SCHEME) return undefined;
+  if (scheme?.scheme !== expectedScheme) return undefined;
   const match = LOCATOR.exec(scheme.rest);
 
   if (match === null) return undefined;
   const seq = Number(match[2]);
 
-  if (!Number.isSafeInteger(seq) || seq > ARTIFACT_SEQ_MAX) return undefined;
+  if (seq > ARTIFACT_SEQ_MAX) return undefined;
 
-  return { toolName: match[1], seq, part: match[3] };
+  return { name: match[1], seq, member: match[3] };
+}
+
+/** Parse a whole `artifact://` locator. */
+export function parseArtifactLocatorText(
+  text: string,
+): ArtifactLocator | undefined {
+  const parsed = parseNumberedLocator(ARTIFACT_SCHEME, text);
+
+  return parsed === undefined
+    ? undefined
+    : { toolName: parsed.name, seq: parsed.seq, part: parsed.member };
 }
 
 /**

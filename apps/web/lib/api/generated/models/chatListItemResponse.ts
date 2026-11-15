@@ -29,4 +29,6 @@ export interface ChatListItemResponse {
    * @nullable
    */
   lastMessage: string | null;
+  /** @minimum 0 */
+  runningJobs: number;
 }

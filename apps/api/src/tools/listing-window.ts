@@ -1,8 +1,13 @@
 import {
   applySelectorSuffix,
+  boundFlatResult,
+  directoryResult,
+  MAX_RESULT_CODE_UNITS,
   resolveEndRelativeSelector,
   type ReadTarget,
 } from '@workspace/native-file-tools';
+
+import { type ToolResult } from './types';
 
 /** The run of a listing's requested level that its selector names. */
 export type ListingWindow = {
@@ -45,4 +50,40 @@ export function placeListingSelector(
   }
 
   return { window: resolveEndRelativeSelector(target, count) };
+}
+
+/** The caller's wording of a listing page: its empty text and its refusal. */
+export type ListingRender = {
+  readonly emptyContent: string;
+  readonly refuse: (refusal: ListingRefusal) => ToolResult;
+};
+
+/**
+ * A listing page in the directory-list shape: the locator, then one line per
+ * entry, in the order the caller produced. The window is placed by
+ * `placeListingSelector` and the page is cut to the read bound. `emptyContent` is
+ * the whole text of an empty listing.
+ */
+export function renderListing(
+  path: string,
+  entries: ReadonlyArray<string>,
+  selector: string | undefined,
+  { emptyContent, refuse }: ListingRender,
+): ToolResult {
+  const placed = placeListingSelector(path, selector, entries.length);
+
+  if ('refusal' in placed) return refuse(placed.refusal);
+  const { offset, limit } = placed.window;
+  const end = Math.min(offset + (limit ?? entries.length), entries.length);
+
+  const result = directoryResult(path, entries.length, {
+    content:
+      entries.length === 0
+        ? emptyContent
+        : [path, ...entries.slice(offset, end)].join('\n') + '\n',
+    truncated: end < entries.length,
+    ...(end < entries.length && { nextOffset: end }),
+  });
+
+  return boundFlatResult(result, offset, MAX_RESULT_CODE_UNITS);
 }

@@ -19,16 +19,20 @@ import { SearchModule } from '../search/search.module';
 import { SkillsModule } from '../skills/skills.module';
 import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { TitlesModule } from '../titles/titles.module';
-import { RunDispatchService } from './run-dispatch.service';
 import { RunExecutionService } from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsModule } from './runs.module';
+import { RunQueueModule } from './run-queue.module';
 import { RUN_CONTROL_CHANNEL, RUN_CONTROL_LISTENER } from './run-control';
 import { RunControlListenerService } from './run-control-listener.service';
 import { RunsWorkerService } from './runs-worker.service';
 import { DYNAMIC_TOOL_EXECUTOR_RESOLVER } from './snapshot-tool-execution';
 import { IN_RUN_CONTEXT_PRODUCER } from './in-run-context-items';
 import { createInstructionsProducer } from '../instructions/instructions-producer';
+import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { WorkerShutdownService } from '../jobs/worker-shutdown.service';
+import { JobNoticeRunService } from './job-notice-run.service';
 
 /**
  * RunWorkerModule (#48/#50) — the run EXECUTION side: queue consumers
@@ -48,6 +52,7 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
 @Module({
   imports: [
     QueueModule,
+    RunQueueModule,
     ModelsModule,
     CompactionModule,
     DecisionsModule,
@@ -76,6 +81,10 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
         new WorkspaceMcpClients(operator, { connector }),
     },
     RunsWorkerService,
+    WorkerHeartbeatService,
+    JobNoticeRunService,
+    BashJobRegistry,
+    WorkerShutdownService,
     RunControlListenerService,
     {
       provide: RUN_CONTROL_LISTENER,
@@ -84,7 +93,6 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
         new PostgresChangeListener(config, RUN_CONTROL_CHANNEL),
     },
     RunStreamBridgeService,
-    RunDispatchService,
     {
       provide: DYNAMIC_TOOL_EXECUTOR_RESOLVER,
       useExisting: McpRuntimeService,
@@ -97,6 +105,6 @@ import { createInstructionsProducer } from '../instructions/instructions-produce
       useValue: createInstructionsProducer(),
     },
   ],
-  exports: [RunDispatchService, RunStreamBridgeService],
+  exports: [RunQueueModule, RunStreamBridgeService],
 })
 export class RunWorkerModule {}

@@ -17,8 +17,10 @@ import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
-import * as schema from '../db/schema';
+
 import { TenantDbService } from '../db/tenant-db.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { MediaService } from '../media/media.service';
 import {
   resolveEffortSelection,
@@ -41,6 +43,7 @@ import {
   isRecencyDigestItem,
 } from './context-item-producers';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
 import { ChatLoopService } from './chat-loop.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
@@ -142,6 +145,9 @@ function previousRun(overrides: Partial<Run> = {}): Run {
     createdAt: new Date('2026-08-11T08:00:00.000Z'),
     startedAt: new Date('2026-08-11T08:00:01.000Z'),
     finishedAt: new Date('2026-08-11T08:00:02.000Z'),
+    wakeGeneration: 0,
+    currentJobId: null,
+    awaiting: null,
     ...overrides,
     followUpAction: null,
     sourceRunId: null,
@@ -199,7 +205,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       max: 2,
       ssl: /sslmode=require/.test(TEST_DB_URL) ? 'require' : false,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
   });
 
   afterEach(() => vi.restoreAllMocks());
@@ -259,7 +265,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       },
     };
 
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+    const chat: Chat = {
       id: 'chat-id',
       ownerUserId: 'user-id',
       title: null,
@@ -282,7 +288,10 @@ describe('ChatLoopService accept/worker context binding', () => {
       workspaceToldFrom: null,
       workspaceToldAvailable: null,
       workspaceDetachReason: null,
-    });
+    };
+
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
       new Set(),
@@ -465,9 +474,25 @@ describe('ChatLoopService accept/worker context binding', () => {
         createdAt: new Date(),
         startedAt: new Date(),
         finishedAt: null,
+        wakeGeneration: 0,
+        currentJobId: null,
+        awaiting: null,
         followUpAction: null,
         sourceRunId: null,
       });
+
+    vi.spyOn(
+      ChatJobsRepository.prototype,
+      'settleOnDeadWorkers',
+    ).mockResolvedValue([]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listDeliveredJobNotices',
+    ).mockResolvedValue([]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'deliverPendingJobNotices',
+    ).mockResolvedValue(undefined);
 
     vi.spyOn(RunsRepository.prototype, 'markStarted').mockImplementation(
       (runId) =>
@@ -551,6 +576,9 @@ describe('ChatLoopService accept/worker context binding', () => {
           createdAt: new Date(),
           startedAt: null,
           finishedAt: null,
+          wakeGeneration: 0,
+          currentJobId: null,
+          awaiting: null,
           followUpAction: null,
           sourceRunId: null,
         }),
@@ -617,6 +645,9 @@ describe('ChatLoopService accept/worker context binding', () => {
       bridge,
       dispatcher,
       new MediaService(tenantDb),
+      {
+        wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+      } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     );
 
     // The window variant is never exercised by this suite: every seeded turn
@@ -788,6 +819,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       }: KnowledgeToolCandidateResolverInput) => {
         const [currentUser] = await tx.execute(
           drizzleSql`select current_setting('app.current_user_id', true) as current_user_id`,
+          'objects',
         );
 
         expect(currentUser?.current_user_id).toBe('user-id');

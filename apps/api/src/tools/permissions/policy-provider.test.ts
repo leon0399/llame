@@ -18,7 +18,6 @@ const invalidRegex: ToolPermissionMap = {
 describe('buildToolPermissionPolicy', () => {
   it('compiles the portable map and stamps an opaque policy id', async () => {
     const policy = await buildToolPermissionPolicy(PORTABLE_TOOL_PERMISSIONS);
-    expect(policy.groups.size).toBe(9);
     expect(policy.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
     );

@@ -4,7 +4,6 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
-import * as schema from '../db/schema';
 import { knowledgeSpaces } from '../db/schema/knowledge-spaces';
 import { TenantDbService } from '../db/tenant-db.service';
 import { KnowledgeSpaceRepository } from './knowledge-space.repository';
@@ -47,7 +46,7 @@ describe('Knowledge Space legacy-writer compatibility', () => {
         created_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
       )`;
-    tenantDb = new TenantDbService(drizzle(compatSql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: compatSql }));
   });
 
   afterAll(async () => {

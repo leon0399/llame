@@ -17,7 +17,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 
 import { CoreInfraModule } from '../core-infra.module';
-import * as schema from '../db/schema';
+
 import { machinesStatus } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
@@ -75,7 +75,7 @@ d('machines_status RLS and GET /api/v1/machines', () => {
 
   beforeAll(async () => {
     sql = postgres(process.env.POSTGRES_URL!, { max: 6 });
-    const db = drizzle(sql, { schema });
+    const db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     repository = new MachinesStatusRepository(db, tenantDb);
 

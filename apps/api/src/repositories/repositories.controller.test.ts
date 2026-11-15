@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Repository } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { notFound } from './failure';
@@ -21,7 +20,7 @@ const repository: Repository = {
 // route has no body at all, so the only thing to prove is that the awaited
 // service call happens with exactly that pair.
 function makeController() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),

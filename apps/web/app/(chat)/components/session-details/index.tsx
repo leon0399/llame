@@ -11,7 +11,6 @@ import {
 import { cn } from "@workspace/ui/lib/utils";
 
 import { topBarClasses } from "@/app/shell/top-bar";
-import { DemoChip } from "@/app/shell/soon-chip";
 import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { useOpenChat } from "@/lib/services/chat/queries";
 import {
@@ -27,11 +26,8 @@ import {
 } from "@/lib/services/project/queries";
 import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 
-import {
-  DemoChangesSection,
-  DemoContextSection,
-  DemoContextSummary,
-} from "./demo-sections";
+import { demoChangesView, demoContextView } from "./demo-sections";
+import { useJobsSection } from "./jobs-section";
 import type { SessionDetailsLayout } from "./details-cookie";
 import {
   EnvironmentSection,
@@ -181,11 +177,14 @@ function useEnvironment(chatId: string): EnvironmentSectionProps {
 function SessionDetailsBody({
   chatId,
   layout,
+  panelOpen,
 }: {
   chatId: string;
   layout: SessionDetailsLayout;
+  panelOpen: boolean;
 }) {
   const environment = useEnvironment(chatId);
+  const jobs = useJobsSection(chatId, panelOpen);
 
   return (
     <SidebarContent>
@@ -197,20 +196,9 @@ function SessionDetailsBody({
             summary: environmentSummary(environment),
             content: <EnvironmentSection {...environment} />,
           },
-          // TODO(#1355): replace the demo with the chat's real context usage.
-          context: {
-            title: "Context",
-            badge: <DemoChip />,
-            summary: <DemoContextSummary />,
-            content: <DemoContextSection />,
-          },
-          // TODO(#1356): replace the demo with the chat's real changes.
-          changes: {
-            title: "Changes",
-            badge: <DemoChip />,
-            summary: "1 pull request",
-            content: <DemoChangesSection />,
-          },
+          jobs,
+          context: demoContextView,
+          changes: demoChangesView,
         }}
       />
     </SidebarContent>
@@ -224,7 +212,8 @@ function SessionDetailsBody({
  */
 export function SessionDetails({ layout }: { layout: SessionDetailsLayout }) {
   const chatId = useOpenChatId();
-  const { toggleSidebar } = useSidebar();
+  const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
+  const panelOpen = isMobile ? openMobile : open;
 
   if (chatId === undefined) return null;
 
@@ -242,7 +231,11 @@ export function SessionDetails({ layout }: { layout: SessionDetailsLayout }) {
           <XIcon aria-hidden="true" />
         </IconButtonTooltip>
       </div>
-      <SessionDetailsBody chatId={chatId} layout={layout} />
+      <SessionDetailsBody
+        chatId={chatId}
+        layout={layout}
+        panelOpen={panelOpen}
+      />
     </Sidebar>
   );
 }

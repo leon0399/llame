@@ -1,4 +1,5 @@
 import { type DecisionJudge } from '../decisions/decisions.service';
+import * as jobNoticeRecovery from './job-notice-recovery';
 import type {
   LanguageModelV3Message,
   LanguageModelV3StreamPart,
@@ -30,6 +31,8 @@ import {
 } from '../tools/artifacts/host-files';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { bashTool } from '../tools/bash';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -57,6 +60,7 @@ import {
 } from '../tools/native-files';
 import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from './native-files-repository';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -69,6 +73,12 @@ import {
 } from './run-abort-registry';
 import { createRunEventTranslator } from './run-stream-bridge';
 
+function interruptCurrent(aborts: RunAbortRegistry, runId: string): boolean {
+  const segment = aborts.segmentOf(runId);
+
+  return segment === undefined ? false : aborts.interrupt(runId, segment);
+}
+
 // The real SDK without a client, with the three calls a Run makes observable.
 vi.mock('@sentry/nestjs', async (importOriginal) => ({
   ...(await importOriginal<typeof Sentry>()),
@@ -80,6 +90,7 @@ vi.mock('@sentry/nestjs', async (importOriginal) => ({
 import type {
   Chat,
   ChatDelivery,
+  ChatJob,
   MediaObject,
   Message,
   ModelToolDeclaration,
@@ -88,7 +99,7 @@ import type {
   SkillCatalogBaseline,
   TurnToolAvailabilityEntry,
 } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -138,6 +149,7 @@ import {
   isPromptImportsPayload,
   promptImportMediaKey,
 } from '../chats/prompt-imports-item';
+import { createJobNoticeItem } from '../chats/job-context-item';
 import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
@@ -175,6 +187,8 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { NativeReceiptsRepository } from './native-receipts-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   reconstructDurableAssistant,
   toolActivityPart,
@@ -239,6 +253,9 @@ import {
   registerTestOnlyTool,
   unregisterTestOnlyTool,
 } from '../tools/registry';
+import { RunWaitService } from './run-wait.service';
+import { waitTool } from '../tools/wait';
+import { WAIT_SUSPENSION } from '../tools/wait-suspension';
 
 /**
  * classifyAbortedRun unit tests (durable-run-workers D7): the in-process
@@ -378,6 +395,9 @@ const run: Run = {
   permissionMode: 'default' as const,
   followUpAction: null,
   sourceRunId: null,
+  wakeGeneration: 0,
+  currentJobId: null,
+  awaiting: null,
 };
 
 const receipt = {
@@ -521,6 +541,8 @@ type ExecutionServiceOptions = {
   runDispatch?: Pick<RunDispatcher, 'dispatch'>;
   /** The registry an owner interrupt aborts a segment through. */
   segmentAborts?: RunSegmentRegistrar;
+  /** Durable wait suspension dependency for the host-controlled wait tool. */
+  runWait?: RunWaitService;
 };
 
 function makeExecutionService(
@@ -529,7 +551,9 @@ function makeExecutionService(
   nativeExecutorId?: string,
   options: ExecutionServiceOptions = {},
 ) {
-  const db: Db = drizzle.mock({ schema });
+  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
@@ -656,6 +680,14 @@ function makeExecutionService(
     options.gitSnapshots,
     options.runDispatch,
     options.segmentAborts,
+    // A host `bash` call spawns through the worker registry.
+    new BashJobRegistry(
+      tenantDb,
+      { instanceId: crypto.randomUUID() },
+      instanceConfig,
+      { startOnSettlement: vi.fn() },
+    ),
+    options.runWait,
   );
 
   return {
@@ -771,7 +803,24 @@ function mockNormalExecutionRepositories() {
     undefined,
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
+  vi.spyOn(jobNoticeRecovery, 'discardedJobNoticeIds').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'hasPendingSteering',
+  ).mockResolvedValue(false);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'listDeliveredJobNotices',
+  ).mockResolvedValue([]);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'lockPendingBoundary',
+  ).mockResolvedValue([]);
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'deliverPendingJobNotices',
+  ).mockResolvedValue(undefined);
 
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
@@ -792,6 +841,20 @@ function mockNormalExecutionRepositories() {
   const findById = vi
     .spyOn(RunsRepository.prototype, 'findById')
     .mockResolvedValue(run);
+
+  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+  vi.spyOn(
+    RunRowFenceRepository.prototype,
+    'lockHostPromotionRecovery',
+  ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+  vi.spyOn(
+    NativeReceiptsRepository.prototype,
+    'findNativeResult',
+  ).mockResolvedValue(undefined);
+  vi.spyOn(
+    NativeReceiptsRepository.prototype,
+    'hasNativeAttempt',
+  ).mockResolvedValue(false);
 
   const findByOwnedRun = vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByOwnedRun')
@@ -839,15 +902,22 @@ function mockNormalExecutionRepositories() {
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
 
+  // The claim settles jobs of dead workers; none exist here.
+  vi.spyOn(
+    ChatJobsRepository.prototype,
+    'settleOnDeadWorkers',
+  ).mockResolvedValue([]);
+
   // No pending steer or interrupt, and no recorded cancellation: a step end
   // stops nothing and a completion delivers nothing (run-steering D3/D5).
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
     'stepEndSignal',
   ).mockResolvedValue(undefined);
-  vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValue(
-    undefined,
-  );
+  vi.spyOn(
+    RunRowFenceRepository.prototype,
+    'lockForDelivery',
+  ).mockResolvedValue(undefined);
   vi.spyOn(PromptImportPartsRepository.prototype, 'find').mockResolvedValue(
     undefined,
   );
@@ -1034,6 +1104,34 @@ describe('RunExecutionService executeRun', () => {
       'findPartContent',
     ).mockResolvedValue([{ content: Buffer.from('hello\n') }]);
   }
+
+  it('executes a normal attempt when no native mutation needs recovery', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(NativeFilesRepository.prototype, 'hasMutation').mockResolvedValue(
+      false,
+    );
+
+    const execution = makeExecutionService();
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await execution.service.executeRun(executionInput(execution.client));
+
+    expect(stream).toHaveBeenCalledOnce();
+  });
+
+  it('does not execute after the Chat lock cannot be acquired', async () => {
+    mockNormalExecutionRepositories();
+
+    const execution = makeExecutionService();
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(undefined);
+    const stream = vi.spyOn(execution.client, 'streamText');
+
+    await expect(
+      execution.service.executeRun(executionInput(execution.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(stream).not.toHaveBeenCalled();
+  });
 
   it('restores the Chat artifact files before the first request and sweeps stale directories at attempt start', async () => {
     mockNormalExecutionRepositories();
@@ -3106,6 +3204,53 @@ describe('RunExecutionService executeRun', () => {
     );
   });
   it.each([
+    ['initial', { currentJobId: null, wakeGeneration: 0 }],
+    ['wake', { currentJobId: 'wake-job-4', wakeGeneration: 4 }],
+  ] as const)(
+    'claims a current %s queue identity at the execution seam',
+    async (_kind, expectedQueueIdentity) => {
+      const repositories = mockNormalExecutionRepositories();
+      const execution = makeExecutionService();
+
+      const result = await execution.service.executeRun({
+        ...executionInput(execution.client),
+        expectedQueueIdentity,
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+      expect(repositories.markStarted).toHaveBeenCalledWith(runId, userId, {
+        expectedQueueIdentity,
+      });
+    },
+  );
+
+  it.each([
+    ['initial', { currentJobId: null, wakeGeneration: 0 }],
+    ['wake', { currentJobId: 'wake-job-4', wakeGeneration: 4 }],
+  ] as const)(
+    'does not claim or terminalize a stale %s queue identity',
+    async (_kind, expectedQueueIdentity) => {
+      const repositories = mockNormalExecutionRepositories();
+      repositories.markStarted.mockResolvedValue(undefined);
+      const markFinished = repositories.markFinished;
+      const appended = recordAppendedEvents();
+      const execution = makeExecutionService();
+
+      await expect(
+        execution.service.executeRun({
+          ...executionInput(execution.client),
+          expectedQueueIdentity,
+        }),
+      ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+      expect(repositories.markStarted).toHaveBeenCalledWith(runId, userId, {
+        expectedQueueIdentity,
+      });
+      expect(markFinished).not.toHaveBeenCalled();
+      expect(appended).toEqual([]);
+    },
+  );
+  it.each([
     ['trimmed', '  hello \n', 'hello'],
     [
       'whole, however long, without file parts',
@@ -4267,13 +4412,31 @@ function durableEventsFrom(
   }));
 }
 
+/** Applies the event-type and attempt filters used by durable suspension reads. */
+function filterDurableEvents(
+  events: Array<RunEvent>,
+  options: Parameters<RunEventsRepository['listByRunId']>[2],
+): Array<RunEvent> {
+  return events.filter(
+    (event) =>
+      (options?.eventTypes === undefined ||
+        options.eventTypes.some((type) => type === event.eventType)) &&
+      (options?.attemptId === undefined ||
+        (isRecord(event.payload) &&
+          event.payload['attemptId'] === options.attemptId)),
+  );
+}
+
 /** Replays whatever `recordAppendedEvents` captured back through `listByRunId`,
  * so `finishRun`'s durable reconstruction sees the run's real event log. */
 function replayAppendedEvents(
   appended: Array<{ type: RunEventType; payload: unknown }>,
 ) {
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-    () => Promise.resolve(durableEventsFrom(appended)),
+    (_runId, _userId, options) =>
+      Promise.resolve(
+        filterDurableEvents(durableEventsFrom(appended), options),
+      ),
   );
 }
 
@@ -5505,6 +5668,7 @@ describe('RunExecutionService executeRun — queue promotion', () => {
       ),
     );
     await execution.service.executeRun(executionInput(capturing.client));
+    lock.mockClear();
 
     return {
       streamOptions: capturing.streamOptions(),
@@ -6270,7 +6434,7 @@ async function executeBoundTool(
 
 async function executeBoundBash(
   options: StreamOptions,
-  args: { command: string; cwd?: string },
+  args: { command: string; cwd?: string; async?: boolean },
   toolCallId: string,
 ): Promise<ToolResult> {
   const bound = options.tools?.bash;
@@ -6511,10 +6675,383 @@ function createMidRunAdditionTools() {
   return { adder, executeAdded, executeAddedSecond };
 }
 
+function settledBashJob(seq: number): ChatJob {
+  return {
+    id: `job-${seq}`,
+    chatId,
+    ownerUserId: userId,
+    executor: 'bash',
+    seq,
+    state: 'succeeded',
+    stoppedBy: null,
+    runId,
+    toolCallId: `bash-call-${seq}`,
+    workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    pid: null,
+    startedAt: now,
+    settledAt: now,
+    deadlineAt: null,
+    stopRequestedAt: null,
+    stopRequestedBy: null,
+    result: { exitCode: 0 },
+    outputs: ['stdout'],
+    artifactId: null,
+    artifactReadable: false,
+    settings: { modelId: 'fake-model', permissionMode: 'default' },
+  };
+}
+
 describe('RunExecutionService executeRun — tool loop', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  it('consumes notices only from a successful stop tool receipt', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = settledBashJob(41);
+
+    let noticeState: 'pending' | 'withdrawn' = 'pending';
+
+    const consumeNotices = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'consumeJobNotices')
+      .mockImplementation(({ jobIds }) => {
+        if (noticeState === 'pending' && jobIds.includes('job-41')) {
+          noticeState = 'withdrawn';
+
+          return Promise.resolve(['notice-41']);
+        }
+
+        return Promise.resolve([]);
+      });
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-success',
+            toolName: 'stop',
+            input: JSON.stringify({ jobs: ['job://bash-41'] }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('done'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+    await expect(result.text).resolves.toBe('done');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-success',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'success',
+      consumedJobNoticeIds: ['notice-41'],
+    });
+    expect(consumeNotices).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      runId,
+      jobIds: ['job-41'],
+    });
+    expect(noticeState).toBe('withdrawn');
+  });
+
+  it.each(['unfenced', 'cancel-requested', 'chat-lock-unavailable'] as const)(
+    'does not consume stop notices when the result transaction is %s',
+    async (fenceState) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const job = settledBashJob(42);
+
+      const updateForAttempt = vi.spyOn(
+        RunsRepository.prototype,
+        'updateForAttempt',
+      );
+
+      let activeFenceUpdates = 0;
+      updateForAttempt.mockImplementation(
+        (_candidateRunId, _ownerId, _attemptId, patch) => {
+          if (patch.activeAttemptId !== testAttemptId)
+            return Promise.resolve({ ...run });
+
+          activeFenceUpdates += 1;
+
+          if (activeFenceUpdates < 3) return Promise.resolve({ ...run });
+
+          if (fenceState === 'unfenced') return Promise.resolve(undefined);
+
+          if (fenceState === 'cancel-requested')
+            return Promise.resolve({ ...run, cancelRequestedAt: now });
+
+          return Promise.resolve({ ...run });
+        },
+      );
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockResolvedValue(['notice-42']);
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: `stop-${fenceState}`,
+              toolName: 'stop',
+              input: JSON.stringify({ jobs: ['job://bash-42'] }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('done'),
+      ]);
+
+      const execution = makeExecutionService(client, undefined, 'stop-host', {
+        allowed: ['stop'],
+        permissionPolicy: compileTestPermissionPolicy(['stop']),
+      });
+
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
+        Promise.resolve(
+          fenceState === 'chat-lock-unavailable' && activeFenceUpdates >= 3
+            ? undefined
+            : chat,
+        ),
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('done');
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === `stop-${fenceState}`,
+      );
+
+      expect(completed?.payload).toMatchObject({
+        status: 'success',
+        consumedJobNoticeIds: [],
+      });
+    },
+  );
+
+  it.each(['succeeded', 'failed', 'cancelled', 'timed_out', 'lost'] as const)(
+    'consumes notices for a matching %s stop result',
+    async (state) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const job = { ...settledBashJob(43), state };
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockImplementation(({ jobIds }) =>
+        Promise.resolve(jobIds.includes('job-43') ? ['notice-43'] : []),
+      );
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: `stop-${state}`,
+              toolName: 'stop',
+              input: JSON.stringify({ jobs: ['job://bash-43'] }),
+            },
+          ],
+          'tool-calls',
+        ),
+        providerText('done'),
+      ]);
+
+      const execution = makeExecutionService(client, undefined, 'stop-host', {
+        allowed: ['stop'],
+        permissionPolicy: compileTestPermissionPolicy(['stop']),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('done');
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === `stop-${state}`,
+      );
+
+      expect(completed?.payload).toMatchObject({
+        status: 'success',
+        consumedJobNoticeIds: ['notice-43'],
+      });
+    },
+  );
+
+  it('does not consume notices for a reported-running job or a missing re-read job', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const runningJob = { ...settledBashJob(45), state: 'running' as const };
+    const reportedRunningJob = settledBashJob(45);
+    const settledJob = settledBashJob(46);
+    let runningReads = 0;
+    let settledReads = 0;
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockImplementation(({ jobIds }) =>
+      Promise.resolve(
+        jobIds.some((jobId) => jobId === 'job-45' || jobId === 'job-46')
+          ? ['notice-45-or-46']
+          : [],
+      ),
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'requestStop').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockImplementation(
+      (_chatId, _userId, _executor, seq) => {
+        if (seq === 45) {
+          runningReads += 1;
+
+          return Promise.resolve(
+            runningReads === 1 ? runningJob : reportedRunningJob,
+          );
+        }
+
+        settledReads += 1;
+
+        return Promise.resolve(settledReads === 1 ? settledJob : undefined);
+      },
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+      runningJob,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-running-and-missing',
+            toolName: 'stop',
+            input: JSON.stringify({
+              jobs: ['job://bash-45', 'job://bash-46'],
+            }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('done'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+
+    await expect(result.text).resolves.toBe('done');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-running-and-missing',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      status: 'success',
+      output: {
+        jobs: [
+          { job: 'job://bash-45', state: 'running' },
+          { job: 'job://bash-46', state: 'succeeded' },
+        ],
+      },
+      consumedJobNoticeIds: [],
+    });
+  }, 10_000);
+
+  it('does not consume notices when the stop tool rejects an unknown job', async () => {
+    mockNormalExecutionRepositories();
+
+    const appended = recordAppendedEvents();
+
+    const consumeNotices = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    );
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      undefined,
+    );
+
+    const { client } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'stop-rejected',
+            toolName: 'stop',
+            input: JSON.stringify({ jobs: ['job://bash-99'] }),
+          },
+        ],
+        'tool-calls',
+      ),
+      providerText('not found'),
+    ]);
+
+    const execution = makeExecutionService(client, undefined, 'stop-host', {
+      allowed: ['stop'],
+      permissionPolicy: compileTestPermissionPolicy(['stop']),
+    });
+
+    const result = await execution.service.executeRun(executionInput(client));
+
+    await expect(result.text).resolves.toBe('not found');
+
+    const completed = appended.find(
+      ({ type, payload }) =>
+        type === 'tool.completed' &&
+        isRecord(payload) &&
+        payload['toolCallId'] === 'stop-rejected',
+    );
+
+    expect(completed?.payload).toMatchObject({
+      toolName: 'stop',
+      status: 'error',
+      output: { type: 'not_found' },
+    });
+    expect(completed?.payload).not.toHaveProperty('consumedJobNoticeIds');
+    expect(consumeNotices).not.toHaveBeenCalled();
+  });
+
   it('executes an in-Run addition on the next model step', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -6769,6 +7306,462 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(projection?.pair.toolResultPart.output).toEqual(liveOutput);
   });
 
+  it('records the recovery winner before terminally settling an unresolved host bash call', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        NativeReceiptsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const appended = recordAppendedEvents();
+      replayAppendedEvents(appended);
+      vi.spyOn(
+        NativeFilesRepository.prototype,
+        'recoverHostPromotion',
+      ).mockImplementation(({ toolCallId, result }) => {
+        appended.push({
+          type: 'native.result',
+          payload: { toolCallId, result },
+        });
+
+        return Promise.resolve({ disposition: 'recovery_won', result });
+      });
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const result = Promise.withResolvers<ToolResult>();
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return result.promise;
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+      const options = capturing.streamOptions();
+
+      const call = executeBoundBash(
+        options,
+        { command: 'sleep 30', async: true },
+        'bash-recovery',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+      await vi.waitFor(() =>
+        expect(appended.some(({ type }) => type === 'run.cancelled')).toBe(
+          true,
+        ),
+      );
+
+      const receiptIndex = appended.findIndex(
+        ({ type, payload }) =>
+          type === 'native.result' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-recovery',
+      );
+
+      const completedIndex = appended.findIndex(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-recovery',
+      );
+
+      expect(receiptIndex).toBeGreaterThanOrEqual(0);
+      expect(receiptIndex).toBeLessThan(completedIndex);
+      expect(appended[receiptIndex]?.payload).toMatchObject({
+        toolCallId: 'bash-recovery',
+        result: { status: 'error', type: 'outcome_unknown' },
+      });
+
+      result.resolve({
+        status: 'success',
+        backgrounded: true,
+        job: 'job://bash-9',
+      });
+      await expect(call).resolves.toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('retries host bash recovery after a serialization failure', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        NativeReceiptsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const appended = recordAppendedEvents();
+
+      replayAppendedEvents(appended);
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValueOnce(
+          Object.assign(new Error('serialization failure'), {
+            code: '40001',
+          }),
+        )
+        .mockImplementation(({ result }) =>
+          Promise.resolve({ disposition: 'recovery_won', result }),
+        );
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-retry',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+
+      controller.abort();
+
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      const retryResult = await call;
+
+      expect(retryResult.status).toBe('error');
+      expect(retryResult.type).toBe('outcome_unknown');
+
+      expect(recovery).toHaveBeenCalledTimes(2);
+
+      const completed = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-retry',
+      );
+
+      if (!completed || !isRecord(completed.payload)) {
+        throw new Error('Retry recovery did not complete the bash call.');
+      }
+
+      const output = completed.payload.output;
+
+      if (!isRecord(output)) {
+        throw new Error('Retry recovery wrote a malformed bash result.');
+      }
+
+      expect(output.status).toBe('error');
+
+      expect(output.type).toBe('outcome_unknown');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('bounds host bash recovery retries after repeated serialization failures', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        NativeReceiptsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+
+      const recoveryError = Object.assign(new Error('serialization failure'), {
+        code: '40001',
+      });
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValue(recoveryError);
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-recovery-retry-limit',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      const rejected = call.catch((error: unknown) => error);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      expect(await rejected).toBe(recoveryError);
+      expect(recovery).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('does not retry host bash recovery after a non-serialization failure', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        NativeReceiptsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+      const recoveryError = new Error('recovery permission denied');
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockRejectedValue(recoveryError);
+
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        withDeclaredBashTool(),
+      );
+
+      const execute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const call = executeBoundBash(
+        capturing.streamOptions(),
+        { command: 'sleep 30', async: true },
+        'bash-recovery-permanent-error',
+      );
+
+      await vi.waitFor(() => expect(execute).toHaveBeenCalled());
+      const rejected = call.catch((error: unknown) => error);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      expect(await rejected).toBe(recoveryError);
+      expect(recovery).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles other calls immediately but gives an interrupted host bash call its grace period', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const controller = new AbortController();
+
+      mockNormalExecutionRepositories();
+
+      vi.spyOn(
+        NativeReceiptsRepository.prototype,
+        'hasNativeAttempt',
+      ).mockResolvedValue(true);
+
+      const appended = recordAppendedEvents();
+
+      replayAppendedEvents(appended);
+
+      const recovery = vi
+        .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+        .mockImplementation(({ result }) =>
+          Promise.resolve({ disposition: 'recovery_won', result }),
+        );
+
+      const capturing = makeCapturingClient();
+
+      const otherExecute = vi
+        .spyOn(nativeReadTool, 'execute')
+        .mockImplementation((context) => {
+          const signal = context.abortSignal;
+
+          if (signal === undefined) {
+            throw new Error('The read call has no abort signal.');
+          }
+
+          const { promise, resolve } = Promise.withResolvers<{
+            status: 'success';
+            output: string;
+          }>();
+
+          const finish = () => resolve({ status: 'success', output: 'late' });
+
+          if (signal.aborted) finish();
+          else signal.addEventListener('abort', finish, { once: true });
+
+          return promise;
+        });
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        'host-a',
+        { allowed: ['bash', 'read'] },
+      );
+
+      const bashExecute = vi
+        .spyOn(bashTool, 'execute')
+        .mockImplementation((context) => {
+          context.onHostCommandStarted?.();
+
+          return new Promise<ToolResult>(() => {});
+        });
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+
+      const options = capturing.streamOptions();
+
+      const bashCall = executeBoundBash(
+        options,
+        { command: 'sleep 30', async: true },
+        'bash-grace',
+      );
+
+      const otherCall = executeBoundNative(
+        options,
+        'read',
+        { path: '/native/file' },
+        'other-cancel',
+      );
+
+      await vi.waitFor(() => {
+        expect(bashExecute).toHaveBeenCalled();
+        expect(otherExecute).toHaveBeenCalled();
+      });
+
+      controller.abort();
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      const readCompletion = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'other-cancel',
+      );
+
+      if (!readCompletion || !isRecord(readCompletion.payload)) {
+        throw new Error('Parent abort did not complete the read call.');
+      }
+
+      const readOutput = readCompletion.payload.output;
+
+      if (!isRecord(readOutput)) {
+        throw new Error('Parent abort wrote a malformed read result.');
+      }
+
+      expect(readOutput.status).toBe('error');
+      expect(readOutput.type).toBe('cancelled');
+      expect(readOutput.message).toBe(
+        'The run was cancelled before this tool finished.',
+      );
+
+      const bashCompletedBeforeGrace = appended.some(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-grace',
+      );
+
+      expect(bashCompletedBeforeGrace).toBe(false);
+      expect(recovery).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
+
+      const bashResult = await bashCall;
+
+      expect(bashResult.status).toBe('error');
+      expect(bashResult.type).toBe('outcome_unknown');
+
+      await otherCall;
+
+      expect(recovery).toHaveBeenCalledTimes(1);
+
+      const bashCompletion = appended.find(
+        ({ type, payload }) =>
+          type === 'tool.completed' &&
+          isRecord(payload) &&
+          payload.toolCallId === 'bash-grace',
+      );
+
+      if (!bashCompletion || !isRecord(bashCompletion.payload)) {
+        throw new Error('Bash recovery did not complete the host call.');
+      }
+
+      const bashOutput = bashCompletion.payload.output;
+
+      if (!isRecord(bashOutput)) {
+        throw new Error('Bash recovery wrote a malformed result.');
+      }
+
+      expect(bashOutput.status).toBe('error');
+      expect(bashOutput.type).toBe('outcome_unknown');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('An interrupt during a pending admission writes the request before the completion', async () => {
     mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -6814,7 +7807,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
       'pending-bash',
     );
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     await vi.waitFor(() =>
       expect(appended.map(({ type }) => type)).toContain('tool.completed'),
     );
@@ -6878,7 +7871,11 @@ describe('RunExecutionService executeRun — tool loop', () => {
 
     const execute = vi
       .spyOn(bashTool, 'execute')
-      .mockImplementation(() => new Promise<ToolResult>(() => {}));
+      .mockImplementation((context) => {
+        context.onHostCommandStarted?.();
+
+        return new Promise<ToolResult>(() => {});
+      });
 
     const capturing = makeCapturingClient();
 
@@ -6920,6 +7917,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     });
     expect(appended.at(-1)?.type).toBe('run.cancelled');
   });
+
   it('records a settled bash result that arrives after the parent abort', async () => {
     const controller = new AbortController();
     mockNormalExecutionRepositories();
@@ -10389,6 +11387,48 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     return { spies, publication, execution, result };
   }
 
+  it('preserves the preceding assistant when textless trigger parts gain staged context', async () => {
+    const capturing = triggerClient();
+
+    const triggerParts = [
+      {
+        type: 'data-context',
+        data: {
+          v: 1 as const,
+          producer: 'workspace',
+          form: 'notice',
+          runId,
+          payload: {},
+        },
+      },
+    ] satisfies RunUserMessage['parts'];
+
+    await executeTriggerCase({
+      client: capturing.client,
+      historyRows: [
+        ...committedTurn({ contextTokens: 100 }),
+        { ...triggerTurn(), parts: triggerParts },
+      ],
+      triggerParts,
+    });
+
+    const messages = capturing.streamOptions().messages;
+    expect(messages.some((message) => message.role === 'assistant')).toBe(true);
+    const trigger = messages.at(-1);
+    expect(trigger?.role).toBe('user');
+    const content = trigger?.content;
+    const parts = Array.isArray(content) ? content.filter(isRecord) : [];
+
+    expect(
+      parts.some(
+        (part) =>
+          part['type'] === 'text' &&
+          isString(part['text']) &&
+          part['text'].trim().length > 0,
+      ),
+    ).toBe(true);
+  });
+
   it('omits effort when a threshold compaction has no effort selection', async () => {
     const { execution } = await executeTriggerCase({
       startedEffort: null,
@@ -11480,6 +12520,127 @@ describe('RunExecutionService settleTerminalRun', () => {
     expect(execution.searchIndex.reindexChat).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      label: 'the Run disappeared before the wake was handled',
+      candidate: [],
+      current: [],
+      chatLocked: true,
+      finalStatus: undefined,
+    },
+    {
+      label: 'the Chat lock was unavailable',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [],
+      chatLocked: false,
+      finalStatus: run.status,
+    },
+    {
+      label: 'the Run disappeared after the Chat lock',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [],
+      chatLocked: true,
+      finalStatus: undefined,
+    },
+    {
+      label: 'the Run is already terminal',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [
+        {
+          ...run,
+          status: 'completed' as const,
+          currentJobId: 'job-current',
+          wakeGeneration: 7,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: 'completed',
+    },
+    {
+      label: 'the Run has already finished',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [
+        {
+          ...run,
+          finishedAt: now,
+          currentJobId: 'job-current',
+          wakeGeneration: 7,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: run.status,
+    },
+    {
+      label: 'a newer queue job replaced the wake',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 7 }],
+      current: [
+        {
+          ...run,
+          currentJobId: 'job-newer',
+          wakeGeneration: 7,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: run.status,
+    },
+    {
+      label: 'a newer wake generation replaced the wake',
+      candidate: [{ ...run, currentJobId: 'job-current', wakeGeneration: 8 }],
+      current: [
+        {
+          ...run,
+          currentJobId: 'job-current',
+          wakeGeneration: 8,
+        },
+      ],
+      chatLocked: true,
+      finalStatus: run.status,
+    },
+  ])(
+    'does not terminalize a queue wake when $label',
+    async ({ candidate, current, chatLocked, finalStatus }) => {
+      const responses = [candidate, current];
+      let queryIndex = 0;
+
+      const select = vi.fn(() => {
+        const rows = responses[queryIndex++] ?? [];
+
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue(rows),
+              for: vi.fn().mockResolvedValue(rows),
+            })),
+          })),
+        };
+      });
+
+      const execution = makeExecutionService();
+      Object.assign(execution.db, asDouble<Pick<Db, 'select'>>({ select }));
+
+      const markFinished = vi
+        .spyOn(RunsRepository.prototype, 'markFinished')
+        .mockResolvedValue({ ...run, status: 'expired' });
+
+      vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
+        chatLocked ? chat : undefined,
+      );
+
+      const settlement = await execution.service.settleTerminalRun({
+        userId,
+        runId,
+        status: 'expired',
+        expectedQueueIdentity: {
+          currentJobId: 'job-current',
+          wakeGeneration: 7,
+        },
+      });
+
+      expect(settlement).toEqual({ outcome: 'lost', finalStatus });
+      expect(markFinished).not.toHaveBeenCalled();
+    },
+  );
+
   it('keeps synthesized telemetry complete when the run has no triggering message', async () => {
     mockNormalExecutionRepositories();
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
@@ -12230,6 +13391,82 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
   });
 
+  it('does not terminalize an attempt with its own suspension receipt', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const suspendedAttemptId = testAttemptId;
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: suspendedAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === suspendedAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'stale answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(repositories.markFinished).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    expect(appended.map(({ type }) => type)).not.toContain('model.completed');
+  });
+
+  it('does not treat another attempt’s suspension receipt as its own', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: '6a6a6a6a-6a6a-4a6a-8a6a-6a6a6a6a6a6a' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            (options.attemptId === undefined ||
+              options.attemptId === suspensionEvent.payload.attemptId)
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'current answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+    expect(appended.map(({ type }) => type)).toContain('run.completed');
+  });
+
   it('finalizes its own running reply when another writer cancelled the run', async () => {
     const spies = mockNormalExecutionRepositories();
     spies.markFinished.mockResolvedValue(undefined);
@@ -12775,6 +14012,131 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.restoreAllMocks();
   });
 
+  it('stages delivered settled job output on the trigger request', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const jobId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const jobNotice = chatDeliveryRow({
+      chatId,
+      ownerUserId: userId,
+      producer: 'job',
+      senderRef: jobId,
+      mode: 'notice',
+      parts: [],
+      state: 'delivered',
+      deliveredMessageId: messageId,
+      runId,
+    });
+
+    const settledJob: ChatJob = {
+      id: jobId,
+      chatId,
+      ownerUserId: userId,
+      executor: 'bash',
+      seq: 4,
+      state: 'succeeded',
+      stoppedBy: null,
+      runId,
+      toolCallId: 'bash-call',
+      workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      pid: null,
+      startedAt: now,
+      settledAt: now,
+      deadlineAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      result: { exitCode: 0 },
+      outputs: ['stdout'],
+      artifactId: null,
+      artifactReadable: false,
+      settings: { modelId: 'fake-model', permissionMode: 'default' },
+    };
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listDeliveredJobNotices',
+    ).mockResolvedValue([jobNotice]);
+    vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+      settledJob,
+    );
+    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+      Buffer.from('completed job output'),
+    );
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    await execution.service.executeRun(executionInput(capturing.client));
+    const staged = repositories.storeAtDispatch.mock.calls.at(-1)?.[0].items;
+
+    const stagedJob = staged?.find(
+      (item) => isContextItemPart(item) && item.data.producer === 'job',
+    );
+
+    expect(isContextItemPart(stagedJob) && stagedJob.data.form).toBe('notice');
+    expect(
+      isContextItemPart(stagedJob) &&
+        isRecord(stagedJob.data.payload) &&
+        stagedJob.data.payload['locator'] === 'job://bash-4',
+    ).toBe(true);
+    expect(JSON.stringify(capturing.streamOptions().messages)).toContain(
+      'completed job output',
+    );
+  });
+
+  it('restores withdrawn notices before retry dispatch and the next model request', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const deliveryId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    const deliveryIds = [deliveryId];
+    let state: 'withdrawn' | 'pending' = 'withdrawn';
+    const order: Array<string> = [];
+
+    vi.spyOn(jobNoticeRecovery, 'discardedJobNoticeIds').mockResolvedValue(
+      deliveryIds,
+    );
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'restoreJobNotices',
+    ).mockImplementation((input) => {
+      if (
+        input.chatId === chatId &&
+        input.ownerUserId === userId &&
+        input.runId === runId &&
+        input.deliveryIds.includes(deliveryId)
+      ) {
+        state = 'pending';
+        order.push('restored');
+      }
+
+      return Promise.resolve();
+    });
+
+    repositories.storeAtDispatch.mockImplementation(() => {
+      expect(state).toBe('pending');
+      order.push('dispatched');
+
+      return Promise.resolve({ applied: true });
+    });
+
+    const capturing = makeCapturingClient();
+
+    const client: ModelClient = {
+      ...capturing.client,
+      streamText: (options) => {
+        expect(state).toBe('pending');
+        order.push('model-requested');
+
+        return capturing.client.streamText(options);
+      },
+    };
+
+    const execution = makeExecutionService(client);
+
+    await execution.service.executeRun(executionInput(client));
+
+    expect(state).toBe('pending');
+    expect(order).toEqual(['restored', 'dispatched', 'model-requested']);
+  });
+
   it('stages the items with their form and commits the observed availability', async () => {
     const repositories = mockNormalExecutionRepositories();
 
@@ -13024,6 +14386,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     function retryAgainstStoredTrigger(
       repositories: ReturnType<typeof mockNormalExecutionRepositories>,
       record: Array<TurnToolAvailabilityEntry>,
+      retryTrigger: Message = trigger,
     ) {
       repositories.findById.mockResolvedValue({
         ...run,
@@ -13034,9 +14397,105 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         { ...event, eventType: 'model.requested' },
       ]);
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-        trigger,
+        retryTrigger,
       ]);
     }
+
+    it('retains the delivered job output exactly once on a retry', async () => {
+      const repositories = mockNormalExecutionRepositories();
+      const jobId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+      const settledJob: ChatJob = {
+        id: jobId,
+        chatId,
+        ownerUserId: userId,
+        executor: 'bash',
+        seq: 4,
+        state: 'succeeded',
+        stoppedBy: null,
+        runId,
+        toolCallId: 'bash-call',
+        workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        pid: null,
+        startedAt: now,
+        settledAt: now,
+        deadlineAt: null,
+        stopRequestedAt: null,
+        stopRequestedBy: null,
+        result: { exitCode: 0 },
+        outputs: ['stdout'],
+        artifactId: null,
+        artifactReadable: false,
+        settings: { modelId: 'fake-model', permissionMode: 'default' },
+      };
+
+      const storedJobItem = createJobNoticeItem({
+        runId,
+        job: settledJob,
+        outputs: [{ name: 'stdout', text: 'already delivered output' }],
+      });
+
+      const retryTrigger: Message = {
+        ...trigger,
+        parts: [
+          ...trigger.parts.slice(0, 1),
+          storedJobItem,
+          ...trigger.parts.slice(1),
+        ],
+      };
+
+      retryAgainstStoredTrigger(repositories, [], retryTrigger);
+
+      const jobNotice = chatDeliveryRow({
+        chatId,
+        ownerUserId: userId,
+        producer: 'job',
+        senderRef: jobId,
+        mode: 'notice',
+        parts: [],
+        state: 'delivered',
+        deliveredMessageId: messageId,
+        runId,
+      });
+
+      const listDeliveredJobNotices = vi
+        .spyOn(ChatDeliveriesRepository.prototype, 'listDeliveredJobNotices')
+        .mockResolvedValue([jobNotice]);
+
+      vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
+        settledJob,
+      );
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'readOutputTail',
+      ).mockResolvedValue(Buffer.from('already delivered output'));
+      const capturing = makeCapturingClient();
+      const execution = makeExecutionService(capturing.client);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      const stored = stagedPartsOf(
+        repositories.storeAtDispatch,
+        retryTrigger.parts,
+      );
+
+      const jobItems = stored
+        .filter(isContextItemPart)
+        .filter((item) => item.data.producer === 'job');
+
+      const request = capturing.streamOptions().messages.at(-1);
+
+      const requestText = JSON.stringify(request);
+
+      expect(jobItems).toHaveLength(1);
+      expect(jobItems[0]?.data.text).toContain('already delivered output');
+      expect(request).toEqual({
+        role: 'user',
+        content: userPartsToModelContent(stored),
+      });
+      expect(requestText.split('already delivered output')).toHaveLength(2);
+      expect(listDeliveredJobNotices).not.toHaveBeenCalled();
+    });
 
     it('appends an availability reminder against its own record after the stored items', async () => {
       const repositories = mockNormalExecutionRepositories();
@@ -13505,6 +14964,28 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     // The stored item names a model the request no longer announces.
     expect(sent).not.toContain('older-model');
     // The new comparison is there instead.
+    expect(sent).toContain('other-model');
+    expect(sent).toContain('fake-model');
+  });
+
+  it('treats a stored model-switch-only trigger as projected during replacement', async () => {
+    const storedSwitch = createModelChangeItem({
+      oldModel: { id: 'older-model' },
+      newModel: { id: 'other-model' },
+      runId,
+    });
+
+    const capturing = makeCapturingClient();
+
+    await executeRegenerate(null, {
+      client: capturing.client,
+      triggerParts: [storedSwitch],
+    });
+
+    const messages = capturing.streamOptions().messages;
+    expect(messages).toHaveLength(1);
+    const sent = JSON.stringify(messages);
+    expect(sent).not.toContain('older-model');
     expect(sent).toContain('other-model');
     expect(sent).toContain('fake-model');
   });
@@ -19271,6 +20752,7 @@ describe('RunExecutionService git state', () => {
 
 describe('RunExecutionService executeRun — run segments', () => {
   afterEach(() => {
+    unregisterTestOnlyTool('wait');
     vi.restoreAllMocks();
   });
 
@@ -19331,13 +20813,14 @@ describe('RunExecutionService executeRun — run segments', () => {
     items: Array<ChatDelivery>,
     locked: Run | undefined = { ...run, activeAttemptId: testAttemptId },
   ) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      locked,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(locked);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
 
     const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
       .mockResolvedValue(items);
 
     vi.spyOn(
@@ -19374,6 +20857,891 @@ describe('RunExecutionService executeRun — run segments', () => {
     finishReason: 'tool-calls' as const,
     stepCount: 2,
   };
+
+  type WaitOutcomeCase = {
+    readonly outcome: Awaited<ReturnType<RunWaitService['suspend']>>;
+    readonly terminalStatus: 'cancelled' | 'completed' | undefined;
+    readonly expectedContinuation: boolean;
+    readonly boundaryCancelled?: boolean;
+    readonly boundaryFenced?: boolean;
+    readonly boundaryDelivered?: boolean;
+    readonly completeWaitLockMissing?: boolean;
+  };
+
+  const resumesAfterSuspend = (scenario: WaitOutcomeCase): boolean =>
+    scenario.expectedContinuation ||
+    scenario.boundaryCancelled === true ||
+    scenario.boundaryFenced === true ||
+    scenario.boundaryDelivered === true ||
+    scenario.completeWaitLockMissing === true;
+
+  /** Serves the wake claim and boundary a settled wait passes through. */
+  function arrangeWaitCompletion(
+    execution: ReturnType<typeof makeExecutionService>,
+    scenario: WaitOutcomeCase,
+    settledJob: ChatJob,
+  ): void {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockResolvedValue([]);
+    Object.defineProperty(execution.db, 'select', {
+      configurable: true,
+      value: () => ({
+        from: () => ({
+          where: () => Promise.resolve([settledJob]),
+        }),
+      }),
+    });
+
+    if (
+      scenario.boundaryCancelled === true ||
+      scenario.boundaryFenced === true
+    ) {
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue(
+        scenario.boundaryCancelled === true
+          ? { ...run, activeAttemptId: testAttemptId, cancelRequestedAt: now }
+          : undefined,
+      );
+    } else {
+      serveDelivery(scenario.boundaryDelivered === true ? [pendingItem] : [], {
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+    }
+
+    if (scenario.boundaryDelivered === true) {
+      vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+        deliveredMessage,
+      );
+    }
+
+    if (scenario.completeWaitLockMissing === true) {
+      vi.spyOn(ChatsRepository.prototype, 'lock')
+        .mockResolvedValueOnce(chat)
+        .mockResolvedValueOnce(undefined);
+    }
+  }
+
+  /** Calls wait in the first segment, finishes it, and the continuation if any. */
+  async function driveWaitCall(
+    segment: ReturnType<typeof makeSegmentClient>,
+    result: Awaited<ReturnType<RunExecutionService['executeRun']>>,
+    scenario: WaitOutcomeCase,
+  ): Promise<void> {
+    const options = segment.calls[0];
+    expect(options?.tools).toHaveProperty('wait');
+
+    if (!options?.onToolCall)
+      throw new Error('wait tool call callback was not captured');
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'wait-call',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-44'], timeout: 30 },
+    });
+
+    if (
+      scenario.boundaryFenced === true ||
+      scenario.completeWaitLockMissing === true
+    ) {
+      await expect(options.onFinish?.(finishToolCalls)).rejects.toBeInstanceOf(
+        RunNotRunnableError,
+      );
+    } else {
+      await options.onFinish?.(finishToolCalls);
+    }
+
+    await result.consumeStream();
+
+    if (!scenario.expectedContinuation) return;
+    const continuation = segment.calls[1];
+
+    if (!continuation?.onFinish || !continuation.onTextDelta) {
+      throw new Error('wait continuation was not captured');
+    }
+
+    await continuation.onStepStart?.({ messages: [], stepNumber: 0 });
+    continuation.onTextDelta('answer', '0:answer');
+    await continuation.onFinish({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+  }
+
+  /** The terminal state, reply and events each outcome must leave. */
+  function expectWaitOutcome(
+    scenario: WaitOutcomeCase,
+    spies: ReturnType<typeof mockNormalExecutionRepositories>,
+    types: ReadonlyArray<string>,
+    appended: ReturnType<typeof recordAppendedEvents>,
+  ): void {
+    if (scenario.terminalStatus === 'cancelled') {
+      expect(types).toContain('run.cancelled');
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'cancelled',
+        expect.any(Object),
+      );
+
+      return;
+    }
+
+    if (scenario.terminalStatus === 'completed') {
+      expect(types).toContain('tool.completed');
+      expect(types).toContain('run.completed');
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'completed',
+        expect.objectContaining({ attemptId: testAttemptId }),
+      );
+      expect(
+        spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.parts,
+      ).toContainEqual(
+        expect.objectContaining({
+          type: 'tool-wait',
+          input: { jobs: ['job://bash-44'], timeout: 30 },
+          step: 0,
+        }),
+      );
+      expect(
+        appended.find(({ type }) => type === 'model.delta')?.payload,
+      ).toMatchObject({ text: 'answer', stepNumber: 2 });
+
+      return;
+    }
+
+    expect(types).not.toContain('run.completed');
+    expect(spies.markFinished).not.toHaveBeenCalled();
+
+    const boundaryReached =
+      scenario.boundaryCancelled === true ||
+      scenario.boundaryFenced === true ||
+      scenario.boundaryDelivered === true;
+
+    if (boundaryReached) expect(types).toContain('tool.completed');
+    else expect(types).not.toContain('tool.completed');
+  }
+
+  it.each([
+    {
+      outcome: { kind: 'suspended' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'cancelled' as const },
+      terminalStatus: 'cancelled' as const,
+      expectedContinuation: false,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: 'completed' as const,
+      expectedContinuation: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: 'cancelled' as const,
+      expectedContinuation: false,
+      boundaryCancelled: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+      boundaryFenced: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+      completeWaitLockMissing: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+      boundaryDelivered: true,
+    },
+  ] satisfies ReadonlyArray<WaitOutcomeCase>)(
+    'records wait suspension outcome $outcome.kind',
+    async (scenario) => {
+      registerTestOnlyTool(waitTool);
+
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const job = {
+        ...settledBashJob(44),
+        state: 'running' as const,
+        settledAt: null,
+        result: null,
+        outputs: [],
+      };
+
+      vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+        job,
+      );
+
+      const suspend = vi
+        .fn<RunWaitService['suspend']>()
+        .mockResolvedValue(scenario.outcome);
+
+      const segment = makeSegmentClient();
+
+      const execution = makeExecutionService(
+        segment.client,
+        undefined,
+        undefined,
+        {
+          allowed: ['wait'],
+          permissionPolicy: compileTestPermissionPolicy(['wait']),
+          runWait: asDouble<RunWaitService>({ suspend }),
+        },
+      );
+
+      if (resumesAfterSuspend(scenario)) {
+        arrangeWaitCompletion(execution, scenario, {
+          ...job,
+          state: 'succeeded' as const,
+          settledAt: new Date(now.getTime() + 1000),
+          result: { exitCode: 0 },
+        });
+      }
+
+      const result = await execution.service.executeRun(
+        executionInput(segment.client),
+      );
+
+      await driveWaitCall(segment, result, scenario);
+
+      expect(suspend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          runId,
+          chatId,
+          userId,
+          attemptId: testAttemptId,
+          toolCallId: 'wait-call',
+          toolInput: { jobs: ['job://bash-44'], timeout: 30 },
+          jobIds: ['job-44'],
+          steps: { 'wait-call': 0 },
+        }),
+      );
+
+      const types = appended.map(({ type }) => type);
+      expect(types).toContain('tool.requested');
+      expectWaitOutcome(scenario, spies, types, appended);
+
+      if (scenario.boundaryDelivered === true) {
+        expect(types).toContain('run.delivered');
+        expect(segment.calls).toHaveLength(2);
+      }
+    },
+  );
+
+  it('does not suspend when the wait request belongs to another tool call', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    vi.spyOn(waitTool, 'execute').mockImplementation((context) => {
+      if (context.onWaitRequested === undefined) {
+        throw new Error('wait request callback was not supplied');
+      }
+
+      context.onWaitRequested({
+        toolCallId: 'other-wait-call',
+        toolInput: { jobs: ['job://bash-50'] },
+        jobIds: ['job-50'],
+        deadline: '2026-11-14T12:30:00.000Z',
+      });
+
+      return Promise.resolve(WAIT_SUSPENSION);
+    });
+
+    const suspend = vi.fn<RunWaitService['suspend']>();
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('wait callbacks were not captured');
+    }
+
+    serveDelivery([], { ...run, activeAttemptId: testAttemptId });
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'wait-call',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-50'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('run.suspended');
+
+    const waitCompletion = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'wait-call',
+    );
+
+    expect(waitCompletion).toBeDefined();
+    expect(segment.calls).toHaveLength(2);
+  });
+
+  it('keeps the first valid wait request when the model requests wait twice in one step', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = {
+      ...settledBashJob(47),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish)
+      throw new Error('wait tool-loop callbacks were not captured');
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'first-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-47'] },
+    });
+    options.onToolCall({
+      toolCallId: 'second-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-47'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(suspend).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'first-wait' }),
+    );
+
+    const refusal = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'second-wait' &&
+        isRecord(entry.payload['output']),
+    );
+
+    if (!refusal || !isRecord(refusal.payload)) {
+      throw new Error('Expected the second wait call completion.');
+    }
+
+    const output = refusal.payload['output'];
+
+    if (!isRecord(output)) {
+      throw new Error('Expected the second wait call refusal output.');
+    }
+
+    expect(output['type']).toBe('wait_already_requested');
+    expect(output['message']).toContain('first-wait');
+  });
+
+  it('allows a valid wait after an invalid wait call in the same step', async () => {
+    registerTestOnlyTool(waitTool);
+
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const job = {
+      ...settledBashJob(48),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('wait tool-loop callbacks were not captured');
+    }
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'invalid-wait',
+      toolName: 'wait',
+      input: { jobs: ['not-a-job-locator'] },
+    });
+    options.onToolCall({
+      toolCallId: 'valid-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-48'] },
+    });
+    await options.onFinish(finishToolCalls);
+    await result.consumeStream();
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(suspend).toHaveBeenCalledWith(
+      expect.objectContaining({ toolCallId: 'valid-wait' }),
+    );
+
+    const invalidCompletion = appended.find(
+      (entry) =>
+        entry.type === 'tool.completed' &&
+        isRecord(entry.payload) &&
+        entry.payload['toolCallId'] === 'invalid-wait',
+    );
+
+    if (!invalidCompletion || !isRecord(invalidCompletion.payload)) {
+      throw new Error('Expected the invalid wait call completion.');
+    }
+
+    const output = invalidCompletion.payload['output'];
+
+    if (!isRecord(output)) {
+      throw new Error('Expected the invalid wait call output.');
+    }
+
+    expect(output['type']).toBe('invalid_input');
+  });
+  it.each(['nothing-pending', 'cancelled', 'delivered', 'fenced'] as const)(
+    'claims a resumed wait before the %s steering boundary',
+    async (boundaryKind) => {
+      registerTestOnlyTool(waitTool);
+
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const awaiting = {
+        toolCallId: 'wake-wait',
+        toolInput: { jobs: ['job://bash-45'], timeout: 30 },
+        jobIds: ['job-45'],
+        deadline: '2026-11-14T12:30:00.000Z',
+      };
+
+      const claimed = {
+        ...run,
+        activeAttemptId: testAttemptId,
+        awaiting,
+        wakeGeneration: 1,
+      };
+
+      spies.markStarted.mockResolvedValue(claimed);
+
+      const settledJob = {
+        ...settledBashJob(45),
+        settledAt: new Date(now.getTime() + 1000),
+        outputs: [],
+      };
+
+      const wakeEvents: Array<RunEvent> = [
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: 'suspended-attempt',
+            generation: 1,
+            toolCallId: awaiting.toolCallId,
+            awaiting,
+            parts: [{ type: 'text', text: 'before wait', step: 4 }],
+            steps: { [awaiting.toolCallId]: 4 },
+          },
+        },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.resumed',
+          payload: { generation: 1, cause: 'settled' },
+        },
+        {
+          ...event,
+          sequence: 3,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 4,
+          eventType: 'tool.completed',
+          payload: {
+            toolCallId: awaiting.toolCallId,
+            toolName: 'wait',
+            output: { status: 'success', ended: 'settled', jobs: [] },
+          },
+        },
+      ];
+
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+        (_runId, _userId, options) =>
+          Promise.resolve(
+            wakeEvents.filter(
+              ({ eventType }) =>
+                options?.eventTypes === undefined ||
+                options.eventTypes.some((type) => type === eventType),
+            ),
+          ),
+      );
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'consumeJobNotices',
+      ).mockResolvedValue([]);
+
+      if (boundaryKind === 'fenced') {
+        vi.spyOn(
+          RunRowFenceRepository.prototype,
+          'lockForDelivery',
+        ).mockResolvedValue(undefined);
+      } else {
+        serveDelivery(boundaryKind === 'delivered' ? [pendingItem] : [], {
+          ...run,
+          activeAttemptId: testAttemptId,
+          cancelRequestedAt: boundaryKind === 'cancelled' ? now : null,
+        });
+      }
+
+      if (boundaryKind === 'delivered') {
+        vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+          deliveredMessage,
+        );
+      }
+
+      const segment = makeSegmentClient();
+
+      const executor: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => ({ status: 'success' as const, value: 'continued' }),
+      };
+
+      const execution = makeExecutionService(
+        segment.client,
+        makeDynamicResolver(executor),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          allowed: ['wait', toolDeclaration.id],
+          permissionPolicy: compileTestPermissionPolicy([
+            'wait',
+            toolDeclaration.id,
+          ]),
+          maxStepsPerRun: 10,
+        },
+      );
+
+      const latest = [
+        {
+          eventType: 'run.resumed',
+          payload: { generation: 1, cause: 'settled' },
+        },
+      ];
+
+      Object.defineProperty(execution.db, 'select', {
+        configurable: true,
+        value: () => ({
+          from: () => ({
+            innerJoin: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  limit: () => Promise.resolve(latest),
+                }),
+              }),
+            }),
+            where: () => Promise.resolve([settledJob]),
+          }),
+        }),
+      });
+
+      if (boundaryKind === 'cancelled' || boundaryKind === 'fenced') {
+        await expect(
+          execution.service.executeRun(executionInput(segment.client)),
+        ).rejects.toBeInstanceOf(RunNotRunnableError);
+        expect(segment.calls).toHaveLength(0);
+
+        if (boundaryKind === 'cancelled') {
+          expect(appended.map(({ type }) => type)).toContain('run.cancelled');
+          expect(
+            appended.find(({ type }) => type === 'run.cancelled')?.payload,
+          ).toEqual({ status: 'cancelled' });
+        } else {
+          expect(appended.map(({ type }) => type)).not.toContain(
+            'run.cancelled',
+          );
+        }
+
+        return;
+      }
+
+      const result = await execution.service.executeRun(
+        executionInput(segment.client),
+      );
+
+      if (boundaryKind === 'delivered') {
+        expect(appended.map(({ type }) => type)).toContain('run.delivered');
+        expect(segment.calls).toHaveLength(1);
+
+        return;
+      }
+
+      expect(segment.calls[0]?.maxSteps).toBe(5);
+
+      const options = segment.calls[0];
+
+      if (!options?.onToolCall)
+        throw new Error('wake tool-loop callback was not captured');
+
+      await options.onStepStart?.({ messages: [], stepNumber: 0 });
+      options.onToolCall({
+        toolCallId: 'after-wake',
+        toolName: toolDeclaration.id,
+        input: { q: 'continue' },
+      });
+      await executeBoundTool(options, { q: 'continue' }, 'after-wake');
+      await options.onStepStart?.({ messages: [], stepNumber: 1 });
+      await options.onFinish?.(finishToolCalls);
+      await result.consumeStream();
+
+      const completed = appended.findIndex(
+        (entry) =>
+          entry.type === 'tool.completed' &&
+          isRecord(entry.payload) &&
+          entry.payload['toolCallId'] === 'wake-wait',
+      );
+
+      const continued = appended.findIndex(
+        (entry) =>
+          entry.type === 'tool.requested' &&
+          isRecord(entry.payload) &&
+          entry.payload['toolCallId'] === 'after-wake',
+      );
+
+      const modelRequest = appended.findIndex(
+        (entry) => entry.type === 'model.requested',
+      );
+
+      expect(completed).toBeGreaterThanOrEqual(0);
+      expect(continued).toBeGreaterThan(completed);
+      expect(modelRequest).toBeGreaterThan(completed);
+      expect(appended[completed]?.payload).toMatchObject({
+        output: {
+          jobs: [expect.objectContaining({ locator: 'job://bash-45' })],
+        },
+      });
+
+      expect(
+        appended.find((entry) => entry.type === 'tool.completed'),
+      ).toMatchObject({
+        payload: {
+          toolCallId: 'wake-wait',
+          toolName: 'wait',
+        },
+      });
+      expect(
+        appended.find((entry) => entry.type === 'tool.requested'),
+      ).toMatchObject({
+        payload: {
+          toolCallId: 'after-wake',
+          stepNumber: 0,
+        },
+      });
+      expect(spies.markStarted).toHaveBeenCalledWith(runId, userId);
+    },
+  );
+  it('does not defer an ordinary declared tool call as a wait', async () => {
+    mockNormalExecutionRepositories();
+
+    const execute = vi.fn(() => ({
+      status: 'success' as const,
+      value: 'ordinary result',
+    }));
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      {
+        ...withDeclaredTool(),
+        allowed: [toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+        runWait: asDouble<RunWaitService>({
+          suspend: vi.fn<RunWaitService['suspend']>(),
+        }),
+      },
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('tool-loop callbacks were not captured');
+    }
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'ordinary-call',
+      toolName: toolDeclaration.id,
+      input: { q: 'ordinary' },
+    });
+    await executeBoundTool(options, { q: 'ordinary' }, 'ordinary-call');
+    await options.onFinish({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(segment.calls).toHaveLength(1);
+  });
+
+  it('propagates a failed durable wait instead of completing the Run', async () => {
+    registerTestOnlyTool(waitTool);
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const failure = new Error('wait persistence failed');
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockRejectedValue(failure);
+
+    const job = {
+      ...settledBashJob(49),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+
+    if (!options?.onToolCall || !options.onFinish) {
+      throw new Error('wait callbacks were not captured');
+    }
+
+    await options.onStepStart?.({ messages: [], stepNumber: 0 });
+    options.onToolCall({
+      toolCallId: 'failed-wait',
+      toolName: 'wait',
+      input: { jobs: ['job://bash-49'] },
+    });
+    await expect(options.onFinish(finishToolCalls)).rejects.toBe(failure);
+
+    expect(suspend).toHaveBeenCalledOnce();
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    expect(spies.markFinished).not.toHaveBeenCalled();
+  });
 
   it('stops the call when the step end finds a pending item and not otherwise', async () => {
     mockNormalExecutionRepositories();
@@ -19453,6 +21821,57 @@ describe('RunExecutionService executeRun — run segments', () => {
       continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
     ).toHaveLength(1);
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops after a tool-call step whose attempt has a suspension receipt', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: testAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === testAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+
+    const stepEndSignal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model call was not captured');
+
+    await executeBoundTool(options, { q: 'first' }, 'suspended-step-call');
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    await options?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    expect(segment.calls).toHaveLength(1);
+    expect(appended.filter(({ type }) => type === 'tool.started')).toHaveLength(
+      1,
+    );
+    expect(stepEndSignal).not.toHaveBeenCalled();
+    expect(spies.markFinished).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('model.completed');
+    expect(appended.map(({ type }) => type)).not.toContain('run.completed');
   });
 
   it('keeps the Run live when the final answer meets a pending item', async () => {
@@ -19583,7 +22002,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       'stepEndSignal',
     );
 
-    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const lock = vi.spyOn(RunRowFenceRepository.prototype, 'lockForDelivery');
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
@@ -19663,9 +22082,10 @@ describe('RunExecutionService executeRun — run segments', () => {
     signal.mockResolvedValueOnce('delivery');
     await options?.stopWhenExtra?.();
     // Another attempt superseded this one: its row lock finds no live Run.
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      undefined,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(undefined);
     await options?.onFinish?.(finishToolCalls);
     await result.consumeStream();
 
@@ -19686,7 +22106,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       'stepEndSignal',
     );
 
-    const lock = vi.spyOn(RunsRepository.prototype, 'lockForDelivery');
+    const lock = vi.spyOn(RunRowFenceRepository.prototype, 'lockForDelivery');
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
@@ -20235,7 +22655,10 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     // The attempt's own `running` reply, rebuilt from the log it left.
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-      () => Promise.resolve(durableEventsFrom(appended)),
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          filterDurableEvents(durableEventsFrom(appended), options),
+        ),
     );
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
       userMessage,
@@ -20399,13 +22822,14 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     items: Array<ChatDelivery>,
     locked: Run = { ...run, activeAttemptId: testAttemptId },
   ) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValueOnce(
-      locked,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce(locked);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     ).mockResolvedValue(items);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
@@ -20449,6 +22873,44 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
   const NOT_RUN =
     'This call did not run. The owner interrupted the step before it started. Run it again if you still need it.';
 
+  it('passes an already-pending steering yield to the first tool call', async () => {
+    const yieldStates: Array<boolean> = [];
+
+    const { start } = interruptRig({
+      execute: (context) => {
+        yieldStates.push(context.yieldSignal?.aborted === true);
+
+        return Promise.resolve({ status: 'success' });
+      },
+    });
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'hasPendingSteering',
+    ).mockResolvedValueOnce(true);
+
+    const { options } = await start();
+
+    await executeBoundTool(options, { q: 'x' }, 'pre-steered');
+
+    expect(yieldStates).toEqual([true]);
+  });
+
+  it('fails and releases the segment when its pending-steering read fails', async () => {
+    const { aborts, start, appended } = interruptRig({ native: ['read'] });
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'hasPendingSteering',
+    ).mockRejectedValueOnce(new Error('pending read unavailable'));
+
+    await expect(start()).rejects.toThrow('pending read unavailable');
+    expect(aborts.segmentOf(runId)).toBeUndefined();
+    expect(payloadOf(appended, 'run.failed')).toMatchObject({
+      status: 'failed',
+      message: 'pending read unavailable',
+    });
+  });
+
   it('settles a dispatched MCP call as unknown, records its result, and names it in the delivery', async () => {
     const { appended, aborts, start } = interruptRig({
       execute: async (context) => {
@@ -20472,7 +22934,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       5,
     );
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20535,7 +22997,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       );
     }
 
-    expect(aborts.interrupt(runId, testAttemptId)).toBe(true);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
 
@@ -20557,7 +23019,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const call = executeBoundTool(options, { q: 'x' }, 'mcp-1');
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20592,7 +23054,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20633,7 +23095,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     serveInterrupt([interruptItem]);
     const failed = options.onError?.({ error: new Error('aborted') });
     // The edit is still running: nothing settles it and nothing is delivered.
@@ -20657,7 +23119,42 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     expect(delivered(appended)).toMatchObject({ stoppedCalls: [] });
   });
 
-  it('kills a bash call that proves its own result and names it in the delivery', async () => {
+  it('yields a host bash call without cancelling its execution signal', async () => {
+    let moveSignal: AbortSignal | undefined;
+    let abortSignal: AbortSignal | undefined;
+    vi.spyOn(bashTool, 'execute').mockImplementation(async (context) => {
+      moveSignal = context.moveSignal;
+      abortSignal = context.abortSignal;
+      await untilAborted(context.moveSignal);
+
+      return { status: 'success', stdout: 'command finished' };
+    });
+    const { appended, aborts, start } = interruptRig({ native: ['bash'] });
+    const { options } = await start();
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9' },
+      'bash-host-1',
+    );
+
+    await waitForType(appended, 'tool.started');
+    expect(moveSignal?.aborted).toBe(false);
+    expect(abortSignal?.aborted).not.toBe(true);
+
+    expect(interruptCurrent(aborts, runId)).toBe(true);
+    await call;
+    serveInterrupt([interruptItem]);
+    await options.onError?.({ error: new Error('aborted') });
+
+    expect(moveSignal?.aborted).toBe(true);
+    expect(abortSignal?.aborted).not.toBe(true);
+    expect(payloadOf(appended, 'tool.completed', 'bash-host-1')).toMatchObject({
+      output: { status: 'success', stdout: 'command finished' },
+    });
+  });
+
+  it('cancels a remote bash call that proves its result and names it in the delivery', async () => {
     const proven: ToolResult = {
       status: 'error',
       type: 'cancelled',
@@ -20671,10 +23168,16 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     });
     const { appended, aborts, start } = interruptRig({ native: ['bash'] });
     const { options } = await start();
-    const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
+
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     await call;
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
@@ -20694,10 +23197,16 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     );
     const { appended, aborts, start } = interruptRig({ native: ['bash'] });
     const { options } = await start();
-    const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
+
+    const call = executeBoundBash(
+      options,
+      { command: 'sleep 9', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
+
     await waitForType(appended, 'tool.started');
 
-    aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(aborts, runId);
     serveInterrupt([interruptItem]);
     const failed = options.onError?.({ error: new Error('aborted') });
     // Inside the grace nothing settles the call.
@@ -20722,12 +23231,16 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const record = append.getMockImplementation();
     append.mockImplementation((...args) => {
       // The stop lands while the call's admission is being recorded.
-      if (args[1] === 'tool.started') aborts.interrupt(runId, testAttemptId);
+      if (args[1] === 'tool.started') interruptCurrent(aborts, runId);
 
       return record?.(...args) ?? Promise.reject(new Error('no append'));
     });
     const { options } = await start();
-    await executeBoundBash(options, { command: 'ls' }, 'bash-1');
+    await executeBoundBash(
+      options,
+      { command: 'ls', cwd: 'ssh://build/tmp' },
+      'bash-1',
+    );
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
 
@@ -20745,7 +23258,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const append = vi.spyOn(RunEventsRepository.prototype, 'append');
     const record = append.getMockImplementation();
     append.mockImplementation((...args) => {
-      if (args[1] === 'tool.started') aborts.interrupt(runId, testAttemptId);
+      if (args[1] === 'tool.started') interruptCurrent(aborts, runId);
 
       return record?.(...args) ?? Promise.reject(new Error('no append'));
     });
@@ -20774,7 +23287,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const started = await rig.start();
     const call = executeBoundTool(started.options, { q: 'x' }, toolCallId);
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     await call;
 
     return started;
@@ -20872,7 +23385,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const { options } = await rig.start(controller.signal);
     const call = executeBoundTool(options, { q: 'x' }, 'mcp-1');
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     controller.abort();
     await call;
     serveInterrupt([interruptItem]);
@@ -20959,7 +23472,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     await options.onError?.({ error: new Error('aborted') });
 
-    expect(rig.aborts.segmentAttemptOf(runId)).toBeUndefined();
+    expect(rig.aborts.segmentOf(runId)).toBeUndefined();
   });
 
   it('records the result of an MCP call whose request was committed after the stop settled it', async () => {
@@ -21042,7 +23555,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     const { options } = await rig.start();
     const call = executeBoundBash(options, { command: 'sleep 9' }, 'bash-1');
     await waitForType(rig.appended, 'tool.started');
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     serveInterrupt([interruptItem]);
     await options.onError?.({ error: new Error('aborted') });
     await call;
@@ -21087,7 +23600,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       'pending-bash',
     );
 
-    rig.aborts.interrupt(runId, testAttemptId);
+    interruptCurrent(rig.aborts, runId);
     await waitForType(rig.appended, 'tool.completed');
 
     resolving.resolve({

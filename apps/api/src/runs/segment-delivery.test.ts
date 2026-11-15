@@ -1,8 +1,9 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import * as schema from '../db/schema';
+
 import {
   type Chat,
   type ChatDelivery,
@@ -12,6 +13,7 @@ import {
 import { type Db } from '../db/tenant-db.service';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   abortedByInterrupt,
   closedTelemetry,
@@ -44,6 +46,9 @@ const run: Run = {
   createdAt: now,
   startedAt: now,
   finishedAt: null,
+  wakeGeneration: 0,
+  currentJobId: null,
+  awaiting: null,
   effort: null,
   permissionMode: 'default',
   followUpAction: null,
@@ -119,6 +124,15 @@ function pending(id: string, text: string): ChatDelivery {
 
 const first = pending('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'first');
 const second = pending('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'second');
+
+const jobNotice: ChatDelivery = {
+  ...pending('cccccccc-cccc-4ccc-8ccc-cccccccccccc', ''),
+  producer: 'job',
+  senderRef: 'job://bash-1',
+  mode: 'notice',
+  parts: [],
+};
+
 const models = [{ id: 'fake-model', billing: 'subscription' as const }];
 
 const closingTelemetry = {
@@ -132,7 +146,7 @@ const closingTelemetry = {
 };
 
 describe('deliverPendingSteering', () => {
-  const tx: Db = drizzle.mock({ schema });
+  const tx: Db = drizzle.mock();
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -155,9 +169,13 @@ describe('deliverPendingSteering', () => {
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([]);
+    vi.spyOn(
+      ChatJobsRepository.prototype,
+      'settleOnDeadWorkers',
+    ).mockResolvedValue([]);
 
     const lockForDelivery = vi
-      .spyOn(RunsRepository.prototype, 'lockForDelivery')
+      .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
       .mockResolvedValue(has('locked') ? overrides.locked : run);
 
     const lockChat = vi
@@ -165,7 +183,7 @@ describe('deliverPendingSteering', () => {
       .mockResolvedValue(has('chat') ? overrides.chat : chat);
 
     const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingSteering')
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
       .mockResolvedValue(overrides.items ?? [first, second]);
 
     const markDelivered = vi
@@ -255,6 +273,7 @@ describe('deliverPendingSteering', () => {
       attemptId,
       models,
       live,
+      deadWorkerAfterSeconds: 60,
       ...extra,
     });
   }
@@ -377,6 +396,74 @@ describe('deliverPendingSteering', () => {
     complete: false,
     interrupted: true,
   };
+
+  it.each([
+    {
+      label: 'job notice alone',
+      items: [jobNotice],
+      cause: 'notice',
+      expectedUsage: closingTelemetry,
+    },
+    {
+      label: 'owner steer before job notice',
+      items: [first, jobNotice],
+      cause: 'steer',
+      expectedUsage: closingTelemetry,
+    },
+    {
+      label: 'job notice before owner steer',
+      items: [jobNotice, first],
+      cause: 'steer',
+      expectedUsage: closingTelemetry,
+    },
+    {
+      label: 'owner interrupt before job notice',
+      items: [{ ...first, mode: 'interrupt' }, jobNotice],
+      cause: 'interrupt',
+      expectedUsage: interrupted,
+    },
+    {
+      label: 'job notice before owner interrupt',
+      items: [jobNotice, { ...first, mode: 'interrupt' }],
+      cause: 'interrupt',
+      expectedUsage: interrupted,
+    },
+  ] as const)(
+    'delivers $label with its cause and closing telemetry',
+    async ({ items, cause, expectedUsage }) => {
+      const spies = serve({ items: [...items] });
+
+      const createSystemMessage = vi
+        .spyOn(MessagesRepository.prototype, 'create')
+        .mockResolvedValue(storedMessage({ senderUserId: null, parts: [] }));
+
+      const outcome = await deliver({
+        modelCompleted: {
+          usage: { inputTokens: 3 },
+          finishReason: 'tool-calls',
+          telemetry: { ...closingTelemetry },
+        },
+      });
+
+      expect(outcome.kind).toBe('delivered');
+
+      if (outcome.kind !== 'delivered') return;
+      expect(outcome.cause).toBe(cause);
+      expect(outcome.closedReply?.usage).toEqual(expectedUsage);
+
+      if (items.every((item) => item.producer === 'job')) {
+        expect(spies.createUser).not.toHaveBeenCalled();
+        expect(createSystemMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            role: 'user',
+            senderUserId: null,
+            parts: [],
+            attachments: [],
+          }),
+        );
+      }
+    },
+  );
 
   it('closes the reply aborted, and records the cause, when an interrupt item is delivered', async () => {
     const spies = serve({ items: [interruptItem] });
@@ -533,7 +620,7 @@ describe('deliverPendingSteering', () => {
 });
 
 describe('deliverPendingSteering closing usage and baselines', () => {
-  const tx: Db = drizzle.mock({ schema });
+  const tx: Db = drizzle.mock();
 
   const baseline = {
     pinned: [],
@@ -551,13 +638,18 @@ describe('deliverPendingSteering closing usage and baselines', () => {
 
   /** Every repository a delivery of `items` reads or writes, served. */
   function serve(items: Array<ChatDelivery>) {
-    vi.spyOn(RunsRepository.prototype, 'lockForDelivery').mockResolvedValue(
-      run,
-    );
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue(run);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(
+      ChatJobsRepository.prototype,
+      'settleOnDeadWorkers',
+    ).mockResolvedValue([]);
+    vi.spyOn(
       ChatDeliveriesRepository.prototype,
-      'lockPendingSteering',
+      'lockPendingBoundary',
     ).mockResolvedValue(items);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
@@ -606,10 +698,12 @@ describe('deliverPendingSteering closing usage and baselines', () => {
   /** Delivers with a closing reply that answers `inReplyTo`. */
   async function deliver(inReplyTo = messageId) {
     const telemetry = { ...closingTelemetry };
+
     await deliverPendingSteering(tx, {
       run: { runId, userId },
       attemptId,
       models,
+      deadWorkerAfterSeconds: 60,
       live: {
         chatId,
         inReplyTo,
@@ -674,6 +768,13 @@ describe('deliverPendingSteering closing usage and baselines', () => {
     await deliver();
 
     expect(spies.setDigest).toHaveBeenCalledWith(chatId, userId, baseline, []);
+  });
+  it('does not write first-epoch baselines when a job notice joins an owner steer', async () => {
+    const spies = serve([first, jobNotice]);
+
+    await deliver();
+
+    expect(spies.setDigest).not.toHaveBeenCalled();
   });
 
   it('writes no first-epoch baseline when an interrupt is among the delivered items', async () => {

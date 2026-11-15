@@ -4,6 +4,8 @@ export * from './chat-creation-records';
 
 export * from './chat-deliveries';
 
+export * from './chat-jobs';
+
 export * from './chats';
 
 export * from './identity';

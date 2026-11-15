@@ -6,7 +6,6 @@ import {
   PATH_NOT_REGISTERED_MESSAGE,
 } from '@workspace/machine-protocol';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   MachineConnector,
@@ -58,7 +57,7 @@ function connectorFor(options: ProtocolPeerOptions = {}) {
 }
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner',

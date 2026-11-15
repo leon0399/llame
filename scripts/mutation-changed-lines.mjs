@@ -18,12 +18,13 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   globSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const mutationWorkspaces = [
   "apps/api",
@@ -330,6 +331,32 @@ const scopeConfigFile = "stryker.changed-lines.json";
 /** The log Stryker writes beside the scope; removed after the run. */
 const strykerLogFile = "stryker.log";
 
+/** SQL fixtures copied into the API project so Stryker includes them. */
+const strykerSqlFixtureDirectoryPrefix = "stryker-sql-fixtures-";
+const strykerSqlFixtureEnv = "LLAME_STRYKER_SQL_FIXTURE_DIR";
+const strykerSqlFixtures = [
+  ["docker/postgres/initdb/03-vector-extension.sql", "03-vector-extension.sql"],
+  ["docker/postgres/rls-function-owner.sql", "rls-function-owner.sql"],
+];
+
+function stageStrykerSqlFixtures(root) {
+  const destination = mkdtempSync(
+    path.join(root, "apps/api", strykerSqlFixtureDirectoryPrefix),
+  );
+  try {
+    for (const [source, name] of strykerSqlFixtures) {
+      writeFileSync(
+        path.join(destination, name),
+        readFileSync(path.resolve(root, source)),
+      );
+    }
+    return destination;
+  } catch (error) {
+    rmSync(destination, { force: true, recursive: true });
+    throw error;
+  }
+}
+
 /**
  * Whether a Stryker log shows that the scope held no mutant at all.
  *
@@ -399,8 +426,30 @@ export function mutationArguments(workspace, root = process.cwd()) {
   return ["run", "--filter", name, "test:mutation", scopeConfigFile];
 }
 
+function withStrykerSqlFixtures(commandAndArguments) {
+  const [command, ...args] = commandAndArguments;
+  if (!command) throw new Error("with-sql-fixtures requires a command");
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  const stagedFixtures = stageStrykerSqlFixtures(root);
+  try {
+    const result = spawnSync(command, args, {
+      cwd: process.cwd(),
+      env: { ...process.env, [strykerSqlFixtureEnv]: stagedFixtures },
+      stdio: "inherit",
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) process.exitCode = result.status ?? 1;
+  } finally {
+    rmSync(stagedFixtures, { force: true, recursive: true });
+  }
+}
+
 function main(arguments_) {
-  const [command] = arguments_;
+  const [command, ...rest] = arguments_;
+  if (command === "with-sql-fixtures") {
+    withStrykerSqlFixtures(rest);
+    return;
+  }
   if (command === "plan") {
     const base = option(arguments_, "--base");
     const ranges = changedLineRanges(base);
@@ -436,15 +485,15 @@ function main(arguments_) {
     console.log(`${scope}: mutating ${ranges.length} ranges`);
     // The path is known before the write, so a write that truncates and then
     // fails still leaves nothing behind.
-    const config = path.resolve(workspace, scopeConfigFile);
-    const log = path.resolve(workspace, strykerLogFile);
-    // Stryker appends to its log, and an interrupted run skips the cleanup
-    // below, so only this run's lines may decide the result.
+    const root = path.resolve(".");
+    const config = path.resolve(root, workspace, scopeConfigFile);
+    const log = path.resolve(root, workspace, strykerLogFile);
+    // Stryker SQL fixtures are staged by the package script wrapper.
     rmSync(log, { force: true });
     try {
       writeScopeConfig(workspace, ranges);
       const result = spawnSync("pnpm", mutationArguments(workspace), {
-        cwd: path.resolve("."),
+        cwd: root,
         stdio: "inherit",
       });
       if (result.status !== 0) {

@@ -1,6 +1,7 @@
 import { realpath, stat } from 'node:fs/promises';
 
-import { isRecord } from '@workspace/runtime-safety';
+import { BashProcessLimiter } from '@workspace/bash-executor';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
   hostFilesEnabled,
@@ -8,12 +9,15 @@ import {
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
 import { isBashTool } from '../tools/bash';
+import { isHostBashCall } from '../tools/bash-target';
+import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { isCancelledBeforeExecution } from '../tools/cancelled-before-execution';
 import { interruptFateOf } from '../tools/registry';
 import { isNativeFileTool } from '../tools/native-files';
 import { NativeFilesRepository } from './native-files-repository';
 import {
   INTERRUPT_ABORT_REASON,
+  newSegmentControl,
   RunAbortRegistry,
   type RunSegmentRegistrar,
 } from './run-abort-registry';
@@ -54,10 +58,13 @@ import {
   type ToolSet,
 } from 'ai';
 
+import { and, eq } from 'drizzle-orm';
 import { canonicalJson, compareCodePoints } from '../canonical-json';
 import { errorMessageWithoutParams, loggableError } from '../db/loggable-error';
+import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
+  runs,
   type Chat,
   type FollowUpAction,
   type Message,
@@ -82,6 +89,11 @@ import { type ModelClient, type SdkRefusal } from '../models/model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { createJobNoticeContext } from './job-notice-context';
+import {
+  discardedJobNoticeIds,
+  sourceSegmentJobNoticeIds,
+} from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
@@ -213,7 +225,6 @@ import {
   type ToolPromptRenderer,
 } from '../instance-config/prompt-loader';
 import {
-  BASH_SETTLEMENT_GRACE_MS,
   invalidCallResult,
   previewToolPermission,
   refusalResult,
@@ -409,6 +420,18 @@ import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import { promoteNextQueueItem } from './queue-promotion';
 import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
 import { type RunJob } from './run-queues';
+import { parseJobLocatorText } from '../jobs/job-locator';
+import { retryRunTransaction } from './run-transaction';
+import { RunWaitService } from './run-wait.service';
+import {
+  completeWaitInTransaction,
+  pendingWakeInTransaction,
+} from './run-wait-completion';
+import { wakeStateFromEvents, type WakeState } from './wake-projection';
+import { WAIT_SUSPENSION, type WaitRequest } from '../tools/wait-suspension';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -629,6 +652,11 @@ type FinishRunInput = {
   runId: string;
   status: TerminalRunStatus;
   attemptId?: string;
+  /** Fence a queue-originated terminal write by its observed queue identity. */
+  expectedQueueIdentity?: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
   modelCompleted?: {
     usage?: unknown;
     finishReason: unknown;
@@ -681,6 +709,11 @@ type ExecuteRunInput = {
    * only a Continue Run resumes kept parts, so every other Run skips that read.
    */
   followUpAction?: FollowUpAction | null;
+  /** Identity observed by a queue worker at pickup; direct callers omit it. */
+  expectedQueueIdentity?: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
 };
 
 type ModelStreamResult = ReturnType<ModelClient['streamText']>;
@@ -863,6 +896,8 @@ type ToolCompletedEventPayload = {
   toolName: string;
   status: ToolResult['status'];
   output: ToolResult;
+  /** Private server-side receipt; deliberately outside the model output. */
+  consumedJobNoticeIds?: Array<string>;
   /** An owner interrupt settled the call (run-steering D7). */
   interrupted?: true;
   permission?: PermissionDecision;
@@ -954,6 +989,44 @@ type InstanceConfigWithIdentity = InstanceConfigReader &
 type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
 
 /**
+ * Retry a complete transaction only when Postgres guarantees that it aborted.
+ * Re-running `work` opens a fresh transaction; connection failures are not
+ * retried because their commit outcome can be ambiguous.
+ */
+async function retryAbortedTransaction<T>(work: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await work();
+    } catch (error) {
+      const code = pgErrorCode(error);
+
+      if (attempt >= 2 || (code !== '40P01' && code !== '40001')) {
+        throw error;
+      }
+    }
+  }
+}
+
+async function recoverHostPromotionWithRetry(
+  tenantDb: TenantDbService,
+  input: {
+    runId: string;
+    userId: string;
+    attemptId: string;
+    toolCallId: string;
+    result: ToolResult;
+  },
+): Promise<ToolResult> {
+  return (
+    await retryAbortedTransaction(() =>
+      tenantDb.runAs(input.userId, (tx) =>
+        new NativeFilesRepository(tx).recoverHostPromotion(input),
+      ),
+    )
+  ).result;
+}
+
+/**
  * RunExecutionService (#48/#50, SPEC §9.5) — executes one run: context
  * assembly, the model call, and every durable side effect (assistant turn,
  * run lifecycle + model.delta events, pre-step checkpointing and titling).
@@ -964,6 +1037,7 @@ type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
  * HTTP types, and the caller supplies the ModelClient after resolving the run's
  * stored model id.
  */
+
 @Injectable()
 export class RunExecutionService {
   private readonly logger = new Logger(RunExecutionService.name);
@@ -986,6 +1060,9 @@ export class RunExecutionService {
    * memory flat while several Chats run.
    */
   private readonly machineSkillCatalogs = new Map<string, SkillCatalogPort>();
+
+  /** Built on first use: every Run of this worker shares it. */
+  private bashProcessLimiter: BashProcessLimiter | undefined;
 
   constructor(
     private readonly tenantDb: TenantDbService,
@@ -1077,6 +1154,11 @@ export class RunExecutionService {
     @Optional()
     @Inject(RunAbortRegistry)
     private readonly segmentAborts?: RunSegmentRegistrar,
+    @Optional()
+    @Inject(BashJobRegistry)
+    private readonly bashJobs?: BashJobRegistry,
+    @Inject(RunWaitService)
+    private readonly runWait?: RunWaitService,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1148,6 +1230,11 @@ export class RunExecutionService {
     status: TerminalRunStatus;
     /** Fence the terminal write by this attempt when one is known. */
     attemptId?: string;
+    /** Fence queue-driven expiry by the queue identity it observed. */
+    expectedQueueIdentity?: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    };
     runPayload?: unknown;
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
@@ -1204,83 +1291,148 @@ export class RunExecutionService {
     // compaction is part of this run's execution budget and cancellation
     // lifecycle, not untracked pre-work. A cancel that won the worker pickup
     // TOCTOU is settled atomically here without spending on either model.
-    const claim = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const runs = new RunsRepository(tx);
-      const events = new RunEventsRepository(tx);
+    const claim = await retryRunTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        const runs = new RunsRepository(tx);
+        const events = new RunEventsRepository(tx);
 
-      if (input.abortSignal?.aborted) {
-        const status = classifyAbortedRun(input.abortSignal);
-        const message = this.abortedRunMessage(status, input.abortSignal);
+        if (input.abortSignal?.aborted) {
+          const status = classifyAbortedRun(input.abortSignal);
+          const message = this.abortedRunMessage(status, input.abortSignal);
 
-        const finished = await runs.markFinished(
-          input.runId,
-          input.userId,
-          status,
-          { error: { message } },
-        );
+          const finished = await runs.markFinished(
+            input.runId,
+            input.userId,
+            status,
+            input.expectedQueueIdentity
+              ? {
+                  error: { message },
+                  expectedQueueIdentity: input.expectedQueueIdentity,
+                }
+              : { error: { message } },
+          );
 
-        return {
-          settledReply: await this.settleAtClaim(tx, finished, status, message),
-        };
-      }
+          return {
+            settledReply: await this.settleAtClaim(
+              tx,
+              finished,
+              status,
+              message,
+            ),
+          };
+        }
 
-      const started = await runs.markStarted(input.runId, input.userId);
-
-      if (!started) {
-        const current = await runs.findById(input.runId, input.userId);
-
-        if (
-          current?.cancelRequestedAt == null ||
-          isTerminalRunStatus(current.status)
-        ) {
+        if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId))) {
           return { settledReply: undefined };
         }
 
-        const cancelled = await runs.markFinished(
-          input.runId,
+        const started = input.expectedQueueIdentity
+          ? await runs.markStarted(input.runId, input.userId, {
+              expectedQueueIdentity: input.expectedQueueIdentity,
+            })
+          : await runs.markStarted(input.runId, input.userId);
+
+        if (!started) {
+          const current = await runs.findById(input.runId, input.userId);
+
+          if (
+            current?.cancelRequestedAt == null ||
+            isTerminalRunStatus(current.status)
+          ) {
+            return { settledReply: undefined };
+          }
+
+          const cancelled = input.expectedQueueIdentity
+            ? await runs.markFinished(input.runId, input.userId, 'cancelled', {
+                expectedQueueIdentity: input.expectedQueueIdentity,
+              })
+            : await runs.markFinished(input.runId, input.userId, 'cancelled');
+
+          return {
+            settledReply: await this.settleAtClaim(
+              tx,
+              cancelled,
+              'cancelled',
+              this.abortedRunMessage('cancelled', input.abortSignal),
+            ),
+          };
+        }
+
+        // The claim is a touch (background-jobs D9): a job of this Chat whose
+        // worker died is `lost` before any model request of this Run.
+        await new ChatJobsRepository(tx).settleOnDeadWorkers(
+          input.chatId,
           input.userId,
-          'cancelled',
+          workerDeadAfterSeconds(this.instanceConfig.config),
         );
 
-        return {
-          settledReply: await this.settleAtClaim(
+        const wakeCause =
+          started.awaiting === null
+            ? undefined
+            : await pendingWakeInTransaction(tx, started);
+
+        if (
+          wakeCause === undefined &&
+          (await new NativeFilesRepository(tx).hasMutation(input.runId))
+        ) {
+          return {
+            nativeRecovery: true as const,
+            attemptId: started.activeAttemptId!,
+          };
+        }
+
+        // The claim returns the persisted effort rather than setting an outer
+        // variable: it is read inside the transaction (the run row is the single
+        // source of truth for what this run executes at, not the queue payload)
+        // and can only be reached on the path that actually claimed the run.
+        // Deliberately never re-resolved or re-validated against current
+        // configuration — a level the operator has since withdrawn is still sent
+        // verbatim, and a run that stored none sends no provider option at all.
+        // The claim names its attempt, so the completeness check can tell the
+        // attempts of one segment from those of an earlier one by event order.
+        const startedEvent = await events.append(input.runId, 'run.started', {
+          attemptId: started.activeAttemptId,
+        });
+
+        let wakeState: WakeState | undefined;
+
+        if (wakeCause !== undefined && started.awaiting !== null) {
+          await completeWaitInTransaction(
             tx,
-            cancelled,
-            'cancelled',
-            this.abortedRunMessage('cancelled', input.abortSignal),
-          ),
-        };
-      }
+            started,
+            started.awaiting,
+            wakeCause,
+          );
+          wakeState = wakeStateFromEvents(
+            await events.listByRunId(input.runId, input.userId, {
+              eventTypes: [
+                'run.suspended',
+                'run.resumed',
+                'run.started',
+                'run.delivered',
+                'tool.requested',
+                'tool.started',
+                'tool.completed',
+              ],
+            }),
+            started.activeAttemptId!,
+          );
 
-      if (await new NativeFilesRepository(tx).hasMutation(input.runId)) {
+          if (wakeState === undefined)
+            throw new Error('The resumed Run has no complete wait checkpoint.');
+        }
+
         return {
-          nativeRecovery: true as const,
+          effort: started.effort ?? undefined,
+          permissionMode: started.permissionMode,
           attemptId: started.activeAttemptId!,
+          // The Run's current message: a retry resumes the segment it names.
+          messageId: started.messageId,
+          nativeDeliverySequence: startedEvent.sequence,
+          wakeState,
         };
-      }
-
-      // The claim returns the persisted effort rather than setting an outer
-      // variable: it is read inside the transaction (the run row is the single
-      // source of truth for what this run executes at, not the queue payload)
-      // and can only be reached on the path that actually claimed the run.
-      // Deliberately never re-resolved or re-validated against current
-      // configuration — a level the operator has since withdrawn is still sent
-      // verbatim, and a run that stored none sends no provider option at all.
-      // The claim names its attempt, so the completeness check can tell the
-      // attempts of one segment from those of an earlier one by event order.
-      const startedEvent = await events.append(input.runId, 'run.started', {
-        attemptId: started.activeAttemptId,
-      });
-
-      return {
-        effort: started.effort ?? undefined,
-        permissionMode: started.permissionMode,
-        attemptId: started.activeAttemptId!,
-        // The Run's current message: a retry resumes the segment it names.
-        messageId: started.messageId,
-        nativeDeliverySequence: startedEvent.sequence,
-      };
-    });
+      }),
+    );
 
     if ('settledReply' in claim) {
       // A reply finalized in place keeps its creation time, so only the
@@ -1319,10 +1471,18 @@ export class RunExecutionService {
       attemptId,
       nativeDeliverySequence: claim.nativeDeliverySequence,
       firstSegment,
+      wakeState: claim.wakeState,
       createdMessage: input.userMessage,
     });
 
     return this.chainSegments(attempt);
+  }
+
+  private waitService(): RunWaitService {
+    if (this.runWait === undefined)
+      throw new Error('The worker has no durable wait service.');
+
+    return this.runWait;
   }
 
   /**
@@ -1395,6 +1555,7 @@ export class RunExecutionService {
     nativeDeliverySequence: number;
     /** False for a segment that a delivery started. */
     firstSegment: boolean;
+    wakeState?: WakeState;
     /** The message `run.created` names: the job's, whatever segment runs. */
     createdMessage: RunUserMessage;
   }): Promise<AttemptRun> {
@@ -1416,9 +1577,9 @@ export class RunExecutionService {
     // this attempt — the request, the collector, the in-Run region — reads
     // that one state, so no path can disagree about where the turn resumes.
     // Only the first segment resumes them.
-    const continued = firstSegment
-      ? await this.loadContinueState(input)
-      : undefined;
+    const continued =
+      attempt.wakeState ??
+      (firstSegment ? await this.loadContinueState(input) : undefined);
 
     const effectivePermissionMode =
       this.resolveEffectivePermissionMode(permissionMode);
@@ -1439,8 +1600,44 @@ export class RunExecutionService {
         },
         attemptId: delivery.attemptId,
         firstSegment: false,
+        wakeState: undefined,
         createdMessage,
       });
+
+    if (attempt.wakeState !== undefined) {
+      const boundary = await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          deliverPendingSteering(tx, {
+            run: { runId: input.runId, userId: input.userId },
+            attemptId,
+            models: this.instanceConfig.config.models,
+            deadWorkerAfterSeconds: workerDeadAfterSeconds(
+              this.instanceConfig.config,
+            ),
+          }),
+        ),
+      );
+
+      if (boundary.kind === 'delivered') {
+        await this.afterAssistantTurn(boundary.closedReply, input.userId);
+
+        return startDelivered(boundary);
+      }
+
+      if (boundary.kind !== 'nothing-pending') {
+        if (boundary.kind === 'cancelled') {
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            status: 'cancelled',
+            attemptId,
+            runPayload: { status: 'cancelled' },
+          });
+        }
+
+        throw new RunNotRunnableError(input.runId);
+      }
+    }
 
     // Workspace validation is the first accepted-turn preparation step. Load
     // the owner-scoped Chat row once here and derive the binding from it; pass
@@ -1645,15 +1842,18 @@ export class RunExecutionService {
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
     try {
-      await this.tenantDb.runAs(input.userId, (tx) =>
-        this.dispatchAttempt(tx, {
-          run: input,
-          attemptId,
-          context: attemptContext,
-          modelId: client.model,
-          effort,
-          permissionMode: effectivePermissionMode,
-        }),
+      await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          this.dispatchAttempt(tx, {
+            run: input,
+            attemptId,
+            context: attemptContext,
+            modelId: client.model,
+            effort,
+            permissionMode: effectivePermissionMode,
+            wakeState: attempt.wakeState,
+          }),
+        ),
       );
     } catch (error) {
       if (error instanceof CancellationRecordedError) {
@@ -1725,20 +1925,46 @@ export class RunExecutionService {
     let deltaWrites: Promise<void> = Promise.resolve();
     let progressWriteFailed = false;
 
-    // eslint-disable-next-line anti-slop/no-unknown-parameters -- generic run-event payload dispatcher: shape depends on `eventType` (a discriminated union `RunEventsRepository.append` accepts), and every call site below already constructs the correct literal shape (see `persistDelta`/`persistReasoning`/`recordToolRequested`); this is the single serialization chokepoint, not a validation boundary.
-    const enqueueEvent = (eventType: RunEventType, payload: unknown) => {
+    const enqueueEvent = <Payload extends object>(
+      eventType: RunEventType,
+      payload: Payload,
+      payloadInTransaction?: (tx: Db) => Promise<Payload>,
+    ) => {
       deltaWrites = deltaWrites.then(async () => {
-        const recorded = await this.recordRunProgress(
-          input.userId,
-          input.runId,
-          async (tx) => {
-            await new RunEventsRepository(tx).append(
-              input.runId,
-              eventType,
-              payload,
+        const append = async (tx: Db) => {
+          const storedPayload = payloadInTransaction
+            ? await payloadInTransaction(tx)
+            : payload;
+
+          await new RunEventsRepository(tx).append(
+            input.runId,
+            eventType,
+            storedPayload,
+          );
+        };
+
+        let recorded: boolean;
+
+        if (payloadInTransaction) {
+          try {
+            await retryRunTransaction(() =>
+              this.tenantDb.runAs(input.userId, append),
             );
-          },
-        );
+            recorded = true;
+          } catch (error) {
+            this.logger.error(
+              `Failed to record run progress for run ${input.runId}`,
+              loggableError(error),
+            );
+            recorded = false;
+          }
+        } else {
+          recorded = await this.recordRunProgress(
+            input.userId,
+            input.runId,
+            append,
+          );
+        }
 
         if (!recorded) progressWriteFailed = true;
       });
@@ -1825,6 +2051,13 @@ export class RunExecutionService {
       });
     };
 
+    let waitCallIdInStep: string | undefined;
+    let waitRequest: WaitRequest | undefined;
+    let pendingWait = false;
+    let deferredWaitStep = false;
+    let deferredWaitDeclaration: ModelToolDeclaration | undefined;
+    const deferredWaitCalls: Array<Promise<PromiseSettledResult<void>>> = [];
+
     // Trusted execution context for tools — built from the RUN's fields,
     // NEVER from model input, so a tool's data scope can't be widened by the
     // model (authorization identity from a trusted source only). Matches
@@ -1864,7 +2097,20 @@ export class RunExecutionService {
       webSearch: this.instanceConfig.config.webSearch,
       grepBounds: this.instanceConfig.config.tools.grep,
       ...this.artifactReadContext(),
+      bashProcessLimiter: this.hostBashLimiter(),
+      bashJobs: this.bashJobs,
+      jobSettings: {
+        modelId: client.model,
+        effort,
+        permissionMode: effectivePermissionMode,
+      },
+      allowUnlimitedJobs: this.instanceConfig.config.tools.jobs.allowUnlimited,
+      bashBackgroundAfterSeconds:
+        this.instanceConfig.config.tools.bash.backgroundAfterSeconds,
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+      workerDeadAfterSeconds: workerDeadAfterSeconds(
+        this.instanceConfig.config,
+      ),
       modelClients: this.models,
       decisions: this.decisions,
       permissionMode: effectivePermissionMode,
@@ -1873,6 +2119,15 @@ export class RunExecutionService {
       machineAttemptKey: machineAttemptKey(input.runId, nativeDeliverySequence),
       sshClient: this.sshClient,
       executorGit: this.executorGit,
+      beginWaitCall: (toolCallId) => {
+        if (waitCallIdInStep !== undefined) return waitCallIdInStep;
+        waitCallIdInStep = toolCallId;
+
+        return undefined;
+      },
+      onWaitRequested: (request) => {
+        waitRequest = request;
+      },
     };
 
     const { maxStepsPerRun, callTimeoutSeconds } =
@@ -1930,6 +2185,8 @@ export class RunExecutionService {
         classification?: ToolClassification;
         /** The signal an owner interrupt aborts, for a call whose fate is `cancel`. */
         interruptSignal?: AbortSignal;
+        /** What an interrupt does to this call, decided from its target. */
+        fate?: InterruptFate;
         /** `tool.requested` was emitted for the call. */
         requested?: true;
         /** The call recorded its MCP `native.attempt`, so it was sent. */
@@ -2101,7 +2358,84 @@ export class RunExecutionService {
       }
 
       if (open?.origin !== undefined) payload.origin = open.origin;
-      enqueueEvent('tool.completed', payload);
+      enqueueEvent(
+        'tool.completed',
+        payload,
+        toolName === 'stop' && result.status === 'success'
+          ? async (tx) => {
+              const fenced = await new RunsRepository(tx).updateForAttempt(
+                input.runId,
+                input.userId,
+                attemptId,
+                { activeAttemptId: attemptId },
+              );
+
+              if (
+                !fenced ||
+                fenced.cancelRequestedAt !== null ||
+                !(await new ChatsRepository(tx).lock(
+                  input.chatId,
+                  input.userId,
+                ))
+              ) {
+                return { ...payload, consumedJobNoticeIds: [] };
+              }
+
+              const reportedJobs =
+                isRecord(result) && Array.isArray(result['jobs'])
+                  ? result['jobs']
+                  : [];
+
+              const settledJobIds: Array<string> = [];
+              const jobs = new ChatJobsRepository(tx);
+
+              for (const entry of reportedJobs) {
+                if (
+                  !isRecord(entry) ||
+                  !isString(entry['job']) ||
+                  !isString(entry['state']) ||
+                  (entry['state'] !== 'succeeded' &&
+                    entry['state'] !== 'failed' &&
+                    entry['state'] !== 'cancelled' &&
+                    entry['state'] !== 'timed_out' &&
+                    entry['state'] !== 'lost')
+                ) {
+                  continue;
+                }
+
+                const locator = parseJobLocatorText(entry['job']);
+
+                if (!locator) continue;
+
+                const job = await jobs.findByLocator(
+                  input.chatId,
+                  input.userId,
+                  locator.executor,
+                  locator.seq,
+                );
+
+                if (
+                  job &&
+                  job.state !== 'running' &&
+                  job.state === entry['state']
+                ) {
+                  settledJobIds.push(job.id);
+                }
+              }
+
+              const consumedJobNoticeIds = await new ChatDeliveriesRepository(
+                tx,
+              ).consumeJobNotices({
+                chatId: input.chatId,
+                ownerUserId: input.userId,
+                runId: input.runId,
+                jobIds: settledJobIds,
+              });
+
+              return { ...payload, consumedJobNoticeIds };
+            }
+          : undefined,
+      );
 
       // A system-origin call is durable audit, not assistant activity.
       if (open?.origin !== undefined) return;
@@ -2123,30 +2457,89 @@ export class RunExecutionService {
       );
     };
 
+    const completePendingWait = async (
+      request: WaitRequest,
+      cause: 'settled' | 'interrupted' | 'timeout',
+    ): Promise<void> => {
+      const open = openToolCalls.get(request.toolCallId);
+
+      const result = await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, async (tx) => {
+          if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
+            throw new RunNotRunnableError(input.runId);
+
+          const run = await new RunsRepository(tx).findById(
+            input.runId,
+            input.userId,
+          );
+
+          if (run?.activeAttemptId !== attemptId)
+            throw new RunNotRunnableError(input.runId);
+
+          return completeWaitInTransaction(tx, run, request, cause);
+        }),
+      );
+
+      settledToolCallIds.add(request.toolCallId);
+      openToolCalls.delete(request.toolCallId);
+      const providerMetadata = pendingToolMetadata.get(request.toolCallId);
+      pendingToolMetadata.delete(request.toolCallId);
+      assistantPartCollector.tool(
+        toolActivityPart({
+          toolCallId: request.toolCallId,
+          toolName: 'wait',
+          input: open?.toolInput ?? request.toolInput,
+          result,
+          step: open?.step ?? stepOffset + currentStepNumber,
+          providerMetadata,
+          permission: open?.permission,
+          classification: 'read_only',
+        }),
+      );
+    };
+
     /**
      * Settle selected still-open tool calls when the run terminates (#293).
      * Runs through recordToolCompleted so each settlement emits its durable
      * `tool.completed` event AND fills its reserved part — the live stream,
      * the event log and history then agree. Host bash calls stay open during
-     * the bounded parent-abort grace so a known result can win; the fallback
-     * from toolTerminationResult records unknown effects after that grace.
+     * the bounded parent-abort grace so a known result can win; after it, a
+     * Run-row-fenced `native.result` arbitrates with any pending promotion
+     * before the tool activity is completed.
      * The part collector ignores a genuine late result for an already-settled
      * call.
      */
-    const settleOpenToolCalls = (
+    const settleOpenToolCalls = async (
       status: 'cancelled' | 'expired' | 'failed',
       shouldSettle: (toolName: string) => boolean = () => true,
     ) => {
       // recordToolCompleted deletes the current key; removing the entry being
       // visited is well-defined for a Map iterator.
-      for (const [toolCallId, { toolName, toolInput }] of openToolCalls) {
+      for (const [
+        toolCallId,
+        { toolName, toolInput, classification },
+      ] of openToolCalls) {
         if (!shouldSettle(toolName)) continue;
-        recordToolCompleted(
-          toolCallId,
-          toolName,
-          toolInput,
-          toolTerminationResult(status, toolName),
-        );
+
+        let result = toolTerminationResult(status, toolName);
+
+        if (
+          toolName === 'bash' &&
+          classification !== undefined &&
+          isRecord(toolInput) &&
+          isHostBashCall(toolInput, toolContext)
+        ) {
+          await deltaWrites;
+          result = await recoverHostPromotionWithRetry(this.tenantDb, {
+            runId: input.runId,
+            userId: input.userId,
+            attemptId,
+            toolCallId,
+            result,
+          });
+        }
+
+        recordToolCompleted(toolCallId, toolName, toolInput, result);
       }
     };
 
@@ -2154,7 +2547,7 @@ export class RunExecutionService {
       status: Exclude<TerminalRunStatus, 'completed'>,
       telemetry: AssistantTurnTelemetry,
     ): Promise<boolean> => {
-      settleOpenToolCalls(status);
+      await settleOpenToolCalls(status);
       // settleOpenToolCalls enqueued new events via recordToolCompleted.
       // Without this await, finishRun's terminal event can commit before the
       // settlement events, and a process kill in that window permanently loses them.
@@ -2274,20 +2667,20 @@ export class RunExecutionService {
     // The controller of the model call in flight; every call that follows a
     // withdrawn interrupt gets a new one.
     let segment: AbortController | undefined;
+    // The yield signal of the same model call (background-jobs D13).
+    let segmentYield: AbortSignal | undefined;
     let interruptSettlement: Promise<void> | undefined;
     // The `bash` and MCP calls that started and that the interrupt stopped.
     const stoppedCalls: Array<StoppedCall> = [];
     // `native.result` writes of MCP calls whose attempt committed mid-interrupt.
     const lateMcpWrites: Array<Promise<void>> = [];
 
-    const fateOf = (toolName: string): InterruptFate => {
-      const executor = toolAdditions.executorFor(toolName);
-
-      return executor === undefined ? 'cancel' : interruptFateOf(executor);
-    };
-
     const settleInterrupted = (
-      shouldSettle: (call: { toolName: string; started: boolean }) => boolean,
+      shouldSettle: (call: {
+        toolName: string;
+        started: boolean;
+        fate?: InterruptFate;
+      }) => boolean,
       mcpWrites: Array<Promise<void>>,
     ) => {
       for (const [toolCallId, call] of openToolCalls) {
@@ -2295,7 +2688,10 @@ export class RunExecutionService {
         if (call.origin !== undefined) continue;
         const started = call.classification !== undefined;
 
-        if (!shouldSettle({ toolName: call.toolName, started })) continue;
+        if (
+          !shouldSettle({ toolName: call.toolName, started, fate: call.fate })
+        )
+          continue;
 
         const { result, stopped } = interruptSettlementOf({
           toolName: call.toolName,
@@ -2338,34 +2734,38 @@ export class RunExecutionService {
 
     /**
      * Settles the open calls once, by fate: a call that never started, and each
-     * started `cancel` call but bash, at once; a `finish` call after it
-     * completes; bash after its bounded grace, so a proven result can win.
+     * started `cancel` call but bash, at once; a `finish` or `background` call
+     * after it completes (a host command returns when its segment yields);
+     * bash after its bounded grace, so a proven result can win.
      */
     const settleOnInterrupt = (): Promise<void> =>
       (interruptSettlement ??= (async () => {
         const mcpWrites: Array<Promise<void>> = [];
         settleInterrupted(
-          ({ toolName, started }) =>
-            fateOf(toolName) === 'cancel' && (toolName !== 'bash' || !started),
+          (call) =>
+            (call.fate ?? 'cancel') === 'cancel' &&
+            (call.toolName !== 'bash' || !call.started),
           mcpWrites,
         );
         await Promise.all(
-          [...openToolCalls.values()].flatMap(({ toolName, done }) =>
-            done !== undefined && fateOf(toolName) === 'finish' ? [done] : [],
+          [...openToolCalls.values()].flatMap((call) =>
+            call.done !== undefined && (call.fate ?? 'cancel') !== 'cancel'
+              ? [call.done]
+              : [],
           ),
         );
 
         if (
           [...openToolCalls.values()].some(
-            ({ origin, toolName }) =>
-              origin === undefined && fateOf(toolName) === 'cancel',
+            (call) =>
+              call.origin === undefined && (call.fate ?? 'cancel') === 'cancel',
           )
         ) {
           await new Promise<void>((resolve) => {
             setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
           });
           settleInterrupted(
-            ({ toolName }) => fateOf(toolName) === 'cancel',
+            (call) => (call.fate ?? 'cancel') === 'cancel',
             mcpWrites,
           );
         }
@@ -2384,7 +2784,6 @@ export class RunExecutionService {
       // it, so drain both buffers before the call's events.
       persistReasoning(reasoningDeltas.flush());
       persistDelta(deltas.flush());
-      reserveToolRequest(toolCallId, declaration.id, args);
       const executor = toolAdditions.executorFor(declaration.id);
 
       if (executor === undefined) {
@@ -2395,8 +2794,16 @@ export class RunExecutionService {
       // separate from the Run's cancellation (run-steering D7).
       const open = openToolCalls.get(toolCallId);
 
-      const interruptSignal =
-        interruptFateOf(executor) === 'cancel' ? segment?.signal : undefined;
+      // The fate is decided from the call's own target, never from its tool
+      // name: a host command yields, and a remote one is stopped (D13).
+      const fate = interruptFateOf(executor, args, {
+        ...toolContext,
+        toolCallId,
+      });
+
+      const interruptSignal = fate === 'cancel' ? segment?.signal : undefined;
+
+      if (open !== undefined) open.fate = fate;
 
       if (open !== undefined && interruptSignal !== undefined) {
         open.interruptSignal = interruptSignal;
@@ -2408,6 +2815,7 @@ export class RunExecutionService {
         {
           ...toolContext,
           toolCallId,
+          yieldSignal: segmentYield,
           abortSignal: callAbortSignal(input.abortSignal, interruptSignal),
           onDerivedDecision: (decision) =>
             recordDerivedDecision(toolCallId, decision),
@@ -2542,6 +2950,44 @@ export class RunExecutionService {
       return result;
     };
 
+    const executeDeclaredTool = (
+      declaration: ModelToolDeclaration,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- both SDK execution and the observed-call path have passed the declaration schema.
+      args: unknown,
+      toolCallId: string,
+    ): Promise<ToolResult> => {
+      reserveToolRequest(toolCallId, declaration.id, args);
+      const completion = Promise.withResolvers<void>();
+      const open = openToolCalls.get(toolCallId);
+
+      if (open !== undefined) open.done = completion.promise;
+
+      return executeBoundTool(declaration, args, toolCallId)
+        .then(({ executor, result }) => {
+          if (
+            declaration.id === 'wait' &&
+            result === WAIT_SUSPENSION &&
+            waitRequest?.toolCallId === toolCallId &&
+            !input.abortSignal?.aborted &&
+            !open?.interruptSignal?.aborted &&
+            !settledToolCallIds.has(toolCallId)
+          ) {
+            pendingWait = true;
+
+            return WAIT_SUSPENSION;
+          }
+
+          return settleBoundTool(
+            declaration,
+            args,
+            toolCallId,
+            executor,
+            result,
+          );
+        })
+        .finally(completion.resolve);
+    };
+
     const createModelToolDefinition = (
       declaration: ModelToolDeclaration,
     ): ToolSet[string] => {
@@ -2551,33 +2997,30 @@ export class RunExecutionService {
         throw new Error(`Tool "${declaration.id}" has no executor.`);
       }
 
+      if (declaration.id === 'wait') {
+        deferredWaitDeclaration = declaration;
+
+        return tool({
+          description: declaration.description,
+          inputSchema: toFlexibleSchema(declaration.inputSchema)!,
+          strict: false,
+        });
+      }
+
       // Every result reaches the model through the one rendering: a native
       // file tool as its serialized text — the SDK output type its media
       // reference needs — and every other tool as its JSON value. An image
       // result adds only its reference, which the step composer projects on
       // every step (vision-media D6), so no bytes stay in the Run's response
       // messages.
-      const definition = tool({
+      const definition = tool<unknown, ToolResult>({
         description: declaration.description,
         inputSchema: toFlexibleSchema(declaration.inputSchema)!,
         execute: (
-          // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validates this input against the declaration schema before this callback runs.
+          // eslint-disable-next-line anti-slop/no-unknown-parameters -- the SDK validates this call against the declaration schema before execution.
           args: unknown,
           { toolCallId }: { toolCallId: string },
-        ) => {
-          const running = executeBoundTool(declaration, args, toolCallId).then(
-            ({ executor, result }) =>
-              settleBoundTool(declaration, args, toolCallId, executor, result),
-          );
-
-          // An interrupt waits for each call whose fate is `finish`; the call's
-          // entry exists once `executeBoundTool` has reserved it.
-          const open = openToolCalls.get(toolCallId);
-
-          if (open !== undefined) open.done = running.then(noop, noop);
-
-          return running;
-        },
+        ) => executeDeclaredTool(declaration, args, toolCallId),
         toModelOutput: ({
           input: call,
           output,
@@ -2648,15 +3091,17 @@ export class RunExecutionService {
         ({ toolName }) => toolName === 'bash',
       );
 
-      settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
       parentAbortSettlement = (async () => {
+        await settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
+
         if (hasBashCall) {
           await new Promise<void>((resolve) => {
             setTimeout(resolve, BASH_SETTLEMENT_GRACE_MS);
           });
         }
 
-        settleOpenToolCalls(status);
+        await settleOpenToolCalls(status);
+
         await deltaWrites;
 
         if (progressWriteFailed) {
@@ -2710,20 +3155,77 @@ export class RunExecutionService {
     // and one more whenever a step end found nothing left to deliver), so the
     // abort listener and the workspace hold belong to the call.
     let endWorkspaceAttempt = noop;
-    let stopCause: 'cancel' | 'delivery' | undefined;
+    let stopCause: 'cancel' | 'delivery' | 'suspend' | undefined;
 
-    // The step end's one query: a pending item or a recorded cancellation
-    // stops the call after the step's tool results (run-steering D3).
+    const suspendedByThisAttempt = async (tx: Db): Promise<boolean> => {
+      const events = await new RunEventsRepository(tx).listByRunId(
+        input.runId,
+        input.userId,
+        { eventTypes: ['run.suspended'], attemptId, limit: 1 },
+      );
+
+      return events.length !== 0;
+    };
+
+    // The step end settles dead Chat jobs before checking delivery/cancellation,
+    // so a lost worker's notice participates in this same boundary. A durable
+    // suspension belongs to this attempt even if a waker already queued or
+    // claimed the Run again.
     const stopWhenExtra = async (): Promise<boolean> => {
-      stopCause = await this.tenantDb.runAs(input.userId, (tx) =>
-        new ChatDeliveriesRepository(tx).stepEndSignal({
-          runId: input.runId,
-          chatId: input.chatId,
-          userId: input.userId,
+      stopCause = await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, async (tx) => {
+          await new ChatJobsRepository(tx).settleOnDeadWorkers(
+            input.chatId,
+            input.userId,
+            workerDeadAfterSeconds(this.instanceConfig.config),
+          );
+
+          if (await suspendedByThisAttempt(tx)) return 'suspend';
+
+          return new ChatDeliveriesRepository(tx).stepEndSignal({
+            runId: input.runId,
+            chatId: input.chatId,
+            userId: input.userId,
+          });
         }),
       );
 
       return stopCause !== undefined;
+    };
+
+    const suspendPendingWait = async (
+      telemetry: AssistantTurnTelemetry,
+    ): Promise<'suspended' | 'cancelled' | 'ready'> => {
+      if (
+        !pendingWait ||
+        waitRequest === undefined ||
+        settledToolCallIds.has(waitRequest.toolCallId)
+      )
+        return 'ready';
+
+      const request = waitRequest;
+      const open = openToolCalls.get(request.toolCallId);
+
+      const suspension = await this.waitService().suspend({
+        runId: input.runId,
+        chatId: input.chatId,
+        userId: input.userId,
+        attemptId,
+        ...request,
+        parts: assistantPartCollector.parts(),
+        steps: {
+          [request.toolCallId]: open?.step ?? stepOffset + currentStepNumber,
+        },
+        telemetry,
+      });
+
+      if (suspension.kind === 'suspended') return 'suspended';
+
+      if (suspension.cause === 'cancelled') return 'cancelled';
+
+      await completePendingWait(request, suspension.cause);
+
+      return 'ready';
     };
 
     const callStream = async (
@@ -2747,16 +3249,21 @@ export class RunExecutionService {
 
       // This call's segment controller: the run-control listener aborts it on an
       // owner interrupt while the call is in flight (run-steering D7).
-      const callSegment =
+      const callControl =
         this.segmentAborts?.beginSegment(input.runId, attemptId) ??
-        new AbortController();
+        newSegmentControl();
 
+      const callSegment = callControl.abort;
       segment = callSegment;
+      segmentYield = callControl.yield.signal;
       interruptSettlement = undefined;
       stoppedCalls.length = 0;
       const callSignal = callAbortSignal(input.abortSignal, callSegment.signal);
 
       const onInterrupt = () => {
+        // The yield comes first, so a host command returns before the
+        // settlement waits for it.
+        callControl.yield.abort();
         settleOnInterrupt().catch(noop);
       };
 
@@ -2764,7 +3271,7 @@ export class RunExecutionService {
 
       const closeSegment = () => {
         callSegment.signal.removeEventListener('abort', onInterrupt);
-        this.segmentAborts?.endSegment(input.runId, callSegment);
+        this.segmentAborts?.endSegment(input.runId, callControl);
       };
 
       const stoppedByInterrupt = (): boolean =>
@@ -2793,20 +3300,25 @@ export class RunExecutionService {
       ) => {
         const { telemetry } = modelCompleted;
 
-        const boundary = await this.tenantDb.runAs(input.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.runId, userId: input.userId },
-            attemptId,
-            modelCompleted,
-            live: {
-              chatId: input.chatId,
-              inReplyTo: input.userMessage.id,
-              parts: assistantPartCollector.parts(),
-              telemetry,
-            },
-            models: this.instanceConfig.config.models,
-            ...extra,
-          }),
+        const boundary = await retryAbortedTransaction(() =>
+          this.tenantDb.runAs(input.userId, (tx) =>
+            deliverPendingSteering(tx, {
+              run: { runId: input.runId, userId: input.userId },
+              attemptId,
+              modelCompleted,
+              live: {
+                chatId: input.chatId,
+                inReplyTo: input.userMessage.id,
+                parts: assistantPartCollector.parts(),
+                telemetry,
+              },
+              models: this.instanceConfig.config.models,
+              deadWorkerAfterSeconds: workerDeadAfterSeconds(
+                this.instanceConfig.config,
+              ),
+              ...extra,
+            }),
+          ),
         );
 
         if (boundary.kind === 'delivered') {
@@ -2819,6 +3331,44 @@ export class RunExecutionService {
         }
 
         return boundary.kind;
+      };
+
+      const continueAfterWait = async (
+        finishReason: TurnTelemetry['finishReason'],
+        segmentSteps: number,
+      ): Promise<boolean> => {
+        const boundary = await deliverAtBoundary(
+          {
+            finishReason,
+            telemetry: buildAssistantTelemetry(
+              finishReason,
+              turnStatusForTerminalRun('completed'),
+              segmentSteps,
+            ),
+          },
+          {},
+        );
+
+        if (boundary === 'delivered') return true;
+
+        if (boundary === 'cancelled') return false;
+
+        if (boundary === 'fenced') throw new RunNotRunnableError(input.runId);
+
+        const produced = projectStoredReplyParts(
+          assistantPartCollector.parts().slice(partsBefore),
+          {
+            privateParts: true,
+            mediaKey: (index) => continuedMediaKey(partsBefore + index),
+          },
+        );
+
+        mergeRetainedMedia(media.retainedMedia, produced.retainedMedia);
+        inRunItems = createInRunContextItems();
+        nextCall = () =>
+          callStream([...callMessages, ...produced.messages], segmentSteps);
+
+        return true;
       };
 
       const deliverInterrupt = async (): Promise<void> => {
@@ -2902,6 +3452,19 @@ export class RunExecutionService {
       stopCause = undefined;
 
       try {
+        // A steer that was admitted before this call began has no segment to
+        // signal, so the call reads the pending item itself (level trigger).
+        if (this.segmentAborts !== undefined) {
+          const pending = await this.tenantDb.runAs(input.userId, (tx) =>
+            new ChatDeliveriesRepository(tx).hasPendingSteering(
+              input.chatId,
+              input.userId,
+            ),
+          );
+
+          if (pending) callControl.yield.abort();
+        }
+
         const result = client.streamText({
           onRequestUsage: (usage, requestGenerationMs) => {
             requestUsageReceipts.push(usage);
@@ -2925,7 +3488,12 @@ export class RunExecutionService {
             maxSteps:
               maxStepsPerRun === null
                 ? null
-                : Math.max(0, maxStepsPerRun - stepBase),
+                : Math.max(
+                    0,
+                    maxStepsPerRun -
+                      stepBase -
+                      (attempt.wakeState === undefined ? 0 : stepOffset),
+                  ),
             stopWhenExtra,
             onStepStart: async ({ messages, stepNumber }) => {
               // Each buffered event carries the step its characters arrived in,
@@ -2934,6 +3502,8 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
+              waitCallIdInStep = undefined;
+              deferredWaitStep = false;
               stepsStarted += 1;
               workspaceRoot.beginStep();
               inRunItems.beginStep(messages);
@@ -3014,6 +3584,31 @@ export class RunExecutionService {
           // (design A7).
           onToolCallMetadata: (toolCallId, providerMetadata) => {
             pendingToolMetadata.set(toolCallId, providerMetadata);
+          },
+          onToolCall: (call) => {
+            if (
+              call.toolName !== 'wait' ||
+              deferredWaitDeclaration === undefined
+            )
+              return;
+
+            deferredWaitStep = true;
+            deferredWaitCalls.push(
+              executeDeclaredTool(
+                deferredWaitDeclaration,
+                call.input,
+                call.toolCallId,
+              ).then(
+                (): PromiseFulfilledResult<void> => ({
+                  status: 'fulfilled',
+                  value: undefined,
+                }),
+                (error: unknown): PromiseRejectedResult => ({
+                  status: 'rejected',
+                  reason: error,
+                }),
+              ),
+            );
           },
           onTextDelta: (text, partId, providerMetadata) => {
             // A metadata-only delivery: a text part's start or end carries the
@@ -3278,9 +3873,18 @@ export class RunExecutionService {
             );
           },
           onFinish: async ({ text, usage, finishReason, stepCount }) => {
+            const deferred = await Promise.all(deferredWaitCalls);
+            deferredWaitCalls.length = 0;
+
+            const failed = deferred.find(
+              (result) => result.status === 'rejected',
+            );
+
             endWorkspaceAttempt();
             removeParentAbortListener();
             closeSegment();
+
+            if (failed?.status === 'rejected') throw failed.reason;
 
             if (parentAbortSettlement) {
               await parentAbortSettlement;
@@ -3326,6 +3930,22 @@ export class RunExecutionService {
             persistReasoning(reasoningDeltas.flush());
             persistDelta(deltas.flush());
             await deltaWrites;
+            await Promise.all(lateMcpWrites);
+
+            if (
+              stopCause !== 'suspend' &&
+              (await this.tenantDb.runAs(input.userId, (tx) =>
+                suspendedByThisAttempt(tx),
+              ))
+            ) {
+              stopCause = 'suspend';
+            }
+
+            // The wait service has already committed the attempt-fenced
+            // suspension and its deadline job. Drain this stream without
+            // writing a terminal result for an attempt that may already have
+            // been woken and reclaimed by another worker.
+            if (stopCause === 'suspend') return;
 
             if (progressWriteFailed) {
               await this.settleProgressWriteFailure({
@@ -3340,6 +3960,33 @@ export class RunExecutionService {
               });
 
               return;
+            }
+
+            if (deferredWaitStep && status === 'completed') {
+              const suspension = await suspendPendingWait(
+                buildAssistantTelemetry(
+                  finishReason,
+                  turnStatusForTerminalRun('completed'),
+                  segmentSteps,
+                ),
+              );
+
+              if (suspension === 'suspended') {
+                stopCause = 'suspend';
+
+                return;
+              }
+
+              pendingWait = false;
+              waitRequest = undefined;
+
+              if (
+                suspension !== 'cancelled' &&
+                (await continueAfterWait(finishReason, segmentSteps))
+              )
+                return;
+
+              status = 'cancelled';
             }
 
             // Persist the collected thinking as reasoning parts in occurrence
@@ -4272,6 +4919,9 @@ export class RunExecutionService {
       grepBounds: this.instanceConfig.config.tools.grep,
       ...this.artifactReadContext(),
       callTimeoutSeconds: this.instanceConfig.config.tools.callTimeoutSeconds,
+      workerDeadAfterSeconds: workerDeadAfterSeconds(
+        this.instanceConfig.config,
+      ),
       modelClients: this.models,
       decisions: this.decisions,
       permissionMode: effectivePermissionMode,
@@ -4281,6 +4931,15 @@ export class RunExecutionService {
       sshClient: this.sshClient,
       executorGit: this.executorGit,
     };
+  }
+
+  /** The one process limiter of this worker, built from `tools.bash.maxProcesses`. */
+  private hostBashLimiter(): BashProcessLimiter {
+    this.bashProcessLimiter ??= new BashProcessLimiter(
+      this.instanceConfig.config.tools.bash.maxProcesses,
+    );
+
+    return this.bashProcessLimiter;
   }
 
   /**
@@ -5042,8 +5701,10 @@ export class RunExecutionService {
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
     try {
-      return await this.tenantDb.runAs(input.userId, (tx) =>
-        this.finishRunInTransaction(tx, input),
+      return await retryAbortedTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          this.finishRunInTransaction(tx, input),
+        ),
       );
     } catch (error) {
       this.logger.error(
@@ -5071,6 +5732,37 @@ export class RunExecutionService {
     tx: Db,
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
+    if (input.expectedQueueIdentity !== undefined) {
+      const [candidate] = await tx
+        .select()
+        .from(runs)
+        .where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId)))
+        .limit(1);
+
+      if (
+        !candidate ||
+        !(await new ChatsRepository(tx).lock(candidate.chatId, input.userId))
+      ) {
+        return { outcome: 'lost', finalStatus: candidate?.status };
+      }
+
+      const [current] = await tx
+        .select()
+        .from(runs)
+        .where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId)))
+        .for('update');
+
+      if (
+        !current ||
+        isTerminalRunStatus(current.status) ||
+        current.finishedAt !== null ||
+        current.currentJobId !== input.expectedQueueIdentity.currentJobId ||
+        current.wakeGeneration !== input.expectedQueueIdentity.wakeGeneration
+      ) {
+        return { outcome: 'lost', finalStatus: current?.status };
+      }
+    }
+
     // A pending steer or interrupt keeps the Run live (run-steering D5): the
     // delivery locks the Run row, then the chat row, and so also serializes
     // with admission. With nothing to deliver it writes nothing, and the Run
@@ -5083,6 +5775,9 @@ export class RunExecutionService {
         live: input.assistantTurn,
         telemetry: input.synthesizedTurnTelemetry,
         models: this.instanceConfig.config.models,
+        deadWorkerAfterSeconds: workerDeadAfterSeconds(
+          this.instanceConfig.config,
+        ),
         baselines: input,
       });
 
@@ -6623,6 +7318,20 @@ export class RunExecutionService {
       if (interrupted !== undefined) stagedParts.push(interrupted);
     }
 
+    // A boundary-delivered job notice is authored at the trigger's first
+    // dispatch so its output is present in both the measured and sent request.
+    if (baseline.ownAvailability === null) {
+      stagedParts.push(
+        ...(await createJobNoticeContext({
+          tx: input.tx,
+          chatId: input.input.chatId,
+          ownerUserId: input.input.userId,
+          messageId: input.input.userMessage.id,
+          runId: input.input.runId,
+        })),
+      );
+    }
+
     if (!priorDispatch || regenerateFirstDispatch) {
       const modelChange = this.deriveModelChangeItem(
         baseline,
@@ -6937,6 +7646,7 @@ export class RunExecutionService {
       modelId: string;
       effort: string | undefined;
       permissionMode: PermissionMode;
+      wakeState: WakeState | undefined;
     },
   ): Promise<void> {
     const { run, context } = input;
@@ -6963,6 +7673,58 @@ export class RunExecutionService {
     // request goes out.
     if (fenced.cancelRequestedAt !== null) {
       throw new CancellationRecordedError(run.runId);
+    }
+
+    const events = new RunEventsRepository(tx);
+
+    const deliveryIds =
+      input.wakeState === undefined
+        ? await discardedJobNoticeIds({
+            tx,
+            runId: run.runId,
+            ownerUserId: run.userId,
+            attemptId: input.attemptId,
+          })
+        : [];
+
+    const firstRegenerateDispatch =
+      run.followUpAction === 'regenerate' &&
+      !(await events.findFirstByType(run.runId, run.userId, 'model.requested'));
+
+    const sourceDeliveryGroups =
+      firstRegenerateDispatch && fenced.sourceRunId !== null
+        ? await sourceSegmentJobNoticeIds({
+            tx,
+            sourceRunId: fenced.sourceRunId,
+            chatId: run.chatId,
+            ownerUserId: run.userId,
+          })
+        : [];
+
+    if (deliveryIds.length > 0 || sourceDeliveryGroups.length > 0) {
+      if (!(await new ChatsRepository(tx).lock(run.chatId, run.userId))) {
+        throw new RunNotRunnableError(run.runId);
+      }
+
+      const deliveries = new ChatDeliveriesRepository(tx);
+
+      if (deliveryIds.length > 0) {
+        await deliveries.restoreJobNotices({
+          chatId: run.chatId,
+          ownerUserId: run.userId,
+          runId: run.runId,
+          deliveryIds,
+        });
+      }
+
+      for (const group of sourceDeliveryGroups) {
+        await deliveries.restoreJobNotices({
+          chatId: run.chatId,
+          ownerUserId: run.userId,
+          runId: group.runId,
+          deliveryIds: group.deliveryIds,
+        });
+      }
     }
 
     const stored = await new AcceptedTurnPartsRepository(tx).storeAtDispatch({
@@ -7142,11 +7904,11 @@ function retainedReadRef(
 }
 
 /**
- * The messages a prepared pass sends: the Chat's history, the trigger's own
- * stored parts in the position its history row takes, then — for a Continue
- * Run — the kept steps (turn-actions D5/D6). An accepted message always carries
- * text, so the trigger row's message is the last the history produced, and the
- * kept steps follow it.
+ * The Chat's history, the trigger's stored parts in its history-row position,
+ * then — for a Continue Run — the kept steps (turn-actions D5/D6). A trigger
+ * whose own parts project to no model content has not produced a history
+ * message, even if this dispatch stages context, so it is appended rather than
+ * replacing the preceding assistant reply.
  */
 function requestMessages(
   context: PreparedAttemptContext,
@@ -7162,7 +7924,8 @@ function requestMessages(
     : context.triggerParts;
 
   const messages = [...context.messages];
-  messages[messages.length - 1] = {
+
+  const trigger: ModelRequestContext['messages'][number] = {
     role: 'user',
     content: userPartsToModelContent(
       placeAcceptedTurnItems(
@@ -7172,6 +7935,12 @@ function requestMessages(
       ),
     ),
   };
+
+  if (userPartsToModelContent(context.triggerParts).length === 0) {
+    messages.push(trigger);
+  } else {
+    messages[messages.length - 1] = trigger;
+  }
 
   return [...messages, ...keptMessages];
 }

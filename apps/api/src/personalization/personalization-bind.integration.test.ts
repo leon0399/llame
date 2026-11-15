@@ -11,7 +11,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
 
-import * as schema from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { MediaService } from '../media/media.service';
@@ -21,6 +20,7 @@ import { MessagesRepository } from '../chats/chats-repository';
 import { isTextPart } from '../chats/context-builder';
 import { RunsRepository } from '../runs/runs-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { PersonalizationService } from './personalization.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { createFakeModelClient } from '../models/fake-model-client';
@@ -143,7 +143,7 @@ describeIfDb('personalization binds per run', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 5 });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     personalization = new PersonalizationService(tenantDb);
 
     userAId = crypto.randomUUID();
@@ -178,6 +178,9 @@ describeIfDb('personalization binds per run', () => {
         jobState: () => Promise.resolve('absent'),
       },
       new MediaService(tenantDb),
+      {
+        wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+      } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     );
     runExecution = new RunExecutionService(
       tenantDb,

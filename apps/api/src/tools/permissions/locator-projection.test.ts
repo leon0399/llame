@@ -785,6 +785,52 @@ describe('artifact locator permission projection', () => {
   });
 });
 
+describe('job locator permission projection', () => {
+  it('lowers the scheme and removes the read selector', () => {
+    expect(withoutReadSelector('job://bash-4/stdout:-50')).toBe(
+      'job://bash-4/stdout',
+    );
+    expect(
+      nativeFileProjection('read')('path', 'JOB://bash-4/stdout:1-5'),
+    ).toBe('job://bash-4/stdout');
+    // `projectNativeFilePath` keeps the selector; only the `read` projection
+    // removes it.
+    expect(projectNativeFilePath('Job://bash-4:1-3')).toBe('job://bash-4:1-3');
+  });
+
+  it('never substitutes a host path for a job locator', () => {
+    expect(projectNativeFilePath('JOB://bash-4', '/work/project')).toBe(
+      'job://bash-4',
+    );
+    expect(projectNativeFilePath('job://', '/work/project')).toBe('job://');
+  });
+
+  // Scenario: An upper-case scheme does not pass a reject
+  it('rejects an upper-case scheme that a reject names in lower case', () => {
+    const map: ToolPermissionMap = {
+      read: { reject: [{ field: 'path', regex: '^job://' }] },
+    };
+
+    expect(
+      decideNative(map, 'read', { path: 'JOB://bash-4/stdout:1-5' }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
+  // Scenario: A read group rejects job locators
+  it('refuses a read of a record and of the list when a reject matches', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: true, reject: [{ field: 'path', regex: '^job://' }] },
+    };
+
+    for (const path of ['job://bash-4', 'job://', 'job://bash-4/stderr:1-5']) {
+      expect(decideNative(map, 'read', { path })).toMatchObject({
+        decision: 'reject',
+        reason: 'explicit_reject',
+      });
+    }
+  });
+});
+
 describe('machine locator permission projection', () => {
   it('projects a Machine locator to its canonical text', () => {
     expect(projectNativeFilePath('MACHINE://DEVL/srv/app/README.md')).toBe(

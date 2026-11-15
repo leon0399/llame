@@ -1,7 +1,11 @@
+import { type WaitRequest } from './wait-suspension';
+import { type BashProcessLimiter } from '@workspace/bash-executor';
 import { type ToolResult, type UnknownRecord } from '@workspace/runtime-safety';
 import { type z } from 'zod';
 
 import { type TenantRunner } from '../db/tenant-db.service';
+import { type BashJobRegistry } from '../jobs/bash-job-registry';
+import { type ChatDeliverySettings } from '../db/schema';
 import { type KnowledgeSpaceCursor } from '../knowledge/knowledge-space.cursor';
 import {
   type KnowledgeFilesystemAdapterPort,
@@ -110,6 +114,10 @@ export interface ToolContext {
    * (run-steering D7).
    */
   readonly attemptId?: string;
+  /** Marks the point after host bash has spawned but before its receipt commits. */
+  readonly onHostCommandStarted?: () => void;
+  /** Notifies the runner that host bash entered its fenced promotion receipt. */
+  readonly onHostPromotionStarted?: () => void;
   /** Stops this Run when a native mutation cannot be safely settled. */
   readonly onNativeMutationUnknown?: () => void;
   /** Trusted canonical target for the first page of an instruction import. */
@@ -128,6 +136,10 @@ export interface ToolContext {
   readonly timeoutMs?: number;
   /** Trusted AI SDK call correlation, never supplied by model arguments. */
   readonly toolCallId?: string;
+  /** Reserves the one wait call allowed in this model step, or returns its first call id. */
+  readonly beginWaitCall?: (toolCallId: string) => string | undefined;
+  /** Publishes a validated running wait to the Run execution owner. */
+  readonly onWaitRequested?: (request: WaitRequest) => void;
   /** Trusted worker-bound Knowledge capability; never model supplied. */
   readonly knowledgeResolver?: KnowledgeToolResolver;
   /**
@@ -195,10 +207,40 @@ export interface ToolContext {
    */
   readonly artifactHostFiles?: boolean;
   /**
+   * The one limiter of this worker process, built from `tools.bash.maxProcesses`
+   * (background-jobs D7). A host or `ssh://` `bash` call takes a slot from it
+   * before it calls the executor. Absent means this context cannot run `bash`.
+   */
+  readonly bashProcessLimiter?: BashProcessLimiter;
+  readonly bashJobs?: BashJobRegistry;
+  readonly jobSettings?: ChatDeliverySettings;
+  readonly allowUnlimitedJobs?: boolean;
+  /**
+   * Host `bash` only: the runner's foreground move trigger, from the call's
+   * bound or a segment yield. It moves the command; it never stops it.
+   */
+  readonly moveSignal?: AbortSignal;
+  /**
+   * Segment yield source. The runner binds a call-local move window to it for
+   * host `bash`; it never becomes the command's cancellation signal. It stays
+   * raised until the segment ends, including calls that start after the steer.
+   */
+  readonly yieldSignal?: AbortSignal;
+  /** Monotonic spawn deadline in `performance.now()` milliseconds. */
+  readonly moveDeadlineAt?: number;
+  /** `tools.bash.backgroundAfterSeconds`; absent means the built-in 120. */
+  readonly bashBackgroundAfterSeconds?: number;
+  /**
    * Operator `tools.callTimeoutSeconds`, the timeout a tool falls back to when
    * the runner supplied no per-call `timeoutMs`.
    */
   readonly callTimeoutSeconds?: number;
+  /**
+   * Seconds without a heartbeat after which a worker is dead, four intervals of
+   * `runs.heartbeatSeconds` (background-jobs D9). A `job://` read settles the
+   * running jobs of a dead worker as `lost`. Absent means the built-in value.
+   */
+  readonly workerDeadAfterSeconds?: number;
   /**
    * Trusted model-client factory for model-hosted web search engines, never
    * model supplied. A host double that only validates selections leaves
@@ -279,10 +321,8 @@ export const TOOL_CLASSIFICATIONS = [
 
 export type ToolClassification = (typeof TOOL_CLASSIFICATIONS)[number];
 
-/**
- * How an owner interrupt settles an open call (run-steering D7). `background`
- * is reserved: no tool declares it yet.
- */
+/** How an owner interrupt settles one call: host bash backgrounds, remote
+ * bash and reads cancel, and native writes finish before delivery. */
 export type InterruptFate = 'cancel' | 'finish' | 'background';
 
 /** Whether a stored value names one of the classifications above. */

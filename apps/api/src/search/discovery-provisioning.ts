@@ -46,7 +46,10 @@ type ProvisioningRow = { bypass: boolean };
 export type ProvisioningQueryRunner = {
   runAsPublic<T>(
     fn: (tx: {
-      execute: (query: SQLWrapper) => Promise<Iterable<ProvisioningRow>>;
+      execute: (
+        query: SQLWrapper,
+        mode: 'objects',
+      ) => Promise<Iterable<ProvisioningRow>>;
     }) => Promise<T>,
   ): Promise<T>;
 };
@@ -58,11 +61,14 @@ export async function isFunctionOwnedByBypassRlsRole(
   functionName: string,
 ): Promise<boolean> {
   const result = await tenantDb.runAsPublic((tx) =>
-    tx.execute(sql`
+    tx.execute(
+      sql`
       SELECT r.rolbypassrls AS bypass
       FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
       WHERE p.proname = ${functionName}
-    `),
+    `,
+      'objects',
+    ),
   );
 
   const row = [...result][0];

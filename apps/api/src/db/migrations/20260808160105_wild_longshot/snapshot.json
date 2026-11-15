@@ -1,0 +1,42 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "974f54c4-4ad9-4e7b-b0e4-48aff15a6d32",
+  "prevIds": ["9bd7f464-c9d9-49fd-b0c1-68c251d50310"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "compactions",
+        "tool_observation_ledger"
+      ],
+      "writes": [
+        "s|col|public.compactions.tool_observation_ledger",
+        "n|col|public.compactions.tool_observation_ledger",
+        "e|col|public.compactions.tool_observation_ledger"
+      ],
+      "reads": ["n|tbl|public.compactions", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "compactions",
+        "name": "tool_observation_ledger",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'{\"version\":1,\"omittedCount\":0,\"observations\":[]}'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

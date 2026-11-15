@@ -17,7 +17,6 @@ import { sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { z } from 'zod';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { CHUNKER_VERSION } from './chat/conversation-chunker';
@@ -122,7 +121,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
   beforeAll(async () => {
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sqlClient = postgres(TEST_DB_URL!, { ssl, max: 3 });
-    db = drizzle(sqlClient, { schema });
+    db = drizzle({ client: sqlClient });
     tenantDb = new TenantDbService(db);
     indexService = new SearchIndexService(tenantDb);
     u = crypto.randomUUID();
@@ -557,7 +556,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
       z.object({ content_hash: z.string() }),
     );
 
-    const newParts = JSON.stringify(text('rewritten distinctive wording'));
+    const newParts = sql.param(text('rewritten distinctive wording'));
     await tenantDb.runAs(u, (tx) =>
       tx.execute(
         sql`UPDATE messages SET parts = ${newParts}::jsonb WHERE id = ${msgId}`,
@@ -620,7 +619,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
 
     await tenantDb.runAs(u, (tx) =>
       tx.execute(
-        sql`UPDATE messages SET parts = ${JSON.stringify(text('a completely different embeddable phrasing'))}::jsonb WHERE id = ${msgId}`,
+        sql`UPDATE messages SET parts = ${sql.param(text('a completely different embeddable phrasing'))}::jsonb WHERE id = ${msgId}`,
       ),
     );
     await indexService.reindexChat(id, u);
@@ -857,7 +856,7 @@ describeIfDb('search projection — SearchIndexService + discovery', () => {
 
       await tenantDb.runAs(u, (tx) =>
         tx.execute(
-          sql`UPDATE messages SET parts = ${JSON.stringify(text('rewritten content'))}::jsonb WHERE id = ${msgId}`,
+          sql`UPDATE messages SET parts = ${sql.param(text('rewritten content'))}::jsonb WHERE id = ${msgId}`,
         ),
       );
       await indexService.reindexChat(id, u);

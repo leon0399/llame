@@ -364,8 +364,7 @@ export class MessagesRepository {
   }
 
   /**
-   * Earliest USER message per chat, for a bounded set of chats — the recency
-   * digest's excerpt source.
+   * Earliest owner-authored user message per Chat: the recency excerpt source.
    *
    * One query for the whole set rather than one per chat. The digest reads a
    * single message out of each candidate, so hydrating full histories would
@@ -373,10 +372,8 @@ export class MessagesRepository {
    * `deltas` layer re-resolves these same capped views on every send, which
    * would turn a per-chat cost into a per-send one.
    *
-   * `asc(seq)` is the insertion order the capability specifies, and the `user`
-   * filter is in the predicate rather than applied afterwards: DISTINCT ON
-   * keeps the first row per partition, so filtering later would discard the
-   * chat entirely whenever its earliest message is not the owner's.
+   * Filter host rows before DISTINCT ON, or a host before the first owner turn
+   * would hide that Chat's excerpt. Sequence order preserves insertion order.
    *
    * Owner-scoped via the chats join, same defense-in-depth as findByChatId.
    */
@@ -396,7 +393,7 @@ export class MessagesRepository {
         and(
           eq(chats.ownerUserId, ownerUserId),
           inArray(messages.chatId, [...chatIds]),
-          eq(messages.role, 'user'),
+          sql`(${messages.role} = 'user' and ${messages.senderUserId} is not null)`,
         ),
       )
       .orderBy(messages.chatId, asc(messages.seq));
@@ -470,7 +467,7 @@ export class MessagesRepository {
       // row. Enforced at the query too (not just the DTO), matching the
       // search path's guard, so a later tool-parts-persistence change can't
       // silently leak internals into a shared link.
-      inArray(messages.role, ['user', 'assistant']),
+      sql`(${messages.role} = 'assistant' or (${messages.role} = 'user' and ${messages.senderUserId} is not null))`,
     ];
 
     if (options?.maxSeq !== undefined) {

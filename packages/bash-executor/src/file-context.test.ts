@@ -2,8 +2,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFile, editFile, readFile } from "@workspace/native-file-tools";
-import { executeManagedBash, resetManagedExecutorForTests } from "./index";
+import { BashProcessLimiter, executeManagedBash } from "./index";
 import type { BashExecutorContext } from "./types";
+
+let limiter = new BashProcessLimiter(1);
+
+const execute: typeof executeManagedBash = (input, context, options) =>
+  executeManagedBash(input, context, { limiter, ...options });
 
 function context(
   directory: string,
@@ -25,12 +30,12 @@ describe("file-context handoff", () => {
   let directory: string;
 
   beforeEach(async () => {
-    resetManagedExecutorForTests();
+    limiter = new BashProcessLimiter(1);
     directory = await mkdtemp(join(tmpdir(), "bash-files-"));
   });
 
   afterEach(async () => {
-    resetManagedExecutorForTests();
+    limiter = new BashProcessLimiter(1);
     await rm(directory, { recursive: true, force: true });
   });
 
@@ -46,7 +51,7 @@ describe("file-context handoff", () => {
 
     expect(edited).toMatchObject({ status: "success" });
 
-    const bash = await executeManagedBash(
+    const bash = await execute(
       { command: "bash", args: ["-c", "cat note.txt"] },
       context(directory),
     );
@@ -58,7 +63,7 @@ describe("file-context handoff", () => {
     const path = join(directory, "note.txt");
     await writeFile(path, "seed\n");
 
-    const bash = await executeManagedBash(
+    const bash = await execute(
       {
         command: "bash",
         args: ["-c", String.raw`printf 'from-bash\n' > note.txt`],
@@ -80,7 +85,7 @@ describe("file-context handoff", () => {
     const created = await createFile({ path, content: "line-one\n" });
     expect(created).toMatchObject({ status: "success", operation: "write" });
 
-    const listed = await executeManagedBash(
+    const listed = await execute(
       { command: "bash", args: ["-c", "cat alpha.txt"] },
       context(directory),
     );
@@ -105,7 +110,7 @@ describe("file-context handoff", () => {
   it("refuses concurrent processes when the managed limit is one", async () => {
     const controller = new AbortController();
 
-    const first = executeManagedBash(
+    const first = execute(
       {
         command: "bash",
         args: ["-c", "while true; do printf x; sleep 0.05; done"],
@@ -116,7 +121,7 @@ describe("file-context handoff", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const second = await executeManagedBash(
+    const second = await execute(
       { command: "bash", args: ["-c", "printf race"] },
       context(directory),
     );

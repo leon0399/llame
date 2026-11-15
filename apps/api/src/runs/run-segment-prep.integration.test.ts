@@ -28,6 +28,7 @@ import { createTemporalItem } from '../chats/context-item-producers';
 import { createRunForMessage } from '../chats/run-creation';
 import { runs, type Message } from '../db/schema';
 import { waitFor } from '../testing/support';
+import { NativeFilesRepository } from './native-files-repository';
 import { type RunUserMessage } from './run-execution.service';
 import { isTerminalRunStatus } from './run-status';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
@@ -511,6 +512,7 @@ describe('run steering segment preparation', () => {
       deliverPendingSteering(tx, {
         run: { runId: seeded.runId, userId },
         attemptId: started?.activeAttemptId ?? '',
+        deadWorkerAfterSeconds: 1_000_000,
         models: [],
       }),
     );
@@ -952,6 +954,7 @@ describe('run steering segment preparation', () => {
           deliverPendingSteering(tx, {
             run: { runId: seeded.runId, userId },
             attemptId: attemptId ?? '',
+            deadWorkerAfterSeconds: 1_000_000,
             models: [],
             baselines,
           }),
@@ -1014,6 +1017,7 @@ describe('run steering segment preparation', () => {
           deliverPendingSteering(tx, {
             run: { runId: seeded.runId, userId },
             attemptId,
+            deadWorkerAfterSeconds: 1_000_000,
             models: [],
             baselines: baselines(compiledOn),
           }),
@@ -1131,6 +1135,101 @@ describe('run steering segment preparation', () => {
       expect(await state()).toEqual({ delivered: true, dispatched: false });
       await append('model.requested');
       expect(await state()).toEqual({ delivered: true, dispatched: true });
+    });
+
+    it('counts native attempts only after the latest delivery', async () => {
+      const seeded = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: 'unused',
+      });
+
+      const other = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: 'unused',
+      });
+
+      const nativeFiles = () =>
+        db((tx) => new NativeFilesRepository(tx).hasMutation(seeded.runId));
+
+      const append = (type: 'native.attempt' | 'run.delivered') =>
+        db((tx) => new RunEventsRepository(tx).append(seeded.runId, type, {}));
+
+      expect(await nativeFiles()).toBe(false);
+      await append('native.attempt');
+      expect(await nativeFiles()).toBe(true);
+      await db((tx) =>
+        new RunEventsRepository(tx).append(other.runId, 'run.delivered', {}),
+      );
+      expect(await nativeFiles()).toBe(true);
+      await append('run.delivered');
+      expect(await nativeFiles()).toBe(false);
+      await db((tx) =>
+        new RunEventsRepository(tx).append(other.runId, 'native.attempt', {}),
+      );
+      expect(await nativeFiles()).toBe(false);
+      await append('native.attempt');
+      expect(await nativeFiles()).toBe(true);
+    });
+
+    it('selects a dispatched run through its availability record or completion', async () => {
+      const seeded = await seedRun({
+        tenantDb: harness.tenantDb,
+        userId,
+        modelId: 'unused',
+      });
+
+      await db((tx) =>
+        tx
+          .update(runs)
+          .set({ status: 'completed', turnToolAvailability: null })
+          .where(eq(runs.id, seeded.runId)),
+      );
+
+      const completed = await db((tx) =>
+        new RunsRepository(tx).findMostRecentDispatchedByChatMessageSequence(
+          seeded.chatId,
+          userId,
+          { beforeSeq: seeded.userMessage.seq + 1 },
+        ),
+      );
+
+      expect(completed?.run.id).toBe(seeded.runId);
+
+      await db((tx) =>
+        tx
+          .update(runs)
+          .set({ status: 'failed' })
+          .where(eq(runs.id, seeded.runId)),
+      );
+
+      const undispatched = await db((tx) =>
+        new RunsRepository(tx).findMostRecentDispatchedByChatMessageSequence(
+          seeded.chatId,
+          userId,
+          { beforeSeq: seeded.userMessage.seq + 1 },
+        ),
+      );
+
+      expect(undispatched).toBeUndefined();
+
+      await db((tx) =>
+        tx
+          .update(runs)
+          .set({ turnToolAvailability: [] })
+          .where(eq(runs.id, seeded.runId)),
+      );
+
+      const dispatched = await db((tx) =>
+        new RunsRepository(tx).findMostRecentDispatchedByChatMessageSequence(
+          seeded.chatId,
+          userId,
+          { beforeSeq: seeded.userMessage.seq + 1 },
+        ),
+      );
+
+      expect(dispatched?.run.id).toBe(seeded.runId);
     });
 
     it('findEarlierSegmentBaseline reaches the Run through the reply it produced', async () => {

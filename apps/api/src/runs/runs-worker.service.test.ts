@@ -1,14 +1,4 @@
-/**
- * RunsWorkerService unit tests — the `runs.dead` retry-exhaustion consumer
- * (durable-run-workers D7 mechanism 3). Full end-to-end liveness coverage
- * (worker-death → redelivery → healthy re-execute; a real pg-boss queue)
- * is DB-backed integration work deferred to the later test slice (tasks
- * 7.0/7.7) — this pins the handler's own logic with mocked dependencies:
- * it settles the dead-lettered run to a terminal run.expired IN THE OWNER'S
- * TENANT SCOPE (via TenantDbService.runAs(job.userId, ...)), and it respects
- * markFinished's first-writer-wins guard (a no-op when the run is already
- * terminal).
- */
+/** Worker pickup, execution limits, queue registration and artifact sweeping. */
 import {
   existsSync,
   mkdirSync,
@@ -18,15 +8,9 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path, { dirname } from 'node:path';
-import { Logger } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
-import {
-  type ConsumeOptions,
-  type QueueConsumer,
-  deadLetterQueue,
-} from '../queue/queue';
+import { type ConsumeOptions, type QueueConsumer } from '../queue/queue';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type WorkerConcurrencyResolver } from '../instance-config/worker-profile.service';
@@ -35,7 +19,8 @@ import {
   type ModelClientFactory,
 } from '../models/models.service';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { type RunAbortRegistrar } from './run-abort-registry';
+import { RunAbortRegistry, type RunAbortRegistrar } from './run-abort-registry';
+import { type RunWaitService } from './run-wait.service';
 import { ModelContextExecutionError } from './model-context-errors';
 import {
   RUN_CEILING_ABORT_REASON,
@@ -48,16 +33,23 @@ import {
   artifactDirectory,
   SWEEP_AFTER_MS,
 } from '../tools/artifacts/host-files';
-import { RunsRepository } from './runs-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunsWorkerService } from './runs-worker.service';
 import { RUNS_QUEUE, type RunJob } from './run-queues';
 import { type CanonicalSearchCoverageGate } from '../search/canonical-search-activation.service';
+import { FakeStreamingModelClient } from '../testing/fake-streaming-model-client';
 
 import type { Mock } from 'vitest';
 
+beforeEach(() => {
+  vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
+    undefined,
+  );
+});
+
 /** Native Drizzle mock; repository behavior is mocked at its public seam. */
 function makeFakeTx(): Db {
-  return drizzle.mock({ schema });
+  return drizzle.mock();
 }
 
 /** A capability the test never exercises still needs a real (throwing) member — an empty object satisfies no narrowed interface either. */
@@ -87,10 +79,12 @@ function makeService(
     models?: ModelClientFactory;
     runExecution?: RunExecutor;
     aborts?: RunAbortRegistrar;
+    runWait?: Pick<RunWaitService, 'wakeInTransaction'>;
     canonicalSearchCoverage?: CanonicalSearchCoverageGate;
     allowedTools?: Array<string>;
     nativeExecutorId?: string;
     runsConcurrency?: number | null;
+    tenantDb?: TenantRunner;
   } = {},
 ) {
   // Named consts (not accessed later as `queue.consume`/`tenantDb.runAs`) so
@@ -147,13 +141,15 @@ function makeService(
   // satisfy `runAs`'s own `<T>`. A plain (non-mocked) arrow function assigned
   // to the generic-typed slot lets TS infer the real generic signature; it
   // delegates to the spy for tracking without ever widening then asserting.
-  const runAs: TenantRunner['runAs'] = (userId, fn) => {
+  const defaultRunAs: TenantRunner['runAs'] = (userId, fn) => {
     runAsSpy(userId, fn);
 
     return fn(tx);
   };
 
-  const tenantDb: TenantRunner = { runAs };
+  const tenantDb: TenantRunner = overrides.tenantDb ?? {
+    runAs: defaultRunAs,
+  };
 
   const service = new RunsWorkerService(
     queue,
@@ -171,6 +167,9 @@ function makeService(
     overrides.aborts ?? {
       register: unstubbed('register'),
       unregister: unstubbed('unregister'),
+    },
+    overrides.runWait ?? {
+      wakeInTransaction: vi.fn().mockResolvedValue(false),
     },
   );
 
@@ -195,34 +194,7 @@ async function captureRunsHandler(
   return call[1];
 }
 
-/** Capture the handler RunsWorkerService registered on the runs.dead queue. */
-async function captureDeadLetterHandler(
-  service: RunsWorkerService,
-  consumeSpy: Mock<ConsumeMockFn>,
-): Promise<(job: RunJob) => Promise<void>> {
-  await service.onApplicationBootstrap();
-  const deadQueueName = deadLetterQueue(RUNS_QUEUE).name;
-
-  const call = consumeSpy.mock.calls.find(
-    ([definition]) => definition.name === deadQueueName,
-  );
-
-  if (!call) {
-    throw new Error('runs.dead consumer was never registered');
-  }
-
-  return call[1];
-}
-
 describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)', () => {
-  const job: RunJob = {
-    runId: 'run-1',
-    chatId: 'chat-1',
-    userId: 'owner-xyz',
-    modelId: 'system:openai:gpt-5.4-mini',
-    userMessage: { id: 'msg-1', seq: 1, parts: [] },
-  };
-
   const hostRoots: Array<string> = [];
 
   afterEach(() => {
@@ -251,6 +223,62 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
       expect.objectContaining({ name: 'runs.dead' }),
       expect.any(Function),
     );
+  });
+
+  it('settles a dead-lettered wake with the payload queue identity in the Run owner scope', async () => {
+    const tx = makeFakeTx();
+
+    const settleTerminalRun = vi
+      .fn<RunExecutor['settleTerminalRun']>()
+      .mockResolvedValue({ outcome: 'won' });
+
+    const { service, consumeSpy } = makeService(tx, {
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
+
+    await service.onApplicationBootstrap();
+
+    const deadLetterCall = consumeSpy.mock.calls.find(
+      ([definition]) => definition.name === 'runs.dead',
+    );
+
+    if (!deadLetterCall) {
+      throw new Error('runs.dead consumer was never registered');
+    }
+
+    await deadLetterCall[1]({
+      runId: 'run-1',
+      chatId: 'chat-1',
+      userId: 'owner-1',
+      modelId: 'system:openai:gpt-5.4-mini',
+      userMessage: { id: 'message-1', seq: 1, parts: [] },
+      wake: {
+        jobId: 'e13c2b4e-a70a-48f5-a2f7-28dd4d74e71b',
+        generation: 7,
+      },
+    });
+
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: 'run-1',
+      userId: 'owner-1',
+      status: 'expired',
+      expectedQueueIdentity: {
+        currentJobId: 'e13c2b4e-a70a-48f5-a2f7-28dd4d74e71b',
+        wakeGeneration: 7,
+      },
+      runPayload: {
+        status: 'expired',
+        message:
+          'Run retries exhausted: the worker repeatedly failed to complete it.',
+      },
+      error: {
+        message:
+          'Run retries exhausted: the worker repeatedly failed to complete it.',
+      },
+    });
   });
 
   it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
@@ -303,73 +331,6 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
     await service.onApplicationBootstrap();
 
     expect(existsSync(dirname(dirname(stale)))).toBe(true);
-  });
-
-  it('settles a dead-lettered run to a terminal run.expired IN THE OWNER TENANT SCOPE', async () => {
-    const warnSpy = vi.spyOn(Logger.prototype, 'warn');
-    const tx = makeFakeTx();
-
-    const settleTerminalRun = vi
-      .fn()
-      .mockResolvedValue({ outcome: 'won' as const });
-
-    const { service, consumeSpy } = makeService(tx, {
-      runExecution: {
-        executeRun: unstubbed('executeRun'),
-        settleTerminalRun,
-      },
-    });
-
-    const handler = await captureDeadLetterHandler(service, consumeSpy);
-
-    await handler(job);
-
-    expect(settleTerminalRun).toHaveBeenCalledWith({
-      runId: job.runId,
-      userId: job.userId,
-      status: 'expired',
-      runPayload: {
-        status: 'expired',
-        message:
-          'Run retries exhausted: the worker repeatedly failed to complete it.',
-      },
-      error: {
-        message:
-          'Run retries exhausted: the worker repeatedly failed to complete it.',
-      },
-    });
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      `Expired run ${job.runId} (retries exhausted)`,
-    );
-    // The central finalizer receives the job owner's identity; its integration
-    // test pins owner-scoped reads/writes and settlement-before-terminal order.
-  });
-
-  it('is a no-op when the run already reached a terminal state (first-writer-wins)', async () => {
-    const warnSpy = vi.spyOn(Logger.prototype, 'warn');
-    // The central finalizer reports a guarded markFinished loss when another
-    // terminal writer already won; the dead-letter consumer accepts that no-op.
-    const tx = makeFakeTx();
-
-    const settleTerminalRun = vi.fn().mockResolvedValue({
-      outcome: 'lost' as const,
-      finalStatus: 'completed',
-    });
-
-    const { service, consumeSpy } = makeService(tx, {
-      runExecution: {
-        executeRun: unstubbed('executeRun'),
-        settleTerminalRun,
-      },
-    });
-
-    const handler = await captureDeadLetterHandler(service, consumeSpy);
-
-    await handler(job);
-
-    expect(settleTerminalRun).toHaveBeenCalledTimes(1);
-    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -467,12 +428,16 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     createdAt: new Date(),
     followUpAction: null,
     sourceRunId: null,
+    wakeGeneration: 0,
+    currentJobId: null,
+    awaiting: null,
   };
 
   const cancellationMessage =
     'Run was cancelled before this worker attempt started.';
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -506,13 +471,718 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     const handler = await captureRunsHandler(service, consumeSpy);
 
     await expect(handler(job)).rejects.toThrow(
-      `Run ${job.runId} stream drained without a durable terminal state.`,
+      `Run ${job.runId} stream drained without a durable terminal or suspension state.`,
     );
 
     expect(consumeStream).toHaveBeenCalledTimes(1);
     expect(runAsSpy).toHaveBeenLastCalledWith(job.userId, expect.any(Function));
-    expect(unregister).toHaveBeenCalledWith(job.runId);
+    expect(unregister).toHaveBeenCalledWith(job.runId, abort);
   });
+  it.each([
+    ['the job id', { currentJobId: 'replacement-job', wakeGeneration: 4 }],
+    ['the wake generation', { currentJobId: 'wake-job', wakeGeneration: 5 }],
+  ] as const)(
+    'does not treat a drained wake as current after %s changed',
+    async (_description, changedIdentity) => {
+      const matchingWake = {
+        ...queuedRun,
+        status: 'running_model' as const,
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      };
+
+      vi.spyOn(RunsRepository.prototype, 'findById')
+        .mockResolvedValueOnce({
+          ...queuedRun,
+          status: 'awaiting_jobs',
+          currentJobId: 'wake-job',
+          wakeGeneration: 4,
+        })
+        .mockResolvedValueOnce(matchingWake)
+        .mockResolvedValueOnce(matchingWake)
+        .mockResolvedValueOnce({ ...matchingWake, ...changedIdentity });
+      const abort = new AbortController();
+      const unregister = vi.fn();
+
+      const executeRun = vi.fn().mockResolvedValue({
+        consumeStream: vi.fn().mockResolvedValue(undefined),
+      });
+
+      const { service, consumeSpy } = makeService(makeFakeTx(), {
+        models: { createClient: vi.fn().mockReturnValue({}) },
+        runExecution: {
+          executeRun,
+          settleTerminalRun: unstubbed('settleTerminalRun'),
+        },
+        aborts: {
+          register: vi.fn().mockReturnValue(abort),
+          unregister,
+        },
+        runWait: { wakeInTransaction: vi.fn().mockResolvedValue(true) },
+      });
+
+      const handler = await captureRunsHandler(service, consumeSpy);
+
+      await expect(
+        handler({
+          ...job,
+          wake: { jobId: 'wake-job', generation: 4 },
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(executeRun).toHaveBeenCalledOnce();
+      expect(unregister).toHaveBeenCalledWith(job.runId, abort);
+    },
+  );
+  it('retries when a drained wake still owns a nonterminal Run', async () => {
+    const currentRun = {
+      ...queuedRun,
+      status: 'running_model' as const,
+      currentJobId: 'wake-job',
+      wakeGeneration: 4,
+    };
+
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce({
+        ...currentRun,
+        status: 'awaiting_jobs',
+      })
+      .mockResolvedValueOnce(currentRun)
+      .mockResolvedValueOnce(currentRun)
+      .mockResolvedValueOnce(currentRun);
+    const abort = new AbortController();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun: vi.fn().mockResolvedValue({
+          consumeStream: vi.fn().mockResolvedValue(undefined),
+        }),
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+      aborts: {
+        register: vi.fn().mockReturnValue(abort),
+        unregister: vi.fn(),
+      },
+      runWait: { wakeInTransaction: vi.fn().mockResolvedValue(true) },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await expect(
+      handler({
+        ...job,
+        wake: { jobId: 'wake-job', generation: 4 },
+      }),
+    ).rejects.toThrow(
+      `Run ${job.runId} stream drained without a durable terminal or suspension state.`,
+    );
+  });
+
+  it('ignores an initial queue job after a wake identity has replaced it', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      currentJobId: 'wake-job',
+      wakeGeneration: 4,
+    });
+    const createClient = vi.fn();
+    const executeRun = vi.fn();
+    const settleTerminalRun = vi.fn();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient },
+      runExecution: { executeRun, settleTerminalRun },
+    });
+
+    await (
+      await captureRunsHandler(service, consumeSpy)
+    )(job);
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(settleTerminalRun).not.toHaveBeenCalled();
+  });
+
+  it('passes the current initial queue identity to execution', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(queuedRun)
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'running_model',
+        startedAt: new Date(),
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'completed',
+        finishedAt: new Date(),
+      });
+
+    const executeRun = vi.fn().mockResolvedValue({
+      consumeStream: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+      aborts: {
+        register: vi.fn().mockReturnValue(new AbortController()),
+        unregister: vi.fn(),
+      },
+    });
+
+    await (
+      await captureRunsHandler(service, consumeSpy)
+    )(job);
+
+    expect(executeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      }),
+    );
+  });
+
+  it('ignores a wake job whose generation is no longer current', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      currentJobId: 'current-job',
+      wakeGeneration: 4,
+    });
+    const createClient = vi.fn();
+    const settleTerminalRun = vi.fn();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 3, jobId: 'stale-job' },
+    });
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(settleTerminalRun).not.toHaveBeenCalled();
+  });
+  it('ignores a normal job after another queue identity became current', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      currentJobId: 'replacement-job',
+    });
+    const createClient = vi.fn();
+    const executeRun = vi.fn();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient },
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler(job);
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+  });
+
+  it('does not execute when the current deadline wake loses its transactional claim', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      status: 'awaiting_jobs',
+      currentJobId: 'deadline-job',
+      wakeGeneration: 4,
+    });
+    const wakeInTransaction = vi.fn().mockResolvedValue(false);
+    const createClient = vi.fn();
+    const executeRun = vi.fn();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient },
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+      runWait: { wakeInTransaction },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 4, jobId: 'deadline-job' },
+    });
+
+    expect(wakeInTransaction).toHaveBeenCalledOnce();
+    expect(createClient).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stale queue job id even when its generation is current', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      currentJobId: 'current-job',
+      wakeGeneration: 4,
+    });
+    const createClient = vi.fn();
+    const settleTerminalRun = vi.fn();
+    const wakeInTransaction = vi.fn();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+      runWait: { wakeInTransaction },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 4, jobId: 'stale-job' },
+    });
+
+    expect(wakeInTransaction).not.toHaveBeenCalled();
+    expect(createClient).not.toHaveBeenCalled();
+    expect(settleTerminalRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stale generation even when the queue job id is current', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...queuedRun,
+      currentJobId: 'current-job',
+      wakeGeneration: 4,
+    });
+    const createClient = vi.fn();
+    const settleTerminalRun = vi.fn();
+    const wakeInTransaction = vi.fn().mockResolvedValue(false);
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+      runWait: { wakeInTransaction },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 3, jobId: 'current-job' },
+    });
+
+    expect(wakeInTransaction).not.toHaveBeenCalled();
+    expect(createClient).not.toHaveBeenCalled();
+    expect(settleTerminalRun).not.toHaveBeenCalled();
+  });
+  it('does not read the start event when no run budget is configured', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce(queuedRun)
+      .mockResolvedValueOnce(queuedRun)
+      .mockResolvedValueOnce({ ...queuedRun, status: 'completed' });
+
+    const findFirstByType = vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    );
+
+    const executeRun = vi.fn().mockResolvedValue({
+      consumeStream: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const abort = new AbortController();
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds: null,
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+      aborts: { register: vi.fn().mockReturnValue(abort), unregister: vi.fn() },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler(job);
+
+    expect(executeRun).toHaveBeenCalledOnce();
+    expect(findFirstByType).not.toHaveBeenCalled();
+  });
+
+  it('uses only the remaining run budget after a current wake', async () => {
+    const startedAt = new Date('2026-11-13T12:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(startedAt.getTime() + 10_000));
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'awaiting_jobs',
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'awaiting_jobs',
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue({
+      sequence: 1,
+      runId: job.runId,
+      eventType: 'run.started',
+      payload: { status: 'running_model' },
+      createdAt: startedAt,
+    });
+    const wakeInTransaction = vi.fn().mockResolvedValue(true);
+    const abort = new AbortController();
+
+    const executeRun = vi.fn(async () => {
+      await vi.advanceTimersByTimeAsync(289_999);
+      expect(abort.signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(abort.signal.aborted).toBe(true);
+
+      return new FakeStreamingModelClient().streamText({
+        messages: [{ role: 'user', content: 'Resume the waiting Run.' }],
+        chat: { id: job.chatId, lane: 'main' },
+      });
+    });
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds: 300,
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+      aborts: {
+        register: vi.fn().mockReturnValue(abort),
+        unregister: vi.fn(),
+      },
+      runWait: { wakeInTransaction },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 4, jobId: 'wake-job' },
+    });
+
+    expect(executeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedQueueIdentity: {
+          currentJobId: 'wake-job',
+          wakeGeneration: 4,
+        },
+      }),
+    );
+  });
+
+  it('accepts the current wake and expires it against the original run start budget', async () => {
+    const startedAt = new Date('2026-11-13T12:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(startedAt.getTime() + 300_000));
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'awaiting_jobs',
+        currentJobId: 'deadline-job',
+        wakeGeneration: 4,
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        currentJobId: 'deadline-job',
+        wakeGeneration: 4,
+      });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue({
+      sequence: 1,
+      runId: job.runId,
+      eventType: 'run.started',
+      payload: { status: 'running_model' },
+      createdAt: startedAt,
+    });
+    const wakeInTransaction = vi.fn().mockResolvedValue(true);
+    const createClient = vi.fn();
+    const settleTerminalRun = vi.fn().mockResolvedValue({ outcome: 'won' });
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds: 300,
+      models: { createClient },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+      runWait: { wakeInTransaction },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 4, jobId: 'deadline-job' },
+    });
+
+    expect(wakeInTransaction).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        runId: job.runId,
+        userId: job.userId,
+        generation: 4,
+        cause: 'timeout',
+        deadlineJobId: 'deadline-job',
+      }),
+    );
+    expect(createClient).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledOnce();
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'expired',
+      expectedQueueIdentity: {
+        currentJobId: 'deadline-job',
+        wakeGeneration: 4,
+      },
+      runPayload: {
+        status: 'expired',
+        message: 'Run timed out: exceeded its wall-clock budget.',
+      },
+      error: { message: 'Run timed out: exceeded its wall-clock budget.' },
+    });
+  });
+
+  it('expires at the absolute deadline after a delayed cancellation read', async () => {
+    const startedAt = new Date('2026-11-13T12:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(startedAt.getTime() + 10_000));
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce({ ...queuedRun })
+      .mockResolvedValueOnce({ ...queuedRun });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue({
+      sequence: 1,
+      runId: job.runId,
+      eventType: 'run.started',
+      payload: { status: 'running_model' },
+      createdAt: startedAt,
+    });
+    const runAsSpy = vi.fn();
+
+    const delayedTenantDb: TenantRunner = {
+      runAs: async (userId, callback) => {
+        runAsSpy(userId);
+
+        if (runAsSpy.mock.calls.length === 2) {
+          await vi.advanceTimersByTimeAsync(291_000);
+        }
+
+        return callback(makeFakeTx());
+      },
+    };
+
+    const createClient = vi.fn();
+    const executeRun = vi.fn();
+    const settleTerminalRun = vi.fn().mockResolvedValue({ outcome: 'won' });
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds: 300,
+      tenantDb: delayedTenantDb,
+      models: { createClient },
+      runExecution: { executeRun, settleTerminalRun },
+      aborts: {
+        register: vi.fn().mockReturnValue(new AbortController()),
+        unregister: vi.fn(),
+      },
+    });
+
+    await (
+      await captureRunsHandler(service, consumeSpy)
+    )(job);
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledOnce();
+    expect(settleTerminalRun.mock.calls[0]?.[0]).toMatchObject({
+      status: 'expired',
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+  });
+  it('settles cancellation rather than expiry when both arrive at the pickup deadline', async () => {
+    const startedAt = new Date('2026-11-13T12:00:00.000Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(startedAt.getTime() + 10_000));
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce({ ...queuedRun })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        cancelRequestedAt: new Date(startedAt.getTime() + 300_000),
+      });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue({
+      sequence: 1,
+      runId: job.runId,
+      eventType: 'run.started',
+      payload: { status: 'running_model' },
+      createdAt: startedAt,
+    });
+    const runAsSpy = vi.fn();
+
+    const tenantDb: TenantRunner = {
+      runAs: async (_userId, callback) => {
+        runAsSpy();
+
+        if (runAsSpy.mock.calls.length === 2) {
+          await vi.advanceTimersByTimeAsync(290_000);
+        }
+
+        return callback(makeFakeTx());
+      },
+    };
+
+    const abort = new AbortController();
+    const createClient = vi.fn();
+    const executeRun = vi.fn();
+    const settleTerminalRun = vi.fn().mockResolvedValue({ outcome: 'won' });
+
+    const aborts: RunAbortRegistrar = {
+      register: vi.fn().mockReturnValue(abort),
+      unregister: vi.fn(),
+    };
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds: 300,
+      tenantDb,
+      models: { createClient },
+      runExecution: { executeRun, settleTerminalRun },
+      aborts,
+    });
+
+    await (
+      await captureRunsHandler(service, consumeSpy)
+    )(job);
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledOnce();
+    expect(settleTerminalRun.mock.calls[0]?.[0]).toMatchObject({
+      status: 'cancelled',
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+  });
+
+  it.each([
+    { label: 'one millisecond before', delayMs: 289_999, expires: false },
+    { label: 'exactly at', delayMs: 290_000, expires: true },
+  ])(
+    'rechecks the budget after cancellation lookup when it is $label the deadline',
+    async ({ delayMs, expires }) => {
+      const startedAt = new Date('2026-11-13T12:00:00.000Z');
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(startedAt.getTime() + 10_000));
+      vi.spyOn(RunsRepository.prototype, 'findById')
+        .mockResolvedValueOnce({ ...queuedRun })
+        .mockResolvedValueOnce({ ...queuedRun })
+        .mockResolvedValueOnce({ ...queuedRun, status: 'completed' });
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'findFirstByType',
+      ).mockResolvedValue({
+        sequence: 1,
+        runId: job.runId,
+        eventType: 'run.started',
+        payload: { status: 'running_model' },
+        createdAt: startedAt,
+      });
+
+      const runAsSpy = vi.fn();
+
+      const delayedTenantDb: TenantRunner = {
+        runAs: async (_userId, callback) => {
+          runAsSpy();
+
+          if (runAsSpy.mock.calls.length === 2) {
+            await vi.advanceTimersByTimeAsync(delayMs);
+          }
+
+          return callback(makeFakeTx());
+        },
+      };
+
+      const abort = new AbortController();
+
+      const executeRun = vi.fn().mockResolvedValue({
+        consumeStream: async () => {
+          await vi.advanceTimersByTimeAsync(1);
+        },
+      });
+
+      const createClient = vi.fn().mockReturnValue({});
+      const settleTerminalRun = vi.fn().mockResolvedValue({ outcome: 'won' });
+
+      const { service, consumeSpy } = makeService(makeFakeTx(), {
+        timeoutSeconds: 300,
+        tenantDb: delayedTenantDb,
+        models: { createClient },
+        runExecution: { executeRun, settleTerminalRun },
+        aborts: {
+          register: vi.fn().mockReturnValue(abort),
+          unregister: vi.fn(),
+        },
+      });
+
+      await (
+        await captureRunsHandler(service, consumeSpy)
+      )(job);
+
+      if (expires) {
+        expect(createClient).not.toHaveBeenCalled();
+        expect(executeRun).not.toHaveBeenCalled();
+        expect(settleTerminalRun).toHaveBeenCalledOnce();
+        expect(settleTerminalRun.mock.calls[0]?.[0]).toMatchObject({
+          status: 'expired',
+        });
+      } else {
+        expect(createClient).toHaveBeenCalledOnce();
+        expect(executeRun).toHaveBeenCalledOnce();
+        expect(abort.signal.aborted).toBe(true);
+        expect(settleTerminalRun).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it('routes a cancellation already visible at initial pickup through central terminal settlement', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
@@ -542,6 +1212,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       userId: job.userId,
       status: 'cancelled',
       runPayload: { status: 'cancelled', message: cancellationMessage },
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       error: { message: cancellationMessage },
     });
   });
@@ -578,12 +1249,13 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 
     await handler(job);
 
-    expect(unregister).toHaveBeenCalledWith(job.runId);
+    expect(unregister).toHaveBeenCalledWith(job.runId, abort);
     expect(settleTerminalRun).toHaveBeenCalledWith({
       runId: job.runId,
       userId: job.userId,
       status: 'cancelled',
       runPayload: { status: 'cancelled', message: cancellationMessage },
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       error: { message: cancellationMessage },
     });
   });
@@ -597,6 +1269,8 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 
     const unavailable = new ModelNotAvailableError(job.modelId);
 
+    const aborts = new RunAbortRegistry();
+
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       models: {
         createClient: () => {
@@ -607,6 +1281,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
         executeRun: unstubbed('executeRun'),
         settleTerminalRun,
       },
+      aborts,
     });
 
     const handler = await captureRunsHandler(service, consumeSpy);
@@ -618,7 +1293,12 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       userId: job.userId,
       status: 'failed',
       runPayload: { status: 'failed', message: unavailable.message },
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       error: { message: unavailable.message },
+    });
+    expect(aborts.executing()).not.toContainEqual({
+      runId: job.runId,
+      userId: job.userId,
     });
   });
 });
@@ -658,6 +1338,9 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
     createdAt: new Date(),
     followUpAction: null,
     sourceRunId: null,
+    wakeGeneration: 0,
+    currentJobId: null,
+    awaiting: null,
   };
 
   afterEach(() => {
@@ -668,8 +1351,8 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
   /** Runs one job to its in-flight point and returns the live abort spy. */
   async function armFor(timeoutSeconds: number | null): Promise<Mock> {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
-    const abort = vi.fn();
     const controller = new AbortController();
+    const abort = vi.spyOn(controller, 'abort');
 
     const { service, consumeSpy } = makeService(makeFakeTx(), {
       timeoutSeconds,
@@ -682,10 +1365,7 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
           .mockResolvedValue({ outcome: 'won' as const }),
       },
       aborts: {
-        register: vi.fn().mockReturnValue({
-          signal: controller.signal,
-          abort,
-        }),
+        register: vi.fn().mockReturnValue(controller),
         unregister: vi.fn(),
       },
     });
@@ -758,6 +1438,9 @@ describe('RunsWorkerService — durable run-level failures', () => {
       createdAt: new Date(),
       followUpAction: null,
       sourceRunId: null,
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
     } as const;
 
     vi.spyOn(RunsRepository.prototype, 'findById')
@@ -794,7 +1477,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
 
     expect(createClient).toHaveBeenCalledTimes(1);
     expect(executeRun).toHaveBeenCalledTimes(1);
-    expect(unregister).toHaveBeenCalledWith(job.runId);
+    expect(unregister).toHaveBeenCalledWith(job.runId, abort);
   });
 
   it('rejects the queue job when model-context failure did not reach a durable terminal state', async () => {
@@ -817,6 +1500,9 @@ describe('RunsWorkerService — durable run-level failures', () => {
       workerId: null,
       createdAt: new Date(),
       followUpAction: null,
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
       sourceRunId: null,
     };
 

@@ -8,9 +8,11 @@ export const RUN_CONTROL_CHANNEL = 'llame_run_control';
 
 export const RUN_CONTROL_LISTENER = Symbol('RUN_CONTROL_LISTENER');
 
-export type RunControlKind = 'cancel' | 'interrupt';
+export type RunControlKind = 'cancel' | 'interrupt' | 'steer';
 
-export type RunControlMessage = { runId: string; kind: RunControlKind };
+export type RunControlMessage =
+  | { runId: string; kind: RunControlKind }
+  | { jobId: string; kind: 'job-stop' };
 
 /**
  * Sends one control pointer. Called in the transaction that records the
@@ -38,9 +40,12 @@ export function parseRunControl(raw: string): RunControlMessage | undefined {
   if (!isRecord(parsed)) return undefined;
   const { runId, kind } = parsed;
 
+  if (kind === 'job-stop' && isString(parsed.jobId))
+    return { jobId: parsed.jobId, kind };
+
   if (!isString(runId)) return undefined;
 
-  return kind === 'cancel' || kind === 'interrupt'
+  return kind === 'cancel' || kind === 'interrupt' || kind === 'steer'
     ? { runId, kind }
     : undefined;
 }

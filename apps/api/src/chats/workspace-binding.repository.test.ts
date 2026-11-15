@@ -75,7 +75,7 @@ function makeDb(options: {
   select?: Array<QueryRows>;
   update?: Array<QueryRows>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   const calls: Array<QueryCall> = [];
   const selects = [...(options.select ?? [])];
   const updates = [...(options.update ?? [])];

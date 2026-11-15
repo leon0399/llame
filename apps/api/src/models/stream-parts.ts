@@ -3,10 +3,10 @@ import type { TextStreamPart, ToolSet } from 'ai';
 import type { ModelStreamInput } from './model-client';
 import type { ToolCallGate } from './tool-call-gate';
 
-/** The three seams this consumer drives for one provider invocation. */
+/** The stream seams driven by one provider invocation. */
 type StreamInput = Pick<
   ModelStreamInput,
-  'onTextDelta' | 'onReasoningDelta' | 'onToolCallMetadata'
+  'onTextDelta' | 'onReasoningDelta' | 'onToolCallMetadata' | 'onToolCall'
 >;
 
 /** One part of the SDK's `fullStream`. */
@@ -97,6 +97,14 @@ function reportCall(
     input.onToolCallMetadata?.(part.toolCallId, part.providerMetadata);
   }
 
+  if (!('invalid' in part && part.invalid)) {
+    input.onToolCall?.({
+      toolCallId: part.toolCallId,
+      toolName: part.toolName,
+      input: part.input,
+    });
+  }
+
   gate.reach(part.toolCallId);
 }
 
@@ -161,5 +169,13 @@ export function forwardChunk(chunk: ForwardedPart, input: StreamInput): void {
 
   if (chunk.type === 'tool-call' && chunk.providerMetadata !== undefined) {
     input.onToolCallMetadata?.(chunk.toolCallId, chunk.providerMetadata);
+  }
+
+  if (chunk.type === 'tool-call' && !('invalid' in chunk && chunk.invalid)) {
+    input.onToolCall?.({
+      toolCallId: chunk.toolCallId,
+      toolName: chunk.toolName,
+      input: chunk.input,
+    });
   }
 }

@@ -40,7 +40,7 @@ d('artifact store', () => {
       ssl: /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false,
       max: 6,
     });
-    tenantDb = new TenantDbService(drizzle(sql, { schema }));
+    tenantDb = new TenantDbService(drizzle({ client: sql }));
     owner = crypto.randomUUID();
     stranger = crypto.randomUUID();
 

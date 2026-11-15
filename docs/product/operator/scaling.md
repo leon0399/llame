@@ -1,5 +1,7 @@
 ---
 summary: "API and worker topology around one Postgres: profiles, capacity, and limits"
+behavior:
+  - ../reference/locators/job.md
 read_when:
   - you are sizing API and worker replicas or choosing a worker profile
   - you are planning the database pool and job-group coverage
@@ -69,6 +71,62 @@ To isolate a job class, define a profile containing only that group and remove
 the group from general profiles. pg-boss queue subscription is the router; add
 no parallel routing layer.
 
+## Host commands
+
+A foreground host `bash` command that passes `tools.bash.backgroundAfterSeconds`
+becomes a job on the worker that runs it, and that worker keeps it until it
+ends. Count each such job in `tools.bash.maxProcesses`, and see
+[background jobs](background-jobs.md) before a deploy.
+
+## Drizzle v1 RC5 migration upgrade
+
+The RC5 migration runner converts the existing legacy Drizzle ledger to named
+migration entries before applying pending migrations. It matches legacy rows
+against the complete local migration history by their exact historical
+millisecond timestamps. If history is incomplete, ambiguous, out of sequence,
+or inconsistent with an existing named ledger, migration stops rather than
+guessing or replaying entries. The runner holds a PostgreSQL advisory lock
+while preparing the ledger and applying migrations.
+
+RC5 executes ordinary queries without preparing them. Parameterized queries
+require an additional protocol round trip compared with the previous driver's
+cached prepared statements. This also affects the tenant identity statement
+at the start of each request transaction. Keep database network latency in
+the deployment's performance checks; a local database measurement does not
+predict a remote database's cost.
+
+Treat this as a coordinated maintenance operation:
+
+1. Take a restorable backup of the database before changing the release or
+   schema. Include the migration ledger in that backup.
+2. Stop all API instances and workers running the old release. Quiesce new
+   requests and drain accepted Runs before stopping workers; do not run old and
+   new binaries against the database together.
+3. With every API and worker stopped, run `pnpm db:migrate` once against the
+   target database.
+4. Run the RLS provisioning step before serving traffic. In the local
+   Docker-based setup this is `pnpm db:provision-rls`; deployments that do not
+   use that compose service must run the equivalent provisioning SQL with the
+   required superuser privileges. Keep tenant tables' RLS enabled and forced;
+   do not weaken `FORCE ROW LEVEL SECURITY` to work around migration errors.
+5. Start the API and every worker on the same new release.
+
+The old release is not an automatic rollback target after this ledger-format
+upgrade. If migration or provisioning fails, keep the old API and workers
+stopped, retain the backup, and stop the rollout. Record the complete error and
+investigate the database schema and ledger against the matching migration
+history before deciding how to recover. Do not delete or re-stamp ledger rows,
+rename applied migration directories, retry by guessing, or restart the old
+release against the upgraded ledger. Restore from the pre-upgrade backup only
+through the deployment's reviewed recovery procedure.
+
+`pnpm db:provision-rls` runs the repository's SQL that transfers selected
+cross-tenant discovery functions to `app_rls` and restores their execute grants;
+it does not replace the migration's `ENABLE`/`FORCE ROW LEVEL SECURITY`
+statements or grant `app` membership in `app_rls`. See
+[`apps/api/src/db/AGENTS.md`](../../../apps/api/src/db/AGENTS.md) for the
+migration and provisioning invariants.
+
 ## Capacity
 
 A Run holds an application-pool connection during each `runAs` transaction.
@@ -102,18 +160,28 @@ issue 207 tracks cross-process abort.
 
 A Run has no default time or step limit: `runs.timeoutSeconds` and
 `tools.maxStepsPerRun` are `null` (unlimited) unless the operator sets them.
-Liveness uses pg-boss heartbeat/retry and dead-letter terminalization. Each Run
-is enqueued as the job named by its own id, and the `runs` queue declares a job
-duration of 86,399 s, so pg-boss never expires a live Run at its 900 s default.
-The worker ends any Run still executing 23 h 55 m into its current attempt as
-`run.expired`, before that duration elapses, and a model request that streams
-nothing for 300 s fails its Run with `model_stream_idle`. Admission judges a
-blocking Run by its job's state: queued, retrying, or active blocks with 409;
-a job that is absent (after one heartbeat window) or settled lets the next
-message expire the Run. Enqueue is not transactional with the Run row: failure
-marks the Run failed best-effort, and a crash between row commit and enqueue
-leaves a job-less Run that the next message expires. A deploy stops workers
-after a 30 s drain, and pg-boss retries their Runs from the beginning.
+Liveness uses pg-boss heartbeat/retry and dead-letter terminalization. The
+first queue job uses the Run id; later wake jobs use the Run's recorded
+`current_job_id` and generation. The `runs` queue declares a job duration of
+86,399 s, so pg-boss never expires a live Run at its 900 s default. Without an
+operator budget, the worker ends an executing attempt after 23 h 55 m. With
+`runs.timeoutSeconds`, the budget starts at the first claim and includes time
+spent waiting. A model request that streams nothing for 300 s fails its Run
+with `model_stream_idle`.
+
+Admission judges a blocking Run by its current queue job: queued, retrying, or
+active blocks with 409. An absent recorded wake job is stuck immediately; the
+first job retains its one-heartbeat enqueue grace. Owner-started first enqueue
+is not transactional with the Run row: failure marks the Run failed
+best-effort, and a crash between row commit and enqueue leaves a job-less Run
+that the next message expires. Host-started first enqueue is transactional.
+A deploy stops workers after a 30 s drain, and pg-boss retries their Runs.
+
+The internal suspension service persists `awaiting_jobs` and its delayed
+deadline job together, then releases the Run worker slot. Suspension keeps the
+Chat's single-flight slot. Settlement, steering, cancellation, or the deadline
+can queue one generation-fenced wake; a replacement worker reads its state
+from Postgres. This layer prepares that lifecycle but exposes no `wait` tool.
 
 Per-Chat ordering is exclusivity, not queueing: one nonterminal Run per Chat;
 concurrent new messages get 409 and same-message retry supersedes.
@@ -162,3 +230,40 @@ Every API process holds one dedicated LISTEN connection for live updates
 If Postgres becomes the measured limit, swap at existing seams: queue interface
 to Redis-backed queue, LISTEN/NOTIFY to pub/sub, then SSE/read paths to replicas.
 None is justified inside the current self-hosted envelope.
+
+## Background jobs
+
+Each worker process that consumes runs records a heartbeat every
+`runs.heartbeatSeconds`. A worker with no heartbeat for four intervals is dead,
+and its running jobs settle as `lost` at their next touch. The chat list and
+the live Chat record count only the jobs on a worker that is not dead.
+
+Job-row changes push the owner's full Chat record after commit. While an owner
+has sockets on an API process, that process also refreshes the job counts on the
+`runs.heartbeatSeconds` cadence. Each period adds one owner-scoped grouped read
+per connected owner with stored running jobs, plus full-record reads for changed
+counts. Several sockets of one owner share that process's loop; connections to
+different API processes each incur their own reads.
+
+The loop starts at subscription, reconnect and a job change. It continues while
+stored running rows remain, even when every worker lease expired and the live
+count is zero, so a late heartbeat restores the count. It stops when no running
+row remains, the last socket leaves, or the API shuts down. These display reads
+settle no job and start no Run.
+
+At each heartbeat the hosting worker retries pending job settlements and then
+checks each hosted job under its owner's identity. A recorded stop request,
+a deleted row, or a row already settled elsewhere ends the hosted command.
+One failed lookup does not delay the checks of other jobs. A completed job's
+stored state and result never change when its old worker resumes.
+
+The owner lists the jobs of a Chat with `GET /api/v1/chats/:chatId/jobs`, the
+running jobs first. `PATCH /api/v1/chats/:chatId/jobs/:jobId` with
+`{ "state": "cancelled" }` records a stop request from the owner. A repeat for a
+job that the owner stopped answers 200, a job in any other settled state answers
+409, and a Chat or job of another owner answers 404. The reader behind these
+rows is documented under [job://](../reference/locators/job.md).
+
+Each job response includes `truncated`, the names of outputs cut by their byte
+bound. An uncut output is absent from that list;
+no cut outputs means `[]`. Both the list and stop response retain this detail.

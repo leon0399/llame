@@ -1355,10 +1355,10 @@ describe('resolvePromptImports native read schemes', () => {
     ['media', MEDIA],
   ]);
 
-  // `artifact://` names a resource of the current Chat, so its marker stays
-  // prose (tool-result-artifacts D12) and is not one of the attempted targets.
+  // `artifact://` and `job://` name resources of the current Chat, so their
+  // markers stay prose (tool-result-artifacts D12) and are not attempted.
   const markers = readLocatorSchemes()
-    .filter((scheme) => scheme !== 'artifact')
+    .filter((scheme) => scheme !== 'artifact' && scheme !== 'job')
     .map((scheme) => probed.get(scheme) ?? `${scheme}://host/doc.md`);
 
   it('keeps every scheme native read accepts today', () => {
@@ -1372,6 +1372,7 @@ describe('resolvePromptImports native read schemes', () => {
         'https',
         'ssh',
         'artifact',
+        'job',
       ]),
     );
   });
@@ -1393,6 +1394,16 @@ describe('resolvePromptImports native read schemes', () => {
     const { calls, run } = createHarness();
 
     const result = await run('@artifact://grep-7');
+
+    expect(calls.admits).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it('keeps a job marker as prose and records nothing', async () => {
+    const { calls, run } = createHarness();
+
+    const result = await run('@job://bash-4/stdout');
 
     expect(calls.admits).toEqual([]);
     expect(calls.reads).toEqual([]);

@@ -56,6 +56,15 @@ function cutAtBound(result: UnknownRecord): boolean {
  * reports no wall time omits the seconds.
  */
 export function renderBashText(result: UnknownRecord): string {
+  if (result.backgrounded === true && isString(result.job)) {
+    const prefix =
+      result.cause === "message"
+        ? "Moved to the background to handle an incoming message. "
+        : "";
+
+    return `${prefix}The command continues in the background as ${result.job}. You get a notice when it settles. Do not poll it.`;
+  }
+
   const wallTimeMs = result.wallTimeMs;
 
   const seconds = isNumber(wallTimeMs)

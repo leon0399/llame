@@ -24,10 +24,13 @@ type BootOptions = {
   /** The attempt the Run names as active; defaults to the segment's. */
   activeAttemptId?: string;
   pendingInterrupt?: boolean;
+  pendingSteering?: boolean;
   /** Concurrency the process consumes runs with; `null` consumes none. */
   concurrency?: number | null;
   /** Rejects the owner-scope read with this reason. */
   readFailure?: unknown;
+  /** Replaces the job reconnect check, for example with one that never ends. */
+  recheckJobs?: () => Promise<void>;
 };
 
 /**
@@ -77,6 +80,11 @@ async function boot(
     .spyOn(ChatDeliveriesRepository.prototype, 'hasPendingInterrupt')
     .mockResolvedValue(options.pendingInterrupt ?? false);
 
+  vi.spyOn(
+    ChatDeliveriesRepository.prototype,
+    'hasPendingSteering',
+  ).mockResolvedValue(options.pendingSteering ?? false);
+
   const runAs = vi.fn(
     (_userId: string, fn: (tx: never) => Promise<boolean | FoundRun>) =>
       readFailure === undefined
@@ -108,6 +116,13 @@ async function boot(
     aborts,
   );
 
+  Object.assign(service, {
+    jobs: {
+      recheckJob: () => Promise.resolve(),
+      recheckJobs: options.recheckJobs ?? (() => Promise.resolve()),
+    },
+  });
+
   await service.onApplicationBootstrap();
   const { onNotify, onListen } = listener;
 
@@ -125,6 +140,7 @@ async function boot(
   }
 
   return {
+    aborts,
     controller,
     segment,
     onNotify,
@@ -163,6 +179,17 @@ describe('RunControlListenerService', () => {
 
   it('re-reads every registered Run on reconnect and aborts a deleted one', async () => {
     const { controller, onListen, settled } = await boot(undefined);
+
+    onListen();
+    await settled();
+
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it('aborts a deleted Run on reconnect while a job check never ends', async () => {
+    const { controller, onListen, settled } = await boot(undefined, {
+      recheckJobs: () => new Promise<void>(() => {}),
+    });
 
     onListen();
     await settled();
@@ -298,9 +325,38 @@ describe('RunControlListenerService interrupts', () => {
     onNotify(interrupt);
     await settled();
 
-    expect(segment?.signal.aborted).toBe(true);
-    expect(segment?.signal.reason).toBe(INTERRUPT_ABORT_REASON);
+    expect(segment?.abort.signal.aborted).toBe(true);
+    expect(segment?.abort.signal.reason).toBe(INTERRUPT_ABORT_REASON);
   });
+  it.each(['interrupt', 'steer'] as const)(
+    'does not apply a pending %s read to a replacement segment of the same attempt',
+    async (kind) => {
+      const { aborts, segment, onNotify, runAs, flush } = await boot(visible, {
+        segmentAttemptId: ATTEMPT_ID,
+        pendingInterrupt: true,
+        pendingSteering: true,
+      });
+
+      const { promise: read, resolve: finishRead } =
+        Promise.withResolvers<boolean>();
+
+      runAs.mockImplementation(() => read);
+
+      onNotify(JSON.stringify({ runId: RUN_ID, kind }));
+      await vi.waitFor(() => expect(runAs).toHaveBeenCalled());
+
+      const replacement = aborts.beginSegment(RUN_ID, ATTEMPT_ID);
+
+      if (!replacement) throw new Error('no replacement segment');
+      finishRead(true);
+      await flush();
+
+      expect(segment?.yield.signal.aborted).toBe(false);
+      expect(segment?.abort.signal.aborted).toBe(false);
+      expect(replacement.yield.signal.aborted).toBe(false);
+      expect(replacement.abort.signal.aborted).toBe(false);
+    },
+  );
 
   it('does not stop a segment of an attempt the Run has already left', async () => {
     const { segment, onNotify, pending, settled } = await boot(visible, {
@@ -314,7 +370,7 @@ describe('RunControlListenerService interrupts', () => {
     await settled();
 
     expect(pending).not.toHaveBeenCalled();
-    expect(segment?.signal.aborted).toBe(false);
+    expect(segment?.abort.signal.aborted).toBe(false);
   });
 
   it('waits for the step end when no model request or tool call is in flight', async () => {
@@ -340,7 +396,7 @@ describe('RunControlListenerService interrupts', () => {
     await settled();
 
     expect(pending).toHaveBeenCalled();
-    expect(segment?.signal.aborted).toBe(false);
+    expect(segment?.abort.signal.aborted).toBe(false);
   });
 
   it('keeps the segment and logs the reason when the pending-interrupt read fails', async () => {
@@ -360,6 +416,46 @@ describe('RunControlListenerService interrupts', () => {
     expect(warn).toHaveBeenCalledWith(
       `Run-control interrupt check failed for run ${RUN_ID}: db down`,
     );
-    expect(segment?.signal.aborted).toBe(false);
+    expect(segment?.abort.signal.aborted).toBe(false);
+  });
+});
+
+describe('RunControlListenerService yields', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([
+    { pending: true, current: true, yields: true },
+    { pending: false, current: true, yields: false },
+    { pending: true, current: false, yields: false },
+  ])(
+    'yields only a current segment with pending steering: $pending/$current',
+    async ({ pending, current, yields }) => {
+      const { segment, controller, onNotify, settled } = await boot(
+        { cancelRequestedAt: null },
+        {
+          segmentAttemptId: ATTEMPT_ID,
+          activeAttemptId: current ? ATTEMPT_ID : crypto.randomUUID(),
+          pendingSteering: pending,
+        },
+      );
+
+      onNotify(JSON.stringify({ runId: RUN_ID, kind: 'steer' }));
+      await settled();
+      expect(segment?.yield.signal.aborted).toBe(yields);
+      expect(segment?.abort.signal.aborted).toBe(false);
+      expect(controller.signal.aborted).toBe(false);
+    },
+  );
+
+  it('recovers a lost steer on reconnect without interrupting the segment', async () => {
+    const { segment, onListen, settled } = await boot(
+      { cancelRequestedAt: null },
+      { segmentAttemptId: ATTEMPT_ID, pendingSteering: true },
+    );
+
+    onListen();
+    await settled();
+    expect(segment?.yield.signal.aborted).toBe(true);
+    expect(segment?.abort.signal.aborted).toBe(false);
   });
 });

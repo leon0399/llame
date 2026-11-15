@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { type Queue } from '../queue/queue';
@@ -88,10 +87,20 @@ describe('RunDispatchService', () => {
     expect(enqueue).toHaveBeenCalledOnce();
   });
 
+  it('rejects a transaction whose queue id was already used', async () => {
+    const q = queue();
+    vi.spyOn(q, 'enqueue').mockResolvedValue(null);
+    const service = new RunDispatchService(q, config(), tenantDb());
+
+    await expect(
+      service.enqueueInTransaction(drizzle.mock(), job),
+    ).rejects.toBeInstanceOf(Error);
+  });
+
   it('fails the run transactionally when enqueue fails', async () => {
     const enqueueFailure = new Error('queue send failed');
     const db = tenantDb();
-    const tx: Db = drizzle.mock({ schema });
+    const tx: Db = drizzle.mock();
 
     const runAs = vi
       .spyOn(db, 'runAs')

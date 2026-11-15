@@ -54,9 +54,9 @@ type DrizzleWithClient = PostgresJsDatabase & { $client: Sql };
 /**
  * WorkerModule wires its own `DB_DEV` Drizzle connection (mirroring
  * AppModule, since @Global scoping doesn't cross application graphs) —
- * `@knaadh/nestjs-drizzle-postgres` does not register an OnModuleDestroy
- * hook to end the underlying postgres.js client, so `moduleRef.close()`
- * alone leaves an open socket that keeps the Jest worker process alive.
+ * the database providers do not register an OnModuleDestroy hook to end
+ * the underlying postgres.js client, so `moduleRef.close()` alone leaves an
+ * open socket that keeps the Vitest worker process alive.
  * Ending it explicitly via Drizzle's `$client` escape hatch is the same
  * teardown discipline the other DB-integration specs use (see
  * search-index.integration.test.ts's `sqlClient.end()`).

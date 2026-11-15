@@ -1,5 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { sql } from 'drizzle-orm';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
+
+import type { Db } from '../db/tenant-db.service';
 
 import { processTraced, publishTraced, type TracedJob } from './job-trace';
 
@@ -19,6 +22,19 @@ import {
   type QueueDefinition,
   type QueueOptions,
 } from './queue';
+
+// pg-boss send() binds its whole job batch as JSON.stringify([job]). Drizzle
+// v1 expects JSON values, not pre-encoded text. Decode only this enqueue
+// adapter's parameter; sql.param keeps the batch array in one placeholder.
+const pgBossSql = Object.assign(
+  (strings: TemplateStringsArray, ...values: Array<unknown>) =>
+    sql(strings, ...values),
+  {
+    param(value: string) {
+      return sql.param(JSON.parse(value));
+    },
+  },
+);
 
 /**
  * pg-boss's own job states mapped onto the engine-neutral `JobState`. The
@@ -155,36 +171,28 @@ export class PgBossQueueService implements Queue {
     data: T,
     options?: EnqueueOptions,
   ): Promise<string | null> {
-    const sendOptions: EnqueueOptions = {};
+    const { tx, ...queueOptions } = options ?? {};
 
-    if (options?.id !== undefined) {
-      sendOptions.id = options.id;
-    }
+    const sendOptions: NonNullable<Parameters<typeof this.boss.send>[2]> =
+      queueOptions;
 
-    if (options?.priority !== undefined) {
-      sendOptions.priority = options.priority;
-    }
+    if (tx !== undefined) {
+      // pg-boss is ESM-only, so load its public adapter asynchronously from
+      // this CommonJS API build.
+      const { fromDrizzle } = await import('pg-boss');
 
-    if (options?.startAfter !== undefined) {
-      sendOptions.startAfter = options.startAfter;
-    }
+      // Retain the caller's Drizzle transaction and pg-boss's parameter binding.
+      // postgres.js returns rows directly; pg-boss expects a { rows } result.
+      const db = fromDrizzle(
+        {
+          async execute(query: Parameters<Db['execute']>[0]) {
+            return { rows: await tx.execute(query) };
+          },
+        },
+        pgBossSql,
+      );
 
-    if (options?.retryLimit !== undefined) {
-      sendOptions.retryLimit = options.retryLimit;
-    }
-
-    if (options?.retryDelay !== undefined) {
-      sendOptions.retryDelay = options.retryDelay;
-    }
-
-    if (options?.retryBackoff !== undefined) {
-      sendOptions.retryBackoff = options.retryBackoff;
-    }
-
-    // Coalescing key — meaningful only under a de-duplicating queue policy
-    // (QueueOptions.policy); a no-op for dedup on a standard queue.
-    if (options?.singletonKey !== undefined) {
-      sendOptions.singletonKey = options.singletonKey;
+      sendOptions.db = db;
     }
 
     return publishTraced(queue.name, data, (payload) =>

@@ -23,7 +23,10 @@ import {
   type ModelObjectInput,
   type ModelStreamInput,
 } from './model-client';
-import { createOpenAIModelClient } from './openai-model-client';
+import {
+  createOpenAIModelClient,
+  hasStreamChannel,
+} from './openai-model-client';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
 const tools = {
@@ -1074,6 +1077,18 @@ describe('createOpenAIModelClient — delta callbacks', () => {
     // A text-only turn still takes its id off the shared consumer: `onChunk`
     // alone would never see the part's start (design A7).
     expect(onTextDelta.mock.calls).toEqual([['answer', '0:answer', undefined]]);
+  });
+});
+
+describe('hasStreamChannel', () => {
+  it('keeps the shared stream consumer active for metadata-only delivery', () => {
+    expect(
+      hasStreamChannel({
+        chat: CHAT,
+        messages,
+        onToolCallMetadata: vi.fn(),
+      }),
+    ).toBe(true);
   });
 });
 

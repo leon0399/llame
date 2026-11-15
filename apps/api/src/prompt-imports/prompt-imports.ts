@@ -18,6 +18,7 @@ import {
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { importTargets } from '../import-markers/import-markers';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
+import { JOB_SCHEME } from '../jobs/job-locator';
 import {
   formatMachineLocator,
   isMachineLocator,
@@ -283,6 +284,9 @@ function planScheme(
   // An artifact belongs to the current Chat, not to the prompt's author, so an
   // `@artifact://` marker stays prose (tool-result-artifacts D12).
   if (scheme === ARTIFACT_SCHEME) return undefined;
+
+  // A job belongs to the current Chat too, so `@job://` stays prose as well.
+  if (scheme === JOB_SCHEME) return undefined;
 
   // A probe would cost a connection and admission resolves asynchronously, so
   // `ssh://` reads directly like web: `read` itself admits it (ssh-locator D6a).

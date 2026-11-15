@@ -1,9 +1,15 @@
 import { ChildProcess } from "node:child_process";
 import { PassThrough } from "node:stream";
-import { executeManagedBash, resetManagedExecutorForTests } from "./execute";
+import { executeManagedBash } from "./execute";
+import { BashProcessLimiter } from "./limiter";
 import { watchManagedChild } from "./watch";
 import type { BashExecutorContext, BashResult } from "./types";
 import * as processTree from "./process-tree";
+
+let limiter = new BashProcessLimiter(1);
+
+const execute: typeof executeManagedBash = (input, context, options) =>
+  executeManagedBash(input, context, { limiter, ...options });
 
 const context: BashExecutorContext = {
   workingDirectory: process.cwd(),
@@ -19,7 +25,7 @@ describe("process-group settlement", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
-    resetManagedExecutorForTests();
+    limiter = new BashProcessLimiter(1);
   });
 
   it("drains output queued while the process group is stopped", async () => {
@@ -43,6 +49,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, durationMs: 0 },
           attemptId: "late-output",
+          deadline: true,
           options: {},
         },
         resolve,
@@ -70,7 +77,7 @@ describe("process-group settlement", () => {
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
-        { context, attemptId: "wall-time", options: {} },
+        { context, attemptId: "wall-time", deadline: true, options: {} },
         resolve,
       );
     });
@@ -99,6 +106,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, durationMs: 30_000 },
           attemptId: "timeout-wall-time",
+          deadline: true,
           options: {},
         },
         resolve,
@@ -117,6 +125,49 @@ describe("process-group settlement", () => {
     expect(result.wallTimeMs).toBeGreaterThanOrEqual(30_000);
   });
 
+  it.each([true, false])(
+    "enforces a managed lifetime beyond the call and timer caps with stop proof %s",
+    async (proved) => {
+      vi.useFakeTimers();
+      vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+      const child = new ChildProcess();
+      Object.defineProperty(child, "pid", { value: 12_350 });
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      child.stdout = stdout;
+      child.stderr = stderr;
+      stdout.end();
+      stderr.end();
+      vi.spyOn(processTree, "stopProcessGroup").mockResolvedValue(proved);
+
+      const lifetimeMs = 3_000_000_000;
+      const timerLimit = 2_147_483_647;
+
+      const handle = watchManagedChild(child, {
+        context,
+        attemptId: "managed-lifetime",
+        deadline: true,
+        options: { lifetimeMs },
+      });
+
+      let settled = false;
+      void handle.settled.then(() => {
+        settled = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(timerLimit - 300_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(lifetimeMs - timerLimit - 1);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await handle.settled).toMatchObject({
+        type: proved ? "timed_out" : "outcome_unknown",
+      });
+    },
+  );
+
   it("bounds an open output pipe and marks its result truncated", async () => {
     vi.useFakeTimers();
     const child = new ChildProcess();
@@ -133,6 +184,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, durationMs: 0 },
           attemptId: "open-output",
+          deadline: true,
           options: {},
         },
         resolve,
@@ -144,6 +196,7 @@ describe("process-group settlement", () => {
     expect(await pending).toMatchObject({
       type: "timed_out",
       truncated: true,
+      truncatedStreams: { stdout: true, stderr: true },
     });
   });
 
@@ -163,6 +216,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, outputBound: undefined, outputBoundBytes: 30 },
           attemptId: "lookahead",
+          deadline: true,
           options: { protectedValues: [member] },
         },
         resolve,
@@ -199,6 +253,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, outputBound: undefined, outputBoundBytes: 20 },
           attemptId: "split-code-point",
+          deadline: true,
           options: { protectedValues: [member] },
         },
         resolve,
@@ -234,6 +289,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, outputBound: 16 },
           attemptId: "capture-cut",
+          deadline: true,
           options: { protectedValues: [member] },
         },
         resolve,
@@ -271,6 +327,7 @@ describe("process-group settlement", () => {
             outputBoundBytes: 16,
           },
           attemptId: "cut-inside-member",
+          deadline: true,
           options: { protectedValues: [member] },
         },
         resolve,
@@ -316,6 +373,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, durationMs: 0 },
           attemptId: "incomplete-sequence",
+          deadline: true,
           options: { protectedValues: ["SECRET-ключ"] },
         },
         resolve,
@@ -345,6 +403,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, outputBound: 32 },
           attemptId: "natural-prefix",
+          deadline: true,
           options: { protectedValues: ["SECRET-KEY"] },
         },
         resolve,
@@ -383,6 +442,7 @@ describe("process-group settlement", () => {
         {
           context: { ...context, durationMs: 0 },
           attemptId: "timeout-mid-member",
+          deadline: true,
           options: { protectedValues: ["SECRET-KEY"] },
         },
         resolve,
@@ -424,7 +484,7 @@ describe("process-group settlement", () => {
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
-        { context, attemptId: "survivor", options: {} },
+        { context, attemptId: "survivor", deadline: true, options: {} },
         resolve,
       );
     });
@@ -438,7 +498,7 @@ describe("process-group settlement", () => {
     // Unknown does not quarantine: the next call is admitted even while the
     // modelled survivor is still probeable.
     expect(
-      await executeManagedBash(command, { ...context, durationMs: 1000 }),
+      await execute(command, { ...context, durationMs: 1000 }),
     ).toMatchObject({ status: "success", stdout: "next" });
     alive = false;
     child.emit("close", null, "SIGKILL");
@@ -452,7 +512,7 @@ describe("process-group settlement", () => {
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
-        { context, attemptId: "missing-pid", options: {} },
+        { context, attemptId: "missing-pid", deadline: true, options: {} },
         resolve,
       );
     });
@@ -483,7 +543,7 @@ describe("process-group settlement", () => {
     const pending = new Promise<BashResult>((resolve) => {
       watchManagedChild(
         child,
-        { context, attemptId: "started-error", options: {} },
+        { context, attemptId: "started-error", deadline: true, options: {} },
         resolve,
       );
     });
@@ -495,7 +555,7 @@ describe("process-group settlement", () => {
     });
     expect(signals).toHaveBeenCalledWith(-12_346, "SIGKILL");
 
-    const next = await executeManagedBash(
+    const next = await execute(
       { command: "bash", args: ["-c", "printf next"] },
       { ...context, durationMs: 1000 },
     );

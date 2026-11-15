@@ -20,7 +20,7 @@ import type {
   SkillCatalogBaseline,
   SystemPromptReceipt,
 } from '../db/schema';
-import * as schema from '../db/schema';
+
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { createModelPromptLoader } from '../instance-config/prompt-loader';
@@ -550,7 +550,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
     const connect = postgres.default ?? postgres;
     const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
     sql = connect(TEST_DB_URL!, { ssl, max: 3 });
-    const db = drizzle(sql, { schema });
+    const db = drizzle({ client: sql });
     tenantDb = new TenantDbService(db);
     userId = crypto.randomUUID();
     await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Compaction context', ${`compaction-${userId}@test.com`})`;

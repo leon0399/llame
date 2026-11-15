@@ -13,6 +13,7 @@ export function rawChatMessage(
     chatId: "chat-1",
     role: "assistant",
     senderUserId: null,
+    host: false,
     parts: [],
     attachments: [],
     usage: null,

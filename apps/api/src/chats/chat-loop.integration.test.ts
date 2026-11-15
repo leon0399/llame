@@ -41,6 +41,7 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
+import type { RunWaitService } from '../runs/run-wait.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { type RunJob } from '../runs/run-queues';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
@@ -355,7 +356,7 @@ describeIfDb(
       const connect = postgres.default ?? postgres;
       const ssl = /sslmode=require/.test(TEST_DB_URL!) ? 'require' : false;
       sql = connect(TEST_DB_URL!, { ssl, max: 5 });
-      db = drizzle(sql, { schema });
+      db = drizzle({ client: sql });
       tenantDb = new TenantDbService(db);
       userId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Chat Loop Regression', ${`chat-loop-regression-${userId}@test.com`})`;
@@ -437,6 +438,9 @@ describeIfDb(
         bridge,
         dispatch,
         new MediaService(tenantDb),
+        {
+          wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+        } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
       );
 
       // The window variant is never exercised by this suite: every seeded turn
@@ -1262,6 +1266,9 @@ describeIfDb(
         { createUiMessageStreamResponse: vi.fn() },
         dispatch,
         new MediaService(tenantDb),
+        {
+          wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+        } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
       );
 
       const before = await tenantDb.runAs(userId, async (tx) => ({
@@ -1742,13 +1749,16 @@ describeIfDb(
           chatId,
           recoveredMessageId,
           'concurrent recovery',
-        );
+        ).catch((error: unknown) => error);
 
         await secondCalled.promise;
 
         releaseFirst.release();
         await degradedTurn;
         await secondLocked.promise;
+        // The worker also locks Chat before Run; finish this admission first.
+        releaseSecond.release();
+        expect(await recoveredTurn).toBeInstanceOf(ConflictException);
 
         const degradedJob = dispatchCalls.find(
           ({ userMessage }) => userMessage.id === degradedMessageId,
@@ -1759,8 +1769,8 @@ describeIfDb(
           consume: false,
         });
         await finish(degradedJob.runId, 'completed');
-        releaseSecond.release();
-        await recoveredTurn;
+        touch.mockRestore();
+        await send(chatId, recoveredMessageId, 'recovery after completion');
 
         const recoveredJob = dispatchCalls.find(
           ({ userMessage }) => userMessage.id === recoveredMessageId,

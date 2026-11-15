@@ -2,8 +2,13 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { editFile, readFile } from "@workspace/native-file-tools";
-import { executeManagedBash, resetManagedExecutorForTests } from "./index";
+import { BashProcessLimiter, executeManagedBash } from "./index";
 import type { BashExecutorContext } from "./types";
+
+let limiter = new BashProcessLimiter(1);
+
+const execute: typeof executeManagedBash = (input, context, options) =>
+  executeManagedBash(input, context, { limiter, ...options });
 
 function context(directory: string): BashExecutorContext {
   return {
@@ -21,12 +26,12 @@ describe("alpha acceptance workflow", () => {
   let directory: string;
 
   beforeEach(async () => {
-    resetManagedExecutorForTests();
+    limiter = new BashProcessLimiter(1);
     directory = await mkdtemp(join(tmpdir(), "bash-accept-"));
   });
 
   afterEach(async () => {
-    resetManagedExecutorForTests();
+    limiter = new BashProcessLimiter(1);
     await rm(directory, { recursive: true, force: true });
   });
 
@@ -40,7 +45,7 @@ describe("alpha acceptance workflow", () => {
     if (initial.status !== "success" || initial.kind !== "file") return;
     expect(initial.content).toContain("draft");
 
-    const grep = await executeManagedBash(
+    const grep = await execute(
       { command: "grep", args: ["-n", "draft", "alpha.json"] },
       context(directory),
     );
@@ -66,7 +71,7 @@ describe("alpha acceptance workflow", () => {
     expect(reread.content).toContain("ready");
     expect(reread.content).not.toContain("draft");
 
-    const python = await executeManagedBash(
+    const python = await execute(
       {
         command: "python3",
         args: [

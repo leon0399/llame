@@ -1,0 +1,349 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "9bc28d77-9c1b-4394-8210-70b7d1163965",
+  "prevIds": ["a42734bf-2ae7-4d7d-a269-767bf5dc67be"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "system_prompt_receipts"],
+      "writes": [
+        "s|tbl|public.system_prompt_receipts",
+        "n|tbl|public.system_prompt_receipts",
+        "e|tbl|public.system_prompt_receipts",
+        "n|rel|public.system_prompt_receipts",
+        "n|type|public.system_prompt_receipts",
+        "n|rel|public.system_prompt_receipts_pkey"
+      ],
+      "reads": ["n|sch|public", "n|enum|public.model_context_prompt_source"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "turn_tool_availability"],
+      "writes": [
+        "s|col|public.runs.turn_tool_availability",
+        "n|col|public.runs.turn_tool_availability",
+        "e|col|public.runs.turn_tool_availability"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "system_prompt_receipts",
+        "system_prompt_receipts_owner_run_attempt_uidx"
+      ],
+      "writes": [
+        "s|idx|public.system_prompt_receipts_owner_run_attempt_uidx",
+        "n|idx|public.system_prompt_receipts_owner_run_attempt_uidx",
+        "e|idx|public.system_prompt_receipts_owner_run_attempt_uidx",
+        "n|rel|public.system_prompt_receipts_owner_run_attempt_uidx"
+      ],
+      "reads": [
+        "n|tbl|public.system_prompt_receipts",
+        "n|sch|public",
+        "n|col|public.system_prompt_receipts.owner_user_id",
+        "n|col|public.system_prompt_receipts.run_id",
+        "n|col|public.system_prompt_receipts.attempt_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": ["table", "public", "system_prompt_receipts"],
+      "writes": [
+        "s|fk|public.system_prompt_receipts.system_prompt_receipts_owner_user_id_users_id_fk",
+        "n|fk|public.system_prompt_receipts.system_prompt_receipts_owner_user_id_users_id_fk",
+        "e|fk|public.system_prompt_receipts.system_prompt_receipts_owner_user_id_users_id_fk",
+        "n|con|public.system_prompt_receipts.system_prompt_receipts_owner_user_id_users_id_fk"
+      ],
+      "reads": [
+        "n|tbl|public.system_prompt_receipts",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.system_prompt_receipts.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "system_prompt_receipts"],
+      "writes": [
+        "s|pol|public.system_prompt_receipts.system_prompt_receipts_owner_select",
+        "n|pol|public.system_prompt_receipts.system_prompt_receipts_owner_select",
+        "e|pol|public.system_prompt_receipts.system_prompt_receipts_owner_select"
+      ],
+      "reads": [
+        "n|tbl|public.system_prompt_receipts",
+        "n|sch|public",
+        "e|rls|public.system_prompt_receipts"
+      ]
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "system_prompt_receipts"],
+      "writes": [
+        "s|pol|public.system_prompt_receipts.system_prompt_receipts_owner_insert",
+        "n|pol|public.system_prompt_receipts.system_prompt_receipts_owner_insert",
+        "e|pol|public.system_prompt_receipts.system_prompt_receipts_owner_insert"
+      ],
+      "reads": [
+        "n|tbl|public.system_prompt_receipts",
+        "n|sch|public",
+        "e|rls|public.system_prompt_receipts"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "system_prompt_receipts",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "turn_tool_availability",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "owner_user_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "run_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "attempt_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "source",
+        "type": "model_context_prompt_source",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "system_prompt",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "prompt_hash",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "system_prompt_receipts_owner_run_attempt_uidx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "owner_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "run_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "attempt_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "system_prompt_receipts_owner_user_id_users_id_fk",
+        "nameExplicit": false,
+        "columns": ["owner_user_id"],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": ["id"],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "system_prompt_receipts_pkey",
+        "columns": ["id"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "system_prompt_receipts_owner_select",
+        "as": "PERMISSIVE",
+        "for": "SELECT",
+        "roles": ["public"],
+        "using": "owner_user_id = current_setting('app.current_user_id', true)",
+        "withCheck": null,
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "system_prompt_receipts",
+        "name": "system_prompt_receipts_owner_insert",
+        "as": "PERMISSIVE",
+        "for": "INSERT",
+        "roles": ["public"],
+        "using": null,
+        "withCheck": "owner_user_id = current_setting('app.current_user_id', true)",
+        "entityType": "policies"
+      }
+    }
+  ]
+}

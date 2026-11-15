@@ -45,9 +45,8 @@ export const Failed: Story = {
 };
 
 /**
- * The processing badge (spinner ring) while a run is still generating —
- * takes precedence over unread, since a generating reply isn't unread yet.
- *
+ * The processing badge (spinner ring) while a run is generating — it takes
+ * precedence over both background jobs and unseen outcomes.
  * @summary generating-response spinner badge
  */
 export const Processing: Story = {
@@ -57,6 +56,22 @@ export const Processing: Story = {
     const badge = within(canvasElement).getByLabelText("Generating response");
     await expect(badge).toBeVisible();
     await expect(badge.className).toContain("animate-spin");
+  },
+};
+
+/**
+ * A live job without a generating Run keeps the chat visible as background
+ * work.
+ *
+ * @summary background-job badge
+ */
+export const Background: Story = {
+  tags: ["ai-generated"],
+  args: { status: "background" },
+  play: async ({ canvasElement }) => {
+    await expect(
+      within(canvasElement).getByLabelText("Background work"),
+    ).toBeVisible();
   },
 };
 

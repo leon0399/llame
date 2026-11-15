@@ -378,7 +378,8 @@ function applyChunkDelivery(
 
   // The gate reports refusals synchronously when it is reached, so it must be
   // attached whenever `onChunk` is the channel that reports a call.
-  if (!input.onReasoningDelta && !input.onToolCallMetadata) return;
+  if (!input.onReasoningDelta && !input.onToolCallMetadata && !input.onToolCall)
+    return;
   gate.attach();
   const { onFinish, onError, onAbort } = streamOptions;
   streamOptions.onFinish = (event) => {

@@ -12,6 +12,7 @@ function item(
   return {
     id,
     chatId: "chat-1",
+    producer: "owner",
     mode,
     state: "pending",
     parts: [{ type: "text", text }],
@@ -176,5 +177,37 @@ export const Empty: Story = {
   tags: ["ai-generated"],
   play: async ({ canvas }) => {
     await expect(canvas.queryByRole("region")).toBeNull();
+  },
+};
+
+/**
+ * A job notice names its job and state, with delete as its only action.
+ *
+ * @summary a job notice names its job and state, with delete as its only action
+ */
+export const JobNotice: Story = {
+  args: {
+    paused: true,
+    items: [
+      {
+        ...item("notice-1", "notice", ""),
+        producer: "job",
+        parts: [],
+        job: "job://bash-7",
+        jobState: "failed",
+      },
+    ],
+  },
+  play: async ({ args, canvas, userEvent }) => {
+    const row = within(canvas.getByRole("listitem"));
+    await expect(row.getByText("job://bash-7 failed")).toBeVisible();
+    await expect(row.queryByRole("button", { name: /^Steer now/ })).toBeNull();
+    await expect(
+      row.queryByRole("button", { name: /^Interrupt now/ }),
+    ).toBeNull();
+    await expect(row.queryByRole("button", { name: /^Edit/ })).toBeNull();
+    await expect(canvas.queryByText(/^Paused/)).toBeNull();
+    await userEvent.click(row.getByRole("button", { name: /^Delete/ }));
+    await expect(args.onDelete).toHaveBeenCalledWith(args.items[0]);
   },
 };

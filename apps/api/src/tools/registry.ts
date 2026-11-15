@@ -7,6 +7,8 @@ import { bashTool, isBashTool, isHostCapabilityTool } from './bash';
 import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import { nativeGrepTool } from './grep';
+import { stopTool } from './stop';
+import { waitTool } from './wait';
 import { searchConversationsTool } from './search-conversations';
 import { conversationReadTool } from './conversation-read';
 import { webSearchTool } from './web-search/tool';
@@ -15,8 +17,14 @@ import {
   matchesAllowedToolId,
   matchesCodeOwnedToolId,
 } from './tool-id';
-import { type InterruptFate, type Tool, isToolClassification } from './types';
-import { isString } from '@workspace/runtime-safety';
+import { isHostBashCall } from './bash-target';
+import {
+  type InterruptFate,
+  type Tool,
+  type ToolContext,
+  isToolClassification,
+} from './types';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 /** Every tool the harness knows about (design D2: in-code registry). */
 export const TOOLS: ReadonlyArray<Tool> = [
@@ -25,6 +33,8 @@ export const TOOLS: ReadonlyArray<Tool> = [
   nativeWriteTool,
   nativeGrepTool,
   bashTool,
+  stopTool,
+  waitTool,
   enterWorkspaceTool,
   exitWorkspaceTool,
   searchConversationsTool,
@@ -34,18 +44,23 @@ export const TOOLS: ReadonlyArray<Tool> = [
 ];
 
 /**
- * What an owner interrupt does to an open call (run-steering D7). A call that
- * changes nothing, `bash` (killed under its own cancellation rules), and every
- * MCP tool (whose effects llame does not claim to know) are `cancel`led; any
- * other tool finishes, because stopping it half way would leave a partial
- * write or workspace change. Derived from the classification, so a tool added
- * later has a fate without a second list to keep in step. No tool is
- * `background` until a capability defines that fate.
+ * The fate of one call. A `bash` call on the llame host is `background`: it
+ * yields to the interrupt by moving to a job, and the Run abort alone stops it.
+ * The target comes from `bashTarget`, so an omitted `cwd` inside a Machine
+ * Workspace is a Machine call and stays `cancel`, as every `ssh://` call does.
  */
-export function interruptFateOf(tool: Tool): InterruptFate {
-  return tool.classification === 'read_only' ||
-    isBashTool(tool) ||
-    tool.id.startsWith('mcp__')
+export function interruptFateOf(
+  tool: Tool,
+  // eslint-disable-next-line anti-slop/no-unknown-parameters -- the AI SDK validated these arguments against the tool declaration; `isHostBashCall` reads only `command` and `cwd` after its own type guards.
+  args: unknown,
+  context: ToolContext,
+): InterruptFate {
+  if (isBashTool(tool))
+    return isRecord(args) && isHostBashCall(args, context)
+      ? 'background'
+      : 'cancel';
+
+  return tool.classification === 'read_only' || tool.id.startsWith('mcp__')
     ? 'cancel'
     : 'finish';
 }

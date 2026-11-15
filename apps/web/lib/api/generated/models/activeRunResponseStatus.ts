@@ -20,6 +20,7 @@ export const ActiveRunResponseStatus = {
   running_sandbox: "running_sandbox",
   updating_artifact: "updating_artifact",
   summarizing: "summarizing",
+  awaiting_jobs: "awaiting_jobs",
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",

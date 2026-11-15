@@ -1,11 +1,247 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-14
+
+- Reserve a wait call only after its locators resolve, and name the first call
+  when a second wait in the same model step is refused.
+
+- Keep wake-prefix context items single in replies recovered before the next
+  model request.
+
+- Prefer independently mergeable stack layers and explicit intermediate merge
+  boundaries. Treat 2,000 authored lines as a review target, not a limit.
+
+- Preserve a shutdown stop's proven outcome when a pending promotion commits,
+  and wait for its job settlement before worker teardown.
+
+- Retry rolled-back steering delivery and terminal transactions after Postgres
+  deadlock or serialization conflicts.
+
+- Stop managed commands during worker shutdown even when a promotion receipt is
+  still pending. A late steering signal no longer marks a completed command as
+  promoting while its output spills.
+
+# 2026-11-13
+
+- **Drizzle v1 RC5 migration upgrade.** Convert the existing legacy migration
+  ledger to named migration entries using exact historical timestamps; unsafe,
+  incomplete, or ambiguous ledger history stops migration rather than being
+  guessed. Before upgrading, back up the database and stop the old API and
+  workers. After `pnpm db:migrate`, run `pnpm db:provision-rls` before starting
+  the matching release. Do not automatically roll back to the old release or
+  edit/re-stamp ledger rows after a failure; investigate the ledger and restore
+  from backup if required.
+  Transactional pg-boss publication decodes its serialized JSON batch before
+  Drizzle binds it, preserving job payloads and caller transaction rollback.
+
+- **Keep Chat stories in sync with background-job polling (#1657).** Open
+  Chat stories serve an empty jobs list while retaining the strict unrouted
+  request guard; incidental request assertions ignore that background poll.
+  Browser-safe Storybook mocks keep those stories usable as raw previews.
+
+- **Control background jobs from the Chat (#1657).** Session details lists live
+  and settled jobs, with per-job Stop and Stop all independent of composer Stop.
+  Pending job notices and host-authored transcript rows preserve their identity
+  without owner message actions. Chat dispatch renders backgrounded Bash, wait,
+  and stop results through their dedicated components.
+
+- Preserve the preceding assistant reply when a textless host trigger adds
+  staged context to a model request.
+
+- Synchronize streamed usage timing tests with consumption and the monotonic clock.
+
+- Stop heartbeat checks from reading job rows after worker shutdown starts.
+
+- Commit host command promotion and its result together. A pending database
+  outcome now delays the Run instead of publishing a conflicting unknown result.
+
+- Bind pending interrupt and steering checks to the exact segment they read, so
+  a delayed database response cannot control a same-attempt replacement.
+
+- Keep a spawned host command's process slot until settlement when cancellation
+  races with spawn. A foreground bound also releases a stalled output spill to
+  return the bounded inline preview.
+
+- Select the latest API test report per shard on partial CI reruns, so an
+  earlier failed attempt cannot override a passing retry in the aggregate.
+
+- **Fence worker claims and run budgets (#1657).** Queue workers claim only
+  their observed queue generation, and preparation time counts against the
+  Run's original absolute deadline.
+
+- Keep the operator tool-prompt inventory and example comments consistent
+  with the registered tools, including `grep`, `web_search`, and `wait`.
+
+- **Enforce host command lifetimes from spawn (#1657).** The managed executor
+  owns the job deadline during foreground execution and pending promotion.
+  A proved lifetime stop settles as `timed_out`; unproved termination stays
+  `lost`. Unlimited commands remain exempt, and long lifetimes rearm timers
+  without the ordinary tool-call cap.
+
+- **Bound pending background-job output snapshots (#1657).** A slow database
+  keeps one pending flush instead of retaining each cumulative output snapshot.
+  The next flush captures the latest output and preserves stored suffix offsets.
+
+- **Prepare wait wake reconstruction (#1657).** The pure projection restores
+  a checkpoint and its correlated wait result only inside the first resumed
+  attempt. It retains tool metadata, step indices and timeout, rejects malformed
+  receipts, and connects no runtime caller in this prerequisite.
+
+- **Show background activity in Chat sidebars (#1657).** Chats with live jobs
+  retain a background indicator after their Run ends. Awaiting Runs use that
+  state even when no job is currently running. Pinned Chat summaries load in
+  one shared request, including on a fresh admin route; the rail shows 30 pins
+  and keeps Administration above the user footer as pins scroll.
+
 # 2026-11-12
 
 - Make the Knowledge Space name pattern in OpenAPI match runtime validation,
   including astral format characters and ECMAScript trim whitespace. Add a
   generated-schema/runtime regression for Unicode names.
 
+- **Prepare background-job transcript components (#1657).** Bash rows display
+  background job locators and their promotion cause. Shared wait and stop
+  components render their actual results, with accessible fallback highlighting;
+  their Chat transcript dispatch is connected in the owner-controls layer.
+
+- **Wait for background jobs without holding a worker (#1657).** The read-only
+  `wait` tool accepts 1 to 16 current-Chat job locators and a bounded timeout.
+  It returns settled results immediately, or suspends and durably resumes the
+  same Run at settlement, interruption, or its deadline. Sibling tools finish
+  before suspension; the first wake retains completed steps and records the
+  real result together with exact notice consumption. Cancellation leaves jobs
+  running, and retries never replay native mutations. See
+  [wait](docs/product/reference/tools/wait.md).
+
+- **Prepare durable wait continuation (#1657).** Deferred provider call seams
+  drain sibling tools without a synthetic wait result. Internal wake claims
+  atomically store the real result and exact notice receipts, then preserve
+  the checkpoint once in provider history and finalization. Pre-dispatch
+  failures retain the committed result. This prerequisite does not register
+  or advertise the model-facing `wait` tool.
+
+- **Prepare durable Run suspension (#1657).** Internal suspension commits
+  `awaiting_jobs`, its open-call state, generation, and deadline queue job
+  atomically, then releases the worker slot without releasing Chat exclusivity.
+  Wake jobs carry their own identity; admission checks that recorded job and
+  the Run budget includes waiting time from the first claim. Owner cancellation
+  can wake a suspended Run for cancellation without a model request.
+  The model-facing `wait` tool remains inactive.
+
+- **Prepare wait wake routing (#1657).** Owner steering, interruption,
+  cancellation and job settlement can wake an internally suspended Run through
+  its tenant transaction. Chat admission, deletion and settlement use bounded
+  transaction retries. Chat deletion cancels and cascades a suspended Run
+  without a queue wake, so queue unavailability cannot block the deletion.
+  The production wait tool remains inactive; worker suspension and restart
+  acceptance follow in the lifecycle layer.
+
+- **Prepare durable wait state (#1657).** The schema records an open wait,
+  its generation, and its authoritative queue job. Internal transactions bind
+  suspension and wake updates to actual pg-boss inserts, retry queue-id
+  collisions with fresh ids, and refuse terminal resurrection or obsolete
+  dead-letter expiry. Recorded jobs have no first-enqueue admission grace.
+  This prerequisite connects no owner or settlement wake route and exposes
+  no `wait` tool. Deadline wake eligibility uses the database clock, so
+  worker clock skew cannot strand the persisted deadline job.
+
+- Preserve the SSH subprocess's exit classification when it closes stdin
+  before accepting all input. A broken input pipe no longer escapes as an
+  uncaught stream error during a bounded SSH read or command.
+
+- **Preserve failed-promotion timeout headers (#1657).** A proved stop keeps
+  the standard timeout header, measured duration and captured output before the
+  explanation that job promotion failed.
+
+- **State the stop proof boundary (#1657).** The model-facing description and
+  tool reference promise termination of the managed process group, without
+  claiming that detached descendants are also stopped.
+
+- **Add producer-aware pending delivery contracts (#1657).** Delivery responses
+  identify `owner` and `job` producers. A job notice carries its Chat-scoped
+  locator and state, appears above the composer with delete only, and cannot
+  change mode (HTTP 400 without mutation). An owner send that reuses a notice's
+  message ID gets HTTP 409; legitimate owner-send retries remain idempotent.
+  The datastore permits one notice per job even after withdrawal; owner and
+  Chat checks bind the pending read model to its job. This storage layer does
+  not yet create settlement notices.
+
+- **Start host Runs for background-job results (#1657).** Eligible settlements
+  on idle, unarchived Chats commit the trigger, Run, notices, and queue job
+  together. The first pending notice supplies settings; unavailable settings
+  leave results pending. Lost and cancelled results wait for owner admission,
+  which also adopts held notices after stopped or failed Runs. Continue can
+  answer a failed host Run. Produced host rows preserve owner history and stay
+  out of title, preview, recency, search evidence, public history, and shared
+  forks. Durable `wait` remains inactive.
+
+- **Prepare transactional Run enqueue (#1657).** Internal producers can insert
+  a Run's queue job through their existing Drizzle transaction, using the
+  public pg-boss adapter with postgres.js result normalization. Queue writes
+  roll back with the caller, preserve delayed starts and parameter binding,
+  and reject duplicate ids. Owner-started dispatch is unchanged; idle host
+  Runs and durable waits remain inactive until their owning layers.
+- **Activate background-job settlement notices at Run boundaries (#1657).**
+  Each winning settlement, including a lost-on-touch settlement, creates one
+  pending notice. Jobless dead-worker checks take no Chat lock; actual lost
+  settlement rechecks its candidate under the Chat lock. An executing Run
+  receives notices in ordered boundary delivery with steer and interrupt
+  items; a notice-only delivery uses a host trigger
+  whose job context is authored at dispatch. Successful recorded `stop` results
+  consume only their settled-job notices atomically with `tool.completed`, and
+  discarded results restore only the exact notices they consumed. Idle
+  host-started Runs, held-notice admission, and `wait` remain inactive. See
+  [job://](docs/product/reference/locators/job.md#pending-notices) and
+  [stop](docs/product/reference/tools/stop.md#behavior).
+
+- **Restore Regenerate receipts through Continue checkpoints (#1696).**
+  Recovery follows only tool results retained by each Continue checkpoint and
+  restores each notice against the Run that consumed it. Unrelated ancestor
+  receipts remain excluded, and owner-withdrawn notices remain withdrawn.
+
+- **Prepare ordered notice delivery (#1657).** Run boundaries can deliver
+  seeded job notices beside owner steering, preserve the earlier reply, and
+  persist job context only at dispatch. Stop-result recording consumes exact
+  notices atomically; discarded results and terminal segments that never
+  dispatched restore only their own notices. Regenerate restores exact receipts
+  from its source Run's discarded segment using the consuming Run identity;
+  owner-withdrawn notices stay withdrawn. This layer activates no settlement
+  producer and starts no idle-Chat Run.
+
+- **Prepare bounded job notice context (#1657).** The packaged renderer frames
+  settled-job facts and output suffixes as data. Owner-scoped database reads
+  transfer only bounded output tails; verified existing artifact caches can
+  supply a host-directory hint without putting it in semantic metadata.
+  Owner event projections omit private consumed-notice identifiers. A delivered
+  notice is authored only by its receiving Run; later dispatches reuse its
+  stored item verbatim while newly delivered notices remain eligible. This
+  prerequisite creates no live notice and activates no Run-boundary delivery.
+
+- **Prepare background-job notice transitions (#1657).** Owner-scoped
+  repository operations select ordered boundary notices, consume exact settled
+  notices, and restore only notices consumed by the matching Run. Terminal
+  recovery preparation distinguishes dispatched segments from undelivered
+  triggers. Delivered notices have an indexed receiving-message lookup.
+  Seeded database cases prove isolation and owner withdrawal; no settlement
+  producer or new owner-visible behavior is activated.
+
+- **Preserve host history without public job context (#1657).** Owner-history
+  responses identify host-authored user turns. Public pagination and shared
+  forks omit them; owner forks retain literal context and reply relationships.
+  Recency selects the first owner-authored turn, and an empty host trigger
+  preserves the earlier assistant reply in provider history. Context-only host
+  rows supply no title, preview or search evidence. This prerequisite does not
+  yet create settlement notices or notice-started Runs.
+
+- **Refresh live background-job counts (#1657).** Job changes notify only the
+  owning Chat's subscribers. Connected API processes also refresh owner-scoped
+  counts on the worker heartbeat cadence, including lease expiry and revival
+  with no job-row write. Full Chat upserts retain the last sent count across
+  notifications; zero-count running groups remain observable until settlement.
+  A record read that crosses the last unsubscribe requests a resync instead of
+  sending its stale snapshot to a later subscriber. Refreshes stop after the
+  last unsubscribe or shutdown and never settle jobs, deliver notices or start
+  Runs.
 - Synchronize browser checks with the surfaces they exercise: Esc waits for
   menus and the command palette to close, Knowledge expansion waits for the
   reloaded composer, and action-row reveal waits for its opacity transition.
@@ -25,6 +261,117 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Rebase the active tool-search proposal's permission and replay deltas on the
   current canonical specs, retaining owner-media admission and the checkpoint-only
   replay boundary so strict all-items validation passes without exclusions.
+
+# 2026-11-11
+
+- **Yield foreground host commands on steering (#1657).** A steer or interrupt
+  moves each host command of the current step into a durable job and returns a
+  `backgrounded` result with cause `message`, without stopping its process or
+  marking its result interrupted. Pending steering is level-triggered when a
+  segment starts; reconnects re-read the owner's pending items. Promotion and
+  its result share one 750 ms window, including a command blocked on admission.
+  Normal steering leaves reads and `grep` running until their results; an
+  interrupt still cancels SSH and Machine commands. See
+  [bash](docs/product/reference/tools/bash.md).
+
+- **Add the `stop` tool for background jobs (#1657).** The model can end
+  running jobs of the current Chat with `stop({ jobs })`, 1 to 16 `job://`
+  locators. Every locator is resolved in the owner's scope first, so an unknown
+  or foreign job refuses the whole call with `not_found` and records nothing.
+  Each running job gets a stop request with the stopper `assistant`, and the call
+  waits up to 5 seconds for all of them; a job still running is reported as
+  `running` and ends once its worker proves the stop. A settled job keeps its
+  state. `stop` is a host-capability tool with the `execute_code`
+  classification: it needs a `tools.allowed` entry and its own permission group
+  (the recommended map allows it), and a `read-only` Run refuses it. See
+  [stop](docs/product/reference/tools/stop.md).
+
+- **Recover hosted jobs at each worker heartbeat (#1657).** The registry retries
+  failed settlements, then checks hosted work under each owner's identity.
+  Missing records, durable stop requests and already-settled records stop the
+  corresponding command without rewriting its terminal facts. One failed read
+  does not starve other jobs, and shutdown detaches the heartbeat hook.
+- **Add atomic background-job persistence (#1657).** Job settlement locks the
+  Chat first and retries transaction conflicts. Output stores only uncommitted
+  suffixes. Large output becomes a reserved-number artifact inside a savepoint;
+  failed artifact writes retain committed increments, and host files are written
+  only after commit. Direct database proof covers rollback, reserved numbers,
+  and the full output after a failed write. No tool starts a job in this layer.
+- **Add incremental managed-command output capture (#1657).** A managed handle
+  reports output activity and returns redacted snapshots without rescanning its
+  stable prefix. Credential overlaps, split credentials, and Unicode boundaries
+  retain the full sanitizer's output. Truncation is tracked per stream, including
+  timed-out commands. This prepares capture for the worker job registry without
+  starting background jobs from a tool.
+- **Move a long foreground host command to the background (#1657).** A host
+  `bash` command that runs past `tools.bash.backgroundAfterSeconds` (default 120) now moves to the background: the call returns `backgrounded` with cause
+  `time`, and the command keeps running as a job with the output it had
+  captured. The lesser of that bound and `tools.callTimeoutSeconds` applies, and
+  the call timeout no longer stops or rejects a host command. A move that fails
+  stops the command (`timed_out` with its output after a proved stop, otherwise
+  `outcome_unknown`); a move recorded more than 750 ms late returns one
+  `outcome_unknown` result and leaves a normal job. A Run cancellation stops a
+  command that is still in the foreground. A monotonic admission deadline prevents
+  a clock correction from starting work after the call returned. `ssh://` and
+  `machine://` commands keep their deadlines. See
+  [bash](docs/product/reference/tools/bash.md).
+- **Start host bash commands as background jobs (#1657).** `async: true`
+  returns a durable `job://` locator while the command continues independently
+  of its Run. Backgrounded results carry their cause and elapsed time, and
+  render without an exit line. The worker retains the starting model, effort,
+  permission mode, credential set, and artifact policy. SSH and Machine targets
+  reject background fields after Workspace projection. `unlimited: true`
+  requires the new operator setting `tools.jobs.allowUnlimited`, default false.
+  Owner stop requests now signal the hosting worker, which confirms the request
+  under the job owner's identity; heartbeat re-checks recover lost signals.
+  Chat deletion requests termination before its job rows cascade away. See
+  [background jobs](docs/product/operator/background-jobs.md).
+- **Add the worker-owned job runtime (#1657).** A managed handle can be
+  promoted to a job with a reserved artifact number and the starting Run's
+  identity, permissions, settings, and output policy. Output flushes at 16 KiB
+  or one second after the first unflushed byte, with safe credential cuts and
+  no idle writes. Chat-first settlement retries transaction conflicts and
+  records exit codes, signals, or an unknown outcome. Long readable output
+  becomes a whole-job artifact in a savepoint; failed writes preserve output
+  increments, and host files are written only after commit. The new operator
+  setting `tools.jobs.maxSeconds` defaults to 7,200 and accepts an integer of
+  at least 60 or an interpolation token. A lifetime ends work with a proven
+  timeout, and orderly shutdown stops jobs before the queue closes. No tool
+  starts jobs or emits job notices yet.
+- **Bound the commands of a worker with `tools.bash.maxProcesses` (#1657).**
+  A worker process used to run one managed `bash` command at a time, and the
+  refusal for a second one was `unavailable`. One limiter now counts the host
+  commands and the `ssh://` commands of a worker, and `tools.bash.maxProcesses`
+  sets its bound (an integer of at least 1, default 64). A call past the bound
+  returns `limit_reached`, which names the bound and says that a later call can
+  succeed; the call records no attempt and starts no process. Cancellation is
+  checked before admission; cancellation during a pending durable admission
+  releases its slot without starting work. Two commands that the model calls
+  in one step now run together. The Machine daemon keeps its own
+  bound of one and its `unavailable` refusal. The executor package also gains
+  `startManagedBash`, a handle with no deadline that a later change uses for
+  background jobs; no tool calls it yet. See
+  [bash](docs/product/reference/tools/bash.md#errors).
+  An admitted execution remains single-use, including concurrent calls. A
+  settled handle's snapshot and a later stop retain its final sanitized output,
+  including an incomplete protected-value prefix from a natural exit.
+- **Add the job store for background jobs (#1657).** New tables `chat_jobs`,
+  `chat_job_chunks`, and `worker_instances` hold one record for each job of a
+  Chat, its stored output increments, and the heartbeat of each worker process.
+  The two job tables have forced owner row-level security. A worker that
+  consumes runs takes a new random identity at each start and records a
+  heartbeat every `runs.heartbeatSeconds`; a worker with no heartbeat for four
+  intervals is dead, and a read of a job or an owner API request settles its
+  running jobs as `lost`. Native `read` accepts a `job://` locator: the record
+  of a job, the stored text of one output, or a bare list of the jobs of the
+  Chat. The owner lists the jobs with `GET /api/v1/chats/:chatId/jobs` and
+  records a stop request with `PATCH /api/v1/chats/:chatId/jobs/:jobId`
+  (200 for a repeat, 409 for a job that settled otherwise, 404 for another
+  owner). Owner job responses name only declared cut outputs in `truncated`,
+  in their declared order, or `[]` when none were cut. The chat list and the
+  live Chat record carry `runningJobs`. No tool starts a job yet, and no worker
+  acts on a stop request yet. See
+  [job://](docs/product/reference/locators/job.md).
 
 # 2026-11-10
 

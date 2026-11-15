@@ -6,7 +6,6 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../../db/schema';
 import { type TenantRunner } from '../../db/tenant-db.service';
 import { isNumber, isString } from '@workspace/runtime-safety';
 import { type ToolContext, type ToolResult } from '../types';
@@ -23,7 +22,7 @@ const CREATED_AT = new Date('2026-11-02T10:00:00.000Z');
 const ASIDE = '00000000-0000-4000-8000-000000000002';
 
 function contextOf(chatId = CHAT_ID): ToolContext {
-  const db = drizzle.mock({ schema });
+  const db = drizzle.mock();
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
 
   return {
@@ -314,6 +313,17 @@ describe('readArtifact', () => {
 
     expect(contentOf(result)).toBe('1: x\n');
     expect(scripted.readPart).toHaveBeenCalledWith(CHAT_ID, 'grep', 1, '');
+  });
+
+  it('says that an artifact with no stream has none', async () => {
+    scriptRepository().findParts.mockResolvedValue({
+      createdAt: CREATED_AT,
+      parts: [],
+    } satisfies ArtifactParts);
+
+    const result = await readArtifact(contextOf(), 'read', 'artifact://bash-2');
+
+    expect(contentOf(result)).toBe('artifact://bash-2\n(no streams)\n');
   });
 
   it('lists the streams of a bash artifact in the Chat form', async () => {

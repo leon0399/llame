@@ -12,7 +12,6 @@ import { join } from 'node:path';
 import { statHostPath } from '@workspace/native-file-tools';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
@@ -52,7 +51,7 @@ afterEach(async () => {
 });
 
 function readingContext(permissionPolicy: CompiledPolicy): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     configuredCredentials: [],

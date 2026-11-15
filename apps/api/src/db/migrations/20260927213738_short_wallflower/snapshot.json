@@ -1,0 +1,62 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ecde00ad-3250-41f3-ae99-5a76e0c3c809",
+  "prevIds": ["5cd8dfb1-a6ae-402e-9542-0ffd3df9b945"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "permission_mode"],
+      "writes": [
+        "s|col|public.runs.permission_mode",
+        "n|col|public.runs.permission_mode",
+        "e|col|public.runs.permission_mode"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": [
+        "s|ck|public.runs.runs_permission_mode_check",
+        "n|ck|public.runs.runs_permission_mode_check",
+        "e|ck|public.runs.runs_permission_mode_check",
+        "n|con|public.runs.runs_permission_mode_check"
+      ],
+      "reads": [
+        "n|tbl|public.runs",
+        "n|sch|public",
+        "n|col|public.runs.permission_mode"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "permission_mode",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'default'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_permission_mode_check",
+        "value": "\"runs\".\"permission_mode\" IN ('default', 'bypass')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

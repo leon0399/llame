@@ -15,21 +15,26 @@ import type { Server } from 'node:http';
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import request from 'supertest';
 import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
+import { chatDeliveries, runs, workerInstances } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   ModelNotAvailableError,
   ModelsService,
 } from '../models/models.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { deadLetterQueue } from '../queue/queue';
-import { RunAbortRegistry } from '../runs/run-abort-registry';
+import { QUEUE, deadLetterQueue, type Queue } from '../queue/queue';
+import {
+  RunAbortRegistry,
+  type SegmentControl,
+} from '../runs/run-abort-registry';
 import { RunExecutionService } from '../runs/run-execution.service';
+import { RunWaitService } from '../runs/run-wait.service';
 import { RUNS_QUEUE, type RunJob } from '../runs/run-queues';
 import { RunsWorkerService } from '../runs/runs-worker.service';
 import { type TerminalRunStatus } from '../runs/run-status';
@@ -42,6 +47,8 @@ import {
   expectRegisteredUserId,
   waitFor,
 } from '../testing/support';
+import { newChatJob } from '../testing/chat-job-rows';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 
@@ -248,6 +255,7 @@ describe('chat deliveries — the steer mode', () => {
       executor,
       tenantDb,
       app.get(RunAbortRegistry, { strict: false }),
+      app.get(RunWaitService, { strict: false }),
     ).onApplicationBootstrap();
 
     if (!handler) throw new Error('runs.dead consumer not registered');
@@ -265,7 +273,7 @@ describe('chat deliveries — the steer mode', () => {
    * A Run this process executes, with a model call in flight for an attempt it
    * names, so the run-control signal has a segment to stop.
    */
-  async function executingRun(runId: string): Promise<AbortController> {
+  async function executingRun(runId: string): Promise<SegmentControl> {
     const attemptId = crypto.randomUUID();
     await tenantDb.runAs(userAId, (tx) =>
       tx.execute(
@@ -281,9 +289,9 @@ describe('chat deliveries — the steer mode', () => {
     return segment;
   }
 
-  const stopped = (segment: AbortController) =>
+  const stopped = (segment: SegmentControl) =>
     until('the interrupt to stop the segment', () =>
-      Promise.resolve(segment.signal.aborted),
+      Promise.resolve(segment.abort.signal.aborted),
     );
 
   describe('admission', () => {
@@ -398,6 +406,128 @@ describe('chat deliveries — the steer mode', () => {
       );
 
       expect(signal).toBe('delivery');
+    });
+
+    it('An interrupt mode change wakes a Run waiting on jobs', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      await sendMode(chatId, 'queue', { id });
+
+      const attemptId = crypto.randomUUID();
+      const workerInstanceId = crypto.randomUUID();
+      const toolCallId = `call-${crypto.randomUUID()}`;
+
+      const job = await tenantDb.runAs(userAId, async (tx) => {
+        await tx
+          .update(runs)
+          .set({ status: 'running_tool', activeAttemptId: attemptId })
+          .where(eq(runs.id, runId));
+        await tx.insert(workerInstances).values({ id: workerInstanceId });
+
+        return new ChatJobsRepository(tx).insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userAId,
+            seq: 1,
+            workerInstanceId,
+            runId,
+            toolCallId,
+            settings: { modelId: MODEL, permissionMode: 'default' },
+          }),
+        );
+      });
+
+      const deadline = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await expect(
+        app.get(RunWaitService, { strict: false }).suspend({
+          runId,
+          chatId,
+          userId: userAId,
+          attemptId,
+          toolCallId,
+          toolInput: { jobs: [job.id], timeout: 3600 },
+          jobIds: [job.id],
+          deadline,
+          parts: [{ type: 'tool-call', id: toolCallId }],
+          steps: { [toolCallId]: 0 },
+        }),
+      ).resolves.toEqual({ kind: 'suspended' });
+
+      const [waiting] = await runsOf(chatId);
+
+      if (!waiting?.currentJobId || !waiting.awaiting)
+        throw new Error('Run did not suspend on its background job');
+
+      const oldWakeJobId = waiting.currentJobId;
+      const generation = waiting.wakeGeneration;
+      const queue = app.get<Queue>(QUEUE, { strict: false });
+      expect(await queue.jobState(RUNS_QUEUE, oldWakeJobId)).toBe('queued');
+
+      const foreignChange = await change(chatId, id, 'interrupt', cookieB);
+      expect(foreignChange.status).toBe(404);
+      expect(await runsOf(chatId)).toMatchObject([
+        {
+          id: runId,
+          status: 'awaiting_jobs',
+          currentJobId: oldWakeJobId,
+          wakeGeneration: generation,
+        },
+      ]);
+      expect(await modesOf(chatId)).toContainEqual([id, 'queue']);
+
+      const changed = await change(chatId, id, 'interrupt');
+      expect(changed.status).toBe(200);
+      expect(changed.body).toMatchObject({
+        id,
+        mode: 'interrupt',
+        state: 'pending',
+      });
+
+      const [resumed] = await runsOf(chatId);
+      expect(resumed).toMatchObject({
+        id: runId,
+        status: 'queued',
+        wakeGeneration: generation,
+      });
+
+      if (!resumed?.currentJobId)
+        throw new Error('Woken Run has no current queue job');
+      const newWakeJobId = resumed.currentJobId;
+      expect(newWakeJobId).not.toBe(oldWakeJobId);
+      expect(await queue.jobState(RUNS_QUEUE, oldWakeJobId)).toBe('queued');
+      expect(await queue.jobState(RUNS_QUEUE, newWakeJobId)).toBe('queued');
+
+      const staleDeadlineWake = await tenantDb.runAs(userAId, (tx) =>
+        app.get(RunWaitService, { strict: false }).wakeInTransaction(tx, {
+          runId,
+          userId: userAId,
+          generation,
+          cause: 'timeout',
+          deadlineJobId: oldWakeJobId,
+        }),
+      );
+
+      expect(staleDeadlineWake).toBe(false);
+      expect(await runsOf(chatId)).toMatchObject([
+        {
+          id: runId,
+          status: 'queued',
+          currentJobId: newWakeJobId,
+          wakeGeneration: generation,
+        },
+      ]);
+
+      const resumedEvents = await tenantDb.runAs(userAId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, userAId, {
+          eventTypes: ['run.resumed'],
+        }),
+      );
+
+      expect(resumedEvents).toMatchObject([
+        {
+          payload: { generation, cause: 'interrupted' },
+        },
+      ]);
     });
 
     it('Interrupt now changes a steer item and stops the segment in flight', async () => {
@@ -600,6 +730,52 @@ describe('chat deliveries — the steer mode', () => {
         expect(await runsOf(chatId)).toHaveLength(1);
       },
     );
+    it('keeps a pending job notice out of the paused owner queue', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+
+      const notice = await tenantDb.runAs(userAId, async (tx) => {
+        const jobs = new ChatJobsRepository(tx);
+
+        const job = await jobs.insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userAId,
+            seq: 1,
+            workerInstanceId: crypto.randomUUID(),
+          }),
+        );
+
+        const settled = await jobs.settle(chatId, userAId, job.id, {
+          state: 'failed',
+        });
+
+        if (!settled) throw new Error('Job fixture was not settled');
+
+        const delivery = await new ChatDeliveriesRepository(tx).insertJobNotice(
+          settled,
+        );
+
+        if (!delivery) throw new Error('Notice fixture was not inserted');
+
+        return delivery;
+      });
+
+      await settle(runId, 'failed', { error: { message: 'boom' } });
+
+      const [stored] = await tenantDb.runAs(userAId, (tx) =>
+        tx
+          .select()
+          .from(chatDeliveries)
+          .where(eq(chatDeliveries.id, notice.id)),
+      );
+
+      expect(stored).toMatchObject({
+        producer: 'job',
+        mode: 'notice',
+        state: 'pending',
+        runId: null,
+      });
+    });
 
     it('A dead-letter expiry pauses the queue', async () => {
       const { chatId, runId, ids } = await liveRunWithThreeItems();

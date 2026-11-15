@@ -1,0 +1,65 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "948950a4-87ee-47c7-b2a2-c176253eba55",
+  "prevIds": ["d510514f-06d2-457a-b2e7-ca5ca770baee"],
+  "footprints": [
+    {
+      "statementType": "drop_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "tool_artifact_parts",
+        "tool_artifact_parts_artifact_idx"
+      ],
+      "writes": [
+        "s|idx|public.tool_artifact_parts_artifact_idx",
+        "n|idx|public.tool_artifact_parts_artifact_idx",
+        "e|idx|public.tool_artifact_parts_artifact_idx",
+        "n|rel|public.tool_artifact_parts_artifact_idx"
+      ],
+      "reads": [
+        "e|tbl|public.tool_artifact_parts",
+        "n|sch|public",
+        "e|col|public.tool_artifact_parts.artifact_id"
+      ],
+      "sharedWrites": []
+    },
+    {
+      "statementType": "add_unique",
+      "statementTarget": ["table", "public", "tool_artifact_parts"],
+      "writes": [
+        "s|uq|public.tool_artifact_parts.tool_artifact_parts_artifact_name_unique",
+        "n|uq|public.tool_artifact_parts.tool_artifact_parts_artifact_name_unique",
+        "e|uq|public.tool_artifact_parts.tool_artifact_parts_artifact_name_unique",
+        "n|con|public.tool_artifact_parts.tool_artifact_parts_artifact_name_unique",
+        "n|rel|public.tool_artifact_parts_artifact_name_unique"
+      ],
+      "reads": [
+        "n|tbl|public.tool_artifact_parts",
+        "n|sch|public",
+        "n|col|public.tool_artifact_parts.artifact_id",
+        "n|col|public.tool_artifact_parts.name"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "tool_artifact_parts",
+        "name": "tool_artifact_parts_artifact_name_unique",
+        "nameExplicit": true,
+        "columns": ["artifact_id", "name"],
+        "nullsNotDistinct": true,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "indexes\u0000[\"public\",\"tool_artifact_parts_artifact_idx\"]"
+    }
+  ]
+}

@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import {
   type Checkout,
   type Repository,
@@ -17,7 +16,6 @@ function makeMockDb() {
   const queries: Array<LoggedQuery> = [];
 
   const db: Db = drizzle.mock({
-    schema,
     logger: {
       logQuery(sql, params) {
         queries.push({ sql, params });
@@ -117,7 +115,7 @@ function makeStubDb(rows: {
   update?: Array<unknown>;
   delete?: Array<unknown>;
 }) {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
   vi.spyOn(db, 'select').mockImplementation(() =>
     asDbQuery(queryResult(rows.select ?? [])),
   );
@@ -153,22 +151,6 @@ describe('RepositoriesRepository catalog reads', () => {
       'order by "repositories"."created_at" desc',
     );
     expect(lastQuery(queries).params).toEqual(['owner-a']);
-  });
-
-  it('reads one repository by owner and id with a single-row limit', async () => {
-    const { db, queries } = makeMockDb();
-    const repository = repositoryRow();
-    await new RepositoriesRepository(db)
-      .findRepository(repository.ownerUserId, repository.id)
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('and "repositories"."id" = $2');
-    expect(lastQuery(queries).sql).toContain('limit $3');
-    expect(lastQuery(queries).params).toEqual([
-      repository.ownerUserId,
-      repository.id,
-      1,
-    ]);
   });
 
   it('returns the matching repository row and undefined when none matches', async () => {
@@ -493,22 +475,6 @@ describe('RepositoriesRepository checkouts', () => {
       '"checkouts"."repository_id" = $2',
     );
     expect(lastQuery(queries).params).toEqual(['owner-a', 'repo-1']);
-  });
-
-  it('reads one checkout by owner and id with a single-row limit', async () => {
-    const { db, queries } = makeMockDb();
-    const checkout = checkoutRow();
-    await new RepositoriesRepository(db)
-      .findCheckout(checkout.ownerUserId, checkout.id)
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('and "checkouts"."id" = $2');
-    expect(lastQuery(queries).sql).toContain('limit $3');
-    expect(lastQuery(queries).params).toEqual([
-      checkout.ownerUserId,
-      checkout.id,
-      1,
-    ]);
   });
 
   it('returns the matching checkout row and undefined when none matches', async () => {

@@ -29,7 +29,6 @@ import {
 
 import { z } from 'zod';
 
-import * as schema from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   KnowledgeFilesystemAdapter,
@@ -73,7 +72,7 @@ let root: string;
 
 /** One call's trusted context with a mocked tenant database. */
 function contextOf(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   return {
     userId: 'owner-a',

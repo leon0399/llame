@@ -13,7 +13,6 @@ import {
 import { afterEach, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import * as schema from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
@@ -43,7 +42,7 @@ function runEvent(
 }
 
 function bridgeFixture() {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
 
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
@@ -667,6 +666,43 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('keeps the original tool output while omitting consumed job notice ids from live chunks', () => {
+    const t = createRunEventTranslator('run-notices');
+    const output = { status: 'success', content: 'Job finished.' };
+
+    const chunks = t.translate({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'call-notice',
+        toolName: 'wait',
+        input: { jobs: ['job-1'] },
+      },
+    });
+
+    chunks.push(
+      ...t.translate({
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'call-notice',
+          toolName: 'wait',
+          status: 'success',
+          output,
+          consumedJobNoticeIds: ['delivery-1'],
+        },
+      }),
+    );
+
+    expect(
+      chunks.find((chunk) => chunk.type === 'tool-output-available'),
+    ).toEqual({
+      type: 'tool-output-available',
+      toolCallId: 'call-notice',
+      output,
+      dynamic: true,
+    });
+    expect(JSON.stringify(chunks)).not.toContain('consumedJobNoticeIds');
+  });
+
   it('translates a tool call between text into ordered parts (text → tool → text)', () => {
     const t = createRunEventTranslator('run-9');
 
@@ -1041,6 +1077,9 @@ describe('RunStreamBridgeService', () => {
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
         startedAt: null,
         finishedAt: null,
+        wakeGeneration: 0,
+        currentJobId: null,
+        awaiting: null,
         effort: null,
         permissionMode: 'default' as const,
         followUpAction: null,
@@ -1084,6 +1123,9 @@ describe('RunStreamBridgeService', () => {
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       startedAt: null,
       finishedAt: new Date('2026-01-01T00:00:00.000Z'),
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
       effort: null,
       permissionMode: 'default' as const,
       followUpAction: null,
@@ -1133,6 +1175,9 @@ describe('RunStreamBridgeService', () => {
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
       startedAt: null,
       finishedAt: null,
+      wakeGeneration: 0,
+      currentJobId: null,
+      awaiting: null,
       effort: null,
       permissionMode: 'default' as const,
       followUpAction: null,
@@ -1548,6 +1593,9 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
     permissionMode: 'default' as const,
     followUpAction: null,
     sourceRunId: null,
+    wakeGeneration: 0,
+    currentJobId: null,
+    awaiting: null,
   });
 
   it('stops on a terminal run row that never published a terminal event', async () => {

@@ -1,15 +1,12 @@
 import {
   applySelectorSuffix,
-  boundFlatResult,
-  directoryResult,
-  MAX_RESULT_CODE_UNITS,
   parsePathScheme,
   resolveEndRelativeSelector,
   splitSelectorSuffix,
 } from '@workspace/native-file-tools';
 
 import { type Db } from '../../db/tenant-db.service';
-import { placeListingSelector, type ListingRefusal } from '../listing-window';
+import { renderListing, type ListingRefusal } from '../listing-window';
 import { nativeErrorResult, selectInMemoryText } from '../text-selection';
 import { type ToolContext, type ToolResult } from '../types';
 import {
@@ -141,7 +138,10 @@ async function listChatArtifacts(
       `${formatArtifactLocator(row.toolName, row.seq)} (${row.toolName}, ${count(row.lineCount, 'line')}, ${count(row.byteSize, 'byte')}, ${row.createdAt.toISOString()})`,
   );
 
-  return renderListing(BARE_LOCATOR, entries, selector, 'no artifacts');
+  return renderListing(BARE_LOCATOR, entries, selector, {
+    emptyContent: `${BARE_LOCATOR}\n(no artifacts)\n`,
+    refuse: listingRefusal,
+  });
 }
 
 function listStreams(
@@ -155,7 +155,10 @@ function listStreams(
       `${path}/${part.name} (${locator.toolName}, ${count(part.lineCount, 'line')}, ${count(part.byteSize, 'byte')}, ${found.createdAt.toISOString()})`,
   );
 
-  return renderListing(path, entries, selector, 'no streams');
+  return renderListing(path, entries, selector, {
+    emptyContent: `${path}\n(no streams)\n`,
+    refuse: listingRefusal,
+  });
 }
 
 /**
@@ -192,37 +195,6 @@ async function readStoredPart(
     if (refused !== undefined) return refused;
     throw error;
   }
-}
-
-/**
- * A listing page in the directory-list shape. Entries stay in the order the
- * caller produced — the Chat list is oldest first — and the shared page helpers
- * place the selector and cut the page to the read bound.
- */
-function renderListing(
-  path: string,
-  entries: ReadonlyArray<string>,
-  selector: string | undefined,
-  emptyText: string,
-): ToolResult {
-  const placed = placeListingSelector(path, selector, entries.length);
-
-  if ('refusal' in placed) return listingRefusal(placed.refusal);
-  const { offset, limit } = placed.window;
-  const end = Math.min(offset + (limit ?? entries.length), entries.length);
-
-  const content =
-    entries.length === 0
-      ? `${path}\n(${emptyText})\n`
-      : [path, ...entries.slice(offset, end)].join('\n') + '\n';
-
-  const result = directoryResult(path, entries.length, {
-    content,
-    truncated: end < entries.length,
-    ...(end < entries.length && { nextOffset: end }),
-  });
-
-  return boundFlatResult(result, offset, MAX_RESULT_CODE_UNITS);
 }
 
 /** A listing takes no second interval, no raw form, and no outline. */

@@ -11,20 +11,29 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import * as schema from '../db/schema';
+
 import { type Db } from '../db/tenant-db.service';
-import { type BashKnownResult } from '@workspace/bash-executor';
+import {
+  BashProcessLimiter,
+  type BashKnownResult,
+  type BashResult,
+  type ManagedBashHandle,
+  type ManagedOutput,
+  type ManagedStopResult,
+} from '@workspace/bash-executor';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
+import { runForegroundBash } from './bash-async';
 import { runTool } from './runner';
 import { executeSshBash } from './ssh-bash';
 import { type SshClient, type SshRunOutcome } from '../ssh/ssh-client';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { artifactDirectory } from './artifacts/host-files';
+import { hostBashJobs } from '../testing/host-bash-jobs';
 import { bashTool } from './bash';
 import { previewStream, spillBashResult, spillBashStreams } from './bash-spill';
 import { renderToolResultText } from './model-text';
@@ -57,21 +66,35 @@ type ArtifactWrites = {
 let insertWrites: ArtifactWrites;
 
 function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
-  const db: Db = drizzle.mock({ schema });
+  const db: Db = drizzle.mock();
+
+  const tenantDb = {
+    runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      callback(db),
+  };
+
+  vi.spyOn(
+    NativeFilesRepository.prototype,
+    'recoverHostPromotion',
+  ).mockImplementation(({ runId, toolCallId, result }) =>
+    new RunEventsRepository(db)
+      .append(runId, 'native.result', { toolCallId, result })
+      .then(() => ({ disposition: 'recovery_won' as const, result })),
+  );
 
   return {
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
+    attemptId: 'attempt-1',
     toolCallId: 'call-1',
     nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
+    bashProcessLimiter: new BashProcessLimiter(64),
+    ...hostBashJobs(tenantDb),
     permissionPolicy: compileTestPermissionPolicy(),
     artifactReadable: true,
-    tenantDb: {
-      runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        callback(db),
-    },
+    tenantDb,
     ...overrides,
     configuredCredentials: overrides.configuredCredentials ?? [],
   };
@@ -124,6 +147,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   rmSync(temporaryRoot, { recursive: true, force: true });
 });
@@ -461,6 +485,23 @@ describe('the bash spill boundaries', () => {
     expect(textOf(result)).toContain('full result not stored');
   });
 
+  it('returns the inline preview when the foreground bound interrupts a pending write', async () => {
+    insertWrites.insertParts.mockImplementation(
+      () => new Promise<void>(() => {}),
+    );
+    const controller = new AbortController();
+
+    const pending = spillBashResult(
+      testContext({ moveSignal: controller.signal }),
+      success('a'.repeat(20_000)),
+    );
+
+    setTimeout(() => controller.abort(), 0);
+    const result = await pending;
+    expect(result).not.toHaveProperty('artifact');
+    expect(textOf(result)).toContain('full result not stored');
+  }, 1000);
+
   it('probes the read group with the bash locator', async () => {
     const result = await spillBashResult(
       testContext({
@@ -631,6 +672,104 @@ describe('the bash tool spill on the host and over ssh', () => {
         expect.stringContaining('full result: artifact://bash-5/stdout'),
       );
     } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('does not promote after completion wins while output spill is held', async () => {
+    const move = new AbortController();
+    const abort = new AbortController();
+    const spawned = Promise.withResolvers<void>();
+    const settled = Promise.withResolvers<BashResult>();
+    const spillStarted = Promise.withResolvers<void>();
+    const finishSpill = Promise.withResolvers<void>();
+    const promotionStarted = vi.fn();
+
+    const output: ManagedOutput = {
+      stdout: longLog(),
+      stderr: '',
+      truncated: false,
+      truncatedStreams: { stdout: false, stderr: false },
+    };
+
+    const handle: ManagedBashHandle = {
+      pid: 4242,
+      settled: settled.promise,
+      stop: vi.fn((): Promise<ManagedStopResult> =>
+        Promise.resolve({ ...output, proved: true }),
+      ),
+      snapshot: () => output,
+      onOutput: () => () => undefined,
+    };
+
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue({
+        runId: 'run',
+        sequence: 1,
+        eventType: 'native.result',
+        payload: null,
+        createdAt: new Date(),
+      });
+
+    const context = {
+      ...testContext({
+        abortSignal: abort.signal,
+        moveSignal: move.signal,
+        onHostCommandStarted: () => spawned.resolve(),
+        onHostPromotionStarted: promotionStarted,
+      }),
+      runId: 'run',
+      nativeExecutorId: 'host',
+      toolCallId: 'call-1',
+      attemptId: 'attempt-1',
+    };
+
+    const jobs = context.bashJobs;
+
+    if (jobs === undefined) throw new Error('Missing bash job registry');
+    vi.spyOn(jobs, 'start').mockReturnValue(handle);
+    const slot = context.bashProcessLimiter?.tryAcquire();
+
+    if (slot === null || slot === undefined)
+      throw new Error('Missing bash process slot');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    insertWrites.insertParts.mockImplementation(async () => {
+      spillStarted.resolve();
+      await finishSpill.promise;
+    });
+
+    try {
+      const pending = runForegroundBash(
+        context,
+        { command: 'echo' },
+        tmpdir(),
+        slot,
+      );
+
+      await spawned.promise;
+      settled.resolve(success(output.stdout));
+      await spillStarted.promise;
+      move.abort({ cause: 'message', deadlineAt: performance.now() + 750 });
+      abort.abort();
+      finishSpill.resolve();
+
+      const result = await pending;
+
+      expect(result.status).toBe('success');
+      expect(JSON.stringify(result)).toContain('full result not stored');
+      expect(result).not.toHaveProperty('artifact');
+      expect(promotionStarted).not.toHaveBeenCalled();
+      expect(append).toHaveBeenCalledTimes(1);
+      expect(append.mock.calls[0]?.[1]).toBe('native.result');
+      expect(JSON.stringify(append.mock.calls[0]?.[2])).toContain(
+        'full result not stored',
+      );
+    } finally {
+      finishSpill.resolve();
       vi.unstubAllEnvs();
     }
   });

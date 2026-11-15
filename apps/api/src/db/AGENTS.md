@@ -20,10 +20,10 @@ Run `pnpm db:provision-rls` after every `pnpm db:migrate`. Fresh setup:
 Postgres must include pgvector and `pg_trgm`; stock Postgres is insufficient.
 
 Edit `src/db/schema/`, then run `pnpm db:generate` and
-`pnpm --filter api db:check`. After a rebase, no schema changes proves schema
-sync; `db:check` validates migrations, journal, and snapshots. Never hand-edit
-generated metadata snapshots. Manual SQL needs its header rationale; journal
-edits are limited to P4 ordering repair.
+`pnpm --filter api db:check`. Each generated migration has its own timestamped
+directory containing `migration.sql` and `snapshot.json`; snapshots record
+schema history, including branches. Never hand-edit generated snapshots. Manual
+SQL needs its header rationale and a matching snapshot.
 
 ## Migration traps
 
@@ -45,23 +45,20 @@ timestamps, or counts. Never `CREATE OR REPLACE` them from a later `app`
 migration. Add the sibling plus its ownership/execute grants to
 `docker/postgres/rls-function-owner.sql`, then reprovision.
 
-P4 - Journal `when`, not filename, determines order. New migrations use
-timestamp prefixes. After parallel rebases, keep both journal rows, make `idx`
-contiguous, and restamp/regenerate so `when` is strictly increasing. Otherwise
-existing databases silently skip the entry. Restamping the journal is only half
-the merge: re-parent the merged snapshot too (`prevId` = the preceding
-snapshot's `id`), or the chain forks and `db:check` fails while `db:generate`
-re-emits schema that already shipped. `lint.yml` runs both checks.
+P4 - Drizzle v1 stores each migration in its own timestamped directory with a
+`migration.sql` and `snapshot.json`; there is no shared `_journal.json`.
+Pending migrations run in directory-name order. After parallel changes, retain
+both migration directories and run `db:check` for noncommutative changes.
+That check cannot prove arbitrary hand-written SQL or data changes commute;
+review their dependencies separately.
 
-P5 - `drizzle.__drizzle_migrations.created_at` holds the journal's millisecond
-`when`, and the migrator applies an entry only when its `when` exceeds the
-newest stored row. A row inserted by hand with a nanosecond or microsecond stamp
-is decades in the future, so every later migration skips silently; `migrate.ts`
-now fails the run when the newest row is more than a day ahead. Re-stamp such a
-row or delete it — never leave it as the ledger's newest entry.
+P5 - The v1 migrator identifies applied migrations by directory name rather
+than the largest ledger timestamp. Never rename an applied migration directory.
+Legacy ledger conversion must preserve the identity of every already-applied
+migration; reject ambiguous history rather than replaying it.
 
-Changing comments in an applied migration is safe; changing statements is not,
-because the migrator never compares the stored hash or reruns the file.
+Never change statements in an applied migration. Historical SQL hashes can also
+be required to identify legacy ledger entries, so preserve comments as well.
 
 ## Manual SQL
 

@@ -41,6 +41,8 @@ import { getRegisteredToolIds } from '../tools/registry';
 import { type PermissionGroup } from '../tools/permissions/types';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { workerInstances, type ChatJob } from '../db/schema';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
@@ -89,6 +91,8 @@ type HarnessOverrides = {
    * no suite exercises today.
    */
   machineTransportFactory?: MachineTransportFactory;
+  /** Deterministic pg-boss schema for restart/recovery integration tests. */
+  queueSchema?: string;
   /** `null` boots a process that does not consume `runs`, like an API-only process. */
   runsConcurrency?: number | null;
   /** The operator's step cap per segment; absent keeps the built-in (none). */
@@ -97,6 +101,11 @@ type HarnessOverrides = {
   heartbeatSeconds?: number;
   /** Explicit tool rules used to configure the worker boot. */
   allowedTools?: ReadonlyArray<string>;
+  /**
+   * Configure the scripted model service after graph compilation but before
+   * module initialization starts queue consumers.
+   */
+  beforeInit?: (models: ScriptedModelsService) => void;
   /**
    * Extra permission groups merged OVER the permissive allow-all this harness
    * grants every registered tool. Suites that must exercise a real permission
@@ -179,7 +188,7 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
 export async function bootWorkerHarness(
   overrides?: HarnessOverrides,
 ): Promise<WorkerHarness> {
-  // WorkerModule's DrizzlePostgresModule/PgBossModule read POSTGRES_URL
+  // WorkerModule's database providers and PgBossModule read POSTGRES_URL
   // directly (getOrThrow), not TEST_DATABASE_URL — mirror worker.module.integration.test.ts's
   // own setup rather than relying on POSTGRES_URL being ambient in the
   // caller's shell (it must not be a hard requirement for callers gated only
@@ -194,7 +203,9 @@ export async function bootWorkerHarness(
     process.env.POSTGRES_URL = process.env.TEST_DATABASE_URL;
   }
 
-  process.env.PGBOSS_SCHEMA = `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_wh_${Math.random().toString(36).slice(2, 8)}`;
+  process.env.PGBOSS_SCHEMA =
+    overrides?.queueSchema ??
+    `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_wh_${Math.random().toString(36).slice(2, 8)}`;
 
   const models = new ScriptedModelsService();
   const config = resolveHarnessConfig(overrides);
@@ -239,6 +250,8 @@ export async function bootWorkerHarness(
     .overrideProvider(CanonicalSearchCoverageService)
     .useValue({ assertReady: () => Promise.resolve() });
   const moduleRef = await builder.compile();
+
+  overrides?.beforeInit?.(models);
 
   await moduleRef.init();
 
@@ -343,6 +356,32 @@ export async function seedRun(input: {
         parts,
       },
     };
+  });
+}
+
+/** Seed the live Chat job used to suspend a seeded Run in integration tests. */
+export async function seedLiveChatJob(input: {
+  tx: Db;
+  userId: string;
+  modelId: string;
+  run: { chatId: string; runId: string };
+}): Promise<ChatJob> {
+  const workerInstanceId = crypto.randomUUID();
+  const toolCallId = `wait-${crypto.randomUUID()}`;
+
+  await input.tx.insert(workerInstances).values({ id: workerInstanceId });
+
+  return new ChatJobsRepository(input.tx).insert({
+    chatId: input.run.chatId,
+    ownerUserId: input.userId,
+    executor: 'bash',
+    seq: 1,
+    runId: input.run.runId,
+    toolCallId,
+    workerInstanceId,
+    outputs: ['stdout', 'stderr'],
+    artifactReadable: false,
+    settings: { modelId: input.modelId, permissionMode: 'default' },
   });
 }
 

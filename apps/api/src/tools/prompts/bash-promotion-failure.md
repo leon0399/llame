@@ -1,0 +1,2 @@
+{{#if proved}}{{timedOutText}}
+The move to a background job failed; the command was stopped.{{else}}The move to a job failed and the process group could not be proven empty. Inspect the workspace before another attempt.{{/if}}

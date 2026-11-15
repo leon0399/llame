@@ -1,10 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { executeManagedBash, resetManagedExecutorForTests } from "./index";
+import { BashProcessLimiter, executeManagedBash } from "./index";
 import { completeAttemptUnknown } from "./attempt-ledger";
 import type { BashExecutorContext } from "./types";
 import * as processTree from "./process-tree";
+
+let limiter = new BashProcessLimiter(1);
+
+const execute: typeof executeManagedBash = (input, context, options) =>
+  executeManagedBash(input, context, { limiter, ...options });
 
 function context(
   directory: string,
@@ -26,18 +31,18 @@ describe("recovery and attempt ledger", () => {
   let directory: string;
 
   beforeEach(async () => {
-    resetManagedExecutorForTests();
+    limiter = new BashProcessLimiter(1);
     directory = await mkdtemp(join(tmpdir(), "bash-recovery-"));
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    resetManagedExecutorForTests();
+    limiter = new BashProcessLimiter(1);
     await rm(directory, { recursive: true, force: true });
   });
 
   it("records the attempt before start and marks known after quiescence", async () => {
-    const result = await executeManagedBash(
+    const result = await execute(
       { command: "bash", args: ["-c", "printf ok"] },
       context(directory),
     );
@@ -52,7 +57,7 @@ describe("recovery and attempt ledger", () => {
     );
     vi.spyOn(processTree, "stopProcessGroup").mockResolvedValue(false);
     expect(
-      await executeManagedBash(input, context(directory), {
+      await execute(input, context(directory), {
         toolCallId: "previous-run-call",
       }),
     ).toMatchObject({
@@ -61,7 +66,7 @@ describe("recovery and attempt ledger", () => {
     vi.mocked(processTree.waitForProcessGroupQuiescence).mockRestore();
     vi.mocked(processTree.stopProcessGroup).mockRestore();
 
-    const result = await executeManagedBash(input, context(directory), {
+    const result = await execute(input, context(directory), {
       toolCallId: "new-run-call",
     });
 
@@ -71,7 +76,7 @@ describe("recovery and attempt ledger", () => {
   it("admits the next bash call after an unknown without quarantine", async () => {
     completeAttemptUnknown("surviving-attempt");
     const input = { command: "bash", args: ["-c", "printf recovered"] };
-    expect(await executeManagedBash(input, context(directory))).toMatchObject({
+    expect(await execute(input, context(directory))).toMatchObject({
       status: "success",
       stdout: "recovered",
     });
@@ -91,7 +96,7 @@ describe("recovery and attempt ledger", () => {
   it("cancels when the process group is proven stopped", async () => {
     const controller = new AbortController();
 
-    const pending = executeManagedBash(
+    const pending = execute(
       { command: "bash", args: ["-c", "while true; do sleep 0.05; done"] },
       context(directory, { durationMs: 5000 }),
       { signal: controller.signal, toolCallId: "tc-cancel" },
@@ -103,7 +108,7 @@ describe("recovery and attempt ledger", () => {
   });
 
   it("records a known result after killing exit survivors", async () => {
-    const result = await executeManagedBash(
+    const result = await execute(
       {
         command: "bash",
         args: ["-c", "sleep 30 >/dev/null 2>&1 & exit 0"],
