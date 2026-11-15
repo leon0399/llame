@@ -61,14 +61,15 @@ together. The state after each layer:
 
 Estimates are low confidence; the round-4 feasibility review compared them with six merged layers of the same shape. About 2,000 authored lines is a review target, not a limit.
 `commands`, `run-kind`, `compact-run`, and `compact-boundary` exceed it because each is one
-mergeable behavior;
-re-measure each with `git diff --numstat` against its parent before publication, and split only
+mergeable behavior. Re-measure each with `git diff --numstat` against its parent before publication, and split only
 where a smaller safe merge point appears.
 
 ## 1. proposal
 
-- [ ] 1.1 Validate the change with the OpenSpec version that the root `package.json` pins: `pnpm exec openspec validate add-slash-commands --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/add-slash-commands/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
-- [ ] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
+- [x] 1.1 Validate the change with the OpenSpec version that the root `package.json` pins: `pnpm exec openspec validate add-slash-commands --strict`, `pnpm exec markdownlint-cli2 "openspec/changes/add-slash-commands/**/*.md"`, `node scripts/check-markdown-links.mjs`, `pnpm format:check`, `git diff --check`.
+  - Evidence: on `1625012c`, OpenSpec 1.13.1 (`node_modules/.bin/openspec`) reports the change valid under `--strict`; markdownlint reports no issue in the change; the link check, `oxfmt --check`, and `git diff --check` are clean. The commit hooks could not run in the authoring shell (its `pnpm` is broken), so these ran directly.
+- [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
+  - Evidence: before the rebase, rounds 1 (`ab29d11c`) and 2 (`258fb067`). After the rebase and redesign (`0079d3ab`), round 3 (spec 4 P1, 13 P2; feasibility 5 P1, 6 P2; fixes in `9a4c8967`) and round 4 (spec 1 P1, 9 P2; feasibility 1 P1, 6 P2; fixes in `1625012c`). design.md "Revision history" records each round. Round 4 still changed substance, so the review has not converged; the GitHub review loop is the next round.
 - [ ] 1.3 Self-review the published proposal PR diff (SR), mark it ready, and run the GitHub review loop (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
 - [ ] 1.4 Obtain Leo's approval of the published revision, including the decisions that the proposal lists as made in review.
 
