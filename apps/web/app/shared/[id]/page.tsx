@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { lazy, Suspense, use } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { usePathname, useRouter } from "next/navigation";
@@ -9,7 +9,6 @@ import {
   Message,
   MessageContent,
 } from "@workspace/ui/components/ai-elements/message";
-import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 import { Button, buttonVariants } from "@workspace/ui/components/button";
 
 import { useMeOptional } from "@/lib/services/auth/queries";
@@ -27,6 +26,15 @@ import {
 // pending, #78) — the api never invents a display literal, matching the
 // authenticated chat list's convention.
 const UNTITLED_CHAT_LABEL = "Untitled chat";
+
+// The Streamdown renderer (with its code highlighter) is the bulk of this
+// page's JavaScript, so it is code-split. Its chunk starts loading when this
+// module evaluates, alongside the share's messages request.
+const messageResponseModule =
+  import("@workspace/ui/components/ai-elements/message-response");
+const MessageResponse = lazy(async () => ({
+  default: (await messageResponseModule).MessageResponse,
+}));
 
 async function fetchAllSharedMessages(
   id: string,
@@ -150,22 +158,26 @@ function SharedMessageList({
   messages: Array<SharedChatMessage>;
 }) {
   return (
-    <div className="flex flex-col gap-4">
-      {messages.map((message) => {
-        const text = message.parts
-          .filter((p) => p.type === "text")
-          .map((p) => p.text)
-          .join("\n\n");
-        if (!text) return null;
-        return (
-          <Message key={message.id} from={message.role}>
-            <MessageContent>
-              <MessageResponse>{text}</MessageResponse>
-            </MessageContent>
-          </Message>
-        );
-      })}
-    </div>
+    <Suspense
+      fallback={<p className="text-muted-foreground text-sm">Loading…</p>}
+    >
+      <div className="flex flex-col gap-4">
+        {messages.map((message) => {
+          const text = message.parts
+            .filter((p) => p.type === "text")
+            .map((p) => p.text)
+            .join("\n\n");
+          if (!text) return null;
+          return (
+            <Message key={message.id} from={message.role}>
+              <MessageContent>
+                <MessageResponse>{text}</MessageResponse>
+              </MessageContent>
+            </Message>
+          );
+        })}
+      </div>
+    </Suspense>
   );
 }
 

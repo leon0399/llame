@@ -1,33 +1,25 @@
 "use client";
 
 import { cn } from "@workspace/ui/lib/utils";
-import { motion } from "motion/react";
 import { type CSSProperties, memo, useMemo } from "react";
 
-// `motion.create()` builds a fresh component type on every call, so building one
-// during render would remount the element — restarting the sweep — on every
-// pass. Every tag the shimmer can render as gets its component here instead,
-// once for the life of the module.
-const MOTION_COMPONENTS = {
-  code: motion.create("code"),
-  div: motion.create("div"),
-  em: motion.create("em"),
-  h1: motion.create("h1"),
-  h2: motion.create("h2"),
-  h3: motion.create("h3"),
-  h4: motion.create("h4"),
-  h5: motion.create("h5"),
-  h6: motion.create("h6"),
-  li: motion.create("li"),
-  p: motion.create("p"),
-  pre: motion.create("pre"),
-  small: motion.create("small"),
-  span: motion.create("span"),
-  strong: motion.create("strong"),
-} as const;
-
-/** Intrinsic tags the shimmer can render as; each has a motion component in `MOTION_COMPONENTS`. */
-export type ShimmerTag = keyof typeof MOTION_COMPONENTS;
+/** Intrinsic tags the shimmer can render as. */
+export type ShimmerTag =
+  | "code"
+  | "div"
+  | "em"
+  | "h1"
+  | "h2"
+  | "h3"
+  | "h4"
+  | "h5"
+  | "h6"
+  | "li"
+  | "p"
+  | "pre"
+  | "small"
+  | "span"
+  | "strong";
 
 export type TextShimmerProps = {
   /** Text to render with the shimmer sweep. */
@@ -48,9 +40,9 @@ export type TextShimmerProps = {
 /**
  * Shimmer renders text with an animated gradient sweep, for an in-progress
  * or loading state (e.g. "Thinking…" while a response streams in). Vendored
- * from [AI Elements Shimmer](https://elements.ai-sdk.dev/components/shimmer).
- * Memoized since its animation is driven by `motion/react` rather than by
- * prop changes.
+ * from [AI Elements Shimmer](https://elements.ai-sdk.dev/components/shimmer),
+ * with the sweep as a CSS animation (`animate-text-shimmer` in globals.css)
+ * instead of `motion/react`, so it costs no JavaScript.
  *
  * @summary animated shimmering text for in-progress/loading states
  */
@@ -61,39 +53,32 @@ const ShimmerComponent = ({
   duration = 2,
   spread = 2,
 }: TextShimmerProps) => {
-  const MotionComponent = MOTION_COMPONENTS[Component];
-
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,
     [children, spread],
   );
 
   return (
-    <MotionComponent
+    <Component
       className={cn(
-        "relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent",
+        "relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent animate-text-shimmer motion-reduce:animate-none",
         "[--bg:linear-gradient(90deg,#0000_calc(50%-var(--spread)),var(--color-background),#0000_calc(50%+var(--spread)))] [background-repeat:no-repeat,padding-box]",
         "[background-image:var(--bg),linear-gradient(var(--color-muted-foreground),var(--color-muted-foreground))]",
         className,
       )}
-      animate={{ backgroundPosition: "0% center" }}
-      initial={{ backgroundPosition: "100% center" }}
-      transition={{
-        repeat: Number.POSITIVE_INFINITY,
-        duration,
-        ease: "linear",
-      }}
       style={
-        // SAFETY: `--spread` is a CSS custom property; it's a valid inline
-        // style key at runtime, but CSSProperties's type doesn't model
-        // arbitrary custom properties, so this asserts past that gap only.
+        // SAFETY: `--spread` and `--shimmer-duration` are CSS custom
+        // properties; they're valid inline style keys at runtime, but
+        // CSSProperties's type doesn't model arbitrary custom properties, so
+        // this asserts past that gap only.
         {
           "--spread": `${dynamicSpread}px`,
+          "--shimmer-duration": `${duration}s`,
         } as CSSProperties
       }
     >
       {children}
-    </MotionComponent>
+    </Component>
   );
 };
 

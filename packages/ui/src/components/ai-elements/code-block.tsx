@@ -11,7 +11,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
+import type { BundledLanguage, ShikiTransformer } from "shiki";
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   /** Source text to highlight. */
@@ -60,6 +60,9 @@ export async function highlightCode(
     ? [lineNumberTransformer]
     : [];
 
+  // Code-split on purpose: Shiki is only needed once a block renders, and a
+  // static import would put it in the first-load bundle of every chat route.
+  const { codeToHtml } = await import("@workspace/ui/lib/shiki");
   return await Promise.all([
     codeToHtml(code, {
       lang: language,

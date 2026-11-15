@@ -89,8 +89,13 @@ async function openPalette(canvasElement: HTMLElement) {
   await userEvent.click(
     within(canvasElement).getByRole("button", { name: "Search" }),
   );
-  // The dialog portals into document.body, outside the story canvas.
-  const dialog = await screen.findByRole("dialog", { name: "Command palette" });
+  // The dialog portals into document.body, outside the story canvas. Its
+  // chunk loads on the first open, which can take past the default wait.
+  const dialog = await screen.findByRole(
+    "dialog",
+    { name: "Command palette" },
+    { timeout: 5000 },
+  );
   await waitFor(() => expect(dialog).toBeVisible());
   return within(dialog).getByPlaceholderText<HTMLInputElement>(PLACEHOLDER);
 }
@@ -156,7 +161,7 @@ export const KeyboardShortcut: Story = {
     const modifier = isMac ? "Meta" : "Control";
     await userEvent.keyboard(`{${modifier}>}k{/${modifier}}`);
     await expect(
-      await screen.findByPlaceholderText(PLACEHOLDER),
+      await screen.findByPlaceholderText(PLACEHOLDER, {}, { timeout: 5000 }),
     ).toBeInTheDocument();
   },
 };

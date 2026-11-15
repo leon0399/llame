@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect } from "storybook/test";
+import { expect, waitFor } from "storybook/test";
 
 import { ReasoningContent } from "./reasoning-content.js";
 import { Reasoning, ReasoningTrigger } from "./reasoning.js";
@@ -71,7 +71,9 @@ export const MathDelimiters: Story = {
   tags: ["ai-generated"],
   args: {
     isStreaming: false,
-    defaultOpen: true,
+    // Held open: KaTeX loads on demand and can land after a finished panel's
+    // one-second auto-collapse, which unmounts the content.
+    open: true,
     duration: 2,
   },
   render: (args) => (
@@ -81,7 +83,11 @@ export const MathDelimiters: Story = {
     </Reasoning>
   ),
   play: async ({ canvasElement }) => {
-    await expect(canvasElement.querySelectorAll(".katex")).toHaveLength(3);
+    // KaTeX loads on demand, so the formulas arrive after the first render.
+    await waitFor(
+      () => expect(canvasElement.querySelectorAll(".katex")).toHaveLength(3),
+      { timeout: 5000 },
+    );
   },
 };
 

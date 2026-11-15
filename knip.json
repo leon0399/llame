@@ -70,7 +70,6 @@
         "@hookform/resolvers",
         "@radix-ui/react-use-controllable-state",
         "diff",
-        "motion",
         "next-themes",
         "react-hook-form",
         "sonner",

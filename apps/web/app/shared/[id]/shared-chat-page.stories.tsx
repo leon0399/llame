@@ -173,7 +173,10 @@ export const SignedOut: Story = {
     await expect(
       canvas.getByText("Shared conversation · read-only"),
     ).toBeVisible();
-    await expect(canvas.getByText("Hello there")).toBeVisible();
+    // Message bodies render once the code-split Markdown renderer loads.
+    await expect(
+      await canvas.findByText("Hello there", {}, { timeout: 5000 }),
+    ).toBeVisible();
     await expect(canvas.getByText("General Kenobi")).toBeVisible();
     await expect(
       canvas.queryByRole("button", { name: /Fork/ }),
@@ -207,7 +210,9 @@ export const Loading: Story = {
     await expect(
       await canvas.findByRole("heading", { level: 1, name: "A shared chat" }),
     ).toBeVisible();
-    await expect(canvas.getByText("Hello there")).toBeVisible();
+    await expect(
+      await canvas.findByText("Hello there", {}, { timeout: 5000 }),
+    ).toBeVisible();
     await expect(canvas.queryByText("Loading…")).not.toBeInTheDocument();
   },
 };
@@ -228,7 +233,9 @@ export const Untitled: Story = {
     await expect(
       await canvas.findByRole("heading", { level: 1, name: "Untitled chat" }),
     ).toBeVisible();
-    await expect(canvas.getByText("Hello there")).toBeVisible();
+    await expect(
+      await canvas.findByText("Hello there", {}, { timeout: 5000 }),
+    ).toBeVisible();
   },
 };
 

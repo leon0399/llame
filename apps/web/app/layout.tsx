@@ -16,14 +16,19 @@ import { Providers } from "@/components/providers";
 import { cn } from "@workspace/ui/lib/utils";
 import { getFontCssVariables } from "@/lib/appearance/font/service";
 
+// Every face is opt-in through Appearance, and next/font preloads each
+// declared file on every page by default (~850 KB here). With preload off,
+// the browser fetches only the one face the user's choice actually uses.
 const fontGeist = Geist({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-geist",
   fallback: ["system-ui", "sans-serif"],
 });
 
 const fontOpenSans = Open_Sans({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-open-sans",
   weight: ["300", "400", "500", "700", "800"],
   display: "swap",
@@ -33,6 +38,7 @@ const fontOpenSans = Open_Sans({
 
 const fontRoboto = Roboto({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-roboto",
   weight: ["100", "300", "400", "500", "700", "900"],
   display: "swap",
@@ -42,6 +48,7 @@ const fontRoboto = Roboto({
 
 const fontRobotoCondensed = Roboto_Condensed({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-roboto-condensed",
   weight: ["100", "300", "400", "500", "700", "900"],
   display: "swap",
@@ -72,6 +79,7 @@ const fontOpenDyslexic = localFont({
       style: "italic",
     },
   ],
+  preload: false,
   variable: "--font-open-dyslexic",
   fallback: ["system-ui", "sans-serif"],
   display: "swap",
@@ -79,24 +87,28 @@ const fontOpenDyslexic = localFont({
 
 const fontGeistMono = Geist_Mono({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-geist-mono",
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
 });
 
 const fontFiraCode = Fira_Code({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-fira-code",
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
 });
 
 const fontJetBrainsMono = JetBrains_Mono({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-jetbrains-mono",
   fallback: ["ui-monospace", "SFMono-Regular", "SF Mono", "Menlo", "monospace"],
 });
 
 const fontRobotoMono = Roboto_Mono({
   subsets: ["latin"],
+  preload: false,
   variable: "--font-roboto-mono",
   weight: ["100", "300", "400", "500", "700"],
   display: "swap",
@@ -106,6 +118,7 @@ const fontRobotoMono = Roboto_Mono({
 
 const fontOpenDyslexicMono = localFont({
   src: "../public/fonts/OpenDyslexicMono-Regular.otf",
+  preload: false,
   variable: "--font-open-dyslexic-mono",
   weight: "400",
   style: "normal",

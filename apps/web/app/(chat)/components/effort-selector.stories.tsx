@@ -141,7 +141,12 @@ export const LabeledLevel: Story = {
     });
 
     await userEvent.click(trigger);
-    const slider = await within(document.body).findByRole("slider");
+    // The slider's chunk loads on the first open.
+    const slider = await within(document.body).findByRole(
+      "slider",
+      {},
+      { timeout: 5000 },
+    );
     slider.focus();
     // medium -> high -> xhigh
     await userEvent.keyboard("{ArrowRight}{ArrowRight}");
@@ -239,7 +244,12 @@ export const SelectsWithKeyboard: Story = {
     // By ROLE: the primitive renders a nested `<input type="range">`, whose
     // implicit role is `slider` — querying the role survives a markup change
     // that a tag selector would not.
-    const slider = await within(document.body).findByRole("slider");
+    // Its chunk loads on the first open.
+    const slider = await within(document.body).findByRole(
+      "slider",
+      {},
+      { timeout: 5000 },
+    );
 
     slider.focus();
     // One step toward "Smarter" — medium -> high in the configured order.

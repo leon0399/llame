@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import * as z from "zod";
+// The mini build: the full one is ~35 KB gzipped, most of these routes' JS.
+import * as z from "zod/mini";
 
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -28,15 +29,21 @@ import { useQueryClient } from "@tanstack/react-query";
 
 const registerSchema = z
   .object({
-    name: z.string().min(2, "Name must be at least 2 characters"),
+    name: z
+      .string()
+      .check(z.minLength(2, "Name must be at least 2 characters")),
     email: z.email("Invalid email address"),
-    password: z.string().min(8, "Password must be at least 8 characters"),
+    password: z
+      .string()
+      .check(z.minLength(8, "Password must be at least 8 characters")),
     confirmPassword: z.string(),
   })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ["confirmPassword"],
-  });
+  .check(
+    z.refine((data) => data.password === data.confirmPassword, {
+      message: "Passwords don't match",
+      path: ["confirmPassword"],
+    }),
+  );
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
 

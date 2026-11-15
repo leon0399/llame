@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-10-28
 
+- The web app loads in about half the time on a weak connection. Measured
+  on a production build with a 30-message chat of headings, code, and
+  tables, from an empty cache: the transcript appears in 5.1 s instead of
+  10.6 s on throttled desktop (1.6 Mbit/s, 150 ms) and in 10.3 s instead of
+  23.9 s on a throttled phone (750 kbit/s, 300 ms, 4× CPU), and a chat page
+  transfers 0.87 MB instead of 2.0 MB; the sign-in page drops from 1.2 MB to
+  0.27 MB. The ten selectable fonts are no longer preloaded on every page
+  (850 KB); the browser fetches only the face in use. The Sentry browser SDK
+  loads after the page and only when `NEXT_PUBLIC_SENTRY_DSN` is set, so an
+  error before then is not reported. Mermaid, KaTeX, and the code
+  highlighter load the first time a message needs them, instead of before
+  any transcript shows; the command palette, the model list, the effort
+  slider, and the drag-to-reorder lists load on first use; the sign-in forms
+  validate with `zod/mini`; and the Markdown renderer starts downloading
+  while the chat page hydrates. Tool output highlights with Shiki's
+  JavaScript engine instead of its 230 KB WebAssembly one. `motion` and
+  `@streamdown/mermaid` are removed.
+
 - **BREAKING: an unstored image or PDF read is now kept until compaction.**
   `read` used to keep a read image or PDF only in the reading attempt's
   memory: the rest of the turn saw it, and every later request — a later turn,

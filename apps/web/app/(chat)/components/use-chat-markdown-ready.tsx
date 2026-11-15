@@ -38,8 +38,10 @@ let loadPromise: Promise<ChatMarkdownRenderers> | null = null;
 let loadOverride: (() => Promise<ChatMarkdownRenderers>) | null = null;
 
 function loadChatMarkdownRenderers(): Promise<ChatMarkdownRenderers> {
-  if (cachedRenderers) return Promise.resolve(cachedRenderers);
-  loadPromise ??= loadOverride
+  // An override (stories) wins over a cache the eager load may fill later.
+  if (cachedRenderers && !loadOverride) return Promise.resolve(cachedRenderers);
+  if (loadPromise) return loadPromise;
+  const load = loadOverride
     ? loadOverride()
     : Promise.all([
         import("@workspace/ui/components/ai-elements/message-response"),
@@ -52,7 +54,20 @@ function loadChatMarkdownRenderers(): Promise<ChatMarkdownRenderers> {
         cachedRenderers = loaded;
         return loaded;
       });
-  return loadPromise;
+  loadPromise = load;
+  // A failed chunk fetch (deploy skew, offline) is not cached, so the next
+  // load — the provider's mount or its retry — starts a fresh import.
+  load.catch(() => {
+    if (loadPromise === load) loadPromise = null;
+  });
+  return load;
+}
+
+// Start the fetch when the chat UI's code evaluates, so it downloads while the
+// page hydrates instead of after the provider mounts. Unit tests swap the
+// loader after import, so they keep the mount-time load.
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "test") {
+  loadChatMarkdownRenderers();
 }
 
 function useChatMarkdownLoad(): ChatMarkdownLoadState {

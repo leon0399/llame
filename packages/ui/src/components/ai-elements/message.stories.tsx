@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { CopyIcon, RefreshCcwIcon } from "lucide-react";
-import { expect, fn } from "storybook/test";
+import { expect, fn, waitFor } from "storybook/test";
 
 import {
   Message,
@@ -176,7 +176,11 @@ export const MathDelimiters: Story = {
   },
   play: async ({ canvasElement }) => {
     // Four formulas: `$…$`, `$$…$$`, `\(…\)`, `\[…\]` — and nothing below them.
-    await expect(canvasElement.querySelectorAll(".katex")).toHaveLength(4);
+    // KaTeX loads on demand, so the formulas arrive after the first render.
+    await waitFor(
+      () => expect(canvasElement.querySelectorAll(".katex")).toHaveLength(4),
+      { timeout: 5000 },
+    );
     // `$$…$$` and `\[…\]` are the two that must render centered, full-size.
     await expect(canvasElement.querySelectorAll(".katex-display")).toHaveLength(
       2,

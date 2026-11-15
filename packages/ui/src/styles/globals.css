@@ -14,7 +14,6 @@
 @source "../../node_modules/streamdown/dist/*.js";
 @source "../../node_modules/@streamdown/code/dist/*.js";
 @source "../../node_modules/@streamdown/math/dist/*.js";
-@source "../../node_modules/@streamdown/mermaid/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -220,6 +219,21 @@
    untrimmed line box. */
 @utility text-trim-cap {
   text-box: trim-both cap alphabetic;
+}
+
+/* The Shimmer sweep: the highlight layer travels right to left across the
+   text. `--shimmer-duration` is set by the component. */
+@keyframes text-shimmer {
+  from {
+    background-position: 100% center;
+  }
+  to {
+    background-position: 0% center;
+  }
+}
+
+@utility animate-text-shimmer {
+  animation: text-shimmer var(--shimmer-duration, 2s) linear infinite;
 }
 
 @layer base {

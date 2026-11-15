@@ -89,12 +89,11 @@ const preBundledStoryDeps = [
   // pinned to apps/web's copy below.
   "js-cookie",
   // AI Elements stories: Streamdown markdown (message/reasoning), the
-  // reasoning collapsible's controllable-state hook, framer-motion (Shimmer),
-  // and Conversation's stick-to-bottom. Declared as storybook devDeps too so
-  // the bare specifiers resolve under pnpm's isolated node_modules.
+  // reasoning collapsible's controllable-state hook, and Conversation's
+  // stick-to-bottom. Declared as storybook devDeps too so the bare
+  // specifiers resolve under pnpm's isolated node_modules.
   "streamdown",
   "@radix-ui/react-use-controllable-state",
-  "motion/react",
   "use-stick-to-bottom",
   // The edit tool row's line and word diff.
   "diff",

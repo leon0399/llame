@@ -45,8 +45,17 @@ function sentRoutes() {
 async function loadedRail(canvasElement: HTMLElement) {
   const canvas = within(canvasElement);
   const user = await canvas.findByRole("button", { name: /Ada Lovelace/ });
-  await canvas.findByRole("link", { name: "Pinned chat 30" });
-  await expect(sentRoutes()).toEqual(["GET /api/v1/pins", "GET /auth/v1/me"]);
+  // The pinned list's chunk loads apart from the rail's.
+  await canvas.findByRole(
+    "link",
+    { name: "Pinned chat 30" },
+    { timeout: 5000 },
+  );
+  // The pinned list is code-split, so its request may follow the user's.
+  await expect([...sentRoutes()].sort()).toEqual([
+    "GET /api/v1/pins",
+    "GET /auth/v1/me",
+  ]);
   return { canvas, user };
 }
 

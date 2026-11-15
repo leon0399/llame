@@ -1,5 +1,6 @@
 "use client";
 
+import { lazy, Suspense } from "react";
 import { PanelRightIcon, XIcon } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -31,14 +32,27 @@ import {
   DemoContextSection,
   DemoContextSummary,
 } from "./demo-sections";
-import type { SessionDetailsLayout } from "./details-cookie";
+import type {
+  SessionDetailsLayout,
+  SessionDetailsSectionId,
+} from "./details-cookie";
 import {
   EnvironmentSection,
   environmentSummary,
   type EnvironmentCheckout,
   type EnvironmentSectionProps,
 } from "./environment-section";
-import { SectionList } from "./section-list";
+import {
+  StaticSectionList,
+  useSectionLayout,
+  type SectionView,
+} from "./section-layout";
+
+// framer-motion only powers the drag-to-reorder, so it stays out of the
+// first-load bundle; the static list renders the same sections meanwhile.
+const SectionList = lazy(() =>
+  import("./section-list").then((module) => ({ default: module.SectionList })),
+);
 
 const DETAILS_TITLE = "Session details";
 const SHOW_LABEL = "Show session details";
@@ -148,33 +162,36 @@ function SessionDetailsBody({
   layout: SessionDetailsLayout;
 }) {
   const environment = useEnvironment(chatId);
+  const state = useSectionLayout(layout);
+  const sections: Record<SessionDetailsSectionId, SectionView> = {
+    environment: {
+      title: "Environment",
+      summary: environmentSummary(environment),
+      content: <EnvironmentSection {...environment} />,
+    },
+    // TODO(#1355): replace the demo with the chat's real context usage.
+    context: {
+      title: "Context",
+      badge: <DemoChip />,
+      summary: <DemoContextSummary />,
+      content: <DemoContextSection />,
+    },
+    // TODO(#1356): replace the demo with the chat's real changes.
+    changes: {
+      title: "Changes",
+      badge: <DemoChip />,
+      summary: "1 pull request",
+      content: <DemoChangesSection />,
+    },
+  };
 
   return (
     <SidebarContent>
-      <SectionList
-        initialLayout={layout}
-        sections={{
-          environment: {
-            title: "Environment",
-            summary: environmentSummary(environment),
-            content: <EnvironmentSection {...environment} />,
-          },
-          // TODO(#1355): replace the demo with the chat's real context usage.
-          context: {
-            title: "Context",
-            badge: <DemoChip />,
-            summary: <DemoContextSummary />,
-            content: <DemoContextSection />,
-          },
-          // TODO(#1356): replace the demo with the chat's real changes.
-          changes: {
-            title: "Changes",
-            badge: <DemoChip />,
-            summary: "1 pull request",
-            content: <DemoChangesSection />,
-          },
-        }}
-      />
+      <Suspense
+        fallback={<StaticSectionList state={state} sections={sections} />}
+      >
+        <SectionList state={state} sections={sections} />
+      </Suspense>
     </SidebarContent>
   );
 }

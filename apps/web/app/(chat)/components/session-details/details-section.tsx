@@ -23,8 +23,9 @@ function SectionDragHandle({
   dragControls,
 }: {
   title: string;
-  dragControls: DragControls;
+  dragControls: DragControls | undefined;
 }) {
+  if (!dragControls) return null;
   return (
     <Button
       type="button"
@@ -118,7 +119,8 @@ export function DetailsSection({
   summary: ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  dragControls: DragControls;
+  /** Absent until the draggable list's chunk loads; no handle until then. */
+  dragControls?: DragControls;
   children: ReactNode;
 }) {
   const fold = useFoldAnimation(onOpenChange);

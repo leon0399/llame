@@ -5,7 +5,8 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import * as z from "zod";
+// The mini build: the full one is ~35 KB gzipped, most of these routes' JS.
+import * as z from "zod/mini";
 
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
@@ -34,7 +35,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 const loginSchema = z.object({
   email: z.email("Invalid email address"),
-  password: z.string().min(1, "Password is required"),
+  password: z.string().check(z.minLength(1, "Password is required")),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;

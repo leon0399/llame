@@ -50,7 +50,7 @@ const regexTokenElement = (source: string): HastNode => ({
 
 const regexTokenNode = (source: string): MdNode => ({
   // Unknown mdast type; `mdast-util-to-hast` renders it from `data`, the same
-  // route the synthesized math nodes above in `streamdown-plugins.tsx` take.
+  // route the synthesized math nodes in `streamdown-math.tsx` take.
   type: "regexToken",
   data: {
     hName: REGEX_TOKEN_TAG,

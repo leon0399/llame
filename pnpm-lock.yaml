@@ -236,9 +236,6 @@ catalogs:
     lucide-react:
       specifier: ^1.22.0
       version: 1.22.0
-    motion:
-      specifier: ^12.23.0
-      version: 12.23.0
     next:
       specifier: ~16.4.1
       version: 16.4.2
@@ -779,9 +776,6 @@ importers:
       mermaid:
         specifier: 11.16.1
         version: 11.16.1
-      motion:
-        specifier: 'catalog:'
-        version: 12.23.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       next-themes:
         specifier: 'catalog:'
         version: 0.4.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -1233,9 +1227,6 @@ importers:
       '@streamdown/math':
         specifier: 1.0.2
         version: 1.0.2(react@19.2.7)(supports-color@8.1.1)
-      '@streamdown/mermaid':
-        specifier: 1.0.2
-        version: 1.0.2(react@19.2.7)
       '@tailwindcss/typography':
         specifier: 'catalog:'
         version: 0.5.16(tailwindcss@4.3.2)
@@ -1263,12 +1254,12 @@ importers:
       marked:
         specifier: ^16.4.2
         version: 16.4.2
+      mermaid:
+        specifier: 11.16.1
+        version: 11.16.1
       micromark-util-decode-string:
         specifier: ^2.0.1
         version: 2.0.1
-      motion:
-        specifier: 'catalog:'
-        version: 12.23.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       next-themes:
         specifier: 'catalog:'
         version: 0.4.4(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5035,11 +5026,6 @@ packages:
 
   '@streamdown/math@1.0.2':
     resolution: {integrity: sha512-r8Ur9/lBuFnzZAFdEWrLUF2s/gRwRRRwruqltdZibyjbCBnuW7SJbFm26nXqvpJPW/gzpBUMrBVBzd88z05D5g==}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0
-
-  '@streamdown/mermaid@1.0.2':
-    resolution: {integrity: sha512-Fr/4sBWnAeSnxM3PcrV/+DiZe5oPMq9gOkUIAH7ZauJeuwrZ/DVzD4g0zlav6AH0axh2m/sOfrfLtY5aLT7niw==}
     peerDependencies:
       react: ^18.0.0 || ^19.0.0
 
@@ -8898,20 +8884,6 @@ packages:
 
   motion-utils@12.23.6:
     resolution: {integrity: sha512-eAWoPgr4eFEOFfg2WjIsMoqJTW6Z8MTUCgn/GZ3VRpClWBdnbjryiA3ZSNLyxCTmCQx4RmYX6jX1iWHbenUPNQ==}
-
-  motion@12.23.0:
-    resolution: {integrity: sha512-PPNwblArRH9GRC4F3KtOTiIaYd+mtp324vYq3HIL+ueseoAVqPRK5TPFTAQBcIprfVd0NWo3DLzZSiyWaYFXXQ==}
-    peerDependencies:
-      '@emotion/is-prop-valid': '*'
-      react: ^18.0.0 || ^19.0.0
-      react-dom: ^18.0.0 || ^19.0.0
-    peerDependenciesMeta:
-      '@emotion/is-prop-valid':
-        optional: true
-      react:
-        optional: true
-      react-dom:
-        optional: true
 
   mrmime@2.0.1:
     resolution: {integrity: sha512-Y3wQdFg2Va6etvQ5I82yUhGdsKrcYox6p7FfL1LbK2J4V01F9TGlepTIhnK24t7koZibmg82KGglhA1XK5IsLQ==}
@@ -14383,11 +14355,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@streamdown/mermaid@1.0.2(react@19.2.7)':
-    dependencies:
-      mermaid: 11.16.1
-      react: 19.2.7
-
   '@stryker-mutator/api@9.6.1':
     dependencies:
       mutation-testing-metrics: 3.7.3
@@ -18740,14 +18707,6 @@ snapshots:
       motion-utils: 12.23.6
 
   motion-utils@12.23.6: {}
-
-  motion@12.23.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7):
-    dependencies:
-      framer-motion: 12.23.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      tslib: 2.8.1
-    optionalDependencies:
-      react: 19.2.7
-      react-dom: 19.2.7(react@19.2.7)
 
   mrmime@2.0.1: {}
 

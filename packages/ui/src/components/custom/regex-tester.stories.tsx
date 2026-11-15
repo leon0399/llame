@@ -83,27 +83,31 @@ export const CodeBlockLiteral: Story = {
       "```",
   },
   play: async ({ canvasElement }) => {
-    await waitFor(() => {
-      const marked = canvasElement.querySelectorAll("[data-regex-token]");
-      expect(marked.length).toBeGreaterThan(0);
+    // The highlighter loads on the first code block, then tokenizes.
+    await waitFor(
+      () => {
+        const marked = canvasElement.querySelectorAll("[data-regex-token]");
+        expect(marked.length).toBeGreaterThan(0);
 
-      const sources = new Set(
-        [...marked].map((span) => span.getAttribute("data-regex-token")),
-      );
-      expect([...sources]).toEqual([SLUG_LITERAL]);
+        const sources = new Set(
+          [...marked].map((span) => span.getAttribute("data-regex-token")),
+        );
+        expect([...sources]).toEqual([SLUG_LITERAL]);
 
-      // The marked spans must cover the literal *exactly*: a literal spans
-      // several Shiki tokens, so decoration that split or skipped one of them
-      // would still report the right source above while underlining less
-      // than the whole literal — or more of the line than belongs to it.
-      expect([...marked].map((span) => span.textContent).join("")).toBe(
-        SLUG_LITERAL,
-      );
+        // The marked spans must cover the literal *exactly*: a literal spans
+        // several Shiki tokens, so decoration that split or skipped one of them
+        // would still report the right source above while underlining less
+        // than the whole literal — or more of the line than belongs to it.
+        expect([...marked].map((span) => span.textContent).join("")).toBe(
+          SLUG_LITERAL,
+        );
 
-      for (const span of marked) {
-        expect(span.textContent).not.toContain("height");
-      }
-    });
+        for (const span of marked) {
+          expect(span.textContent).not.toContain("height");
+        }
+      },
+      { timeout: 5000 },
+    );
   },
 };
 

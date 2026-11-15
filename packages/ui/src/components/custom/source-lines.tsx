@@ -6,12 +6,10 @@ import {
   useEffect,
   useState,
 } from "react";
-import {
-  type BundledLanguage,
-  bundledLanguages,
-  codeToTokens,
-  type ThemedToken,
-} from "shiki";
+import type { BundledLanguage, ThemedToken } from "shiki";
+// The grammar table alone, without Shiki's highlighter core: the core is
+// code-split below so it stays out of the first-load bundle.
+import { bundledLanguages } from "shiki/langs";
 
 import { ScrollRegion } from "@workspace/ui/components/custom/scroll-region";
 import { cn } from "@workspace/ui/lib/utils";
@@ -90,22 +88,26 @@ function useHighlightedTokens(
     if (language === undefined) return;
     // Ignore a stale result that resolves after `code` changed.
     let active = true;
-    codeToTokens(code, {
-      lang: language,
-      // High-contrast palettes keep every token at WCAG AA on the muted
-      // panel; the transcript's one-light/one-dark-pro code blocks do not.
-      themes: {
-        light: "github-light-high-contrast",
-        dark: "github-dark-high-contrast",
-      },
-    }).then(
-      ({ tokens }) => {
-        if (active) setState({ code, language, tokens });
-      },
-      () => {
-        if (active) setState(null);
-      },
-    );
+    void import("@workspace/ui/lib/shiki")
+      .then(({ codeToTokens }) =>
+        codeToTokens(code, {
+          lang: language,
+          // High-contrast palettes keep every token at WCAG AA on the muted
+          // panel; the transcript's one-light/one-dark-pro code blocks do not.
+          themes: {
+            light: "github-light-high-contrast",
+            dark: "github-dark-high-contrast",
+          },
+        }),
+      )
+      .then(
+        ({ tokens }) => {
+          if (active) setState({ code, language, tokens });
+        },
+        () => {
+          if (active) setState(null);
+        },
+      );
     return () => {
       active = false;
     };

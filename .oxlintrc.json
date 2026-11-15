@@ -63,6 +63,8 @@
           "apps/api/src/worker.ts",
           "apps/api/vitest.integration.global-setup.mts",
           "apps/api/vitest.integration.setup.ts",
+          "apps/web/app/(chat)/components/use-chat-markdown-ready.tsx",
+          "apps/web/app/global-error.tsx",
           "apps/web/components/sidebar-row-title.tsx",
           "apps/web/instrumentation-client.ts",
           "apps/web/instrumentation.ts",

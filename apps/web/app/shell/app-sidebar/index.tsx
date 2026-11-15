@@ -1,5 +1,6 @@
 "use client";
 
+import { lazy, Suspense } from "react";
 import {
   Sidebar,
   SidebarHeader,
@@ -18,8 +19,16 @@ import { PanelLeftIcon } from "lucide-react";
 import { topBarClasses } from "../top-bar";
 import { AppSidebarAdminEntry } from "./app-sidebar-admin-entry";
 import { AppSidebarNav } from "./app-sidebar-nav";
-import { AppSidebarPinned } from "./app-sidebar-pinned";
 import { AppSidebarUser } from "./app-sidebar-user";
+
+// The pinned list's drag-to-reorder needs framer-motion; loading it apart
+// keeps that library out of every page's first-load bundle. Pins arrive from
+// a client query anyway, so the section shows up with its data.
+const AppSidebarPinned = lazy(() =>
+  import("./app-sidebar-pinned").then((module) => ({
+    default: module.AppSidebarPinned,
+  })),
+);
 
 export {
   SidebarInset,
@@ -122,7 +131,9 @@ export function AppSidebar({
         {/* The rail's mixed chats+projects "Pinned" section (AppShell.dc.html),
             between the nav and the bottom-pinned admin entry. Hides itself when
             the caller has no pins, so it adds no chrome for a fresh account. */}
-        <AppSidebarPinned />
+        <Suspense fallback={null}>
+          <AppSidebarPinned />
+        </Suspense>
 
         {/* Route-group-specific mobile fallback content (e.g. the chat list,
             desktop-only otherwise) — never rendered when the caller has none. */}

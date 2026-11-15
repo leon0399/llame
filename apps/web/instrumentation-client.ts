@@ -1,40 +1,49 @@
 // This file configures the initialization of Sentry on the client.
-// The added config here will be used whenever a users loads a page in their browser.
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
+//
+// The SDK with Replay is ~120 KB of gzipped JavaScript, so it is kept off the
+// first-load path: it is fetched after the window `load` event, and not at all
+// when no DSN is configured. Errors thrown before it loads are not reported.
 
-import * as Sentry from "@sentry/nextjs";
+import type * as SentrySdk from "@sentry/nextjs";
 
 import { getApiUrl } from "@/lib/api/fetch";
 
-Sentry.init({
-  // Unset disables reporting.
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-  // The deployment names itself; a production build (`next build`, E2E,
-  // worktrees) is not a production deployment, so NODE_ENV is not used.
-  environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || "local",
+type SentryModule = typeof SentrySdk;
 
-  // Add optional integrations for additional features
-  integrations: [
-    Sentry.replayIntegration(),
-    Sentry.consoleLoggingIntegration({ levels: ["log", "error", "warn"] }),
-  ],
+let sentry: SentryModule | undefined;
 
-  // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
-  tracesSampleRate: 1,
-  // The API is another origin, so its requests carry the browser's trace
-  // headers only when listed here; the API continues that trace.
-  tracePropagationTargets: [getApiUrl()],
+async function startSentry(): Promise<void> {
+  // Code-split on purpose: a static import would put the SDK in every route's
+  // first-load bundle.
+  const sdk = await import("@sentry/nextjs");
+  sdk.init({
+    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+    // The deployment names itself; a production build (`next build`, E2E,
+    // worktrees) is not a production deployment, so NODE_ENV is not used.
+    environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || "local",
+    integrations: [
+      sdk.replayIntegration(),
+      sdk.consoleLoggingIntegration({ levels: ["log", "error", "warn"] }),
+    ],
+    tracesSampleRate: 1,
+    // The API is another origin, so its requests carry the browser's trace
+    // headers only when listed here; the API continues that trace.
+    tracePropagationTargets: [getApiUrl()],
+    replaysSessionSampleRate: 0.1,
+    replaysOnErrorSampleRate: 1.0,
+    debug: false,
+  });
+  sentry = sdk;
+}
 
-  // Define how likely Replay events are sampled.
-  // This sets the sample rate to be 10%. You may want this to be 100% while
-  // in development and sample at a lower rate in production
-  replaysSessionSampleRate: 0.1,
+if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+  if (document.readyState === "complete") {
+    void startSentry();
+  } else {
+    window.addEventListener("load", () => void startSentry(), { once: true });
+  }
+}
 
-  // Define how likely Replay events are sampled when an error occurs.
-  replaysOnErrorSampleRate: 1.0,
-
-  // Setting this option to true will print useful information to the console while you're setting up Sentry.
-  debug: false,
-});
-
-export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
+export const onRouterTransitionStart: SentryModule["captureRouterTransitionStart"] =
+  (...args) => sentry?.captureRouterTransitionStart(...args);

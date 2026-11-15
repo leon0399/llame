@@ -1,48 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 
-import {
-  SESSION_DETAILS_LAYOUT_COOKIE,
-  type SessionDetailsLayout,
-  type SessionDetailsSectionId,
-} from "./details-cookie";
+import type { SessionDetailsSectionId } from "./details-cookie";
 import { DetailsSection } from "./details-section";
-
-const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
-
-export interface SectionView {
-  title: string;
-  badge?: ReactNode;
-  summary: ReactNode;
-  content: ReactNode;
-}
-
-function writeLayout(layout: SessionDetailsLayout) {
-  document.cookie = `${SESSION_DETAILS_LAYOUT_COOKIE}=${encodeURIComponent(JSON.stringify(layout))}; path=/; max-age=${String(COOKIE_MAX_AGE_SECONDS)}`;
-}
-
-/** The sections' order and folds, remembered in a cookie the server reads. */
-function useSectionLayout(initial: SessionDetailsLayout) {
-  const [layout, setLayout] = useState(initial);
-
-  const update = useCallback((next: SessionDetailsLayout) => {
-    setLayout(next);
-    writeLayout(next);
-  }, []);
-
-  return {
-    layout,
-    setOrder: (order: Array<SessionDetailsSectionId>) =>
-      update({ ...layout, order }),
-    setOpen: (id: SessionDetailsSectionId, open: boolean) => {
-      const collapsed = layout.collapsed.filter((entry) => entry !== id);
-      update({ ...layout, collapsed: open ? collapsed : [...collapsed, id] });
-    },
-  };
-}
+import type { SectionListProps, SectionView } from "./section-layout";
 
 /** How long a dropped section takes to settle into its slot. */
 const SETTLE_MS = 300;
@@ -121,14 +84,8 @@ function useReordering(): ReorderingState {
 
 /** The session details sections, full width in the user's order, each
  *  foldable and draggable by its title row's handle. */
-export function SectionList({
-  initialLayout,
-  sections,
-}: {
-  initialLayout: SessionDetailsLayout;
-  sections: Record<SessionDetailsSectionId, SectionView>;
-}) {
-  const { layout, setOrder, setOpen } = useSectionLayout(initialLayout);
+export function SectionList({ state, sections }: SectionListProps) {
+  const { layout, setOrder, setOpen } = state;
   const reordering = useReordering();
 
   return (

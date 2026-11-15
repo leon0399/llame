@@ -95,7 +95,9 @@ and stack traces are sent as written; llame does not put secrets in errors or
 logs.
 
 The web app keeps its own SDK defaults, including Session Replay with text
-masked.
+masked. The browser fetches the SDK after the page's `load` event and only
+when `NEXT_PUBLIC_SENTRY_DSN` is set, so it adds nothing to page load. An
+error thrown before the SDK has loaded is not reported.
 
 ## Machine daemon
 

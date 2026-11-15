@@ -1,6 +1,5 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
 import NextError from "next/error";
 import { useEffect } from "react";
 
@@ -10,7 +9,13 @@ export default function GlobalError({
   error: Error & { digest?: string };
 }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    // Code-split on purpose so the SDK stays out of the first-load bundle;
+    // this is the instance instrumentation-client.ts initialized, if any.
+    if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
+      void import("@sentry/nextjs").then((sentry) => {
+        sentry.captureException(error);
+      });
+    }
   }, [error]);
 
   return (
