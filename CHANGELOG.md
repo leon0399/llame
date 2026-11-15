@@ -31,6 +31,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   the matching release. Do not automatically roll back to the old release or
   edit/re-stamp ledger rows after a failure; investigate the ledger and restore
   from backup if required.
+  Transactional pg-boss publication decodes its serialized JSON batch before
+  Drizzle binds it, preserving job payloads and caller transaction rollback.
 
 - **Keep Chat stories in sync with background-job polling (#1657).** Open
   Chat stories serve an empty jobs list while retaining the strict unrouted
