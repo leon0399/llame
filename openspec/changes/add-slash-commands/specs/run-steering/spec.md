@@ -207,11 +207,11 @@ further model request. With only command items, the Run MUST complete after the 
 ### Requirement: The items delivered at one boundary form one user message
 
 All `owner` message items of one boundary MUST become one user message, in their order. Each
-`owner` item MUST give one text part and its own attachments to that message. The message MUST
-name the Chat owner as sender. Each delivered item MUST record the id of its message. The
-`notice` items of that boundary MUST become `job` context items of the same message, in their
-order. When a boundary delivers no `owner` item, its `notice` items MUST go into one host message
-of `background-jobs`.
+message item MUST give one text part and its own attachments to that message. The message MUST
+name the Chat owner as sender. Each delivered message item and `notice` item MUST record the id of
+its message. The `notice` items of that boundary MUST become `job` context items of the same
+message, in their order. With no message item, its `notice` items MUST go into one host message of
+`background-jobs`.
 
 #### Scenario: Two steers at one boundary
 
@@ -257,9 +257,10 @@ segments.
 ### Requirement: A delivered message is a Run event
 
 Each delivery MUST append one `run.delivered` event. The event MUST name the delivered message, its
-items, and a `cause` of `steer`, `interrupt`, `notice`, or `compaction`. The cause is `notice` when
-the delivery holds only `notice` items and no interrupt stopped the step. The cause is `compaction`
-when a compaction stores the delivered message. The Run stream MUST end
+items, and a `cause`. The cause is `interrupt` when an interrupt stopped the step or an interrupt
+item is delivered. Otherwise it is `steer` when a message item is delivered, `compaction` when the
+boundary compacted, and `notice` in the last case. A boundary that compacted MUST also name its
+checkpoint. The Run stream MUST end
 its current segment at that event and name the delivered message.
 
 #### Scenario: A live client sees the delivery
@@ -276,7 +277,30 @@ its current segment at that event and name the delivered message.
 #### Scenario: A compaction names its cause
 
 - **WHEN** a Run compacts at a step boundary and continues with a host message
-- **THEN** the `run.delivered` event has the cause `compaction` and names that host message
+- **THEN** the `run.delivered` event has the cause `compaction`, and names that host message and the checkpoint
+
+#### Scenario: An interrupt compaction keeps its cause
+
+- **WHEN** the owner sends `/compact` as an interrupt during a tool call
+- **THEN** the `run.delivered` event has the cause `interrupt` and names the checkpoint
+- **AND** the closed reply records usage status `aborted` with `interrupted: true`
+
+### Requirement: Stop interrupts when steers are pending
+
+The Stop control and the Esc key MUST interrupt the Run when one or more `steer` message items are
+pending. A pending command item MUST NOT make them interrupt.
+Otherwise they MUST request cancellation of the Run. A draft in the composer MUST NOT change.
+
+#### Scenario: Esc twice stops everything
+
+- **WHEN** one steer and one queue item are pending, and the owner presses Esc
+- **THEN** the steer is delivered as an interrupt in the same Run
+- **AND** a second press after that delivery cancels the Run, and the queue item stays pending and paused
+
+#### Scenario: Stop with only a pending compact
+
+- **WHEN** only a `/compact` steer item is pending, and the owner presses Stop
+- **THEN** the Run is cancelled, and the `/compact` item stays pending and paused
 
 ## ADDED Requirements
 
@@ -285,7 +309,8 @@ its current segment at that event and name the delivered message.
 A command item is a pending `owner` item whose text is a `/compact` command. Other `owner` items are
 message items. A boundary that delivers one or more command items MUST compact the Run once, before
 it stores any delivered message. It MUST use the focus of the first command item. It MUST mark each
-command item delivered with no message.
+command item that the compaction read delivered with no message. A command item that arrives during
+the compaction MUST stay pending until the next boundary.
 
 #### Scenario: Two compact items at one boundary
 
@@ -297,12 +322,17 @@ command item delivered with no message.
 - **WHEN** the owner sends `/compact` and then a steer during one tool call
 - **THEN** the next boundary publishes a checkpoint and then stores the steer as a user message after it
 
+#### Scenario: A compact item withdrawn during the compaction
+
+- **WHEN** the owner withdraws the only `/compact` item while its boundary compaction runs
+- **THEN** the boundary publishes no checkpoint, and the Run continues as with no pending item
+
 ### Requirement: A compaction boundary stores a continue message
 
-A compaction at a step boundary can deliver no message item. The Run MUST then store one host
-message after the checkpoint and continue with it. That message MUST hold one `compaction` notice
-item, after the `interrupted` item and the `notice` items of the boundary. The Run stream MUST end
-the segment there.
+A step-boundary compaction can deliver no message item while the Run is mid-work. The Run MUST then
+store one host message after the checkpoint and continue with it. That message MUST hold one
+`compaction` notice item, after the `interrupted` item and the `notice` items of the boundary. At
+the final answer, a host message for notices MUST hold no `compaction` item.
 
 #### Scenario: A compaction in a tool loop continues the Run
 
@@ -315,6 +345,11 @@ the segment there.
 - **WHEN** a job settles while a step-boundary compaction runs
 - **THEN** the host message after the checkpoint holds the `job` item of that notice
 
+#### Scenario: A compact at the final answer with a pending notice
+
+- **WHEN** the owner sends `/compact` as a steer at the final answer, and a notice is pending
+- **THEN** a checkpoint absorbs the answer, and a host message after it holds the `job` item and no `compaction` item
+
 ### Requirement: Owner items during a compaction Run are queue items
 
 A compaction Run has no step boundary. During a compaction Run, the API MUST store every `owner`
@@ -326,3 +361,15 @@ item.
 - **WHEN** the owner sends a message with `delivery: "steer"` while a compaction Run is live
 - **THEN** the API answers 202 with a pending item in mode `queue`
 - **AND** the compaction Run ends with no user message
+
+### Requirement: A compact steer wakes a Run that waits
+
+A Run in `awaiting_jobs` has no live request. A command item that wakes it MUST compact before the
+first model request of the woken attempt. That compaction MUST use the request that the attempt
+prepared, and it MUST then continue as a step-boundary compaction does.
+
+#### Scenario: Compact during a job wait
+
+- **WHEN** a Run waits on a build job, and the owner sends `/compact` as a steer
+- **THEN** the Run wakes, compacts, and continues with a host message after the checkpoint
+- **AND** the build job keeps `running`

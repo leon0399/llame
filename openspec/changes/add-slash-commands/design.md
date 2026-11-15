@@ -260,8 +260,8 @@ it returns no model stream for the worker to drain. The branch:
 5. Publishes and completes in one transaction: it locks the Run, settles it `cancelled` with no
    checkpoint when a cancellation is recorded, and otherwise writes the checkpoint with its usage,
    re-bakes the digest and Workspace epoch state as `publishPreStepCompaction` does, and completes
-   the Run through `finishRunInTransaction` with no attempt, so steering and notice adoption are
-   skipped and its queue-identity fence holds. Queue promotion runs. When no queue item starts, the
+   the Run through `finishRunInTransaction` with the attempt id of its claim, so the attempt and
+   queue-identity fences hold. A `kind` check skips steering and notice adoption. Queue promotion runs. When no queue item starts, the
    idle-Chat notice rule of `background-jobs` runs for pending notices, and its first job is
    enqueued in the same transaction (`enqueueInTransaction`).
 
@@ -318,41 +318,60 @@ A pending command item in mode `steer` or `interrupt` is a pending steer or inte
 existing signal: `stepEndSignal` stops the loop, a foreground host command yields to a job, a `wait`
 returns `interrupted`, and an interrupt aborts the step. Only delivery changes.
 
-`deliverPendingSteering` parses the locked owner items. When one or more are command items, the
-fenced delivery transaction:
+At a boundary where the signal fired, the worker first reads the pending owner items in a short
+transaction and keeps the ids of the command items (the compaction set). With a non-empty set, it
+computes the summary (D12) outside any transaction. The fenced delivery transaction then locks the
+pending items again:
 
-1. Closes the reply of the segment: `completed` for a steer or automatic cause, and `aborted` with
-   `interrupted: true` for an interrupt, as `closeSegmentAndStore` does today.
-2. Publishes the checkpoint prepared before the transaction (D12). It absorbs every row above the
-   active checkpoint through the closed reply, and stores its usage and the focus of the first
-   command item. It re-bakes the digest, skill, and Workspace epoch state with the Workspace root
-   of the live attempt.
-3. Marks every command item delivered with no message.
-4. When message items are pending, stores them as the owner message after the checkpoint, as
-   today, and moves the Run to it with cause `steer` or `interrupt`. Otherwise, stores a host
-   message with the `interrupted` item (for an interrupt), the boundary's `notice` items, and one
-   `compaction` notice item, and moves the Run to it with cause `compaction`.
+1. When no item of the compaction set is still pending (the owner withdrew it), the summary is
+   discarded, and delivery runs as today without command items.
+2. Otherwise it closes the reply of the segment: `aborted` with `interrupted: true` when an
+   interrupt stopped the step or an interrupt item is locked, and `completed` otherwise, as
+   `closeSegmentAndStore` does today.
+3. It publishes the checkpoint through the closed reply, with its usage and the focus of the first
+   command item, and re-bakes the digest, skill, and Workspace epoch state with the Workspace root of
+   the live attempt.
+4. It marks the locked items of the compaction set delivered with no message. A command item that
+   arrived after the first read stays pending for the next boundary; it is never stored as a
+   message.
+5. When message items are locked, it stores them as the owner message after the checkpoint, as
+   today. Otherwise, mid-work, it stores a host message with the `interrupted` item (for an
+   interrupt), the locked `notice` items, and one `compaction` notice item. The Run moves to the
+   delivered message. The cause follows run-steering: `interrupt`, then `steer`, then `compaction`,
+   then `notice`. `run.delivered` names the checkpoint. Existing checks on `cause === 'interrupt'`
+   (`segment-delivery.ts:185`, `closedTelemetry`, `deliveredInterrupt`) keep working because an
+   interrupt compaction keeps the cause `interrupt`.
 
-At the final answer, `finishRun` does the same before it looks for message items. When only command
-items were pending, it publishes the checkpoint and completes the Run with no host message. The
-segment that a compaction starts carries the step count of the segment before it (`stepBase`),
-because a compaction is not new owner input.
+At the final answer, `finishRun` runs the same steps before it looks for message items. When only
+command items were locked, it publishes the checkpoint and completes the Run. Locked notices then go
+into a host message with no `compaction` item, and the Run continues for them as today.
+
+A Run in `awaiting_jobs` has no live request. A command item that wakes it is delivered by the wake
+path: the woken attempt prepares its request as a resumed segment does, then compacts before its
+first model request with that prepared request (D12), and continues as above.
+
+The segment that a compaction starts keeps the step budget of the segment before it. The step count
+of the next attempt is not changed. Instead, `run.delivered` records `stepBudgetUsed`, and the next
+attempt subtracts it from `maxStepsPerRun` when it builds its stop condition. A crash retry reads
+the same event, so it keeps the reduced budget. Receipt and step counts of each reply stay aligned,
+so usage completeness is unchanged.
 
 The `compaction` notice item uses the existing producer `compaction` with form `notice`. Its payload
 holds the quoted request: the text parts of the newest owner message of the Run, at most 4,000
-UTF-16 code units, neutralized. Its body is a packaged template: "The conversation was compacted.
-Continue your task from the checkpoint. The owner's current request was:" and the quote. It ranks
-after `job` (`context-injection`). The web host row renders it as a muted "Context compacted.
-Continuing." notice; search, titles, previews, and the public view ignore it, because it is a
-`data-context` part.
+UTF-16 code units, neutralized. A Run with no owner message, such as a notice-started Run, has no
+quote. Its body is a packaged template: "The conversation was compacted. Continue your task from
+the checkpoint. The owner's current request was:" and the quote. It ranks after `job`
+(`context-injection`). The web host row renders it as a muted "Context compacted. Continuing."
+notice. Search, titles, previews, and the public view ignore it, because it is a `data-context`
+part.
 
 ### D12: The summary request of a step-boundary compaction
 
-The summary is computed before the delivery transaction, outside it, and the transaction then
-checks the attempt fence again. The request:
+The request:
 
 - uses the live client, system prompt, schema-only tool declarations, and effort of the attempt,
-  with the existing `toolChoice: 'none'`;
+  with the existing `toolChoice: 'none'`. After a wake, it uses the request that the woken attempt
+  prepared;
 - replays the absorbed rows through the stored projection (`buildContext`). The closed reply comes
   from the part collector through `projectStoredReplyParts`, because the stored reply row is stale
   at a boundary and the next segment rebuilds from stored rows;
@@ -360,10 +379,10 @@ checks the attempt fence again. The request:
   `instruction.md:18`), and the focus paragraph when a command item has a focus.
 
 `CompactionService` gains a `boundary` variant with an explicit absorbed range (`uptoSeq` of the
-closed reply) instead of `triggeringUserSeq`. A failed or empty summary returns `null`. The
-delivery then marks the command items delivered, appends a `run.compaction_failed` event that the
-web shows inline, and continues as `deliverPendingSteering` would with no command item. An abort
-from cancellation or interrupt rethrows, as today.
+closed reply) instead of `triggeringUserSeq`. A failed or empty summary returns `null`. The delivery
+then marks the compaction set delivered, appends `run.compaction_failed`, and continues as
+`deliverPendingSteering` would with no command item. The summary runs after the step closed, so only
+a Run cancellation can abort it; the delivery transaction then settles the Run `cancelled` as today.
 
 The summary request is a strict prefix of the live request plus one instruction. That is the best
 case for the prompt cache, except on the Messages wire (D14).
@@ -372,22 +391,24 @@ case for the prompt cache, except on the Messages wire (D14).
 
 `stopWhenExtra` gains a third cause, `compact`. After a step that called tools, the worker measures
 the next request: the context tokens of the latest request receipt, plus `estimateModelRequestTokens`
-of that step's tool results. When the measure reaches `resolveCompactionThreshold` of the Run model,
-the boundary compacts as in D11, with no command item, cause `compaction`, and no focus. A final
-answer never compacts automatically.
+of that step's tool results. Without a receipt that reports a context size, it estimates the whole
+next request. When the measure reaches `resolveCompactionThreshold` of the Run model, the boundary
+compacts as in D11, with an empty compaction set, cause `compaction`, and no focus. A final answer
+never compacts automatically.
 
-The progress guard is per-attempt state in the worker:
+The guard is durable, because every compaction starts a new attempt:
 
-- no automatic compaction before one model step after the previous compaction of the Run;
-- no automatic compaction when the absorbed range is empty;
-- after an automatic compaction, the measure of the first request is compared with the threshold.
-  When it still reaches the threshold, automatic compaction stops for the rest of the Run, and a
-  `run.compaction_disabled` event tells the web. An owner command still compacts.
+- the attempt that a compaction starts (cause `compaction`, or a `run.delivered` that names a
+  checkpoint) does not compact automatically before its first boundary;
+- no automatic compaction runs when the absorbed range is empty;
+- the attempt that a compaction starts compares the receipt of its first request with the
+  threshold. When it still reaches the threshold, the worker appends `run.compaction_disabled`;
+- a failed automatic compaction also appends `run.compaction_disabled`;
+- each attempt reads `run.compaction_disabled` from the Run log at its start, so the stop holds for
+  every later segment, a wake, and a crash retry. An owner command still compacts.
 
-There is no count limit. The guard does not survive a crash retry; a retried segment starts with
-the guard open, which costs at most one more compaction.
-
-The image-overflow condition stays a pre-step condition (`media-attachments`).
+There is no count limit. The image-overflow condition stays a pre-step condition
+(`media-attachments`).
 
 ### D14: The Anthropic tool-drop finding stays out of scope
 
@@ -410,14 +431,15 @@ Interrupt now hidden while a compaction Run is live; a command item labelled "Co
 compaction Run opens an assistant message with the Run id; the web drops that message when
 `latestRun.kind` is `compaction`. The web refetches history when the Run ends, so the boundary
 appears. `compaction-boundary.tsx` shows the focus under the summary. `run-kind` and
-`compact-in-run` regenerate the live AsyncAPI modules, because the generated live parsers strip
+`compact-queue` regenerate the live AsyncAPI modules, because the generated live parsers strip
 unknown keys such as `kind` and `command`.
 
 A mid-turn compaction reaches the web as a `run.delivered` event with cause `compaction`. The
 hand-off then attaches the next segment to the host message, as for a notice. The boundary renders
 before the host message, and the host row renders the continue notice. A
-`run.compaction_failed` or `run.compaction_disabled` event renders as a muted inline note on the
-live reply.
+`run.compaction_failed` or `run.compaction_disabled` event becomes a persisted part of the live
+reply, as `run.step_cap_reached` does, and the stream bridge sends it, so the note survives a
+reload. The web renders it as a muted inline note.
 
 ## Risks / Trade-offs
 
@@ -434,9 +456,11 @@ live reply.
   request; the instruction carries the task.
 - [A `/compact` sent during a job wait] → as a steer it wakes the Run; as a queue item it waits for
   the Run, as any queue item does.
-- [Layers above the review target] → `commands` and `compact-in-run` are over 2,000 authored lines
-  and stay whole, because each is one mergeable behavior (CONTRIBUTING now treats the number as a
-  target).
+- [Layers above the review target] → `commands`, `compact-run`, and `compact-in-run` are over 2,000
+  authored lines and stay whole, because each is one mergeable behavior. CONTRIBUTING treats the
+  number as a target. Queue mode is split out as `compact-queue`.
+- [A compaction runs for many seconds at a boundary] → steers and notices that arrive meanwhile are
+  delivered after the checkpoint at the same boundary; a new `/compact` waits for the next one.
 - [Two first sends race to one new Chat id] → accepted (D1).
 
 ## Migration Plan
@@ -448,6 +472,24 @@ in D6 first. Reverting `compact-in-run` leaves host messages with a `compaction`
 replay test that an item it cannot render is skipped, so the continuation reply stays readable. Drop `runs.kind` only after no compaction Run is live.
 
 ## Revision history
+
+- **r4 (2026-11-15):** Round 3 on the redesign, two reviewers (spec consistency: 4 P1, 13 P2;
+  feasibility: 5 P1, 6 P2), each verified against code. Fixed:
+  - the progress guard is durable on the Run log, and a failed automatic compaction stops the trigger;
+  - a `/compact` steer during a job wait compacts in the woken attempt;
+  - the delivery cause has an order (`interrupt` wins), and `run.delivered` names the checkpoint;
+  - the command items are bound to the summary by a first read, and a withdrawn item discards it;
+  - the step budget is carried as `stepBudgetUsed`, not as a step offset;
+  - follow-ups are refused when a checkpoint absorbed the latest turn;
+  - the canonical host-message content rule is MODIFIED;
+  - a final-answer compaction stores no continue item, and a notice-started Run has no quote;
+  - Stop with only a pending `/compact` cancels;
+  - the new events persist in the reply;
+  - task layering is corrected, and queue mode is its own layer.
+
+  Rejected: R3-5, MODIFIED blocks for the pre-step trigger sentences of `run-usage-accounting` and
+  `available-models`. Those sentences describe the pre-step trigger and forbid nothing else, unlike
+  the `media-attachments` sentence that was MODIFIED; the readings hold.
 
 - **r3 (2026-11-15):** Rebased onto `05a426bd` (background jobs, Run suspension, CONTRIBUTING #1723,
   Drizzle RC5). Redesigned after grilling Q18-Q27:

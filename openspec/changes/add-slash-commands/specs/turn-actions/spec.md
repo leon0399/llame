@@ -29,7 +29,7 @@ history read.
 A follow-up Run is a Run that an owner starts on a user message that already has a Run. The owner
 MUST start it through `POST /api/v1/chats/:chatId/messages/:userMessageId/runs`. The message MUST
 be the user message with the highest `seq` of the Chat's user messages. The newest Run of the Chat
-MUST be a turn Run of that message. The Chat MUST NOT be
+MUST be a turn Run of that message. No checkpoint MUST absorb that message. The Chat MUST NOT be
 archived. The answer MUST be the same UI message stream that a chat send returns.
 
 #### Scenario: A follow-up request on the latest turn starts a Run
@@ -61,11 +61,16 @@ archived. The answer MUST be the same UI message stream that a chat send returns
 - **WHEN** the newest Run of a Chat is a compaction Run, and the owner sends a Regenerate request for the latest user message
 - **THEN** the API answers 409 and creates no Run
 
+#### Scenario: A follow-up after a compact at the final answer is refused
+
+- **WHEN** a turn Run compacted at its final answer and completed, and the owner sends a Regenerate request for its user message
+- **THEN** the API answers 409 and creates no Run
+
 ### Requirement: The latest turn shows Continue and Regenerate actions
 
-For a terminal turn `latestRun`, the web MUST show Regenerate on the latest turn. It MUST show
-Continue only when `latestRun` produced the reply and is `failed`, `cancelled`, or `expired`. The
-reply usage status MUST NOT be `completed`, and the reply MUST hold a settled tool part. A latest
+For a terminal turn `latestRun` of a turn that no checkpoint absorbed, the web MUST show
+Regenerate on the latest turn. It MUST show Continue only when `latestRun` produced the reply and
+is `failed`, `cancelled`, or `expired`. That reply is not `completed` and holds a settled tool part. A latest
 turn with no visible reply MUST then show a failed-turn row with the error of `latestRun` and
 Regenerate. Older turns MUST NOT show either action. Continue MUST send the composer's permission
 mode.
@@ -103,7 +108,7 @@ mode.
 
 #### Scenario: A compacted turn shows no action
 
-- **WHEN** a compaction Run absorbed the latest turn and completed
+- **WHEN** a compaction Run, or a compaction at the final answer, absorbed the latest turn
 - **THEN** the latest turn shows neither Continue nor Regenerate
 
 ## ADDED Requirements

@@ -76,7 +76,8 @@ rows, with the closed reply last. The summary instruction MUST be its last user 
 
 The `compaction` notice item of a continue message MUST tell the model that the conversation was
 compacted. It MUST tell the model to continue its task from the checkpoint. It MUST then quote the text of the
-newest owner message of the Run, at most 4,000 characters. It MUST NOT be a text part.
+newest owner message of the Run, at most 4,000 characters. A Run with no owner message gets no
+quote. The item MUST NOT be a text part.
 
 #### Scenario: The model sees the request after a compaction
 
@@ -97,9 +98,9 @@ failure as a Run event, and the web MUST show it in the transcript.
 
 ### Requirement: An automatic compaction runs at a step boundary
 
-At each step boundary where the Run takes another model step, the worker MUST measure the next
-request. The measure is the context size of the latest request plus the estimate of the rows of
-that step. When it reaches the compaction threshold of the Run model, the Run MUST compact at that
+After each step that called tools, the worker MUST measure the next request. The measure is the
+context size of the latest request plus the estimate of the tool results of that step. Without a
+reported context size, the worker MUST estimate the whole request. When it reaches the compaction threshold of the Run model, the Run MUST compact at that
 boundary.
 
 #### Scenario: A long tool loop compacts itself
@@ -115,9 +116,10 @@ boundary.
 ### Requirement: Automatic compaction stops when it makes no progress
 
 An automatic compaction MUST NOT run before one model step after the previous compaction of the
-Run. It MUST NOT run when there is no row to absorb. When the first request after a compaction is
-still at the threshold, automatic compaction MUST stop for the rest of the Run. An owner command
-MUST still compact.
+Run. It MUST NOT run when there is no row to absorb. Automatic compaction MUST stop for the rest of
+the Run when the first request after a compaction is still at the threshold. It MUST also stop when
+an automatic compaction fails. The stop MUST survive a new segment. An owner command MUST still
+compact.
 
 #### Scenario: Ten compactions in a long Run
 
@@ -129,6 +131,11 @@ MUST still compact.
 - **WHEN** the first request after an automatic compaction is still above the threshold
 - **THEN** the Run makes no further automatic compaction, and the transcript shows that
 - **AND** the owner can still compact with `/compact`
+
+#### Scenario: A failed automatic compaction stops the trigger
+
+- **WHEN** the summary request of an automatic compaction fails
+- **THEN** the Run continues, and no later boundary of that Run compacts automatically
 
 ### Requirement: A compaction focus is a bounded paragraph after the summary instruction
 

@@ -27,8 +27,8 @@ first step boundary.
 
 A host message is a stored message with the wire role `user`, no sender, and no text part. Its
 only parts are context items of the producers `interrupted`, `job`, and `compaction`. The system
-MUST store a host message when notices are delivered and no owner message carries them, and when a
-step-boundary compaction continues a Run. The history read MUST mark a host message. A host
+MUST store a host message when notices are delivered and no owner message carries them. It MUST
+also store one when a compaction continues a Run with no message item. The history read MUST mark a host message. A host
 message MUST NOT give a Chat its title, and it MUST NOT be the list preview of a Chat.
 
 #### Scenario: A host message in the history

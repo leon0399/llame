@@ -99,7 +99,12 @@ Decisions that the grilling did not ask, made in review. Leo, please confirm or 
   during it are stored as `queue`.
 - **`/compact` without `delivery` during a live Run gets 409**, as any send does. The web always
   sends a mode while a Run is active.
-- **A compaction Run blocks Continue and Regenerate**, also when it failed.
+- **A compaction Run blocks Continue and Regenerate**, also when it failed. A turn that a checkpoint
+  absorbed, for example after `/compact` at the final answer, also offers neither.
+- **Stop with only a pending `/compact` cancels the Run**; it does not turn the `/compact` into an
+  interrupt.
+- **A `/compact` that arrives while a boundary compaction runs waits for the next boundary**, and
+  a withdrawn `/compact` discards its summary.
 - **A compaction Run reuses the stored system prompt of the Run of the newest completed reply**,
   with its own model and effort, no tools, and no receipt of its own. A mid-turn compaction has the
   live request and needs none of this.
@@ -139,9 +144,10 @@ Assumptions that follow from those decisions:
   item starts a Run", "The queue pauses after a Run that does not complete", "The web shows pending
   items above the composer", "A segment attempt prepares its own accepted turn", "A pending item at
   the final answer continues the Run", "The items delivered at one boundary form one user message",
-  "Each segment has its own step budget and retry scope", and "A delivered message is a Run event".
-  ADDED: a command item compacts the Run once at its boundary; a compaction boundary stores a
-  continue message; owner items during a compaction Run are queue items.
+  "Each segment has its own step budget and retry scope", "A delivered message is a Run event", and
+  "Stop interrupts when steers are pending". ADDED: a command item compacts the Run once at its
+  boundary; a compaction boundary stores a continue message; owner items during a compaction Run
+  are queue items; a compact steer wakes a Run that waits.
 - `turn-actions`: MODIFIED "The chat history read reports the latest Run", "An owner starts a
   follow-up Run on the latest turn", and "The latest turn shows Continue and Regenerate actions".
   ADDED: a compaction Run offers no follow-up action and shows no assistant message or reply notice.
@@ -155,8 +161,9 @@ Assumptions that follow from those decisions:
 - `background-jobs`: MODIFIED "A held notice goes with the next Run", "A host message carries
   notices when no owner message exists", "A notice starts a Run on an idle Chat", and "The web shows
   notices and host messages as notices".
-- `context-injection`: MODIFIED "Co-occurring items have a total author-time order" (the
-  `compaction` notice item and its rank).
+- `context-injection`: MODIFIED "Server-authored context is injected as discrete items on one
+  rail" (a host message holds `interrupted`, `job`, and `compaction` items) and "Co-occurring items
+  have a total author-time order" (the `compaction` notice item and its rank).
 - `media-attachments`: MODIFIED "Image overflow compacts at the start of the next Run" (the overflow
   condition, not every compaction, is limited to the first step).
 
@@ -170,7 +177,10 @@ Deliberately unchanged, with the reading under which each holds:
   - its `context_incompatible` failure;
   - its window variant.
 
-  The ADDED step-boundary requirements govern that case.
+  The same holds for its rule that compaction does not fire when no row lies between the active
+  checkpoint and the triggering user message. A step-boundary compaction absorbs the rows of the open
+  segment, so a later compaction in the same Run always has its continue message and reply to
+  absorb. The ADDED step-boundary requirements govern that case.
 
 - `model-system-prompts` "Summarization instructions and the title prompts are packaged
   templates": every owner variant renders the same packaged summarization template, with one
@@ -187,12 +197,15 @@ Deliberately unchanged, with the reading under which each holds:
   checkpoint keeps its own usage receipt, and a bare `/rename` records no usage.
 - `available-models` "Model use for compaction and title generation is explicit" and "Compaction
   inherits effort from the Run whose prefix it reuses": a step-boundary compaction reuses the prefix
-  of its own Run with that Run's model and effort. A compaction Run is its own Run.
+  of its own Run with that Run's model and effort. A compaction Run reuses only the stored system
+  prompt of its source Run, not its message prefix, and the ADDED requirement fixes its own model and
+  effort.
 - `durable-runs` "Every message executes as a durable, resumable run": a command is not a user
   message. `/rename` writes chat metadata in the request thread, as `PATCH /api/v1/chats/:id`
   already does.
 - `durable-runs` "One in-flight run per chat (single-flight)": a compaction Run holds the slot. A
-  send without `delivery` during any live Run, `/compact` included, gets 409.
+  send without `delivery` during any live Run, `/compact` included, gets 409. `/rename` is not a
+  message and starts no Run, so it runs during a live Run.
 - `durable-runs` "One waker resumes a Run that waits": a `/compact` steer or interrupt is an
   admitted steer or interrupt.
 - `run-steering`:
@@ -211,6 +224,9 @@ Deliberately unchanged, with the reading under which each holds:
   items.
 - `tool-calling` "Absorbed tool activity crosses a checkpoint only as summary text": a step-boundary
   checkpoint absorbs the closed reply whole, after every call of the step has settled.
+- `turn-actions` scenario "Kept parts that do not fit fail the Run" ("no compaction absorbs a kept
+  part"): it governs the pre-step fit of a Continue Run. A later step-boundary compaction absorbs the
+  closed reply whole, after its kept parts reached the model.
 - `turn-replay` "A compaction request replays its rows like a later turn": both new requests replay
   their absorbed rows through the same projection.
 - `run-cancellation` "A recorded cancellation settles the Run as cancelled" and "The Run stream
