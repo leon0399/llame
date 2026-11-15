@@ -31,11 +31,6 @@ run as `chat-commands` defines.
 - **THEN** admission expires the stuck Run, as `durable-runs` requires
 - **AND** the message starts a Run, and no pending item is stored
 
-#### Scenario: A rename with a delivery mode during a Run
-
-- **WHEN** a turn Run is live and the owner sends `/rename Foo` with `delivery: "steer"`
-- **THEN** the API sets the title and stores no pending item
-
 ### Requirement: A send to an idle Chat starts a Run for every delivery mode
 
 When the Chat has no non-terminal Run, a chat send MUST start a Run as a chat send without
@@ -63,8 +58,7 @@ pending, and they MUST NOT start before this message.
 `GET /api/v1/chats/:chatId/deliveries` MUST return the `pending` items of the Chat in their
 order. `DELETE` on one item MUST withdraw it and return its parts and attachments. `PATCH` with
 `mode` MUST change a `queue` item to `steer`, or a `steer` or `queue` item to `interrupt`. A
-change to `queue` MUST get 400. A change of a command item MUST get 400. During a compaction Run,
-a change to `steer` or `interrupt` MUST get 400.
+change to `queue` MUST get 400. During a compaction Run, a change to `steer` or `interrupt` MUST get 400.
 
 #### Scenario: Withdraw returns the text for an edit
 
@@ -76,11 +70,6 @@ a change to `steer` or `interrupt` MUST get 400.
 
 - **WHEN** the owner changes a pending queue item to `steer` during a turn Run
 - **THEN** the item is delivered at the next step boundary of that Run
-
-#### Scenario: A command item refuses Steer now
-
-- **WHEN** the owner changes a pending `/compact` item to `steer` or `interrupt`
-- **THEN** the API answers 400, and the item stays pending in mode `queue`
 
 #### Scenario: Steer now during a compaction Run
 
@@ -119,7 +108,8 @@ does not complete MUST NOT start a queue item. A follow-up Run or a compaction R
 ### Requirement: A mode change on a paused item starts a Run
 
 The owner can change a pending item to `steer` or `interrupt` while the Chat has no non-terminal
-Run. This MUST NOT apply to a command item, which gets 400. The API MUST then store that item as a user message with the id of the item. It MUST start a
+Run. For a message item, the API MUST then store that item as a user message with the id of the item.
+A command item MUST start a compaction Run instead. It MUST start a
 Run for it with the settings of the item. When a send cannot use those settings, the API MUST
 answer with the error of a chat send, and the item MUST stay pending.
 
@@ -128,10 +118,10 @@ answer with the error of a chat send, and the item MUST stay pending.
 - **WHEN** the queue is paused and the owner changes its second item to `steer`
 - **THEN** that item starts a Run, and the first item stays pending
 
-#### Scenario: A paused command item cannot start by a mode change
+#### Scenario: Steer now on a paused compact item
 
 - **WHEN** the queue is paused, its first item is `/compact`, and the owner changes it to `steer`
-- **THEN** the API answers 400, and the item stays pending
+- **THEN** a compaction Run starts with the settings of the item, and the Chat gets no user message
 
 ### Requirement: The queue pauses after a Run that does not complete
 
@@ -154,8 +144,8 @@ send `/compact`, or change an item to `steer` or `interrupt`.
 ### Requirement: The web shows pending items above the composer
 
 The web MUST show each pending item above the composer in its order. A queue item MUST offer Steer
-now, Interrupt now, delete, and edit. A command item, and every item during a compaction Run, MUST
-offer only delete and edit. A steer item MUST offer Interrupt now, delete, and edit. Edit
+now, Interrupt now, delete, and edit. During a compaction Run, an `owner` item MUST offer only
+delete and edit. A steer item MUST offer Interrupt now, delete, and edit. Edit
 MUST withdraw the item and put its text and attachments into the composer.
 
 #### Scenario: Edit puts the text back
@@ -168,29 +158,168 @@ MUST withdraw the item and put its text and attachments into the composer.
 - **WHEN** an action on an item gets 409 because the item was delivered
 - **THEN** the stack drops the item, and the transcript shows its delivered message
 
-#### Scenario: A command item offers no Steer now
-
-- **WHEN** a `/compact` item is pending
-- **THEN** its row offers delete and edit, and no Steer now or Interrupt now
-
 #### Scenario: A queue item during a compaction Run offers no Steer now
 
 - **WHEN** a compaction Run is live and a message item is pending
 - **THEN** its row offers delete and edit, and no Steer now or Interrupt now
 
+### Requirement: A segment attempt prepares its own accepted turn
+
+The attempt of a segment MUST prepare its accepted turn as the first attempt of a Run prepares it
+for its user message. This includes the accepted-turn context items. Prompt imports and `$skill`
+mentions in a delivered message MUST take effect. The pre-step compaction check MUST run only
+before the first model step of the Run, not at a segment start. A compaction at a step boundary
+follows `model-system-prompts`.
+
+#### Scenario: A steer with a skill mention
+
+- **WHEN** a delivered steer names `$pdf` and the skill is available
+- **THEN** the delivered message carries a `skill-activation` item before the steer text
+
+#### Scenario: A segment start does not compact
+
+- **WHEN** a steer starts a second segment, and the measured request at that boundary is below the compaction threshold
+- **THEN** no compaction runs before the first model request of the second segment
+
+### Requirement: A pending item at the final answer continues the Run
+
+When the model gives a final answer, the transaction that would complete the Run MUST first look
+for pending `steer` and `interrupt` items. A command item MUST first compact the Run. If it finds
+one or more message or `notice` items, the Run MUST NOT complete. It MUST deliver them and send a
+further model request. With only command items, the Run MUST complete after the compaction. A Run with no tools follows the same rule.
+
+#### Scenario: A steer during the final answer
+
+- **WHEN** the owner sends a steer while the model writes its final answer
+- **THEN** the Run stays non-terminal after that answer
+- **AND** its next model request carries the steer
+
+#### Scenario: A steer after completion starts a Run
+
+- **WHEN** the transaction that completes the Run commits before the steer is admitted, and no queue item is pending
+- **THEN** the send finds no live Run and starts a new Run for the message
+
+#### Scenario: A compact at the final answer
+
+- **WHEN** the owner sends `/compact` as a steer while the model writes its final answer
+- **THEN** a checkpoint absorbs that answer, and the Run completes with no further model request
+
+### Requirement: The items delivered at one boundary form one user message
+
+All `owner` message items of one boundary MUST become one user message, in their order. Each
+`owner` item MUST give one text part and its own attachments to that message. The message MUST
+name the Chat owner as sender. Each delivered item MUST record the id of its message. The
+`notice` items of that boundary MUST become `job` context items of the same message, in their
+order. When a boundary delivers no `owner` item, its `notice` items MUST go into one host message
+of `background-jobs`.
+
+#### Scenario: Two steers at one boundary
+
+- **WHEN** the owner sends two steers during one tool call
+- **THEN** the next boundary stores one user message with two text parts in send order
+- **AND** both items record the id of that message
+
+#### Scenario: A steer and a notice at one boundary
+
+- **WHEN** a job settles and the owner then sends a steer during one tool call
+- **THEN** the next boundary stores one user message with one `job` context item before the owner text
+- **AND** both items record the id of that message
+
+#### Scenario: A notice alone at one boundary
+
+- **WHEN** a job settles during a tool call, and no owner item is pending
+- **THEN** the next boundary stores one host message with one `job` context item
+- **AND** the next segment of the Run answers that message
+
+### Requirement: Each segment has its own step budget and retry scope
+
+The configured step cap MUST count the steps of one segment. A segment that a compaction starts
+MUST get only the steps that the segment before it did not use. A crash retry of the Run MUST restart
+the current segment from its user message. It MUST keep the stored messages and replies of earlier
+segments.
+
+#### Scenario: A steer after the cap gives a new budget
+
+- **WHEN** the step cap is 8, a segment reaches it, and a steer is pending at its final answer
+- **THEN** the next segment can execute 8 further tool steps
+
+#### Scenario: A crash retry keeps earlier segments
+
+- **WHEN** the worker dies in the third segment of a Run, and the queue retries the Run
+- **THEN** the retry sends history through the user message of the third segment
+- **AND** the replies of the first two segments do not change
+
+#### Scenario: A compaction keeps the step budget
+
+- **WHEN** the step cap is 8, and a segment compacts after 5 steps with no owner message
+- **THEN** the next segment can execute 3 further tool steps
+
+### Requirement: A delivered message is a Run event
+
+Each delivery MUST append one `run.delivered` event. The event MUST name the delivered message, its
+items, and a `cause` of `steer`, `interrupt`, `notice`, or `compaction`. The cause is `notice` when
+the delivery holds only `notice` items and no interrupt stopped the step. The cause is `compaction`
+when a compaction stores the delivered message. The Run stream MUST end
+its current segment at that event and name the delivered message.
+
+#### Scenario: A live client sees the delivery
+
+- **WHEN** a client watches the stream of a Run that delivers a steer
+- **THEN** the stream ends the current segment and names the delivered message
+- **AND** a resume then streams the next segment
+
+#### Scenario: A delivery of one notice names its cause
+
+- **WHEN** a Run delivers one `notice` item and no owner item at a step boundary
+- **THEN** the `run.delivered` event names the host message and the cause `notice`
+
+#### Scenario: A compaction names its cause
+
+- **WHEN** a Run compacts at a step boundary and continues with a host message
+- **THEN** the `run.delivered` event has the cause `compaction` and names that host message
+
 ## ADDED Requirements
 
-### Requirement: A command or a compaction Run makes a pending item a queue item
+### Requirement: A command item compacts the Run once at its boundary
 
-A command item is a pending `queue` item whose text is a `/compact` command. The API MUST store a
-`/compact` send as `queue`, whatever `delivery` the send names. A command item that admission would
-refuse MUST stay pending at promotion, as an item that a send cannot use. During a compaction Run, the API MUST store
-every pending item as `queue`. A compaction Run MUST NOT deliver a steer or an interrupt.
+A command item is a pending `owner` item whose text is a `/compact` command. Other `owner` items are
+message items. A boundary that delivers one or more command items MUST compact the Run once, before
+it stores any delivered message. It MUST use the focus of the first command item. It MUST mark each
+command item delivered with no message.
 
-#### Scenario: A compact command during a Run is a queue item
+#### Scenario: Two compact items at one boundary
 
-- **WHEN** the owner sends `/compact` with `delivery: "steer"` while a Run of the Chat is live
-- **THEN** the API answers 202 with a pending item in mode `queue` that holds the text `/compact`
+- **WHEN** the owner sends `/compact` twice as steers during one tool call
+- **THEN** the next boundary publishes one checkpoint, and both items are `delivered`
+
+#### Scenario: A compact and a steer at one boundary
+
+- **WHEN** the owner sends `/compact` and then a steer during one tool call
+- **THEN** the next boundary publishes a checkpoint and then stores the steer as a user message after it
+
+### Requirement: A compaction boundary stores a continue message
+
+A compaction at a step boundary can deliver no message item. The Run MUST then store one host
+message after the checkpoint and continue with it. That message MUST hold one `compaction` notice
+item, after the `interrupted` item and the `notice` items of the boundary. The Run stream MUST end
+the segment there.
+
+#### Scenario: A compaction in a tool loop continues the Run
+
+- **WHEN** the owner sends `/compact` as a steer during the third tool call of a Run
+- **THEN** a checkpoint follows the closed reply, a host message with a `compaction` item follows it
+- **AND** the Run sends its next model request
+
+#### Scenario: A job result during a compaction
+
+- **WHEN** a job settles while a step-boundary compaction runs
+- **THEN** the host message after the checkpoint holds the `job` item of that notice
+
+### Requirement: Owner items during a compaction Run are queue items
+
+A compaction Run has no step boundary. During a compaction Run, the API MUST store every `owner`
+item as `queue`, whatever `delivery` the send names. A compaction Run MUST NOT deliver a pending
+item.
 
 #### Scenario: A steer during a compaction Run is queued
 

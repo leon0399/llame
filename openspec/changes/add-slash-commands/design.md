@@ -1,99 +1,120 @@
 ## Context
 
-See `proposal.md` for the motivation. Facts below are at `048f75aa`.
+See `proposal.md` for the motivation. Facts below are at `05a426bd` (master after the background-jobs
+change); paths are under `apps/api/src` unless they start with `apps/web`.
 
-- **Send ingress.** `POST /api/v1/chats/:id/messages` (`apps/api/src/chats/chats.controller.ts:328`)
-  answers a UI-message stream (200) or a pending item (202). `ChatLoopService.send` validates the
-  model, effort, permission mode, and parts before any write, then in one transaction resolves the
-  Chat (creating it when the id is absent), admits the turn, admits the slot or stores a pending
-  item, stores the user message, and creates the Run (`chat-loop.service.ts:186-470`).
-  `POST /api/v1/chats` admits a first message through `ChatCreationService` and
-  `ChatLoopService.startFirstRun` (`chat-loop.service.ts:271`).
+- **Send ingress.** `POST /api/v1/chats/:id/messages` (`chats/chats.controller.ts:356`) answers a
+  UI-message stream (200) or a pending item (202, `:386-388`). `ChatLoopService.send`
+  (`chats/chat-loop.service.ts:207`) validates the send (`:240`), then in one transaction resolves
+  the Chat (creating it when the id is absent), admits the slot or stores a pending item
+  (`admitToSlot` `:451`), stores the user message, adopts held job notices
+  (`deliverPendingJobNotices` `:432`), and creates the Run. The slot check returns `free` or
+  `blocked`, and the steer signal uses the mode as sent (`:494`).
 - **Web send.** Ordinary sends use the AI SDK `DefaultChatTransport`, which adds an optimistic user
-  message and expects a stream for every 2xx (`apps/web/app/(chat)/components/use-chat-engine.ts:339`).
-  Delivery sends use a direct fetch (`apps/web/lib/services/chat/deliveries.ts`) that handles 202,
-  or attaches to a started Run.
-- **Titles.** `TitleService.maybeGenerateTitle` (`apps/api/src/titles/title.service.ts`) runs after a
-  completed turn while `title IS NULL`, on `defaults.titleGenerationModelId`, with the first user
-  text (≤1,000 characters), and swallows every error. `models.service.ts:227` returns no model when
-  the id is unset. Title usage is not persisted. `PATCH /api/v1/chats/:id` sets a title of 1-200
-  characters; `chat.upserted` carries it to every device.
-- **Compaction.** Only automatic, before the first model step of a turn Run
-  (`apps/api/src/runs/run-execution.service.ts:5855-5880`). `planCompactionCheckpoint`
-  (`apps/api/src/compaction/compaction.ts:390-409`) absorbs user and assistant rows strictly between
-  the active checkpoint and the triggering user message, and returns `null` when there are none.
-  `CompactionService.summarizeCheckpoint` (`compaction.service.ts:179`) uses the triggering
-  sequence only to find the active checkpoint and the previous completed reply Run. The summary
-  request is the last user message after the replayed prefix, with `toolChoice: 'none'`
-  (`compaction.service.ts:420-463`). `publishPreStepCompaction` (`run-execution.service.ts:6034-6110`)
-  fences on the Run row, writes the checkpoint with its usage, and re-bakes the epoch. The
-  instruction is `compaction/prompts/instruction.md`; line 18 describes the triggering message.
-- **Checkpoint part.** `createCompactionCheckpointPart` (`apps/api/src/chats/context-item-producers.ts:670`)
-  stores `payload: {v: 1, summary}` and a rendered `body`; replay reads the rendered text, and the
-  history read reads the payload summary.
-- **Runs.** `runs.message_id` is nullable (`apps/api/src/db/schema/chats.ts:349`). There is no Run
-  kind; `follow_up_action` is `continue | regenerate | NULL`, and several sites read
-  `followUpAction != null` as "a follow-up" (`run-execution.service.ts:5732,6759-6775`,
-  `usage-completeness.ts:125,135`). `RunJob` requires `userMessage` (`apps/api/asyncapi.queues.yaml:253-278`).
-  `findLatestByChatId` returns the newest Run of any kind (`runs-repository.ts:320`).
-- **Queue.** Pending items live in `chat_deliveries` with raw `parts` and send `settings`
-  (`apps/api/src/db/schema/chat-deliveries.ts:53-91`). `admitToSlot` stores the sent mode
-  (`chat-loop.service.ts:~446`). `changeMode` changes a pending mode (`chat-deliveries.service.ts:90`).
-  `promoteNextQueueItem` (`apps/api/src/runs/queue-promotion.ts:47`) runs in the completing Run's
-  transaction (`run-execution.service.ts:5139-5149`) and stores the item as a user message.
+  message and expects a stream for every 2xx (`apps/web/app/(chat)/components/use-chat-engine.ts`).
+  Delivery sends use a direct fetch (`apps/web/lib/services/chat/deliveries.ts`).
+- **Titles.** `TitleService.maybeGenerateTitle` (`titles/title.service.ts`) runs after a completed
+  turn while `title IS NULL`, on `defaults.titleGenerationModelId`, with the first user text
+  (≤1,000 characters). Host messages never title a Chat; the precedent filter is
+  `senderUserId IS NOT NULL` (`chats/messages-repository.ts:396`).
+- **Pre-step compaction.** The trigger runs only for the first segment
+  (`runs/run-execution.service.ts:6555`, `evaluateCompactionTrigger` `:5348`).
+  `planCompactionCheckpoint` (`compaction/compaction.ts:396-412`) absorbs rows strictly between the
+  active checkpoint and the trigger message. `summarize` sends `toolChoice: 'none'`
+  (`compaction/compaction.service.ts:462`). `publishPreStepCompaction`
+  (`run-execution.service.ts:6729`) fences on the attempt, writes the checkpoint with its usage, and
+  re-bakes the epoch. Line 18 of `compaction/prompts/instruction.md` names the trigger message.
+- **Step boundaries.** `stopWhenExtra` (`run-execution.service.ts:3174-3194`) stops the tool loop
+  when `stepEndSignal` (`chats/chat-deliveries.repository.ts:325-357`) finds a pending owner steer or
+  interrupt or a job notice. `onFinish` (`:3875`, branch `:4127-4157`) calls `deliverAtBoundary`
+  (`:3299-3333`), which runs `deliverPendingSteering` (`runs/segment-delivery.ts:335-368`): fence,
+  Chat lock, `closeSegmentAndStore` (`:235-267`), `storeDeliveredMessage` (`:128-158`), and
+  `moveRunToDelivery` (`:273-320`, fresh attempt, `run.delivered` with `cause`). `startDelivered`
+  (`run-execution.service.ts:1593`) re-enters the attempt with `firstSegment: false` and rebuilds
+  the request from stored rows. The final-answer path delivers pending items in `finishRun`
+  (`:5770-5790`). At a boundary the stored reply row is stale; the fresh parts are in the part
+  collector.
+- **Yield and wait.** A pending owner steer or interrupt, or a job notice, makes a foreground host
+  `bash` move to a job and a `wait` return `interrupted` (`run-execution.service.ts:3455-3466`,
+  `runs/run-control-listener.service.ts:158-176`, `runs/run-wait.service.ts`). The check reads pending
+  rows, not their text.
+- **Per-request measurement.** `onRequestUsage` (`run-execution.service.ts:3469`) keeps one receipt
+  per provider request; `resolveCompactionThreshold` (`compaction.ts:366`) is the threshold.
+- **Checkpoint and context items.** `createCompactionCheckpointPart`
+  (`chats/context-item-producers.ts:670-684`) stores `payload: {v: 1, summary}`; the history reader
+  accepts `v: 1` only (`:726-740`). `CONTEXT_ITEM_PRODUCERS` (`chats/context-item.ts:48`) already
+  holds `compaction` with form `checkpoint`.
+- **Runs.** `runs.message_id` is nullable (`db/schema/chats.ts:357`). Runs gained `awaiting_jobs`,
+  `wake_generation`, `current_job_id`, and `awaiting`; `RunJob` gained `wake` and still requires
+  `userMessage` (`apps/api/asyncapi.queues.yaml:254-290`). A host Run is an ordinary turn Run on a
+  host message. `findLatestByChatId` returns the newest Run of any kind (`runs/runs-repository.ts:322`).
+- **Queue and notices.** Pending items live in `chat_deliveries` with producer `owner` or `job` and
+  mode `steer`, `interrupt`, `queue`, or `notice` (`db/schema/chat-deliveries.ts:19-26`).
+  `promoteNextQueueItem` (`runs/queue-promotion.ts:47`, `startItemRun` `:106`, notice adoption
+  `deliverPromotedItem` `:146`) runs in `finishRunInTransaction` (`run-execution.service.ts:5731`,
+  promotion `:5832-5845`). A notice on an idle Chat starts a host Run only at its settlement
+  (`runs/job-notice-run.service.ts:44-76`).
 
 ## Grilling record
 
-Decisions confirmed by Leo on 2026-11-11; `proposal.md` cites them as "grilling Dn".
+Decisions confirmed by Leo; `proposal.md` cites them as "grilling Dn" or "grilling Qn".
 
-| Code | Decision                                                                                                                 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------ |
-| D1   | `/compact` on an idle Chat is a durable Run with no user message.                                                        |
-| D2   | Command text is never a message or model context. The checkpoint is the in-band record.                                  |
-| D3   | Focus: capped owner text, appended as `Additional focus:`, subordinate to headings and redaction, shown on the boundary. |
-| D5   | Titles keep the dedicated title model, for automatic titles and a bare `/rename`.                                        |
-| D6   | Only recognized names are commands; no escape syntax.                                                                    |
-| D7   | One fixed server-side parser at ingress; no registry, list endpoint, or autocomplete.                                    |
-| D9   | A bare `/rename` reads a bounded excerpt of recent turns.                                                                |
-| D10  | A bare `/rename` without a title model fails inline.                                                                     |
-| D11  | Two issues (#1675, #1676), one change, one stack.                                                                        |
-| D12  | `/compact` during a live Run is queue-only; its row refuses steer and interrupt.                                         |
-| D13  | A queued command keeps its raw text in `chat_deliveries`; promotion parses it again.                                     |
-| D14  | An owner compaction absorbs every committed row after the active checkpoint.                                             |
-| D15  | The compaction Run uses the model and effort of the send.                                                                |
-| D16  | Only a Chat with nothing to absorb is refused.                                                                           |
-| D17  | Split the compaction work across layers to stay inside the review budget (eight implementation layers after round 2).    |
+| Code | Decision                                                                                                                                  |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| D1   | `/compact` on an idle Chat is a durable Run with no user message.                                                                         |
+| D2   | Command text is never a message or model context. The checkpoint is the in-band record.                                                   |
+| D3   | Focus: capped owner text, appended as `Additional focus:`, subordinate to headings and redaction, shown on the boundary.                  |
+| D5   | Titles keep the dedicated title model, for automatic titles and a bare `/rename`.                                                         |
+| D6   | Only recognized names are commands; no escape syntax.                                                                                     |
+| D7   | One fixed server-side parser at ingress; no registry, list endpoint, or autocomplete.                                                     |
+| D9   | A bare `/rename` reads a bounded excerpt of recent turns.                                                                                 |
+| D10  | A bare `/rename` without a title model fails inline.                                                                                      |
+| D11  | Two issues (#1675, #1676), one change, one stack.                                                                                         |
+| D12  | Revised by Q22: `/compact` during a live Run follows its delivery mode.                                                                   |
+| D13  | A pending `/compact` keeps its raw text in `chat_deliveries`; delivery and promotion parse it again.                                      |
+| D14  | An owner compaction absorbs every committed row after the active checkpoint.                                                              |
+| D15  | A compaction Run uses the model and effort of the send.                                                                                   |
+| D16  | Only a Chat with nothing to absorb is refused.                                                                                            |
+| Q18  | Notices skip a compaction Run; its completion starts the idle-Chat notice Run.                                                            |
+| Q20  | Independently mergeable layers under the CONTRIBUTING review target.                                                                      |
+| Q21  | After a compaction, unfinished work continues; a completed turn goes idle.                                                                |
+| Q22  | `/compact` behaves like any owner input in each delivery mode.                                                                            |
+| Q23  | Compaction during a live Run happens inside that Run at a step boundary.                                                                  |
+| Q24  | The automatic step-boundary trigger is part of this change (#1068).                                                                       |
+| Q25  | After a mid-turn compaction: checkpoint, then a continue notice with the current request verbatim. A verbatim tail is later work (#1069). |
+| Q26  | A failed mid-turn compaction continues uncompacted and shows inline.                                                                      |
+| Q27  | No count cap on automatic compaction; a progress guard only.                                                                              |
 
-Rejected during grilling: titles from the chat's own model (prefix-reuse measured as possible but
-unproven as a cache hit, and 16-166× a small model at list prices; kept in #1096); a command
-registry and autocomplete now; steer or interrupt for `/compact` (needs #1068); a `kind` column on
-`chat_deliveries` (D13).
+Rejected during grilling: titles from the chat's own model (#1096); a command registry and
+autocomplete now (#1671, #1672); queue-only `/compact`; a separate compaction Run plus a
+continuation Run for a live Run (Q23-A); a count cap on automatic compaction.
 
 ## Prior art
 
-Source inspection only (OMP `73d7521`, OpenClaw `5d8c251`, Codex `e58bf8f`, OpenCode `51fcace`,
-Open WebUI `b0e6098`; Claude Code public docs).
+Source inspection (OMP `73d7521`, OpenClaw `5d8c251`, Codex `e58bf8f`, OpenCode `51fcace`, Open
+WebUI `b0e6098`) and Claude Code public docs and issues.
 
-| Harness     | Dispatch                                        | `/compact`                                                                           | Bare `/rename`                                                  |
-| ----------- | ----------------------------------------------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| OMP         | client builtins, also over RPC/ACP              | session operation; `Additional focus:` appended to the summarizer prompt             | regenerates with the dedicated title model from recent context  |
-| OpenClaw    | server gateway, shared by all channels          | `runSessionMutation` kind `compaction`, preempts the active run; `Additional focus:` | shows the current name                                          |
-| Codex       | client                                          | `CompactTask` (`TaskKind::Compact`), no user input, ignores args                     | editable suggestion from recent messages                        |
-| OpenCode    | server for prompt commands, TUI for UI commands | server `session.compact`, no focus                                                   | regenerates through the title agent                             |
-| Open WebUI  | client parse, typed `POST /chats/{id}/compact`  | 409 while a task is active                                                           | none                                                            |
-| Claude Code | client                                          | `/compact [instructions]`; summary request repeats system, tools, history            | regenerates from history; small/fast model for automatic titles |
+| Harness     | Dispatch                                        | Manual `/compact` while busy                                            | Automatic compaction mid-turn                                                                 | Bare `/rename`                            |
+| ----------- | ----------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| OpenCode v2 | server for prompt commands, TUI for UI commands | steer-delivered at the next boundary; resumes if mid-work, idle if done | at a boundary, then the loop re-samples                                                       | regenerates through the title agent       |
+| Codex       | client                                          | refused in the TUI; core aborts the turn, no resume                     | at a boundary when the turn needs a follow-up; user messages kept verbatim                    | editable suggestion                       |
+| OMP         | client builtins, also RPC/ACP                   | queued until the agent yields; `Additional focus:`                      | at a boundary; continue prompt skipped after a final answer; continues uncompacted on failure | dedicated title model from recent context |
+| OpenClaw    | server gateway for all channels                 | aborts after 60 s, asks to resend; `Additional focus:`                  | at a boundary, hidden "Continue the current task" prompt, attempt caps                        | shows the current name                    |
+| Claude Code | client                                          | queued until the turn ends, then idle                                   | inside the query loop; "Autocompact is thrashing" guard                                       | regenerates from history                  |
 
-Codex's `CompactTask` is the closest precedent for a compaction Run with no user input. OpenClaw is
-the closest precedent for server-side dispatch across surfaces.
+OpenCode v2 is the precedent for `/compact` as a steer that resumes unfinished work. Codex
+`CompactTask` is the precedent for a compaction Run with no user input. Every peer compacts only
+after a step's tool results settle, so call and result pairs are never split.
 
 ## Goals / Non-Goals
 
-**Goals:** one parser on the message endpoint that later commands and surfaces reuse; a compaction
-Run that reuses the existing summary request, publication transaction, cancellation, and queue
-promotion.
+**Goals:** one parser on the message endpoint that later commands and surfaces reuse; one
+step-boundary compaction mechanism for the owner command and the automatic trigger, built on the
+existing segment delivery; a compaction Run for an idle Chat that reuses the summary request,
+publication, cancellation, and queue promotion.
 
-**Non-Goals:** a parser on the web; a command abstraction beyond the two commands; changes to the
-automatic compaction trigger.
+**Non-Goals:** a parser on the web; partial absorption of a turn (#1069); compaction of one request
+that cannot fit (#153).
 
 ## Decisions
 
@@ -151,8 +172,8 @@ Alternative: a custom `fetch` in the transport that turns a JSON answer into an 
 
 `TitleService.regenerate({ chatId, userId })` returns the title or a typed failure
 (`not_configured`, `empty`, `failed`). The command service checks archived and the title model
-before any model request. The excerpt reads the newest `user` and `assistant` rows (no checkpoint,
-system, or tool rows), renders each as a `User:` or `Assistant:` line group with its text parts and
+before any model request. The excerpt reads the newest owner `user` rows (`senderUserId IS NOT NULL`, so no host message) and
+`assistant` rows (no checkpoint, system, or tool rows), renders each as a `User:` or `Assistant:` line group with its text parts and
 media placeholder lines, and passes each group through `sanitizeAuthoredText`, so stored assistant
 text cannot close the `<user>` block of the template. It takes groups newest first until 1,000
 UTF-16 code units, tags and line breaks included, keeps the start of the group it cuts, and
@@ -175,7 +196,7 @@ timeout. `chat.upserted` already delivers the title to every device.
 
 A generated migration adds `runs.kind text NOT NULL DEFAULT 'turn'` with a check for
 `turn | compaction`. Existing rows become `turn`. `RunResponse` and `latestRun` gain `kind`. A
-compaction Run has `message_id NULL` and `follow_up_action NULL`. The `runs_owner` policy does not
+compaction Run has `message_id NULL` and `follow_up_action NULL`. A host Run stays a `turn`. The `runs_owner` policy does not
 read columns, so the column needs no policy change.
 
 Alternatives: a new `follow_up_action` value (rejected: several sites read any non-null value as a
@@ -190,7 +211,8 @@ uses the same focus. A checkpoint published with a focus stores `payload: { v: 2
 `checkpointSummary` accepts `v: 1` and `v: 2`, and the history read returns `focus`. The rendered
 checkpoint text, which replay reads, is built from the summary only. Forks copy the part as it is.
 
-The reader change lands in the same layer as the first `v: 2` writer (`compact-focus`). During a
+The reader change lands in the same layer as the first `v: 2` writer (`compact-focus`). A `/compact`
+steer or queue item carries its focus in its text, and delivery and promotion parse it again. During a
 rolling deploy of that layer, an API pod that still runs the old reader fails a history read that
 meets a `v: 2` checkpoint until the rollout finishes; llame deploys API and worker together, and
 this window is accepted. Reverting
@@ -203,8 +225,9 @@ only the worker and the checkpoint read).
 ### D7: `RunJob.userMessage` becomes optional
 
 `asyncapi.queues.yaml` makes `userMessage` optional, and `pnpm --filter api generate:queue-protocol`
-regenerates the parser; the generator turns a property outside `required` into `.optional()`. The
-worker already reads the claimed row at pickup and branches on `runs.kind`. For a turn Run it
+regenerates the parser; the generator turns a property outside `required` into `.optional()`. Pickup
+(`runs/runs-worker.service.ts:171-260`) returns `kind` from the claimed row after the wake gate and
+branches on it. For a turn Run it
 narrows `job.userMessage` before `executeRun`, so `ExecuteRunInput.userMessage` stays required and
 no test fixture changes. A turn job without `userMessage` is dead-lettered and its Run expires, as a
 malformed job is today. During a rolling deploy, an old worker dead-letters a compaction job in the
@@ -215,8 +238,9 @@ same way; the owner sends `/compact` again.
 `runs-worker.service.ts` calls `executeCompactionRun` instead of `executeRun` for a compaction Run;
 it returns no model stream for the worker to drain. The branch:
 
-1. Claims the Run (the claim transaction of `executeRun`, extracted) and reads the focus from
-   `run.created`.
+1. Claims the Run through the claim of `executeRun`, extracted with its queue-identity fence, Chat
+   lock, `settleOnDeadWorkers` (the job touch), and pending-wake check
+   (`run-execution.service.ts:1294-1428`), and reads the focus from `run.created`.
 2. Plans with `planCompactionCheckpoint({ rows, boundarySeq, triggeringUserSeq: nextSeq })`, so
    every committed row is absorbed. A `null` plan completes the Run with no checkpoint and no model
    request (two queued `/compact` items in a row).
@@ -236,102 +260,209 @@ it returns no model stream for the worker to drain. The branch:
 5. Publishes and completes in one transaction: it locks the Run, settles it `cancelled` with no
    checkpoint when a cancellation is recorded, and otherwise writes the checkpoint with its usage,
    re-bakes the digest and Workspace epoch state as `publishPreStepCompaction` does, and completes
-   the Run with no reply. Steering delivery is skipped for a compaction Run, and queue promotion
-   runs.
+   the Run through `finishRunInTransaction` with no attempt, so steering and notice adoption are
+   skipped and its queue-identity fence holds. Queue promotion runs. When no queue item starts, the
+   idle-Chat notice rule of `background-jobs` runs for pending notices, and its first job is
+   enqueued in the same transaction (`enqueueInTransaction`).
 
 The skill epoch is not re-baked by the compaction Run, because it has no Workspace root. The next
 turn starts it: `resolveTurnSkillState` (`apps/api/src/chats/skill-turn-state.ts:93-119`) starts a
 new epoch when the stored baseline does not match the latest checkpoint, and the turn passes its own
-Workspace root (`run-execution.service.ts:6240`). No `model.requested` event is written.
+Workspace root (`run-execution.service.ts:6984`). No `model.requested` event is written.
 
 Alternative for step 3: render a fresh system prompt for the Run's model (rejected: it needs the
 Workspace preparation, the composed tool catalog, the digest, and personalization of a turn, about
 200 more lines, and with no admitted tools an operator template that renders only tool-gated text
 fails). Alternative: prepare a full first attempt without a user turn, for a prompt-cache read of
 the turn prefix (rejected for this change: `prepareAttemptContext` reads the trigger message at
-seven sites, and the Messages adapter drops the tools of a compaction request anyway, D12).
+seven sites, and the Messages adapter drops the tools of a compaction request anyway, D14).
 
 ### D9: The existing follow-up check refuses after a compaction Run
 
-`latestTurnRun` (`apps/api/src/chats/follow-up-admission.service.ts:562-575`) answers 409 when the
+`latestTurnRun` (`chats/follow-up-admission.service.ts:561-575`) answers 409 when the
 newest Run of the Chat does not belong to the latest user message. A compaction Run has no
 message, so a follow-up after any compaction Run, failed ones included, is refused with no new
 code. The turn-actions delta records this, and a test pins it.
 
-### D10: Queue items for commands and during a compaction Run
+### D10: `/compact` admission and command items in the queue
 
 - `/compact` admission is one tenant transaction owned by `ChatCommandsService`: lock the Chat
   without creating it, assert it is not archived, return the stored pending item for the message
-  id when one exists, then claim the slot. A free slot (after stuck-Run expiry) plans and creates
-  the compaction Run; a live Run with `delivery` stores a `queue` item; a live Run without
-  `delivery` gets 409. The Run id is server-generated, so a retry of an idle `/compact` after a lost
-  answer meets its own live Run: with `delivery` it queues an item that later completes with nothing
-  to absorb, and without `delivery` it gets 409. That outcome is accepted.
-- `claimActiveRunSlot` also returns the kind of a live blocker, so `admitToSlot` stores `queue` for
-  every delivery mode while the live Run is a compaction Run.
-- `ChatDeliveryResponse` gains `command: 'compact' | null`, computed by the parser for `queue`
-  items, so the web does not parse.
-- `changeMode` reads the item with `findById` after the Chat lock, before its update, and answers
-  400 for a command item, and for `steer` or `interrupt` while a compaction Run is live.
-- `startItemRun` branches before `createUserMessageIfAbsent`: a command item validates its focus as
-  admission does, then creates a compaction Run with the item's settings, writes the focus on
-  `run.created`, and marks the item delivered with no message id (the column is nullable;
-  `markDelivered` takes an optional id). An item that fails that validation stays pending, as an
-  item that a send cannot use.
-- A command item is a `queue` item. A `steer` item with `/compact` text, stored before this change,
-  is not a command item and is delivered as a message, as before.
+  id when one exists, then claim the slot.
+  - A free slot (after stuck-Run expiry) plans and creates the compaction Run with a
+    server-generated id. It skips `deliverPendingJobNotices`: notices stay pending.
+  - A live turn Run with `delivery` stores a pending item in that mode, with the raw command text.
+  - A live compaction Run with `delivery` stores `queue`.
+  - Without `delivery`, the send gets 409.
 
-### D11: The web shows a compaction Run as one transcript row
+  A retry of an idle `/compact` after a lost answer meets its own live Run. That outcome is
+  accepted: with `delivery` it queues an item that later finds nothing to absorb.
+
+- `claimActiveRunSlot` also returns the kind of a live blocker. While the blocker is a compaction
+  Run, `admitToSlot` stores every owner item as `queue`. The steer signal uses the stored mode, not
+  the sent mode (`chat-loop.service.ts:494`), so a queued item never wakes a Run that waits on jobs.
+- A command item is a pending `owner` item whose text the parser reads as `/compact`, in any mode.
+  `ChatDeliveryResponse` gains `command: 'compact' | null`, computed by the parser, so the web
+  labels the row without parsing. Mode changes work as for any owner item. While a compaction Run is
+  live, `changeMode` answers 400 for `steer` and `interrupt`; the check comes after `claimSlot` and
+  `requireChangeableItem`.
+- `startItemRun` branches before `createUserMessageIfAbsent`. A command item validates its focus as
+  admission does. It then creates a compaction Run with the item's settings, writes the focus on
+  `run.created`, skips notice adoption, and marks the item delivered with no message id
+  (`markDelivered` takes an optional id). An item that fails validation stays pending.
+- A `/compact` item stored before this change is parsed the same way. No migration is needed.
+
+### D11: The step boundary delivers a command item as a compaction
+
+A pending command item in mode `steer` or `interrupt` is a pending steer or interrupt for every
+existing signal: `stepEndSignal` stops the loop, a foreground host command yields to a job, a `wait`
+returns `interrupted`, and an interrupt aborts the step. Only delivery changes.
+
+`deliverPendingSteering` parses the locked owner items. When one or more are command items, the
+fenced delivery transaction:
+
+1. Closes the reply of the segment: `completed` for a steer or automatic cause, and `aborted` with
+   `interrupted: true` for an interrupt, as `closeSegmentAndStore` does today.
+2. Publishes the checkpoint prepared before the transaction (D12). It absorbs every row above the
+   active checkpoint through the closed reply, and stores its usage and the focus of the first
+   command item. It re-bakes the digest, skill, and Workspace epoch state with the Workspace root
+   of the live attempt.
+3. Marks every command item delivered with no message.
+4. When message items are pending, stores them as the owner message after the checkpoint, as
+   today, and moves the Run to it with cause `steer` or `interrupt`. Otherwise, stores a host
+   message with the `interrupted` item (for an interrupt), the boundary's `notice` items, and one
+   `compaction` notice item, and moves the Run to it with cause `compaction`.
+
+At the final answer, `finishRun` does the same before it looks for message items. When only command
+items were pending, it publishes the checkpoint and completes the Run with no host message. The
+segment that a compaction starts carries the step count of the segment before it (`stepBase`),
+because a compaction is not new owner input.
+
+The `compaction` notice item uses the existing producer `compaction` with form `notice`. Its payload
+holds the quoted request: the text parts of the newest owner message of the Run, at most 4,000
+UTF-16 code units, neutralized. Its body is a packaged template: "The conversation was compacted.
+Continue your task from the checkpoint. The owner's current request was:" and the quote. It ranks
+after `job` (`context-injection`). The web host row renders it as a muted "Context compacted.
+Continuing." notice; search, titles, previews, and the public view ignore it, because it is a
+`data-context` part.
+
+### D12: The summary request of a step-boundary compaction
+
+The summary is computed before the delivery transaction, outside it, and the transaction then
+checks the attempt fence again. The request:
+
+- uses the live client, system prompt, schema-only tool declarations, and effort of the attempt,
+  with the existing `toolChoice: 'none'`;
+- replays the absorbed rows through the stored projection (`buildContext`). The closed reply comes
+  from the part collector through `projectStoredReplyParts`, because the stored reply row is stale
+  at a boundary and the next segment rebuilds from stored rows;
+- ends with the instruction rendered without the trigger sentence (the second sentence of
+  `instruction.md:18`), and the focus paragraph when a command item has a focus.
+
+`CompactionService` gains a `boundary` variant with an explicit absorbed range (`uptoSeq` of the
+closed reply) instead of `triggeringUserSeq`. A failed or empty summary returns `null`. The
+delivery then marks the command items delivered, appends a `run.compaction_failed` event that the
+web shows inline, and continues as `deliverPendingSteering` would with no command item. An abort
+from cancellation or interrupt rethrows, as today.
+
+The summary request is a strict prefix of the live request plus one instruction. That is the best
+case for the prompt cache, except on the Messages wire (D14).
+
+### D13: The automatic trigger runs at the same boundary
+
+`stopWhenExtra` gains a third cause, `compact`. After a step that called tools, the worker measures
+the next request: the context tokens of the latest request receipt, plus `estimateModelRequestTokens`
+of that step's tool results. When the measure reaches `resolveCompactionThreshold` of the Run model,
+the boundary compacts as in D11, with no command item, cause `compaction`, and no focus. A final
+answer never compacts automatically.
+
+The progress guard is per-attempt state in the worker:
+
+- no automatic compaction before one model step after the previous compaction of the Run;
+- no automatic compaction when the absorbed range is empty;
+- after an automatic compaction, the measure of the first request is compared with the threshold.
+  When it still reaches the threshold, automatic compaction stops for the rest of the Run, and a
+  `run.compaction_disabled` event tells the web. An owner command still compacts.
+
+There is no count limit. The guard does not survive a crash retry; a retried segment starts with
+the guard open, which costs at most one more compaction.
+
+The image-overflow condition stays a pre-step condition (`media-attachments`).
+
+### D14: The Anthropic tool-drop finding stays out of scope
+
+A loopback probe through llame's own clients showed that `@ai-sdk/anthropic` 3.0.118 removes every
+tool declaration when `toolChoice` is `'none'` (`anthropic-prepare-tools.ts:424-426`), so a
+compaction request on the Messages wire does not share the tools prefix of the turn. It
+belongs to compaction fidelity ([#1483](https://github.com/leon0399/llame/issues/1483)) and changes
+no requirement here.
+
+### D15: The web shows compactions
 
 When `latestRun.kind` is `compaction`, the transcript ends with a "Compacting context" row while the
 Run is live, with Stop (`cancelRun`), and an error row with no action when it failed or expired.
 These read `kind`: `turn-action-rules.ts`, `turn-actions.tsx`, `chat-transcript.tsx`,
 `history-adoption.ts`, the busy check in `deliveries.ts`, `active-runs-context.tsx` (no "Reply
 ready" notice or unseen mark for a compaction Run), `use-chat-delivery.ts` (no hand-off wait for a
-promoted command item, which creates no message), and the pending-item rows (Steer now and
-Interrupt now hidden while a compaction Run is live). On reload, the resume stream of a live
+promoted command item, which creates no message), `job-notice-run.service.ts` on the API side
+(`startNoticeRunForIdleChat` reads the latest Run), and the pending-item rows (Steer now and
+Interrupt now hidden while a compaction Run is live; a command item labelled "Compact"). On reload, the resume stream of a live
 compaction Run opens an assistant message with the Run id; the web drops that message when
 `latestRun.kind` is `compaction`. The web refetches history when the Run ends, so the boundary
 appears. `compaction-boundary.tsx` shows the focus under the summary. `run-kind` and
-`queued-commands` regenerate the live AsyncAPI modules, because the generated live parsers strip
+`compact-in-run` regenerate the live AsyncAPI modules, because the generated live parsers strip
 unknown keys such as `kind` and `command`.
 
-### D12: The Anthropic tool-drop finding stays out of scope
-
-A loopback probe through llame's own clients showed that `@ai-sdk/anthropic` 3.0.118 removes every
-tool declaration when `toolChoice` is `'none'` (`anthropic-prepare-tools.ts:424-426`), so an
-automatic compaction request on the Messages wire does not share the tools prefix of the turn. It
-belongs to compaction fidelity ([#1483](https://github.com/leon0399/llame/issues/1483)) and changes
-no requirement here.
+A mid-turn compaction reaches the web as a `run.delivered` event with cause `compaction`. The
+hand-off then attaches the next segment to the host message, as for a notice. The boundary renders
+before the host message, and the host row renders the continue notice. A
+`run.compaction_failed` or `run.compaction_disabled` event renders as a muted inline note on the
+live reply.
 
 ## Risks / Trade-offs
 
-- [The source receipt prompt was written for another model] → it only frames the summary request;
-  the instruction carries the task. A fresh render is the named alternative in D8.
-- [A layer exceeds the review budget] → eight implementation layers; re-measure each at its
-  boundary.
-- [A compaction Run as `latestRun` confuses client code that assumes a message] → `kind` on every
-  Run response, and `compact-web` updates every reader listed in D11.
-- [Owner text in a summary prompt] → the focus is neutralized, capped at 1,000 characters, placed
-  after the fixed instruction, and the instruction keeps headings and redaction above it. It is the
-  same trust level as any owner message.
-- [A steer sent during a compaction Run waits] → it runs right after the compaction Run, which is
-  one bounded summary request.
-- [No prompt-cache read of the turn prefix for an owner compaction] → accepted (D8); a later change
-  can prepare a full attempt without a user turn.
+- [The stored reply row is stale at a boundary] → the summary reads the part collector through the
+  stored projection (D12), and a test compares it with the replay of the next segment.
+- [Owner text in a summary prompt] → the focus and the quoted request are neutralized and capped,
+  placed after the fixed instruction, and the instruction keeps headings and redaction above them.
+  They are the same trust level as any owner message.
+- [Automatic compaction runs often in a long Run] → each one is a cache-aligned prefix of the live
+  request. The guard stops it when a compaction does not bring the request below the threshold.
+- [A compaction keeps the step budget] → an operator step cap still bounds a Run that compacts many
+  times. A steer still gives a fresh budget.
+- [The compaction Run source prompt was written for another model] → it only frames the summary
+  request; the instruction carries the task.
+- [A `/compact` sent during a job wait] → as a steer it wakes the Run; as a queue item it waits for
+  the Run, as any queue item does.
+- [Layers above the review target] → `commands` and `compact-in-run` are over 2,000 authored lines
+  and stay whole, because each is one mergeable behavior (CONTRIBUTING now treats the number as a
+  target).
 - [Two first sends race to one new Chat id] → accepted (D1).
-- [The web sends `/`-text on an existing Chat through the direct path] → an ordinary `/etc/hosts`
-  message has no optimistic bubble until the Run attaches; the path already exists for delivery
-  sends.
 
 ## Migration Plan
 
 The migration adds one defaulted column; existing Runs read as `turn`. `RunJob` keeps accepting jobs
-with `userMessage`. Rollback: revert the layers from the top. Reverting `compact-focus` needs the
-data fix in D6 first. Drop `runs.kind` only after no compaction Run is live; compaction Run rows
-can stay, because their checkpoints are ordinary checkpoints.
+with `userMessage`. The `compaction` notice item and the new Run events are additive; an older web
+ignores them. Rollback: revert the layers from the top. Reverting `compact-focus` needs the data fix
+in D6 first. Reverting `compact-in-run` leaves host messages with a `compaction` notice item; the layer adds a
+replay test that an item it cannot render is skipped, so the continuation reply stays readable. Drop `runs.kind` only after no compaction Run is live.
 
 ## Revision history
+
+- **r3 (2026-11-15):** Rebased onto `05a426bd` (background jobs, Run suspension, CONTRIBUTING #1723,
+  Drizzle RC5). Redesigned after grilling Q18-Q27:
+  - `/compact` follows its delivery mode (D12 revised);
+  - compaction during a live Run happens at a step boundary inside the Run (D11-D12);
+  - the automatic step-boundary trigger with a progress guard is added (D13, closes #1068);
+  - notices skip a compaction Run, and its completion starts the idle-Chat notice Run;
+  - owner items, not notices, are coerced to `queue` during a compaction Run;
+  - the steer signal uses the stored mode;
+  - the `/rename` excerpt skips host messages;
+  - the claim and finish of a compaction Run keep the new fences;
+  - the stack is re-planned as mergeable layers.
+
+  New MODIFIED deltas: `background-jobs` (4), `context-injection` (1), `media-attachments` (1), and
+  seven more `run-steering` blocks. Removed: the queue-only and command-item mode-change rules.
 
 - **r2 (2026-11-11):** Round 2, two reviewers (spec consistency: 4 P1, 8 P2; feasibility: 2 P1,
   9 P2), each verified against code. Fixed: `chat-creation` "The first-message creation path is

@@ -8,9 +8,9 @@ result, and the `/rename` and `/compact` commands.
 ### Requirement: The API parses a command before it admits a send
 
 A command is a send to `POST /api/v1/chats/:id/messages` for a Chat of the owner. It has exactly
-one part, a text part that starts with `/` and a command name. The name ends
-at whitespace or at the end of the text. The API MUST parse the send before it validates
-the model or admits a pending item.
+one part, a text part that starts with `/` and a command name. The name ends at whitespace or at
+the end of the text. The API MUST parse the send before it validates the model or admits a pending
+item.
 
 #### Scenario: A command on the message endpoint
 
@@ -51,9 +51,9 @@ MUST be no escape syntax.
 
 ### Requirement: A command is never a message
 
-A command MUST NOT create a message row. Its text MUST NOT enter the model context of a turn Run.
-Only the focus of `/compact` can reach a model, in the summary request of its compaction Run. A
-command that the API runs at once MUST answer 200 with a JSON command result, not with a Run stream.
+A command MUST NOT create an owner message row. Its text MUST NOT enter the model context. Only the
+focus of `/compact` can reach a model, in its summary request. A command that the API runs at once
+MUST answer 200 with a JSON command result, not with a Run stream.
 
 #### Scenario: A rename leaves no trace in the history
 
@@ -68,7 +68,7 @@ command that the API runs at once MUST answer 200 with a JSON command result, no
 ### Requirement: A command with an attachment is refused
 
 For a Chat of the owner, a send with a file part and a text part that starts with a recognized
-command MUST get 400. It MUST NOT store a message, start a Run, or change the Chat.
+command MUST get 400. The API MUST NOT store a message, start a Run, or change the Chat.
 
 #### Scenario: A rename with an image
 
@@ -101,13 +101,18 @@ archived Chat MUST answer 409.
 
 `/rename` with text after the name MUST set the Chat title to that text. The API MUST remove the
 whitespace at the start and at the end. A title with 1 to 200 characters MUST replace the current
-title, also while a Run is live. A longer title MUST get 400.
+title, also while a Run is live, whatever `delivery` the send names. A longer title MUST get 400.
 
 #### Scenario: A rename during a Run
 
 - **WHEN** a Run of the Chat is `running_model` and the owner sends `/rename Release plan`
 - **THEN** the Chat title is `Release plan`
 - **AND** the Run continues, and no pending item is stored
+
+#### Scenario: A rename with a delivery mode during a Run
+
+- **WHEN** a turn Run is live and the owner sends `/rename Foo` with `delivery: "steer"`
+- **THEN** the API sets the title and stores no pending item
 
 #### Scenario: A title that is too long
 
@@ -133,10 +138,10 @@ MUST use the packaged title prompts that automatic titles use.
 
 ### Requirement: A bare rename reads a bounded excerpt of recent turns
 
-The input of a bare `/rename` MUST be the text parts of the newest user and assistant rows, each
-tagged with its role. The API MUST take rows newest first until 1,000 UTF-16 code units, tags
-included. It MUST keep the start of a row that it cuts. File parts MUST add placeholder lines.
-Reasoning, tool parts, and checkpoints MUST NOT count.
+The input of a bare `/rename` MUST be the text parts of the newest owner and assistant rows, each
+tagged with its role. Host messages MUST NOT count. The API MUST take rows newest first until 1,000
+UTF-16 code units, tags included. It MUST keep the start of a row that it cuts. File parts MUST add
+placeholder lines.
 
 #### Scenario: A long Chat gives a bounded input
 
@@ -148,9 +153,14 @@ Reasoning, tool parts, and checkpoints MUST NOT count.
 - **WHEN** the newest user row of the Chat holds an image `shot.png` and no text
 - **THEN** the title input holds the line `[image media://<id> shot.png]`
 
+#### Scenario: A host message is not title input
+
+- **WHEN** the newest user row of the Chat is a host message with a job notice
+- **THEN** the title input holds no text of that host message
+
 #### Scenario: A Chat with no turn has nothing to name
 
-- **WHEN** the owner sends `/rename` to a Chat with no user or assistant row
+- **WHEN** the owner sends `/rename` to a Chat with no owner or assistant row
 - **THEN** the API answers 409 with `Nothing to name.` and sends no model request
 
 ### Requirement: A bare rename protects the title prompt
@@ -210,8 +220,8 @@ Run as a chat send does. The command result MUST name the new Run id.
 ### Requirement: Compact with nothing to absorb is refused
 
 A Chat can have no user or assistant row above the absorbed-through sequence of its active
-checkpoint. Then `/compact` MUST answer 409 with the message `Nothing to compact.` It MUST NOT start
-a Run. A Chat with one turn MUST compact.
+checkpoint. Then `/compact` on an idle Chat MUST answer 409 with the message `Nothing to compact.`
+It MUST NOT start a Run. A Chat with one turn MUST compact.
 
 #### Scenario: An empty Chat
 
@@ -237,24 +247,25 @@ characters MUST get 400, and the API MUST NOT start a Run or store a pending ite
 #### Scenario: A focus is accepted
 
 - **WHEN** the owner sends `/compact keep the migration plan`
-- **THEN** the compaction Run has the focus `keep the migration plan`
+- **THEN** the compaction has the focus `keep the migration plan`
 
 #### Scenario: A focus that is too long
 
 - **WHEN** the owner sends `/compact` with 1,001 characters after the name
 - **THEN** the API answers 400 and starts no Run
 
-### Requirement: Compact during a live Run is queued
+### Requirement: Compact during a live Run follows its delivery mode
 
-When the Chat has a live Run, `/compact` with a `delivery` mode MUST become a pending `queue` item,
-as `run-steering` defines. A compaction Run MUST start only when the queue promotes that item.
-Without `delivery`, `/compact` MUST get 409, as a chat send does.
+When the Chat has a live turn Run, `/compact` MUST become a pending item in the `delivery` mode of
+the send, as `run-steering` defines. A `steer` or `interrupt` item MUST compact that Run at a step
+boundary. A `queue` item MUST start a compaction Run after that Run completes. Without `delivery`,
+`/compact` MUST get 409.
 
-#### Scenario: Compact during a Run
+#### Scenario: Compact as a steer
 
-- **WHEN** a Run is `running_model` and the owner sends `/compact` with `delivery: "steer"`
-- **THEN** the API answers 202 with a pending item in mode `queue`
-- **AND** the live Run gets no steer
+- **WHEN** a turn Run is `running_model` and the owner sends `/compact` with `delivery: "steer"`
+- **THEN** the API answers 202 with a pending item in mode `steer`
+- **AND** the Run compacts at its next step boundary
 
 #### Scenario: Compact during a Run without a delivery mode
 

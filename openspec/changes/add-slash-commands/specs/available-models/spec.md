@@ -1,6 +1,6 @@
 ## ADDED Requirements
 
-### Requirement: An owner compaction uses the model of its own Run
+### Requirement: A compaction Run uses the model of its own Run
 
 A compaction Run MUST send its summary request with the model id and the effort stored on that Run.
 The absorbed rows can be too large for the window of that model. Then the Run MUST use the window
@@ -8,7 +8,7 @@ variant of automatic compaction, with its source Run. Without a source Run, the 
 
 #### Scenario: Compact with the composer model
 
-- **WHEN** the owner sends `/compact` with model `B` and effort `low`, and the last turn Run used model `A`
+- **WHEN** the owner sends `/compact` with model `B` and effort `low` to an idle Chat, and the last turn Run used model `A`
 - **THEN** the summary request uses model `B` with effort `low`
 
 #### Scenario: A history that does not fit the composer model
@@ -20,3 +20,14 @@ variant of automatic compaction, with its source Run. Without a source Run, the 
 
 - **WHEN** the absorbed rows do not fit the window of the Run model, and no earlier Run completed a reply
 - **THEN** the compaction Run fails, and the Chat has no new checkpoint
+
+### Requirement: A step-boundary compaction uses the model of the live Run
+
+A step-boundary compaction MUST use the model id and the effort of the turn Run that it compacts.
+The model and effort of a `/compact` item MUST NOT change them. A step-boundary compaction MUST NOT
+use the window variant.
+
+#### Scenario: A compact steer with another model
+
+- **WHEN** a turn Run on model `A` is live, and the owner sends `/compact` as a steer with model `B`
+- **THEN** the summary request uses model `A`
