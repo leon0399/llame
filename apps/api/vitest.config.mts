@@ -50,7 +50,9 @@ const unitTest = {
     // Vitest config includes it, not the ordinary unit project.
     'src/runs/native-receipts-repository.test.ts',
     'src/runs/run-enqueue.query.unit.test.ts',
+    // The upgrade regressions also run in the integration project for coverage.
     'src/db/migration-ledger-upgrade.query.unit.test.ts',
+    'src/db/drizzle-data.query.unit.test.ts',
     // This test reads the developer's local MCP configuration. Exclude it from
     // Stryker because it fails when that configuration references an unset
     // secret; a developer's personal config is not a mutation signal.
@@ -146,7 +148,11 @@ export default defineConfig({
               // evals/ rides this project rather than owning one: qa-evals
               // self-gates on RUN_MODEL_EVALS (spend), so a plain
               // test:integration run skips it.
-              include: ['src/**/*.integration.test.ts', 'evals/**/*.test.ts'],
+              include: [
+                'src/**/*.integration.test.ts',
+                'src/db/*.query.unit.test.ts',
+                'evals/**/*.test.ts',
+              ],
               exclude: ['evals/mcp-web-search-eval.test.ts'],
               // Self-provisions a throwaway worst-case-owner Postgres via
               // Testcontainers and clones it once per worker, so parallel files
