@@ -370,16 +370,20 @@ type ChatComposerProps = {
   project?: ComposerProject;
   /** The filed chat's start location, for the row under the input. */
   location?: ComposerLocation;
-  /** A failed create's sentence; the draft stays for a resend. */
+  /** A failed create or delivery; the draft stays for a resend. */
   failure?: string | null;
+  /** A successful inline command result. */
+  notice?: string | null;
 };
 
 /** A failed create's sentence, then why the model cannot send, if either. */
 function ComposerNotices({
   failure,
+  notice,
   unavailableReason,
 }: {
   failure: string | null;
+  notice: string | null;
   unavailableReason: string | null;
 }) {
   return (
@@ -388,6 +392,9 @@ function ComposerNotices({
         <p role="alert" className="mb-2 text-xs text-destructive">
           {failure}
         </p>
+      )}
+      {notice === null ? null : (
+        <output className="mb-2 text-xs text-muted-foreground">{notice}</output>
       )}
       {unavailableReason && (
         <p className="mb-2 text-xs text-destructive">{unavailableReason}</p>
@@ -409,7 +416,7 @@ export function ChatComposerBody({
   project,
   location,
   failure = null,
-  status,
+  notice = null,
   runActive = status === "streaming" || status === "submitted",
   onDeliver = noDeliver,
   ...form
@@ -418,6 +425,7 @@ export function ChatComposerBody({
     <>
       <ComposerNotices
         failure={failure}
+        notice={notice}
         unavailableReason={
           modelSendUnavailableReason ?? form.attachments.blockReason
         }

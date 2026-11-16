@@ -113,6 +113,42 @@ describe("sendDelivery", () => {
     expect(cancelled).toHaveBeenCalledOnce();
   });
 
+  it("parses a JSON rename result without expecting a stream", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ type: "command", command: "rename", title: "Foo" }),
+    );
+
+    await expect(
+      sendDelivery({ ...REQUEST, delivery: undefined }),
+    ).resolves.toEqual({ kind: "command", command: "rename", title: "Foo" });
+
+    const request = requestFromCall(fetchMock);
+    const body = await request.json();
+    expect(body).toMatchObject({ message: { id: "m2" } });
+    expect(body).not.toHaveProperty("delivery");
+  });
+
+  it("treats an unknown JSON command as a generic success", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ type: "command", command: "compact", runId: "run-1" }),
+    );
+
+    await expect(sendDelivery(REQUEST)).resolves.toEqual({ kind: "success" });
+  });
+
+  it("surfaces the server message from a JSON error response", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { statusCode: 422, message: "Title generation is not configured." },
+        422,
+      ),
+    );
+
+    await expect(sendDelivery(REQUEST)).rejects.toThrow(
+      "Title generation is not configured.",
+    );
+  });
+
   it("rejects a send the API refused", async () => {
     fetchMock.mockResolvedValue(
       new Response("model unavailable", { status: 422 }),

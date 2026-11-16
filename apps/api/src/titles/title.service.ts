@@ -5,6 +5,9 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { ChatsRepository } from '../chats/chats-repository';
+import { queryLatestTitleMessages } from '../chats/title-message-query';
+import { assertNotArchived } from '../db/assert-not-archived';
+import { buildTitleExcerpt } from './title-excerpt';
 import {
   sanitizeTitle,
   titlePromptInput,
@@ -51,6 +54,59 @@ export class TitleService {
         `Title generation failed for chat ${input.chatId}`,
         error instanceof Error ? error.stack : String(error),
       );
+    }
+  }
+
+  async regenerate(input: {
+    chatId: string;
+    userId: string;
+  }): Promise<
+    | { ok: true; title: string }
+    | { ok: false; reason: 'not_configured' | 'empty' | 'failed' }
+  > {
+    const chat = await this.tenantDb.runAs(input.userId, async (tx) => {
+      const current = await new ChatsRepository(tx).findById(
+        input.chatId,
+        input.userId,
+      );
+
+      if (current) assertNotArchived(current);
+
+      return current;
+    });
+
+    if (!chat) return { ok: false, reason: 'empty' };
+
+    const titleModel = this.models.resolveTitleModelConfig();
+
+    if (!titleModel) return { ok: false, reason: 'not_configured' };
+
+    const newestFirst = await this.tenantDb.runAs(input.userId, (tx) =>
+      queryLatestTitleMessages(tx, input.chatId, input.userId),
+    );
+
+    const renderedInput = buildTitleExcerpt(newestFirst);
+
+    if (renderedInput.length === 0) return { ok: false, reason: 'empty' };
+
+    try {
+      const client = this.models.createClient(titleModel.id);
+
+      const title = sanitizeTitle(
+        await this.requestTitle(client, input.chatId, renderedInput),
+      );
+
+      if (title.length === 0) return { ok: false, reason: 'failed' };
+
+      const updated = await this.tenantDb.runAs(input.userId, (tx) =>
+        new ChatsRepository(tx).update(input.chatId, input.userId, { title }),
+      );
+
+      return updated
+        ? { ok: true, title: updated.title ?? title }
+        : { ok: false, reason: 'failed' };
+    } catch {
+      return { ok: false, reason: 'failed' };
     }
   }
 
@@ -105,13 +161,13 @@ export class TitleService {
   private async requestTitle(
     client: ModelClient,
     chatId: string,
-    userText: string,
+    renderedInput: string,
   ): Promise<string> {
     // SAFETY: without an annotation, `role: 'user'` widens to string in this
     // object literal; ModelMessage is a discriminated union keyed on the
     // literal role, so this states the intended literal explicitly.
     const messages = [
-      { role: 'user', content: titleUserPrompt(userText) },
+      { role: 'user', content: titleUserPrompt(renderedInput) },
     ] as Array<AiModelMessage>;
 
     // One deadline for the whole attempt: the chat loop awaits titling before

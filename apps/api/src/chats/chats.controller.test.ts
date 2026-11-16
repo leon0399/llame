@@ -17,6 +17,7 @@ import type { Chat, Message, Run } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
 import { asDouble } from '../testing/support';
+import type { ChatCommandsService } from './commands/chat-commands.service';
 import {
   ModelConfigurationError,
   ModelNotAvailableError,
@@ -155,6 +156,8 @@ describe('ChatsController', () => {
         vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
     } satisfies RunStreamResponder;
 
+    const commands = asDouble<ChatCommandsService>({ execute: vi.fn() });
+
     return {
       controller: new ChatsController(
         chatsService,
@@ -163,6 +166,7 @@ describe('ChatsController', () => {
         bridge,
         followUpAdmission,
         chatJobs,
+        commands,
       ),
       chatsService,
       chatLoopService,
@@ -805,6 +809,8 @@ describe('ChatsController response plumbing', () => {
         vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
     } satisfies RunStreamResponder;
 
+    const commands = asDouble<ChatCommandsService>({ execute: vi.fn() });
+
     return {
       controller: new ChatsController(
         chatsService,
@@ -813,6 +819,7 @@ describe('ChatsController response plumbing', () => {
         bridge,
         followUpAdmission,
         chatJobs,
+        commands,
       ),
       chatsService,
       chatLoopService,

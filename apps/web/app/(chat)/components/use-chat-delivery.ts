@@ -1,4 +1,10 @@
-import { useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { ChatStatus, UIMessage } from "ai";
@@ -26,7 +32,10 @@ import {
   withdrawDelivery,
   type ChangeableDeliveryMode,
   type DeliveryMode,
+  type DeliverySendRequest,
+  type DeliverySendResult,
 } from "@/lib/services/chat/deliveries";
+import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { safeRandomUUID } from "@/lib/uuid";
@@ -45,6 +54,11 @@ type DeliveryContext = {
   begin: (messageId: string) => void;
   /** Marks a message that must never hand off. */
   skip: (messageId: string) => void;
+};
+
+type DeliveryNotice = {
+  kind: "error" | "status";
+  message: string;
 };
 
 /** The composer's draft: what a send takes and an edit fills. */
@@ -144,61 +158,137 @@ type Selections = {
   permissionMode: PermissionModeResponseValue;
 };
 
+type ComposedMessage = {
+  text: string;
+  id: string;
+  parts: UIMessage["parts"];
+};
+
 /** The message the composer holds, or null when there is nothing to send. A
  *  new id for every send, so an edited item never reuses its own. */
-function composedMessage(draft: DraftState) {
+function composedMessage(draft: DraftState): ComposedMessage | null {
   const text = draft.input.trim();
   const files = attachmentFileParts(draft.attachments.items);
 
   if (text === "" && files.length === 0) return null;
+
   const textParts = text === "" ? [] : [{ type: "text" as const, text }];
 
   return { text, id: safeRandomUUID(), parts: [...textParts, ...files] };
 }
 
-/** Sends the composer's message in `mode`. The draft clears at once and comes
- *  back if the send fails. */
-async function sendComposed(
-  ctx: DeliveryContext,
-  draft: DraftState,
-  selections: Selections,
-  mode: DeliveryMode,
-) {
+/** Directly sends an existing Chat's message, optionally as a delivery during
+ *  a live Run. Failures restore the draft. */
+type SendComposedInput = {
+  ctx: DeliveryContext;
+  draft: DraftState;
+  selections: Selections;
+  mode: DeliveryMode | undefined;
+  setNotice: (notice: DeliveryNotice | null) => void;
+};
+
+async function sendComposed({
+  ctx,
+  draft,
+  selections,
+  mode,
+  setNotice,
+}: SendComposedInput) {
   const message = composedMessage(draft);
 
   if (message === null) return;
+
   const sent = draft.attachments.items;
+  const isCommandText = draft.input.startsWith("/");
+
+  const request: DeliverySendRequest = {
+    chatId: ctx.chatId,
+    message,
+    ...selections,
+  };
+
+  if (mode !== undefined) request.delivery = mode;
+
   draft.setInput("");
   draft.attachments.clear();
+  setNotice(null);
 
   try {
-    const result = await sendDelivery({
-      chatId: ctx.chatId,
-      delivery: mode,
-      message,
-      ...selections,
-    });
+    const result = await sendDelivery(request);
 
     revokePreviews(sent);
-
-    if (result.kind === "started") {
-      // The Run ended first: the send stored the message and started a Run.
-      ctx.begin(message.id);
-
-      return;
-    }
-
-    // Whether the item still waits is the server's to say: a delivery can
-    // have taken it before this response arrived.
-    void ctx.queryClient.invalidateQueries({
-      queryKey: deliveriesQueryOptions(ctx.chatId).queryKey,
+    handleSendResult(ctx, message.id, result, setNotice);
+  } catch (error) {
+    restoreFailedSend({
+      draft,
+      message,
+      sent,
+      isCommandText,
+      error,
+      setNotice,
     });
-  } catch {
-    // The owner may have typed during the send: their draft stays.
-    draft.setInput((current) =>
-      current.trim() === "" ? message.text : `${message.text}\n\n${current}`,
-    );
-    draft.attachments.restore(sent);
+  }
+}
+
+function handleSendResult(
+  ctx: DeliveryContext,
+  messageId: string,
+  result: DeliverySendResult,
+  setNotice: (notice: DeliveryNotice | null) => void,
+) {
+  if (result.kind === "started") {
+    ctx.begin(messageId);
+
+    return;
+  }
+
+  if (result.kind === "command" || result.kind === "success") {
+    setNotice({
+      kind: "status",
+      message:
+        result.kind === "command"
+          ? `Renamed to “${result.title}”`
+          : "Command completed.",
+    });
+    void ctx.queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.messages(ctx.chatId),
+    });
+    void ctx.queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.lists(),
+    });
+
+    return;
+  }
+
+  // Whether the item still waits is the server's to say: a delivery can
+  // have taken it before this response arrived.
+  void ctx.queryClient.invalidateQueries({
+    queryKey: deliveriesQueryOptions(ctx.chatId).queryKey,
+  });
+}
+
+function restoreFailedSend(input: {
+  draft: DraftState;
+  message: ComposedMessage;
+  sent: ComposerAttachments["items"];
+  isCommandText: boolean;
+  error: unknown;
+  setNotice: (notice: DeliveryNotice | null) => void;
+}) {
+  const { draft, message, sent, isCommandText, error, setNotice } = input;
+
+  // The owner may have typed during the send: their draft stays.
+  draft.setInput((current) =>
+    current.trim() === "" ? message.text : `${message.text}\n\n${current}`,
+  );
+  draft.attachments.restore(sent);
+
+  if (isCommandText) {
+    setNotice({
+      kind: "error",
+      message: error instanceof Error ? error.message : "The command failed.",
+    });
+  } else {
     toast.error("Couldn't send that message. Try again.");
   }
 }
@@ -292,14 +382,14 @@ type UseChatDeliveryArgs = DraftState & {
 };
 
 /**
- * Sending, listing, and acting on the messages that wait for a live Run
- * (run-steering D11), and Stop and Esc over them. While a Run is active the
- * composer sends through `deliver` instead of the chat transport, so Enter
+ * Sends slash-prefixed text on an existing Chat through the direct message
+ * path, idle or not. While a Run is active, other sends use it too so Enter
  * steers and the menu can interrupt or queue; pending items come from
  * `GET /deliveries` and live `chat.deliveries` updates.
  */
 export function useChatDelivery(args: UseChatDeliveryArgs) {
   const { chatId, exists, status, latestRun, attachments } = args;
+  const [notice, setNotice] = useState<DeliveryNotice | null>(null);
   const ctx = { queryClient: useQueryClient(), chatId, ...args.handoff };
   const { selectedModel, selectedEffort, getPermissionMode } = useChatContext();
   const items = useChatDeliveries(chatId, exists);
@@ -325,8 +415,12 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
     runActive,
     /** No live Run, so nothing delivers until the owner acts. */
     paused: !runActive && items.length > 0,
-    deliver: (mode: DeliveryMode) =>
-      canSend ? sendComposed(ctx, args, selections, mode) : undefined,
+    exists,
+    notice,
+    deliver: (mode?: DeliveryMode) =>
+      canSend
+        ? sendComposed({ ctx, draft: args, selections, mode, setNotice })
+        : undefined,
     handleStop,
     steerNow: (item: ChatDeliveryResponse) =>
       void changeItem(ctx, item, "steer"),

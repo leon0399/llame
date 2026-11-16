@@ -3039,7 +3039,7 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
                   chatId: CHAT_ID,
                   role: "user",
                   seq: 2,
-                  parts: [{ type: "text", text: "next question" }],
+                  parts: [{ type: "text", text: "/etc/hosts" }],
                 }),
               ],
           sentId ?? "m1",
@@ -3055,13 +3055,107 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
   },
   play: async ({ canvasElement }) => {
     const input = await openedLiveRun(canvasElement);
-    await userEvent.type(input, "next question{Enter}");
+    await userEvent.type(input, "/etc/hosts{Enter}");
 
-    await transcriptShows(canvasElement, "next question");
+    await transcriptShows(canvasElement, "/etc/hosts");
     await transcriptShows(canvasElement, "new run reply");
+    await expect((await deliverySent()).delivery).toBe("steer");
     await expect(
       sentRoutes().filter((route) => route === RESUME_ROUTE),
     ).toHaveLength(2);
+  },
+};
+
+/**
+ * An existing Chat sends a recognized command over the direct path; the
+ * command result appears beside the composer without a transcript message.
+ *
+ * @summary a rename command shows its result and adds no message
+ */
+export const RenameCommandShowsInline: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(
+          jsonResponse({ type: "command", command: "rename", title: "Foo" }),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename Foo{Enter}");
+
+    const status = await canvas.findByRole("status");
+    await expect(status).toHaveTextContent("Renamed to “Foo”");
+    await expect(
+      within(canvas.getByRole("log")).queryByText("/rename Foo"),
+    ).toBeNull();
+    await expect(canvas.getByText("Hello from history")).toBeVisible();
+    await waitFor(() =>
+      expect(
+        sentRoutes().filter((route) => route === HISTORY_ROUTE).length,
+      ).toBeGreaterThan(1),
+    );
+  },
+};
+
+/**
+ * A failed slash-prefixed send restores its draft and shows the server's
+ * message inline rather than the generic delivery toast.
+ *
+ * @summary a failed command restores the draft and shows the server error
+ */
+export const FailedCommandShowsServerMessage: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(
+          jsonResponse(
+            { statusCode: 422, message: "Title generation is not configured." },
+            422,
+          ),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename{Enter}");
+
+    const alert = await canvas.findByRole("alert");
+    await expect(alert).toHaveTextContent(
+      "Title generation is not configured.",
+    );
+    await expect(composer(canvasElement)).toHaveValue("/rename");
+  },
+};
+
+/**
+ * A slash-prefixed first message on the new-Chat page still uses the
+ * optimistic create-and-stream path instead of command dispatch.
+ *
+ * @summary a first slash-prefixed message follows chat creation
+ */
+export const FirstSlashMessageCreatesChat: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/etc/hosts");
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: "Send message" }),
+    );
+
+    await transcriptShows(canvasElement, "/etc/hosts");
+    await waitFor(() => expect(sentRoutes()).toEqual([SEND_ROUTE]));
+    const body = await sentBody(SEND_ROUTE);
+    await expect(body).toMatchObject({
+      message: { parts: [{ type: "text", text: "/etc/hosts" }] },
+    });
+    await expect(body).not.toHaveProperty("delivery");
   },
 };
 

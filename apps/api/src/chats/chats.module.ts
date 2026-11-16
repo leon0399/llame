@@ -8,6 +8,8 @@ import { ProjectsModule } from '../projects/projects.module';
 import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
+import { TitlesModule } from '../titles/titles.module';
+import { ChatCommandsService } from './commands/chat-commands.service';
 import { ChatGitStateController } from './chat-git-state.controller';
 import { ChatGitStateService } from './chat-git-state.service';
 import { ChatDeliveriesController } from './chat-deliveries.controller';
@@ -42,8 +44,9 @@ import { SharedChatsController } from './shared-chats.controller';
     ModelsModule,
     ProjectsModule,
     RunsModule,
-    RunWorkerModule,
     SearchModule,
+    RunWorkerModule,
+    TitlesModule,
   ],
   controllers: [
     ChatsController,
@@ -60,6 +63,7 @@ import { SharedChatsController } from './shared-chats.controller';
     ChatDeliveriesService,
     ChatJobsService,
     ChatLoopService,
+    ChatCommandsService,
     FollowUpAdmissionService,
     ChatCreationLock,
     ChatCreationService,

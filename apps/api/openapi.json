@@ -817,7 +817,7 @@
         },
         "responses": {
           "200": {
-            "description": "AI SDK v5 UI-message stream (SSE)",
+            "description": "Command result (JSON)\n\nAI SDK v5 UI-message stream (SSE)",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -5395,6 +5395,24 @@
         },
         "required": ["type", "mediaType", "url"],
         "additionalProperties": false
+      },
+      "ChatCommandResultResponse": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["command"]
+          },
+          "command": {
+            "type": "string",
+            "enum": ["rename"]
+          },
+          "title": {
+            "type": "string",
+            "description": "The updated Chat title."
+          }
+        },
+        "required": ["type", "command", "title"]
       },
       "CreateMessageBodyDto": {
         "type": "object",

@@ -17,7 +17,6 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
-  ApiAcceptedResponse,
   ApiBody,
   ApiCookieAuth,
   ApiConflictResponse,
@@ -33,6 +32,9 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
+import { ApiCreateChatMessageDocs } from './create-chat-message.api-docs';
+import { ChatCommandsService } from './commands/chat-commands.service';
+import { respondToChatCommand } from './commands/respond-to-chat-command';
 import { CurrentUser } from '../auth/auth-context';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import { ChatLoopService, type ChatMessageStream } from './chat-loop.service';
@@ -69,20 +71,13 @@ import {
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
-import {
-  ChatDeliveryResponse,
-  toChatDeliveryResponse,
-} from './dto/chat-deliveries.dto';
+import { toChatDeliveryResponse } from './dto/chat-deliveries.dto';
 import { toChatLatestRunResponse } from './dto/latest-run.dto';
 import {
   requestAbortSignal,
   writeWebResponse,
   type ChatStreamResponse,
 } from './chat-stream-response';
-import {
-  CreateFileMessagePartDto,
-  CreateTextMessagePartDto,
-} from './dto/message-parts.dto';
 
 export type ChatsControllerService = Pick<
   ChatsService,
@@ -94,6 +89,13 @@ export type ChatsControllerService = Pick<
   | 'deleteChat'
   | 'forkChat'
 >;
+
+type CreateChatMessageRequest = {
+  userId: string;
+  chatId: string;
+  input: CreateMessageDto;
+  response: ChatStreamResponse;
+};
 
 @ApiTags('chats')
 @ApiBearerAuth('bearer')
@@ -121,6 +123,8 @@ export class ChatsController {
     >,
     @Inject(ChatJobsService)
     private readonly chatJobs: Pick<ChatJobsService, 'runningCounts'>,
+    @Inject(ChatCommandsService)
+    private readonly commands: ChatCommandsService,
   ) {}
 
   /**
@@ -303,67 +307,35 @@ export class ChatsController {
     };
   }
 
-  // Create-or-append (#86): posting the first message to a not-yet-existing chat
-  // id creates the chat, then streams the reply. The client `:id` is routing and
-  // idempotency only; the owner always comes from the session (@CurrentUser).
   // `POST /chats` creates a chat with its project and location instead. Model
   // selection is validated first, so unavailable models create nothing.
   @Post(':id/messages')
-  @ApiOperation({ operationId: 'createChatMessage' })
-  @ApiTags('streaming')
+  @ApiCreateChatMessageDocs()
   @HttpCode(200)
-  @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiBody({ type: CreateMessageDto })
-  @ApiExtraModels(CreateTextMessagePartDto, CreateFileMessagePartDto)
-  @ApiOkResponse({
-    description: 'AI SDK v5 UI-message stream (SSE)',
-    content: {
-      'text/event-stream': {
-        schema: { type: 'string' },
-      },
-    },
-  })
-  @ApiAcceptedResponse({
-    description:
-      'A send with `delivery` to a Chat with a live Run: the pending item ' +
-      '(also the answer to a retry of the same message id, in any state). ' +
-      'No Run and no message row were created.',
-    type: ChatDeliveryResponse,
-  })
-  @ApiBadRequestResponse({
-    description:
-      'Malformed chat id or invalid message body, including a file part ' +
-      'naming media the sender does not own',
-  })
-  @ApiUnauthorizedResponse()
-  @ApiResponse({
-    status: 503,
-    description: 'Model catalog is not configured correctly',
-    type: ModelDomainErrorResponse,
-  })
-  @ApiUnprocessableEntityResponse({
-    description:
-      'Selected model is not available, or the requested effort is not one of ' +
-      "that model's declared levels",
-    type: ModelDomainErrorResponse,
-  })
-  @ApiNotFoundResponse({ description: 'Chat not found or not owned' })
-  @ApiConflictResponse({
-    description:
-      'Message id already exists, or another run is already in flight for ' +
-      'this chat and the send names no `delivery` mode',
-  })
   async createMessage(
     @CurrentUser() userId: string,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() input: CreateMessageDto,
     @Res() response: ChatStreamResponse,
   ): Promise<void> {
+    const request = { userId, chatId: id, input, response };
+
+    if (await respondToChatCommand(this.commands, request)) return;
+
+    await this.sendMessage(request);
+  }
+
+  private async sendMessage({
+    userId,
+    chatId,
+    input,
+    response,
+  }: CreateChatMessageRequest): Promise<void> {
     const abort = requestAbortSignal(response);
 
     try {
       const send = {
-        chatId: id,
+        chatId,
         userId,
         modelId: input.modelId,
         ...(input.effort !== undefined && { effort: input.effort }),

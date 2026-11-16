@@ -344,6 +344,43 @@ type ChatSessionComposerProps = {
   disabled: boolean;
 };
 
+function useSessionCreation(
+  chatId: string,
+  exists: boolean,
+  composer: ChatSessionComposerProps["composer"],
+) {
+  const { project, draftProjectId } = useChatPageProject(exists);
+
+  const creation = useChatCreation({
+    projectId: draftProjectId,
+    composerChatId: chatId,
+    input: composer.input,
+    setInput: composer.setInput,
+    attachments: composer.attachments,
+    enabled: !exists,
+  });
+
+  return { project, creation, creates: !exists && creation.active };
+}
+
+function composerFeedback(
+  creates: boolean,
+  creationFailure: string | null,
+  composer: ChatSessionComposerProps["composer"],
+) {
+  return {
+    failure: creates
+      ? creationFailure
+      : composer.notice?.kind === "error"
+        ? composer.notice.message
+        : null,
+    notice:
+      !creates && composer.notice?.kind === "status"
+        ? composer.notice.message
+        : null,
+  };
+}
+
 /**
  * The chat page's composer. A chat that does not exist yet, with a project or
  * a working directory chosen, sends through the create, which binds its
@@ -357,19 +394,13 @@ function ChatSessionComposer({
   pending,
   disabled,
 }: ChatSessionComposerProps) {
-  const { project, draftProjectId } = useChatPageProject(exists);
+  const { project, creation, creates } = useSessionCreation(
+    chatId,
+    exists,
+    composer,
+  );
 
-  const creation = useChatCreation({
-    projectId: draftProjectId,
-    composerChatId: chatId,
-    input: composer.input,
-    setInput: composer.setInput,
-    attachments: composer.attachments,
-    enabled: !exists,
-  });
-
-  // Only a chat that does not exist yet chooses where it starts.
-  const creates = !exists && creation.active;
+  const feedback = composerFeedback(creates, creation.failure, composer);
 
   return (
     <ChatComposer
@@ -388,7 +419,8 @@ function ChatSessionComposer({
       attachments={composer.attachments}
       project={project}
       location={exists ? undefined : creation.location}
-      failure={creates ? creation.failure : null}
+      failure={feedback.failure}
+      notice={feedback.notice}
       disabled={disabled || creation.pending}
     />
   );
