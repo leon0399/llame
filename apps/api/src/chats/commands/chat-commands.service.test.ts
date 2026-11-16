@@ -94,6 +94,17 @@ describe('ChatCommandsService', () => {
     expect(update).toHaveBeenCalledWith('chat-1', 'user-1', { title });
   });
 
+  it('counts a title in code points, as the PATCH validator does', async () => {
+    const { service, update } = makeService();
+    const title = '😀'.repeat(200);
+
+    await service.execute({
+      ...request,
+      command: { name: 'rename', argument: title },
+    });
+    expect(update).toHaveBeenCalledWith('chat-1', 'user-1', { title });
+  });
+
   it('rejects an overlong title', async () => {
     const { service, update } = makeService();
     await expect(

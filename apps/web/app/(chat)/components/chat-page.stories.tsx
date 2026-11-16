@@ -3212,6 +3212,45 @@ export const FailedCommandShowsServerMessage: Story = {
   },
 };
 
+let failCommand: (() => void) | null = null;
+
+/**
+ * Text typed while a command is in flight stays alone in the composer when
+ * the command fails: joined to the command it would become its argument.
+ *
+ * @summary a failed command keeps a newer draft apart
+ */
+export const FailedCommandKeepsNewerDraftApart: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    failCommand = null;
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        new Promise<Response>((resolve) => {
+          failCommand = () =>
+            resolve(
+              jsonResponse(
+                { statusCode: 502, message: "Title generation failed." },
+                502,
+              ),
+            );
+        }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename{Enter}");
+    await waitFor(() => expect(failCommand).not.toBeNull());
+    await userEvent.type(input, "Explain the failure");
+    failCommand?.();
+
+    const alert = await canvas.findByRole("alert");
+    await expect(alert).toHaveTextContent("Title generation failed.");
+    await expect(composer(canvasElement)).toHaveValue("Explain the failure");
+  },
+};
+
 /**
  * A slash-prefixed first message on the new-Chat page still uses the
  * optimistic create-and-stream path instead of command dispatch.

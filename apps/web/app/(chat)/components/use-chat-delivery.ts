@@ -277,10 +277,14 @@ function restoreFailedSend(input: {
 }) {
   const { draft, message, sent, commandText, error, setNotice } = input;
 
-  // The owner may have typed during the send: their draft stays.
-  draft.setInput((current) =>
-    current.trim() === "" ? message.text : `${message.text}\n\n${current}`,
-  );
+  // The owner may have typed during the send: their draft stays. A command
+  // comes back only into an empty composer, because text joined to it would
+  // become its argument.
+  draft.setInput((current) => {
+    if (current.trim() === "") return message.text;
+
+    return commandText ? current : `${message.text}\n\n${current}`;
+  });
   draft.attachments.restore(sent);
 
   if (commandText) {

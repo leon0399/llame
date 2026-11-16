@@ -62,7 +62,8 @@ export class ChatCommandsService {
   ): Promise<ChatCommandResultResponse> {
     const title = argument;
 
-    if (title.length > 200) {
+    // Code points, as the PATCH validator counts them.
+    if (Array.from(title).length > 200) {
       throw new BadRequestException(
         'A title must be between 1 and 200 characters.',
       );
