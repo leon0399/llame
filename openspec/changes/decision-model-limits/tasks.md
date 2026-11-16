@@ -14,6 +14,7 @@ the implementation layer.
 master
   <- decision-model-limits/proposal
   <- decision-model-limits/impl
+  <- decision-model-limits/fixtures
   <- decision-model-limits/finalize
 ```
 
@@ -21,7 +22,8 @@ master
 | ---------- | ---------- | ------------------------------------------------------------------------------------------------- | ----------------- | ------ |
 | `proposal` | `master`   | Proposal, design, five deltas, and this list.                                                     | ~950              | none   |
 | `impl`     | `proposal` | Config fields, request packing, token estimate, card fit, provider concurrency, truncation, docs. | ~1,600            | #1717  |
-| `finalize` | `impl`     | Spec sync, task records, archive.                                                                 | ~500              | none   |
+| `fixtures` | `impl`     | Cross-card injection case and recorded live answers for `ranking:eval`.                           | ~750              | none   |
+| `finalize` | `fixtures` | Spec sync, task records, archive.                                                                 | ~500              | none   |
 
 ## 1. proposal
 
@@ -38,16 +40,22 @@ master
 - [ ] 2.5 Bound in-flight attempts per `system-one` provider id with a FIFO counting semaphore shared by every catalog entry and call; acquire per attempt, release on settle, abort a slot wait on the call's signal; measure the call's `latencyMs` as wall time; verify unit tests with a scripted fetch that counts concurrent attempts for `All requests of one call are in flight`, `Requests of one call share the provider bound`, every scenario of `Concurrent attempts to one provider are bounded`, and `The owner cancels while requests wait for a slot`.
 - [ ] 2.6 Read `usage.truncated` and `usage.state_tokens_dropped` in the usage schema and fail closed on a report or a wrong type with `invalid_response`; verify unit tests for the three scenarios of `A truncation report makes its request unavailable` and the unchanged `Invalid usage cannot enter aggregates`.
 - [ ] 2.7 Verify the `web-search` scenario `A larger aggregate uses parallel requests`, the `tool-result-rendering` scenario `A partial answer lists unjudged keys last`, and the `grep-tool` scenarios `A walk has more runs than the call bound` and `A partial answer ranks the judged runs` with tool-level tests; update the `grep-rerank.ts` comment that says every card is judged.
-- [ ] 2.8 Add the cross-card injection case to `fixtures/ranking` and a reversed-order variant to `ranking:record`; record Jev answers with live keys and post the `ranking:eval` table on the PR. This is a live-model eval, not a CI test.
+- [ ] 2.8 Add a reversed-order variant to `ranking:record`; verify `record.test.ts`.
 - [ ] 2.9 Update `docs/product/operator/decisions.md`: limits, defaults, the estimate, guidance for small members and fixed question reserves, the 32-card request and 256-card call bounds (replacing "256 cards … sent at once"), per-process and per-provider-id concurrency, and the truncation backstop, and that `maxQuestionsPerRequest` above 32 has no effect; update `docs/product/reference/tools/grep.md` and `docs/product/reference/tools/web-search.md` where they say every card is judged; update the config example and the dated `CHANGELOG.md` entry.
 - [ ] 2.10 Run api lint, typecheck, focused unit tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish with `$gh-stack`; SR; mark ready; GR; update the Project.
 
-## 3. finalize
+## 3. fixtures
 
-- [ ] 3.1 Create `decision-model-limits/finalize` from `impl` with `$gh-stack` before any sync write.
-- [ ] 3.2 Run `$openspec-sync-specs`; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
-- [ ] 3.3 Confirm every task above is checked and that the impl PR's closing references list #1717.
-- [ ] 3.4 Run `$openspec-archive-change`; verify `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`.
+- [ ] 3.1 Create `decision-model-limits/fixtures` from `impl` with `$gh-stack`.
+- [ ] 3.2 Add the cross-card injection case to `fixtures/ranking`; record Jev answers in canonical and reversed order, and Laya answers under declared limits with one request in flight, with live keys; post the `ranking:eval` table on the PR. This is a live-model eval, not a CI test.
+- [ ] 3.3 Run the focused ranking tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish with `$gh-stack`; SR; mark ready; GR; update the Project.
+
+## 4. finalize
+
+- [ ] 4.1 Create `decision-model-limits/finalize` from `fixtures` with `$gh-stack` before any sync write.
+- [ ] 4.2 Run `$openspec-sync-specs`; verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+- [ ] 4.3 Confirm every task above is checked and that the impl PR's closing references list #1717.
+- [ ] 4.4 Run `$openspec-archive-change`; verify `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`.
 
 The finalize layer's self-review and GitHub review follow archive movement as
 post-archive gates.
