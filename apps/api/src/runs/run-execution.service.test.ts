@@ -23739,6 +23739,7 @@ describe('RunExecutionService compaction completion', () => {
         summary: undefined,
         abortSignal: new AbortController().signal,
         expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+        focus: null,
       });
 
       expect(repositories.updateForAttempt).toHaveBeenCalledWith(
@@ -23966,6 +23967,7 @@ describe('RunExecutionService compaction completion', () => {
       summary: undefined,
       abortSignal: abort.signal,
       expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      focus: null,
     });
 
     expect(result.outcome).toBe('won');
@@ -24017,6 +24019,7 @@ describe('RunExecutionService compaction completion', () => {
       summary: { uptoSeq: 1, summary: 'summary', usage: null },
       abortSignal: new AbortController().signal,
       expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      focus: null,
     });
 
     expect(createCheckpoint).not.toHaveBeenCalled();

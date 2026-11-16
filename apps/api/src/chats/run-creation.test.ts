@@ -28,6 +28,7 @@ describe('createCompactionRun', () => {
         chatId: 'chat-1',
         userId: 'owner-1',
         modelId: 'model-1',
+        focus: null,
       }),
     ).rejects.toThrow(
       new ConflictException('Another run is already in flight for this chat'),
