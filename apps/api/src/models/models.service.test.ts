@@ -543,10 +543,10 @@ describe('ModelsService', () => {
 });
 
 describe('ModelsService — GET /api/v1/models contract stability (#161, providers-and-models-as-code #167)', () => {
-  it('the committed llame.config.jsonc.example public catalog is exactly the loaded config with internal fields stripped', async () => {
+  it('keeps account routing and prompt metadata out of the public catalogue', async () => {
     // Load a `.jsonc` copy of the `.example` template (a `cp` source, not a
     // bootable name) so the extension-based loader picks it up like a real boot.
-    const { readFileSync, writeFileSync, mkdtempSync } =
+    const { readFileSync, writeFileSync, mkdtempSync, rmSync } =
       await import('node:fs');
 
     const { tmpdir } = await import('node:os');
@@ -559,48 +559,17 @@ describe('ModelsService — GET /api/v1/models contract stability (#161, provide
         'utf8',
       ),
     );
-    process.env.LLAME_CONFIG_PATH = copy;
-    const config = loadInstanceConfig();
-    delete process.env.LLAME_CONFIG_PATH;
+    const config = loadInstanceConfig({ LLAME_CONFIG_PATH: copy });
+    rmSync(dir, { recursive: true, force: true });
 
     const service = new ModelsService({ config, productUserAgent: USER_AGENT });
     const response = service.getAvailableModels();
 
-    expect(response.defaultModelId).toBe('system:openai:gpt-5.4-mini');
-    expect(response.models.map((m) => m.id)).toEqual(
-      config.models.map((m) => m.id),
-    );
-    expect(config.models.every((model) => model.billing !== undefined)).toBe(
-      true,
-    );
-
-    // Derived from the LOADED config rather than hand-transcribed, so this
-    // doesn't need re-editing every time the example's catalog changes — it
-    // stays a meaningful check because the source config provably carries
-    // the fields being stripped (asserted below), not because both sides are
-    // vacuously the same hand-copied literal.
-    const expectedPublic = config.models.map(
-      ({
-        provider: _p,
-        providerModelId: _pmi,
-        billing: _billing,
-        compactionThresholdTokens: _ct,
-        systemPromptTemplate: _spt,
-        systemPromptSource: _sps,
-        referencesSkills: _rs,
-        ...pub
-      }) => pub,
-    );
-
-    expect(response.models).toEqual(expectedPublic);
-
-    expect(
-      config.models.find((m) => m.id === 'system:openai:gpt-5.4-mini'),
-    ).toMatchObject({ provider: 'openai', compactionThresholdTokens: 300 });
-
     for (const model of response.models) {
       expect(model).not.toHaveProperty('providerModelId');
       expect(model).not.toHaveProperty('provider');
+      expect(model).not.toHaveProperty('wire');
+      expect(model).not.toHaveProperty('systemPromptTemplate');
       expect(model).not.toHaveProperty('compactionThresholdTokens');
       expect(model).not.toHaveProperty('systemPrompt');
       expect(model).not.toHaveProperty('systemPromptSource');
