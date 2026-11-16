@@ -171,6 +171,7 @@ function makeService(
     overrides.runWait ?? {
       wakeInTransaction: vi.fn().mockResolvedValue(false),
     },
+    { execute: () => Promise.resolve(undefined) },
   );
 
   return { service, consumeSpy, ensureQueueSpy, runAsSpy };

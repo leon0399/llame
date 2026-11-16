@@ -143,6 +143,7 @@ export type CompactionSummaryRequest =
       readonly reservedOutputTokens: number | null;
       readonly abortSignal?: AbortSignal;
       readonly media?: RunMediaResolver;
+      readonly instruction?: string;
     }
   | {
       readonly variant: Extract<CompactionVariant, 'owner'>;
@@ -151,7 +152,8 @@ export type CompactionSummaryRequest =
       readonly triggeringUserSeq: number;
       readonly plan: CompactionPlan;
       readonly client: ModelClient;
-      readonly system: string;
+      readonly system?: string;
+      readonly instruction?: string;
       readonly effort?: string;
       readonly reservedOutputTokens: number | null;
       readonly abortSignal?: AbortSignal;
@@ -218,11 +220,11 @@ export class CompactionService {
     previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary> {
     const request = buildCompactionRequest({
-      system: input.system,
+      ...(input.system !== undefined && { system: input.system }),
       modelId: input.client.model,
       previous,
       absorb: input.plan.absorb,
-      instruction: renderCompactionInstruction('owner'),
+      instruction: input.instruction ?? renderCompactionInstruction('owner'),
     });
 
     if (input.media !== undefined) {
@@ -232,7 +234,7 @@ export class CompactionService {
     const inference = await this.summarize({
       client: input.client,
       chatId: input.chatId,
-      system: request.system,
+      system: input.system,
       messages: request.messages,
       toolDeclarations: [],
       ...(input.effort !== undefined && { effort: input.effort }),
@@ -382,6 +384,9 @@ export class CompactionService {
       modelId: source.run.modelId,
       previous,
       absorb: input.plan.absorb,
+      ...(input.instruction !== undefined && {
+        instruction: input.instruction,
+      }),
     });
 
     if (input.media !== undefined) {
@@ -482,7 +487,7 @@ export class CompactionService {
      * the cache reuse the shared prefix exists for.
      */
     chatId: string;
-    system: string;
+    system?: string;
     messages: Array<ModelMessage>;
     toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
     /**

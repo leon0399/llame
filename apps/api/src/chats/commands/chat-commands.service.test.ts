@@ -5,17 +5,14 @@ import type { Chat, Message, Run, RunEvent } from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { TitleService } from '../../titles/title.service';
-import { type InstanceConfigReader } from '../../instance-config/instance-config.service';
-import { type ModelSelectionValidator } from '../../models/models.service';
+import { InstanceConfigService } from '../../instance-config/instance-config.service';
+import { ModelsService } from '../../models/models.service';
 import { BUILT_IN_DEFAULTS } from '../../instance-config/llame-config';
 import {
   RunEventsRepository,
   RunsRepository,
 } from '../../runs/runs-repository';
-import {
-  ChatCommandSettings,
-  ChatCommandsService,
-} from './chat-commands.service';
+import { ChatCommandsService } from './chat-commands.service';
 
 function makeService() {
   const db: Db = drizzle.mock();
@@ -77,12 +74,12 @@ function makeService() {
   const validateModelSelection = vi.fn();
   const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
 
-  const models = asDouble<ModelSelectionValidator>({
+  const models = asDouble<ModelsService>({
     validateModelSelection,
     resolveEffortSelection,
   });
 
-  const instanceConfig = asDouble<InstanceConfigReader>({
+  const instanceConfig = asDouble<InstanceConfigService>({
     config: {
       ...BUILT_IN_DEFAULTS,
       tools: {
@@ -103,7 +100,8 @@ function makeService() {
   const service = new ChatCommandsService(
     tenantDb,
     titles,
-    new ChatCommandSettings(models, instanceConfig),
+    models,
+    instanceConfig,
     dispatch,
   );
 

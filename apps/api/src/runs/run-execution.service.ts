@@ -833,7 +833,7 @@ export const NATIVE_MUTATION_ABORT_REASON = 'native-mutation-unknown';
  * rather than the status: both reasons settle as run.expired, but only a
  * configured budget may be named in the message.
  */
-function expiredRunMessage(signal: AbortSignal | undefined): string {
+export function expiredRunMessage(signal: AbortSignal | undefined): string {
   return signal?.reason === RUN_CEILING_ABORT_REASON
     ? 'Run reached the 23 h 55 m execution ceiling.'
     : 'Run timed out: exceeded its wall-clock budget.';

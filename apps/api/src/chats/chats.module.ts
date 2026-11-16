@@ -9,10 +9,7 @@ import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
 import { TitlesModule } from '../titles/titles.module';
-import {
-  ChatCommandSettings,
-  ChatCommandsService,
-} from './commands/chat-commands.service';
+import { ChatCommandsService } from './commands/chat-commands.service';
 import { ChatGitStateController } from './chat-git-state.controller';
 import { ChatGitStateService } from './chat-git-state.service';
 import { ChatDeliveriesController } from './chat-deliveries.controller';
@@ -66,7 +63,6 @@ import { SharedChatsController } from './shared-chats.controller';
     ChatDeliveriesService,
     ChatJobsService,
     ChatLoopService,
-    ChatCommandSettings,
     ChatCommandsService,
     FollowUpAdmissionService,
     ChatCreationLock,

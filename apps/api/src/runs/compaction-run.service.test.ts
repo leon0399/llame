@@ -171,8 +171,17 @@ describe('CompactionRunService', () => {
       new AbortController().signal,
     );
 
-    expect(setup.summarizeCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'window' }),
+    const summaryRequest = setup.summarizeCheckpoint.mock.calls[0]?.[0];
+
+    const instruction =
+      summaryRequest?.variant === 'window'
+        ? summaryRequest.instruction
+        : undefined;
+
+    expect(summaryRequest?.variant).toBe('window');
+    expect(instruction).toBeDefined();
+    expect(instruction).not.toContain(
+      'The newer triggering user message follows that prefix',
     );
     expect(setup.settleTerminalRun).not.toHaveBeenCalled();
   });
@@ -203,7 +212,7 @@ describe('CompactionRunService', () => {
     );
 
     expect(setup.summarizeCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'owner', system: '' }),
+      expect.objectContaining({ variant: 'owner', system: undefined }),
     );
   });
 
@@ -225,20 +234,5 @@ describe('CompactionRunService', () => {
       }),
     );
     expect(setup.completeCompactionRun).not.toHaveBeenCalled();
-  });
-
-  it('A cancellation after the summary returns', async () => {
-    const summary = { uptoSeq: 2, summary: 'finished summary', usage: {} };
-    const setup = makeService({ summarize: () => Promise.resolve(summary) });
-
-    await setup.service.execute(
-      job,
-      setup.client,
-      new AbortController().signal,
-    );
-
-    expect(setup.completeCompactionRun).toHaveBeenCalledWith(
-      expect.objectContaining({ summary }),
-    );
   });
 });

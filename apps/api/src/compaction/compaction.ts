@@ -328,14 +328,14 @@ export function countedContextTokens(input: {
  * configured output tokens supplies the safety boundary used for admission.
  */
 export function estimateModelRequestTokens(input: {
-  system: string;
+  system?: string;
   messages: Array<ModelMessage>;
   toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
   media?: MediaSizing;
 }): number {
   return estimateProjectionTokens(
     {
-      system: input.system,
+      system: input.system ?? '',
       messages: input.messages,
       tools: input.toolDeclarations,
     },
@@ -344,7 +344,7 @@ export function estimateModelRequestTokens(input: {
 }
 
 export function requestFitsContextWindow(input: {
-  system: string;
+  system?: string;
   messages: Array<ModelMessage>;
   toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
   contextWindowTokens: number;
@@ -438,24 +438,34 @@ export function planCompactionCheckpoint(input: {
  * expensive part — up to the whole threshold) a cache read instead of a fresh
  * prefill; a swapped system prompt would invalidate the entire prefix.
  */
+export type CompactionRequest = Omit<ModelRequestContext, 'system'> & {
+  system?: string;
+};
+
 export function buildCompactionRequest(input: {
-  system: string;
+  system?: string;
   /** The llame model id the summarization request runs on (model rule, D7). */
   modelId: string;
   previous: ContextCheckpoint | undefined;
   absorb: Array<StoredMessage>;
   instruction?: string;
-}): ModelRequestContext {
+}): CompactionRequest {
   const context = buildContext(input.absorb, {
-    systemPrompt: input.system,
+    systemPrompt: input.system ?? '',
     modelId: input.modelId,
     ...(input.previous !== undefined && { checkpoint: input.previous }),
   });
 
-  context.messages.push({
+  const request: CompactionRequest = {
+    messages: context.messages,
+    retainedMedia: context.retainedMedia,
+    ...(input.system !== undefined && { system: input.system }),
+  };
+
+  request.messages.push({
     role: 'user',
     content: input.instruction ?? COMPACTION_INSTRUCTION,
   });
 
-  return context;
+  return request;
 }

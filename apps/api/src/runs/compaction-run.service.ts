@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { toContextCheckpoint } from '../chats/context-item-producers';
-import { type ModelRequestContext } from '../chats/context-builder';
 import { MessagesRepository } from '../chats/messages-repository';
+import { errorMessageWithoutParams } from '../db/loggable-error';
 import { ContextIncompatibleError } from './model-context-errors';
 import {
   RunExecutionService,
@@ -16,6 +16,7 @@ import {
   planCompactionCheckpoint,
   renderCompactionInstruction,
   requestFitsContextWindow,
+  type CompactionRequest,
   type CompactionPlan,
 } from '../compaction/compaction';
 import {
@@ -56,13 +57,20 @@ export class CompactionRunService {
     job: RunJob,
     client: ModelClient,
     abortSignal: AbortSignal,
+    expectedQueueIdentity: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    } = {
+      currentJobId: null,
+      wakeGeneration: 0,
+    },
   ): Promise<void> {
     const claim = await this.execution.claimRun({
       runId: job.runId,
       chatId: job.chatId,
       userId: job.userId,
       abortSignal,
-      expectedQueueIdentity: queueIdentity(job),
+      expectedQueueIdentity,
     });
 
     if ('settledReply' in claim || 'nativeRecovery' in claim) return;
@@ -70,7 +78,7 @@ export class CompactionRunService {
     const plan = await this.plan(job);
 
     if (plan === null) {
-      await this.finish(job, claim.attemptId, undefined);
+      await this.finish(job, claim.attemptId, undefined, expectedQueueIdentity);
 
       return;
     }
@@ -81,33 +89,44 @@ export class CompactionRunService {
       claim,
       plan,
       abortSignal,
+      expectedQueueIdentity,
     });
 
     if (summary === undefined) return;
 
-    await this.finish(job, claim.attemptId, summary);
+    await this.finish(job, claim.attemptId, summary, expectedQueueIdentity);
   }
 
   private async summarizeOrFail(input: {
     job: RunJob;
     client: ModelClient;
-    claim: Extract<RunClaimResult, { attemptId: string }> & { effort?: string };
+    claim: Extract<RunClaimResult, { attemptId: string }>;
     plan: CompactionPlan;
     abortSignal: AbortSignal;
+    expectedQueueIdentity: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    };
   }): Promise<CompactionSummary | undefined> {
     try {
-      return (await this.summarize(input)) ?? undefined;
+      const summary = await this.summarize(input);
+
+      if (summary === null) {
+        throw new Error('Compaction summary returned no valid text summary.');
+      }
+
+      return summary;
     } catch (error) {
       if (input.abortSignal.aborted) throw error;
 
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessageWithoutParams(error);
 
       await this.execution.settleTerminalRun({
         runId: input.job.runId,
         userId: input.job.userId,
         status: 'failed',
         attemptId: input.claim.attemptId,
-        expectedQueueIdentity: queueIdentity(input.job),
+        expectedQueueIdentity: input.expectedQueueIdentity,
         runPayload: { status: 'failed', message },
         error: { message },
       });
@@ -119,20 +138,23 @@ export class CompactionRunService {
   private async plan(job: RunJob): Promise<CompactionPlan | null> {
     return this.tenantDb.runAs(job.userId, async (tx) => {
       const messages = new MessagesRepository(tx);
-      const rows = await messages.findByChatId(job.chatId, job.userId);
 
       const active = await messages.findActiveCheckpoint(
         job.chatId,
         job.userId,
-        {
-          beforeSeq: Number.POSITIVE_INFINITY,
-        },
+        { beforeSeq: Number.MAX_SAFE_INTEGER },
       );
+
+      const rows = await messages.findByChatId(job.chatId, job.userId, {
+        sinceSeq: active?.absorbedThroughSeq,
+      });
+
+      const nextSeq = (rows.at(-1)?.seq ?? active?.absorbedThroughSeq ?? 0) + 1;
 
       return planCompactionCheckpoint({
         rows: toStoredMessages(rows),
         boundarySeq: active?.absorbedThroughSeq ?? 0,
-        triggeringUserSeq: Number.POSITIVE_INFINITY,
+        triggeringUserSeq: nextSeq,
       });
     });
   }
@@ -140,7 +162,7 @@ export class CompactionRunService {
   private async summarize(input: {
     job: RunJob;
     client: ModelClient;
-    claim: Extract<RunClaimResult, { attemptId: string }> & { effort?: string };
+    claim: { attemptId: string; effort?: string };
     plan: CompactionPlan;
     abortSignal: AbortSignal;
   }): Promise<CompactionSummary | null> {
@@ -148,12 +170,13 @@ export class CompactionRunService {
       job: input.job,
       client: input.client,
       plan: input.plan,
+      nextSeq: input.plan.uptoSeq + 1,
     });
 
     const common = {
       chatId: input.job.chatId,
       userId: input.job.userId,
-      triggeringUserSeq: Number.POSITIVE_INFINITY,
+      triggeringUserSeq: input.plan.uptoSeq + 1,
       plan: input.plan,
       reservedOutputTokens: request.reservedOutputTokens,
       abortSignal: input.abortSignal,
@@ -165,7 +188,8 @@ export class CompactionRunService {
         ...common,
         variant: 'owner',
         client: input.client,
-        system: request.sourceSystem ?? '',
+        system: request.sourceSystem,
+        instruction: renderCompactionInstruction('owner'),
         ...(input.claim.effort !== undefined && { effort: input.claim.effort }),
       });
     }
@@ -173,6 +197,7 @@ export class CompactionRunService {
     return this.compaction.summarizeCheckpoint({
       ...common,
       variant: 'window',
+      instruction: renderCompactionInstruction('owner'),
     });
   }
 
@@ -180,20 +205,21 @@ export class CompactionRunService {
     job: RunJob;
     client: ModelClient;
     plan: CompactionPlan;
+    nextSeq: number;
   }) {
-    const sourceSystem = await this.sourceSystem(input.job);
+    const sourceSystem = await this.sourceSystem(input.job, input.nextSeq);
     const media = createRunMediaResolver(this.tenantDb, input.job.userId);
 
     const previous = await this.tenantDb.runAs(input.job.userId, (tx) =>
       new MessagesRepository(tx).findActiveCheckpoint(
         input.job.chatId,
         input.job.userId,
-        { beforeSeq: Number.POSITIVE_INFINITY },
+        { beforeSeq: input.nextSeq },
       ),
     );
 
     const request = buildCompactionRequest({
-      system: sourceSystem ?? '',
+      ...(sourceSystem !== undefined && { system: sourceSystem }),
       modelId: input.client.model,
       previous:
         previous === undefined ? undefined : toContextCheckpoint(previous),
@@ -224,7 +250,7 @@ export class CompactionRunService {
 
   private async fitsRequest(input: {
     client: ModelClient;
-    request: ModelRequestContext;
+    request: CompactionRequest;
     media: RunMediaResolver;
     reservedOutputTokens: number | null;
   }): Promise<boolean> {
@@ -248,12 +274,15 @@ export class CompactionRunService {
     });
   }
 
-  private async sourceSystem(job: RunJob): Promise<string | undefined> {
+  private async sourceSystem(
+    job: RunJob,
+    beforeSeq: number,
+  ): Promise<string | undefined> {
     return this.tenantDb.runAs(job.userId, async (tx) => {
       const source = await new RunsRepository(tx).findCompletedReplyRunBefore(
         job.chatId,
         job.userId,
-        { beforeSeq: Number.POSITIVE_INFINITY },
+        { beforeSeq },
       );
 
       const run = source?.run;
@@ -272,21 +301,18 @@ export class CompactionRunService {
     job: RunJob,
     attemptId: string,
     summary: CompactionSummary | undefined,
+    expectedQueueIdentity: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    },
   ): Promise<void> {
     await this.execution.completeCompactionRun({
       runId: job.runId,
       chatId: job.chatId,
       userId: job.userId,
       attemptId,
-      expectedQueueIdentity: queueIdentity(job),
+      expectedQueueIdentity,
       summary,
     });
   }
-}
-
-function queueIdentity(job: RunJob) {
-  return {
-    currentJobId: job.wake?.jobId ?? null,
-    wakeGeneration: job.wake?.generation ?? 0,
-  };
 }

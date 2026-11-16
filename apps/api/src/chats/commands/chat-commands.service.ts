@@ -12,14 +12,10 @@ import {
 import { assertNotArchived } from '../../db/assert-not-archived';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
 import { type Run } from '../../db/schema';
-import {
-  InstanceConfigService,
-  type InstanceConfigReader,
-} from '../../instance-config/instance-config.service';
+import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import {
   ModelsService,
   resolveSendSettings,
-  type ModelSelectionValidator,
 } from '../../models/models.service';
 import { planCompactionCheckpoint } from '../../compaction/compaction';
 import { toStoredMessages } from '../../compaction/compaction.service';
@@ -47,24 +43,16 @@ type CompactCommandInput = {
 };
 
 @Injectable()
-export class ChatCommandSettings {
-  constructor(
-    @Inject(ModelsService)
-    readonly models: ModelSelectionValidator,
-    @Inject(InstanceConfigService)
-    readonly instanceConfig: InstanceConfigReader,
-  ) {}
-}
-
-@Injectable()
 export class ChatCommandsService {
   constructor(
     @Inject(TenantDbService)
     private readonly tenantDb: TenantDbService,
     @Inject(TitleService)
     private readonly titles: Pick<TitleService, 'regenerate'>,
-    @Inject(ChatCommandSettings)
-    private readonly settings: ChatCommandSettings,
+    @Inject(ModelsService)
+    private readonly models: ModelsService,
+    @Inject(InstanceConfigService)
+    private readonly instanceConfig: InstanceConfigService,
     @Inject(RunDispatchService)
     private readonly dispatch: Pick<
       RunDispatchService,
@@ -141,8 +129,8 @@ export class ChatCommandsService {
     }
 
     const { effort, permissionMode } = resolveSendSettings(
-      this.settings.models,
-      this.settings.instanceConfig.config.tools.permissionModes,
+      this.models,
+      this.instanceConfig.config.tools.permissionModes,
       input,
     );
 
@@ -151,7 +139,7 @@ export class ChatCommandsService {
       chatId: input.chatId,
       userId: input.userId,
       dispatch: this.dispatch,
-      instanceConfig: this.settings.instanceConfig,
+      instanceConfig: this.instanceConfig,
     });
 
     if (slot.state === 'blocked') {
@@ -170,14 +158,19 @@ export class ChatCommandsService {
     input: CompactCommandInput,
   ): Promise<boolean> {
     const messages = new MessagesRepository(tx);
-    const rows = await messages.findByChatId(input.chatId, input.userId);
-    const nextSeq = (rows.at(-1)?.seq ?? 0) + 1;
 
     const activeCheckpoint = await messages.findActiveCheckpoint(
       input.chatId,
       input.userId,
-      { beforeSeq: nextSeq },
+      { beforeSeq: Number.MAX_SAFE_INTEGER },
     );
+
+    const rows = await messages.findByChatId(input.chatId, input.userId, {
+      sinceSeq: activeCheckpoint?.absorbedThroughSeq,
+    });
+
+    const nextSeq =
+      (rows.at(-1)?.seq ?? activeCheckpoint?.absorbedThroughSeq ?? 0) + 1;
 
     return !!planCompactionCheckpoint({
       rows: toStoredMessages(rows),

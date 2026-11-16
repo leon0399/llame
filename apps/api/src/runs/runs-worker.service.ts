@@ -2,7 +2,6 @@ import {
   Inject,
   Injectable,
   Logger,
-  Optional,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 
@@ -30,6 +29,8 @@ import { ModelContextExecutionError } from './model-context-errors';
 import {
   RUN_CEILING_ABORT_REASON,
   RUN_TIMEOUT_ABORT_REASON,
+  classifyAbortedRun,
+  expiredRunMessage,
   RunExecutionService,
   RunNotRunnableError,
   type RunExecutor,
@@ -117,9 +118,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     private readonly aborts: RunAbortRegistrar,
     @Inject(RunWaitService)
     private readonly runWait: Pick<RunWaitService, 'wakeInTransaction'>,
-    @Optional()
     @Inject(CompactionRunService)
-    private readonly compactionRun?: Pick<CompactionRunService, 'execute'>,
+    private readonly compactionRun: Pick<CompactionRunService, 'execute'>,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -491,21 +491,27 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     pickup: Extract<RunPickup, { skip: false }>,
     budgetSeconds: number | null,
   ): Promise<void> {
-    if (this.compactionRun === undefined) {
-      throw new Error('Compaction Run execution is not configured.');
-    }
-
     const abort = this.aborts.register(job.runId, job.userId);
 
     const cancelled = await this.tenantDb.runAs(job.userId, async (tx) => {
       const run = await new RunsRepository(tx).findById(job.runId, job.userId);
 
-      return run?.cancelRequestedAt !== null && run !== undefined;
+      return run?.cancelRequestedAt != null;
     });
 
     if (cancelled) {
       this.aborts.unregister(job.runId, abort);
       await this.settleCancelledBeforeStart(job);
+
+      return;
+    }
+
+    if (
+      pickup.budgetDeadlineMs !== null &&
+      pickup.budgetDeadlineMs <= Date.now()
+    ) {
+      this.aborts.unregister(job.runId, abort);
+      await this.expireBudget(job);
 
       return;
     }
@@ -532,19 +538,32 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         job,
         this.models.createClient(pickup.modelId),
         abort.signal,
+        pickup.expectedQueueIdentity,
       );
     } catch (error) {
+      if (
+        error instanceof ModelNotAvailableError ||
+        error instanceof ModelConfigurationError
+      ) {
+        await this.runExecution.settleTerminalRun({
+          runId: job.runId,
+          userId: job.userId,
+          status: 'failed',
+          expectedQueueIdentity: pickup.expectedQueueIdentity,
+          runPayload: { status: 'failed', message: error.message },
+          error: { message: error.message },
+        });
+
+        return;
+      }
+
       if (!abort.signal.aborted) throw error;
+      const status = classifyAbortedRun(abort.signal);
 
-      const expired =
-        abort.signal.reason === RUN_CEILING_ABORT_REASON ||
-        abort.signal.reason === RUN_TIMEOUT_ABORT_REASON;
-
-      const status = expired ? 'expired' : 'cancelled';
-
-      const message = expired
-        ? 'Run timed out: exceeded its wall-clock budget.'
-        : 'Run was cancelled.';
+      const message =
+        status === 'expired'
+          ? expiredRunMessage(abort.signal)
+          : 'Run was cancelled.';
 
       await this.runExecution.settleTerminalRun({
         runId: job.runId,
