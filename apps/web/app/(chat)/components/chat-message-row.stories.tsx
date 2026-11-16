@@ -297,6 +297,35 @@ export const PersistedHistory: Story = {
 };
 
 /**
+ * A reloaded reply whose mid-turn compaction failed keeps the persisted
+ * `data-compaction-failed` part, so the muted note shows after a reload.
+ *
+ * @summary a failed compaction note survives a reload
+ */
+export const CompactionFailedNote: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-compaction-failed",
+    message: {
+      id: "assistant-compaction-failed",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "Listed the files." },
+        { type: "data-compaction-failed", data: {} },
+        { type: "text", text: "Continuing with the migration." },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      await canvas.findByText(
+        "Compaction failed — continued with the full history",
+      ),
+    ).toBeVisible();
+  },
+};
+
+/**
  * The same run while the model is still thinking: live output has the same
  * panel boundaries and the same tool position as the reloaded chat, so a
  * reconnect or reload cannot re-flow the transcript.

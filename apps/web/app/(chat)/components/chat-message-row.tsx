@@ -47,6 +47,7 @@ import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { PromptImportsPart } from "./prompt-imports-part";
 import { RegenerateNoticePart } from "./regenerate-notice-part";
+import { CompactionFailedNote } from "./compaction-failed-note";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { TurnActions } from "./turn-actions";
 import {
@@ -180,6 +181,10 @@ function MessagePartView({
 
   if (isToolUIPart(part)) {
     return <ToolUIPartView part={part} renderers={renderers} />;
+  }
+
+  if (part.type === "data-compaction-failed") {
+    return <CompactionFailedNote />;
   }
 
   if (part.type === "data-cap-notice") {
