@@ -95,6 +95,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-12
 
+- Make the Knowledge Space name pattern in OpenAPI match runtime validation,
+  including astral format characters and ECMAScript trim whitespace. Add a
+  generated-schema/runtime regression for Unicode names.
+
 - **Prepare background-job transcript components (#1657).** Bash rows display
   background job locators and their promotion cause. Shared wait and stop
   components render their actual results, with accessible fallback highlighting;
@@ -245,7 +249,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The live-before-history handoff story uses explicit stream and history
   gates, so it observes the pending item before removing it and adopting the
   delivered history; no time-based delay chooses the event order.
-
 - Skip product CI stages for documentation, OpenSpec and harness-instruction-only
   pull requests and pushes. Runtime prompts and unknown paths still run product
   checks; scheduled and manual behavior is unchanged. Scope detection uses the
