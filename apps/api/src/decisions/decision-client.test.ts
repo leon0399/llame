@@ -138,7 +138,7 @@ describe('decision client request', () => {
       fetch,
       {},
       undefined,
-      provider({ headers: { 'x-team': ['a', 'b'] } }),
+      provider({ headers: { 'x-team': ['ab'] } }),
     );
 
     expect(calls).toHaveLength(1);

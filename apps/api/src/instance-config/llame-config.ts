@@ -18,10 +18,11 @@ import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type { ToolRerankConfig } from './tool-rerank-config';
 import type { RawToolsConfig } from './raw-tools-config';
 import type { RawWebSearchConfig, WebSearchConfig } from './web-search-config';
+import type * as Routing from './provider-routing';
 
 /**
- * A configured provider connection: `type` selects the client
- * implementation, `key`/`baseUrl` are resolved (interpolated) values.
+ * A configured provider account: models select their wire; `key` and
+ * `baseUrl` are resolved (interpolated) values.
  * Providers are duplicable — two entries of the same `type` with distinct
  * `id`s and `baseUrl`s (e.g. hosted OpenAI + a local Ollama) coexist.
  * `key: null` means keyless (the resolved credential was empty/absent).
@@ -113,28 +114,14 @@ export type SystemOneProviderConfig = {
 };
 
 /**
- * Executable provider client implementations (providers-and-models-as-code,
- * #167). `type` names the wire API the entry speaks — never inferred from
- * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
- * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
- * `/v1/responses` server); `openai-completions` executes the Chat
- * Completions API through `@ai-sdk/openai-compatible` at its required
- * `baseUrl`; `anthropic-messages` executes the Messages API through
- * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
- * default, a Messages-speaking gateway when configured); `openai-codex`
- * uses the personal Codex subscription backend; `opencode-go` executes the
- * Chat Completions wire against the OpenCode Go subscription gateway, at a
- * destination fixed in llame's code, from a required `key` and no endpoint
- * field of its own; `system-one` speaks the System One decision wire for the
- * experimental `decisionModels[]` catalogue, from a required `key` and a
- * required `baseUrl`, and never serves a `models[]` entry; `cohere-rerank` speaks the
- * Cohere Rerank v2 wire for the experimental `rerankModels[]` catalogue and
- * never serves a `models[]` or `embeddingModels[]` entry.
- * This set is strict-closed on purpose — a schema that advertised a `type`
- * it cannot execute would fail at request time instead of at the offending
- * config path.
+ * Provider accounts own credentials and destinations. Vendor profiles supply
+ * model-wire defaults; explicit wire profiles support compatible gateways.
+ * Model entries can override the default wire where the account permits it.
+ * Codex fixes its transport. Go and Zen use exact bundled model metadata
+ * while keeping destinations independent of that metadata.
  */
 export type ProviderConfig =
+  | Routing.VendorProviderConfig
   | OpenAIResponsesProviderConfig
   | OpenAICompletionsProviderConfig
   | AnthropicMessagesProviderConfig
@@ -248,6 +235,7 @@ export type RawMcpServerEntry =
 
 /** The still-uninterpolated `providers[]` entry shape once schema-validated. */
 export type RawProviderEntry =
+  | Routing.RawVendorProviderEntry
   | {
       id: string;
       type: 'openai-responses';
@@ -314,6 +302,7 @@ export type DecisionModelConfig = {
   readonly provider: string;
   /** Model id sent verbatim on the wire. */
   readonly model: string;
+  readonly wire?: Routing.ModelWire;
 };
 
 /** The still-uninterpolated `decisionModels[]` entry once schema-validated. */
@@ -321,6 +310,7 @@ export type RawDecisionModelEntry = {
   id: string;
   provider: string;
   model: string;
+  wire?: Routing.ModelWire;
 };
 
 /**
@@ -342,6 +332,7 @@ export type RawEmbeddingModelEntry = {
   id: string;
   provider: string;
   providerModelId: string;
+  wire?: Routing.ModelWire;
   dimensions: number;
   batchSize?: number;
   distanceMetric?: EmbeddingDistanceMetric;
@@ -361,6 +352,7 @@ export type EmbeddingModelCatalogEntry = {
   id: string;
   provider: string;
   providerModelId: string;
+  wire?: Routing.ModelWire;
   dimensions: number;
   /** Always resolved (defaults to `DEFAULT_EMBEDDING_BATCH_SIZE`) — NOT part of the binding-ledger comparison set; a throughput knob, not part of the embedding space. */
   batchSize: number;
@@ -400,6 +392,7 @@ export type RawModelEntry = {
   provider: string;
   billing?: BillingMode;
   providerModelId: string;
+  wire?: Routing.ModelWire;
   contextWindowTokens: unknown;
   compactionThresholdTokens?: unknown;
   /**
@@ -411,7 +404,7 @@ export type RawModelEntry = {
   maxOutputTokens?: unknown;
   /**
    * The operator's provider-native request options for the adapter this
-   * entry's provider `type` selects. Stays `unknown` because the loader proves
+   * entry's resolved wire selects. Stays `unknown` because the loader proves
    * it itself: it must be a JSON record at every depth, any `{env:…}`/
    * `{path:…}` syntax in a string value at any depth is rejected, and it is
    * otherwise retained verbatim (providers-and-models-as-code; the published

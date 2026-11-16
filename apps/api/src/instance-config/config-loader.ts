@@ -38,6 +38,8 @@ import {
   type RawWebAdapterEntry,
   type WebAdapterConfig,
 } from './llame-config';
+import { resolveModelWire } from './provider-routing';
+import type { VendorProviderConfig } from './provider-routing';
 import type {
   RawWebSearchConfig,
   RawWebSearchEngineEntry,
@@ -835,7 +837,6 @@ function resolveSearchSettings(
     { env, credentials },
     tools.allowed,
     models,
-    providersById,
     decisionModelIds,
   );
 
@@ -847,7 +848,7 @@ function resolveSearchSettings(
  * each entry names a decision model, and a tool's own rerank block references
  * one by id. `id`, `provider`, and `model` interpolate like other fields. The
  * cross-array references the JSON Schema cannot express are checked here: ids
- * are unique, and every `provider` must exist AND be of `type: 'system-one'`.
+ * are unique, and every provider must exist and resolve a decision wire.
  * Diagnostics use array-index paths and never print a resolved value. Absent
  * means no decision model exists.
  */
@@ -910,23 +911,27 @@ function resolveRankModel(
     );
   }
 
-  if (provider.type !== providerType) {
-    throw new InstanceConfigError(
-      `${base}.provider: provider has type "${provider.type}", not "${providerType}"`,
-    );
-  }
-
   const model = requireNonBlankString(`${base}.model`, entry.model, env);
 
-  return { id, provider: providerId, model };
+  const wire = resolveModelWire(
+    provider,
+    {
+      kind: providerType === 'system-one' ? 'decision' : 'rerank',
+      modelId: model,
+      wire: entry.wire,
+    },
+    base,
+  );
+
+  return { id, provider: providerId, model, wire };
 }
 
 /**
  * Resolve the optional `rerankModels[]` catalogue, the conventional-reranker
  * sibling of `decisionModels[]`. Ids are unique across BOTH catalogues because
  * a tool's `rerank.model` names one id and the seat resolves it. Every
- * `provider` must exist AND be of `type: 'cohere-rerank'`. Diagnostics use
- * array-index paths and never print a resolved value.
+ * provider must exist and resolve a rerank wire. Diagnostics use array-index
+ * paths and never print a resolved value.
  */
 function resolveRerankModels(
   raw: RawInstanceConfig | undefined,
@@ -1001,7 +1006,6 @@ function resolveWebSearch(
   { env, credentials }: LoaderContext,
   allowed: ReadonlyArray<string>,
   models: ReadonlyArray<SystemModelCatalogEntry>,
-  providersById: ReadonlyMap<string, ProviderConfig>,
   decisionModelIds: ReadonlySet<string>,
 ): WebSearchConfig | undefined {
   const section = raw?.webSearch;
@@ -1022,7 +1026,6 @@ function resolveWebSearch(
     section.engines,
     { env, credentials },
     modelsById,
-    providersById,
   );
 
   assertWebSearchChain(section.chain, engines);
@@ -1130,7 +1133,6 @@ function resolveWebSearchEngines(
   entries: RawWebSearchConfig['engines'],
   { env, credentials }: LoaderContext,
   modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
-  providersById: ReadonlyMap<string, ProviderConfig>,
 ): ReadonlyArray<WebSearchEngineConfig> {
   const seenEngineIds = new Set<string>();
 
@@ -1164,7 +1166,6 @@ function resolveWebSearchEngines(
         timeoutSeconds,
         { env, credentials },
         modelsById,
-        providersById,
       ),
       ...(description !== undefined && { description }),
     };
@@ -1210,7 +1211,6 @@ function resolveModelHostedEngine(
   entryPath: string,
   timeoutSeconds: number,
   modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
-  providersById: ReadonlyMap<string, ProviderConfig>,
 ): WebSearchEngineConfig {
   const modelPath = `${entryPath}.model`;
   const model = modelsById.get(entry.model);
@@ -1221,7 +1221,7 @@ function resolveModelHostedEngine(
     );
   }
 
-  const wire = providersById.get(model.provider)?.type;
+  const wire = model.wire;
 
   if (
     wire !== 'openai-responses' &&
@@ -1229,7 +1229,7 @@ function resolveModelHostedEngine(
     wire !== 'anthropic-messages'
   ) {
     throw new InstanceConfigError(
-      `${modelPath}: unsupported provider type "${wire ?? 'unknown'}"`,
+      `${modelPath}: unsupported model wire "${wire ?? 'unknown'}"`,
     );
   }
 
@@ -1248,7 +1248,6 @@ function resolveWebSearchEngine(
   timeoutSeconds: number,
   { env, credentials }: LoaderContext,
   modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
-  providersById: ReadonlyMap<string, ProviderConfig>,
 ): WebSearchEngineConfig {
   const base = { id: entry.id, timeoutSeconds };
 
@@ -1258,7 +1257,6 @@ function resolveWebSearchEngine(
       entryPath,
       timeoutSeconds,
       modelsById,
-      providersById,
     );
   }
 
@@ -1846,11 +1844,7 @@ function assertValidRaw(
     const providerTypeMatch = /^\/providers\/(\d+)\/type$/.exec(e.instancePath);
 
     if (e.keyword === 'enum' && providerTypeMatch) {
-      // The one schema failure whose message must name the rejected literal
-      // as well as the entry: an operator migrating off the deleted `openai`
-      // type reads the offending value here (spec: "Unsupported provider
-      // type fails at boot"). ajv's default enum message names neither the
-      // value nor the allowed set.
+      // AJV's enum error omits the rejected literal and the entry identity.
       // ajv's enum keyword always carries `allowedValues` on `params`;
       // reading it into `unknown` keeps the fallback truthful if that ever
       // changes.
@@ -2777,6 +2771,10 @@ function resolveWorkerProfiles(raw: RawInstanceConfig | undefined) {
 const DEFAULT_PROVIDER_HEADERS: Readonly<
   Record<RawProviderEntry['type'], RequestHeaderTemplates>
 > = {
+  openai: { 'X-Session-Id': ['', ''] },
+  anthropic: { 'X-Session-Id': ['', ''] },
+  openrouter: { 'X-Session-Id': ['', ''] },
+  'opencode-zen': { 'X-Session-Id': ['', ''] },
   'openai-responses': { 'X-Session-Id': ['', ''] },
   'openai-completions': { 'X-Session-Id': ['', ''] },
   'anthropic-messages': { 'X-Session-Id': ['', ''] },
@@ -2938,6 +2936,11 @@ function resolveProviders(
     seenIds.add(entry.id);
 
     switch (entry.type) {
+      case 'openai':
+      case 'anthropic':
+      case 'openrouter':
+      case 'opencode-zen':
+        return resolveVendorProvider(entry, { env, credentials });
       case 'openai-responses':
         return resolveOpenAIResponsesProvider(entry, { env, credentials });
       case 'openai-completions':
@@ -2952,18 +2955,35 @@ function resolveProviders(
         return resolveSystemOneProvider(entry, { env, credentials });
       case 'cohere-rerank':
         return resolveCohereRerankProvider(entry, { env, credentials });
-      default: {
-        // Unreachable while the JSON Schema's `providerType` enum stays in
-        // sync with the cases above (assertValidRaw rejects any other `type`
-        // before this resolver runs) — kept as an internal error, not a
-        // silent fallback, in case that sync ever drifts.
-        const unsupported: never = entry;
-        throw new InstanceConfigError(
-          `providers: unsupported provider type ${String(unsupported)}`,
-        );
-      }
     }
   });
+}
+
+function resolveVendorProvider(
+  entry: Extract<RawProviderEntry, { type: VendorProviderConfig['type'] }>,
+  { env, credentials }: LoaderContext,
+): VendorProviderConfig {
+  return {
+    id: entry.id,
+    type: entry.type,
+    ...(entry.billing !== undefined && { billing: entry.billing }),
+    key: resolveNullableString({
+      configPath: `providers[${entry.id}].key`,
+      present: entry.key !== undefined,
+      raw: entry.key,
+      env,
+      onResolved: credentials.onSecret,
+    }),
+    baseUrl: resolveOptionalNonBlankString({
+      configPath: `providers[${entry.id}].baseUrl`,
+      raw: entry.baseUrl,
+      env,
+    }),
+    headers: resolveProviderHeaders(entry.id, entry.type, entry.headers, {
+      env,
+      credentials,
+    }),
+  };
 }
 
 function resolveOpenAIResponsesProvider(
@@ -3389,15 +3409,6 @@ function assertValidModelEntry(
     );
   }
 
-  if (provider.type === 'system-one' || provider.type === 'cohere-rerank') {
-    const serves =
-      provider.type === 'cohere-rerank' ? 'rerankModels[]' : 'decisionModels[]';
-
-    throw new InstanceConfigError(
-      `models[${entry.id}].provider: provider "${entry.provider}" has type "${provider.type}", which serves ${serves} only`,
-    );
-  }
-
   return provider;
 }
 
@@ -3482,19 +3493,18 @@ function buildModelCatalogEntry(
     maxOutputTokens,
   } = resolveModelScalars(entry, env);
 
-  const prompt = promptLoader.resolve({
-    id: entry.id,
-    ...(entry.name !== undefined && { name: entry.name }),
-    ...(entry.systemPromptFile !== undefined && {
-      systemPromptFile: entry.systemPromptFile,
-    }),
-  });
+  const prompt = promptLoader.resolve(entry);
 
   const providerOptions = resolveProviderOptions(entry);
 
   return {
     ...display,
     source: 'system' as const,
+    wire: resolveModelWire(
+      provider,
+      { kind: 'chat', modelId: entry.providerModelId, wire: entry.wire },
+      `models[${entry.id}]`,
+    ),
     billing: resolveBillingMode(entry.billing, provider.billing, provider.type),
     contextWindowTokens,
     // The schema enforces the closed set, `text` membership, and uniqueness
@@ -3657,14 +3667,11 @@ function resolveEmbeddingModels(
       );
     }
 
-    if (
-      provider.type !== 'openai-responses' &&
-      provider.type !== 'openai-completions'
-    ) {
-      throw new InstanceConfigError(
-        `embeddingModels[${entry.id}].provider: provider "${entry.provider}" has type "${provider.type}" and does not support embeddings`,
-      );
-    }
+    const wire = resolveModelWire(
+      provider,
+      { kind: 'embedding', modelId: entry.providerModelId, wire: entry.wire },
+      `embeddingModels[${entry.id}]`,
+    );
 
     // dimensions/id/provider/providerModelId presence+shape are schema-
     // guaranteed; revision/documentPrefix/queryPrefix need no resolution
@@ -3673,6 +3680,7 @@ function resolveEmbeddingModels(
     // than each needing its own presence check.
     return {
       ...entry,
+      wire,
       batchSize: entry.batchSize ?? DEFAULT_EMBEDDING_BATCH_SIZE,
       distanceMetric: entry.distanceMetric ?? 'cosine',
     };

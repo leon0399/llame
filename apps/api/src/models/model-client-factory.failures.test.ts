@@ -40,7 +40,7 @@ const model = {
   id: 'system:test:test-model',
   source: 'system' as const,
   provider: 'test',
-  providerModelId: 'test-model',
+  providerModelId: 'glm-5.3-flash',
   displayName: 'Test model',
   contextWindowTokens: 128_000,
   input: ['text'] as const,

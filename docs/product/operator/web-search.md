@@ -199,8 +199,12 @@ A `model-hosted` entry delegates a search to a configured model:
 }
 ```
 
-The referenced model's provider MUST be `openai-responses`, `openai-codex`, or
-`anthropic-messages`. A `model-hosted` entry can be an `aggregate` child; each
+The referenced model's resolved wire MUST be `openai-responses`,
+`openai-codex`, or `anthropic-messages`, regardless of the provider account
+type. Wire admission does not certify a gateway's hosted search support:
+a Go or Zen model can load successfully and still reject the search tool at
+request time. No alternate wire is tried.
+A `model-hosted` entry can be an `aggregate` child; each
 grounded answer is then attached to the aggregate's output (see
 [Aggregate](#aggregate)). Each call is a separate bounded sub-request carrying
 only packaged search instructions, the query, a recency phrase when `recency`

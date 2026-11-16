@@ -39,7 +39,7 @@ map is server-only and SHALL NOT be returned by the models endpoint.
 
 ### Requirement: Provider types supply default headers under the operator map
 
-Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex`, `system-one`, and `cohere-rerank`. The effective map MUST be the default map with the operator map laid over it key by key. Names compare without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
+Each provider type MUST have a default header map. The map `{ "X-Session-Id": "{session:id}" }` is the default for vendor profiles, `openai-responses`, `openai-completions`, `anthropic-messages`, and `opencode-go`. The default map is empty for `openai-codex`, `system-one`, and `cohere-rerank`. The effective map MUST be the default map with the operator map laid over it key by key. Names compare without ASCII letter case. A string value replaces the default value. A `null` value removes a default entry.
 
 #### Scenario: An entry without a map sends the default
 
@@ -155,7 +155,7 @@ The system MUST NOT rescan interpolated output for `{session:id}`.
 
 ### Requirement: Every language-model request carries the rendered headers
 
-Every language-model request a provider client makes SHALL carry the entry's effective header map rendered for that request, on streaming and structured-generation requests alike, including compaction and title generation. llame SHALL NOT place rendered headers in model context, persisted message parts, or owner-visible output. Embedding requests are exempt.
+Every language-model request a provider client makes SHALL carry the entry's effective header map rendered for that request, on streaming and structured-generation requests alike, including compaction and title generation. llame SHALL NOT place rendered headers in model context, persisted message parts, or owner-visible output. Embedding, decision, and rerank requests SHALL carry nonempty static headers from the same account map and SHALL omit headers containing a session placeholder because those calls have no Chat identity.
 
 #### Scenario: A configured custom header reaches the provider
 

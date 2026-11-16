@@ -156,6 +156,8 @@ export type AnthropicModelClientConfig = {
    */
   providerOptions?: ProviderOptionRecord;
   requestHeaders: RequestHeaderTemplates;
+  /** Fixed-account transports may reject redirects before credentials leave the gateway. */
+  fetch?: typeof globalThis.fetch;
   /**
    * Whether the model entry declares a `reasoning` vocabulary: only then does
    * the client default the adapter's thinking option to adaptive thinking with
@@ -520,6 +522,7 @@ export function createAnthropicModelClient(
     // Always explicit, so an ambient ANTHROPIC_BASE_URL can never retarget the
     // request (D3): the factory supplies the configured value or the default.
     baseURL: config.baseUrl,
+    ...(config.fetch !== undefined && { fetch: config.fetch }),
   });
 
   return {

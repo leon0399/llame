@@ -85,38 +85,23 @@ Traps:
   `instance-config/authored-text.ts` and keep the web mirror byte-identical.
 - `SafeString("")` is truthy; omit absent/trimmed-empty keys.
 
-Provider `type` names the wire API the entry speaks and is the only input to
-wire selection: nothing is inferred from `id`, `baseUrl`, or host, and no entry
-is rewritten at load time. Every language-model request the entry makes —
-streaming chat, forced-tool structured generation (titles), compaction — uses
-its declared wire; embedding requests are wire-independent and exempt from it.
-Boot validates shape only, so an endpoint that does not serve its declared wire
-fails on the first request under the existing failure contract, never at boot.
+Provider accounts own credentials, headers, and destinations. The loader
+resolves each model's `wire` from its explicit override or the account's kind
+and exact model metadata. `provider-routing.ts` owns that decision for all four
+catalogues. Never infer a vendor from `id` or a URL host, or switch accounts
+after a protocol failure. Keep normalized routing metadata server-only.
 
-| `type`               | Wire             | Client                       | Credential                          | `baseUrl`                       |
-| -------------------- | ---------------- | ---------------------------- | ----------------------------------- | ------------------------------- |
-| `openai-responses`   | Responses        | `@ai-sdk/openai`             | optional `key`                      | optional; defaults to OpenAI    |
-| `openai-completions` | Chat Completions | `@ai-sdk/openai-compatible`  | optional `key`                      | required                        |
-| `anthropic-messages` | Messages         | `@ai-sdk/anthropic`          | optional `key`; sent as `x-api-key` | optional; defaults to Anthropic |
-| `openai-codex`       | Responses        | Codex subscription transport | `key` and `accountId`               | rejected                        |
-| `opencode-go`        | Chat Completions | Go subscription transport    | `key`                               | rejected; fixed in code         |
+Vendor profiles are `openai`, `anthropic`, `openrouter`, and `opencode-zen`;
+explicit wire profiles remain for custom endpoints. Codex and Go retain fixed
+subscription destinations. Go composes the existing Responses, Messages, or
+Completions client with redirect rejection; its Completions path still omits
+`stream_options.include_usage` because the gateway returns a malformed stream.
+Only Codex accepts `accountId`. Wire overrides never change the account base.
 
-An `openai-completions` `baseUrl` is required and must resolve non-blank after
-interpolation; an `openai-responses` `baseUrl` is optional and falls back to
-the OpenAI API; an `anthropic-messages` `baseUrl` is optional and defaults to
-the Anthropic API. `openai-codex` and `opencode-go` reject `baseUrl` because
-each endpoint is fixed in code: the Codex Responses endpoint, and the OpenCode
-Go gateway at `https://opencode.ai/zen/go/v1`, whose `type` executes the Chat
-Completions module with the Go transport (a fixed base URL, its own headers,
-redirect rejection, a required credential, and no streaming usage request,
-because the gateway answers `stream_options.include_usage` with a stream that
-has no finish reason). `accountId` is accepted by
-`openai-codex` alone; every other variant rejects it. A `key` is optional for
-the two OpenAI wires and for Messages, where an absent or empty resolution is
-keyless; `openai-codex` requires nonblank `key` and `accountId`, and
-`opencode-go` requires a nonblank `key`, because the gateway authenticates
-every request. Operator procedure:
-[docs/product/operator/providers/opencode-go.md](../../docs/product/operator/providers/opencode-go.md).
+Operator defaults, supported combinations, and shared-account examples:
+[provider routing](../../docs/product/operator/providers/routing.md).
+Go-specific transport constraints:
+[OpenCode Go](../../docs/product/operator/providers/opencode-go.md).
 
 `openai-responses` is not "official OpenAI": Ollama >= 0.13.3,
 vLLM, and llama.cpp serve `/v1/responses`, while DeepSeek, GLM, LM Studio,
@@ -144,10 +129,6 @@ formula reads. Every streaming request asks for usage
 setting turns that off: a server that rejects the field fails every streaming
 request on that entry. Forced tool choice with `strict` tool schemas, error schemas,
 and cache-read usage are not regressed.
-
-**Breaking**: `type: "openai"` is deleted. Every existing entry fails boot as
-an out-of-enum type until it is re-declared as `openai-responses` or
-`openai-completions`; there is no shim and no migration.
 
 Every text llame sends to a model is built from a Handlebars template file:
 system prompts, tool descriptions, context items, and compaction, title, and

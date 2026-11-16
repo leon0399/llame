@@ -6,6 +6,7 @@
 
 import type { BillingMode } from '../models/model-client';
 import type { RequestHeaderTemplates } from '../models/request-headers';
+import type { ModelWire } from './provider-routing';
 
 /**
  * A Cohere v2 rerank endpoint: `POST {baseUrl}/rerank` through
@@ -13,8 +14,8 @@ import type { RequestHeaderTemplates } from '../models/request-headers';
  * `https://openrouter.ai/api/v1`, and Jina or Infinity answer it too. The
  * operator may omit `baseUrl`, which selects Cohere's own API. `key` may be
  * absent or resolve blank (`null`, keyless), which needs an explicit
- * `baseUrl`. An entry of this type never serves a `models[]` or
- * `embeddingModels[]` entry: a reranker is not a chat or embedding client.
+ * `baseUrl`. Its default wire is reranking; another model kind requires an
+ * explicit compatible model wire.
  */
 export type CohereRerankProviderConfig = {
   id: string;
@@ -51,4 +52,5 @@ export type RerankModelConfig = {
   readonly id: string;
   readonly provider: string;
   readonly model: string;
+  readonly wire?: ModelWire;
 };

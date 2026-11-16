@@ -17,6 +17,7 @@ import {
 export type OpenAIEmbeddingBackendConfig = {
   credential?: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
   providerModelId: string;
   dimensions: number;
   batchSize?: number;
@@ -182,7 +183,10 @@ function wrapFetchWithOrderVerification(
     input: Parameters<typeof fetch>[0],
     init: Parameters<typeof fetch>[1],
   ) => {
-    const response = await underlyingFetch(input, init);
+    const response = await underlyingFetch(input, {
+      ...init,
+      redirect: 'error',
+    });
 
     if (!response.ok) return response;
     let body: unknown;
@@ -226,6 +230,7 @@ export type OpenAIEmbeddingBackendDependencies = {
   createOpenAI: (settings: {
     apiKey: string;
     baseURL?: string;
+    headers?: Record<string, string>;
     fetch?: typeof fetch;
   }) => OpenAIEmbeddingProvider;
   fetch?: typeof fetch;
@@ -332,6 +337,7 @@ export function createOpenAIEmbeddingBackend(
   const openai = dependencies.createOpenAI({
     apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
     ...(config.baseUrl && { baseURL: config.baseUrl }),
+    ...(config.headers !== undefined && { headers: config.headers }),
     fetch: wrapFetchWithOrderVerification(dependencies.fetch ?? fetch),
   });
 

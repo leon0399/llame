@@ -40,9 +40,10 @@ credential from the process environment.
 ### Requirement: The rerank catalog names models by id
 
 The config file MUST accept an optional top-level `rerankModels` array. Each
-entry MUST be `{ id, provider, model }`. `provider` MUST name a `providers[].id`
-of `type: "cohere-rerank"`. `model` MUST be a nonblank string, sent verbatim.
-Each field MUST accept `{env:…}` and `{path:…}` interpolation.
+entry MUST be `{ id, provider, model, wire? }`. `provider` MUST name a
+`providers[].id` whose default or explicit model wire resolves to
+`cohere-rerank`. `model` MUST be a nonblank string, sent verbatim.
+`id`, `provider`, and `model` MUST accept `{env:…}` and `{path:…}` interpolation.
 
 #### Scenario: A rerank catalog loads
 
@@ -50,10 +51,15 @@ Each field MUST accept `{env:…}` and `{path:…}` interpolation.
 - **THEN** startup succeeds
 - **AND** a rank call that names that id sends `cohere/rerank-5-fast` on the wire
 
-#### Scenario: A rerank model names another provider type
+#### Scenario: A rerank model has no supported default wire
 
-- **WHEN** a `rerankModels` entry names a provider of `type: "system-one"`
-- **THEN** startup fails and names `rerankModels[0].provider` for the first entry
+- **WHEN** a `rerankModels` entry names a provider of `type: "system-one"` without an explicit `wire`
+- **THEN** startup fails and names `rerankModels[0].wire` for the first entry
+
+#### Scenario: An account serves a rerank model
+
+- **WHEN** a `rerankModels` entry names an `openrouter` provider without an explicit `wire`
+- **THEN** startup resolves its wire to `cohere-rerank`
 
 #### Scenario: A blank rerank model fails startup
 

@@ -1,4 +1,9 @@
 import {
+  nonChatHeaders,
+  providerBaseUrl,
+  resolveModelWire,
+} from '../instance-config/provider-routing';
+import {
   Inject,
   Injectable,
   Logger,
@@ -92,29 +97,26 @@ export function resolveEmbeddingBackendConfig(
     );
   }
 
-  // Only the OpenAI wires back embeddings (config-loader's own boot check
-  // above rejects any other reference): the check is an allowlist, not a
-  // denial of the one type known when it was written — `anthropic-messages`
-  // has no embedding model entry point in the adapter, so it is rejected
-  // here exactly like the subscription backend.
-  if (
-    provider.type !== 'openai-responses' &&
-    provider.type !== 'openai-completions'
-  ) {
-    throw new Error(
-      `embeddingModels[${model.id}].provider: "${model.provider}" does not support embeddings`,
-    );
-  }
+  resolveModelWire(
+    provider,
+    { kind: 'embedding', modelId: model.providerModelId, wire: model.wire },
+    `embeddingModels[${model.id}]`,
+  );
 
   const config: OpenAIEmbeddingBackendConfig = {
     providerModelId: model.providerModelId,
     dimensions: model.dimensions,
     batchSize: model.batchSize,
+    baseUrl: providerBaseUrl(provider),
+    headers: Object.fromEntries(
+      Object.entries(nonChatHeaders(provider.headers)).map(([name, parts]) => [
+        name,
+        parts.join(''),
+      ]),
+    ),
   };
 
   if (provider.key !== null) config.credential = provider.key;
-
-  if (provider.baseUrl !== null) config.baseUrl = provider.baseUrl;
 
   if (model.documentPrefix !== undefined) {
     config.documentPrefix = model.documentPrefix;

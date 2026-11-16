@@ -31,6 +31,11 @@ structured `decision.completed` log line and never folded into a Run's message
 usage, cost, measured context, reasoning count, or completeness, exactly as
 title generation and hosted search are excluded.
 
+A single `openrouter` account can serve both catalogues alongside chat and
+embeddings. Use that vendor profile for its alpha decision endpoint; the
+explicit profiles below describe custom services. See
+[provider routing](providers/routing.md) for defaults and `wire` overrides.
+
 ## 1. A provider of type `system-one`
 
 `type: "system-one"` posts to `{baseUrl}/systemone` with a bearer `key`. Both
@@ -78,11 +83,11 @@ results over time.
 }
 ```
 
-| Field      | Meaning                                                                                   |
-| ---------- | ----------------------------------------------------------------------------------------- |
-| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.         |
-| `provider` | A `providers[].id` of type `system-one`. An unknown id, or any other type, fails startup. |
-| `model`    | Model id sent verbatim on the wire.                                                       |
+| Field      | Meaning                                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.                                             |
+| `provider` | A `providers[].id` whose default or explicit model wire is `system-one`. Unknown accounts or unsupported routes fail startup. |
+| `model`    | Model id sent verbatim on the wire.                                                                                           |
 
 There is no price field. A request's cost is the cost the wire reports; a wire
 that reports none is recorded as unknown, never as zero.
@@ -145,8 +150,8 @@ may name an id from either catalogue, so an id is unique across both: a blank
 or repeated id fails startup naming the array-index paths (for example
 `decisionModels[0].id` and `rerankModels[1].id`) and never the value. `id`,
 `provider`, and `model` accept `{env:…}` and `{path:…}` and must resolve
-nonblank. `provider` must name a `cohere-rerank` provider. `model` is sent
-verbatim.
+nonblank. `provider` must resolve the `cohere-rerank` wire by default or an
+explicit model `wire` override. `model` is sent verbatim.
 
 ```jsonc
 {

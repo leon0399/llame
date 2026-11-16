@@ -1,63 +1,98 @@
 import path from 'node:path';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { resolveEvalEmbedBackend } from './resolve-eval-backend';
 
-import { resolveSecret } from './resolve-eval-backend';
+let directory: string;
 
-const ENV_KEYS = ['LLAME_EVAL_TEST_KEY'] as const;
+beforeEach(() => {
+  directory = mkdtempSync(path.join(tmpdir(), 'llame-eval-provider-'));
+  vi.stubEnv('LLAME_CONFIG_PATH', path.join(directory, 'llame.config.json'));
+  vi.stubEnv('EVAL_PROVIDER_KEY', 'evaluation-provider-key');
+});
 
-describe('resolveSecret', () => {
-  let originalEnv: Record<string, string | undefined>;
-  let tmpDir: string;
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  rmSync(directory, { recursive: true, force: true });
+});
 
-  beforeEach(() => {
-    originalEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+it('embeds through the shared OpenRouter account instead of the OpenAI default', async () => {
+  writeFileSync(
+    path.join(directory, 'llame.config.json'),
+    JSON.stringify({
+      providers: [
+        {
+          id: 'other-account',
+          type: 'openai',
+          key: 'other-key',
+          baseUrl: 'https://other.example/v1',
+        },
+        {
+          id: 'account',
+          type: 'openrouter',
+          key: '{env:EVAL_PROVIDER_KEY}',
+          headers: { 'X-Tenant': 'tenant', Authorization: '' },
+        },
+      ],
+      embeddingModels: [
+        {
+          id: 'other-embedding',
+          provider: 'other-account',
+          providerModelId: 'other',
+          dimensions: 2,
+        },
+        {
+          id: 'embed',
+          provider: 'account',
+          providerModelId: 'openai/text-embedding-3-small',
+          dimensions: 2,
+        },
+      ],
+      search: { chats: { embeddingModelId: 'embed' } },
+    }),
+  );
+  const calls: Array<{ url: string; headers: Headers }> = [];
+  vi.stubGlobal('fetch', (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({
+      url: new Request(url).url,
+      headers: new Headers(init?.headers),
+    });
 
-    for (const k of ENV_KEYS) delete process.env[k];
-    tmpDir = mkdtempSync(path.join(tmpdir(), 'llame-eval-secret-'));
-  });
-
-  afterEach(() => {
-    for (const k of ENV_KEYS) {
-      if (originalEnv[k] === undefined) delete process.env[k];
-      else process.env[k] = originalEnv[k];
-    }
-  });
-
-  it('passes a plain literal through unchanged', () => {
-    expect(resolveSecret('sk-plain')).toBe('sk-plain');
-  });
-
-  it('resolves a {env:...} token', () => {
-    process.env.LLAME_EVAL_TEST_KEY = 'sk-from-env';
-    expect(resolveSecret('{env:LLAME_EVAL_TEST_KEY}')).toBe('sk-from-env');
-  });
-
-  it('applies the {env:NAME:-default} fallback when unset', () => {
-    expect(resolveSecret('{env:LLAME_EVAL_TEST_KEY:-sk-fallback}')).toBe(
-      'sk-fallback',
+    return Promise.resolve(
+      Response.json({
+        data: [{ index: 0, embedding: [0.25, 0.75] }],
+        usage: { prompt_tokens: 2, total_tokens: 2 },
+      }),
     );
   });
+  const resolved = resolveEvalEmbedBackend();
+  expect(await resolved?.backend.embedQuery('query')).toEqual([0.25, 0.75]);
+  expect(calls[0]?.url).toBe('https://openrouter.ai/api/v1/embeddings');
+  expect(calls[0]?.headers.get('authorization')).toBe(
+    'Bearer evaluation-provider-key',
+  );
+  expect(calls[0]?.headers.get('x-tenant')).toBe('tenant');
+  expect(calls[0]?.headers.has('x-session-id')).toBe(false);
+});
 
-  it('yields undefined when a required {env:...} is unset', () => {
-    expect(resolveSecret('{env:LLAME_EVAL_TEST_KEY}')).toBeUndefined();
-  });
-
-  it('resolves a {path:...} token from a file', () => {
-    const secretFile = path.join(tmpDir, 'api-key.secret');
-    writeFileSync(secretFile, 'sk-from-file\n');
-    expect(resolveSecret(`{path:${secretFile}}`)).toBe('sk-from-file');
-  });
-
-  it('yields undefined when a {path:...} token names a missing file', () => {
-    expect(
-      resolveSecret(`{path:${path.join(tmpDir, 'does-not-exist.secret')}}`),
-    ).toBeUndefined();
-  });
-
-  it('returns undefined for non-string values', () => {
-    expect(resolveSecret(12_345)).toBeUndefined();
-    expect(resolveSecret(null)).toBeUndefined();
-  });
+it('does not construct a backend when its provider-kind combination is invalid', () => {
+  writeFileSync(
+    path.join(directory, 'llame.config.json'),
+    JSON.stringify({
+      providers: [
+        { id: 'account', type: 'anthropic', key: '{env:EVAL_PROVIDER_KEY}' },
+      ],
+      embeddingModels: [
+        {
+          id: 'embed',
+          provider: 'account',
+          providerModelId: 'embed',
+          dimensions: 2,
+        },
+      ],
+      search: { chats: { embeddingModelId: 'embed' } },
+    }),
+  );
+  expect(resolveEvalEmbedBackend()).toBeUndefined();
 });

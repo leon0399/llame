@@ -1,5 +1,5 @@
 ---
-summary: "Serving an OpenCode Go subscription through llame's fixed Chat Completions route"
+summary: "Serving an OpenCode Go subscription through per-model wire selection"
 read_when:
   - you are configuring an opencode-go provider entry and its models
   - you are matching a gateway failure message on a Go request
@@ -8,10 +8,9 @@ read_when:
 # OpenCode Go provider
 
 `opencode-go` lets one llame instance use an OpenCode Go subscription: a
-key-only provider entry whose endpoint is fixed in llame's code, executing the
-gateway's Chat Completions route under llame's existing configuration,
-execution, telemetry, and failure contracts. It adds no per-user account
-linking, no model discovery, no embeddings, and no route selection.
+key-only provider entry whose endpoint is fixed in llame's code. Models select
+Responses, Messages, or Chat Completions through exact model metadata or an explicit
+`wire`. It adds no per-user account linking, model discovery, or embeddings.
 
 ## Obtaining and configuring the key
 
@@ -37,7 +36,7 @@ configuration named in the [operator index](../index.md#operator):
 ```
 
 The required entry is `{ id, type, key }`, with optional `billing`. `id` is
-the operator-chosen name model entries reference; `type` selects the transport;
+the operator-chosen name model entries reference; each model selects its wire;
 `key` accepts the same `{env:...}` and `{path:...}` interpolation as every
 other credential and is resolved once at startup. The resolved value never
 reaches a log, error, telemetry record, model context, or owner-visible
@@ -66,27 +65,17 @@ fetched catalogue is #903.
 
 ## The endpoint and the route ceiling
 
-Every `opencode-go` request is sent to the gateway's Chat Completions route,
-`https://opencode.ai/zen/go/v1/chat/completions`, authenticated with the
-entry's resolved key. The base URL `https://opencode.ai/zen/go/v1` is a
-constant in llame's code (`OPENCODE_GO_BASE_URL` in
-`apps/api/src/models/opencode-go-model-client.ts`): no entry name, ambient
-environment variable, or configuration value can move a request, and a
-redirect is not followed, so neither the credential nor the session header can
-reach a redirect destination.
+Every `opencode-go` request uses the fixed API base
+`https://opencode.ai/zen/go/v1`, authenticated with the entry's resolved key.
+The selected wire appends `/responses`, `/messages`, or `/chat/completions`.
+No entry name, ambient environment variable, or configuration value can move
+the base, and redirects are rejected before credentials can reach another
+destination.
 
-llame uses only the Chat Completions route for this provider. The gateway
-serves three protocols under one base URL and one credential, and a survey of
-its live catalogue on 2026-09-17 found that route accepts 37 of 38 models —
-the deployed list returned 33 ids on 2026-09-22, so read any such count as a
-snapshot of a catalogue llame does not pin. Only `grok-4.6` is reachable
-exclusively through the `/responses` route, which llame does not use yet, so
-that model cannot be served; #904 owns the per-model route override that would
-reach it, and the message an operator will match on when it is declared is the
-upstream-unavailable text below, not the format-gate text the gateway's own
-handler documents. The catalogue is operator-declared: llame keeps no compiled
-model, route, or capability table and checks no model's route at boot, so a
-model the gateway rejects fails at request time (below), not at startup.
+Bundled provider-specific model metadata selects a native wire; unknown models require an explicit
+`wire` at startup. See [provider routing](routing.md) for the selection table.
+The gateway still decides model eligibility at request time. Selecting a wire
+does not promise that the subscription includes the model.
 
 Do not point an `openai-completions` entry at the Go endpoint as a substitute.
 That client requests `stream_options.include_usage`, which Go answers with a
@@ -117,22 +106,16 @@ secret header values should use `{env:...}` or `{path:...}`. llame does not send
 `x-opencode-request`, `x-opencode-project`, or `x-session-affinity` by default,
 and it never claims another product's client identity.
 
-Caching is the gateway's, and llame requests none of it: llame sends the
-session identity and records whatever usage the gateway reports. It sends no
-cache-control field and no cache-breakpoint marker, neither requests nor
-configures prompt caching for this provider, and counts no breakpoints, so a
-cache hit is the gateway's behavior and never a llame setting or promise. A
-request that observes no cache hit completes normally and is not an error: in
-llame's live proof on 2026-09-22 a deliberately re-sent ~860-token prefix under
-one session identity reported `prompt_tokens_details.cached_tokens: 0` on both
-requests, so no reuse was demonstrated in that window and none is relied on
-here.
+Caching follows the selected wire's client defaults: Messages requests use
+ephemeral cache control, while Responses and Chat Completions retain their
+existing behavior. The gateway reports usage; llame does not promise cache
+reuse.
 
 ## Accepted upstream failures
 
-Failures surface at request time under the Chat Completions failure contract,
-exactly as for an `openai-completions` entry: the gateway's parsed error
-message, whether it arrives on a failure response or inside the stream,
+Failures surface under the selected wire's existing failure contract. On the
+Chat Completions route, the gateway's parsed error message, whether it arrives
+on a failure response or inside the stream,
 becomes the run's failure, shown to the owner whose run failed and recorded on
 the run, after the SDK's own retry rules for retryable statuses. The failure
 response's body and headers, the request body, and the credential reach no
@@ -160,9 +143,9 @@ gateway on 2026-09-22, except where noted:
   that text for `grok-4.6` on this route: the failure surfaced after the SDK's
   own three retries as `RetryError: Failed after 3 attempts. Last error: Upstream request failed: Endpoint is unavailable.`
   Match on that message. Because a model id the route does not serve is the
-  likeliest operator error, check this first: remedy it by declaring a model
-  the Chat Completions route accepts, or wait for #904, which owns the
-  per-model route override that reaches `grok-4.6` on `/responses`.
+  likeliest operator error, check this first: choose a model the selected
+  route accepts, or set the model's `wire` to the protocol the gateway
+  documents for it (for example `openai-responses` for `/responses`).
 - **An invalid credential.** HTTP 401 with the gateway's envelope
   (`{"type":"error","error":{"type":"AuthError","message":"Invalid API key."}}`);
   the run's failure is exactly `Invalid API key.`, and nothing else — no

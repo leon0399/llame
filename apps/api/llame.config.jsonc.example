@@ -33,24 +33,22 @@
     "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}",
   },
 
-  // Provider connections. `type` names the wire the entry speaks:
-  // `openai-responses` for the Responses API (baseUrl optional) or
-  // `openai-completions` for Chat Completions (baseUrl required),
-  // `anthropic-messages` for the Anthropic Messages API (baseUrl optional,
-  // defaulting to the Anthropic API at https://api.anthropic.com/v1), or
-  // `opencode-go` for the OpenCode Go subscription gateway (Chat Completions
-  // at an endpoint fixed in llame's code; key required, no baseUrl). Omit key
-  // for a keyless endpoint.
+  // Provider accounts share credentials and headers across model kinds.
+  // Vendor types: openai, anthropic, openrouter, opencode-zen, opencode-go.
+  // Each model may override its default with `wire`; unknown combinations
+  // fail startup. Explicit wire profiles also support custom endpoints.
+  // Go requires a subscription key and has a fixed base URL.
+  // See docs/product/operator/providers/routing.md for the route table.
   // Optional `billing` on providers and models accepts "usage" or
   // "subscription"; a model overrides its provider. Defaults are
   // `subscription` for `openai-codex` and `opencode-go`, `usage` otherwise.
   "providers": [
     {
       "id": "openai",
-      "type": "openai-responses",
+      "type": "openai",
       "key": "{env:OPENAI_API_KEY:-}",
-      "baseUrl": "{env:OPENAI_BASE_URL:-}",
-      // Optional per-provider request headers. The four non-Codex wires default
+      "baseUrl": "{env:OPENAI_BASE_URL:-https://api.openai.com/v1}",
+      // Optional per-provider request headers. Chat vendor profiles default
       // to "X-Session-Id": "{session:id}"; use null to remove that default:
       // "headers": { "X-Session-Id": null },
     },
@@ -192,7 +190,7 @@
         "cacheInvalidatedByEffortChange": true,
       },
       // Optional provider-native request options for the adapter this
-      // provider's `type` selects, keyed as that adapter documents them
+      // model's resolved wire selects, keyed as that adapter documents them
       // (`reasoningSummary` on the Responses wire, `reasoningEffort` on Chat
       // Completions, `thinking`/`effort`/`cacheControl` on the Messages
       // wire); llame places them under the wire's provider-options namespace

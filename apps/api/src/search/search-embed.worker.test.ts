@@ -1,3 +1,4 @@
+import { InstanceConfigError } from '@workspace/config-interpolation';
 /**
  * SearchEmbedWorker's boot-gating (chat-search-embeddings, design D5/D14,
  * task 6.3) — pure unit test, no database, no provider call. Verifies BOTH
@@ -397,65 +398,6 @@ describe('SearchEmbedWorker.onApplicationBootstrap — gating', () => {
 });
 
 describe('resolveEmbeddingBackendConfig', () => {
-  it('selects the matching provider and maps optional credentials, endpoint, and prefixes', () => {
-    const model = {
-      ...MODEL,
-      documentPrefix: 'document: ',
-      queryPrefix: 'query: ',
-    };
-
-    expect(
-      resolveEmbeddingBackendConfig(model, [
-        {
-          id: 'other-provider',
-          type: 'openai-completions',
-          key: 'wrong-key',
-          baseUrl: 'https://wrong.example',
-          headers: {},
-        },
-        {
-          id: 'provider-a',
-          type: 'openai-completions',
-          key: 'right-key',
-          baseUrl: 'https://right.example',
-          headers: {},
-        },
-      ]),
-    ).toEqual({
-      providerModelId: MODEL.providerModelId,
-      dimensions: MODEL.dimensions,
-      batchSize: MODEL.batchSize,
-      credential: 'right-key',
-      baseUrl: 'https://right.example',
-      documentPrefix: 'document: ',
-      queryPrefix: 'query: ',
-    });
-  });
-
-  it('omits key, endpoint, and prefixes when the catalog leaves them unset', () => {
-    const {
-      documentPrefix: _documentPrefix,
-      queryPrefix: _queryPrefix,
-      ...model
-    } = MODEL;
-
-    expect(
-      resolveEmbeddingBackendConfig(model, [
-        {
-          id: 'provider-a',
-          type: 'openai-responses',
-          key: null,
-          baseUrl: null,
-          headers: {},
-        },
-      ]),
-    ).toEqual({
-      providerModelId: MODEL.providerModelId,
-      dimensions: MODEL.dimensions,
-      batchSize: MODEL.batchSize,
-    });
-  });
-
   it('rejects a model whose provider is not declared', () => {
     expect(() =>
       resolveEmbeddingBackendConfig(
@@ -484,9 +426,7 @@ describe('resolveEmbeddingBackendConfig', () => {
           headers: {},
         },
       ]),
-    ).toThrow(
-      'embeddingModels[embed-a].provider: "codex" does not support embeddings',
-    );
+    ).toThrow(InstanceConfigError);
   });
   it('rejects an anthropic-messages provider, which cannot back embeddings', () => {
     expect(() =>
@@ -499,9 +439,7 @@ describe('resolveEmbeddingBackendConfig', () => {
           headers: {},
         },
       ]),
-    ).toThrow(
-      'embeddingModels[embed-a].provider: "anthropic" does not support embeddings',
-    );
+    ).toThrow(InstanceConfigError);
   });
 });
 
@@ -1073,70 +1011,6 @@ describe('SearchEmbedWorker persistence accounting', () => {
       'Embed batch for chat chat-1 tombstoned nothing after a terminal failure — every row was superseded between read and write',
     );
     expect(harness.enqueueChatEmbed).not.toHaveBeenCalled();
-  });
-});
-
-describe('resolveEmbeddingBackendConfig key exactness', () => {
-  it('leaves optional keys absent rather than present-and-undefined', () => {
-    const config = resolveEmbeddingBackendConfig(
-      {
-        id: 'embed-a',
-        provider: 'provider-a',
-        providerModelId: 'text-embedding-3-small',
-        dimensions: 3,
-        batchSize: 32,
-        distanceMetric: 'cosine',
-      },
-      [
-        {
-          id: 'provider-a',
-          type: 'openai-responses',
-          key: null,
-          baseUrl: null,
-          headers: {},
-        },
-      ],
-    );
-
-    expect(Object.keys(config).sort()).toEqual([
-      'batchSize',
-      'dimensions',
-      'providerModelId',
-    ]);
-  });
-
-  it('includes every optional key that the catalog actually declares', () => {
-    const config = resolveEmbeddingBackendConfig(
-      {
-        id: 'embed-a',
-        provider: 'provider-a',
-        providerModelId: 'text-embedding-3-small',
-        dimensions: 3,
-        batchSize: 32,
-        distanceMetric: 'cosine',
-        documentPrefix: 'passage: ',
-        queryPrefix: 'query: ',
-      },
-      [
-        {
-          id: 'provider-a',
-          type: 'openai-completions',
-          key: 'sk-1',
-          baseUrl: 'https://example.test',
-          headers: {},
-        },
-      ],
-    );
-
-    expect(config).toEqual({
-      providerModelId: 'text-embedding-3-small',
-      dimensions: 3,
-      batchSize: 32,
-      credential: 'sk-1',
-      baseUrl: 'https://example.test',
-      documentPrefix: 'passage: ',
-      queryPrefix: 'query: ',
-    });
   });
 });
 

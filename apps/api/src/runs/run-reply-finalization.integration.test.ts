@@ -164,6 +164,7 @@ function fiveWireConfigJson(): string {
         id: WIRE_MODEL_ID.go,
         provider: 'go',
         providerModelId: 'test-model',
+        wire: 'openai-completions',
         contextWindowTokens: 128_000,
       },
       {
