@@ -1,4 +1,3 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { asDouble } from '../../testing/support';
 import type { Chat } from '../../db/schema';
@@ -66,11 +65,33 @@ describe('ChatCommandsService', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('rejects a file part for a stored Chat', async () => {
+  it('rejects a file part alongside command text', async () => {
     const { service } = makeService();
     await expect(
-      service.execute({ ...request, parts: [{ type: 'file' }] }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+      service.execute({
+        ...request,
+        parts: [{ type: 'text' }, { type: 'file' }],
+      }),
+    ).rejects.toMatchObject({
+      message: 'A command cannot include an attachment.',
+    });
+  });
+
+  it('accepts the maximum 200-character title', async () => {
+    const { service, update } = makeService();
+    const title = 'x'.repeat(200);
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'rename', argument: title },
+      }),
+    ).resolves.toEqual({
+      type: 'command',
+      command: 'rename',
+      title: 'New name',
+    });
+    expect(update).toHaveBeenCalledWith('chat-1', 'user-1', { title });
   });
 
   it('rejects an overlong title', async () => {
@@ -80,7 +101,9 @@ describe('ChatCommandsService', () => {
         ...request,
         command: { name: 'rename', argument: 'x'.repeat(201) },
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toMatchObject({
+      message: 'A title must be between 1 and 200 characters.',
+    });
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -109,8 +132,8 @@ describe('ChatCommandsService', () => {
   it('reports a disappeared Chat after lookup as not found', async () => {
     const { service, update } = makeService();
     update.mockResolvedValue(undefined);
-    await expect(service.execute(request)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.execute(request)).rejects.toMatchObject({
+      message: 'Chat not found.',
+    });
   });
 });

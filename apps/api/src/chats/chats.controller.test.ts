@@ -156,7 +156,8 @@ describe('ChatsController', () => {
         vi.fn<RunStreamResponder['createUiMessageStreamResponse']>(),
     } satisfies RunStreamResponder;
 
-    const commands = asDouble<ChatCommandsService>({ execute: vi.fn() });
+    const executeCommand = vi.fn<ChatCommandsService['execute']>();
+    const commands = asDouble<ChatCommandsService>({ execute: executeCommand });
 
     return {
       controller: new ChatsController(
@@ -173,6 +174,8 @@ describe('ChatsController', () => {
       followUpAdmission,
       runAsSpy,
       bridge,
+      executeCommand,
+      commands,
     };
   }
 
@@ -440,6 +443,78 @@ describe('ChatsController', () => {
       undefined,
     );
     expect(result.id).toBe('cloned-chat-id');
+  });
+
+  it('returns rename commands as a response instead of starting a Run', async () => {
+    const { controller, executeCommand, chatLoopService } = makeController();
+
+    const response = Object.assign(makeWritableResponse(), {
+      json: vi.fn(),
+    });
+
+    executeCommand.mockResolvedValue({
+      type: 'command',
+      command: 'rename',
+      title: 'New title',
+    });
+
+    await controller.createMessage(
+      'verified-user',
+      chat.id,
+      {
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: '33333333-3333-3333-3333-333333333333',
+          parts: [{ type: 'text', text: '/rename New title' }],
+        },
+      },
+      response,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(response.json).toHaveBeenCalledWith({
+      type: 'command',
+      command: 'rename',
+      title: 'New title',
+    });
+    expect(chatLoopService.createMessageStream).not.toHaveBeenCalled();
+  });
+
+  it('continues normal message handling when the command target is unavailable', async () => {
+    const { controller, executeCommand, chatLoopService } = makeController();
+    const messageError = new Error('chat loop reached');
+    executeCommand.mockResolvedValue(undefined);
+    chatLoopService.createMessageStream.mockRejectedValue(messageError);
+
+    const response = Object.assign(makeWritableResponse(), {
+      json: vi.fn(),
+    });
+
+    await expect(
+      controller.createMessage(
+        'verified-user',
+        chat.id,
+        {
+          modelId: 'system:openai:gpt-5.4-mini',
+          message: {
+            id: '33333333-3333-3333-3333-333333333333',
+            parts: [{ type: 'text', text: '/rename New title' }],
+          },
+        },
+        response,
+      ),
+    ).rejects.toBe(messageError);
+
+    expect(chatLoopService.createMessageStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'verified-user',
+        message: {
+          id: '33333333-3333-3333-3333-333333333333',
+          parts: [{ type: 'text', text: '/rename New title' }],
+        },
+      }),
+    );
+    expect(response.json).not.toHaveBeenCalled();
   });
 
   it('streams messages with userId from the verified session only', async () => {

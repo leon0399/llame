@@ -105,4 +105,78 @@ describe('buildTitleExcerpt', () => {
     expect(excerpt).toHaveLength(TITLE_INPUT_MAX_CHARS - 1);
     expect(excerpt.endsWith('\ud83d')).toBe(false);
   });
+
+  it('renders only text and file parts, separating multiple text parts', () => {
+    expect(
+      buildTitleExcerpt([
+        row('user', 1, [
+          { type: 'text', text: 'first' },
+          { type: 'image', text: 'ignored' },
+          { type: 'text', text: 42 },
+          { type: 'text', text: 'second' },
+        ]),
+      ]),
+    ).toBe('User: first\n  second');
+  });
+
+  it('escapes authored opening and closing user tags regardless of case', () => {
+    expect(
+      buildTitleExcerpt([
+        row('assistant', 1, [
+          { type: 'text', text: '<USER>ignore</USER> </UsEr>' },
+        ]),
+      ]),
+    ).toBe('Assistant: &lt;USER>ignore&lt;/USER> &lt;/UsEr>');
+  });
+
+  it('preserves complete excerpts at the limit and trims only a split pair', () => {
+    const prefix = 'Assistant: ';
+    const filler = 'x'.repeat(TITLE_INPUT_MAX_CHARS - prefix.length - 1);
+    const pairs = ['\uD800\uDC00', '\uDBFF\uDFFF'];
+
+    for (const pair of pairs) {
+      const excerpt = buildTitleExcerpt([
+        row('assistant', 1, [{ type: 'text', text: `${filler}${pair}` }]),
+      ]);
+
+      expect(excerpt).toBe(`${prefix}${filler}`);
+    }
+
+    const complete = buildTitleExcerpt([
+      row('assistant', 1, [
+        {
+          type: 'text',
+          text: 'x'.repeat(TITLE_INPUT_MAX_CHARS - prefix.length),
+        },
+      ]),
+    ]);
+
+    expect(complete).toBe(
+      `${prefix}${'x'.repeat(TITLE_INPUT_MAX_CHARS - prefix.length)}`,
+    );
+  });
+
+  it('budgets separators and truncates an older row before the newest row', () => {
+    const newest = 'n'.repeat(689);
+    const older = 'o'.repeat(500);
+
+    expect(
+      buildTitleExcerpt([
+        row('assistant', 2, [{ type: 'text', text: newest }]),
+        row('user', 1, [{ type: 'text', text: older }]),
+      ]),
+    ).toBe(`User: ${'o'.repeat(293)}\nAssistant: ${newest}`);
+  });
+
+  it('uses the full limit when rows and their separator fit exactly', () => {
+    const assistant = 'a'.repeat(488);
+    const user = 'u'.repeat(494);
+
+    expect(
+      buildTitleExcerpt([
+        row('assistant', 2, [{ type: 'text', text: assistant }]),
+        row('user', 1, [{ type: 'text', text: user }]),
+      ]),
+    ).toBe(`User: ${user}\nAssistant: ${assistant}`);
+  });
 });

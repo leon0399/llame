@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
+import { runInNewContext } from 'node:vm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
@@ -86,6 +88,15 @@ function makeService(client?: ModelClient) {
     createClient,
     setGeneratedTitle,
   };
+}
+
+function isErrorLike(value: unknown): value is Error {
+  return (
+    isRecord(value) &&
+    isString(value.name) &&
+    isString(value.message) &&
+    isString(value.stack)
+  );
 }
 
 describe('TitleService', () => {
@@ -351,6 +362,34 @@ describe('TitleService.regenerate', () => {
     expect(setGeneratedTitle).not.toHaveBeenCalled();
   });
 
+  it('reports a generated title as failed when the owner-scoped update misses', async () => {
+    const client = createFakeModelClient(['unused']);
+    Object.assign(client, {
+      generateObject: vi
+        .fn<NonNullable<ModelClient['generateObject']>>()
+        .mockResolvedValue({ title: 'Migration plan' }),
+    });
+    const { service } = makeService(client);
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+      asDouble<Chat>({ id: 'chat-1', archivedAt: null }),
+    );
+    vi.spyOn(titleMessageQuery, 'queryLatestTitleMessages').mockResolvedValue([
+      asDouble<Message>({
+        id: 'message-1',
+        chatId: 'chat-1',
+        seq: 1,
+        role: 'user',
+        senderUserId: 'user-1',
+        parts: [{ type: 'text', text: 'Request' }],
+      }),
+    ]);
+    vi.spyOn(ChatsRepository.prototype, 'update').mockResolvedValue(undefined);
+
+    await expect(
+      service.regenerate({ chatId: 'chat-1', userId: 'user-1' }),
+    ).resolves.toEqual({ ok: false, reason: 'failed' });
+  });
+
   it('does not request a title when no title model is configured', async () => {
     const { service, resolveTitleModelConfig, createClient } = makeService(
       createFakeModelClient(['unused']),
@@ -397,6 +436,7 @@ describe('TitleService.regenerate', () => {
 
     Object.assign(client, { generateObject });
     const { service } = makeService(client);
+    const update = vi.spyOn(ChatsRepository.prototype, 'update');
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
       asDouble<Chat>({ id: 'chat-1', archivedAt: null }),
     );
@@ -414,6 +454,7 @@ describe('TitleService.regenerate', () => {
     await expect(
       service.regenerate({ chatId: 'chat-1', userId: 'user-1' }),
     ).resolves.toEqual({ ok: false, reason: 'failed' });
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('returns failed when the structured and text title requests both throw', async () => {
@@ -423,9 +464,19 @@ describe('TitleService.regenerate', () => {
         .fn<NonNullable<ModelClient['generateObject']>>()
         .mockRejectedValue(new Error('structured unavailable')),
     });
+
+    const textFailure: unknown = runInNewContext(
+      'new Error("text unavailable")',
+    );
+
+    if (!isErrorLike(textFailure)) {
+      throw new Error('Expected an Error-like value from the isolated realm.');
+    }
+
     vi.spyOn(client, 'streamText').mockImplementation(() => {
-      throw new Error('text unavailable');
+      throw textFailure;
     });
+    const warn = vi.spyOn(Logger.prototype, 'warn');
     const { service } = makeService(client);
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
       asDouble<Chat>({ id: 'chat-1', archivedAt: null }),
@@ -444,5 +495,8 @@ describe('TitleService.regenerate', () => {
     await expect(
       service.regenerate({ chatId: 'chat-1', userId: 'user-1' }),
     ).resolves.toEqual({ ok: false, reason: 'failed' });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('Title generation failed: unknown error'),
+    );
   });
 });

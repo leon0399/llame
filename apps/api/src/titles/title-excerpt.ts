@@ -28,19 +28,16 @@ function rowText(message: Message): string {
 
 function safePrefix(value: string, maxLength: number): string {
   let end = Math.min(value.length, maxLength);
+  const last = value.charCodeAt(end - 1);
+  const next = value.charCodeAt(end);
 
-  if (end > 0 && end < value.length) {
-    const last = value.charCodeAt(end - 1);
-    const next = value.charCodeAt(end);
-
-    if (
-      last >= 0xd8_00 &&
-      last <= 0xdb_ff &&
-      next >= 0xdc_00 &&
-      next <= 0xdf_ff
-    ) {
-      end -= 1;
-    }
+  if (
+    last >= 0xd8_00 &&
+    last <= 0xdb_ff &&
+    next >= 0xdc_00 &&
+    next <= 0xdf_ff
+  ) {
+    end -= 1;
   }
 
   return value.slice(0, end);
