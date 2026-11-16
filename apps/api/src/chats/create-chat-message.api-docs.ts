@@ -73,7 +73,7 @@ const createChatMessageDocs: Array<MethodDecorator> = [
     content: {
       'application/json': {
         schema: {
-          oneOf: [
+          anyOf: [
             { $ref: getSchemaPath(ModelDomainErrorResponse) },
             { $ref: getSchemaPath(ErrorResponse) },
           ],
