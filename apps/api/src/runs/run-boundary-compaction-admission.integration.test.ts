@@ -1,4 +1,5 @@
 import { isRecord } from '@workspace/runtime-safety';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 
@@ -37,6 +38,105 @@ describe('step-boundary compaction admission', () => {
       20_000,
       `Run ${runId} to wait for a job`,
     );
+
+  it('A compact steer yields a foreground command and interrupts a wait', async () => {
+    const foreground = await fx.seed('Yield the foreground build.');
+    const pidFile = join(fx.directory, `pid-${randomUUID()}`);
+
+    const firstRun = await fx.launch(foreground, [
+      call('slow-build', 'bash', {
+        command: `echo $$ > ${pidFile}; exec sleep 60`,
+        cwd: fx.directory,
+      }),
+      answer('The build is now a job.'),
+    ]);
+
+    await waitFor(
+      async () =>
+        (await fx.events(foreground.runId)).some(
+          (event) =>
+            event.eventType === 'tool.started' &&
+            isRecord(event.payload) &&
+            event.payload['toolCallId'] === 'slow-build',
+        )
+          ? true
+          : undefined,
+      20_000,
+      'the foreground command to start',
+    );
+
+    const [compactId] = await fx.storeItems(
+      foreground.chatId,
+      ['/compact'],
+      'steer',
+      foreground.runId,
+    );
+
+    await fx.terminal(foreground.runId);
+
+    const bashResult = (await fx.events(foreground.runId)).find(
+      (event) =>
+        event.eventType === 'tool.completed' &&
+        isRecord(event.payload) &&
+        event.payload['toolCallId'] === 'slow-build',
+    );
+
+    expect(bashResult?.payload).toMatchObject({
+      output: { backgrounded: true },
+    });
+    expect(await fx.itemState(compactId ?? '')).toMatchObject({
+      state: 'delivered',
+    });
+    expect(firstRun.prompts().length).toBeGreaterThan(1);
+
+    // Wait calls are deferred until the current model stream drains. Test the
+    // resulting compact-steer interruption with the persisted job in a fresh Run.
+    const waiting = await fx.seed('Wait for the build job.');
+
+    const job = await fx.db((tx) =>
+      seedLiveChatJob({
+        tx,
+        userId: fx.userId,
+        modelId: waiting.modelId,
+        run: { chatId: waiting.chatId, runId: waiting.runId },
+      }),
+    );
+
+    const waitingRun = await fx.launch(waiting, [
+      call('wait-build', 'wait', {
+        jobs: [`job://bash-${job.seq}`],
+        timeout: 3600,
+      }),
+      answer('The wait was interrupted.'),
+    ]);
+
+    await awaiting(waiting.runId);
+    await fx.storeItems(waiting.chatId, ['/compact'], 'steer');
+
+    const woke = await fx.db((tx) =>
+      fx.harness.moduleRef.get(RunWaitService).wakeForChatInTransaction(tx, {
+        chatId: waiting.chatId,
+        userId: fx.userId,
+        kind: 'steer',
+      }),
+    );
+
+    expect(woke).toBe(true);
+    await fx.terminal(waiting.runId);
+
+    const waitResult = (await fx.events(waiting.runId)).find(
+      (event) =>
+        event.eventType === 'tool.completed' &&
+        isRecord(event.payload) &&
+        event.payload['toolCallId'] === 'wait-build',
+    );
+
+    expect(waitResult?.payload).toMatchObject({
+      output: { ended: 'interrupted' },
+    });
+    expect(waitingRun.prompts().length).toBeGreaterThan(1);
+    expect(job.state).toBe('running');
+  });
 
   it('Compact during a job wait', async () => {
     const seeded = await fx.seed('Continue after the build job.');

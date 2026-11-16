@@ -89,9 +89,18 @@ export type BoundaryDelivery =
       /** `interrupt` closed the reply `aborted`; `steer` closed it as given. */
       cause: DeliveryCause;
       checkpointId?: string;
+      compactionFailed?: true;
     }
+  /** A final-answer checkpoint is published by the terminal transaction. */
+  | {
+      kind: 'final-compacted';
+      commandItems: ReadonlyArray<ChatDelivery>;
+      compaction: NonNullable<DeliveryInput['boundaryCompaction']>;
+    }
+  /** A failed summary was recorded while other locked items were settled. */
+  | { kind: 'compaction-failed' }
   /** No pending item remained: the transaction wrote nothing. */
-  | { kind: 'nothing-pending' }
+  | { kind: 'nothing-pending'; compactionFailed?: true }
   /** The attempt was superseded or the Run is terminal. */
   | { kind: 'fenced' }
   /** A cancellation is recorded: the items stay pending. */
@@ -139,6 +148,7 @@ export type DeliveryInput = {
     summary: CompactionSummary | null;
     continueItem: MessagePart;
     stepBudgetUsed: number;
+    finalAnswer?: true;
     publishCheckpoint: (tx: Db, reply: Message) => Promise<string>;
   };
 };
@@ -406,13 +416,13 @@ export async function deliverPendingSteering(
   return finishDelivery(tx, input, locked, items);
 }
 
-async function finishDelivery(
+async function attemptCompactionDelivery(
   tx: Db,
   input: DeliveryInput,
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
-): Promise<BoundaryDelivery> {
-  const compactDelivery = await deliverCompactionItems({
+): Promise<BoundaryDelivery | undefined> {
+  return deliverCompactionItems({
     tx,
     delivery: input,
     locked,
@@ -441,10 +451,47 @@ async function finishDelivery(
         moveRun: (move) => moveRunToDelivery(tx, locked, input.attemptId, move),
       }),
   });
+}
 
-  if (compactDelivery !== undefined) return compactDelivery;
+async function finishDelivery(
+  tx: Db,
+  input: DeliveryInput,
+  locked: Run,
+  items: ReadonlyArray<ChatDelivery>,
+): Promise<BoundaryDelivery> {
+  const compactDelivery = await attemptCompactionDelivery(
+    tx,
+    input,
+    locked,
+    items,
+  );
 
-  return finishOrdinaryDelivery({ tx, delivery: input, locked, items });
+  if (compactDelivery?.kind === 'compaction-failed') {
+    return finishFailedCompaction({ tx, input, locked, items });
+  }
+
+  return (
+    compactDelivery ??
+    finishOrdinaryDelivery({ tx, delivery: input, locked, items })
+  );
+}
+
+async function finishFailedCompaction(input: {
+  tx: Db;
+  input: DeliveryInput;
+  locked: Run;
+  items: ReadonlyArray<ChatDelivery>;
+}): Promise<BoundaryDelivery> {
+  const ordinary = await finishOrdinaryDelivery({
+    tx: input.tx,
+    delivery: input.input,
+    locked: input.locked,
+    items: input.items,
+  });
+
+  return ordinary.kind === 'delivered'
+    ? { ...ordinary, compactionFailed: true }
+    : { kind: 'nothing-pending', compactionFailed: true };
 }
 
 async function finishOrdinaryDelivery(input: {

@@ -1,3 +1,4 @@
+import { isRecord } from '@workspace/runtime-safety';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { parseChatCommand } from '../chats/commands/parse-chat-command';
 import type { MessagePart } from '../chats/context-builder';
@@ -77,7 +78,17 @@ async function settleFailedCompaction(
   tx: Db,
   locked: Run,
   commandItems: ReadonlyArray<ChatDelivery>,
+  live: DeliveryInput['live'],
 ): Promise<void> {
+  if (
+    live &&
+    !live.parts.some(
+      (part) => isRecord(part) && part['type'] === 'data-compaction-failed',
+    )
+  ) {
+    live.parts.push({ type: 'data-compaction-failed', data: {} });
+  }
+
   const deliveries = new ChatDeliveriesRepository(tx);
 
   for (const item of commandItems) {
@@ -114,21 +125,34 @@ export async function deliverCompactionItems(input: {
   if (compaction === undefined) return undefined;
 
   const commandItems = input.items.filter(
-    (item) => isCompactCommand(item) && compaction.ids.includes(item.id),
+    (item) =>
+      isCompactCommand(item) &&
+      (compaction.finalAnswer === true || compaction.ids.includes(item.id)),
   );
 
   if (commandItems.length === 0) return undefined;
 
   if (compaction.summary === null) {
-    await settleFailedCompaction(input.tx, input.locked, commandItems);
+    await settleFailedCompaction(
+      input.tx,
+      input.locked,
+      commandItems,
+      input.delivery.live,
+    );
 
-    return undefined;
+    return { kind: 'compaction-failed' };
+  }
+
+  const messageItems = input.items.filter((item) => !isCompactCommand(item));
+
+  if (compaction.finalAnswer === true && messageItems.length === 0) {
+    return { kind: 'final-compacted', commandItems, compaction };
   }
 
   return input.finish({
     lockedItems: input.items,
     commandItems,
-    messageItems: input.items.filter((item) => !isCompactCommand(item)),
+    messageItems,
     compaction,
   });
 }
@@ -139,9 +163,12 @@ export async function finishCompactionDelivery(
   const cause = deliveryCause(input.delivery, input.lockedItems);
   const { closedReply, checkpointId } = await input.closeAndPublish(cause);
 
-  const message = await input.storeMessage(input.messageItems, [
-    input.compaction.continueItem,
-  ]);
+  const message = await input.storeMessage(
+    input.messageItems,
+    input.compaction.finalAnswer === true
+      ? []
+      : [input.compaction.continueItem],
+  );
 
   const attemptId = await input.moveRun({
     items: input.messageItems,

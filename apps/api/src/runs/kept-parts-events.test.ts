@@ -174,6 +174,12 @@ describe('keptPartEvents', () => {
     ]);
   });
 
+  it('replays a kept compaction failure marker as its event', () => {
+    expect(
+      keptPartEvents([{ type: 'data-compaction-failed', data: {} }]),
+    ).toEqual([{ eventType: 'run.compaction_failed', payload: {} }]);
+  });
+
   it('contributes nothing for a cap marker whose counts are absent', () => {
     expect(
       keptPartEvents([{ type: 'data-cap-notice', data: { stepsUsed: 4 } }]),

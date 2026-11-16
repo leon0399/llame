@@ -160,6 +160,11 @@ export type CapNoticePart = {
   data: { stepsUsed: number; maxSteps: number };
 };
 
+export type CompactionFailedPart = {
+  type: 'data-compaction-failed';
+  data: Record<string, never>;
+};
+
 type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
 
 /**
@@ -386,6 +391,10 @@ class AssistantPartCollectorImpl {
   }
 
   capNotice(part: CapNoticePart): void {
+    this.collected.push(part);
+  }
+
+  compactionFailed(part: CompactionFailedPart): void {
     this.collected.push(part);
   }
 
@@ -647,6 +656,13 @@ class DurableAssistantReconstructor {
         return;
       case 'run.step_cap_reached':
         this.applyStepCapReached(event);
+
+        return;
+      case 'run.compaction_failed':
+        this.collector.compactionFailed({
+          type: 'data-compaction-failed',
+          data: {},
+        });
 
         return;
       case 'tool.requested':

@@ -26,7 +26,9 @@ import {
   closedTelemetry,
   deliverPendingSteering,
   persistFirstEpochBaselines,
+  type BoundaryDelivery,
   type DeliveredBoundary,
+  type DeliveryInput,
   type FirstEpochBaselines,
 } from './segment-delivery';
 import { machineAttemptKey } from './machine-attempt';
@@ -685,6 +687,7 @@ type FinishRunInput = {
   synthesizedTurnTelemetry?: AssistantTurnTelemetry;
   recencyDigestInitialization?: RecencyDigestInitialization;
   skillCatalogFreeze?: SkillCatalogFreeze;
+  boundaryCompaction?: NonNullable<DeliveryInput['boundaryCompaction']>;
 };
 
 type FinishRunResult =
@@ -3525,6 +3528,10 @@ export class RunExecutionService {
       // reply, from what the stopped call left in the transcript.
       // One fenced delivery of the pending items; a delivery moves the next
       // call onto the delivered message. Other outcomes go back to the caller.
+      let preparedFinalCompaction: Parameters<
+        typeof deliverPendingSteering
+      >[1]['boundaryCompaction'];
+
       const deliverAtBoundary = async (
         modelCompleted: {
           usage?: unknown;
@@ -3534,8 +3541,18 @@ export class RunExecutionService {
         extra: {
           stoppedCalls?: Array<StoppedCall>;
           baselines?: FirstEpochBaselines;
+          finalAnswer?: true;
+          prepareOnly?: true;
         },
-      ) => {
+      ): Promise<
+        | BoundaryDelivery['kind']
+        | {
+            kind: 'prepared';
+            boundaryCompaction: Parameters<
+              typeof deliverPendingSteering
+            >[1]['boundaryCompaction'];
+          }
+      > => {
         const { telemetry } = modelCompleted;
 
         const compactionSet =
@@ -3625,6 +3642,7 @@ export class RunExecutionService {
               quote: partsToText(input.userMessage.parts),
             }),
             stepBudgetUsed: stepBudgetOffset + stepBase + stepsStarted,
+            ...(extra.finalAnswer === true && { finalAnswer: true as const }),
             publishCheckpoint: (tx, reply) => {
               if (summary === null) {
                 throw new Error('Cannot publish an empty boundary summary.');
@@ -3648,6 +3666,12 @@ export class RunExecutionService {
           };
         }
 
+        if (extra.prepareOnly === true) {
+          preparedFinalCompaction = boundaryCompaction;
+
+          return 'nothing-pending';
+        }
+
         const boundary = await retryAbortedTransaction(() =>
           this.tenantDb.runAs(input.userId, (tx) =>
             deliverPendingSteering(tx, {
@@ -3669,6 +3693,16 @@ export class RunExecutionService {
             }),
           ),
         );
+
+        if (
+          boundary.kind === 'nothing-pending' &&
+          boundary.compactionFailed === true
+        ) {
+          assistantPartCollector.compactionFailed({
+            type: 'data-compaction-failed',
+            data: {},
+          });
+        }
 
         if (boundary.kind === 'delivered') {
           await this.afterAssistantTurn(
@@ -4399,10 +4433,28 @@ export class RunExecutionService {
                   ? { message: 'Run was cancelled.' }
                   : undefined;
 
+              const finalPreparation =
+                settling === 'completed'
+                  ? await deliverAtBoundary(
+                      { usage, finishReason, telemetry: assistantTelemetry },
+                      {
+                        baselines: attemptContext,
+                        finalAnswer: true,
+                        prepareOnly: true,
+                      },
+                    )
+                  : undefined;
+
+              const boundaryCompaction =
+                finalPreparation === 'nothing-pending'
+                  ? preparedFinalCompaction
+                  : undefined;
+
               const finish = await this.finishRun({
                 userId: input.userId,
                 runId: input.runId,
                 status: settling,
+                ...(boundaryCompaction !== undefined && { boundaryCompaction }),
                 attemptId,
                 modelCompleted: {
                   usage,
@@ -6077,6 +6129,92 @@ export class RunExecutionService {
     }
   }
 
+  private async finishFinalCompaction(
+    tx: Db,
+    input: FinishRunInput,
+    run: Run,
+    compaction: Extract<BoundaryDelivery, { kind: 'final-compacted' }>,
+  ): Promise<Message> {
+    await this.finalizeAssistantTurnTelemetry(tx, input, run);
+
+    const message = await finalizeRunReply(tx, {
+      run,
+      status: 'completed',
+      attemptId: input.attemptId,
+      live: input.assistantTurn,
+      telemetry: input.synthesizedTurnTelemetry,
+      models: this.instanceConfig.config.models,
+    });
+
+    if (message === undefined) {
+      throw new Error('Final compaction has no assistant reply.');
+    }
+
+    await persistFirstEpochBaselines(tx, run, input);
+    await compaction.compaction.publishCheckpoint(tx, message);
+
+    const deliveries = new ChatDeliveriesRepository(tx);
+
+    for (const item of compaction.commandItems) {
+      if (
+        !(await deliveries.markDelivered(item.id, input.userId, {
+          runId: input.runId,
+        }))
+      ) {
+        throw new Error(`Compact item ${item.id} was not pending.`);
+      }
+    }
+
+    return message;
+  }
+
+  private async deliverFinalSteering(
+    tx: Db,
+    input: FinishRunInput,
+    current: Run | undefined,
+    runsRepo: RunsRepository,
+  ): Promise<
+    | {
+        kind: 'delivered';
+        delivery: Extract<BoundaryDelivery, { kind: 'delivered' }>;
+      }
+    | {
+        kind: 'final-compacted';
+        delivery: Extract<BoundaryDelivery, { kind: 'final-compacted' }>;
+        run: Run;
+      }
+    | undefined
+  > {
+    if (input.status !== 'completed' || input.attemptId === undefined)
+      return undefined;
+
+    const run = current ?? (await runsRepo.findById(input.runId, input.userId));
+
+    if (run?.kind !== 'turn') return undefined;
+
+    const delivery = await deliverPendingSteering(tx, {
+      run: { runId: input.runId, userId: input.userId },
+      attemptId: input.attemptId,
+      modelCompleted: input.modelCompleted,
+      live: input.assistantTurn,
+      telemetry: input.synthesizedTurnTelemetry,
+      models: this.instanceConfig.config.models,
+      deadWorkerAfterSeconds: workerDeadAfterSeconds(
+        this.instanceConfig.config,
+      ),
+      baselines: input,
+      boundaryCompaction: input.boundaryCompaction,
+    });
+
+    if (delivery.kind === 'delivered') return { kind: 'delivered', delivery };
+
+    if (delivery.kind === 'final-compacted') {
+      return { kind: 'final-compacted', delivery, run };
+    }
+
+    return undefined;
+  }
+
   /** Execute terminal bookkeeping within the caller's tenant transaction. */
   private async finishRunInTransaction(
     tx: Db,
@@ -6116,36 +6254,41 @@ export class RunExecutionService {
       }
     }
 
-    // A pending steer or interrupt keeps the Run live (run-steering D5): the
-    // delivery locks the Run row, then the chat row, and so also serializes
-    // with admission. With nothing to deliver it writes nothing, and the Run
-    // completes below under the locks it already holds.
-    if (input.status === 'completed' && input.attemptId !== undefined) {
-      const completingRun =
-        current ?? (await runsRepo.findById(input.runId, input.userId));
+    const finalDelivery = await this.deliverFinalSteering(
+      tx,
+      input,
+      current,
+      runsRepo,
+    );
 
-      if (completingRun?.kind === 'turn') {
-        const delivery = await deliverPendingSteering(tx, {
-          run: { runId: input.runId, userId: input.userId },
-          attemptId: input.attemptId,
-          modelCompleted: input.modelCompleted,
-          live: input.assistantTurn,
-          telemetry: input.synthesizedTurnTelemetry,
-          models: this.instanceConfig.config.models,
-          deadWorkerAfterSeconds: workerDeadAfterSeconds(
-            this.instanceConfig.config,
-          ),
-          baselines: input,
-        });
+    if (finalDelivery?.kind === 'delivered') {
+      return {
+        outcome: 'delivered',
+        assistantMessage: finalDelivery.delivery.closedReply,
+        delivery: finalDelivery.delivery,
+      };
+    }
 
-        if (delivery.kind === 'delivered') {
-          return {
-            outcome: 'delivered',
-            assistantMessage: delivery.closedReply,
-            delivery,
-          };
-        }
+    const finalCompaction =
+      finalDelivery?.kind === 'final-compacted'
+        ? finalDelivery.delivery
+        : undefined;
+
+    const completingRun = finalDelivery?.run;
+
+    let finalAssistantMessage: Message | undefined;
+
+    if (finalCompaction !== undefined) {
+      if (completingRun === undefined) {
+        throw new Error('Final compaction has no completing Run.');
       }
+
+      finalAssistantMessage = await this.finishFinalCompaction(
+        tx,
+        input,
+        completingRun,
+        finalCompaction,
+      );
     }
 
     const finished = await runsRepo.markFinished(
@@ -6159,17 +6302,44 @@ export class RunExecutionService {
       return this.handleLostFinish(tx, input, runsRepo);
     }
 
-    // Completeness reads the reply before the finalizer settles it.
-    await this.finalizeAssistantTurnTelemetry(tx, input, finished);
-
-    const assistantMessage = await finalizeRunReply(tx, {
-      run: finished,
-      status: input.status,
-      attemptId: input.attemptId,
-      live: input.assistantTurn,
-      telemetry: input.synthesizedTurnTelemetry,
-      models: this.instanceConfig.config.models,
+    return this.finishRunAfterDelivery({
+      tx,
+      input,
+      runsRepo,
+      finished,
+      finalCompaction,
+      finalAssistantMessage,
     });
+  }
+
+  private async finishRunAfterDelivery(context: {
+    tx: Db;
+    input: FinishRunInput;
+    runsRepo: RunsRepository;
+    finished: Run;
+    finalCompaction:
+      | Extract<BoundaryDelivery, { kind: 'final-compacted' }>
+      | undefined;
+    finalAssistantMessage: Message | undefined;
+  }): Promise<FinishRunResult> {
+    const { tx, input, finished, finalCompaction, finalAssistantMessage } =
+      context;
+
+    if (finalCompaction === undefined) {
+      // Completeness reads the reply before the finalizer settles it.
+      await this.finalizeAssistantTurnTelemetry(tx, input, finished);
+    }
+
+    const assistantMessage =
+      finalAssistantMessage ??
+      (await finalizeRunReply(tx, {
+        run: finished,
+        status: input.status,
+        attemptId: input.attemptId,
+        live: input.assistantTurn,
+        telemetry: input.synthesizedTurnTelemetry,
+        models: this.instanceConfig.config.models,
+      }));
 
     const events = new RunEventsRepository(tx);
 
@@ -6180,7 +6350,7 @@ export class RunExecutionService {
     // The baselines only the winning turn establishes live in the system
     // prompt, so they ride this attempt-fenced transaction; a losing attempt
     // can never freeze a prompt the winner never rendered.
-    if (input.status === 'completed') {
+    if (input.status === 'completed' && finalCompaction === undefined) {
       await persistFirstEpochBaselines(tx, finished, input);
     }
 
