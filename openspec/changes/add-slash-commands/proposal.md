@@ -144,7 +144,7 @@ Assumptions that follow from those decisions:
   item starts a Run", "The queue pauses after a Run that does not complete", "The web shows pending
   items above the composer", "A segment attempt prepares its own accepted turn", "A pending item at
   the final answer continues the Run", "The items delivered at one boundary form one user message",
-  "Each segment has its own step budget and retry scope", "A delivered message is a Run event", and
+  "Each segment has its own step budget and retry scope" (renamed "A segment keeps its retry scope and a compaction keeps the step budget"), "A delivered message is a Run event", and
   "Stop interrupts when steers are pending". ADDED: a command item compacts the Run once at its
   boundary; a compaction boundary stores a continue message; owner items during a compaction Run
   are queue items; a compact steer wakes a Run that waits.

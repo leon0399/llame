@@ -1,3 +1,8 @@
+## RENAMED Requirements
+
+- FROM: `### Requirement: Each segment has its own step budget and retry scope`
+- TO: `### Requirement: A segment keeps its retry scope and a compaction keeps the step budget`
+
 ## MODIFIED Requirements
 
 ### Requirement: A send with a delivery mode becomes a pending item during a live Run
@@ -178,7 +183,7 @@ follows `model-system-prompts`.
 
 #### Scenario: A segment start does not compact
 
-- **WHEN** a steer starts a second segment, and the measured request at that boundary is below the compaction threshold
+- **WHEN** the model gives a final answer whose measured request is above the compaction threshold, and a steer then starts a second segment
 - **THEN** no compaction runs before the first model request of the second segment
 
 ### Requirement: A pending item at the final answer continues the Run
@@ -231,7 +236,7 @@ message, in their order. With no message item, its `notice` items MUST go into o
 - **THEN** the next boundary stores one host message with one `job` context item
 - **AND** the next segment of the Run answers that message
 
-### Requirement: Each segment has its own step budget and retry scope
+### Requirement: A segment keeps its retry scope and a compaction keeps the step budget
 
 The configured step cap MUST count the steps of one segment. A delivery with the cause
 `compaction` MUST NOT start a new budget: the next segment gets only the steps that the budget has
@@ -263,7 +268,8 @@ segments.
 ### Requirement: A delivered message is a Run event
 
 Each delivery MUST append one `run.delivered` event. The event MUST name the delivered message, its
-items, and a `cause`. The cause is `interrupt` when an interrupt stopped the step or an interrupt
+items, and a `cause`. A compaction at the final answer with only command items stores no message and
+is not a delivery: it appends no `run.delivered` event, and the Run completes. The cause is `interrupt` when an interrupt stopped the step or an interrupt
 item is delivered. Otherwise it is `steer` when a message item is delivered, `notice` when a
 `notice` item is delivered, and `compaction` in the last case. A boundary that compacted MUST also name its
 checkpoint. The Run stream MUST end
@@ -316,7 +322,9 @@ A command item is a pending `owner` item whose text is a `/compact` command. Oth
 message items. A boundary with command items MUST compact the Run once, before it stores a delivered
 message, with the focus of the first command item. It MUST mark each command item that the
 compaction read delivered with no message. A command item that arrives during a compaction MUST
-wait for the next boundary. At the final answer, the compaction MUST take it too.
+wait for the next boundary. At the final answer, the delivery transaction MUST also mark delivered
+every command item pending when it locks the items, including one that arrived after the
+compaction read them. A command item admitted after the Run completes finds no live Run.
 
 #### Scenario: Two compact items at one boundary
 

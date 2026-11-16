@@ -3,10 +3,10 @@
 ### Requirement: A held notice goes with the next Run
 
 A notice MUST stay pending when it starts no Run and no Run is live. A Run can then start from a
-chat send, a promoted queue item, or a mode change of a pending item. A turn Run MUST take all
-pending notices of the Chat into its user message. A compaction Run MUST take no notice. When a follow-up Run of `turn-actions`
-starts, the notices MUST be delivered at its
-first step boundary.
+chat send, a promoted queue item, or a mode change of a pending item. A turn Run that adds a user
+message MUST take all pending notices of the Chat into that message. A compaction Run MUST take no
+notice. A follow-up Run of `turn-actions` adds no user message: when it starts, the notices MUST be
+delivered at its first step boundary.
 
 #### Scenario: A result after a Stop waits for the owner
 

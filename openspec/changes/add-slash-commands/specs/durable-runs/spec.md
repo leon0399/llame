@@ -18,7 +18,7 @@ is terminal. It MUST publish at most one checkpoint and MUST NOT write a user or
 
 #### Scenario: A compaction Run writes no reply
 
-- **WHEN** a compaction Run completes
+- **WHEN** a compaction Run with rows to absorb completes
 - **THEN** the Chat has one new checkpoint and no new user or assistant message
 
 ### Requirement: A compaction Run with nothing left to absorb completes

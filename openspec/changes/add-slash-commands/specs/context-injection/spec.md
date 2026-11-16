@@ -28,7 +28,9 @@ call. Thus the result is the same whether or not the model client keeps the mess
 earlier step. The item MUST use the same envelope, frame, and vocabulary as an attached item. The
 system MUST persist an in-Run item on that assistant message in the dispatch transaction of the
 first model request that carries it. This applies whatever the outcome of the Run. Each terminal outcome
-MUST keep it after the last tool part of its triggering step.
+MUST keep it after the last tool part of its triggering step. When a step-boundary compaction
+absorbs the triggering step, the item reaches later requests only through the checkpoint summary,
+and the system MUST NOT place it again.
 
 Each item MUST have its **own text content block** in that message. It MUST NOT join another item
 or the user's text in one block. Thus the separation between server-authored content and

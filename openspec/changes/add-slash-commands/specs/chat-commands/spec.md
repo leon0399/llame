@@ -7,10 +7,11 @@ result, and the `/rename` and `/compact` commands.
 
 ### Requirement: The API parses a command before it admits a send
 
-A command is a send to `POST /api/v1/chats/:id/messages` for a Chat of the owner. It has exactly
-one part, a text part that starts with `/` and a command name. The name ends at whitespace or at
-the end of the text. The API MUST parse the send before it validates the model or admits a pending
-item.
+A command is a send to `POST /api/v1/chats/:id/messages` for a Chat of the owner whose text part
+starts with `/` and a command name. The name ends at whitespace or at the end of the text. A send
+that also carries a file part is refused when its text part names a recognized command, as the
+attachment requirement below states. The API MUST parse the send before it validates the model or
+admits a pending item.
 
 #### Scenario: A command on the message endpoint
 
