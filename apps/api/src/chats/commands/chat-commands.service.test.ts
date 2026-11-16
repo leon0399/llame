@@ -1,9 +1,16 @@
 import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { asDouble } from '../../testing/support';
-import type { Chat, Message, Run, RunEvent } from '../../db/schema';
+import type {
+  Chat,
+  ChatDelivery,
+  Message,
+  Run,
+  RunEvent,
+} from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
+import { ChatDeliveriesRepository } from '../chat-deliveries.repository';
 import { TitleService } from '../../titles/title.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { ModelsService } from '../../models/models.service';
@@ -33,6 +40,10 @@ function makeService() {
     );
 
   const chat = asDouble<Chat>({ id: 'chat-1', archivedAt: null });
+
+  vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
+    undefined,
+  );
 
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
@@ -130,7 +141,9 @@ const request = {
   chatId: 'chat-1',
   userId: 'user-1',
   command: { name: 'rename' as const, argument: 'New name' },
-  parts: [{ type: 'text' as const }],
+  parts: [{ type: 'text' as const, text: '/rename New name' }],
+  messageId: 'message-1',
+  rawText: '/rename New name',
   modelId: 'model-1',
 };
 
@@ -381,5 +394,24 @@ describe('ChatCommandsService', () => {
       }),
     ).rejects.toThrow('Selected model is unavailable.');
     expect(createRun).not.toHaveBeenCalled();
+  });
+  it('rejects a compact retry when the stored pending item is not a compact', async () => {
+    const { service } = makeService();
+    vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
+      asDouble<ChatDelivery>({
+        id: request.messageId,
+        chatId: request.chatId,
+        producer: 'owner',
+        state: 'pending',
+        parts: [{ type: 'text', text: 'ordinary queued message' }],
+      }),
+    );
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });

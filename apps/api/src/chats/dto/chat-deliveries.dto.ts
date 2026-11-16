@@ -117,10 +117,7 @@ export function toChatDeliveryResponse({
     mode: item.mode,
     state: item.state,
     command:
-      item.producer === 'owner' &&
-      parseChatCommand(item.parts)?.name === 'compact'
-        ? 'compact'
-        : null,
+      parseChatCommand(item.parts)?.name === 'compact' ? 'compact' : null,
     // The same egress as the history response: retained bytes and provider
     // metadata stay on the server.
     parts: withoutProviderMetadata(withoutRetainedMedia(item.parts)),

@@ -18,6 +18,7 @@ import {
   seedRun,
   type WorkerHarness,
 } from './worker-harness';
+import { startItemRun } from './queue-promotion';
 
 async function completeSourceTurn(
   harness: WorkerHarness,
@@ -581,6 +582,92 @@ describe('Compaction Run execution', () => {
 
     expect(
       messages.filter((message) => message.role === 'checkpoint'),
+    ).toHaveLength(1);
+  });
+
+  it('two queued compacts run in a row; the second creates no checkpoint', async () => {
+    const turnModel = `compact-empty-turn-${randomUUID()}`;
+    const compactionModel = `compact-empty-${randomUUID()}`;
+    harness.models.register(turnModel, {
+      kind: 'complete',
+      text: 'source answer',
+    });
+    harness.models.register(compactionModel, {
+      kind: 'complete',
+      text: 'first summary',
+    });
+
+    const source = await seedRun({
+      tenantDb: harness.tenantDb,
+      userId,
+      modelId: turnModel,
+      text: 'source history',
+    });
+
+    await harness.dispatch.dispatch({
+      runId: source.runId,
+      chatId: source.chatId,
+      userId,
+      modelId: turnModel,
+      userMessage: source.userMessage,
+    });
+    await waitForRun(harness, userId, source.runId, 'completed');
+
+    const queued = await harness.tenantDb.runAs(userId, async (tx) => {
+      const deliveries = new ChatDeliveriesRepository(tx);
+
+      return Promise.all(
+        [1, 2].map((index) =>
+          deliveries.insertPending({
+            id: randomUUID(),
+            chatId: source.chatId,
+            ownerUserId: userId,
+            mode: 'queue',
+            parts: [{ type: 'text', text: `/compact queued ${index}` }],
+            settings: { modelId: compactionModel, permissionMode: 'default' },
+          }),
+        ),
+      );
+    });
+
+    const [firstItem, secondItem] = queued;
+
+    if (!firstItem || !secondItem) throw new Error('Expected queued compacts.');
+
+    const first = await harness.tenantDb.runAs(userId, (tx) =>
+      startItemRun(tx, firstItem),
+    );
+
+    if (!first) throw new Error('The first queued compact did not start.');
+
+    await harness.dispatch.dispatch(first.job);
+    await waitForRun(harness, userId, first.job.runId, 'completed');
+
+    const secondDelivery = await harness.tenantDb.runAs(userId, (tx) =>
+      new ChatDeliveriesRepository(tx).findById(secondItem.id, userId),
+    );
+
+    const secondRunId = secondDelivery?.runId;
+
+    if (!secondRunId)
+      throw new Error('The second queued compact did not start.');
+
+    await waitForRun(harness, userId, secondRunId, 'completed');
+
+    const state = await harness.tenantDb.runAs(userId, async (tx) => ({
+      second: await new RunsRepository(tx).findById(secondRunId, userId),
+      messages: await new MessagesRepository(tx).findByChatId(
+        source.chatId,
+        userId,
+      ),
+    }));
+
+    expect(state.second).toMatchObject({
+      kind: 'compaction',
+      status: 'completed',
+    });
+    expect(
+      state.messages.filter((message) => message.role === 'checkpoint'),
     ).toHaveLength(1);
   });
 });

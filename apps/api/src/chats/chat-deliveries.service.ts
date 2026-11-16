@@ -149,6 +149,7 @@ export class ChatDeliveriesService {
         );
         // The slot comes before the change: expiring a stuck Run pauses the
         // queue behind it, which would move the item changed here back to
+        // `queue`.
 
         const slot = await this.claimSlot(tx, chatId, userId);
 

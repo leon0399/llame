@@ -17,6 +17,7 @@ import {
   ModelsService,
   resolveSendSettings,
 } from '../../models/models.service';
+import { type SendableDeliveryMode } from '../dto/chat-deliveries.dto';
 import { planOwnerCompaction } from '../../compaction/owner-compaction-plan';
 import { RunDispatchService } from '../../runs/run-dispatch.service';
 import { claimActiveRunSlot } from '../chat-admission';
@@ -26,7 +27,11 @@ import { retryRunTransaction } from '../../runs/run-transaction';
 import { TitleService } from '../../titles/title.service';
 import type { PermissionMode } from '../../tools/permissions/permission-mode';
 import type { ChatCommandResultResponse } from './chat-command-result.dto';
-import type { ChatCommand } from './parse-chat-command';
+import {
+  type ChatCommand,
+  parseChatCommand,
+  validateCompactCommand,
+} from './parse-chat-command';
 
 import {
   ChatDeliveriesRepository,
@@ -34,6 +39,8 @@ import {
 } from '../chat-deliveries.repository';
 
 type QueuedCompactResult = { type: 'delivery'; delivery: ChatDeliveryView };
+
+type CompactSendSettings = ReturnType<typeof resolveSendSettings>;
 
 export type ChatCommandExecutionResult =
   | ChatCommandResultResponse
@@ -43,53 +50,29 @@ type CompactCommandInput = {
   chatId: string;
   userId: string;
   command: Extract<ChatCommand, { name: 'compact' }>;
-  parts: ReadonlyArray<{ type: 'text' | 'file' }>;
-  messageId?: string;
-  rawText?: string;
-  delivery?: 'queue' | 'steer' | 'interrupt';
+  parts: ReadonlyArray<unknown>;
+  messageId: string;
+  rawText: string;
+  delivery?: SendableDeliveryMode;
   modelId: string;
   effort?: string;
   permissionMode?: PermissionMode;
-};
-
-function parseCompactFocus(argument: string): string | null {
-  if (Array.from(argument).length > 1000) {
-    throw new BadRequestException(
-      'Compact focus must be 1,000 characters or fewer.',
-    );
-  }
-
-  return argument.length === 0 ? null : argument;
-}
-
-function validateCompactCommand(input: CompactCommandInput): string | null {
-  if (input.parts.some((part) => part.type === 'file')) {
-    throw new BadRequestException('A command cannot include an attachment.');
-  }
-
-  return parseCompactFocus(input.command.argument);
-}
-
-type CompactSendSettings = {
-  effort: string | undefined;
-  permissionMode: PermissionMode;
 };
 
 async function pendingCompactRetry(
   items: ChatDeliveriesRepository,
   input: CompactCommandInput,
 ): Promise<QueuedCompactResult | undefined> {
-  if (!input.messageId) return undefined;
-
   const existing = await items.findById(input.messageId, input.userId);
 
   if (!existing) return undefined;
 
-  if (existing.chatId !== input.chatId || existing.producer !== 'owner') {
-    throw new ConflictException('Message id already exists');
-  }
-
-  if (existing.state !== 'pending') {
+  if (
+    existing.chatId !== input.chatId ||
+    existing.producer !== 'owner' ||
+    existing.state !== 'pending' ||
+    parseChatCommand(existing.parts)?.name !== 'compact'
+  ) {
     throw new ConflictException('Message id already exists');
   }
 
@@ -103,10 +86,6 @@ async function queueCompactItem(
 ): Promise<QueuedCompactResult> {
   if (input.delivery === undefined) {
     throw new ConflictException('Wait for the current Run to finish.');
-  }
-
-  if (!input.messageId || input.rawText === undefined) {
-    throw new BadRequestException('A command requires a message id and text.');
   }
 
   const item = await items.insertPending({
@@ -175,13 +154,13 @@ export class ChatCommandsService {
     userId: string;
     command: ChatCommand;
     parts: ReadonlyArray<{ type: 'text' | 'file' }>;
-    messageId?: string;
-    rawText?: string;
-    delivery?: 'queue' | 'steer' | 'interrupt';
+    messageId: string;
+    rawText: string;
+    delivery?: SendableDeliveryMode;
     modelId: string;
     effort?: string;
     permissionMode?: PermissionMode;
-  }): Promise<ChatCommandResultResponse | QueuedCompactResult | undefined> {
+  }): Promise<ChatCommandExecutionResult | undefined> {
     const { command } = input;
 
     if (command.name === 'compact') {
@@ -205,7 +184,7 @@ export class ChatCommandsService {
 
   private async compact(
     input: CompactCommandInput,
-  ): Promise<ChatCommandResultResponse | QueuedCompactResult | undefined> {
+  ): Promise<ChatCommandExecutionResult | undefined> {
     const result = await retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, (tx) =>
         this.admitCompactRun(tx, input),
@@ -234,12 +213,11 @@ export class ChatCommandsService {
 
     assertNotArchived(chat);
 
+    const focus = validateCompactCommand(input.parts, input.command.argument);
     const items = new ChatDeliveriesRepository(tx);
     const retry = await pendingCompactRetry(items, input);
 
     if (retry) return retry;
-
-    const focus = validateCompactCommand(input);
 
     const settings = resolveSendSettings(
       this.models,

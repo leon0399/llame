@@ -7,12 +7,13 @@
  */
 
 import { BadRequestException } from '@nestjs/common';
-import { isRecord } from '@workspace/runtime-safety';
 import { randomUUID } from 'node:crypto';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { parseChatCommand } from '../chats/commands/parse-chat-command';
-import { planOwnerCompaction } from '../compaction/owner-compaction-plan';
+import {
+  parseChatCommand,
+  validateCompactCommand,
+} from '../chats/commands/parse-chat-command';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import {
   createCompactionRun,
@@ -124,32 +125,12 @@ export async function startItemRun(
   return startMessageItemRun(tx, item);
 }
 
-function compactFocus(argument: string): string | null {
-  if (Array.from(argument).length > 1000) {
-    throw new BadRequestException(
-      'Compact focus must be 1,000 characters or fewer.',
-    );
-  }
-
-  return argument.length === 0 ? null : argument;
-}
-
 async function startCompactItemRun(
   tx: Db,
   item: ChatDelivery,
   argument: string,
 ): Promise<{ job: RunJob; delivered: ChatDelivery }> {
-  if (item.parts.some((part) => isRecord(part) && part['type'] === 'file')) {
-    throw new BadRequestException('A command cannot include an attachment.');
-  }
-
-  const focus = compactFocus(argument);
-
-  await planOwnerCompaction(
-    new MessagesRepository(tx),
-    item.chatId,
-    item.ownerUserId,
-  );
+  const focus = validateCompactCommand(item.parts, argument);
 
   const run = await createCompactionRun(tx, {
     id: randomUUID(),
@@ -200,6 +181,8 @@ async function startMessageItemRun(
     message,
   );
 
+  await deliverPendingJobNotices(tx, item, message.id, run.id);
+
   const delivered = await deliverPromotedItem(tx, item, {
     messageId: message.id,
     runId: run.id,
@@ -217,6 +200,19 @@ async function startMessageItemRun(
   };
 }
 
+async function deliverPendingJobNotices(
+  tx: Db,
+  item: ChatDelivery,
+  messageId: string,
+  runId: string,
+): Promise<void> {
+  await new ChatDeliveriesRepository(tx).deliverPendingJobNotices(
+    item.chatId,
+    item.ownerUserId,
+    { messageId, runId },
+  );
+}
+
 /** Commit the promoted owner item and its held results to the same trigger. */
 async function deliverPromotedItem(
   tx: Db,
@@ -224,13 +220,6 @@ async function deliverPromotedItem(
   target: { messageId?: string; runId: string },
 ): Promise<ChatDelivery> {
   const deliveries = new ChatDeliveriesRepository(tx);
-
-  if (target.messageId !== undefined) {
-    await deliveries.deliverPendingJobNotices(item.chatId, item.ownerUserId, {
-      messageId: target.messageId,
-      runId: target.runId,
-    });
-  }
 
   const delivered = await deliveries.markDelivered(
     item.id,

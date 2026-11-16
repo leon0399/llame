@@ -5,8 +5,7 @@ import type {
   ChatCommandExecutionResult,
   ChatCommandsService,
 } from './chat-commands.service';
-import type { ChatCommand } from './parse-chat-command';
-import { parseChatCommand } from './parse-chat-command';
+import { type ChatCommand, parseChatCommand } from './parse-chat-command';
 import { throwModelDomainError } from '../model-domain-error';
 
 export async function respondToChatCommand(
@@ -33,11 +32,14 @@ export async function respondToChatCommand(
 
   if (!result) return false;
 
-  if (result.type === 'delivery') {
-    response.status(202).json(toChatDeliveryResponse(result.delivery));
-  } else {
-    response.status(200).json(result);
-  }
+  const status = result.type === 'delivery' ? 202 : 200;
+
+  const body =
+    result.type === 'delivery'
+      ? toChatDeliveryResponse(result.delivery)
+      : result;
+
+  response.status(status).json(body);
 
   return true;
 }
@@ -59,11 +61,10 @@ async function executeCommand(
     command,
     parts: request.message.parts,
     messageId: request.message.id,
+    rawText:
+      request.message.parts.find((part) => part.type === 'text')?.text ?? '',
     ...(command.name === 'compact' &&
       request.delivery !== undefined && { delivery: request.delivery }),
-    ...(command.name === 'compact' && {
-      rawText: request.message.parts.find((part) => part.type === 'text')?.text,
-    }),
     modelId: request.modelId,
     ...(request.effort !== undefined && { effort: request.effort }),
     ...(request.permissionMode !== undefined && {

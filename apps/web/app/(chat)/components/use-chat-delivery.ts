@@ -78,6 +78,21 @@ function dropItem(ctx: DeliveryContext, deliveryId: string) {
   );
 }
 
+/** The delivered `item` started a Run: wait for its message's stream. A
+ *  `/compact` item starts a compaction Run, which has no message and no
+ *  stream, so history is read again to show its row instead. */
+function handOffDelivered(ctx: DeliveryContext, item: ChatDeliveryResponse) {
+  if (item.command === "compact") {
+    void ctx.queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.messages(ctx.chatId),
+    });
+
+    return;
+  }
+
+  ctx.begin(item.id);
+}
+
 /** The outcome of a failed action on `item`: 409 means it was delivered, and
  *  404 that it is gone. Any other failure leaves the item pending on the
  *  server, so it stays and the list is read again. */
@@ -88,7 +103,7 @@ function settleFailure(
 ) {
   if (isAlreadyDelivered(error)) {
     dropItem(ctx, item.id);
-    ctx.begin(item.id);
+    handOffDelivered(ctx, item);
   } else if (getApiErrorStatus(error) === 404) {
     dropItem(ctx, item.id);
   } else {
@@ -118,7 +133,7 @@ async function changeItem(
     // The Chat had no live Run: the change stored the message and started
     // one for it.
     dropItem(ctx, next.id);
-    ctx.begin(next.id);
+    handOffDelivered(ctx, next);
   } catch (error) {
     settleFailure(ctx, item, error);
   }
