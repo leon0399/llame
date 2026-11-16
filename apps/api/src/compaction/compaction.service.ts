@@ -26,7 +26,7 @@ import {
   type StoredMessage,
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
-import type { Message, ModelToolDeclaration } from '../db/schema';
+import type { Message, ModelToolDeclaration, Run } from '../db/schema';
 import { toContextCheckpoint } from '../chats/context-item-producers';
 import { isRecord } from '@workspace/runtime-safety';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
@@ -99,6 +99,11 @@ export type CompactionSummary = {
   readonly usage: unknown;
 };
 
+type SourceRun = {
+  readonly run: Run;
+  readonly receipt: { readonly systemPrompt: string };
+};
+
 /**
  * What the one summarization path is asked to summarize, as data (design D4).
  *
@@ -152,7 +157,6 @@ export type CompactionSummaryRequest =
       readonly triggeringUserSeq: number;
       readonly plan: CompactionPlan;
       readonly client: ModelClient;
-      readonly system?: string;
       readonly instruction?: string;
       readonly effort?: string;
       readonly reservedOutputTokens: number | null;
@@ -219,8 +223,11 @@ export class CompactionService {
     input: Extract<CompactionSummaryRequest, { variant: 'owner' }>,
     previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary> {
+    const source = await this.loadSourceRun(input);
+    const system = source?.receipt.systemPrompt;
+
     const request = buildCompactionRequest({
-      ...(input.system !== undefined && { system: input.system }),
+      ...(system !== undefined && { system }),
       modelId: input.client.model,
       previous,
       absorb: input.plan.absorb,
@@ -231,10 +238,35 @@ export class CompactionService {
       mergeRetainedMedia(input.media.retainedMedia, request.retainedMedia);
     }
 
+    const media = input.media
+      ? await loadMediaSizing(request.messages, input.media, {
+          input: input.client.input ?? ['text'],
+          contextWindowTokens: input.client.contextWindowTokens,
+          reservedOutputTokens: input.reservedOutputTokens,
+        })
+      : undefined;
+
+    const fits = requestFitsContextWindow({
+      system: request.system,
+      messages: request.messages,
+      toolDeclarations: [],
+      contextWindowTokens: input.client.contextWindowTokens,
+      reservedOutputTokens: input.reservedOutputTokens,
+      media,
+    });
+
+    if (!fits) {
+      return this.summarizeWithSourceModel(
+        { ...input, variant: 'window' },
+        previous,
+        source ?? null,
+      );
+    }
+
     const inference = await this.summarize({
       client: input.client,
       chatId: input.chatId,
-      system: input.system,
+      system: request.system,
       messages: request.messages,
       toolDeclarations: [],
       ...(input.effort !== undefined && { effort: input.effort }),
@@ -329,14 +361,13 @@ export class CompactionService {
    * cannot fit the prefix either, or a summary that comes back unusable all fail
    * the attempt as `context_incompatible`.
    */
-  private async summarizeWithSourceModel(
-    input: Extract<CompactionSummaryRequest, { variant: 'window' }>,
-    previous: ContextCheckpoint | undefined,
-  ): Promise<CompactionSummary> {
-    const source = await this.tenantDb.runAs(input.userId, async (tx) => {
-      // The Run the previous reply's usage names, so a reply a later Run
-      // replaced is summarized by the model that produced the answer the model
-      // read, not by the Run that replaced it (model-system-prompts).
+  private async loadSourceRun(
+    input: Pick<
+      CompactionSummaryRequest,
+      'chatId' | 'userId' | 'triggeringUserSeq'
+    >,
+  ): Promise<SourceRun | undefined> {
+    return this.tenantDb.runAs(input.userId, async (tx) => {
       const found = await new RunsRepository(tx).findCompletedReplyRunBefore(
         input.chatId,
         input.userId,
@@ -345,19 +376,25 @@ export class CompactionService {
 
       const run = found?.run;
 
-      return run === undefined || run.completedAttemptId == null
-        ? undefined
-        : {
-            run,
-            receipt: await new SystemPromptReceiptsRepository(tx).findByAttempt(
-              run.id,
-              run.completedAttemptId,
-              input.userId,
-            ),
-          };
-    });
+      if (run?.completedAttemptId == null) return undefined;
 
-    if (source?.receipt === undefined) {
+      const receipt = await new SystemPromptReceiptsRepository(
+        tx,
+      ).findByAttempt(run.id, run.completedAttemptId, input.userId);
+
+      return receipt === undefined ? undefined : { run, receipt };
+    });
+  }
+
+  private async summarizeWithSourceModel(
+    input: Extract<CompactionSummaryRequest, { variant: 'window' | 'owner' }>,
+    previous: ContextCheckpoint | undefined,
+    source?: SourceRun | null,
+  ): Promise<CompactionSummary> {
+    const selected =
+      source === undefined ? await this.loadSourceRun(input) : source;
+
+    if (selected === null || selected === undefined) {
       throw new ContextIncompatibleError(
         'The complete request exceeds the target model context window and no previous completed run can summarize its history.',
       );
@@ -366,22 +403,22 @@ export class CompactionService {
     // Read off the source run this method loaded, so passing the incoming
     // turn's effort by mistake is not expressible: it was validated against a
     // different model's declared levels.
-    const effort = source.run.effort ?? undefined;
+    const effort = selected.run.effort ?? undefined;
 
     let client: ModelClient;
 
     try {
-      client = this.models.createClient(source.run.modelId);
+      client = this.models.createClient(selected.run.modelId);
     } catch (error) {
       throw new ContextIncompatibleError(
-        `Source model '${source.run.modelId}' is unavailable to summarize the history this request carries.`,
+        `Source model '${selected.run.modelId}' is unavailable to summarize the history this request carries.`,
         { cause: error },
       );
     }
 
     const request = buildCompactionRequest({
-      system: source.receipt.systemPrompt,
-      modelId: source.run.modelId,
+      system: selected.receipt.systemPrompt,
+      modelId: selected.run.modelId,
       previous,
       absorb: input.plan.absorb,
       ...(input.instruction !== undefined && {

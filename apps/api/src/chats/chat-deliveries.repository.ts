@@ -617,7 +617,13 @@ export class ChatDeliveriesRepository {
               then ${chatDeliveries.senderRef}::uuid end`,
             eq(chatJobs.chatId, chatId),
             eq(chatJobs.ownerUserId, ownerUserId),
-            inArray(chatJobs.state, ['succeeded', 'failed', 'timed_out']),
+            inArray(chatJobs.state, [
+              'succeeded',
+              'failed',
+              'cancelled',
+              'timed_out',
+              'lost',
+            ]),
           ),
         ),
     );

@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import type { Message, Run } from '../db/schema';
+import type { Message } from '../db/schema';
 import { MessagesRepository } from '../chats/messages-repository';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -10,8 +10,6 @@ import { createFakeModelClient } from '../models/fake-model-client';
 import { asDouble } from '../testing/support';
 import { CompactionRunService } from './compaction-run.service';
 import { RunExecutionService } from './run-execution.service';
-import { RunsRepository } from './runs-repository';
-import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 const job = {
   runId: 'run-compact',
@@ -36,8 +34,6 @@ function makeMessage(seq: number, role: Message['role']): Message {
 }
 
 function makeService(options?: {
-  contextWindowTokens?: number;
-  hasSource?: boolean;
   summarize?: CompactionCapability['summarizeCheckpoint'];
 }) {
   const db: Db = drizzle.mock();
@@ -60,31 +56,6 @@ function makeService(options?: {
     MessagesRepository.prototype,
     'findActiveCheckpoint',
   ).mockResolvedValue(undefined);
-
-  const source: Run | undefined =
-    options?.hasSource === false
-      ? undefined
-      : asDouble<Run>({
-          id: 'source-run',
-          completedAttemptId: 'source-attempt',
-          kind: 'turn',
-        });
-
-  vi.spyOn(
-    RunsRepository.prototype,
-    'findCompletedReplyRunBefore',
-  ).mockResolvedValue(
-    source === undefined ? undefined : { run: source, triggeringUserSeq: 2 },
-  );
-
-  vi.spyOn(
-    SystemPromptReceiptsRepository.prototype,
-    'findByAttempt',
-  ).mockResolvedValue(
-    source === undefined
-      ? undefined
-      : asDouble({ systemPrompt: 'stored source system prompt' }),
-  );
 
   const summarizeCheckpoint = vi.fn(
     options?.summarize ?? (() => Promise.resolve(undefined)),
@@ -114,7 +85,6 @@ function makeService(options?: {
 
   Object.assign(client, {
     model: job.modelId,
-    contextWindowTokens: options?.contextWindowTokens ?? 128_000,
   });
 
   const instanceConfig = asDouble<InstanceConfigReader>({
@@ -156,54 +126,13 @@ describe('CompactionRunService', () => {
       expect.objectContaining({
         variant: 'owner',
         client: setup.client,
-        system: 'stored source system prompt',
         effort: 'low',
       }),
     );
   });
 
-  it('A history that does not fit the composer model', async () => {
-    const setup = makeService({ contextWindowTokens: 1 });
-
-    await setup.service.execute(
-      job,
-      setup.client,
-      new AbortController().signal,
-    );
-
-    const summaryRequest = setup.summarizeCheckpoint.mock.calls[0]?.[0];
-
-    const instruction =
-      summaryRequest?.variant === 'window'
-        ? summaryRequest.instruction
-        : undefined;
-
-    expect(summaryRequest?.variant).toBe('window');
-    expect(instruction).toBeDefined();
-    expect(instruction).not.toContain(
-      'The newer triggering user message follows that prefix',
-    );
-    expect(setup.settleTerminalRun).not.toHaveBeenCalled();
-  });
-
-  it('No source Run for a history that does not fit', async () => {
-    const setup = makeService({ contextWindowTokens: 1, hasSource: false });
-
-    await setup.service.execute(
-      job,
-      setup.client,
-      new AbortController().signal,
-    );
-
-    expect(setup.summarizeCheckpoint).not.toHaveBeenCalled();
-    expect(setup.settleTerminalRun).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'failed' }),
-    );
-    expect(setup.completeCompactionRun).not.toHaveBeenCalled();
-  });
-
-  it('A compaction Run with no source Run', async () => {
-    const setup = makeService({ hasSource: false });
+  it('Delegates fit selection to CompactionService', async () => {
+    const setup = makeService();
 
     await setup.service.execute(
       job,
@@ -212,7 +141,10 @@ describe('CompactionRunService', () => {
     );
 
     expect(setup.summarizeCheckpoint).toHaveBeenCalledWith(
-      expect.objectContaining({ variant: 'owner', system: undefined }),
+      expect.objectContaining({
+        variant: 'owner',
+        client: setup.client,
+      }),
     );
   });
 

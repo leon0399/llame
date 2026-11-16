@@ -17,6 +17,10 @@ import { ChatCommandsService } from './chat-commands.service';
 function makeService() {
   const db: Db = drizzle.mock();
 
+  vi.spyOn(db, 'transaction').mockImplementation(async (callback) =>
+    callback(asDouble<Parameters<typeof callback>[0]>(db)),
+  );
+
   const tenantDb = new TenantDbService({
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });

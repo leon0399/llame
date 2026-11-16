@@ -53,15 +53,24 @@ export class JobNoticeRunService {
     if (chat === undefined || chat.archivedAt !== null) return;
 
     const deliveries = new ChatDeliveriesRepository(tx);
-    const runs = new RunsRepository(tx);
 
-    const active = await runs.findActiveByChatId(
+    // Only a notice that could start a Run on settlement starts one here; a
+    // cancelled or lost job's notice waits for the owner's next turn.
+    const pending = await deliveries.listPendingViews(
       owner.chatId,
       owner.ownerUserId,
     );
 
-    if (active !== undefined) return;
-    await this.startNoticeRunForIdleChat(tx, owner, deliveries, runs);
+    if (!pending.some(({ job }) => job !== null && startsNoticeRun(job))) {
+      return;
+    }
+
+    await this.startNoticeRunForIdleChat(
+      tx,
+      owner,
+      deliveries,
+      new RunsRepository(tx),
+    );
   }
 
   async startOnSettlement(tx: Db, job: ChatJob): Promise<void> {
@@ -183,14 +192,8 @@ export class JobNoticeRunService {
       permissionMode: resolved.permissionMode,
     });
 
-    const userMessage = runJob.userMessage;
-
-    if (userMessage === undefined) {
-      throw new Error('Host Run has no user message');
-    }
-
     await deliveries.deliverPendingJobNotices(owner.chatId, owner.ownerUserId, {
-      messageId: userMessage.id,
+      messageId: runJob.userMessage.id,
       runId: runJob.runId,
     });
 
@@ -233,12 +236,16 @@ export class JobNoticeRunService {
   }
 }
 
-function startsNoticeRun(job: ChatJob): boolean {
-  return (
-    job.state === 'succeeded' ||
-    job.state === 'failed' ||
-    job.state === 'timed_out'
-  );
+/** A settled job whose notice may start a host Run on an idle Chat
+ *  (background-jobs: a cancelled or lost job starts no Run). */
+const RUN_STARTING_JOB_STATES: ReadonlyArray<ChatJob['state']> = [
+  'succeeded',
+  'failed',
+  'timed_out',
+];
+
+function startsNoticeRun(job: Pick<ChatJob, 'state'>): boolean {
+  return RUN_STARTING_JOB_STATES.includes(job.state);
 }
 
 function validateNoticeSettings(

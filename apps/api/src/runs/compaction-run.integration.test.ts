@@ -1,8 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import {
-  completeSourceTurn,
-  waitForRun,
-} from './compaction-run.integration.helpers';
 
 import { MessagesRepository } from '../chats/messages-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -19,6 +15,44 @@ import {
   seedRun,
   type WorkerHarness,
 } from './worker-harness';
+
+async function completeSourceTurn(
+  harness: WorkerHarness,
+  userId: string,
+  modelId: string,
+  text: string,
+) {
+  const source = await seedRun({
+    tenantDb: harness.tenantDb,
+    userId,
+    modelId,
+    text,
+  });
+
+  await harness.dispatch.dispatch({ ...source, userId, modelId });
+  await waitForRun(harness, userId, source.runId, 'completed');
+
+  return source;
+}
+
+async function waitForRun(
+  harness: WorkerHarness,
+  userId: string,
+  runId: string,
+  status: 'completed' | 'cancelled',
+): Promise<void> {
+  await waitFor(
+    async () => {
+      const run = await harness.tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findById(runId, userId),
+      );
+
+      return run?.status === status ? true : undefined;
+    },
+    15_000,
+    `Run ${runId} to reach ${status}`,
+  );
+}
 
 if (!process.env.TEST_DATABASE_URL) {
   throw new Error(

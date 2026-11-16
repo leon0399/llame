@@ -1,7 +1,3 @@
-import {
-  completeCompactionRun,
-  type CompactionCompletionInput,
-} from './compaction-run-completion';
 import { realpath, stat } from 'node:fs/promises';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
@@ -443,6 +439,7 @@ import {
 } from '../prompts/temporal-anchor';
 
 import { JobNoticeRunService } from './job-notice-run.service';
+
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
  * state it establishes. Applied by the terminal transaction of the attempt that
@@ -653,7 +650,16 @@ type DisclosureBaseline = {
   readonly startsEpoch: boolean;
 };
 
-export type FinishRunInput = {
+type CompactionCompletionInput = {
+  runId: string;
+  chatId: string;
+  userId: string;
+  attemptId: string;
+  expectedQueueIdentity: NonNullable<FinishRunInput['expectedQueueIdentity']>;
+  summary: CompactionSummary | undefined;
+};
+
+type FinishRunInput = {
   userId: string;
   runId: string;
   status: TerminalRunStatus;
@@ -676,7 +682,7 @@ export type FinishRunInput = {
   skillCatalogFreeze?: SkillCatalogFreeze;
 };
 
-export type FinishRunResult =
+type FinishRunResult =
   | {
       outcome: 'won' | 'errored';
       assistantMessage?: Message;
@@ -1304,19 +1310,66 @@ export class RunExecutionService {
   async completeCompactionRun(
     input: CompactionCompletionInput,
   ): Promise<FinishRunResult> {
-    return completeCompactionRun(input, {
-      transaction: (operation) => this.tenantDb.runAs(input.userId, operation),
-      retry: (work) => retryAbortedTransaction(work),
-      resolveDigest: (digestInput) => this.resolveCompactionDigest(digestInput),
-      publishCheckpoint: (tx, checkpointInput, digest) =>
-        this.publishCompactionCheckpoint(tx, checkpointInput, digest),
-      finish: (tx, finishInput) => this.finishRunInTransaction(tx, finishInput),
-      startIdleNotice: async (tx, noticeInput) => {
-        await this.jobNoticeRuns?.startAfterRunCompletion(tx, noticeInput);
-      },
-      dispatchPromoted: (job) =>
-        this.dispatchPromotedRun(this.runDispatch!, job),
-    });
+    const digest = await this.resolveCompactionDigest(input);
+
+    const result = await retryAbortedTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        const fenced = await new RunsRepository(tx).updateForAttempt(
+          input.runId,
+          input.userId,
+          input.attemptId,
+          { activeAttemptId: input.attemptId },
+        );
+
+        if (!fenced) return { outcome: 'lost' as const };
+
+        const status =
+          fenced.cancelRequestedAt === null ? 'completed' : 'cancelled';
+
+        if (status === 'completed' && input.summary !== undefined) {
+          await this.publishCompactionCheckpoint(
+            tx,
+            {
+              chatId: input.chatId,
+              userId: input.userId,
+              summary: input.summary,
+            },
+            digest,
+          );
+        }
+
+        const finish = await this.finishRunInTransaction(tx, {
+          runId: input.runId,
+          userId: input.userId,
+          status,
+          attemptId: input.attemptId,
+          expectedQueueIdentity: input.expectedQueueIdentity,
+          runPayload: { status },
+          ...(status === 'cancelled' && {
+            error: { message: 'Run was cancelled.' },
+          }),
+        });
+
+        if (
+          finish.outcome === 'won' &&
+          finish.promoted === undefined &&
+          status === 'completed'
+        ) {
+          await this.jobNoticeRuns?.startAfterRunCompletion(tx, {
+            chatId: input.chatId,
+            ownerUserId: input.userId,
+          });
+        }
+
+        return finish;
+      }),
+    );
+
+    if (result.outcome === 'won' && result.promoted && this.runDispatch) {
+      await this.dispatchPromotedRun(this.runDispatch, result.promoted);
+    }
+
+    return result;
   }
 
   private async resolveCompactionDigest(input: {
@@ -1351,7 +1404,7 @@ export class RunExecutionService {
     input: {
       chatId: string;
       userId: string;
-      summary: CompactionSummary | undefined;
+      summary: CompactionSummary;
     },
     digest: {
       shareRecentChats: ResolvedMemorySettings;
@@ -1359,10 +1412,8 @@ export class RunExecutionService {
     },
   ): Promise<void> {
     const summary = input.summary;
-
-    if (summary === undefined) return;
-
     const messages = new MessagesRepository(tx);
+    const chats = new ChatsRepository(tx);
 
     if (
       (await messages.findCheckpointByBoundary(
@@ -1374,8 +1425,10 @@ export class RunExecutionService {
       return;
     }
 
-    const chat = await new ChatsRepository(tx).touch(
-      input.chatId,
+    const chat = await chats.touch(input.chatId, input.userId);
+
+    const shareRecentChats = await this.memory.getForOwnerForBinding(
+      tx,
       input.userId,
     );
 
@@ -1386,19 +1439,22 @@ export class RunExecutionService {
       usage: summary.usage,
     });
 
-    if (
-      chat?.recencyDigestBaseline != null &&
-      digest.candidate !== null &&
-      digest.shareRecentChats.shareRecentChats
-    ) {
-      await new ChatsRepository(tx).setRecencyDigest({
-        chatId: input.chatId,
-        ownerUserId: input.userId,
-        baseline: digest.candidate.baseline,
-        told: [],
-        rebakedFrom: checkpoint.id,
-      });
-    }
+    await this.rebakeCheckpointDigest({
+      tx,
+      chatId: input.chatId,
+      userId: input.userId,
+      chat,
+      checkpointId: checkpoint.id,
+      shareRecentChats,
+      candidate: digest.candidate,
+    });
+
+    await this.resetWorkspaceCheckpointEpoch({
+      tx,
+      chatId: input.chatId,
+      userId: input.userId,
+      checkpointId: checkpoint.id,
+    });
   }
 
   async claimRun(input: RunClaimInput): Promise<RunClaimResult> {
@@ -1469,6 +1525,8 @@ export class RunExecutionService {
           };
         }
 
+        // A claimed turn gets one settlement opportunity for host jobs whose
+        // worker died before this claim (background-jobs D9).
         await new ChatJobsRepository(tx).settleOnDeadWorkers(
           input.chatId,
           input.userId,
@@ -1523,6 +1581,8 @@ export class RunExecutionService {
           }
         }
 
+        // Effort is frozen on the Run at admission; never re-read current
+        // configuration on a retry.
         return {
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
@@ -1587,6 +1647,9 @@ export class RunExecutionService {
     const { effort, permissionMode, attemptId } = claim;
     // Every attempt, a crash retry included, reads the Run's current message
     // from the Run row, not from the job: a delivery moved it (run-steering D3).
+
+    // A delivered message resumes the same Run in a new segment; only its
+    // first segment applies follow-up handling.
     const firstSegment = claim.messageId === input.userMessage.id;
 
     const attempt = await this.executeAttempt({
@@ -6976,22 +7039,15 @@ export class RunExecutionService {
             latestCheckpointId: input.checkpointId,
           });
 
-    if (
-      input.chat?.recencyDigestBaseline != null &&
-      input.digestCandidate !== null &&
-      input.shareRecentChats.shareRecentChats
-    ) {
-      // The new epoch starts with nothing disclosed: the request this
-      // checkpoint precedes accounts for the entries its renders actually
-      // emit, and an unrendered entry stays eligible for an append.
-      await chatsRepo.setRecencyDigest({
-        chatId: input.run.chatId,
-        ownerUserId: input.run.userId,
-        baseline: input.digestCandidate.baseline,
-        told: [],
-        rebakedFrom: input.checkpointId,
-      });
-    }
+    await this.rebakeCheckpointDigest({
+      tx: input.tx,
+      chatId: input.run.chatId,
+      userId: input.run.userId,
+      chat: input.chat,
+      checkpointId: input.checkpointId,
+      shareRecentChats: input.shareRecentChats,
+      candidate: input.digestCandidate,
+    });
 
     if (skillState?.freeze !== undefined) {
       await chatsRepo.setSkillCatalogBaseline({
@@ -7011,17 +7067,54 @@ export class RunExecutionService {
     }
 
     if (input.chat !== undefined) {
-      // Advance the epoch identity and reset the told root, so the snapshot the
-      // checkpoint absorbed is re-established by the request it precedes. A
-      // pending detach reason stays: only the Run that narrates it clears it.
-      await new WorkspaceBindingRepository(input.tx).setTold({
+      await this.resetWorkspaceCheckpointEpoch({
+        tx: input.tx,
         chatId: input.run.chatId,
-        ownerUserId: input.run.userId,
-        told: null,
-        toldFrom: input.checkpointId,
-        clearDetachReason: false,
+        userId: input.run.userId,
+        checkpointId: input.checkpointId,
       });
     }
+  }
+
+  private async rebakeCheckpointDigest(input: {
+    tx: Db;
+    chatId: string;
+    userId: string;
+    chat: Chat | undefined;
+    checkpointId: string;
+    shareRecentChats: ResolvedMemorySettings;
+    candidate: RecencyDigestResolution | null;
+  }): Promise<void> {
+    if (
+      input.chat?.recencyDigestBaseline == null ||
+      input.candidate === null ||
+      !input.shareRecentChats.shareRecentChats
+    ) {
+      return;
+    }
+
+    await new ChatsRepository(input.tx).setRecencyDigest({
+      chatId: input.chatId,
+      ownerUserId: input.userId,
+      baseline: input.candidate.baseline,
+      told: [],
+      rebakedFrom: input.checkpointId,
+    });
+  }
+
+  private async resetWorkspaceCheckpointEpoch(input: {
+    tx: Db;
+    chatId: string;
+    userId: string;
+    checkpointId: string;
+  }): Promise<void> {
+    await new WorkspaceBindingRepository(input.tx).setTold({
+      chatId: input.chatId,
+      ownerUserId: input.userId,
+      told: null,
+      toldFrom: input.checkpointId,
+      clearDetachReason: false,
+    });
   }
 
   private async resolveAttemptPrompt(

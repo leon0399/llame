@@ -17,13 +17,9 @@ import {
   ModelsService,
   resolveSendSettings,
 } from '../../models/models.service';
-import { planCompactionCheckpoint } from '../../compaction/compaction';
-import { toStoredMessages } from '../../compaction/compaction.service';
+import { planOwnerCompaction } from '../../compaction/owner-compaction-plan';
 import { RunDispatchService } from '../../runs/run-dispatch.service';
-import {
-  RunEventsRepository,
-  RunsRepository,
-} from '../../runs/runs-repository';
+import { createCompactionRun } from '../run-creation';
 import { claimActiveRunSlot } from '../chat-admission';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { retryRunTransaction } from '../../runs/run-transaction';
@@ -41,6 +37,16 @@ type CompactCommandInput = {
   effort?: string;
   permissionMode?: PermissionMode;
 };
+
+function assertCompactCommandSupported(input: CompactCommandInput): void {
+  if (input.parts.some((part) => part.type === 'file')) {
+    throw new BadRequestException('A command cannot include an attachment.');
+  }
+
+  if (input.command.argument.length > 0) {
+    throw new BadRequestException('Compact focus is not supported yet.');
+  }
+}
 
 @Injectable()
 export class ChatCommandsService {
@@ -120,13 +126,7 @@ export class ChatCommandsService {
     if (!chat) return undefined;
     assertNotArchived(chat);
 
-    if (input.parts.some((part) => part.type === 'file')) {
-      throw new BadRequestException('A command cannot include an attachment.');
-    }
-
-    if (input.command.argument.length > 0) {
-      throw new BadRequestException('Compact focus is not supported yet.');
-    }
+    assertCompactCommandSupported(input);
 
     const { effort, permissionMode } = resolveSendSettings(
       this.models,
@@ -146,64 +146,24 @@ export class ChatCommandsService {
       throw new ConflictException('Wait for the current Run to finish.');
     }
 
-    if (!(await this.hasUncompactedHistory(tx, input))) {
+    const { plan } = await planOwnerCompaction(
+      new MessagesRepository(tx),
+      input.chatId,
+      input.userId,
+    );
+
+    if (plan === null) {
       throw new ConflictException('Nothing to compact.');
     }
 
-    return this.createCompactionRun(tx, input, effort, permissionMode);
-  }
-
-  private async hasUncompactedHistory(
-    tx: Db,
-    input: CompactCommandInput,
-  ): Promise<boolean> {
-    const messages = new MessagesRepository(tx);
-
-    const activeCheckpoint = await messages.findActiveCheckpoint(
-      input.chatId,
-      input.userId,
-      { beforeSeq: Number.MAX_SAFE_INTEGER },
-    );
-
-    const rows = await messages.findByChatId(input.chatId, input.userId, {
-      sinceSeq: activeCheckpoint?.absorbedThroughSeq,
-    });
-
-    const nextSeq =
-      (rows.at(-1)?.seq ?? activeCheckpoint?.absorbedThroughSeq ?? 0) + 1;
-
-    return !!planCompactionCheckpoint({
-      rows: toStoredMessages(rows),
-      boundarySeq: activeCheckpoint?.absorbedThroughSeq ?? 0,
-      triggeringUserSeq: nextSeq,
-    });
-  }
-
-  private async createCompactionRun(
-    tx: Db,
-    input: CompactCommandInput,
-    effort: string | undefined,
-    permissionMode: PermissionMode | undefined,
-  ): Promise<Run> {
-    const run = await new RunsRepository(tx).create({
+    return createCompactionRun(tx, {
       id: randomUUID(),
       chatId: input.chatId,
-      messageId: null,
       userId: input.userId,
       modelId: input.modelId,
-      kind: 'compaction',
       effort,
       permissionMode,
-      followUpAction: undefined,
     });
-
-    await new RunEventsRepository(tx).append(run.id, 'run.created', {
-      chatId: input.chatId,
-      messageId: null,
-      compaction: { focus: null },
-    });
-
-    return run;
   }
 
   private async findChat(chatId: string, userId: string): Promise<boolean> {

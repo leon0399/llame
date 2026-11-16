@@ -841,7 +841,10 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
   it('uses the Run model, stored prompt, effort, no tools, and owner instruction', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
-    mockReads({ previous: previousCheckpoint });
+    mockReads({
+      previous: previousCheckpoint,
+      source: { run: sourceRun, receipt: sourceReceipt },
+    });
 
     const summary = await setup.service.summarizeCheckpoint({
       variant: 'owner',
@@ -850,7 +853,6 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
       triggeringUserSeq: 3,
       plan: plan(),
       client,
-      system: 'stored source prompt',
       effort: 'high',
       reservedOutputTokens: 10,
     });
@@ -858,7 +860,7 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
     expect(summary?.summary).toBe('summary text');
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      system: 'stored source prompt',
+      system: 'the source run system prompt',
       effort: 'high',
       toolChoice: 'none',
     });
@@ -888,7 +890,6 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
         triggeringUserSeq: 3,
         plan: plan(),
         client,
-        system: '',
         reservedOutputTokens: 10,
       }),
     ).rejects.toThrow('Compaction summary returned no valid text summary.');
