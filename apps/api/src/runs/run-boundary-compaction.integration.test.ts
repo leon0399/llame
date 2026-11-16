@@ -111,6 +111,12 @@ describe('step-boundary compaction', () => {
         .at(-1)
         ?.some((line) => line.includes('Finish the report.')),
     ).toBe(true);
+    expect(
+      started
+        .prompts()
+        .at(-1)
+        ?.some((line) => line.includes('the open turn summary')),
+    ).toBe(true);
   });
   it('Compact as a steer', async () => {
     const seeded = await fx.seed('Keep the result concise.');
@@ -479,5 +485,54 @@ describe('step-boundary compaction', () => {
     expect(
       (await fx.types(seeded.runId)).filter((type) => type === 'run.delivered'),
     ).toHaveLength(0);
+  });
+  it('The summary request reuses the live prefix', async () => {
+    const seeded = await fx.seed('Keep the live request.');
+    let stored = false;
+
+    const summarize = vi
+      .spyOn(
+        fx.harness.moduleRef.get(CompactionService),
+        'computeBoundarySummary',
+      )
+      .mockImplementation((input) =>
+        Promise.resolve({
+          uptoSeq: input.uptoSeq,
+          summary: 'live-prefix checkpoint',
+          usage: {},
+        }),
+      );
+
+    const callsBefore = summarize.mock.calls.length;
+
+    await fx.launch(
+      seeded,
+      [
+        call('read-one', 'read', { path: fx.directory }),
+        call('read-two', 'read', { path: fx.directory }),
+        answer('Finished with the live prefix.'),
+      ],
+      async (stepIndex) => {
+        if (stepIndex === 1 && !stored) {
+          stored = true;
+          await fx.storeItems(
+            seeded.chatId,
+            ['/compact'],
+            'steer',
+            seeded.runId,
+          );
+        }
+      },
+    );
+    await fx.terminal(seeded.runId);
+
+    const request = summarize.mock.calls[callsBefore]?.[0];
+
+    expect(request?.closedReply.length).toBeGreaterThan(0);
+    expect(request?.client).toBeDefined();
+    expect(request?.system.length).toBeGreaterThan(0);
+    expect(request?.toolDeclarations.length).toBeGreaterThan(0);
+    expect(request?.focus).toBeNull();
+    expect(request?.uptoSeq).toBeGreaterThan(seeded.userMessage.seq);
   });
 });

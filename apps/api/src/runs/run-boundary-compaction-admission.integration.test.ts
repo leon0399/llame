@@ -1,0 +1,205 @@
+import { isRecord } from '@workspace/runtime-safety';
+import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
+
+import { CompactionService } from '../compaction/compaction.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { runs } from '../db/schema';
+import { RunWaitService } from './run-wait.service';
+import { waitFor } from '../testing/support';
+import {
+  answer,
+  call,
+  useSegmentsFixture,
+} from '../testing/run-segments.test-fixture';
+import { seedLiveChatJob } from './worker-harness';
+import { RunsRepository } from './runs-repository';
+
+if (!process.env['TEST_DATABASE_URL']) {
+  throw new Error(
+    'run-boundary-compaction-admission.integration.test.ts requires TEST_DATABASE_URL.',
+  );
+}
+
+describe('step-boundary compaction admission', () => {
+  const fx = useSegmentsFixture('run-boundary-compaction-admission', {
+    allowedTools: ['bash', 'wait'],
+    nativeExecutorId: 'run-boundary-compaction-admission-host',
+  });
+
+  const awaiting = (runId: string) =>
+    waitFor(
+      async () => {
+        const run = await fx.run(runId);
+
+        return run?.status === 'awaiting_jobs' ? run : undefined;
+      },
+      20_000,
+      `Run ${runId} to wait for a job`,
+    );
+
+  it('Compact during a job wait', async () => {
+    const seeded = await fx.seed('Continue after the build job.');
+
+    const job = await fx.db((tx) =>
+      seedLiveChatJob({
+        tx,
+        userId: fx.userId,
+        modelId: seeded.modelId,
+        run: { chatId: seeded.chatId, runId: seeded.runId },
+      }),
+    );
+
+    const summarize = vi
+      .spyOn(
+        fx.harness.moduleRef.get(CompactionService),
+        'computeBoundarySummary',
+      )
+      .mockImplementation((input) =>
+        Promise.resolve({
+          uptoSeq: input.uptoSeq,
+          summary: 'waiting task checkpoint',
+          usage: {},
+        }),
+      );
+
+    const started = await fx.launch(seeded, [
+      call('wait-build', 'wait', { jobs: ['job://bash-1'], timeout: 3600 }),
+      answer('Build follow-up complete.'),
+    ]);
+
+    await awaiting(seeded.runId);
+    await fx.storeItems(seeded.chatId, ['/compact'], 'steer');
+
+    const woke = await fx.db((tx) =>
+      fx.harness.moduleRef.get(RunWaitService).wakeForChatInTransaction(tx, {
+        chatId: seeded.chatId,
+        userId: fx.userId,
+        kind: 'steer',
+      }),
+    );
+
+    expect(woke).toBe(true);
+    await fx.terminal(seeded.runId);
+
+    const messages = await fx.messages(seeded.chatId);
+
+    const checkpoint = messages.find(
+      (message) => message.role === 'checkpoint',
+    );
+
+    const completedWait = (await fx.events(seeded.runId)).find(
+      (event) =>
+        event.eventType === 'tool.completed' &&
+        isRecord(event.payload) &&
+        'toolCallId' in event.payload &&
+        event.payload['toolCallId'] === 'wait-build',
+    );
+
+    expect(summarize).toHaveBeenCalledOnce();
+    expect(checkpoint).toBeDefined();
+    expect(started.prompts()).toHaveLength(3);
+    expect(completedWait?.payload).toMatchObject({
+      output: { ended: 'interrupted' },
+    });
+    expect(
+      (
+        await fx.db((tx) =>
+          new ChatJobsRepository(tx).findById(seeded.chatId, fx.userId, job.id),
+        )
+      )?.state,
+    ).toBe('running');
+  });
+
+  it('A compact steer interrupts a durable foreground job wait', async () => {
+    const seeded = await fx.seed('Wait while the build is running.');
+    const attemptId = randomUUID();
+
+    const job = await fx.db(async (tx) => {
+      await tx
+        .update(runs)
+        .set({ status: 'running_tool', activeAttemptId: attemptId })
+        .where(eq(runs.id, seeded.runId));
+
+      return seedLiveChatJob({
+        tx,
+        userId: fx.userId,
+        modelId: seeded.modelId,
+        run: { chatId: seeded.chatId, runId: seeded.runId },
+      });
+    });
+
+    await fx.storeItems(seeded.chatId, ['/compact'], 'steer');
+
+    const result = await fx.harness.moduleRef.get(RunWaitService).suspend({
+      runId: seeded.runId,
+      chatId: seeded.chatId,
+      userId: fx.userId,
+      attemptId,
+      toolCallId: job.toolCallId,
+      toolInput: { jobs: ['job://bash-1'], timeout: 3600 },
+      jobIds: [job.id],
+      deadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      parts: [{ type: 'tool-call', id: job.toolCallId }],
+      steps: { [job.toolCallId]: 0 },
+    });
+
+    expect(result).toEqual({ kind: 'ready', cause: 'interrupted' });
+    expect(
+      (
+        await fx.db((tx) =>
+          new ChatJobsRepository(tx).findById(seeded.chatId, fx.userId, job.id),
+        )
+      )?.state,
+    ).toBe('running');
+  });
+
+  it('Stop with only a pending compact', async () => {
+    const seeded = await fx.seed('Stop this task.');
+    const compactStored = Promise.withResolvers<void>();
+    let compactTask: Promise<void> | undefined;
+
+    const started = await fx.launch(
+      seeded,
+      [
+        call('foreground-bash', 'bash', {
+          command: 'exec sleep 60',
+          cwd: fx.directory,
+        }),
+      ],
+      (stepIndex) => {
+        if (stepIndex === 0 && compactTask === undefined) {
+          compactTask = (async () => {
+            await waitFor(
+              async () =>
+                (await fx.types(seeded.runId)).includes('tool.started')
+                  ? true
+                  : undefined,
+              20_000,
+              'the host command to start before Stop',
+            );
+            await fx.storeItems(seeded.chatId, ['/compact'], 'steer');
+            compactStored.resolve();
+          })();
+        }
+      },
+    );
+
+    await compactStored.promise;
+    await compactTask;
+    await fx.db(async (tx) => {
+      const cancelled = await new RunsRepository(tx).requestCancel(
+        seeded.runId,
+        fx.userId,
+      );
+
+      if (!cancelled) throw new Error('The Run was not cancellable.');
+    });
+
+    expect((await fx.terminal(seeded.runId)).status).toBe('cancelled');
+    expect(await fx.items(seeded.chatId)).toMatchObject([
+      { mode: 'queue', state: 'pending', parts: [{ text: '/compact' }] },
+    ]);
+    expect(started.prompts()).toHaveLength(1);
+  });
+});
