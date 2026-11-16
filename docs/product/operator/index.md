@@ -27,6 +27,8 @@ below state additional ordering where a change needs it.
 - [Chat creation](chat-creation.md): `POST /api/v1/chats` and its resolution
   order, the closed Workspace status set and its codes, the creation lock and
   the resend rules, and the Chat's creation record.
+- [Chat commands](chat-commands.md): the data fix a downgrade below the
+  `/compact` focus release needs.
 - [Remote Machines](machines.md): experimental SSH-reached Machines, the
   `llame-machine` daemon, registered roots, permissions, and status.
 - [SSH locators](ssh.md): experimental `ssh://` reads and bash working

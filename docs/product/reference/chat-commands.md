@@ -38,7 +38,9 @@ conversation to absorb, the API returns `Nothing to compact.` and starts no Run.
 The optional focus is trimmed and limited to 1,000 characters. It guides the
 summary without changing its required sections or redaction rules. The focus is
 stored on the checkpoint for history display; later requests replay the summary
-without the focus.
+without the focus. Before a downgrade to a release that cannot read stored
+focuses, the operator converts them; see
+[chat commands for operators](../operator/chat-commands.md).
 
 If the Chat has paused queue items, they stay pending during the compaction
 Run and resume through the normal queue promotion when it completes.
@@ -46,13 +48,3 @@ Run and resume through the normal queue promotion when it completes.
 A Chat with a live Run returns `Wait for the current Run to finish.` A
 compaction command sent to another owner's Chat is not found. Archived Chats
 cannot be compacted. A command that includes an attachment is rejected.
-
-### Rollback data fix
-
-Before reverting the `compact-focus` layer, remove the `focus` field from
-version-two checkpoint payloads and restore their version to one. The old
-reader fails on version two:
-
-```sql
-UPDATE messages SET parts = jsonb_set(parts, '{0,data,payload}', (parts->0->'data'->'payload') - 'focus' || '{"v":1}') WHERE role = 'checkpoint' AND parts->0->'data'->'payload'->>'v' = '2'
-```
