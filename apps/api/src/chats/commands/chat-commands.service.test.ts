@@ -1,10 +1,21 @@
+import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { asDouble } from '../../testing/support';
-import type { Chat } from '../../db/schema';
+import type { Chat, Message, Run, RunEvent } from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
-import { ChatsRepository } from '../chats-repository';
+import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { TitleService } from '../../titles/title.service';
-import { ChatCommandsService } from './chat-commands.service';
+import { type InstanceConfigReader } from '../../instance-config/instance-config.service';
+import { type ModelSelectionValidator } from '../../models/models.service';
+import { BUILT_IN_DEFAULTS } from '../../instance-config/llame-config';
+import {
+  RunEventsRepository,
+  RunsRepository,
+} from '../../runs/runs-repository';
+import {
+  ChatCommandSettings,
+  ChatCommandsService,
+} from './chat-commands.service';
 
 function makeService() {
   const db: Db = drizzle.mock();
@@ -13,10 +24,12 @@ function makeService() {
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
 
-  vi.spyOn(tenantDb, 'runAs').mockImplementation(
-    async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-      callback(db),
-  );
+  const runAs = vi
+    .spyOn(tenantDb, 'runAs')
+    .mockImplementation(
+      async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+        callback(db),
+    );
 
   const chat = asDouble<Chat>({ id: 'chat-1', archivedAt: null });
 
@@ -24,15 +37,90 @@ function makeService() {
     .spyOn(ChatsRepository.prototype, 'findById')
     .mockResolvedValue(chat);
 
+  const lock = vi
+    .spyOn(ChatsRepository.prototype, 'lock')
+    .mockResolvedValue(chat);
+
   const update = vi
     .spyOn(ChatsRepository.prototype, 'update')
     .mockResolvedValue({ ...chat, title: 'New name' });
 
+  const rows = vi
+    .spyOn(MessagesRepository.prototype, 'findByChatId')
+    .mockResolvedValue([
+      asDouble<Message>({ role: 'user', seq: 1, parts: [] }),
+      asDouble<Message>({ role: 'assistant', seq: 2, parts: [] }),
+    ]);
+
+  const checkpoint = vi
+    .spyOn(MessagesRepository.prototype, 'findActiveCheckpoint')
+    .mockResolvedValue(undefined);
+
+  vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+    undefined,
+  );
+
+  const createdRun = asDouble<Run>({
+    id: 'run-1',
+    modelId: 'model-1',
+    kind: 'compaction',
+  });
+
+  const createRun = vi
+    .spyOn(RunsRepository.prototype, 'create')
+    .mockResolvedValue(createdRun);
+
+  const append = vi
+    .spyOn(RunEventsRepository.prototype, 'append')
+    .mockResolvedValue(asDouble<RunEvent>({}));
+
+  const validateModelSelection = vi.fn();
+  const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
+
+  const models = asDouble<ModelSelectionValidator>({
+    validateModelSelection,
+    resolveEffortSelection,
+  });
+
+  const instanceConfig = asDouble<InstanceConfigReader>({
+    config: {
+      ...BUILT_IN_DEFAULTS,
+      tools: {
+        ...BUILT_IN_DEFAULTS.tools,
+        permissionModes: ['default'],
+      },
+    },
+  });
+
+  const dispatch = {
+    dispatch: vi.fn().mockResolvedValue(undefined),
+    jobState: vi.fn().mockResolvedValue('absent'),
+  };
+
   const regenerate = vi.spyOn(TitleService.prototype, 'regenerate');
   const titles: Pick<TitleService, 'regenerate'> = { regenerate };
-  const service = new ChatCommandsService(tenantDb, titles);
 
-  return { service, findById, update, regenerate };
+  const service = new ChatCommandsService(
+    tenantDb,
+    titles,
+    new ChatCommandSettings(models, instanceConfig),
+    dispatch,
+  );
+
+  return {
+    service,
+    findById,
+    lock,
+    update,
+    regenerate,
+    rows,
+    checkpoint,
+    createRun,
+    append,
+    dispatch,
+    validateModelSelection,
+    runAs,
+  };
 }
 
 const request = {
@@ -40,6 +128,7 @@ const request = {
   userId: 'user-1',
   command: { name: 'rename' as const, argument: 'New name' },
   parts: [{ type: 'text' as const }],
+  modelId: 'model-1',
 };
 
 describe('ChatCommandsService', () => {
@@ -146,5 +235,92 @@ describe('ChatCommandsService', () => {
     await expect(service.execute(request)).rejects.toMatchObject({
       message: 'Chat not found.',
     });
+  });
+  it('creates and dispatches an idle compaction Run without a message', async () => {
+    const {
+      service,
+      createRun,
+      append,
+      dispatch,
+      validateModelSelection,
+      runAs,
+    } = makeService();
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).resolves.toMatchObject({
+      type: 'command',
+      command: 'compact',
+      runId: 'run-1',
+    });
+
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: 'chat-1',
+        messageId: null,
+        kind: 'compaction',
+        modelId: 'model-1',
+        effort: undefined,
+        permissionMode: 'default',
+      }),
+    );
+    expect(append).toHaveBeenCalledWith('run-1', 'run.created', {
+      chatId: 'chat-1',
+      messageId: null,
+      compaction: { focus: null },
+    });
+    expect(dispatch.dispatch).toHaveBeenCalledWith({
+      runId: 'run-1',
+      chatId: 'chat-1',
+      userId: 'user-1',
+      modelId: 'model-1',
+    });
+    expect(dispatch.dispatch.mock.calls[0][0]).not.toHaveProperty(
+      'userMessage',
+    );
+    expect(validateModelSelection).toHaveBeenCalledWith('model-1');
+    expect(runAs).toHaveBeenCalledOnce();
+  });
+
+  it('refuses an empty Chat without creating or dispatching a Run', async () => {
+    const { service, rows, createRun, dispatch } = makeService();
+    rows.mockResolvedValue([]);
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(createRun).not.toHaveBeenCalled();
+    expect(dispatch.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported focus and an unknown model before Run creation', async () => {
+    const { service, createRun, validateModelSelection } = makeService();
+
+    const compact = {
+      ...request,
+      command: { name: 'compact' as const, argument: 'keep the plan' },
+    };
+
+    await expect(service.execute(compact)).rejects.toMatchObject({
+      message: 'Compact focus is not supported yet.',
+    });
+    expect(createRun).not.toHaveBeenCalled();
+
+    validateModelSelection.mockImplementation(() => {
+      throw new Error('Selected model is unavailable.');
+    });
+    await expect(
+      service.execute({
+        ...compact,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).rejects.toThrow('Selected model is unavailable.');
+    expect(createRun).not.toHaveBeenCalled();
   });
 });

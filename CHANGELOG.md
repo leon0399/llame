@@ -47,6 +47,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Add `/rename` to set a Chat title or regenerate it from recent conversation
   history with the configured title model.
 
+- Add idle `/compact` as a durable Run that publishes a conversation checkpoint.
+
 # 2026-11-14
 
 - Reserve a wait call only after its locators resolve, and name the first call

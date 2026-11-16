@@ -2,6 +2,7 @@ import {
   Inject,
   Injectable,
   Logger,
+  Optional,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 
@@ -33,6 +34,7 @@ import {
   RunNotRunnableError,
   type RunExecutor,
 } from './run-execution.service';
+import { CompactionRunService } from './compaction-run.service';
 import {
   RUN_EXECUTION_CEILING_SECONDS,
   runsQueueDefinition,
@@ -115,6 +117,9 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     private readonly aborts: RunAbortRegistrar,
     @Inject(RunWaitService)
     private readonly runWait: Pick<RunWaitService, 'wakeInTransaction'>,
+    @Optional()
+    @Inject(CompactionRunService)
+    private readonly compactionRun?: Pick<CompactionRunService, 'execute'>,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -309,17 +314,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }
 
     if (pickup.kind === 'compaction') {
-      const message = 'Compaction Runs are not supported yet.';
-      await retryRunTransaction(() =>
-        this.runExecution.settleTerminalRun({
-          runId: job.runId,
-          userId: job.userId,
-          status: 'failed',
-          expectedQueueIdentity: pickup.expectedQueueIdentity,
-          runPayload: { status: 'failed', message },
-          error: { message },
-        }),
-      );
+      await this.executeCompactionJob(job, pickup, budgetSeconds);
 
       return;
     }
@@ -486,6 +481,79 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       }
 
       throw error;
+    } finally {
+      clearTimeout(timeoutTimer);
+      this.aborts.unregister(job.runId, abort);
+    }
+  }
+  private async executeCompactionJob(
+    job: RunJob,
+    pickup: Extract<RunPickup, { skip: false }>,
+    budgetSeconds: number | null,
+  ): Promise<void> {
+    if (this.compactionRun === undefined) {
+      throw new Error('Compaction Run execution is not configured.');
+    }
+
+    const abort = this.aborts.register(job.runId, job.userId);
+
+    const cancelled = await this.tenantDb.runAs(job.userId, async (tx) => {
+      const run = await new RunsRepository(tx).findById(job.runId, job.userId);
+
+      return run?.cancelRequestedAt !== null && run !== undefined;
+    });
+
+    if (cancelled) {
+      this.aborts.unregister(job.runId, abort);
+      await this.settleCancelledBeforeStart(job);
+
+      return;
+    }
+
+    const limitMs =
+      budgetSeconds === null
+        ? RUN_EXECUTION_CEILING_SECONDS * 1000
+        : Math.max(
+            0,
+            (pickup.budgetDeadlineMs ?? Date.now() + budgetSeconds * 1000) -
+              Date.now(),
+          );
+
+    const timeoutTimer = setTimeout(() => {
+      abort.abort(
+        budgetSeconds === null
+          ? RUN_CEILING_ABORT_REASON
+          : RUN_TIMEOUT_ABORT_REASON,
+      );
+    }, limitMs);
+
+    try {
+      await this.compactionRun.execute(
+        job,
+        this.models.createClient(pickup.modelId),
+        abort.signal,
+      );
+    } catch (error) {
+      if (!abort.signal.aborted) throw error;
+
+      const expired =
+        abort.signal.reason === RUN_CEILING_ABORT_REASON ||
+        abort.signal.reason === RUN_TIMEOUT_ABORT_REASON;
+
+      const status = expired ? 'expired' : 'cancelled';
+
+      const message = expired
+        ? 'Run timed out: exceeded its wall-clock budget.'
+        : 'Run was cancelled.';
+
+      await this.runExecution.settleTerminalRun({
+        runId: job.runId,
+        userId: job.userId,
+        status,
+        expectedQueueIdentity: pickup.expectedQueueIdentity,
+        runPayload: { status, message },
+        error: { message },
+      });
     } finally {
       clearTimeout(timeoutTimer);
       this.aborts.unregister(job.runId, abort);

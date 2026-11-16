@@ -246,17 +246,22 @@ function handleSendResult(
   }
 
   if (result.kind === "command" || result.kind === "success") {
-    setNotice({
-      kind: "status",
-      message:
-        result.kind === "command"
-          ? `Renamed to “${result.title}”`
-          : "Command completed.",
-    });
+    // A compaction Run shows its own row once history names it the latest
+    // Run; any other result is confirmed beside the composer.
+    if (result.kind === "success" || result.command === "rename") {
+      setNotice({
+        kind: "status",
+        message:
+          result.kind === "command"
+            ? `Renamed to “${result.title}”`
+            : "Command completed.",
+      });
+      invalidateRenamedChat(ctx.queryClient, ctx.chatId);
+    }
+
     void ctx.queryClient.invalidateQueries({
       queryKey: chatQueryKeys.messages(ctx.chatId),
     });
-    invalidateRenamedChat(ctx.queryClient, ctx.chatId);
 
     return;
   }

@@ -42,7 +42,7 @@ export const COMPACTION_WINDOW_RATIO = 0.8;
  * window variants still select different model and prompt inputs in
  * CompactionService, but both use the same summarization instruction.
  */
-export type CompactionVariant = 'threshold' | 'window';
+export type CompactionVariant = 'threshold' | 'window' | 'owner';
 
 /**
  * The summarize instruction — sent as the FINAL USER MESSAGE of the compaction
@@ -86,11 +86,17 @@ export type CompactionVariant = 'threshold' | 'window';
  * The sentence is literal text in `prompts/instruction.md`: the exclusion
  * stays in the packaged trailing instruction, and the test pins it verbatim.
  */
-const renderCompactionInstructionTemplate = loadPackagedTemplate<
-  Record<string, never>
->(__dirname, 'instruction');
+const renderCompactionInstructionTemplate = loadPackagedTemplate<{
+  readonly owner: boolean;
+}>(__dirname, 'instruction');
 
-export const COMPACTION_INSTRUCTION = renderCompactionInstructionTemplate({});
+export function renderCompactionInstruction(
+  variant: 'automatic' | 'owner',
+): string {
+  return renderCompactionInstructionTemplate({ owner: variant === 'owner' });
+}
+
+export const COMPACTION_INSTRUCTION = renderCompactionInstruction('automatic');
 
 /** Accept only non-empty text from a compaction inference. */
 export function normalizeCompactionSummary(value: unknown): string | null {
@@ -438,6 +444,7 @@ export function buildCompactionRequest(input: {
   modelId: string;
   previous: ContextCheckpoint | undefined;
   absorb: Array<StoredMessage>;
+  instruction?: string;
 }): ModelRequestContext {
   const context = buildContext(input.absorb, {
     systemPrompt: input.system,
@@ -447,7 +454,7 @@ export function buildCompactionRequest(input: {
 
   context.messages.push({
     role: 'user',
-    content: COMPACTION_INSTRUCTION,
+    content: input.instruction ?? COMPACTION_INSTRUCTION,
   });
 
   return context;

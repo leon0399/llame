@@ -46,8 +46,10 @@ describe('parseChatCommand', () => {
     ).toBeNull();
   });
 
-  it('does not recognize compact in this layer', () => {
-    expect(parseChatCommand([{ type: 'text', text: '/compact' }])).toBeNull();
+  it('recognizes compact and trims its unsupported focus', () => {
+    expect(
+      parseChatCommand([{ type: 'text', text: '/compact  migration plan  ' }]),
+    ).toEqual({ name: 'compact', argument: 'migration plan' });
   });
 
   it('parses a command with a file part so the service can reject it', () => {

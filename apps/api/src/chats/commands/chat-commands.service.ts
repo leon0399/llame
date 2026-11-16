@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadGatewayException,
   BadRequestException,
@@ -9,11 +10,51 @@ import {
 } from '@nestjs/common';
 
 import { assertNotArchived } from '../../db/assert-not-archived';
-import { TenantDbService } from '../../db/tenant-db.service';
-import { ChatsRepository } from '../chats-repository';
+import { TenantDbService, type Db } from '../../db/tenant-db.service';
+import { type Run } from '../../db/schema';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../../instance-config/instance-config.service';
+import {
+  ModelsService,
+  resolveSendSettings,
+  type ModelSelectionValidator,
+} from '../../models/models.service';
+import { planCompactionCheckpoint } from '../../compaction/compaction';
+import { toStoredMessages } from '../../compaction/compaction.service';
+import { RunDispatchService } from '../../runs/run-dispatch.service';
+import {
+  RunEventsRepository,
+  RunsRepository,
+} from '../../runs/runs-repository';
+import { claimActiveRunSlot } from '../chat-admission';
+import { ChatsRepository, MessagesRepository } from '../chats-repository';
+import { retryRunTransaction } from '../../runs/run-transaction';
 import { TitleService } from '../../titles/title.service';
+import type { PermissionMode } from '../../tools/permissions/permission-mode';
 import type { ChatCommandResultResponse } from './chat-command-result.dto';
 import type { ChatCommand } from './parse-chat-command';
+
+type CompactCommandInput = {
+  chatId: string;
+  userId: string;
+  command: Extract<ChatCommand, { name: 'compact' }>;
+  parts: ReadonlyArray<{ type: 'text' | 'file' }>;
+  modelId: string;
+  effort?: string;
+  permissionMode?: PermissionMode;
+};
+
+@Injectable()
+export class ChatCommandSettings {
+  constructor(
+    @Inject(ModelsService)
+    readonly models: ModelSelectionValidator,
+    @Inject(InstanceConfigService)
+    readonly instanceConfig: InstanceConfigReader,
+  ) {}
+}
 
 @Injectable()
 export class ChatCommandsService {
@@ -22,6 +63,13 @@ export class ChatCommandsService {
     private readonly tenantDb: TenantDbService,
     @Inject(TitleService)
     private readonly titles: Pick<TitleService, 'regenerate'>,
+    @Inject(ChatCommandSettings)
+    private readonly settings: ChatCommandSettings,
+    @Inject(RunDispatchService)
+    private readonly dispatch: Pick<
+      RunDispatchService,
+      'dispatch' | 'jobState'
+    >,
   ) {}
 
   async execute(input: {
@@ -29,7 +77,16 @@ export class ChatCommandsService {
     userId: string;
     command: ChatCommand;
     parts: ReadonlyArray<{ type: 'text' | 'file' }>;
+    modelId: string;
+    effort?: string;
+    permissionMode?: PermissionMode;
   }): Promise<ChatCommandResultResponse | undefined> {
+    const { command } = input;
+
+    if (command.name === 'compact') {
+      return this.compact({ ...input, command });
+    }
+
     const chat = await this.findChat(input.chatId, input.userId);
 
     if (!chat) return undefined;
@@ -43,6 +100,117 @@ export class ChatCommandsService {
     }
 
     return this.regenerate(input.chatId, input.userId);
+  }
+
+  private async compact(
+    input: CompactCommandInput,
+  ): Promise<ChatCommandResultResponse | undefined> {
+    const run = await retryRunTransaction(() =>
+      this.tenantDb.runAs(input.userId, (tx) =>
+        this.admitCompactRun(tx, input),
+      ),
+    );
+
+    if (!run) return undefined;
+
+    await this.dispatch.dispatch({
+      runId: run.id,
+      chatId: input.chatId,
+      userId: input.userId,
+      modelId: run.modelId,
+    });
+
+    return { type: 'command', command: 'compact', runId: run.id };
+  }
+
+  private async admitCompactRun(
+    tx: Db,
+    input: CompactCommandInput,
+  ): Promise<Run | undefined> {
+    const chat = await new ChatsRepository(tx).lock(input.chatId, input.userId);
+
+    if (!chat) return undefined;
+    assertNotArchived(chat);
+
+    if (input.parts.some((part) => part.type === 'file')) {
+      throw new BadRequestException('A command cannot include an attachment.');
+    }
+
+    if (input.command.argument.length > 0) {
+      throw new BadRequestException('Compact focus is not supported yet.');
+    }
+
+    const { effort, permissionMode } = resolveSendSettings(
+      this.settings.models,
+      this.settings.instanceConfig.config.tools.permissionModes,
+      input,
+    );
+
+    const slot = await claimActiveRunSlot({
+      tx,
+      chatId: input.chatId,
+      userId: input.userId,
+      dispatch: this.dispatch,
+      instanceConfig: this.settings.instanceConfig,
+    });
+
+    if (slot.state === 'blocked') {
+      throw new ConflictException('Wait for the current Run to finish.');
+    }
+
+    if (!(await this.hasUncompactedHistory(tx, input))) {
+      throw new ConflictException('Nothing to compact.');
+    }
+
+    return this.createCompactionRun(tx, input, effort, permissionMode);
+  }
+
+  private async hasUncompactedHistory(
+    tx: Db,
+    input: CompactCommandInput,
+  ): Promise<boolean> {
+    const messages = new MessagesRepository(tx);
+    const rows = await messages.findByChatId(input.chatId, input.userId);
+    const nextSeq = (rows.at(-1)?.seq ?? 0) + 1;
+
+    const activeCheckpoint = await messages.findActiveCheckpoint(
+      input.chatId,
+      input.userId,
+      { beforeSeq: nextSeq },
+    );
+
+    return !!planCompactionCheckpoint({
+      rows: toStoredMessages(rows),
+      boundarySeq: activeCheckpoint?.absorbedThroughSeq ?? 0,
+      triggeringUserSeq: nextSeq,
+    });
+  }
+
+  private async createCompactionRun(
+    tx: Db,
+    input: CompactCommandInput,
+    effort: string | undefined,
+    permissionMode: PermissionMode | undefined,
+  ): Promise<Run> {
+    const run = await new RunsRepository(tx).create({
+      id: randomUUID(),
+      chatId: input.chatId,
+      messageId: null,
+      userId: input.userId,
+      modelId: input.modelId,
+      kind: 'compaction',
+      effort,
+      permissionMode,
+      followUpAction: undefined,
+    });
+
+    await new RunEventsRepository(tx).append(run.id, 'run.created', {
+      chatId: input.chatId,
+      messageId: null,
+      compaction: { focus: null },
+    });
+
+    return run;
   }
 
   private async findChat(chatId: string, userId: string): Promise<boolean> {

@@ -1,3 +1,7 @@
+import {
+  completeCompactionRun,
+  type CompactionCompletionInput,
+} from './compaction-run-completion';
 import { realpath, stat } from 'node:fs/promises';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
@@ -438,12 +442,14 @@ import {
   type TemporalAnchor,
 } from '../prompts/temporal-anchor';
 
+import { JobNoticeRunService } from './job-notice-run.service';
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
  * state it establishes. Applied by the terminal transaction of the attempt that
  * completes the turn: the baseline lives only in the system prompt, so no
  * history item accompanies it and a losing attempt must never freeze it.
  */
+
 export type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']> & {
   readonly told: NonNullable<Chat['skillCatalogTold']>;
 };
@@ -647,7 +653,7 @@ type DisclosureBaseline = {
   readonly startsEpoch: boolean;
 };
 
-type FinishRunInput = {
+export type FinishRunInput = {
   userId: string;
   runId: string;
   status: TerminalRunStatus;
@@ -670,7 +676,7 @@ type FinishRunInput = {
   skillCatalogFreeze?: SkillCatalogFreeze;
 };
 
-type FinishRunResult =
+export type FinishRunResult =
   | {
       outcome: 'won' | 'errored';
       assistantMessage?: Message;
@@ -696,6 +702,29 @@ type PreparedExecutionContext = {
   toolDeclarations: Array<ModelToolDeclaration>;
   tools: Array<BoundExecutableTool>;
 };
+
+export type RunClaimInput = {
+  runId: string;
+  chatId: string;
+  userId: string;
+  abortSignal?: AbortSignal;
+  expectedQueueIdentity?: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
+};
+
+export type RunClaimResult =
+  | { settledReply: Message | undefined }
+  | { nativeRecovery: true; attemptId: string }
+  | {
+      effort?: string;
+      permissionMode: Run['permissionMode'];
+      attemptId: string;
+      messageId: string | null;
+      nativeDeliverySequence: number;
+      wakeState?: WakeState;
+    };
 
 type ExecuteRunInput = {
   runId: string;
@@ -1159,6 +1188,12 @@ export class RunExecutionService {
     private readonly bashJobs?: BashJobRegistry,
     @Inject(RunWaitService)
     private readonly runWait?: RunWaitService,
+    @Optional()
+    @Inject(JobNoticeRunService)
+    private readonly jobNoticeRuns?: Pick<
+      JobNoticeRunService,
+      'startAfterRunCompletion'
+    >,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1266,32 +1301,108 @@ export class RunExecutionService {
     return settlement;
   }
 
-  async executeRun(
-    request: ExecuteRunInput,
-  ): Promise<ReturnType<ModelClient['streamText']>> {
-    // Agent tracing: every model call of this Chat joins one conversation,
-    // attributed to its owner's opaque id, on the job's isolation scope.
-    Sentry.setConversationId(request.chatId);
-    Sentry.setUser({ id: request.userId });
+  async completeCompactionRun(
+    input: CompactionCompletionInput,
+  ): Promise<FinishRunResult> {
+    return completeCompactionRun(input, {
+      transaction: (operation) => this.tenantDb.runAs(input.userId, operation),
+      retry: (work) => retryAbortedTransaction(work),
+      resolveDigest: (digestInput) => this.resolveCompactionDigest(digestInput),
+      publishCheckpoint: (tx, checkpointInput, digest) =>
+        this.publishCompactionCheckpoint(tx, checkpointInput, digest),
+      finish: (tx, finishInput) => this.finishRunInTransaction(tx, finishInput),
+      startIdleNotice: async (tx, noticeInput) => {
+        await this.jobNoticeRuns?.startAfterRunCompletion(tx, noticeInput);
+      },
+      dispatchPromoted: (job) =>
+        this.dispatchPromotedRun(this.runDispatch!, job),
+    });
+  }
 
-    const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
-      ? new AbortController()
-      : undefined;
+  private async resolveCompactionDigest(input: {
+    userId: string;
+    chatId: string;
+  }): Promise<{
+    shareRecentChats: ResolvedMemorySettings;
+    candidate: RecencyDigestResolution | null;
+  }> {
+    const shareRecentChats = await this.tenantDb.runAs(input.userId, (tx) =>
+      this.memory.getForOwnerForBinding(tx, input.userId),
+    );
 
-    const input = nativeAbort
-      ? {
-          ...request,
-          abortSignal: request.abortSignal
-            ? AbortSignal.any([request.abortSignal, nativeAbort.signal])
-            : nativeAbort.signal,
-        }
-      : request;
+    let candidate: RecencyDigestResolution | null = null;
 
-    // Claim before any context preparation can invoke a model. Pre-step
-    // compaction is part of this run's execution budget and cancellation
-    // lifecycle, not untracked pre-work. A cancel that won the worker pickup
-    // TOCTOU is settled atomically here without spending on either model.
-    const claim = await retryRunTransaction(() =>
+    if (shareRecentChats.shareRecentChats) {
+      try {
+        candidate = await this.recencyDigest.resolveCandidate(
+          input.userId,
+          input.chatId,
+        );
+      } catch {
+        this.logger.error('recency_digest_resolution_failed');
+      }
+    }
+
+    return { shareRecentChats, candidate };
+  }
+
+  private async publishCompactionCheckpoint(
+    tx: Db,
+    input: {
+      chatId: string;
+      userId: string;
+      summary: CompactionSummary | undefined;
+    },
+    digest: {
+      shareRecentChats: ResolvedMemorySettings;
+      candidate: RecencyDigestResolution | null;
+    },
+  ): Promise<void> {
+    const summary = input.summary;
+
+    if (summary === undefined) return;
+
+    const messages = new MessagesRepository(tx);
+
+    if (
+      (await messages.findCheckpointByBoundary(
+        input.chatId,
+        input.userId,
+        summary.uptoSeq,
+      )) !== undefined
+    ) {
+      return;
+    }
+
+    const chat = await new ChatsRepository(tx).touch(
+      input.chatId,
+      input.userId,
+    );
+
+    const checkpoint = await messages.createCheckpoint({
+      chatId: input.chatId,
+      absorbedThroughSeq: summary.uptoSeq,
+      part: createCompactionCheckpointPart(summary.summary),
+      usage: summary.usage,
+    });
+
+    if (
+      chat?.recencyDigestBaseline != null &&
+      digest.candidate !== null &&
+      digest.shareRecentChats.shareRecentChats
+    ) {
+      await new ChatsRepository(tx).setRecencyDigest({
+        chatId: input.chatId,
+        ownerUserId: input.userId,
+        baseline: digest.candidate.baseline,
+        told: [],
+        rebakedFrom: checkpoint.id,
+      });
+    }
+  }
+
+  async claimRun(input: RunClaimInput): Promise<RunClaimResult> {
+    return retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
         const runs = new RunsRepository(tx);
         const events = new RunEventsRepository(tx);
@@ -1304,12 +1415,12 @@ export class RunExecutionService {
             input.runId,
             input.userId,
             status,
-            input.expectedQueueIdentity
-              ? {
-                  error: { message },
-                  expectedQueueIdentity: input.expectedQueueIdentity,
-                }
-              : { error: { message } },
+            {
+              error: { message },
+              ...(input.expectedQueueIdentity !== undefined && {
+                expectedQueueIdentity: input.expectedQueueIdentity,
+              }),
+            },
           );
 
           return {
@@ -1358,8 +1469,6 @@ export class RunExecutionService {
           };
         }
 
-        // The claim is a touch (background-jobs D9): a job of this Chat whose
-        // worker died is `lost` before any model request of this Run.
         await new ChatJobsRepository(tx).settleOnDeadWorkers(
           input.chatId,
           input.userId,
@@ -1381,15 +1490,6 @@ export class RunExecutionService {
           };
         }
 
-        // The claim returns the persisted effort rather than setting an outer
-        // variable: it is read inside the transaction (the run row is the single
-        // source of truth for what this run executes at, not the queue payload)
-        // and can only be reached on the path that actually claimed the run.
-        // Deliberately never re-resolved or re-validated against current
-        // configuration — a level the operator has since withdrawn is still sent
-        // verbatim, and a run that stored none sends no provider option at all.
-        // The claim names its attempt, so the completeness check can tell the
-        // attempts of one segment from those of an earlier one by event order.
         const startedEvent = await events.append(input.runId, 'run.started', {
           attemptId: started.activeAttemptId,
         });
@@ -1418,21 +1518,49 @@ export class RunExecutionService {
             started.activeAttemptId!,
           );
 
-          if (wakeState === undefined)
+          if (wakeState === undefined) {
             throw new Error('The resumed Run has no complete wait checkpoint.');
+          }
         }
 
         return {
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
           attemptId: started.activeAttemptId!,
-          // The Run's current message: a retry resumes the segment it names.
           messageId: started.messageId,
           nativeDeliverySequence: startedEvent.sequence,
           wakeState,
         };
       }),
     );
+  }
+
+  async executeRun(
+    request: ExecuteRunInput,
+  ): Promise<ReturnType<ModelClient['streamText']>> {
+    // Agent tracing: every model call of this Chat joins one conversation,
+    // attributed to its owner's opaque id, on the job's isolation scope.
+    Sentry.setConversationId(request.chatId);
+    Sentry.setUser({ id: request.userId });
+
+    const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
+      ? new AbortController()
+      : undefined;
+
+    const input = nativeAbort
+      ? {
+          ...request,
+          abortSignal: request.abortSignal
+            ? AbortSignal.any([request.abortSignal, nativeAbort.signal])
+            : nativeAbort.signal,
+        }
+      : request;
+
+    // Claim before any context preparation can invoke a model. Pre-step
+    // compaction is part of this run's execution budget and cancellation
+    // lifecycle, not untracked pre-work. A cancel that won the worker pickup
+    // TOCTOU is settled atomically here without spending on either model.
+    const claim = await this.claimRun(input);
 
     if ('settledReply' in claim) {
       // A reply finalized in place keeps its creation time, so only the

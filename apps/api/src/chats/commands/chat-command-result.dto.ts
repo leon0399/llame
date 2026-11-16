@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-export class ChatCommandResultResponse {
+export class RenameChatCommandResultResponse {
   @ApiProperty({ enum: ['command'] })
   type!: 'command';
 
@@ -10,3 +10,18 @@ export class ChatCommandResultResponse {
   @ApiProperty({ description: 'The updated Chat title.' })
   title!: string;
 }
+
+export class CompactChatCommandResultResponse {
+  @ApiProperty({ enum: ['command'] })
+  type!: 'command';
+
+  @ApiProperty({ enum: ['compact'] })
+  command!: 'compact';
+
+  @ApiProperty({ description: 'The admitted compaction Run id.' })
+  runId!: string;
+}
+
+export type ChatCommandResultResponse =
+  | RenameChatCommandResultResponse
+  | CompactChatCommandResultResponse;

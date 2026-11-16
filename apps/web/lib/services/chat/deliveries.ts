@@ -114,13 +114,21 @@ export type DeliverySendResult =
   | { kind: "pending"; item: ChatDeliveryResponse }
   | { kind: "started" }
   | { kind: "success" }
-  | { kind: "command"; command: "rename"; title: string };
+  | { kind: "command"; command: "rename"; title: string }
+  | { kind: "command"; command: "compact"; runId: string };
 
-const commandResultSchema = z.object({
-  type: z.literal("command"),
-  command: z.literal("rename"),
-  title: z.string(),
-});
+const commandResultSchema = z.discriminatedUnion("command", [
+  z.object({
+    type: z.literal("command"),
+    command: z.literal("rename"),
+    title: z.string(),
+  }),
+  z.object({
+    type: z.literal("command"),
+    command: z.literal("compact"),
+    runId: z.string(),
+  }),
+]);
 
 const sendFailureSchema = z
   .object({ message: z.union([z.string(), z.array(z.string())]) })
@@ -176,9 +184,12 @@ async function interpretSendResponse(
     const result: unknown = await response.json();
     const command = commandResultSchema.safeParse(result);
 
-    return command.success
-      ? { kind: "command", command: "rename", title: command.data.title }
-      : { kind: "success" };
+    if (!command.success) return { kind: "success" };
+    const { data } = command;
+
+    return data.command === "rename"
+      ? { kind: "command", command: "rename", title: data.title }
+      : { kind: "command", command: "compact", runId: data.runId };
   }
 
   await response.body?.cancel();

@@ -15,6 +15,7 @@ import { MessagesRepository } from '../chats/messages-repository';
 import {
   buildCompactionRequest,
   normalizeCompactionSummary,
+  renderCompactionInstruction,
   requestFitsContextWindow,
   type CompactionPlan,
   type CompactionVariant,
@@ -142,6 +143,19 @@ export type CompactionSummaryRequest =
       readonly reservedOutputTokens: number | null;
       readonly abortSignal?: AbortSignal;
       readonly media?: RunMediaResolver;
+    }
+  | {
+      readonly variant: Extract<CompactionVariant, 'owner'>;
+      readonly chatId: string;
+      readonly userId: string;
+      readonly triggeringUserSeq: number;
+      readonly plan: CompactionPlan;
+      readonly client: ModelClient;
+      readonly system: string;
+      readonly effort?: string;
+      readonly reservedOutputTokens: number | null;
+      readonly abortSignal?: AbortSignal;
+      readonly media?: RunMediaResolver;
     };
 
 /**
@@ -191,9 +205,53 @@ export class CompactionService {
 
     const previous = checkpoint && toContextCheckpoint(checkpoint);
 
-    return input.variant === 'window'
-      ? this.summarizeWithSourceModel(input, previous)
+    if (input.variant === 'window') {
+      return this.summarizeWithSourceModel(input, previous);
+    }
+
+    return input.variant === 'owner'
+      ? this.summarizeOwner(input, previous)
       : this.summarizeWithAttemptModel(input, previous);
+  }
+  private async summarizeOwner(
+    input: Extract<CompactionSummaryRequest, { variant: 'owner' }>,
+    previous: ContextCheckpoint | undefined,
+  ): Promise<CompactionSummary> {
+    const request = buildCompactionRequest({
+      system: input.system,
+      modelId: input.client.model,
+      previous,
+      absorb: input.plan.absorb,
+      instruction: renderCompactionInstruction('owner'),
+    });
+
+    if (input.media !== undefined) {
+      mergeRetainedMedia(input.media.retainedMedia, request.retainedMedia);
+    }
+
+    const inference = await this.summarize({
+      client: input.client,
+      chatId: input.chatId,
+      system: request.system,
+      messages: request.messages,
+      toolDeclarations: [],
+      ...(input.effort !== undefined && { effort: input.effort }),
+      abortSignal: input.abortSignal,
+      media: input.media,
+      reservedOutputTokens: input.reservedOutputTokens,
+    });
+
+    if (inference.summary === null) {
+      throw new Error('Compaction summary returned no valid text summary.');
+    }
+
+    return this.toCheckpoint({
+      client: input.client,
+      effort: input.effort,
+      request: input,
+      summary: inference.summary,
+      inference,
+    });
   }
 
   /**

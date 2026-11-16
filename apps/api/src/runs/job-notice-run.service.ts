@@ -29,6 +29,8 @@ import { RunsRepository } from './runs-repository';
 import { RunWaitService } from './run-wait.service';
 import { type RunUserMessage } from './run-execution.service';
 
+type ChatOwner = Pick<ChatJob, 'chatId' | 'ownerUserId'>;
+
 @Injectable()
 export class JobNoticeRunService {
   constructor(
@@ -41,6 +43,26 @@ export class JobNoticeRunService {
     @Inject(RunWaitService)
     private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
+
+  async startAfterRunCompletion(tx: Db, owner: ChatOwner): Promise<void> {
+    const chat = await new ChatsRepository(tx).lock(
+      owner.chatId,
+      owner.ownerUserId,
+    );
+
+    if (chat === undefined || chat.archivedAt !== null) return;
+
+    const deliveries = new ChatDeliveriesRepository(tx);
+    const runs = new RunsRepository(tx);
+
+    const active = await runs.findActiveByChatId(
+      owner.chatId,
+      owner.ownerUserId,
+    );
+
+    if (active !== undefined) return;
+    await this.startNoticeRunForIdleChat(tx, owner, deliveries, runs);
+  }
 
   async startOnSettlement(tx: Db, job: ChatJob): Promise<void> {
     const waitingRunWoken = await this.runWait.wakeForChatInTransaction(tx, {
@@ -80,25 +102,25 @@ export class JobNoticeRunService {
   /** Start the first pending notice only after the latest Run completed. */
   private async startNoticeRunForIdleChat(
     tx: Db,
-    job: ChatJob,
+    owner: ChatOwner,
     deliveries: ChatDeliveriesRepository,
     runs: RunsRepository,
   ): Promise<void> {
     const latestRun = await runs.findLatestByChatId(
-      job.chatId,
-      job.ownerUserId,
+      owner.chatId,
+      owner.ownerUserId,
     );
 
     if (latestRun?.status !== 'completed') return;
 
     const first = await deliveries.lockFirstPendingJobNotice(
-      job.chatId,
-      job.ownerUserId,
+      owner.chatId,
+      owner.ownerUserId,
     );
 
     if (first === undefined) return;
 
-    await this.startHostRun(tx, job, first, deliveries);
+    await this.startHostRun(tx, owner, first, deliveries);
   }
 
   private async attachToQueuedHostRun(
@@ -143,7 +165,7 @@ export class JobNoticeRunService {
 
   private async startHostRun(
     tx: Db,
-    job: ChatJob,
+    owner: ChatOwner,
     first: ChatDelivery,
     deliveries: ChatDeliveriesRepository,
   ): Promise<void> {
@@ -155,14 +177,20 @@ export class JobNoticeRunService {
 
     if (resolved === undefined) return;
 
-    const runJob = await this.createHostRun(tx, job, {
+    const runJob = await this.createHostRun(tx, owner, {
       ...first.settings,
       effort: resolved.effort,
       permissionMode: resolved.permissionMode,
     });
 
-    await deliveries.deliverPendingJobNotices(job.chatId, job.ownerUserId, {
-      messageId: runJob.userMessage.id,
+    const userMessage = runJob.userMessage;
+
+    if (userMessage === undefined) {
+      throw new Error('Host Run has no user message');
+    }
+
+    await deliveries.deliverPendingJobNotices(owner.chatId, owner.ownerUserId, {
+      messageId: userMessage.id,
       runId: runJob.runId,
     });
 
@@ -171,12 +199,12 @@ export class JobNoticeRunService {
 
   private async createHostRun(
     tx: Db,
-    job: ChatJob,
+    owner: ChatOwner,
     settings: ChatDeliverySettings,
   ): Promise<RunJob & { userMessage: RunUserMessage }> {
     const message = await new MessagesRepository(tx).create({
       id: randomUUID(),
-      chatId: job.chatId,
+      chatId: owner.chatId,
       role: 'user',
       senderUserId: null,
       parts: [],
@@ -185,8 +213,8 @@ export class JobNoticeRunService {
     const { run } = await createRunForMessage(
       tx,
       {
-        userId: job.ownerUserId,
-        chatId: job.chatId,
+        userId: owner.ownerUserId,
+        chatId: owner.chatId,
         modelId: settings.modelId,
         effort: settings.effort,
         permissionMode: settings.permissionMode,
@@ -197,8 +225,8 @@ export class JobNoticeRunService {
 
     return {
       runId: run.id,
-      chatId: job.chatId,
-      userId: job.ownerUserId,
+      chatId: owner.chatId,
+      userId: owner.ownerUserId,
       modelId: settings.modelId,
       userMessage: toRunUserMessage(message),
     };

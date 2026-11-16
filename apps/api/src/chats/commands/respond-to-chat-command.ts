@@ -22,6 +22,11 @@ export async function respondToChatCommand(
     userId,
     command,
     parts: input.message.parts,
+    modelId: input.modelId,
+    ...(input.effort !== undefined && { effort: input.effort }),
+    ...(input.permissionMode !== undefined && {
+      permissionMode: input.permissionMode,
+    }),
   });
 
   if (!result) return false;

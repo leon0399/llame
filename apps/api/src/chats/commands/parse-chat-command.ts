@@ -1,6 +1,8 @@
 type MessagePart = { type: 'text'; text: string } | { type: 'file' };
 
-export type ChatCommand = { name: 'rename'; argument: string };
+export type ChatCommand =
+  | { name: 'rename'; argument: string }
+  | { name: 'compact'; argument: string };
 
 export function parseChatCommand(
   parts: ReadonlyArray<MessagePart>,
@@ -18,7 +20,7 @@ export function parseChatCommand(
   const separator = text.search(/\s/);
   const name = text.slice(1, separator === -1 ? undefined : separator);
 
-  if (name !== 'rename') return null;
+  if (name !== 'rename' && name !== 'compact') return null;
 
   return {
     name,

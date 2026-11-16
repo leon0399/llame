@@ -22,6 +22,7 @@ import {
   mediaOverflowCompacts,
   isPositiveFinite,
   planCompactionCheckpoint,
+  renderCompactionInstruction,
   requestFitsContextWindow,
   normalizeCompactionSummary,
   resolveCompactionThreshold,
@@ -1492,6 +1493,24 @@ describe('buildCompactionRequest', () => {
       'Redaction still wins inside a kept locator: a credential, token, or connection string in it still becomes `[REDACTED]`, so `https://example.test/a.png?token=secret` is kept as `https://example.test/a.png?token=[REDACTED]`.',
     );
     expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
+  });
+  it('keeps the automatic instruction unchanged and omits only the trigger sentence for an owner Run', () => {
+    const ownerInstruction = renderCompactionInstruction('owner');
+
+    const triggerSentence =
+      'The newer triggering user message follows that prefix and is not visible to you; it is replayed verbatim after the checkpoint, so do not quote it in "Latest Request".';
+
+    expect(renderCompactionInstruction('automatic')).toBe(
+      COMPACTION_INSTRUCTION,
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(triggerSentence);
+    expect(ownerInstruction).not.toContain(triggerSentence);
+    expect(ownerInstruction).toContain(
+      `Under "Latest Request", quote verbatim the owner's last unresolved ask within the summarized prefix.`,
+    );
+    expect(ownerInstruction).toContain(
+      'When the summarized prefix already contains a checkpoint, fold it by moving "Active" items to "Completed"',
+    );
   });
 
   it('gives the compaction model semantically relevant availability history to preserve', () => {

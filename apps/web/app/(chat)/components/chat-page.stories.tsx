@@ -3271,6 +3271,52 @@ export const RenameCommandShowsInline: Story = {
 };
 
 /**
+ * `/compact` on an idle Chat adds no message: the history read that follows
+ * names the compaction Run, and its row shows with Stop.
+ *
+ * @summary a compact command shows the compaction row
+ */
+export const CompactCommandShowsTheCompactionRow: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    let sent = false;
+    routeAlso({
+      [SEND_ROUTE]: () => {
+        sent = true;
+
+        return Promise.resolve(
+          jsonResponse({
+            type: "command",
+            command: "compact",
+            runId: COMPACTION_RUN_ID,
+          }),
+        );
+      },
+      [HISTORY_ROUTE]: () =>
+        Promise.resolve(
+          jsonResponse({
+            messages: HISTORY,
+            latestRun: sent ? compactionRun({ status: "running_model" }) : null,
+          }),
+        ),
+      [RESUME_ROUTE]: () => Promise.resolve(emptyResponse()),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/compact{Enter}");
+
+    await expect(await canvas.findByText("Compacting context…")).toBeVisible();
+    await expect(canvas.getByRole("button", { name: "Stop" })).toBeVisible();
+    await expect(
+      within(canvas.getByRole("log")).queryByText("/compact"),
+    ).toBeNull();
+    await expect(canvas.queryByText("Command completed.")).toBeNull();
+  },
+};
+
+/**
  * A failed slash-prefixed send restores its draft and shows the server's
  * message inline rather than the generic delivery toast.
  *

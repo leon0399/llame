@@ -27,8 +27,11 @@ import {
   fakeResolver,
   pdfDescriptor,
 } from '../media/media-fixtures';
-import type { CompactionPlan } from './compaction';
-import { COMPACTION_INSTRUCTION } from './compaction';
+import {
+  COMPACTION_INSTRUCTION,
+  renderCompactionInstruction,
+  type CompactionPlan,
+} from './compaction';
 import { CompactionService, toStoredMessages } from './compaction.service';
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -827,6 +830,68 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
         abortSignal: controller.signal,
       }),
     ).rejects.toBe(aborted);
+  });
+});
+
+describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses the Run model, stored prompt, effort, no tools, and owner instruction', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    mockReads({ previous: previousCheckpoint });
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'owner',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      client,
+      system: 'stored source prompt',
+      effort: 'high',
+      reservedOutputTokens: 10,
+    });
+
+    expect(summary?.summary).toBe('summary text');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      system: 'stored source prompt',
+      effort: 'high',
+      toolChoice: 'none',
+    });
+    expect(calls[0]?.tools).toBeUndefined();
+    expect(calls[0]?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: renderCompactionInstruction('owner'),
+    });
+    expect(calls[0]?.messages.at(-1)?.content).not.toContain(
+      'newer triggering user message',
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(
+      'The newer triggering user message follows that prefix',
+    );
+  });
+
+  it('fails an owner Run when the summary is empty', async () => {
+    const { client } = recordingClient({ responses: [''] });
+    const setup = makeService(client);
+    mockReads();
+
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'owner',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        client,
+        system: '',
+        reservedOutputTokens: 10,
+      }),
+    ).rejects.toThrow('Compaction summary returned no valid text summary.');
   });
 });
 
