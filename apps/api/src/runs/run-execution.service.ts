@@ -6987,67 +6987,70 @@ export class RunExecutionService {
       }
     }
 
-    await this.tenantDb.runAs(input.run.userId, async (tx) => {
-      // A reclaimed or terminated attempt must not move epoch state under the
-      // live one. The write fence locks the non-terminal runs row for this
-      // attempt, so it serializes with a reclaim's `markStarted`. It runs
-      // first, before any chats lock, in the terminal transaction's order
-      // (runs, then chats), so a replacement attempt finishing concurrently
-      // waits on this transaction instead of deadlocking with it.
-      const fenced = await new RunsRepository(tx).updateForAttempt(
-        input.run.runId,
-        input.run.userId,
-        input.attemptId,
-        { activeAttemptId: input.attemptId },
+    await this.tenantDb.runAs(input.run.userId, (tx) =>
+      this.publishCheckpointInTransaction(tx, { ...input, digestCandidate }),
+    );
+  }
+
+  private async publishCheckpointInTransaction(
+    tx: Db,
+    input: {
+      run: ExecuteRunInput;
+      attemptId: string;
+      summary: CompactionSummary;
+      model: SystemModelCatalogEntry;
+      workspaceRoot: string | undefined;
+      digestCandidate: RecencyDigestResolution | null;
+    },
+  ): Promise<void> {
+    const fenced = await new RunsRepository(tx).updateForAttempt(
+      input.run.runId,
+      input.run.userId,
+      input.attemptId,
+      { activeAttemptId: input.attemptId },
+    );
+
+    if (!fenced) {
+      throw new ModelContextExecutionError(
+        `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
       );
+    }
 
-      if (!fenced) {
-        throw new ModelContextExecutionError(
-          `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
-        );
-      }
+    const messagesRepo = new MessagesRepository(tx);
+    const chatsRepo = new ChatsRepository(tx);
+    const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
 
-      const messagesRepo = new MessagesRepository(tx);
-      const chatsRepo = new ChatsRepository(tx);
-      // Chats before memory, matching the chat loop, which locks the chats row
-      // in `touch` and only then takes `FOR SHARE` on memory settings.
-      const chat = await chatsRepo.touch(input.run.chatId, input.run.userId);
+    const shareRecentChats = await this.memory.getForOwnerForBinding(
+      tx,
+      input.run.userId,
+    );
 
-      const shareRecentChats = await this.memory.getForOwnerForBinding(
-        tx,
+    if (
+      (await messagesRepo.findCheckpointByBoundary(
+        input.run.chatId,
         input.run.userId,
-      );
+        input.summary.uptoSeq,
+      )) !== undefined
+    ) {
+      return;
+    }
 
-      // Every publication of this chat takes the row lock above first, so this
-      // read is the race verdict: a surviving row means another attempt already
-      // published this boundary and re-baked the epoch for it.
-      if (
-        (await messagesRepo.findCheckpointByBoundary(
-          input.run.chatId,
-          input.run.userId,
-          input.summary.uptoSeq,
-        )) !== undefined
-      ) {
-        return;
-      }
+    const checkpoint = await messagesRepo.createCheckpoint({
+      chatId: input.run.chatId,
+      absorbedThroughSeq: input.summary.uptoSeq,
+      part: createCompactionCheckpointPart(input.summary.summary),
+      usage: input.summary.usage,
+    });
 
-      const checkpoint = await messagesRepo.createCheckpoint({
-        chatId: input.run.chatId,
-        absorbedThroughSeq: input.summary.uptoSeq,
-        part: createCompactionCheckpointPart(input.summary.summary),
-        usage: input.summary.usage,
-      });
-
-      await this.rebakeCheckpointEpoch({
-        tx,
-        run: input.run,
-        chat,
-        checkpointId: checkpoint.id,
-        model: input.model,
-        workspaceRoot: input.workspaceRoot,
-        shareRecentChats,
-        digestCandidate,
-      });
+    await this.rebakeCheckpointEpoch({
+      tx,
+      run: input.run,
+      chat,
+      checkpointId: checkpoint.id,
+      model: input.model,
+      workspaceRoot: input.workspaceRoot,
+      shareRecentChats,
+      digestCandidate: input.digestCandidate,
     });
   }
 
