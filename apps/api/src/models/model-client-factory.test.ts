@@ -65,7 +65,11 @@ async function request(
   overrides: Partial<
     Pick<
       SystemModelCatalogEntry,
-      'wire' | 'providerModelId' | 'maxOutputTokens' | 'providerOptions'
+      | 'wire'
+      | 'providerModelId'
+      | 'maxOutputTokens'
+      | 'providerOptions'
+      | 'reasoning'
     >
   > = {},
 ) {
@@ -117,6 +121,7 @@ describe('account routing through real SDK clients', () => {
 
     expect(sent?.body).toMatchObject({ max_tokens: 256 });
     expect(sent?.body).not.toHaveProperty('cache_control');
+    expect(sent?.body).not.toHaveProperty('thinking');
   });
 
   it('applies Go Responses options without relaxing storage invariants', async () => {
@@ -134,6 +139,22 @@ describe('account routing through real SDK clients', () => {
       store: false,
       reasoning: { summary: 'concise' },
     });
+  });
+
+  it('enables adaptive thinking for a declared Go Messages reasoning model', async () => {
+    const sent = await request(
+      { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
+      {
+        providerModelId: 'claude-sonnet-4-6',
+        reasoning: {
+          effortLevels: [{ value: 'high' }],
+          defaultEffort: 'high',
+          cacheInvalidatedByEffortChange: true,
+        },
+      },
+    );
+
+    expect(sent?.body).toMatchObject({ thinking: { type: 'adaptive' } });
   });
 
   it.each([

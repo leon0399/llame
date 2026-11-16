@@ -91,11 +91,13 @@ describe('account-level providers', () => {
 
   it.each([
     ['claude-sonnet-4-6', 'anthropic-messages'],
+    ['union-alpha', 'anthropic-messages'],
     ['gpt-5.4', 'openai-responses'],
     ['glm-5.3-flash', 'openai-completions'],
     ['deepseek-v4-flash', 'openai-responses'],
     ['qwen3.6-plus', 'openai-completions'],
     ['qwen3.8-max', 'anthropic-messages'],
+    ['qwen3.6-plus-preview', 'anthropic-messages'],
   ])(
     'selects the Go route for %s without another account',
     (providerModelId, wire) => {
@@ -107,6 +109,100 @@ describe('account-level providers', () => {
       expect(config.models[0]).toMatchObject({ wire, billing: 'subscription' });
     },
   );
+
+  it.each(['proxy-gpt-5.4', 'proxy-glm-5', 'proxy-qwen3.6-plus'])(
+    'does not infer a family from an interior substring in %s',
+    (providerModelId) => {
+      expect(() =>
+        load({
+          providers: [{ ...account, type: 'opencode-go' }],
+          models: [{ ...chat, providerModelId }],
+        }),
+      ).toThrow('models[chat].wire');
+    },
+  );
+
+  it('keeps Go-only route pins out of Zen while sharing its decision account', () => {
+    const config = load({
+      providers: [{ ...account, type: 'opencode-zen' }],
+      models: [
+        { ...chat, id: 'deepseek', providerModelId: 'deepseek-v4-flash' },
+        { ...chat, id: 'qwen', providerModelId: 'qwen3.6-plus' },
+      ],
+      decisionModels: [{ id: 'decision', provider: 'account', model: 'jev' }],
+    });
+
+    expect(config.models.map((model) => model.wire)).toEqual([
+      'openai-completions',
+      'anthropic-messages',
+    ]);
+    expect(config.decisionModels?.[0]?.wire).toBe('system-one');
+    expect(config.providers.map(decisionEndpoint)).toEqual([
+      'https://opencode.ai/zen/v1/systemone',
+    ]);
+  });
+
+  it.each(['opencode-go', 'opencode-zen'])(
+    'rejects unsupported embedding placement on %s even with an explicit wire',
+    (type) => {
+      expect(() =>
+        load({
+          providers: [{ ...account, type }],
+          embeddingModels: [
+            {
+              id: 'embed',
+              provider: 'account',
+              providerModelId: 'embed',
+              dimensions: 2,
+              wire: 'openai-embeddings',
+            },
+          ],
+        }),
+      ).toThrow('embeddingModels[embed].wire');
+    },
+  );
+
+  it('rejects a Go decision override instead of spending a subscription credential on another kind', () => {
+    expect(() =>
+      load({
+        providers: [{ ...account, type: 'opencode-go' }],
+        decisionModels: [
+          {
+            id: 'decision',
+            provider: 'account',
+            model: 'jev',
+            wire: 'system-one',
+          },
+        ],
+      }),
+    ).toThrow('decisionModels[0].wire');
+  });
+
+  it.each([undefined, '', '   '])(
+    'rejects a decision account without a usable key (%s)',
+    (key) => {
+      expect(() =>
+        load({
+          providers: [{ ...account, key }],
+          decisionModels: [
+            { id: 'decision', provider: 'account', model: 'jev' },
+          ],
+        }),
+      ).toThrow('decisionModels[0].wire');
+    },
+  );
+
+  it('inherits vendor billing while allowing a model-specific billing choice', () => {
+    const config = load({
+      providers: [{ ...account, billing: 'subscription' }],
+      models: [chat, { ...chat, id: 'usage', billing: 'usage' }],
+    });
+
+    expect(config.models.map((model) => model.billing)).toEqual([
+      'subscription',
+      'usage',
+    ]);
+  });
 
   it('requires an explicit wire for an unknown Go family', () => {
     const raw = {

@@ -23,13 +23,25 @@ it('embeds through the shared OpenRouter account instead of the OpenAI default',
     JSON.stringify({
       providers: [
         {
+          id: 'other-account',
+          type: 'openai',
+          key: 'other-key',
+          baseUrl: 'https://other.example/v1',
+        },
+        {
           id: 'account',
           type: 'openrouter',
           key: '{env:EVAL_PROVIDER_KEY}',
-          headers: { 'X-Tenant': 'tenant' },
+          headers: { 'X-Tenant': 'tenant', Authorization: '' },
         },
       ],
       embeddingModels: [
+        {
+          id: 'other-embedding',
+          provider: 'other-account',
+          providerModelId: 'other',
+          dimensions: 2,
+        },
         {
           id: 'embed',
           provider: 'account',
