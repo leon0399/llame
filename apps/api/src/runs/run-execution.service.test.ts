@@ -957,6 +957,26 @@ function mockNormalExecutionRepositories() {
   };
 }
 
+function mockCompactionCompletionFence(execution: { db: Db }, fenced: Run) {
+  const responses = [[fenced], [fenced]];
+  let queryIndex = 0;
+
+  const select = vi.fn(() => {
+    const rows = responses[queryIndex++] ?? [];
+
+    return {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue(rows),
+          for: vi.fn().mockResolvedValue(rows),
+        })),
+      })),
+    };
+  });
+
+  Object.assign(execution.db, asDouble<Pick<Db, 'select'>>({ select }));
+}
+
 /** The two rows of the committed turn a checkpoint absorbs, in seq order. */
 const committedTurnUserId = '1a1a1a1a-1a1a-4a1a-8a1a-1a1a1a1a1a1a1a';
 const committedTurnReplyId = '2b2b2b2b-2b2b-4b2b-8b2b-2b2b2b2b2b2b';
@@ -23688,6 +23708,8 @@ describe('RunExecutionService compaction completion', () => {
 
       const execution = makeExecutionService();
 
+      mockCompactionCompletionFence(execution, fenced);
+
       const result = await execution.service.completeCompactionRun({
         runId,
         chatId,
@@ -23695,6 +23717,7 @@ describe('RunExecutionService compaction completion', () => {
         attemptId: testAttemptId,
         summary: undefined,
         abortSignal: new AbortController().signal,
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       });
 
       expect(result.outcome).toBe('won');
@@ -23717,6 +23740,12 @@ describe('RunExecutionService compaction completion', () => {
     });
     const execution = makeExecutionService();
 
+    mockCompactionCompletionFence(execution, {
+      ...run,
+      kind: 'compaction',
+      messageId: null,
+    });
+
     const result = await execution.service.completeCompactionRun({
       runId,
       chatId,
@@ -23724,6 +23753,7 @@ describe('RunExecutionService compaction completion', () => {
       attemptId: testAttemptId,
       summary: undefined,
       abortSignal: abort.signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
     });
 
     expect(result.outcome).toBe('won');
@@ -23739,7 +23769,7 @@ describe('RunExecutionService compaction completion', () => {
     vi.spyOn(
       MessagesRepository.prototype,
       'findCheckpointByBoundary',
-    ).mockResolvedValue(assistantMessage);
+    ).mockResolvedValue({ ...assistantMessage, absorbedThroughSeq: 1 });
 
     const createCheckpoint = vi.spyOn(
       MessagesRepository.prototype,
@@ -23748,6 +23778,12 @@ describe('RunExecutionService compaction completion', () => {
 
     const execution = makeExecutionService();
 
+    mockCompactionCompletionFence(execution, {
+      ...run,
+      kind: 'compaction',
+      messageId: null,
+    });
+
     await execution.service.completeCompactionRun({
       runId,
       chatId,
@@ -23755,6 +23791,7 @@ describe('RunExecutionService compaction completion', () => {
       attemptId: testAttemptId,
       summary: { uptoSeq: 1, summary: 'summary', usage: null },
       abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
     });
 
     expect(createCheckpoint).not.toHaveBeenCalled();

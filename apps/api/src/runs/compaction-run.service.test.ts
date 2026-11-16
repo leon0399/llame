@@ -1,4 +1,7 @@
-import type { Message } from '../db/schema';
+import {
+  RUN_TIMEOUT_ABORT_REASON,
+  type RunExecutionService,
+} from './run-execution.service';
 import type { Db, TenantDbService } from '../db/tenant-db.service';
 import type {
   CompactionService,
@@ -9,8 +12,9 @@ import type { InstanceConfigReader } from '../instance-config/instance-config.se
 import { asDouble } from '../testing/support';
 import type { ModelClient } from '../models/model-client';
 import { CompactionRunService } from './compaction-run.service';
-import type { RunExecutionService } from './run-execution.service';
 import type { RunJob } from './run-queues';
+
+import type { Message } from '../db/schema/chats';
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const userId = 'owner-1';
@@ -187,6 +191,28 @@ describe('CompactionRunService.execute', () => {
     );
   });
 
+  it('omits absent effort from the owner summary request', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+    const made = makeService();
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    expect(made.summarizeCheckpoint.mock.calls[0]?.[0]).not.toHaveProperty(
+      'effort',
+    );
+  });
+
   it('marks the Run failed when summary generation fails', async () => {
     vi.spyOn(
       MessagesRepository.prototype,
@@ -261,14 +287,79 @@ describe('CompactionRunService.execute', () => {
 
     await made.service.execute(job, modelClient, abort.signal, queueIdentity);
 
-    expect(made.settleTerminalRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        runId: job.runId,
-        status: 'cancelled',
-        attemptId: 'attempt-1',
-        expectedQueueIdentity: queueIdentity,
-      }),
-    );
+    expect(made.settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId,
+      status: 'cancelled',
+      attemptId: 'attempt-1',
+      expectedQueueIdentity: queueIdentity,
+      runPayload: { status: 'cancelled', message: 'Run was cancelled.' },
+      error: { message: 'Run was cancelled.' },
+    });
     expect(made.completeCompactionRun).not.toHaveBeenCalled();
   });
+
+  it('settles a summary timeout with the exact expiry message and fences', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+    const abort = new AbortController();
+    const made = makeService({ summarizeError: new Error('aborted') });
+    abort.abort(RUN_TIMEOUT_ABORT_REASON);
+
+    await made.service.execute(job, modelClient, abort.signal, queueIdentity);
+
+    expect(made.settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId,
+      status: 'expired',
+      attemptId: 'attempt-1',
+      expectedQueueIdentity: queueIdentity,
+      runPayload: {
+        status: 'expired',
+        message: 'Run timed out: exceeded its wall-clock budget.',
+      },
+      error: { message: 'Run timed out: exceeded its wall-clock budget.' },
+    });
+    expect(made.completeCompactionRun).not.toHaveBeenCalled();
+  });
+
+  it.each(['plan', 'completeCompactionRun'] as const)(
+    'rethrows a non-abort failure from %s without terminal settlement',
+    async (failureAt) => {
+      const error = new Error(`${failureAt} failed`);
+      const made = makeService();
+
+      if (failureAt === 'plan') {
+        vi.spyOn(
+          MessagesRepository.prototype,
+          'findActiveCheckpoint',
+        ).mockRejectedValue(error);
+      } else {
+        vi.spyOn(
+          MessagesRepository.prototype,
+          'findActiveCheckpoint',
+        ).mockResolvedValue(undefined);
+        vi.spyOn(
+          MessagesRepository.prototype,
+          'findByChatId',
+        ).mockResolvedValue([]);
+        made.completeCompactionRun.mockRejectedValue(error);
+      }
+
+      await expect(
+        made.service.execute(
+          job,
+          modelClient,
+          new AbortController().signal,
+          queueIdentity,
+        ),
+      ).rejects.toBe(error);
+      expect(made.settleTerminalRun).not.toHaveBeenCalled();
+    },
+  );
 });

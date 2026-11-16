@@ -948,7 +948,7 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
   it('fails with context-incompatible when no source Run can fit a non-fitting owner request', async () => {
     const { client, calls } = recordingClient({ contextWindowTokens: 1 });
     const setup = makeService(client);
-    mockReads();
+    const reads = mockReads();
 
     await expect(
       setup.service.summarizeCheckpoint({
@@ -964,6 +964,7 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
     ).rejects.toBeInstanceOf(ContextIncompatibleError);
 
     expect(calls).toHaveLength(0);
+    expect(reads.findRun).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1034,6 +1035,32 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
     const sent = sentImages(models);
     expect(sent.files).toEqual(['image/png']);
     expect(sent.text).toContain(`Image 1 (media://${imageId}):`);
+  });
+
+  it('keeps owner attachments in the context-sized summary request', async () => {
+    const models = new ScriptedModelsService();
+    models.register('vision', { kind: 'complete', text: 'summary text' });
+    models.registerInput('vision', ['text', 'image']);
+
+    const client = models.createClient('vision');
+
+    const setup = makeService(client);
+    mockReads();
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'owner',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 4,
+      plan: attachmentPlan(),
+      previousCheckpoint: undefined,
+      reservedOutputTokens: 10,
+      client,
+      media,
+    });
+
+    expect(summary).toMatchObject({ summary: 'summary text' });
+    expect(sentImages(models).files).toEqual(['image/png']);
   });
 
   it('gives a text-only source model the omitted placeholder and no image part', async () => {

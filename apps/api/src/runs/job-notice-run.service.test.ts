@@ -1,7 +1,12 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { ChatsRepository } from '../chats/chats-repository';
-import { type ChatJob } from '../db/schema';
+import {
+  ChatDeliveriesRepository,
+  type ChatDeliveryView,
+} from '../chats/chat-deliveries.repository';
+import { type Chat, type ChatJob } from '../db/schema';
+import { RunsRepository } from './runs-repository';
 
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { type ModelSelectionValidator } from '../models/models.service';
@@ -112,4 +117,91 @@ describe('JobNoticeRunService.startOnSettlement', () => {
       expect(enqueue).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('JobNoticeRunService.startAfterRunCompletion', () => {
+  it('does not inspect pending notices for an archived Chat', async () => {
+    const tx = drizzle.mock();
+    const { run, enqueue } = service(false);
+
+    const lock = vi
+      .spyOn(ChatsRepository.prototype, 'lock')
+      .mockResolvedValue(
+        asDouble<Chat>({ archivedAt: new Date('2026-11-12T12:00:00.000Z') }),
+      );
+
+    const listPending = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPendingViews',
+    );
+
+    await run.startAfterRunCompletion(tx, {
+      chatId: CHAT_ID,
+      ownerUserId: OWNER_ID,
+    });
+
+    expect(lock).toHaveBeenCalledWith(CHAT_ID, OWNER_ID);
+    expect(listPending).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('does not start a Run for pending canceled or lost job notices', async () => {
+    const tx = drizzle.mock();
+    const { run, enqueue } = service(false);
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
+      asDouble<Chat>({ archivedAt: null }),
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPendingViews',
+    ).mockResolvedValue([
+      asDouble<ChatDeliveryView>({ job: null }),
+      asDouble<ChatDeliveryView>({
+        job: { executor: 'bash', seq: 4, state: 'cancelled' },
+      }),
+      asDouble<ChatDeliveryView>({
+        job: { executor: 'bash', seq: 5, state: 'lost' },
+      }),
+    ]);
+
+    const findLatest = vi.spyOn(RunsRepository.prototype, 'findLatestByChatId');
+
+    await run.startAfterRunCompletion(tx, {
+      chatId: CHAT_ID,
+      ownerUserId: OWNER_ID,
+    });
+
+    expect(findLatest).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it('does not create a host Run when no completed Run can start one', async () => {
+    const tx = drizzle.mock();
+    const { run, enqueue } = service(false);
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
+      asDouble<Chat>({ archivedAt: null }),
+    );
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPendingViews',
+    ).mockResolvedValue([
+      asDouble<ChatDeliveryView>({
+        job: { executor: 'bash', seq: 4, state: 'succeeded' },
+      }),
+    ]);
+
+    const findLatest = vi
+      .spyOn(RunsRepository.prototype, 'findLatestByChatId')
+      .mockResolvedValue(undefined);
+
+    await run.startAfterRunCompletion(tx, {
+      chatId: CHAT_ID,
+      ownerUserId: OWNER_ID,
+    });
+
+    expect(findLatest).toHaveBeenCalledWith(CHAT_ID, OWNER_ID);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
 });

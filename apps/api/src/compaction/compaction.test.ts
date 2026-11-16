@@ -135,6 +135,17 @@ describe('target request preflight', () => {
     expect(withTools).toBeGreaterThan(base);
   });
 
+  it('treats an absent prompt as the same empty prompt used for estimation', () => {
+    const shared = {
+      messages: [],
+      toolDeclarations: [],
+    };
+
+    expect(estimateModelRequestTokens(shared)).toBe(
+      estimateModelRequestTokens({ ...shared, system: '' }),
+    );
+  });
+
   it('reserves configured output tokens and treats null as zero', () => {
     const request = {
       system: 'S'.repeat(200),
@@ -1871,6 +1882,17 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
     const last = request.messages.at(-1);
     expect(last?.role).toBe('user');
     expect(JSON.stringify(last)).toContain('<user_personalization>');
+  });
+
+  it('omits the system channel when no run prompt was supplied', () => {
+    const request = buildCompactionRequest({
+      modelId: 'test-model',
+      previous: undefined,
+      absorb: [msg('hello')],
+    });
+
+    expect(request).not.toHaveProperty('system');
+    expect(request.messages[0]?.role).toBe('user');
   });
 });
 
