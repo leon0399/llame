@@ -302,6 +302,32 @@ describe('compaction checkpoint producer', () => {
     }
   });
 
+  it('rejects malformed summary metadata with a stable error', () => {
+    const valid = createCompactionCheckpointPart('Summary only.');
+
+    const payloads: Array<unknown> = [
+      {},
+      { v: 1, summary: 1 },
+      { v: 1, summary: '   ' },
+      { v: 1, summary: 'Summary only.', focus: 'unexpected' },
+      { v: 3, summary: 'Summary only.' },
+      { v: 2, summary: 'Summary only.', focus: 4 },
+      { v: 2, summary: 'Summary only.', focus: '   ' },
+      { v: 2, summary: 'Summary only.', focus: 'migration', extra: true },
+    ];
+
+    for (const payload of payloads) {
+      const part = {
+        ...valid,
+        data: { ...valid.data, payload },
+      };
+
+      expect(() => checkpointPayload(row([part]))).toThrow(
+        'Checkpoint checkpoint-1 has invalid summary metadata.',
+      );
+    }
+  });
+
   it('fails closed for missing, empty, duplicate, or wrong checkpoint parts', () => {
     const part = createCompactionCheckpointPart('summary');
 

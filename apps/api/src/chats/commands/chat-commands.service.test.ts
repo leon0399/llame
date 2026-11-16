@@ -57,9 +57,9 @@ function makeService() {
     .spyOn(MessagesRepository.prototype, 'findActiveCheckpoint')
     .mockResolvedValue(undefined);
 
-  vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
-    undefined,
-  );
+  const activeRunLookup = vi
+    .spyOn(RunsRepository.prototype, 'findActiveByChatId')
+    .mockResolvedValue(undefined);
 
   const createdRun = asDouble<Run>({
     id: 'run-1',
@@ -119,6 +119,7 @@ function makeService() {
     checkpoint,
     createRun,
     append,
+    activeRunLookup,
     dispatch,
     validateModelSelection,
     runAs,
@@ -297,6 +298,32 @@ describe('ChatCommandsService', () => {
         command: { name: 'compact', argument: '' },
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(createRun).not.toHaveBeenCalled();
+    expect(dispatch.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses compaction while another live Run holds the Chat slot', async () => {
+    const { service, createRun, dispatch, activeRunLookup } = makeService();
+
+    const blocker = asDouble<Run>({
+      id: 'active-run',
+      kind: 'turn',
+      currentJobId: 'active-job',
+    });
+
+    activeRunLookup.mockResolvedValue(blocker);
+
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).rejects.toMatchObject({
+      message: 'Wait for the current Run to finish.',
+    });
+    expect(activeRunLookup).toHaveBeenCalledTimes(2);
     expect(createRun).not.toHaveBeenCalled();
     expect(dispatch.dispatch).not.toHaveBeenCalled();
   });
