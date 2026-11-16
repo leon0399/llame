@@ -147,7 +147,7 @@ export type CompactionSummaryRequest =
       /** The exact committed prefix boundary, equal to the closed reply seq. */
       readonly uptoSeq: number;
       readonly plan: CompactionPlan;
-      /** The freshly projected parts of the reply, not its stale stored row. */
+      /** The live prefix through the newly projected closing reply. */
       readonly closedReply: ReadonlyArray<ModelMessage>;
       readonly client: ModelClient;
       readonly system: string;
@@ -356,7 +356,7 @@ export class CompactionService {
     });
 
     if (input.variant === 'boundary') {
-      request.messages.splice(-1, 0, ...input.closedReply);
+      request.messages = [...input.closedReply, ...request.messages.slice(-1)];
     }
 
     // The prefix's retained bytes live in its rows: the summarizer projects
@@ -642,11 +642,7 @@ export class CompactionService {
   }
 }
 
-/**
- * The narrow capability `RunExecutionService` needs (#268) — narrower than
- * the whole service. A test double implements exactly this one method, never a
- * partial `CompactionService` cast.
- */
+/** The narrow `RunExecutionService` capability; tests implement this API directly. */
 export type CompactionCapability = Pick<
   CompactionService,
   'summarizeCheckpoint'

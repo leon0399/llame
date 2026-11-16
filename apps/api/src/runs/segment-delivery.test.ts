@@ -195,6 +195,10 @@ describe('deliverPendingSteering', () => {
       .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
       .mockResolvedValue(has('stored') ? overrides.stored : deliveredMessage);
 
+    const createHost = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(deliveredMessage);
+
     const updateForAttempt = vi
       .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue(has('moved') ? overrides.moved : run);
@@ -253,6 +257,7 @@ describe('deliverPendingSteering', () => {
       lockPending,
       markDelivered,
       createUser,
+      createHost,
       updateForAttempt,
       append,
       updateReply,
@@ -278,6 +283,30 @@ describe('deliverPendingSteering', () => {
       ...extra,
     });
   }
+
+  it('delivers a late final-answer compact command to the next boundary', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact] });
+
+    const result = await deliver({ finalAnswer: true, stepBudgetUsed: 3 });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'compaction' });
+    expect(spies.markDelivered).not.toHaveBeenCalled();
+    expect(spies.createHost).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [] }),
+    );
+    expect(spies.updateForAttempt).toHaveBeenCalledWith(
+      runId,
+      userId,
+      attemptId,
+      expect.objectContaining({ messageId: deliveredMessage.id }),
+    );
+  });
 
   it('is fenced when the attempt no longer owns the Run', async () => {
     const spies = serve({ locked: undefined });

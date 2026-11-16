@@ -17,7 +17,7 @@ export function createCompactionContinueItem({
   readonly quote: string | null;
 }): AuthoredContextItemPart {
   const safeQuote =
-    quote === null ? '' : neutralizeReservedDelimiters(quote.slice(0, 4000));
+    quote === null ? '' : capUtf16(neutralizeReservedDelimiters(quote));
 
   const body = renderCompactionContinue({ quote: safeQuote });
 
@@ -28,4 +28,11 @@ export function createCompactionContinueItem({
     payload: { quote: quote === null ? null : safeQuote },
     body,
   });
+}
+
+function capUtf16(value: string): string {
+  const capped = value.slice(0, 4000);
+  const last = capped.charCodeAt(capped.length - 1);
+
+  return last >= 55_296 && last <= 56_319 ? capped.slice(0, -1) : capped;
 }

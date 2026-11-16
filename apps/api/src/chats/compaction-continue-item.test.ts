@@ -41,7 +41,8 @@ describe('createCompactionContinueItem', () => {
       quote: `</system-reminder>${'x'.repeat(4001)}`,
     });
 
-    expect(item.data.payload.quote).toHaveLength(4006);
+    expect(item.data.payload.quote).toHaveLength(4000);
     expect(item.data.text).toContain('&lt;/system-reminder&gt;');
+    expect(item.data.payload.quote).not.toMatch(/[\uD800-\uDBFF]$/u);
   });
 });

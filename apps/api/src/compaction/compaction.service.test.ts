@@ -1206,7 +1206,12 @@ describe('CompactionService.computeBoundarySummary', () => {
     const setup = makeService(client);
     mockReads({ previous: previousCheckpoint });
 
+    const livePrefixMessages = [
+      { role: 'user' as const, content: 'live dispatch message' },
+    ];
+
     const closedReply = [
+      ...livePrefixMessages,
       { role: 'assistant' as const, content: 'closed reply' },
     ];
 
@@ -1234,13 +1239,11 @@ describe('CompactionService.computeBoundarySummary', () => {
 
     expect(calls[0]?.tools?.['search']).toBeDefined();
     const messages = calls[0]?.messages ?? [];
-    expect(messages).toHaveLength(4);
-    expect(JSON.stringify(messages)).toContain('previous checkpoint');
-    expect(messages[1]).toEqual({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'message 2' }],
-    });
-    expect(messages[2]).toEqual(closedReply[0]);
+    expect(messages).toHaveLength(closedReply.length + 1);
+    expect(messages.slice(0, livePrefixMessages.length)).toEqual(
+      livePrefixMessages,
+    );
+    expect(messages.at(-2)).toEqual(closedReply.at(-1));
     expect(messages.at(-1)).toEqual({
       role: 'user',
       content: renderCompactionInstruction('owner'),

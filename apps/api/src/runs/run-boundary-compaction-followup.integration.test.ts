@@ -13,7 +13,6 @@ import {
 } from '../testing/run-segments.test-fixture';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
-import { createCompactionContinueItem } from '../chats/compaction-continue-item';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -238,10 +237,7 @@ describe('step-boundary compaction follow-up', () => {
             summary: 'Persisted before the crash.',
             usage: {},
           },
-          continueItem: createCompactionContinueItem({
-            runId: seeded.runId,
-            quote: 'Retain the remaining steps.',
-          }),
+          quote: 'Retain the remaining steps.',
           stepBudgetUsed: 2,
           publishCheckpoint: async (tx, closedReply) =>
             (

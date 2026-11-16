@@ -39,13 +39,15 @@ export function HostJobNotices({ message }: { message: UIMessage }) {
 
   if (message.role !== "user" || !isHostMessageMetadata(metadata)) return null;
 
-  return message.parts.map((part, index) => {
-    if (isCompactionContinuePart(part)) {
-      return <CompactionContinuePart key={index} />;
-    }
+  return message.parts.map((part, index) => (
+    <HostNoticePart key={index} part={part} />
+  ));
+}
 
-    return isJobNoticePart(part) ? (
-      <JobNoticePart key={index} notice={part} />
-    ) : null;
-  });
+/** One host-authored notice a message part carries: a settled job or the
+ *  continue notice of a compaction; anything else renders nothing. */
+export function HostNoticePart({ part }: { part: unknown }) {
+  if (isCompactionContinuePart(part)) return <CompactionContinuePart />;
+
+  return isJobNoticePart(part) ? <JobNoticePart notice={part} /> : null;
 }

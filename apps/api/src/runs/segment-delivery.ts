@@ -143,10 +143,12 @@ export type DeliveryInput = {
    * They are written only when every delivered item is a steer.
    */
   baselines?: FirstEpochBaselines;
+  finalAnswer?: true;
+  stepBudgetUsed?: number;
   boundaryCompaction?: {
     ids: ReadonlyArray<string>;
     summary: CompactionSummary | null;
-    continueItem: MessagePart;
+    quote: string | null;
     stepBudgetUsed: number;
     finalAnswer?: true;
     publishCheckpoint: (tx: Db, reply: Message) => Promise<string>;
@@ -459,6 +461,10 @@ async function finishDelivery(
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<BoundaryDelivery> {
+  if (needsDeferredFinalCompaction(input, items)) {
+    return deliverDeferredFinalCompaction(tx, input, locked);
+  }
+
   const compactDelivery = await attemptCompactionDelivery(
     tx,
     input,
@@ -474,6 +480,46 @@ async function finishDelivery(
     compactDelivery ??
     finishOrdinaryDelivery({ tx, delivery: input, locked, items })
   );
+}
+
+function needsDeferredFinalCompaction(
+  input: DeliveryInput,
+  items: ReadonlyArray<ChatDelivery>,
+): boolean {
+  return (
+    input.finalAnswer === true &&
+    items.some(isCompactCommand) &&
+    (input.boundaryCompaction === undefined ||
+      !items.some(
+        (item) =>
+          isCompactCommand(item) &&
+          input.boundaryCompaction?.ids.includes(item.id),
+      ))
+  );
+}
+
+async function deliverDeferredFinalCompaction(
+  tx: Db,
+  input: DeliveryInput,
+  locked: Run,
+): Promise<BoundaryDelivery> {
+  const cause: DeliveryCause = 'compaction';
+
+  const { closedReply, message } = await closeSegmentAndStore(tx, input, {
+    locked,
+    cause,
+    items: [],
+  });
+
+  const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
+    items: [],
+    message,
+    cause,
+    stoppedCalls: [],
+    stepBudgetUsed: input.stepBudgetUsed ?? 0,
+  });
+
+  return { kind: 'delivered', closedReply, message, attemptId, cause };
 }
 
 async function finishFailedCompaction(input: {

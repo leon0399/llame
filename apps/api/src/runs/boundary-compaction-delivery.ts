@@ -1,7 +1,8 @@
 import { isRecord } from '@workspace/runtime-safety';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { parseChatCommand } from '../chats/commands/parse-chat-command';
-import type { MessagePart } from '../chats/context-builder';
+import { partsToText, type MessagePart } from '../chats/context-builder';
+import { createCompactionContinueItem } from '../chats/compaction-continue-item';
 import type { ChatDelivery, Message, Run } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import type {
@@ -124,13 +125,13 @@ export async function deliverCompactionItems(input: {
 
   if (compaction === undefined) return undefined;
 
+  if (!hasLockedOriginal(input.items, compaction.ids)) return undefined;
+
   const commandItems = input.items.filter(
     (item) =>
       isCompactCommand(item) &&
       (compaction.finalAnswer === true || compaction.ids.includes(item.id)),
   );
-
-  if (commandItems.length === 0) return undefined;
 
   if (compaction.summary === null) {
     await settleFailedCompaction(
@@ -157,17 +158,42 @@ export async function deliverCompactionItems(input: {
   });
 }
 
+function hasLockedOriginal(
+  items: ReadonlyArray<ChatDelivery>,
+  ids: ReadonlyArray<string>,
+): boolean {
+  return items.some((item) => isCompactCommand(item) && ids.includes(item.id));
+}
+
+function createContinueItem(input: FinishCompactionDeliveryInput): MessagePart {
+  const newestOwnerMessage = input.messageItems.findLast(
+    (item) => item.producer === 'owner',
+  );
+
+  return createCompactionContinueItem({
+    runId: input.locked.id,
+    quote:
+      newestOwnerMessage === undefined
+        ? input.compaction.quote
+        : partsToText(newestOwnerMessage.parts),
+  });
+}
+
 export async function finishCompactionDelivery(
   input: FinishCompactionDeliveryInput,
 ): Promise<BoundaryDelivery> {
-  const cause = deliveryCause(input.delivery, input.lockedItems);
+  const cause = deliveryCause(input.delivery, [
+    ...input.messageItems,
+    ...input.commandItems,
+  ]);
+
   const { closedReply, checkpointId } = await input.closeAndPublish(cause);
+
+  const continueItem = createContinueItem(input);
 
   const message = await input.storeMessage(
     input.messageItems,
-    input.compaction.finalAnswer === true
-      ? []
-      : [input.compaction.continueItem],
+    input.compaction.finalAnswer === true ? [] : [continueItem],
   );
 
   const attemptId = await input.moveRun({

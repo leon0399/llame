@@ -97,7 +97,6 @@ import {
   sourceSegmentJobNoticeIds,
 } from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { createCompactionContinueItem } from '../chats/compaction-continue-item';
 import { readCompactionSet } from '../compaction/boundary-compaction';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
@@ -192,7 +191,10 @@ import {
   continueStepOffset,
   type ContinueState,
 } from '../chats/continue-projection';
-import { readCompactionStepBudget } from './compaction-step-budget';
+import {
+  boundaryStepBudgetUsed,
+  readCompactionStepBudget,
+} from './compaction-step-budget';
 import { createDeltaBuffer } from './delta-buffer';
 import {
   createAssistantPartCollector,
@@ -688,6 +690,7 @@ type FinishRunInput = {
   recencyDigestInitialization?: RecencyDigestInitialization;
   skillCatalogFreeze?: SkillCatalogFreeze;
   boundaryCompaction?: NonNullable<DeliveryInput['boundaryCompaction']>;
+  stepBudgetUsed?: number;
 };
 
 type FinishRunResult =
@@ -3569,11 +3572,11 @@ export class RunExecutionService {
         >[1]['boundaryCompaction'];
 
         if (compactionSet.ids.length > 0) {
-          const replyParts = assistantPartCollector.parts().slice(partsBefore);
+          const replyParts = assistantPartCollector.parts();
 
           const projected = projectStoredReplyParts(replyParts, {
             privateParts: true,
-            mediaKey: (index) => continuedMediaKey(partsBefore + index),
+            mediaKey: (index) => continuedMediaKey(index),
           });
 
           const rows = attemptContext.historyRows;
@@ -3600,7 +3603,7 @@ export class RunExecutionService {
                 userId: input.userId,
                 uptoSeq,
                 plan: boundaryPlan,
-                closedReply: projected.messages,
+                closedReply: [...prepared.messages, ...projected.messages],
                 client: input.client,
                 system: prepared.system,
                 toolDeclarations: prepared.toolDeclarations,
@@ -3634,14 +3637,21 @@ export class RunExecutionService {
             }
           }
 
+          const quote = await this.newestOwnerQuote(
+            input,
+            attemptContext.historyRows,
+          );
+
           boundaryCompaction = {
             ids: compactionSet.ids,
             summary,
-            continueItem: createCompactionContinueItem({
-              runId: input.runId,
-              quote: partsToText(input.userMessage.parts),
+            quote,
+            stepBudgetUsed: boundaryStepBudgetUsed({
+              stepBudgetOffset,
+              stepBase,
+              stepsStarted,
+              wakeStepOffset: attempt.wakeState === undefined ? 0 : stepOffset,
             }),
-            stepBudgetUsed: stepBudgetOffset + stepBase + stepsStarted,
             ...(extra.finalAnswer === true && { finalAnswer: true as const }),
             publishCheckpoint: (tx, reply) => {
               if (summary === null) {
@@ -3652,6 +3662,7 @@ export class RunExecutionService {
                 run: input,
                 attemptId,
                 summary: { ...summary, uptoSeq: reply.seq },
+                focus: compactionSet.focus,
                 model: attemptContext.model,
                 workspaceRoot: workspaceRoot.current(),
                 digestCandidate,
@@ -4454,6 +4465,13 @@ export class RunExecutionService {
                 userId: input.userId,
                 runId: input.runId,
                 status: settling,
+                stepBudgetUsed: boundaryStepBudgetUsed({
+                  stepBudgetOffset,
+                  stepBase,
+                  stepsStarted,
+                  wakeStepOffset:
+                    attempt.wakeState === undefined ? 0 : stepOffset,
+                }),
                 ...(boundaryCompaction !== undefined && { boundaryCompaction }),
                 attemptId,
                 modelCompleted: {
@@ -5732,6 +5750,50 @@ export class RunExecutionService {
    * declared input, its window, and the configured output reserve the fit
    * check subtracts.
    */
+  private async newestOwnerQuote(
+    input: ExecuteRunInput,
+    rows: ReadonlyArray<Message>,
+  ): Promise<string | null> {
+    const currentText = partsToText(input.userMessage.parts);
+
+    if (currentText.length > 0) return currentText;
+
+    const carriedQuote = input.userMessage.parts.find(
+      (part) =>
+        isRecord(part) &&
+        isRecord(part['data']) &&
+        part['data']['producer'] === 'compaction' &&
+        isRecord(part['data']['payload']) &&
+        isString(part['data']['payload']['quote']),
+    );
+
+    if (isRecord(carriedQuote) && isRecord(carriedQuote['data'])) {
+      const payload = carriedQuote['data']['payload'];
+
+      if (isRecord(payload) && isString(payload['quote'])) {
+        return payload['quote'];
+      }
+    }
+
+    const created = await this.tenantDb.runAs(input.userId, (tx) =>
+      new RunEventsRepository(tx).findFirstByType(
+        input.runId,
+        input.userId,
+        'run.created',
+      ),
+    );
+
+    if (isRecord(created?.payload) && created.payload['messageId'] === null) {
+      return null;
+    }
+
+    const newest = rows.findLast(
+      (row) => row.role === 'user' && row.senderUserId === input.userId,
+    );
+
+    return newest === undefined ? null : partsToText(newest.parts);
+  }
+
   private mediaAdmissionContext(client: ModelClient): MediaAdmissionContext {
     return {
       input: client.input ?? ['text'],
@@ -6203,6 +6265,8 @@ export class RunExecutionService {
         this.instanceConfig.config,
       ),
       baselines: input,
+      ...(input.status === 'completed' && { finalAnswer: true as const }),
+      stepBudgetUsed: input.stepBudgetUsed,
       boundaryCompaction: input.boundaryCompaction,
     });
 
@@ -7291,6 +7355,7 @@ export class RunExecutionService {
       run: ExecuteRunInput;
       attemptId: string;
       summary: CompactionSummary;
+      focus?: string | null;
       model: SystemModelCatalogEntry;
       workspaceRoot: string | undefined;
       digestCandidate: RecencyDigestResolution | null;
@@ -7329,7 +7394,10 @@ export class RunExecutionService {
     const checkpoint = await messagesRepo.createCheckpoint({
       chatId: input.run.chatId,
       absorbedThroughSeq: input.summary.uptoSeq,
-      part: createCompactionCheckpointPart(input.summary.summary),
+      part: createCompactionCheckpointPart(
+        input.summary.summary,
+        input.focus ?? null,
+      ),
       usage: input.summary.usage,
     });
 
