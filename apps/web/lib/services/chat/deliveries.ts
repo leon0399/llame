@@ -291,13 +291,18 @@ export function isRunActive(input: {
 }): boolean {
   const { status, latestRun } = input;
 
-  if (latestRun?.kind === "compaction") {
-    return !isTerminalRunStatus(latestRun.status);
-  }
-
   if (status === "streaming" || status === "submitted") return true;
 
   return latestRun !== null && !isTerminalRunStatus(latestRun.status);
+}
+
+/** A compaction Run holds the Chat: owner items wait for it in the queue. */
+export function isCompactionLive(
+  latestRun: ChatLatestRunResponse | null,
+): boolean {
+  return (
+    latestRun?.kind === "compaction" && !isTerminalRunStatus(latestRun.status)
+  );
 }
 
 /** The first pending `steer` item: the one Stop and Esc interrupt. */

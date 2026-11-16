@@ -44,7 +44,6 @@ import { RunsRepository, RunEventsRepository } from './runs-repository';
 import { isTerminalRunStatus } from './run-status';
 import { RunWaitService } from './run-wait.service';
 import { retryRunTransaction } from './run-transaction';
-import { wakeAwaitingRun } from './wake-awaiting-run';
 import {
   CanonicalSearchCoverageService,
   type CanonicalSearchCoverageGate,
@@ -57,9 +56,8 @@ type RunPickup =
       expiredBudget?: true;
     }
   | {
-      kind: 'turn' | 'compaction';
+      kind: Run['kind'];
       skip: false;
-      chatId: string;
       modelId: string;
       followUpAction: Run['followUpAction'];
       budgetDeadlineMs: number | null;
@@ -221,10 +219,27 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         }
 
         if (run.status === 'awaiting_jobs') {
-          const awake = await wakeAwaitingRun(tx, runs, this.runWait, job);
+          const wake = job.wake;
 
-          if (!awake)
+          if (!wake)
             return { skip: true as const, settleCancellation: false as const };
+
+          const woke = await this.runWait.wakeInTransaction(tx, {
+            runId: job.runId,
+            userId: job.userId,
+            generation: wake.generation,
+            cause: 'timeout',
+            deadlineJobId: wake.jobId,
+          });
+
+          if (!woke)
+            return { skip: true as const, settleCancellation: false as const };
+
+          const awake = await runs.findById(job.runId, job.userId);
+
+          if (!awake || isTerminalRunStatus(awake.status))
+            return { skip: true as const, settleCancellation: false as const };
+
           run = awake;
         }
 
@@ -257,7 +272,6 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         return {
           kind: run.kind,
           skip: false as const,
-          chatId: run.chatId,
           modelId: run.modelId,
           followUpAction: run.followUpAction,
           budgetDeadlineMs,
@@ -388,7 +402,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
 
       const result = await this.runExecution.executeRun({
         runId: job.runId,
-        chatId: pickup.chatId,
+        chatId: job.chatId,
         userId: job.userId,
         userMessage,
         client,

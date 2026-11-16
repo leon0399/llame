@@ -251,6 +251,15 @@ describe("isRunActive", () => {
     ).toBe(true);
   });
 
+  it("stays active while a turn streams after a compaction Run ended", () => {
+    expect(
+      isRunActive({
+        status: "streaming",
+        latestRun: { ...run("completed"), kind: "compaction", messageId: null },
+      }),
+    ).toBe(true);
+  });
+
   it("is false once the newest Run ended, or when there is none", () => {
     for (const status of [
       "completed",

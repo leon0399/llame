@@ -342,9 +342,6 @@ export const followUpActions = ['continue', 'regenerate'] as const;
 
 export type FollowUpAction = (typeof followUpActions)[number];
 
-// A durable run (#48, SPEC §9.3): every user message becomes a worker-processed
-// run. One message may have several runs across retries; the run row is the
-// unit of execution state, the run_events log is the source of truth.
 export const runKinds = ['turn', 'compaction'] as const;
 
 export type RunKind = (typeof runKinds)[number];
@@ -367,6 +364,9 @@ function runDomainChecks(t: {
   ];
 }
 
+// A durable Run (#48, SPEC §9.3): each accepted user message has a turn Run;
+// a compaction Run has no user message. The run row is the unit of execution
+// state, and the run_events log is the source of truth.
 export const runs = pgTable(
   'runs',
   {

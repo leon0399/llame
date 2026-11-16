@@ -12468,10 +12468,6 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 });
 
 describe('RunExecutionService settleTerminalRun', () => {
-  beforeEach(() => {
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
-  });
-
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -13172,6 +13168,10 @@ describe('RunExecutionService settleTerminalRun', () => {
       compactionRun,
     );
 
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({ ...compactionRun, activeAttemptId: testAttemptId });
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...compactionRun,
       status: 'completed',
@@ -13193,6 +13193,7 @@ describe('RunExecutionService settleTerminalRun', () => {
       userId,
       runId,
       status: 'completed',
+      attemptId: testAttemptId,
       runPayload: { status: 'completed' },
     });
 
@@ -14054,10 +14055,6 @@ async function executeAvailabilityAttempt(input: {
 }
 
 describe('RunExecutionService runtime-context lifecycle', () => {
-  beforeEach(() => {
-    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);
-  });
-
   afterEach(() => {
     vi.restoreAllMocks();
   });

@@ -18,7 +18,6 @@ import type {
   ChatLatestRunResponse,
   PermissionModeResponseValue,
 } from "@/lib/api/generated/models";
-import { isTerminalRunStatus } from "@/lib/services/chat/run-notifications";
 import {
   changeDeliveryMode,
   deliveriesQueryOptions,
@@ -27,8 +26,9 @@ import {
   firstPendingSteer,
   isAlreadyDelivered,
   isCommandText,
-  sendableText,
+  isCompactionLive,
   isRunActive,
+  sendableText,
   sendDelivery,
   updateDeliveries,
   useChatDeliveries,
@@ -305,29 +305,18 @@ function restoreFailedSend(input: {
  *  started. Either way history holds its message now. */
 function useDeliveredItems(
   items: ReadonlyArray<ChatDeliveryResponse>,
-  latestRun: ChatLatestRunResponse | null,
   begin: (messageId: string) => void,
-  skip: (messageId: string) => void,
 ) {
   const seenIds = useRef<ReadonlyArray<string>>([]);
   useEffect(() => {
     const present = new Set(items.map((item) => item.id));
 
     for (const id of seenIds.current) {
-      if (present.has(id)) continue;
-
-      if (
-        latestRun?.kind === "compaction" &&
-        !isTerminalRunStatus(latestRun.status)
-      ) {
-        skip(id);
-      } else {
-        begin(id);
-      }
+      if (!present.has(id)) begin(id);
     }
 
     seenIds.current = items.map((item) => item.id);
-  }, [items, latestRun, begin, skip]);
+  }, [items, begin]);
 }
 
 /** Whether the document holds an open popup, which Esc closes first. */
@@ -412,7 +401,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
   const { selectedModel, selectedEffort, getPermissionMode } = useChatContext();
   const items = useChatDeliveries(chatId, exists);
   const runActive = isRunActive({ status, latestRun });
-  useDeliveredItems(items, latestRun, ctx.begin, ctx.skip);
+  useDeliveredItems(items, ctx.begin);
 
   const interrupt = (item: ChatDeliveryResponse) =>
     void changeItem(ctx, item, "interrupt");
@@ -433,6 +422,8 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
     runActive,
     /** No live Run, so nothing delivers until the owner acts. */
     paused: !runActive && items.length > 0,
+    /** Steer now and Interrupt now wait while a compaction Run is live. */
+    hurryable: !isCompactionLive(latestRun),
     exists,
     notice,
     deliver: (mode?: DeliveryMode) =>

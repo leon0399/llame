@@ -5732,6 +5732,9 @@ export class RunExecutionService {
     tx: Db,
     input: FinishRunInput,
   ): Promise<FinishRunResult> {
+    const runsRepo = new RunsRepository(tx);
+    let current: Run | undefined;
+
     if (input.expectedQueueIdentity !== undefined) {
       const [candidate] = await tx
         .select()
@@ -5746,7 +5749,7 @@ export class RunExecutionService {
         return { outcome: 'lost', finalStatus: candidate?.status };
       }
 
-      const [current] = await tx
+      [current] = await tx
         .select()
         .from(runs)
         .where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId)))
@@ -5767,39 +5770,33 @@ export class RunExecutionService {
     // delivery locks the Run row, then the chat row, and so also serializes
     // with admission. With nothing to deliver it writes nothing, and the Run
     // completes below under the locks it already holds.
-    const completingRun = await new RunsRepository(tx).findById(
-      input.runId,
-      input.userId,
-    );
+    if (input.status === 'completed' && input.attemptId !== undefined) {
+      const completingRun =
+        current ?? (await runsRepo.findById(input.runId, input.userId));
 
-    if (
-      completingRun?.kind === 'turn' &&
-      input.status === 'completed' &&
-      input.attemptId !== undefined
-    ) {
-      const delivery = await deliverPendingSteering(tx, {
-        run: { runId: input.runId, userId: input.userId },
-        attemptId: input.attemptId,
-        modelCompleted: input.modelCompleted,
-        live: input.assistantTurn,
-        telemetry: input.synthesizedTurnTelemetry,
-        models: this.instanceConfig.config.models,
-        deadWorkerAfterSeconds: workerDeadAfterSeconds(
-          this.instanceConfig.config,
-        ),
-        baselines: input,
-      });
+      if (completingRun?.kind === 'turn') {
+        const delivery = await deliverPendingSteering(tx, {
+          run: { runId: input.runId, userId: input.userId },
+          attemptId: input.attemptId,
+          modelCompleted: input.modelCompleted,
+          live: input.assistantTurn,
+          telemetry: input.synthesizedTurnTelemetry,
+          models: this.instanceConfig.config.models,
+          deadWorkerAfterSeconds: workerDeadAfterSeconds(
+            this.instanceConfig.config,
+          ),
+          baselines: input,
+        });
 
-      if (delivery.kind === 'delivered') {
-        return {
-          outcome: 'delivered',
-          assistantMessage: delivery.closedReply,
-          delivery,
-        };
+        if (delivery.kind === 'delivered') {
+          return {
+            outcome: 'delivered',
+            assistantMessage: delivery.closedReply,
+            delivery,
+          };
+        }
       }
     }
-
-    const runsRepo = new RunsRepository(tx);
 
     const finished = await runsRepo.markFinished(
       input.runId,

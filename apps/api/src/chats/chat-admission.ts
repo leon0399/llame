@@ -102,6 +102,10 @@ export async function claimActiveRunSlot(
   if (!blocking) return { state: 'free' };
 
   if (await blockerIsLive({ ...input, run: blocking })) {
+    // Re-check the row once: `blocking` may have finished between the read
+    // above and now, in which case the chat is simply free. Its job state
+    // is not read again, so one request holds the chat row for at most one
+    // bounded wait.
     const stillBlocking = await findActive();
 
     return stillBlocking
@@ -121,6 +125,8 @@ export async function claimActiveRunSlot(
 
   if (!expired) return { state: 'free' };
 
+  // The chat row is held first and the run row next, so finalizing the reply
+  // after them keeps the worker's run-then-reply order.
   await finalizeRunReply(input.tx, {
     run: expired,
     status: 'expired',

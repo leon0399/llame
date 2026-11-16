@@ -8,12 +8,7 @@ import {
 } from "lucide-react";
 
 import { IconButtonTooltip } from "@/components/icon-button-tooltip";
-import type {
-  ChatDeliveryResponse,
-  ChatLatestRunResponse,
-} from "@/lib/api/generated/models";
-import { isTerminalRunStatus } from "@/lib/services/chat/run-notifications";
-
+import type { ChatDeliveryResponse } from "@/lib/api/generated/models";
 import { deliveryFiles, deliveryText } from "@/lib/services/chat/deliveries";
 
 const MODE_LABEL = {
@@ -28,7 +23,8 @@ export type PendingDeliveriesProps = {
   items: ReadonlyArray<ChatDeliveryResponse>;
   /** The Chat has no live Run, so nothing delivers until the owner acts. */
   paused: boolean;
-  latestRun?: ChatLatestRunResponse | null;
+  /** Steer now and Interrupt now apply: no compaction Run holds the Chat. */
+  hurryable: boolean;
   onSteerNow: (item: ChatDeliveryResponse) => void;
   onInterruptNow: (item: ChatDeliveryResponse) => void;
   onDelete: (item: ChatDeliveryResponse) => void;
@@ -97,16 +93,13 @@ function HurryActions({
 /** The actions a row can take: an absent action is one the item's mode cannot
  *  use. */
 function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
-  const { item, latestRun } = hurry;
-
-  const compactionLive =
-    latestRun?.kind === "compaction" && !isTerminalRunStatus(latestRun.status);
+  const { item, hurryable } = hurry;
 
   return (
     <div className="flex shrink-0 items-center">
       {item.producer === "owner" && (
         <>
-          {!compactionLive && <HurryActions {...hurry} />}
+          {hurryable && <HurryActions {...hurry} />}
           <IconButtonTooltip
             label="Edit"
             aria-label={actionName("Edit", item)}
@@ -154,7 +147,6 @@ function PendingRow(props: RowActionsProps) {
 export function PendingDeliveries({
   items,
   paused,
-  latestRun = null,
   ...actions
 }: PendingDeliveriesProps) {
   if (items.length === 0) return null;
@@ -168,12 +160,7 @@ export function PendingDeliveries({
       )}
       <ol className="flex flex-col gap-1">
         {items.map((item) => (
-          <PendingRow
-            key={item.id}
-            item={item}
-            latestRun={latestRun}
-            {...actions}
-          />
+          <PendingRow key={item.id} item={item} {...actions} />
         ))}
       </ol>
     </section>

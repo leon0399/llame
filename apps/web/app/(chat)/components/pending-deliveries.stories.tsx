@@ -28,6 +28,7 @@ const meta = {
   args: {
     items: [],
     paused: false,
+    hurryable: true,
     onSteerNow: fn(),
     onInterruptNow: fn(),
     onDelete: fn(),

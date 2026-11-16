@@ -270,17 +270,17 @@ type ChatTranscriptInput = {
 function deriveChatTranscript(input: ChatTranscriptInput) {
   const { compaction, latestRun, status } = input;
 
+  // A compaction Run streams no reply; drop any assistant row under its id.
+  const compactionRunId =
+    latestRun?.kind === "compaction" ? latestRun.id : null;
+
   const merged = mergeTrustedModelContextParts(
     input.messages,
     input.chatMessages,
   ).filter(
     (message) =>
       message.role !== "system" &&
-      !(
-        latestRun?.kind === "compaction" &&
-        message.role === "assistant" &&
-        message.id === latestRun.id
-      ),
+      !(message.role === "assistant" && message.id === compactionRunId),
   );
 
   // A follow-up Run of the latest turn that has not settled replaced its
@@ -465,6 +465,7 @@ function buildPendingState(delivery: ReturnType<typeof useChatDelivery>) {
   return {
     items: delivery.items,
     paused: delivery.paused,
+    hurryable: delivery.hurryable,
     onSteerNow: delivery.steerNow,
     onInterruptNow: delivery.interruptNow,
     onDelete: delivery.remove,

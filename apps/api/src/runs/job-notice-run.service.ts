@@ -27,6 +27,7 @@ import { type RunJob } from './run-queues';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunsRepository } from './runs-repository';
 import { RunWaitService } from './run-wait.service';
+import { type RunUserMessage } from './run-execution.service';
 
 @Injectable()
 export class JobNoticeRunService {
@@ -160,16 +161,11 @@ export class JobNoticeRunService {
       permissionMode: resolved.permissionMode,
     });
 
-    const userMessage = runJob.userMessage;
-
-    if (userMessage === undefined) {
-      throw new Error('Host Run has no user message');
-    }
-
     await deliveries.deliverPendingJobNotices(job.chatId, job.ownerUserId, {
-      messageId: userMessage.id,
+      messageId: runJob.userMessage.id,
       runId: runJob.runId,
     });
+
     await this.dispatch.enqueueInTransaction(tx, runJob);
   }
 
@@ -177,7 +173,7 @@ export class JobNoticeRunService {
     tx: Db,
     job: ChatJob,
     settings: ChatDeliverySettings,
-  ): Promise<RunJob> {
+  ): Promise<RunJob & { userMessage: RunUserMessage }> {
     const message = await new MessagesRepository(tx).create({
       id: randomUUID(),
       chatId: job.chatId,

@@ -341,7 +341,6 @@ type ChatSessionComposerProps = {
   status: ReturnType<typeof useChatConversation>["status"];
   composer: ReturnType<typeof useChatConversation>["composer"];
   pending: ReturnType<typeof useChatConversation>["pending"];
-  latestRun: ChatLatestRunResponse | null;
   disabled: boolean;
 };
 
@@ -394,7 +393,6 @@ function ChatSessionComposer({
   status,
   composer,
   pending,
-  latestRun,
   disabled,
 }: ChatSessionComposerProps) {
   const { project, creation, creates } = useSessionCreation(
@@ -414,7 +412,7 @@ function ChatSessionComposer({
       status={status}
       runActive={composer.runActive}
       onDeliver={composer.onDeliver}
-      pending={<PendingDeliveries {...pending} latestRun={latestRun} />}
+      pending={<PendingDeliveries {...pending} />}
       onStop={composer.handleStop}
       pendingStop={composer.pendingStop}
       modelReadyForSend={composer.modelReadyForSend}
@@ -456,7 +454,6 @@ function ChatSessionBody({
         status={status}
         composer={composer}
         pending={pending}
-        latestRun={session.latestRun}
         disabled={markdown.renderers === null || archived}
       />
       <ChatSessionDialog dialog={dialog} />

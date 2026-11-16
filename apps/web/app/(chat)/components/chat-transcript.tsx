@@ -23,12 +23,10 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert";
-
 import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
-import { StopCircleIcon } from "lucide-react";
-
 import { Button } from "@workspace/ui/components/button";
 import { toast } from "@workspace/ui/components/sonner";
+import { StopCircleIcon } from "lucide-react";
 
 import { cancelRun } from "@/lib/services/chat/runs";
 import { ChatLoadOlder } from "./chat-load-older";
@@ -275,15 +273,23 @@ function ChatTranscriptFailedTurn({
   );
 }
 
+/** A compaction Run that ended without a checkpoint and shows an error row. */
+function isFailedCompaction(latestRun: ChatLatestRunResponse | null): boolean {
+  return (
+    latestRun?.kind === "compaction" &&
+    (latestRun.status === "failed" || latestRun.status === "expired")
+  );
+}
+
 function CompactionRunRow({ latestRun }: { latestRun: ChatLatestRunResponse }) {
   if (latestRun.status === "completed" || latestRun.status === "cancelled") {
     return null;
   }
 
-  if (latestRun.status === "failed" || latestRun.status === "expired") {
+  if (isFailedCompaction(latestRun)) {
     return (
       <div className="mx-auto w-full max-w-3xl md:px-6">
-        <Alert variant="destructive">
+        <Alert>
           <AlertTitle>Compaction failed</AlertTitle>
           <AlertDescription>
             {latestRun.error ?? "Compaction failed."}
@@ -355,15 +361,12 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
     status,
   } = props;
 
-  // A terminal compaction error row already names its failure.
-  const compactionErrorShown =
-    latestRun?.kind === "compaction" &&
-    (latestRun.status === "failed" || latestRun.status === "expired");
-
+  // The failed-turn or compaction error row already names this message once
+  // the history read reports it; a second alert would announce it twice.
   const shownByFailedTurn =
-    compactionErrorShown ||
-    (latestRun !== null &&
-      latestRun.error === displayedError?.message &&
+    latestRun !== null &&
+    latestRun.error === displayedError?.message &&
+    (isFailedCompaction(latestRun) ||
       needsFailedTurnRow({ messages: displayMessages, latestRun, status }));
 
   return (

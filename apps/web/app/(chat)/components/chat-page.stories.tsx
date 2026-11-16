@@ -3588,11 +3588,10 @@ export const QueueItemDuringCompactionOffersNoHurryActions: Story = {
     latestRun: compactionRun({ status: "running_model" }),
     pending: [pendingItem("compact-q1", "queue", "check the docs later")],
   } satisfies ChatPageParameters,
-  beforeEach: () => routeAlso(acceptingDeliveries()),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await openedLiveRun(canvasElement);
-    const row = await canvas.findByRole("listitem");
+    const row = await canvas.findByRole("region", PENDING_REGION);
 
     await expect(
       within(row).queryByRole("button", { name: /^Steer now/ }),
@@ -3605,13 +3604,13 @@ export const QueueItemDuringCompactionOffersNoHurryActions: Story = {
     ).toBeVisible();
   },
 };
+
 /**
  * Text typed while a delivery send is in flight stays in the composer when
  * that send fails, below the restored text.
  *
  * @summary a failed send keeps text typed meanwhile
  */
-
 export const FailedSendKeepsTextTypedMeanwhile: Story = {
   tags: ["ai-generated"],
   parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
