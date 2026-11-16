@@ -358,10 +358,27 @@
       "enum": ["usage", "subscription"],
       "description": "Whether requests are billed per token or run under a flat subscription."
     },
+    "modelWire": {
+      "type": "string",
+      "enum": [
+        "openai-responses",
+        "openai-completions",
+        "anthropic-messages",
+        "openai-codex",
+        "openai-embeddings",
+        "system-one",
+        "cohere-rerank"
+      ],
+      "description": "Optional per-model wire override. Otherwise the provider account, model kind, and known model family select the wire. Unknown combinations fail startup at this model's path. Credentials and headers remain on the provider."
+    },
     "providerType": {
       "type": "string",
-      "description": "Executable provider client implementation, named after the wire API it speaks. \"openai-responses\" executes the Responses API through @ai-sdk/openai (hosted OpenAI or any compatible /v1/responses server); \"openai-completions\" executes the Chat Completions API through @ai-sdk/openai-compatible at its required baseUrl; \"anthropic-messages\" executes the Messages API through @ai-sdk/anthropic at its optional baseUrl (the Anthropic API by default); \"openai-codex\" uses the personal Codex subscription endpoint; \"opencode-go\" executes the Chat Completions wire against the OpenCode Go subscription gateway, at the endpoint fixed in llame's code, from a required `key` and no destination field of its own; \"system-one\" speaks the System One decision wire (POST {baseUrl}/systemone) for the experimental `decisionModels[]` catalog, from a required `key` and a required `baseUrl`, and never serves a `models[]` entry; \"cohere-rerank\" speaks the Cohere Rerank v2 wire (POST {baseUrl}/rerank, default https://api.cohere.com/v2; OpenRouter is https://openrouter.ai/api/v1) for the experimental `rerankModels[]` catalog, from an optional `key` and an optional `baseUrl` (a keyless entry needs an explicit `baseUrl`), and never serves a `models[]` or `embeddingModels[]` entry. This enum is strict-closed so a config naming an unimplemented type fails validation, not execution.",
+      "description": "Provider account profile. Vendor profiles share credentials, base URL, and headers across model kinds; each model resolves a wire from its explicit override or provider/kind/family defaults. Explicit wire profiles support custom endpoints. Codex and Go retain fixed subscription destinations. Unsupported types and unresolved model routes fail startup. See docs/product/operator/providers/routing.md.",
       "enum": [
+        "openai",
+        "anthropic",
+        "openrouter",
+        "opencode-zen",
         "openai-responses",
         "openai-completions",
         "anthropic-messages",
@@ -404,6 +421,16 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": ["openai", "anthropic", "openrouter", "opencode-zen"]
+              }
+            }
+          },
+          "then": { "properties": { "accountId": false } }
+        },
         {
           "if": { "properties": { "type": { "const": "openai-responses" } } },
           "then": { "not": { "required": ["accountId"] } }
@@ -454,6 +481,7 @@
       "description": "One entry of the decision-model catalogue. Referenced by id from a tool's `rerank` block. Every field accepts `{env:...}` and `{path:...}` interpolation and must resolve nonblank; the loader reports a blank value at its `decisionModels[<index>]` path.",
       "required": ["id", "provider", "model"],
       "properties": {
+        "wire": { "$ref": "#/$defs/modelWire" },
         "id": {
           "type": "string",
           "description": "Unique catalogue id, referenced by `webSearch.rerank.model` or `tools.grep.rerank.model` (boot failure if blank or duplicated)."
@@ -474,6 +502,7 @@
       "description": "One entry of the rerank-model catalogue (a conventional cross-encoder reranker such as Cohere Rerank). Referenced by id from a tool's `rerank` block, exactly like a decision model; ids are unique across `decisionModels[]` and `rerankModels[]` together. Every field accepts `{env:...}` and `{path:...}` interpolation and must resolve nonblank; the loader reports a blank value at its `rerankModels[<index>]` path.",
       "required": ["id", "provider", "model"],
       "properties": {
+        "wire": { "$ref": "#/$defs/modelWire" },
         "id": {
           "type": "string",
           "description": "Unique catalogue id, referenced by `webSearch.rerank.model` or `tools.grep.rerank.model` (boot failure if blank or duplicated, also against `decisionModels[].id`)."
@@ -569,6 +598,7 @@
       "description": "A single declared embedding model (chat-search-embeddings). Reuses an existing providers[] connection rather than introducing a parallel credential or endpoint concept.",
       "required": ["id", "provider", "providerModelId", "dimensions"],
       "properties": {
+        "wire": { "$ref": "#/$defs/modelWire" },
         "id": {
           "type": "string",
           "minLength": 1,
@@ -662,6 +692,7 @@
       "description": "A single executable model catalog entry. It independently resolves one complete system prompt: the packaged project default when systemPromptFile is omitted, or the configured whole-file replacement when present.",
       "required": ["id", "provider", "providerModelId", "contextWindowTokens"],
       "properties": {
+        "wire": { "$ref": "#/$defs/modelWire" },
         "id": {
           "type": "string",
           "minLength": 1,
@@ -705,7 +736,7 @@
         },
         "providerOptions": {
           "type": "object",
-          "description": "Optional provider-native request options for the adapter this entry's provider type selects, keyed as that adapter documents them (e.g. `reasoningSummary` on a Responses model, `thinking` or `effort` on an anthropic-messages model). Typed free-form: the closed-schema rule applies to this key itself, never to its contents — keys and values are not validated against the adapter or the provider at boot, and the object is retained unchanged. This is not a credential channel: contents are never redacted, and {env:...}/{path:...} syntax in any string value at any depth fails boot before any token is resolved. Server-only — never returned by `GET /api/v1/models`; how it reaches the provider is specified by `provider-api-selection`."
+          "description": "Optional provider-native request options for the model's resolved wire adapter. Typed free-form: keys and values are not validated against the adapter at boot. Contents are never redacted; {env:...}/{path:...} syntax at any depth fails boot before resolution. Server-only; precedence and reserved keys are specified by provider-api-selection."
         },
         "pricingUsdPer1M": { "$ref": "#/$defs/modelPricing" },
         "name": { "type": "string" },
@@ -778,7 +809,7 @@
     },
     "decisionModels": {
       "type": "array",
-      "description": "Optional System One decision-model catalogue (experimental). Absent means no decision model exists: no client is built and every tool keeps its canonical order. It is a catalogue only — each entry names one `providers[]` entry of `type: \"system-one\"`, the model it answers with, and an id that is unique; those references and id uniqueness are checked at startup, because the JSON Schema cannot express them. A tool reranks through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`), which names a catalogue id. Decision calls are side calls: they are logged, never folded into a Run's message usage. See docs/product/operator/decisions.md.",
+      "description": "Optional System One decision-model catalogue. Each entry references an account and resolves the system-one wire by default or explicit override. Provider references and unique ids are validated at startup. Tools select a catalogue id through their rerank block. Decision usage remains separate from Run message usage. See docs/product/operator/decisions.md.",
       "items": { "$ref": "#/$defs/decisionModel" }
     },
     "rerankModels": {

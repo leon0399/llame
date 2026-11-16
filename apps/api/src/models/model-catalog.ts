@@ -13,6 +13,7 @@
 
 import type { ProviderOptionRecord } from './provider-options';
 import type { BillingMode } from './model-client';
+import type { ModelWire } from '../instance-config/provider-routing';
 
 export type ModelSource = 'system';
 
@@ -166,6 +167,8 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
   provider: string;
   providerModelId: string;
+  /** Per-model override, normalized to the selected wire at config load. */
+  wire?: ModelWire;
   /** Resolved billing mode, retained for usage accounting and never public. */
   billing?: BillingMode;
   /** Explicit per-model compaction trigger override; falls back to `contextWindowTokens x COMPACTION_WINDOW_RATIO` when absent. */
@@ -249,6 +252,7 @@ export function toPublicModel(
   const {
     provider: _provider,
     providerModelId: _providerModelId,
+    wire: _wire,
     compactionThresholdTokens: _compactionThresholdTokens,
     maxOutputTokens: _maxOutputTokens,
     providerOptions: _providerOptions,

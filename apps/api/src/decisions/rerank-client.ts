@@ -16,7 +16,8 @@ import type { RerankingModelV3 } from '@ai-sdk/provider';
 import { isRecord } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
-import type { CohereRerankProviderConfig } from '../instance-config/rerank-config';
+import type { ProviderConfig } from '../instance-config/llame-config';
+import { providerBaseUrl } from '../instance-config/provider-routing';
 import {
   READ_ERROR,
   attemptSignal,
@@ -103,7 +104,7 @@ class UnreadableResponseError extends Error {}
  * the SDK's.
  */
 export function createRerankClient(
-  provider: CohereRerankProviderConfig,
+  provider: ProviderConfig,
   modelId: string,
   dependencies: RerankClientDependencies = {},
 ): RerankClient {
@@ -111,7 +112,7 @@ export function createRerankClient(
     model: createCohere({
       // Always explicit, so the SDK never reads COHERE_API_KEY.
       apiKey: provider.key ?? '',
-      baseURL: provider.baseUrl,
+      baseURL: providerBaseUrl(provider),
       headers: requestHeaders(provider),
       fetch: boundedFetch(
         dependencies.fetch ?? ((input, init) => fetch(input, init)),
@@ -378,9 +379,7 @@ function withMeta(text: string): string {
  * the operator map over its defaults and normalises names to lower case, so an
  * operator `Authorization` of any letter case wins.
  */
-function requestHeaders(
-  provider: CohereRerankProviderConfig,
-): Record<string, string> {
+function requestHeaders(provider: ProviderConfig): Record<string, string> {
   return Object.assign(
     {},
     provider.key === null ? { Authorization: undefined } : {},

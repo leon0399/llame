@@ -1,718 +1,252 @@
-import type { createAnthropicModelClient } from './anthropic-model-client';
-import type {
-  OpenAICompletionsProviderConfig,
-  OpenAIResponsesProviderConfig,
-} from '../instance-config/llame-config';
-import type { createOpenAICompletionsModelClient } from './openai-completions-model-client';
-import type { createOpenAICodexModelClient } from './openai-codex-model-client';
-import type { createOpenAIModelClient } from './openai-model-client';
-import type { createOpenCodeGoModelClient } from './opencode-go-model-client';
+import type { ModelMessage } from 'ai';
+import type { ProviderConfig } from '../instance-config/llame-config';
+import type { SystemModelCatalogEntry } from './model-catalog';
 import { createModelClient } from './model-client-factory';
-// Test seam (anti-slop/no-module-mocking): overrides the per-provider client
-// constructors via createModelClient's own dependency-injection param instead
-// of module-mocking the client modules — this suite only verifies routing
-// (which provider-derived args createModelClient constructs and which client
-// it selects), not any client's behavior.
 
-const createResponsesClientMock = vi.mocked(
-  vi.fn<typeof createOpenAIModelClient>(),
-  { partial: true },
-);
-
-createResponsesClientMock.mockReturnValue({ model: 'fake' });
-
-const createCompletionsClientMock = vi.mocked(
-  vi.fn<typeof createOpenAICompletionsModelClient>(),
-  { partial: true },
-);
-
-createCompletionsClientMock.mockReturnValue({ model: 'fake' });
-
-const createCodexClientMock = vi.mocked(
-  vi.fn<typeof createOpenAICodexModelClient>(),
-  { partial: true },
-);
-
-createCodexClientMock.mockReturnValue({ model: 'fake' });
-
-const dependencies = {
-  createOpenAIModelClient: createResponsesClientMock,
-  createOpenAICompletionsModelClient: createCompletionsClientMock,
-  createOpenAICodexModelClient: createCodexClientMock,
-};
+const KEY = 'provider-credential-9f8e7d6c5b4a';
 
 const model = {
-  id: 'system:test:model',
+  id: 'chat',
+  provider: 'account',
+  providerModelId: 'claude-sonnet-4-6',
   source: 'system' as const,
-  providerModelId: 'model',
-  provider: 'provider',
-  displayName: 'Model',
-  contextWindowTokens: 128_000,
   input: ['text'] as const,
+  contextWindowTokens: 128_000,
   systemPromptTemplate: 'Test prompt',
   systemPromptSource: 'project_default' as const,
   referencesSkills: false,
 };
 
-/** The product token llame's boot-read identity supplies to every client. */
-const USER_AGENT = 'llame/0.0.0-test';
+const messages: Array<ModelMessage> = [{ role: 'user', content: 'Reply.' }];
 
-describe('createModelClient wire dispatch', () => {
-  beforeEach(() => {
-    createResponsesClientMock.mockClear();
-    createCompletionsClientMock.mockClear();
-    createCodexClientMock.mockClear();
-  });
+const requests: Array<{
+  url: string;
+  headers: Headers;
+  body: unknown;
+  redirect?: RequestRedirect;
+}> = [];
 
-  it('routes an openai-responses provider to the Responses client whatever its id', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'third-party-responses',
-          type: 'openai-responses',
-          key: 'sk-key',
-          baseUrl: null,
-          headers: { 'X-Session-Id': ['', ''] },
-        },
-        model: { ...model, provider: 'third-party-responses' },
-      },
-      dependencies,
-    );
-
-    expect(createResponsesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credential: 'sk-key',
-        baseUrl: undefined,
-        providerModelId: 'model',
-        requestHeaders: { 'X-Session-Id': ['', ''] },
-      }),
-    );
-    expect(createCompletionsClientMock).not.toHaveBeenCalled();
-    expect(createCodexClientMock).not.toHaveBeenCalled();
-  });
-
-  it('routes an openai-completions provider whose id is openai to the completions client', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'openai',
-          type: 'openai-completions',
-          key: 'sk-key',
-          baseUrl: 'https://api.openai.com/v1',
-          headers: {},
-        },
-        model,
-      },
-      dependencies,
-    );
-
-    expect(createCompletionsClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credential: 'sk-key',
-        baseUrl: 'https://api.openai.com/v1',
-        providerModelId: 'model',
-        requestHeaders: {},
-      }),
-    );
-    expect(createResponsesClientMock).not.toHaveBeenCalled();
-  });
-
-  it('routes an openai-responses provider pointed at a local host to the Responses client', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'ollama',
-          type: 'openai-responses',
-          key: null,
-          baseUrl: 'http://localhost:11434/v1',
-          headers: {},
-        },
-        model: { ...model, provider: 'ollama' },
-      },
-      dependencies,
-    );
-
-    expect(createResponsesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credential: undefined,
-        baseUrl: 'http://localhost:11434/v1',
-      }),
-    );
-    expect(createCompletionsClientMock).not.toHaveBeenCalled();
-  });
-
-  // The entry's `reasoning` declaration is the whole signal the Responses
-  // client needs to force the adapter's reasoning treatment for any model id
-  // (exact-turn-replay D12).
-  it.each([
-    {
-      name: 'marks reasoningDeclared from the entry reasoning vocabulary',
-      reasoning: {
-        effortLevels: [{ value: 'high' }],
-        defaultEffort: 'high',
-        cacheInvalidatedByEffortChange: false,
-      },
-      declared: true,
-    },
-    {
-      name: 'marks reasoningDeclared false when the entry declares no reasoning',
-      reasoning: null,
-      declared: false,
-    },
-  ])('$name', ({ reasoning, declared }) => {
-    const entry: Parameters<typeof createModelClient>[0]['model'] = {
-      ...model,
-      provider: 'responses',
-    };
-
-    if (reasoning !== null) entry.reasoning = reasoning;
-
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'responses',
-          type: 'openai-responses',
-          key: 'sk-key',
-          baseUrl: null,
-          headers: {},
-        },
-        model: entry,
-      },
-      dependencies,
-    );
-
-    expect(createResponsesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ reasoningDeclared: declared }),
-    );
-  });
-
-  it('resolves two providers of one type independently', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'local-ollama',
-          type: 'openai-completions',
-          key: null,
-          baseUrl: 'http://localhost:11434/v1',
-          headers: {},
-        },
-        model: { ...model, provider: 'local-ollama' },
-      },
-      dependencies,
-    );
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'openrouter',
-          type: 'openai-completions',
-          key: 'sk-or',
-          baseUrl: 'https://openrouter.ai/api/v1',
-          headers: {},
-        },
-        model: { ...model, provider: 'openrouter' },
-      },
-      dependencies,
-    );
-
-    expect(createCompletionsClientMock).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        credential: undefined,
-        baseUrl: 'http://localhost:11434/v1',
-        modelId: 'system:test:model',
-      }),
-    );
-    expect(createCompletionsClientMock).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        credential: 'sk-or',
-        baseUrl: 'https://openrouter.ai/api/v1',
-        modelId: 'system:test:model',
-      }),
-    );
-  });
-
-  it('routes openai-codex to the fixed subscription transport regardless of id', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'personal-codex',
-          type: 'openai-codex',
-          key: 'access-token',
-          accountId: 'account-id',
-          headers: {},
-        },
-        model: { ...model, provider: 'personal-codex' },
-      },
-      dependencies,
-    );
-
-    expect(createCodexClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credential: 'access-token',
-        accountId: 'account-id',
-        providerModelId: 'model',
-        requestHeaders: {},
-      }),
-    );
-    expect(createResponsesClientMock).not.toHaveBeenCalled();
-    expect(createCompletionsClientMock).not.toHaveBeenCalled();
-  });
-
-  it('selects the client without reading provider.id', () => {
-    const responsesProvider: OpenAIResponsesProviderConfig = {
-      id: 'openai-responses-unreadable',
-      type: 'openai-responses',
-      key: 'sk-key',
-      baseUrl: null,
-      headers: {},
-    };
-
-    const completionsProvider: OpenAICompletionsProviderConfig = {
-      id: 'openai-completions-unreadable',
-      type: 'openai-completions',
-      key: 'sk-key',
-      baseUrl: 'https://api.example.test/v1',
-      headers: {},
-    };
-
-    for (const provider of [responsesProvider, completionsProvider]) {
-      Object.defineProperty(provider, 'id', {
-        get: () => {
-          throw new Error('provider.id must not select the wire');
-        },
+beforeEach(() => {
+  requests.length = 0;
+  vi.stubGlobal(
+    'fetch',
+    async (url: string | URL | Request, init?: RequestInit) => {
+      const incoming = new Request(url, init);
+      requests.push({
+        url: incoming.url,
+        headers: incoming.headers,
+        body: await incoming.json(),
+        redirect: init?.redirect,
       });
-    }
 
-    createModelClient(
-      {
-        provider: responsesProvider,
-        model,
-        userAgent: USER_AGENT,
-        credentials: [],
-      },
-      dependencies,
-    );
-    createModelClient(
-      {
-        provider: completionsProvider,
-        model,
-        userAgent: USER_AGENT,
-        credentials: [],
-      },
-      dependencies,
-    );
-
-    expect(createResponsesClientMock).toHaveBeenCalledTimes(1);
-    expect(createCompletionsClientMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('carries the model providerOptions, maxOutputTokens, and input into every client config without mutating the entry', () => {
-    const providerOptions = { user: 'run-owner', max_tokens: 1 };
-
-    const entry = {
-      ...model,
-      input: ['text', 'image'] as const,
-      providerOptions,
-      maxOutputTokens: 4096,
-    };
-
-    const providers = [
-      {
-        id: 'responses-entry',
-        type: 'openai-responses',
-        key: 'sk-key',
-        baseUrl: null,
-        headers: {},
-      },
-      {
-        id: 'completions-entry',
-        type: 'openai-completions',
-        key: 'sk-key',
-        baseUrl: 'https://api.example.test/v1',
-        headers: {},
-      },
-      {
-        id: 'codex-entry',
-        type: 'openai-codex',
-        key: 'access-token',
-        accountId: 'account-id',
-        headers: {},
-      },
-    ] as const;
-
-    for (const provider of providers) {
-      createModelClient(
-        {
-          provider,
-          model: { ...entry, provider: provider.id },
-          userAgent: USER_AGENT,
-          credentials: [],
-        },
-        dependencies,
-      );
-    }
-
-    // The raw object the catalog entry carried reaches each client, so the
-    // clients — not the factory — own namespacing and reserved-key policy;
-    // the entry itself is untouched.
-    for (const mock of [
-      createResponsesClientMock,
-      createCompletionsClientMock,
-      createCodexClientMock,
-    ]) {
-      expect(mock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          providerOptions,
-          maxOutputTokens: 4096,
-          input: ['text', 'image'],
+      return new Response(
+        JSON.stringify({
+          error: {
+            type: 'invalid_request_error',
+            message: `rejected ${KEY}`,
+          },
         }),
-      );
-    }
-
-    expect(entry.providerOptions).toBe(providerOptions);
-    expect(entry.maxOutputTokens).toBe(4096);
-  });
-
-  it('leaves optional model metadata absent when the entry declares none', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'completions-entry',
-          type: 'openai-completions',
-          key: 'sk-key',
-          baseUrl: 'https://api.example.test/v1',
-          headers: {},
-        },
-        model,
-      },
-      dependencies,
-    );
-
-    // Optional config keys stay absent until the model entry declares them.
-    const config = createCompletionsClientMock.mock.calls[0]?.[0];
-    expect(config).not.toHaveProperty('billing');
-    expect(config).not.toHaveProperty('providerOptions');
-    expect(config).not.toHaveProperty('maxOutputTokens');
-  });
-});
-
-describe('createModelClient anthropic-messages dispatch (anthropic-provider 3.2)', () => {
-  const createMessagesClientMock = vi.mocked(
-    vi.fn<typeof createAnthropicModelClient>(),
-    { partial: true },
-  );
-
-  createMessagesClientMock.mockReturnValue({ model: 'fake' });
-
-  const messagesDependencies = {
-    ...dependencies,
-    createAnthropicModelClient: createMessagesClientMock,
-  };
-
-  beforeEach(() => {
-    createMessagesClientMock.mockClear();
-    createResponsesClientMock.mockClear();
-    createCompletionsClientMock.mockClear();
-    createCodexClientMock.mockClear();
-  });
-
-  it('routes an anthropic-messages provider to the Messages client whatever its id', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'third-party-anthropic',
-          type: 'anthropic-messages',
-          key: 'sk-key',
-          baseUrl: 'https://api.z.ai/api/anthropic',
-          headers: {},
-        },
-        model: { ...model, provider: 'third-party-anthropic' },
-      },
-      messagesDependencies,
-    );
-
-    expect(createMessagesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credential: 'sk-key',
-        baseUrl: 'https://api.z.ai/api/anthropic',
-        providerModelId: 'model',
-        requestHeaders: {},
-        reasoningDeclared: false,
-      }),
-    );
-    expect(createResponsesClientMock).not.toHaveBeenCalled();
-    expect(createCompletionsClientMock).not.toHaveBeenCalled();
-    expect(createCodexClientMock).not.toHaveBeenCalled();
-  });
-
-  it('supplies the Anthropic default base URL when the entry configures none, even with an ambient ANTHROPIC_BASE_URL', () => {
-    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://ambient.example.test');
-
-    try {
-      createModelClient(
         {
-          userAgent: USER_AGENT,
-          credentials: [],
-          provider: {
-            id: 'anthropic',
-            type: 'anthropic-messages',
-            key: 'sk-key',
-            baseUrl: null,
-            headers: {},
-          },
-          model: { ...model, provider: 'anthropic' },
+          status: 400,
+          headers: { 'content-type': 'application/json' },
         },
-        messagesDependencies,
       );
-    } finally {
-      vi.unstubAllEnvs();
-    }
-
-    // The default is the factory's decision, taken from the entry alone —
-    // the ambient variable never reaches the client config.
-    expect(createMessagesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        baseUrl: 'https://api.anthropic.com/v1',
-      }),
-    );
-  });
-
-  it('marks reasoningDeclared from the entry reasoning vocabulary', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'anthropic',
-          type: 'anthropic-messages',
-          key: 'sk-key',
-          baseUrl: null,
-          headers: {},
-        },
-        model: {
-          ...model,
-          provider: 'anthropic',
-          reasoning: {
-            effortLevels: [{ value: 'high' }],
-            defaultEffort: 'high',
-            cacheInvalidatedByEffortChange: false,
-          },
-        },
-      },
-      messagesDependencies,
-    );
-
-    expect(createMessagesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({ reasoningDeclared: true }),
-    );
-  });
-
-  it('resolves two same-type providers each with their own credential and endpoint', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'anthropic-hosted',
-          type: 'anthropic-messages',
-          key: 'sk-hosted',
-          baseUrl: null,
-          headers: {},
-        },
-        model: { ...model, provider: 'anthropic-hosted' },
-      },
-      messagesDependencies,
-    );
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'anthropic-gateway',
-          type: 'anthropic-messages',
-          key: null,
-          baseUrl: 'https://api.z.ai/api/anthropic',
-          headers: {},
-        },
-        model: { ...model, provider: 'anthropic-gateway' },
-      },
-      messagesDependencies,
-    );
-
-    expect(createMessagesClientMock).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        credential: 'sk-hosted',
-        baseUrl: 'https://api.anthropic.com/v1',
-        modelId: 'system:test:model',
-      }),
-    );
-    expect(createMessagesClientMock).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        credential: undefined,
-        baseUrl: 'https://api.z.ai/api/anthropic',
-        modelId: 'system:test:model',
-      }),
-    );
-  });
-
-  it('carries the model providerOptions and maxOutputTokens into the Messages client config', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'anthropic',
-          type: 'anthropic-messages',
-          key: 'sk-key',
-          baseUrl: null,
-          headers: {},
-        },
-        model: {
-          ...model,
-          provider: 'anthropic',
-          providerOptions: { thinking: { display: null } },
-          maxOutputTokens: 8192,
-        },
-      },
-      messagesDependencies,
-    );
-
-    expect(createMessagesClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerOptions: { thinking: { display: null } },
-        maxOutputTokens: 8192,
-      }),
-    );
-  });
+    },
+  );
 });
 
-describe('createModelClient opencode-go dispatch (opencode-go-provider 3.2)', () => {
-  const createGoClientMock = vi.mocked(
-    vi.fn<typeof createOpenCodeGoModelClient>(),
-    { partial: true },
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+async function request(
+  provider: ProviderConfig,
+  overrides: Partial<
+    Pick<
+      SystemModelCatalogEntry,
+      'wire' | 'providerModelId' | 'maxOutputTokens' | 'providerOptions'
+    >
+  > = {},
+) {
+  const client = createModelClient({
+    provider,
+    model: { ...model, ...overrides },
+    userAgent: 'llame/test',
+    credentials: [KEY],
+  });
+
+  if (provider.type === 'opencode-go')
+    expect(client.provider).toBe('opencode-go');
+
+  const failure: unknown = await client
+    .streamText({
+      chat: { id: 'chat-identity', lane: 'main' },
+      messages,
+      onError: () => undefined,
+    })
+    .text.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+  expect(failure).toBeInstanceOf(Error);
+  expect(String(failure)).not.toContain(KEY);
+
+  return requests.at(-1);
+}
+
+const account: ProviderConfig = {
+  id: 'account',
+  type: 'openrouter',
+  key: KEY,
+  baseUrl: null,
+  headers: {},
+};
+
+describe('account routing through real SDK clients', () => {
+  it('applies Go Messages options and output limits on the wire', async () => {
+    const sent = await request(
+      { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
+      {
+        providerModelId: 'claude-sonnet-4-6',
+        maxOutputTokens: 256,
+        providerOptions: { cacheControl: null },
+      },
+    );
+
+    expect(sent?.body).toMatchObject({ max_tokens: 256 });
+    expect(sent?.body).not.toHaveProperty('cache_control');
+  });
+
+  it('applies Go Responses options without relaxing storage invariants', async () => {
+    const sent = await request(
+      { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
+      {
+        providerModelId: 'gpt-5.4',
+        maxOutputTokens: 256,
+        providerOptions: { reasoningSummary: 'concise', store: true },
+      },
+    );
+
+    expect(sent?.body).toMatchObject({
+      max_output_tokens: 256,
+      store: false,
+      reasoning: { summary: 'concise' },
+    });
+  });
+
+  it.each([
+    ['openai-completions', '/chat/completions', 'authorization'],
+    ['openai-responses', '/responses', 'authorization'],
+    ['anthropic-messages', '/messages', 'x-api-key'],
+  ] as const)(
+    'sends the %s override to the same account endpoint',
+    async (wire, suffix, credentialHeader) => {
+      const sent = await request(
+        { ...account, baseUrl: 'https://gateway.example/v1' },
+        { wire },
+      );
+
+      expect(sent?.url).toBe(`https://gateway.example/v1${suffix}`);
+      expect(sent?.headers.get(credentialHeader)).toBe(
+        credentialHeader === 'authorization' ? `Bearer ${KEY}` : KEY,
+      );
+      expect(sent?.body).toMatchObject({ model: 'claude-sonnet-4-6' });
+      expect(sent?.headers.get('user-agent')).toContain('llame/test');
+    },
   );
 
-  createGoClientMock.mockReturnValue({ model: 'fake' });
+  it('uses the OpenRouter default without interpreting the model family as a native vendor', async () => {
+    const sent = await request(account, {
+      providerModelId: 'anthropic/claude-sonnet-4.6',
+    });
 
-  const goDependencies = {
-    ...dependencies,
-    createOpenCodeGoModelClient: createGoClientMock,
-  };
-
-  beforeEach(() => {
-    createGoClientMock.mockClear();
-    createResponsesClientMock.mockClear();
-    createCompletionsClientMock.mockClear();
-    createCodexClientMock.mockClear();
+    expect(sent?.url).toBe('https://openrouter.ai/api/v1/chat/completions');
+    expect(sent?.headers.get('authorization')).toBe(`Bearer ${KEY}`);
   });
 
-  it('routes the type to the Go transport whatever the entry is named', () => {
-    createModelClient(
-      {
-        userAgent: USER_AGENT,
-        credentials: [],
-        provider: {
-          id: 'my-go-subscription',
+  it.each([
+    ['claude-sonnet-4-6', '/messages', 'x-api-key'],
+    ['gpt-5.4', '/responses', 'authorization'],
+    ['glm-5.3-flash', '/chat/completions', 'authorization'],
+  ])(
+    'selects the Go wire for %s and keeps its session and redirect boundary',
+    async (providerModelId, suffix, credentialHeader) => {
+      const sent = await request(
+        { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
+        { providerModelId },
+      );
+
+      expect(sent?.url).toBe(`https://opencode.ai/zen/go/v1${suffix}`);
+      expect(sent?.headers.get(credentialHeader)).toBe(
+        credentialHeader === 'authorization' ? `Bearer ${KEY}` : KEY,
+      );
+      expect(sent?.headers.get('x-opencode-session')).toBe('chat-identity');
+      expect(sent?.headers.get('x-opencode-client')).toBe('llame');
+      expect(sent?.redirect).toBe('manual');
+    },
+  );
+
+  it.each(['claude-sonnet-4-6', 'gpt-5.4', 'glm-5.3-flash'])(
+    'replaces Go headers case-insensitively for %s',
+    async (providerModelId) => {
+      const sent = await request(
+        {
+          id: 'account',
           type: 'opencode-go',
-          key: 'go-key',
-          headers: {},
+          key: KEY,
+          headers: {
+            'X-OpenCode-Session': ['operator-session'],
+            'X-OpenCode-Client': ['operator-client'],
+          },
         },
-        model: { ...model, provider: 'my-go-subscription' },
-      },
-      goDependencies,
-    );
+        { providerModelId },
+      );
 
-    expect(createGoClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credential: 'go-key',
-        providerModelId: 'model',
-        requestHeaders: {},
-      }),
-    );
-    // The entry declares a key and no destination, so no endpoint value
-    // reaches the client: the fixed URL is the client's own.
-    expect(createGoClientMock.mock.calls[0]?.[0]).not.toHaveProperty('baseUrl');
-    expect(createResponsesClientMock).not.toHaveBeenCalled();
-    expect(createCompletionsClientMock).not.toHaveBeenCalled();
-    expect(createCodexClientMock).not.toHaveBeenCalled();
+      expect(sent?.headers.get('x-opencode-session')).toBe('operator-session');
+      expect(sent?.headers.get('x-opencode-client')).toBe('operator-client');
+    },
+  );
+
+  it('does not consult ambient endpoint variables', async () => {
+    vi.stubEnv('OPENAI_BASE_URL', 'https://wrong.example');
+    vi.stubEnv('ANTHROPIC_BASE_URL', 'https://wrong.example');
+    const openai = await request({ ...account, type: 'openai' });
+    expect(openai?.url).toBe('https://api.openai.com/v1/responses');
+    const anthropic = await request({ ...account, type: 'anthropic' });
+    expect(anthropic?.url).toBe('https://api.anthropic.com/v1/messages');
   });
 
-  it('carries the product token and the model metadata into the Go client config', () => {
-    createModelClient(
-      {
-        userAgent: 'llame/9.9.9-canary',
-        credentials: [],
-        provider: {
-          id: 'go',
-          type: 'opencode-go',
-          key: 'go-key',
-          headers: {},
-        },
-        model: {
-          ...model,
-          provider: 'go',
-          providerOptions: { user: 'run-owner' },
-          maxOutputTokens: 8192,
-          pricingUsdPer1M: { input: 1.5, output: 6 },
-          billing: 'subscription',
-          compactionThresholdTokens: 4000,
-        },
-      },
-      goDependencies,
-    );
+  it('keeps two accounts independent even when the models use the same wire', async () => {
+    const first = await request({
+      ...account,
+      baseUrl: 'https://first.example/v1',
+    });
 
-    expect(createGoClientMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userAgent: 'llame/9.9.9-canary',
-        providerOptions: { user: 'run-owner' },
-        maxOutputTokens: 8192,
-        pricing: { inputUsdPer1M: 1.5, outputUsdPer1M: 6 },
-        billing: 'subscription',
-        compactionThresholdTokens: 4000,
-      }),
+    const second = await request({
+      ...account,
+      key: 'second-account-key',
+      baseUrl: 'https://second.example/v1',
+    });
+
+    expect(first?.url).toBe('https://first.example/v1/chat/completions');
+    expect(second?.url).toBe('https://second.example/v1/chat/completions');
+    expect(first?.headers.get('authorization')).toBe(`Bearer ${KEY}`);
+    expect(second?.headers.get('authorization')).toBe(
+      'Bearer second-account-key',
     );
   });
-});
 
-describe('createModelClient system-one guard (decision-rerank)', () => {
-  it('refuses a decision provider and names it without its credential', () => {
+  it('does not issue a request for a model with an unknown route', () => {
     expect(() =>
-      createModelClient(
-        {
-          userAgent: USER_AGENT,
-          provider: {
-            id: 'decisions',
-            type: 'system-one',
-            key: 'secret-decision-key',
-            baseUrl: 'https://decisions.example/v1',
-            headers: {},
-          },
-          model: { ...model, provider: 'decisions' },
-          credentials: [],
-        },
-        dependencies,
-      ),
-    ).toThrow('Provider "decisions" is a rank provider, not a model client');
+      createModelClient({
+        provider: { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
+        model: { ...model, providerModelId: 'unknown-family' },
+        userAgent: 'llame/test',
+        credentials: [KEY],
+      }),
+    ).toThrow('models[chat].wire');
+    expect(requests).toEqual([]);
   });
 });

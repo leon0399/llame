@@ -197,20 +197,20 @@ The config file MUST accept a top-level `providers` array of duplicable
 provider entries. Each entry MUST have a `type` that selects its shape. `id`
 MUST be a nonblank operator-chosen string that is unique in the array.
 
-`type` MUST select the client implementation and the wire API it speaks. The
-schema MUST close `type` to the set of executable provider types:
+`type` MUST select the account profile and routing defaults. The schema MUST
+accept `openai`, `anthropic`, `openrouter`, `opencode-zen`,
 `openai-responses`, `openai-completions`, `anthropic-messages`,
 `openai-codex`, `opencode-go`, `system-one`, and `cohere-rerank`.
+Every model catalogue MUST accept an optional `wire`; its resolution and
+supported combinations MUST follow `provider-api-selection`.
 
-`openai-responses` MUST execute the Responses wire through `@ai-sdk/openai`.
-`openai-completions` MUST execute the Chat Completions wire through
-`@ai-sdk/openai-compatible`. `anthropic-messages` MUST execute the Messages
-wire through `@ai-sdk/anthropic`. `openai-codex` MUST use the Codex
-subscription backend. `opencode-go` MUST use the OpenCode Go subscription
-gateway. That gateway MUST execute the Chat Completions wire at an endpoint
-fixed in llame's code. `system-one` MUST execute the System One decision wire
-at `{baseUrl}/systemone`. `cohere-rerank` MUST execute the Cohere v2 rerank
-wire at `{baseUrl}/rerank` through `@ai-sdk/cohere`.
+The vendor profiles `openai`, `anthropic`, `openrouter`, and `opencode-zen`
+MUST accept `{ id, type, key?, baseUrl?, billing?, headers? }`. Their API bases
+MUST default respectively to `https://api.openai.com/v1`,
+`https://api.anthropic.com/v1`, `https://openrouter.ai/api/v1`, and
+`https://opencode.ai/zen/v1`. A supplied base MUST resolve nonblank.
+Credentials and headers MUST retain the same interpolation and protection
+rules as the explicit wire profiles. Account metadata MUST remain server-only.
 
 The `openai-responses` variant MUST accept `{ id, type, key?, baseUrl?,
 billing?, headers? }`, and `baseUrl` MUST default to the OpenAI API. The
@@ -242,8 +242,7 @@ and `baseUrl` MUST be strings with `{env:…}` or `{path:…}` interpolation. A
 credential. An empty resolution MUST keep the unset meaning.
 
 A duplicate `id` MUST fail startup and name the entry. A `type` outside the
-schema set MUST fail startup and name the entry. The set MUST exclude the
-retired `"openai"` and a bare `"anthropic"`.
+schema set MUST fail startup and name the entry.
 
 The optional `billing` key on every variant is defined by the billing-mode
 requirement below. The optional `headers` key on every variant is defined by
@@ -259,8 +258,9 @@ nonblank strings and MUST support interpolation. It MUST reject `baseUrl`.
 Resolved `accountId` values MUST have the same non-disclosure protection as
 credentials.
 
-An embedding model entry MUST NOT reference an `openai-codex`,
-`anthropic-messages`, or `opencode-go` provider.
+An embedding model entry MUST NOT reference an `openai-codex` or
+`opencode-go` provider. Other accounts require a supported embedding default
+or explicit embedding wire.
 
 #### Scenario: Duplicable providers of the same type coexist
 
@@ -270,7 +270,7 @@ An embedding model entry MUST NOT reference an `openai-codex`,
 
 #### Scenario: Unsupported provider type fails at boot
 
-- **WHEN** a provider entry sets `type` to a value outside the schema set (e.g. the retired `"openai"`, or a bare `"anthropic"`)
+- **WHEN** a provider entry sets `type` to a value outside the schema set
 - **THEN** startup fails and names the entry and the invalid `type`
 
 #### Scenario: OpenAI-completions provider loads by shape
@@ -394,7 +394,7 @@ At load time the system SHALL normalize every item to `{ value, label? }` (omitt
 
 The system SHALL NOT verify that a declared level is accepted by the provider. A misdeclared level surfaces as a provider request error at execution time, consistent with provider credentials not being prevalidated at boot.
 
-The optional `providerOptions` object carries provider-native request options for the adapter the entry's provider `type` selects, keyed as that adapter documents them. The published schema SHALL declare it as a typed free-form object, so the closed-schema rule applies to the `providerOptions` key itself and not to its contents. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
+The optional `providerOptions` object carries provider-native request options for the adapter the entry's resolved wire selects, keyed as that adapter documents them. The published schema SHALL declare it as a typed free-form object, so the closed-schema rule applies to the `providerOptions` key itself and not to its contents. At load time the system SHALL validate only that it is a JSON object and SHALL otherwise retain it unchanged: it SHALL NOT constrain, interpret, or verify its keys or values against the adapter or the provider, because those vocabularies belong to the provider and change between releases. `{env:…}` and `{path:…}` interpolation syntax in any string value at any depth of the object SHALL fail startup naming the model id and the field before any token is resolved, so no interpolated secret can reach a request option. The object is not a credential channel: its contents are not redacted anywhere, and an operator SHALL NOT place a secret in it. The object is server-only and SHALL NOT be published in the public model catalog. How the retained options and the optional `maxOutputTokens` reach the provider, and what takes precedence over them, is specified by `provider-api-selection`.
 
 The optional `input` array declares the input modalities the model accepts. Its items SHALL come from
 the closed set `text`, `image`, and `pdf`; the array SHALL contain `text` and SHALL NOT repeat an
@@ -1869,21 +1869,22 @@ affected array-index paths, never an interpolated value.
 - **WHEN** a `decisionModels` entry has an `id` that is blank or resolves to blank
 - **THEN** startup fails and names that entry's `decisionModels[<index>].id` path
 
-### Requirement: Decision model catalog entries name a System One provider
+### Requirement: Decision model catalog entries name a supported account
 
-Each `decisionModels[].provider` MUST name a `providers[].id` of
-`type: "system-one"`. An unknown provider, or a provider of another type, MUST
-fail startup and name the array-index path, such as `decisionModels[0].provider`.
+Each `decisionModels[].provider` MUST name a `providers[].id`.
+An unknown provider MUST fail startup naming its array-index `.provider` path.
+The entry MUST resolve the System One wire and a nonblank account key;
+unsupported routing MUST fail startup at the entry's `.wire` path.
 
 #### Scenario: An unknown decision model provider fails startup
 
 - **WHEN** a `decisionModels` entry names a `provider` that `providers[]` does not define
 - **THEN** startup fails and names `decisionModels[0].provider` for the first entry
 
-#### Scenario: A decision model provider of another type fails startup
+#### Scenario: A decision model without a default or override fails startup
 
-- **WHEN** a `decisionModels` entry names a provider of `type: "openai-completions"`
-- **THEN** startup fails and names `decisionModels[0].provider` for the first entry
+- **WHEN** a decision entry names an `openai-completions` provider and declares no wire
+- **THEN** startup fails and names `decisionModels[0].wire` for the first entry
 - **AND** no decision client is built
 
 ### Requirement: Decision model catalog entries carry a model
@@ -1973,33 +1974,29 @@ fail startup and name `webSearch.rerank.model`.
 - **WHEN** the file sets `webSearch.rerank.model` to an id in `rerankModels[]`
 - **THEN** startup succeeds and `web_search` can rank the results of its calls with that rerank model
 
-### Requirement: A model entry cannot name a decision provider
+### Requirement: Model kinds require a supported wire
 
-A `models[]` entry or an `embeddingModels[]` entry MUST NOT name a provider of
-`type: "system-one"` or `type: "cohere-rerank"`. Startup MUST fail and name `models[<id>].provider` or
-`embeddingModels[<id>].provider` and the provider type.
+Each model entry MUST resolve a supported wire for its catalogue kind before
+startup succeeds. Explicit overrides MAY select a supported wire at the same
+account destination; a provider without a default for that kind MUST require
+an override. Startup failures MUST name the model's `.wire` field.
 
-#### Scenario: A chat model names a decision provider
+#### Scenario: A chat model names a decision profile without a wire
 
-- **WHEN** a `models[]` entry sets `provider` to a `system-one` provider
-- **THEN** startup fails and names `models[<id>].provider` and the type `system-one`
-- **AND** no chat client is built for that entry
+- **WHEN** a `models[]` entry names a `system-one` provider with no wire override
+- **THEN** startup fails naming `models[<id>].wire`
+- **AND** no chat client is built
 
-#### Scenario: An embedding model names a decision provider
+#### Scenario: An embedding model names a rerank profile without a wire
 
-- **WHEN** an `embeddingModels[]` entry sets `provider` to a `system-one` provider
-- **THEN** startup fails and names `embeddingModels[<id>].provider` and the type `system-one`
-- **AND** no partial catalog applies
+- **WHEN** an `embeddingModels[]` entry names a `cohere-rerank` provider with no override
+- **THEN** startup fails naming `embeddingModels[<id>].wire`
+- **AND** no partial catalogue applies
 
-#### Scenario: A chat model names a rerank provider
+#### Scenario: A shared gateway explicitly supports another kind
 
-- **WHEN** a `models[]` entry sets `provider` to a `cohere-rerank` provider
-- **THEN** startup fails and names `models[<id>].provider` and the type `cohere-rerank`
-
-#### Scenario: An embedding model names a rerank provider
-
-- **WHEN** an `embeddingModels[]` entry sets `provider` to a `cohere-rerank` provider
-- **THEN** startup fails and names `embeddingModels[<id>].provider` and the type `cohere-rerank`
+- **WHEN** a model declares a valid kind-specific wire at a configurable account
+- **THEN** startup accepts the explicit route without duplicating the account
 
 ### Requirement: Operator configuration bounds host commands
 

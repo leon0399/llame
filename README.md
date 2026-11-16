@@ -13,15 +13,11 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Durable chat Runs via pg-boss. Progress persists and replays after refresh or
   reconnect.
 - Operator-managed providers, models, and per-model system prompts in
-  `llame.config.jsonc`. Each provider entry declares the wire it speaks:
-  `openai-responses` for the Responses API, `openai-completions` for
-  OpenAI-compatible Chat Completions endpoints, `anthropic-messages` for the
-  Anthropic Messages wire (the Claude API, or a gateway that speaks it),
-  `openai-codex` for the
-  Codex subscription, whose transport and endpoint are fixed by construction,
-  or `opencode-go` for the
-  OpenCode Go subscription, whose Chat Completions endpoint is fixed in
-  llame's code.
+  `llame.config.jsonc`. Provider accounts share credentials and endpoints;
+  models resolve their wire through vendor, kind, family, or an explicit
+  override. OpenRouter can serve chat, embeddings, decisions, and reranking
+  through one account. Codex and OpenCode Go retain fixed subscription
+  destinations.
 - Owner-only Projects for organizing chats, with pinning and reversible archive.
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured MCP tools authorized by the
@@ -91,41 +87,31 @@ may be authored as JSONC (`.jsonc`/`.json`), YAML (`.yaml`/`.yml`, with anchors
 and merge keys resolved), or TOML (`.toml`), selected by extension. Without an
 override, the single `apps/api/llame.config.*` with a supported extension is
 loaded, so an existing `llame.config.json` keeps working; more than one fails
-startup. Each provider entry declares its wire: `openai-responses`
-calls the Responses API, with an optional `baseUrl` defaulting to OpenAI, and
-`openai-completions` calls Chat Completions on its required `baseUrl`.
-`anthropic-messages` calls the Anthropic Messages API, with an optional
-`baseUrl` defaulting to the Anthropic API (`https://api.anthropic.com/v1`,
-the adapter's own default, which the client passes explicitly when the entry
-sets no `baseUrl`) — a proxy, gateway, or third-party
-server that speaks Messages is that `baseUrl`, not a second type. Its shape is
-`{ id, type, key?, baseUrl?, headers? }`: `key` and `baseUrl` use the same
-interpolation, an empty resolution means keyless, and the credential is sent
-as `x-api-key`. The client always passes an explicit base URL, so an ambient
-`ANTHROPIC_BASE_URL` never moves a request off the configured destination,
-and it sends the same non-empty placeholder as the OpenAI clients in keyless
-mode, because the adapter requires an API key to be present. The `type` alone
-selects the client: no `id`, `baseUrl`, or host is inspected.
-`opencode-go` calls the OpenCode Go subscription gateway's Chat Completions
-route at an endpoint fixed in llame's code, so the entry declares
-`{ id, type, key, headers? }` and nothing else: `key` interpolates like any
-other credential and must resolve nonblank, because the gateway authenticates
-every request, while `baseUrl` and `accountId` are rejected at boot; no `id`
-or ambient variable moves or authenticates a request. See
-[docs/product/operator/providers/opencode-go.md](docs/product/operator/providers/opencode-go.md)
-for its route ceiling, accepted upstream failures, per-model privacy terms,
-and quota boundaries.
-**Breaking**: `type: "openai"` is deleted — re-declare every entry that used it
-as one of those two wires, or startup fails naming the entry. `openai-codex`
-is unchanged.
+startup. Provider entries describe accounts: `openai`, `anthropic`,
+`openrouter`, and `opencode-zen` share one credential, base URL, and headers
+across their models. Each model resolves its wire from the provider, model
+kind, and known family; an explicit `wire` overrides that default. OpenRouter
+supports chat, embeddings, decisions, and reranking with one provider entry.
+Unknown combinations fail startup at the model's `.wire` field.
+
+Explicit endpoint profiles (`openai-responses`, `openai-completions`,
+`anthropic-messages`, `system-one`, and `cohere-rerank`) remain available for
+custom services. `openai-codex` retains its fixed subscription transport.
+`opencode-go` selects Responses, Messages, or Chat Completions per model,
+with a fixed gateway destination and required subscription key.
+See [provider routing](docs/product/operator/providers/routing.md) for defaults,
+overrides, and a shared-account example, and
+[OpenCode Go](docs/product/operator/providers/opencode-go.md) for its transport
+constraints.
 
 Every provider entry may also set `headers` to a map of header names to
 strings or `null`. `{env:...}` and `{path:...}` resolve once at startup;
 `{session:id}` resolves per request to the Chat id on the main turn and
 compaction, or `title:<chatId>` for title generation. The
-`openai-responses`, `openai-completions`, `anthropic-messages`, and
-`opencode-go` types default to `X-Session-Id: {session:id}`; `openai-codex`
-has no default, so add it when needed. Set a default entry to `null` to remove
+vendor profiles, `openai-responses`, `openai-completions`,
+`anthropic-messages`, and `opencode-go` default to
+`X-Session-Id: {session:id}`; `openai-codex` has no default. Non-chat calls omit
+session-templated headers. Set a default entry to `null` to remove
 it — for example, a strict proxy that rejects unknown headers can use
 `"X-Session-Id": null`. Operator values overlay llame's own headers, including
 `User-Agent`, credentials, and OpenCode Go's `x-opencode-*`; that override is
@@ -172,7 +158,7 @@ file paths never enter the model catalog or receipt. Authoring:
 [docs/product/operator/tool-prompts.md](docs/product/operator/tool-prompts.md).
 
 `models[].providerOptions` is a server-only free-form object of provider-native
-request options for the adapter the provider `type` selects, keyed as that
+request options for the adapter the model's resolved wire selects, keyed as that
 adapter documents them (`reasoningSummary` on the Responses wire,
 `reasoningEffort` on Chat Completions, `thinking`/`effort`/`cacheControl` on
 the Messages wire); llame places it under the wire's provider-options namespace

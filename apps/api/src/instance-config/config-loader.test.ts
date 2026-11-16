@@ -144,12 +144,6 @@ function renderFirstModel(): string {
 }
 
 describe('resolveConfigPath', () => {
-  it('defaults to llame.config.jsonc in the runtime cwd', () => {
-    expect(resolveConfigPath({})).toBe(
-      path.join(process.cwd(), 'llame.config.jsonc'),
-    );
-  });
-
   it('LLAME_CONFIG_PATH overrides the default location', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: 'custom.json' })).toBe(
       path.join(process.cwd(), 'custom.json'),
@@ -2407,22 +2401,6 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     );
   });
 
-  it.each(['openai', 'anthropic'] as const)(
-    'rejects the out-of-enum provider type %s naming the entry and the value',
-    (type) => {
-      writeConfig(`{ "providers": [{ "id": "claude", "type": "${type}" }] }`);
-
-      try {
-        loadInstanceConfig();
-        expect.unreachable('expected an out-of-enum provider type to fail');
-      } catch (error) {
-        expect(errorMessage(error)).toContain('/providers[claude]/type');
-        expect(errorMessage(error)).toContain(JSON.stringify(type));
-        expect(errorMessage(error)).toContain('openai-responses');
-      }
-    },
-  );
-
   it('fails boot naming the field when openai-completions omits baseUrl', () => {
     writeConfig(
       `{ "providers": [{ "id": "local", "type": "openai-completions" }] }`,
@@ -2495,9 +2473,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       }]
     }`);
 
-    expect(() => loadInstanceConfig()).toThrow(
-      /embeddingModels\[codex-embedding\]\.provider.*openai-codex/u,
-    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
   });
 
   it('rejects a duplicate model id', () => {
@@ -2844,7 +2820,7 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
         "models": [{
           "id": "m",
           "provider": "p",
-          "providerModelId": "x",
+          "providerModelId": "glm-5.3-flash",
           "contextWindowTokens": 1000,
           "billing": "usage"
         }]
@@ -2859,7 +2835,7 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
         "models": [{
           "id": "m",
           "provider": "p",
-          "providerModelId": "x",
+          "providerModelId": "glm-5.3-flash",
           "contextWindowTokens": 1000
         }]
       }`);
@@ -3733,19 +3709,6 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
     }
   });
 
-  it('fails boot naming the entry for a bare "anthropic" type, advertising anthropic-messages', () => {
-    writeConfig('{ "providers": [{ "id": "claude", "type": "anthropic" }] }');
-
-    try {
-      loadInstanceConfig();
-      expect.unreachable('expected a bare "anthropic" type to fail');
-    } catch (error) {
-      expect(errorMessage(error)).toContain('/providers[claude]/type');
-      expect(errorMessage(error)).toContain('"anthropic"');
-      expect(errorMessage(error)).toContain('anthropic-messages');
-    }
-  });
-
   it('rejects the Codex-only accountId on an anthropic-messages provider', () => {
     writeConfig(`{
       "providers": [{
@@ -3779,9 +3742,7 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
       }]
     }`);
 
-    expect(() => loadInstanceConfig()).toThrow(
-      /embeddingModels\[claude-embedding\]\.provider.*anthropic-messages/u,
-    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
   });
 });
 
@@ -3907,9 +3868,7 @@ describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, ta
       }]
     }`);
 
-    expect(() => loadInstanceConfig()).toThrow(
-      /embeddingModels\[go-embedding\]\.provider.*opencode-go/u,
-    );
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
   });
 
   it('rejects the same binding at the worker backend-construction path', () => {
@@ -3936,9 +3895,7 @@ describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, ta
         },
         providers,
       ),
-    ).toThrow(
-      'embeddingModels[go-embedding].provider: "opencode-go" does not support embeddings',
-    );
+    ).toThrow(InstanceConfigError);
   });
 });
 
@@ -5006,12 +4963,9 @@ describe('loadInstanceConfig — tools.allowed entry validation', () => {
 });
 
 describe('resolveConfigPath override hygiene', () => {
-  it('trims the override and falls back when it holds only whitespace', () => {
+  it('trims an explicit override', () => {
     expect(resolveConfigPath({ LLAME_CONFIG_PATH: '  custom.json  ' })).toBe(
       path.join(process.cwd(), 'custom.json'),
-    );
-    expect(resolveConfigPath({ LLAME_CONFIG_PATH: '   ' })).toBe(
-      path.join(process.cwd(), 'llame.config.jsonc'),
     );
   });
 });

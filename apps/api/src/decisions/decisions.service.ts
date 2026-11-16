@@ -617,7 +617,7 @@ export class DecisionsService implements DecisionJudge {
     for (const entry of config.decisionModels ?? []) {
       const provider = providers.get(entry.provider);
 
-      if (provider?.type !== 'system-one') continue;
+      if (provider === undefined || provider.key === null) continue;
       const client = createDecisionClient(provider, entry.model);
       const protectedValues = normalizeProtectedValues([provider.key]);
       entries.set(entry.id, {
@@ -630,7 +630,7 @@ export class DecisionsService implements DecisionJudge {
     for (const entry of config.rerankModels ?? []) {
       const provider = providers.get(entry.provider);
 
-      if (provider?.type !== 'cohere-rerank') continue;
+      if (provider === undefined) continue;
       const client = createRerankClient(provider, entry.model);
 
       const protectedValues = normalizeProtectedValues(

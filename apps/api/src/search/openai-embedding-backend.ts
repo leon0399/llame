@@ -17,6 +17,7 @@ import {
 export type OpenAIEmbeddingBackendConfig = {
   credential?: string;
   baseUrl?: string;
+  headers?: Record<string, string>;
   providerModelId: string;
   dimensions: number;
   batchSize?: number;
@@ -226,6 +227,7 @@ export type OpenAIEmbeddingBackendDependencies = {
   createOpenAI: (settings: {
     apiKey: string;
     baseURL?: string;
+    headers?: Record<string, string>;
     fetch?: typeof fetch;
   }) => OpenAIEmbeddingProvider;
   fetch?: typeof fetch;
@@ -332,6 +334,7 @@ export function createOpenAIEmbeddingBackend(
   const openai = dependencies.createOpenAI({
     apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
     ...(config.baseUrl && { baseURL: config.baseUrl }),
+    ...(config.headers !== undefined && { headers: config.headers }),
     fetch: wrapFetchWithOrderVerification(dependencies.fetch ?? fetch),
   });
 

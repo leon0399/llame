@@ -6,6 +6,7 @@
 
 import type { BillingMode } from '../models/model-client';
 import type { RequestHeaderTemplates } from '../models/request-headers';
+import type { ModelWire } from './provider-routing';
 
 /**
  * A Cohere v2 rerank endpoint: `POST {baseUrl}/rerank` through
@@ -51,4 +52,5 @@ export type RerankModelConfig = {
   readonly id: string;
   readonly provider: string;
   readonly model: string;
+  readonly wire?: ModelWire;
 };

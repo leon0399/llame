@@ -15,7 +15,11 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 
-import type { SystemOneProviderConfig } from '../instance-config/llame-config';
+import type { ProviderConfig } from '../instance-config/llame-config';
+import {
+  decisionEndpoint,
+  nonChatHeaders,
+} from '../instance-config/provider-routing';
 import {
   type RequestHeaders,
   type RequestHeaderTemplates,
@@ -62,12 +66,15 @@ export type DecisionClientDependencies = {
  * model alias. The base URL is the operator's; the wire path is llame's.
  */
 export function createDecisionClient(
-  provider: SystemOneProviderConfig,
+  provider: ProviderConfig,
   modelId: string,
   dependencies: DecisionClientDependencies = {},
 ): DecisionClient {
+  if (provider.key === null)
+    throw new Error('Decision provider requires a credential');
+
   const wire: DecisionWire = {
-    endpoint: `${provider.baseUrl.replace(/\/+$/u, '')}/systemone`,
+    endpoint: decisionEndpoint(provider),
     headers: requestHeaders(provider),
     key: provider.key,
     modelId,
@@ -312,7 +319,7 @@ export async function readBoundedText(
  * operator header replaces a client-set one of the same name, matched with
  * ASCII case folding, as `withRequestHeaders` does.
  */
-function requestHeaders(provider: SystemOneProviderConfig): RequestHeaders {
+function requestHeaders(provider: ProviderConfig): RequestHeaders {
   const operator = operatorHeaderEntries(provider.headers);
   const overridden = new Set(operator.map(([name]) => name.toLowerCase()));
 
@@ -332,7 +339,7 @@ function requestHeaders(provider: SystemOneProviderConfig): RequestHeaders {
 export function operatorHeaderEntries(
   headers: RequestHeaderTemplates,
 ): Array<readonly [string, string]> {
-  return Object.entries(headers)
+  return Object.entries(nonChatHeaders(headers))
     .map(([name, parts]) => [name, parts.join('')] as const)
     .filter(([, value]) => value.length > 0);
 }

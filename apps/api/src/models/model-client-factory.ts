@@ -17,6 +17,10 @@ import { createOpenAICompletionsModelClient } from './openai-completions-model-c
 import { createOpenAICodexModelClient } from './openai-codex-model-client';
 import { createOpenAIModelClient } from './openai-model-client';
 import { createOpenCodeGoModelClient } from './opencode-go-model-client';
+import {
+  providerBaseUrl,
+  resolveModelWire,
+} from '../instance-config/provider-routing';
 
 type ModelClientDependencies = {
   createOpenAIModelClient: typeof createOpenAIModelClient;
@@ -79,37 +83,66 @@ function buildClient(
   userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
-  switch (provider.type) {
+  const wire = resolveModelWire(
+    provider,
+    { kind: 'chat', modelId: model.providerModelId, wire: model.wire },
+    `models[${model.id}]`,
+  );
+
+  if (provider.type === 'openai-codex') {
+    return createCodexClient(provider, model, userAgent, dependencies);
+  }
+
+  if (provider.type === 'opencode-go') {
+    return createOpenCodeGoClient(
+      provider,
+      { ...model, wire },
+      userAgent,
+      dependencies,
+    );
+  }
+
+  return createWireClient(
+    provider,
+    { ...model, wire },
+    userAgent,
+    dependencies,
+  );
+}
+
+function createWireClient(
+  provider: Exclude<ProviderConfig, { type: 'openai-codex' | 'opencode-go' }>,
+  model: SystemModelCatalogEntry,
+  userAgent: string,
+  dependencies: ModelClientDependencies,
+): ModelClient {
+  const wire = model.wire;
+  const baseUrl = providerBaseUrl(provider);
+
+  switch (wire) {
     case 'openai-responses':
-      return createResponsesClient(provider, model, userAgent, dependencies);
+      return createResponsesClient(
+        { ...provider, type: wire, baseUrl },
+        model,
+        userAgent,
+        dependencies,
+      );
     case 'openai-completions':
-      return createCompletionsClient(provider, model, userAgent, dependencies);
+      return createCompletionsClient(
+        { ...provider, type: wire, baseUrl },
+        model,
+        userAgent,
+        dependencies,
+      );
     case 'anthropic-messages':
-      return createMessagesClient(provider, model, userAgent, dependencies);
-    case 'openai-codex':
-      return createCodexClient(provider, model, userAgent, dependencies);
-    case 'opencode-go':
-      return createOpenCodeGoClient(provider, model, userAgent, dependencies);
-    case 'system-one':
-    case 'cohere-rerank':
-      // A rank provider (System One decision or Cohere-wire rerank) is
-      // deliberately NOT a `ModelClient`: it returns one score per card with
-      // its own usage shape and never streams. Startup already rejects a
-      // `models[]` entry that names one, so this guard only fails loudly on
-      // an impossible runtime binding.
-      throw new Error(
-        `Provider "${provider.id}" is a rank provider, not a model client`,
+      return createMessagesClient(
+        { ...provider, type: wire, baseUrl },
+        model,
+        userAgent,
+        dependencies,
       );
-    default: {
-      // Unreachable while the JSON Schema's `providerType` enum stays in
-      // sync with the cases above (config-loader rejects any other `type` at
-      // boot) — kept as an internal error, not a silent fallback, in case
-      // that sync ever drifts.
-      const unsupported: never = provider;
-      throw new Error(
-        `No model client implementation for ${String(unsupported)}`,
-      );
-    }
+    default:
+      throw new Error(`Unsupported chat wire: ${wire}`);
   }
 }
 
@@ -225,6 +258,8 @@ function createOpenCodeGoClient(
     contextWindowTokens: model.contextWindowTokens,
     requestHeaders: provider.headers,
     userAgent,
+    wire: model.wire,
+    reasoningDeclared: model.reasoning !== undefined,
   };
 
   assignModelMetadata(config, model);

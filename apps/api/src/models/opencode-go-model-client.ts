@@ -13,14 +13,16 @@ import {
   renderSessionId,
   type RequestHeaderTemplates,
 } from './request-headers';
+import { createOpenAIModelClient } from './openai-model-client';
+import { createAnthropicModelClient } from './anthropic-model-client';
+import type { ModelWire } from '../instance-config/provider-routing';
 
 /**
- * The Go gateway's fixed Chat Completions root (design D1/D2): OpenCode Go
+ * The Go gateway's fixed API root: OpenCode Go
  * serves its subscription catalogue under one base URL, and a `type:
  * 'opencode-go'` entry declares no destination of its own, so this constant
- * is the only place the endpoint exists. No ambient environment variable can
- * move it — `@ai-sdk/openai-compatible` reads none, and the client below
- * always passes this base URL explicitly.
+ * controls the destination. Every wire client receives this base explicitly;
+ * no ambient environment variable can move it.
  */
 export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1';
 
@@ -44,6 +46,8 @@ type OpenCodeGoModelClientConfig = {
   userAgent: string;
   /** Startup-resolved operator header templates rendered for every request. */
   requestHeaders: RequestHeaderTemplates;
+  wire?: ModelWire;
+  reasoningDeclared?: boolean;
   /**
    * Operator request options (`models[].providerOptions`), forwarded to the
    * wire client as its inner record: it composes them under the namespace the
@@ -88,14 +92,29 @@ export function createOpenCodeGoModelClient(
     streamText,
   },
 ): ModelClient {
+  if (
+    config.wire === 'openai-responses' ||
+    config.wire === 'anthropic-messages'
+  ) {
+    const transport = {
+      ...config,
+      baseUrl: OPENCODE_GO_BASE_URL,
+      reasoningDeclared: config.reasoningDeclared ?? false,
+      requestHeaders: goRequestHeaders(config.requestHeaders),
+      fetch: rejectRedirects(globalThis.fetch),
+    };
+
+    const client =
+      config.wire === 'openai-responses'
+        ? createOpenAIModelClient({ ...transport, provider: 'opencode-go' })
+        : createAnthropicModelClient(transport);
+
+    return { ...client, provider: 'opencode-go' };
+  }
+
   return createOpenAICompletionsModelClient(
     {
-      credential: config.credential,
-      providerModelId: config.providerModelId,
-      modelId: config.modelId,
-      contextWindowTokens: config.contextWindowTokens,
-      userAgent: config.userAgent,
-      requestHeaders: config.requestHeaders,
+      ...config,
       baseUrl: OPENCODE_GO_BASE_URL,
       provider: 'opencode-go',
       headers: { [OPENCODE_GO_CLIENT_HEADER]: 'llame' },
@@ -109,20 +128,19 @@ export function createOpenCodeGoModelClient(
         name: OPENCODE_GO_SESSION_HEADER,
         value: renderSessionId(chat),
       }),
-      ...(config.providerOptions !== undefined && {
-        providerOptions: config.providerOptions,
-      }),
-      ...(config.maxOutputTokens !== undefined && {
-        maxOutputTokens: config.maxOutputTokens,
-      }),
-      ...(config.pricing !== undefined && { pricing: config.pricing }),
-      ...(config.billing !== undefined && { billing: config.billing }),
-      ...(config.compactionThresholdTokens !== undefined && {
-        compactionThresholdTokens: config.compactionThresholdTokens,
-      }),
-      // The wrapped client omits an undeclared input from its own shape.
-      input: config.input,
     },
     dependencies,
   );
+}
+
+function goRequestHeaders(
+  headers: RequestHeaderTemplates,
+): RequestHeaderTemplates {
+  const names = new Set(Object.keys(headers).map((name) => name.toLowerCase()));
+
+  return {
+    ...(!names.has('x-opencode-client') && { 'x-opencode-client': ['llame'] }),
+    ...(!names.has('x-opencode-session') && { 'x-opencode-session': ['', ''] }),
+    ...headers,
+  };
 }
