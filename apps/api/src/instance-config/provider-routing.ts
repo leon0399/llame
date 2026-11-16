@@ -73,26 +73,24 @@ const VENDOR_DEFAULTS: VendorDefaults = {
   'cohere-rerank': { rerank: 'cohere-rerank' },
 };
 
-// Exact provider/model keys from OpenCode's pinned catalog. Unknown protocols
-// remain unknown: never infer a wire from a model's spelling or another account.
+// The importer normalizes exact provider/model entries to llame wire names.
+// TODO(#1741): Enable null Google entries after the native adapter ships.
 const OPEN_CODE_MODELS: Record<
   string,
-  Readonly<Record<string, string>>
+  Readonly<Record<string, string | null>>
 > = modelMetadata.providers;
 
 function openCodeChatWire(type: string, model: string): ModelWire | undefined {
   const models = OPEN_CODE_MODELS[type];
 
-  const protocol =
+  const wire =
     models && Object.hasOwn(models, model) ? models[model] : undefined;
 
-  switch (protocol) {
-    case 'messages':
-      return 'anthropic-messages';
-    case 'responses':
-      return 'openai-responses';
-    case 'chat-completions':
-      return 'openai-completions';
+  switch (wire) {
+    case 'anthropic-messages':
+    case 'openai-responses':
+    case 'openai-completions':
+      return wire;
     default:
       return undefined;
   }

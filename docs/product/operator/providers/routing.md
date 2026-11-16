@@ -22,13 +22,17 @@ this performs no network discovery or model eligibility check.
 
 OpenCode routes use exact `(provider type, providerModelId)` entries from a
 bundled snapshot of [OpenCode's model catalog](https://github.com/anomalyco/opencode/blob/cdd0585e048b08d85df1f854b7deb3fa52b8dac4/packages/core/src/models-dev/snapshot.txt).
-The first API declared for that model selects Messages, Responses, or Chat
-Completions. No prefix, suffix, or sibling-provider inference is performed.
+The importer normalizes the model's first declared API to llame's wire names:
+`anthropic-messages`, `openai-responses`, or `openai-completions`.
+No prefix, suffix, or sibling-provider inference is performed.
 For example, Go `minimax-m3` selects Messages while `minimax-m3.1-flash`
 selects Chat Completions.
 
-Unknown models, and models whose metadata selects an unsupported protocol
-(for example `generate-content`), require an explicit supported `wire`.
+Unknown models and entries recorded as `null` require an explicit supported
+`wire`. The current unsupported protocol is Google's native Generate Content,
+tracked in [#1741](https://github.com/leon0399/llame/issues/1741); those entries
+stay `null` until its adapter ships. The importer rejects any newly encountered
+protocol so it gets a support decision and tracking issue instead of a guessed wire.
 The snapshot supplies protocol metadata only: it does not enable models,
 change credential destinations, or promise subscription eligibility.
 Startup makes no catalog request, and the snapshot does not refresh itself.

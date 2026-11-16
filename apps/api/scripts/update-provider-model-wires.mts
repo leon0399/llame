@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { z } from 'zod';
+import type { ModelWire } from '../src/instance-config/provider-routing.js';
 
 // Pin an OpenCode revision so review and regeneration use identical source data.
 const revision = process.argv[2];
@@ -37,7 +38,7 @@ const catalog = z
   })
   .parse(JSON.parse(text));
 
-const providers: Record<string, Record<string, string>> = {};
+const providers: Record<string, Record<string, ModelWire | null>> = {};
 
 for (const [local, upstream] of [
   ['opencode-go', 'opencode-go'],
@@ -54,7 +55,7 @@ for (const [local, upstream] of [
         if (model.id !== id || !protocol)
           throw new Error(`Invalid model metadata: ${upstream}/${id}`);
 
-        return [id, protocol] as const;
+        return [id, modelWire(protocol)] as const;
       })
       .sort(([a], [b]) => a.localeCompare(b, 'en')),
   );
@@ -72,3 +73,20 @@ writeFileSync(
     2,
   ) + '\n',
 );
+
+function modelWire(protocol: string): ModelWire | null {
+  switch (protocol) {
+    case 'messages':
+      return 'anthropic-messages';
+    case 'responses':
+      return 'openai-responses';
+    case 'chat-completions':
+      return 'openai-completions';
+    case 'generate-content':
+      // TODO(#1741): Map to llame's Google wire when its native adapter ships.
+      return null;
+    default:
+      // A new protocol needs an explicit support decision and tracking issue.
+      throw new Error(`Unrecognized upstream protocol: ${protocol}`);
+  }
+}
