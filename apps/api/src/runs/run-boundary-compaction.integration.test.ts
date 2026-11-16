@@ -1,6 +1,7 @@
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { CompactionService } from '../compaction/compaction.service';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import type { Message } from '../db/schema';
 import {
   answer,
@@ -378,5 +379,105 @@ describe('step-boundary compaction', () => {
 
     expect(summarize).toHaveBeenCalledTimes(callsBefore + 2);
     expect(budgets).toEqual([3, 4]);
+  });
+  it('An interrupt compaction keeps its cause', async () => {
+    const seeded = await fx.seed('Interrupt and compact.');
+    let stored = false;
+
+    await fx.launch(
+      seeded,
+      [
+        call('read-one', 'read', { path: fx.directory }),
+        call('read-two', 'read', { path: fx.directory }),
+        answer('Finished after interruption.'),
+      ],
+      async (stepIndex) => {
+        if (stepIndex === 1 && !stored) {
+          stored = true;
+          await fx.storeItems(
+            seeded.chatId,
+            ['/compact'],
+            'interrupt',
+            seeded.runId,
+          );
+        }
+      },
+    );
+
+    await fx.terminal(seeded.runId);
+
+    const delivered = (await fx.events(seeded.runId)).find(
+      (event) => event.eventType === 'run.delivered',
+    );
+
+    expect(delivered?.payload).toMatchObject({
+      cause: 'interrupt',
+      stepBudgetUsed: 2,
+    });
+  });
+  it('A compact item withdrawn during the compaction', async () => {
+    const seeded = await fx.seed('Keep working after withdrawal.');
+    const entered = Promise.withResolvers<void>();
+
+    const release = Promise.withResolvers<{
+      uptoSeq: number;
+      summary: string;
+      usage: Record<string, never>;
+    } | null>();
+
+    let itemId: string | undefined;
+
+    vi.spyOn(
+      fx.harness.moduleRef.get(CompactionService),
+      'computeBoundarySummary',
+    ).mockImplementation(async (input) => {
+      entered.resolve();
+
+      return release.promise.then(() => ({
+        uptoSeq: input.uptoSeq,
+        summary: 'withdrawn summary',
+        usage: {},
+      }));
+    });
+
+    await fx.launch(
+      seeded,
+      [
+        call('read-one', 'read', { path: fx.directory }),
+        call('read-two', 'read', { path: fx.directory }),
+        answer('Task finished.'),
+      ],
+      async (stepIndex) => {
+        if (stepIndex === 1 && itemId === undefined) {
+          [itemId] = await fx.storeItems(
+            seeded.chatId,
+            ['/compact'],
+            'steer',
+            seeded.runId,
+          );
+        }
+      },
+    );
+
+    await entered.promise;
+    await fx.db((tx) =>
+      new ChatDeliveriesRepository(tx).withdrawPending(
+        seeded.chatId,
+        itemId!,
+        fx.userId,
+      ),
+    );
+    release.resolve(null);
+    await fx.terminal(seeded.runId);
+
+    expect((await fx.itemState(itemId!))?.state).toBe('withdrawn');
+    expect(
+      (await fx.messages(seeded.chatId)).filter(
+        (message) => message.role === 'checkpoint',
+      ),
+    ).toHaveLength(0);
+    expect(
+      (await fx.types(seeded.runId)).filter((type) => type === 'run.delivered'),
+    ).toHaveLength(0);
   });
 });
