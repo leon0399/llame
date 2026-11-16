@@ -24136,6 +24136,7 @@ describe('RunExecutionService compaction aborts', () => {
       expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       summary: { uptoSeq: 1, summary: 'summary', usage: null },
       abortSignal: abort.signal,
+      focus: null,
     });
 
     await digestStarted;

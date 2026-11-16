@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  checkpointFocus,
+  checkpointPayload,
   checkpointSummary,
   createCompactionCheckpointPart,
   createModelChangeItem,
@@ -272,7 +272,7 @@ describe('compaction checkpoint producer', () => {
     expect(part.data.text).toContain('historical context');
     expect(readCheckpointText(row([part]))).toBe(part.data.text);
     expect(checkpointSummary(row([part]))).toBe(summary);
-    expect(checkpointFocus(row([part]))).toBeNull();
+    expect(checkpointPayload(row([part])).focus).toBeNull();
   });
 
   it('reads a version-two checkpoint summary and focus', () => {
@@ -287,7 +287,9 @@ describe('compaction checkpoint producer', () => {
       focus: 'keep the migration plan',
     });
     expect(checkpointSummary(row([part]))).toBe('Summary only.');
-    expect(checkpointFocus(row([part]))).toBe('keep the migration plan');
+    expect(checkpointPayload(row([part])).focus).toBe(
+      'keep the migration plan',
+    );
   });
 
   it('writes version one for an empty or whitespace-only focus', () => {
@@ -296,7 +298,7 @@ describe('compaction checkpoint producer', () => {
       const stored = row([part]);
 
       expect(part.data.payload).toEqual({ v: 1, summary: 'Summary only.' });
-      expect(checkpointFocus(stored)).toBeNull();
+      expect(checkpointPayload(stored).focus).toBeNull();
     }
   });
 

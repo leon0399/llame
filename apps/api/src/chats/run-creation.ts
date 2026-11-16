@@ -118,6 +118,7 @@ export async function createCompactionRun(
     modelId: string;
     effort?: string;
     permissionMode?: PermissionMode;
+    focus: string | null;
   },
 ): Promise<Run> {
   try {
@@ -137,7 +138,7 @@ export async function createCompactionRun(
     await new RunEventsRepository(tx).append(run.id, 'run.created', {
       chatId: input.chatId,
       messageId: null,
-      compaction: { focus: null },
+      compaction: { focus: input.focus },
     });
 
     return run;

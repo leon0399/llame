@@ -1511,7 +1511,9 @@ describe('buildCompactionRequest', () => {
     const triggerSentence =
       'The newer triggering user message follows that prefix and is not visible to you; it is replayed verbatim after the checkpoint, so do not quote it in "Latest Request".';
 
-    expect(renderCompactionInstruction('automatic')).toBe(COMPACTION_INSTRUCTION);
+    expect(renderCompactionInstruction('automatic')).toBe(
+      COMPACTION_INSTRUCTION,
+    );
     expect(COMPACTION_INSTRUCTION.endsWith('closing commentary.')).toBe(true);
     expect(COMPACTION_INSTRUCTION).toContain(triggerSentence);
     expect(ownerInstruction).not.toContain(triggerSentence);

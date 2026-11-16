@@ -1471,10 +1471,7 @@ export class RunExecutionService {
     const checkpoint = await messages.createCheckpoint({
       chatId: input.chatId,
       absorbedThroughSeq: summary.uptoSeq,
-      part: createCompactionCheckpointPart(
-        summary.summary,
-        input.focus,
-      ),
+      part: createCompactionCheckpointPart(summary.summary, input.focus),
       usage: summary.usage,
     });
 

@@ -188,13 +188,38 @@ describe('CompactionRunService.execute', () => {
     expect(request?.triggeringUserSeq).toBe(2);
     expect(request?.plan.uptoSeq).toBe(1);
     expect(request?.reservedOutputTokens).toBe(4096);
+    expect(made.completeCompactionRun).toHaveBeenCalledWith(
+      expect.objectContaining({ summary }),
+    );
+  });
+
+  it('passes the admitted focus to the summary request and checkpoint', async () => {
+    const focus = 'keep the migration plan';
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+    const made = makeService({ focus });
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    const request = made.summarizeCheckpoint.mock.calls[0]?.[0];
+    expect(request?.variant).toBe('owner');
 
     if (request?.variant === 'owner') {
-      expect(request.effort).toBe('high');
+      expect(request.instruction).toContain(focus);
     }
 
     expect(made.completeCompactionRun).toHaveBeenCalledWith(
-      expect.objectContaining({ summary }),
+      expect.objectContaining({ focus }),
     );
   });
 

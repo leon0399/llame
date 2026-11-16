@@ -854,6 +854,7 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
       plan: plan(),
       previousCheckpoint,
       client,
+      instruction: renderCompactionInstruction('owner'),
       effort: 'high',
       reservedOutputTokens: 10,
     });

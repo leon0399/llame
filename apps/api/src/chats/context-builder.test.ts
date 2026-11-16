@@ -7,7 +7,7 @@
  * - stored user parts replay without synthesized sender attribution
  */
 
-import { contentText } from '../testing/support';
+import { asDouble, contentText } from '../testing/support';
 import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildContext,
@@ -18,6 +18,7 @@ import {
   type ModelRequestContext,
   type StoredMessage,
 } from './context-builder';
+import type { CheckpointMessage } from './messages-repository';
 import { projectStoredToolPart } from './tool-observation-part';
 import {
   createCompactionCheckpointPart,
@@ -1597,11 +1598,20 @@ describe('buildContext', () => {
 
     it('A later request does not replay the focus', () => {
       const focus = 'keep the migration plan';
-      const checkpointRow = msg({
+
+      const checkpointRow = asDouble<CheckpointMessage>({
         id: 'focus-checkpoint',
+        chatId: 'chat-1',
+        seq: assistantMsg1.seq + 1,
         role: 'checkpoint',
-        absorbedThroughSeq: assistantMsg1.seq,
+        senderUserId: null,
         parts: [createCompactionCheckpointPart('Historical summary.', focus)],
+        attachments: [],
+        usage: null,
+        absorbedThroughSeq: assistantMsg1.seq,
+        inReplyTo: null,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        revisedAt: null,
       });
 
       const result = buildContext([userMsg2], {
@@ -1610,12 +1620,8 @@ describe('buildContext', () => {
         checkpoint: toContextCheckpoint(checkpointRow),
       });
 
-      expect(checkpointRow.parts).toContainEqual(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            payload: expect.objectContaining({ focus }),
-          }),
-        }),
+      expect(JSON.stringify(checkpointRow.parts)).toContain(
+        `"focus":"${focus}"`,
       );
       expect(JSON.stringify(result)).toContain('Historical summary.');
       expect(JSON.stringify(result)).not.toContain(focus);

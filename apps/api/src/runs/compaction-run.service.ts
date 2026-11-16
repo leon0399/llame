@@ -65,71 +65,50 @@ export class CompactionRunService {
 
     if ('settledReply' in claim || 'nativeRecovery' in claim) return;
 
-    await this.runClaimed({
+    await this.finishClaim({
       job,
       client,
+      claim,
       abortSignal,
       expectedQueueIdentity,
-      claim,
     });
   }
 
-  private async runClaimed(input: {
+  private async finishClaim(input: {
     job: RunJob;
     client: ModelClient;
+    claim: Extract<RunClaimResult, { messageId: string | null }>;
     abortSignal: AbortSignal;
     expectedQueueIdentity: {
       currentJobId: string | null;
       wakeGeneration: number;
     };
-    claim: Extract<RunClaimResult, { messageId: string | null }>;
   }): Promise<void> {
     try {
-      await this.summarizeAndFinish(input);
+      await this.completePlanned(input);
     } catch (error) {
       if (!input.abortSignal.aborted) throw error;
 
-      const status = classifyAbortedRun(input.abortSignal);
-
-      const message =
-        status === 'expired'
-          ? expiredRunMessage(input.abortSignal)
-          : 'Run was cancelled.';
-
-      await this.execution.settleTerminalRun({
-        runId: input.job.runId,
-        userId: input.job.userId,
-        status,
-        attemptId: input.claim.attemptId,
-        expectedQueueIdentity: input.expectedQueueIdentity,
-        runPayload: { status, message },
-        error: { message },
-      });
+      await this.settleAborted(input);
     }
   }
 
-  private async summarizeAndFinish(input: {
+  private async completePlanned(input: {
     job: RunJob;
     client: ModelClient;
+    claim: Extract<RunClaimResult, { messageId: string | null }>;
     abortSignal: AbortSignal;
     expectedQueueIdentity: {
       currentJobId: string | null;
       wakeGeneration: number;
     };
-    claim: Extract<RunClaimResult, { messageId: string | null }>;
   }): Promise<void> {
     const { plan, nextSeq, activeCheckpoint, focus } = await this.plan(
       input.job,
     );
 
     if (plan === null) {
-      await this.finish({
-        job: input.job,
-        attemptId: input.claim.attemptId,
-        expectedQueueIdentity: input.expectedQueueIdentity,
-        abortSignal: input.abortSignal,
-        focus,
-      });
+      await this.finishWithoutSummary(input, focus);
 
       return;
     }
@@ -149,8 +128,56 @@ export class CompactionRunService {
       attemptId: input.claim.attemptId,
       summary,
       expectedQueueIdentity: input.expectedQueueIdentity,
-      abortSignal: input.abortSignal,
       focus,
+      abortSignal: input.abortSignal,
+    });
+  }
+  private async finishWithoutSummary(
+    input: {
+      job: RunJob;
+      claim: Extract<RunClaimResult, { messageId: string | null }>;
+      abortSignal: AbortSignal;
+      expectedQueueIdentity: {
+        currentJobId: string | null;
+        wakeGeneration: number;
+      };
+    },
+    focus: string | null,
+  ): Promise<void> {
+    await this.finish({
+      job: input.job,
+      attemptId: input.claim.attemptId,
+      summary: undefined,
+      expectedQueueIdentity: input.expectedQueueIdentity,
+      focus,
+      abortSignal: input.abortSignal,
+    });
+  }
+
+  private async settleAborted(input: {
+    job: RunJob;
+    claim: Extract<RunClaimResult, { messageId: string | null }>;
+    abortSignal: AbortSignal;
+    expectedQueueIdentity: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    };
+  }): Promise<void> {
+    const status = classifyAbortedRun(input.abortSignal);
+
+    const message =
+      status === 'expired'
+        ? expiredRunMessage(input.abortSignal)
+        : 'Run was cancelled.';
+
+    await this.execution.settleTerminalRun({
+      runId: input.job.runId,
+      userId: input.job.userId,
+      status,
+      attemptId: input.claim.attemptId,
+      expectedQueueIdentity: input.expectedQueueIdentity,
+      runPayload: { status, message },
+      error: { message },
     });
   }
 
@@ -204,6 +231,7 @@ export class CompactionRunService {
         job.chatId,
         job.userId,
       );
+
       const flags = await readCreatedFlags(tx, job.runId, job.userId);
 
       return { ...planned, focus: flags.focus };
@@ -241,7 +269,7 @@ export class CompactionRunService {
   private async finish(input: {
     job: RunJob;
     attemptId: string;
-    summary?: CompactionSummary;
+    summary: CompactionSummary | undefined;
     expectedQueueIdentity: {
       currentJobId: string | null;
       wakeGeneration: number;

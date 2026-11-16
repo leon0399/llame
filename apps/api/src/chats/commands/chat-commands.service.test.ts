@@ -324,7 +324,6 @@ describe('ChatCommandsService', () => {
     });
     expect(createRun).toHaveBeenCalledTimes(2);
     expect(dispatch.dispatch).toHaveBeenCalledTimes(2);
-
   });
 
   it('rejects a focus over 1,000 characters before Run creation', async () => {

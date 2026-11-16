@@ -15,7 +15,7 @@ import { MessagesRepository } from '../chats/messages-repository';
 import {
   buildCompactionRequest,
   normalizeCompactionSummary,
-  COMPACTION_INSTRUCTION,
+  renderCompactionInstruction,
   requestFitsContextWindow,
   type CompactionPlan,
   type CompactionVariant,
@@ -236,7 +236,7 @@ export class CompactionService {
       modelId: input.client.model,
       previous,
       absorb: input.plan.absorb,
-      instruction: input.instruction ?? COMPACTION_INSTRUCTION,
+      instruction: input.instruction ?? renderCompactionInstruction('owner'),
     });
 
     if (input.media !== undefined) {

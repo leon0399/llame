@@ -727,46 +727,40 @@ export function toContextCheckpoint(row: CheckpointMessage): ContextCheckpoint {
   };
 }
 
-export function checkpointPayload(
-  row: Message,
-): { summary: string; focus: string | null } {
-  const { part } = checkpointPartOrThrow(row);
+export function checkpointPayload(row: Message) {
+  const payload = checkpointPartOrThrow(row).part.data.payload;
 
-  if (!isRecord(part.data.payload)) {
-    throw new ModelContextExecutionError(
-      `Checkpoint ${row.id} has invalid summary metadata.`,
-    );
+  const metadataError = new ModelContextExecutionError(
+    `Checkpoint ${row.id} has invalid summary metadata.`,
+  );
+
+  if (!isRecord(payload)) throw metadataError;
+
+  const summary = payload['summary'];
+
+  if (!isString(summary) || summary.trim().length === 0) throw metadataError;
+
+  if (isExactRecord(payload, ['summary', 'v']) && payload['v'] === 1) {
+    return { summary, focus: null };
   }
 
-  const payload = part.data.payload;
-
-  if (
-    isExactRecord(payload, ['summary', 'v']) &&
-    payload['v'] === 1 &&
-    isString(payload['summary']) &&
-    payload['summary'].trim().length > 0
-  ) {
-    return { summary: payload['summary'], focus: null };
-  }
+  const focus = payload['focus'];
 
   if (
     isExactRecord(payload, ['focus', 'summary', 'v']) &&
     payload['v'] === 2 &&
-    isString(payload['summary']) &&
-    payload['summary'].trim().length > 0 &&
-    isString(payload['focus']) &&
-    payload['focus'].trim().length > 0
+    isString(focus) &&
+    focus.trim().length > 0
   ) {
-    return { summary: payload['summary'], focus: payload['focus'] };
+    return { summary, focus };
   }
 
-  throw new ModelContextExecutionError(
-    `Checkpoint ${row.id} has invalid summary metadata.`,
-  );
+  throw metadataError;
 }
 
+export const checkpointSummary = (row: Message): string =>
+  checkpointPayload(row).summary;
 
-/** Does this part carry a recency-digest delta or supersession? */
 export function isRecencyDigestItem(value: unknown): value is ContextItemPart {
   if (!isContextItemPart(value) || value.data.producer !== 'recency-digest') {
     return false;
