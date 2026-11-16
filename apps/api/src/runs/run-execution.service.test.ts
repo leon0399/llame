@@ -66,6 +66,7 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
+import type { JobNoticeRunService } from './job-notice-run.service';
 import { type RunDispatcher } from './run-dispatch.service';
 import {
   RunAbortRegistry,
@@ -544,6 +545,7 @@ type ExecutionServiceOptions = {
   segmentAborts?: RunSegmentRegistrar;
   /** Durable wait suspension dependency for the host-controlled wait tool. */
   runWait?: RunWaitService;
+  jobNoticeRuns?: Pick<JobNoticeRunService, 'startAfterRunCompletion'>;
 };
 
 function makeExecutionService(
@@ -689,6 +691,7 @@ function makeExecutionService(
       { startOnSettlement: vi.fn() },
     ),
     options.runWait,
+    options.jobNoticeRuns,
   );
 
   return {
@@ -799,7 +802,10 @@ function mockNormalExecutionRepositories() {
       createdAt: now,
     });
 
-  vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(event);
+  const appendEvent = vi
+    .spyOn(RunEventsRepository.prototype, 'append')
+    .mockResolvedValue(event);
+
   vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
     undefined,
   );
@@ -954,6 +960,7 @@ function mockNormalExecutionRepositories() {
     findCompleted,
     findDispatched,
     findActiveCheckpoint,
+    appendEvent,
   };
 }
 
@@ -23710,7 +23717,7 @@ describe('RunExecutionService compaction completion', () => {
 
       mockCompactionCompletionFence(execution, fenced);
 
-      const result = await execution.service.completeCompactionRun({
+      await execution.service.completeCompactionRun({
         runId,
         chatId,
         userId,
@@ -23720,15 +23727,127 @@ describe('RunExecutionService compaction completion', () => {
         expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       });
 
-      expect(result.outcome).toBe('won');
+      expect(repositories.updateForAttempt).toHaveBeenCalledWith(
+        runId,
+        userId,
+        testAttemptId,
+        { activeAttemptId: testAttemptId },
+      );
       expect(repositories.markFinished).toHaveBeenCalledWith(
         runId,
         userId,
         expectedStatus,
-        expect.objectContaining({ attemptId: testAttemptId }),
+        {
+          error:
+            expectedStatus === 'cancelled'
+              ? { message: 'Run was cancelled.' }
+              : undefined,
+          attemptId: testAttemptId,
+        },
+      );
+      expect(repositories.appendEvent).toHaveBeenCalledWith(
+        runId,
+        `run.${expectedStatus}`,
+        { status: expectedStatus },
       );
     },
   );
+
+  it('starts pending notices after successful compaction completion', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+    repositories.markFinished.mockResolvedValue({
+      ...fenced,
+      status: 'completed',
+    });
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result).toEqual({
+      outcome: 'won',
+      assistantMessage: undefined,
+      promoted: undefined,
+    });
+    expect(startAfterRunCompletion).toHaveBeenCalledWith(execution.db, {
+      chatId,
+      ownerUserId: userId,
+    });
+  });
+  it('does not publish a summary when cancellation wins completion', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+      cancelRequestedAt: now,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+
+    const createCheckpoint = vi.spyOn(
+      MessagesRepository.prototype,
+      'createCheckpoint',
+    );
+
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: { uptoSeq: 1, summary: 'summary', usage: null },
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      {
+        error: { message: 'Run was cancelled.' },
+        attemptId: testAttemptId,
+      },
+    );
+    expect(repositories.appendEvent).toHaveBeenCalledWith(
+      runId,
+      'run.cancelled',
+      { status: 'cancelled' },
+    );
+    expect(createCheckpoint).not.toHaveBeenCalled();
+    expect(startAfterRunCompletion).not.toHaveBeenCalled();
+  });
 
   it('settles an abort observed inside the completion transaction', async () => {
     const abort = new AbortController();
@@ -23761,7 +23880,20 @@ describe('RunExecutionService compaction completion', () => {
       runId,
       userId,
       'cancelled',
-      expect.objectContaining({ attemptId: testAttemptId }),
+      {
+        error: {
+          message: 'Run was cancelled before model inference.',
+        },
+        attemptId: testAttemptId,
+      },
+    );
+    expect(repositories.appendEvent).toHaveBeenCalledWith(
+      runId,
+      'run.cancelled',
+      {
+        status: 'cancelled',
+        message: 'Run was cancelled before model inference.',
+      },
     );
   });
   it('does not republish a checkpoint at an already absorbed boundary', async () => {
@@ -23828,6 +23960,29 @@ describe('RunExecutionService claimRun', () => {
         error: { message: 'Run was cancelled before model inference.' },
         expectedQueueIdentity,
       },
+    );
+  });
+
+  it('omits a queue fence when a pre-aborted claim has no queue identity', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markFinished.mockResolvedValue(undefined);
+    const execution = makeExecutionService();
+
+    const claim = await execution.service.claimRun({
+      runId,
+      chatId,
+      userId,
+      abortSignal: abort.signal,
+    });
+
+    expect(claim).toEqual({ settledReply: undefined });
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      { error: { message: 'Run was cancelled before model inference.' } },
     );
   });
 });
@@ -23900,6 +24055,57 @@ describe('RunExecutionService compaction aborts', () => {
         attemptId: 'attempt-1',
         expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
       }),
+    );
+  });
+});
+
+describe('RunExecutionService compaction digest resolution', () => {
+  it('completes without a digest when the candidate lookup fails', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+    repositories.markFinished.mockResolvedValue({
+      ...fenced,
+      status: 'completed',
+    });
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      memory: {
+        getForOwnerForBinding: vi
+          .fn()
+          .mockResolvedValue({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: vi
+          .fn()
+          .mockRejectedValue(new Error('digest unavailable')),
+      },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.objectContaining({ attemptId: testAttemptId }),
     );
   });
 });
