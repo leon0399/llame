@@ -31,6 +31,8 @@ describe('respondToChatCommand', () => {
       command: { name: 'compact', argument: '' },
       parts: [{ type: 'text', text: '/compact' }],
       modelId: 'model-1',
+      messageId: undefined,
+      rawText: '/compact',
     });
     expect(status).toHaveBeenCalledWith(200);
     expect(json).toHaveBeenCalledWith({ command: 'compacted' });
