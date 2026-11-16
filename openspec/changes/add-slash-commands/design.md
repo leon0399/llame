@@ -217,7 +217,9 @@ rolling deploy of that layer, an API pod that still runs the old reader fails a 
 meets a `v: 2` checkpoint until the rollout finishes; llame deploys API and worker together, and
 this window is accepted. Reverting
 that layer needs one data fix first, because the old reader throws on `v: 2`:
-`UPDATE messages SET parts = jsonb_set(parts, '{0,data,payload}', (parts->0->'data'->'payload') - 'focus' || '{"v":1}') WHERE role = 'checkpoint' AND parts->0->'data'->'payload'->>'v' = '2'`.
+`UPDATE messages SET parts = (jsonb_set(parts::jsonb, '{0,data,payload}', (((parts::jsonb)->0->'data'->'payload') - 'focus') || '{"v":1}'))::json WHERE role = 'checkpoint' AND parts->0->'data'->'payload'->>'v' = '2'`,
+run by a role that bypasses row-level security while the API and workers are stopped (`parts` is
+`json`, and `messages` forces row-level security).
 
 Alternative: a `runs.compaction_focus` column (rejected: a second schema change for a value that
 only the worker and the checkpoint read).
