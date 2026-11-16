@@ -416,6 +416,7 @@ describe("applyLiveMessage", () => {
       chatId: ID.a,
       producer: "owner" as const,
       mode: "queue" as const,
+      command: null,
       state: "pending" as const,
       parts: [{ type: "text", text: "later" }],
       modelId: "system:openai:model-one",

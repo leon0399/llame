@@ -2880,6 +2880,7 @@ function pendingItem(
     chatId: CHAT_ID,
     producer: "owner",
     mode,
+    command: null,
     state: "pending",
     parts: [{ type: "text", text }],
     modelId: GPT_5_4_MINI.id,
@@ -3581,6 +3582,89 @@ export const DeliveredItemLeavesTheStack: Story = {
       expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
     );
     await transcriptShows(canvasElement, "use the other table");
+  },
+};
+
+const COMPACT_ITEM: ChatDeliveryResponse = {
+  ...pendingItem("c1", "queue", "/compact the migration plan"),
+  command: "compact",
+};
+
+/**
+ * A queued `/compact` waits for the live turn Run: its row is labelled
+ * Compact, offers no Steer now or Interrupt now, and Edit puts the command
+ * back in the composer.
+ *
+ * @summary a compact row edits back into the composer
+ */
+export const CompactItemEditPutsTheTextBack: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [`DELETE ${DELIVERY_ROUTE("c1")}`]: () =>
+        Promise.resolve(jsonResponse({ ...COMPACT_ITEM, state: "withdrawn" })),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedLiveRun(canvasElement);
+    const stack = within(await canvas.findByRole("region", PENDING_REGION));
+    await expect(stack.getByText("Compact")).toBeVisible();
+    await expect(
+      stack.queryByRole("button", { name: /^Steer now/ }),
+    ).toBeNull();
+    await expect(
+      stack.queryByRole("button", { name: /^Interrupt now/ }),
+    ).toBeNull();
+    await userEvent.click(stack.getByRole("button", { name: /^Edit/ }));
+
+    await waitFor(() =>
+      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+    );
+    await expect(composer(canvasElement)).toHaveValue(
+      "/compact the migration plan",
+    );
+  },
+};
+
+/**
+ * A `/compact` item the Run delivered meanwhile leaves the stack; it started
+ * a compaction Run, which has no message, so no stream hand-off waits for it.
+ *
+ * @summary a delivered compact item leaves the stack without a hand-off
+ */
+export const DeliveredCompactItemLeavesTheStack: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [`DELETE ${DELIVERY_ROUTE("c1")}`]: () =>
+        Promise.resolve(
+          jsonResponse({ statusCode: 409, message: "Already delivered" }, 409),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedLiveRun(canvasElement);
+    const resumes = sentRoutes().filter((r) => r === RESUME_ROUTE).length;
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+
+    await waitFor(() =>
+      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+    );
+    await expect(composer(canvasElement)).toHaveValue("");
+    await expect(sentRoutes().filter((r) => r === RESUME_ROUTE).length).toBe(
+      resumes,
+    );
   },
 };
 

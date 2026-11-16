@@ -106,6 +106,7 @@ export function liveDeliveryRecord(
     modelId: 'gpt-5.5',
     permissionMode: 'default',
     createdAt: at,
+    command: null,
     ...overrides,
   };
 }

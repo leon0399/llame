@@ -149,10 +149,15 @@ async function editItem(
 
   if (withdrawn === null) return;
   const text = deliveryText(withdrawn);
-  // The owner may have typed during the round trip: their draft stays.
-  draft.setInput((current) =>
-    current.trim() === "" ? text : `${text}\n\n${current}`,
-  );
+  // The owner may have typed during the round trip: their draft stays. Slash
+  // text goes after it, so the draft never becomes the command's argument.
+  draft.setInput((current) => {
+    if (current.trim() === "") return text;
+
+    return isCommandText(text)
+      ? `${current}\n\n${text}`
+      : `${text}\n\n${current}`;
+  });
   await draft.attachments.restoreFiles(deliveryFiles(withdrawn));
 }
 
@@ -307,20 +312,21 @@ function restoreFailedSend(input: {
 
 /** An item that leaves the list without the owner withdrawing it was
  *  delivered: as a steer of the live Run, or as the message of the Run it
- *  started. Either way history holds its message now. */
+ *  started. Either way history holds its message now. A `/compact` item
+ *  starts a compaction Run, which has no message and no stream to attach. */
 function useDeliveredItems(
   items: ReadonlyArray<ChatDeliveryResponse>,
   begin: (messageId: string) => void,
 ) {
-  const seenIds = useRef<ReadonlyArray<string>>([]);
+  const seen = useRef<ReadonlyArray<ChatDeliveryResponse>>([]);
   useEffect(() => {
     const present = new Set(items.map((item) => item.id));
 
-    for (const id of seenIds.current) {
-      if (!present.has(id)) begin(id);
+    for (const item of seen.current) {
+      if (!present.has(item.id) && item.command !== "compact") begin(item.id);
     }
 
-    seenIds.current = items.map((item) => item.id);
+    seen.current = items;
   }, [items, begin]);
 }
 

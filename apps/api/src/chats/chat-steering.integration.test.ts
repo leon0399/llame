@@ -36,6 +36,7 @@ import {
 import { CompactionRunService } from '../runs/compaction-run.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunWaitService } from '../runs/run-wait.service';
+import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RUNS_QUEUE, type RunJob } from '../runs/run-queues';
 import { RunsWorkerService } from '../runs/runs-worker.service';
 import { type TerminalRunStatus } from '../runs/run-status';
@@ -648,6 +649,27 @@ describe('chat deliveries — the steer mode', () => {
       expect((await change(chatId, id, 'steer')).status).toBe(409);
     });
 
+    it.each(['steer', 'interrupt'] as const)(
+      'A compact command cannot change mode to %s during a live turn Run',
+      async (mode) => {
+        const { chatId } = await chatWithLiveRun();
+        const id = crypto.randomUUID();
+
+        const admitted = await sendMode(chatId, 'queue', {
+          id,
+          text: '/compact keep plan',
+        });
+
+        const response = await change(chatId, id, mode);
+
+        expect(admitted.status).toBe(202);
+        expect(response.status).toBe(400);
+        expect(response.body).toMatchObject({
+          message: 'Compact waits for the current Run to finish.',
+        });
+        expect(await modesOf(chatId)).toEqual([[id, 'queue']]);
+      },
+    );
     it('Steer now on a paused item', async () => {
       const { chatId, runId } = await chatWithLiveRun();
       const first = crypto.randomUUID();
@@ -675,6 +697,28 @@ describe('chat deliveries — the steer mode', () => {
         'the first item, promoted by the completed Run',
         async () => (await pending(chatId)).length === 0,
       );
+    });
+    it('Steer now on a paused compact item', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+      await sendMode(chatId, 'queue', { id, text: '/compact keep plan' });
+      await settle(runId, 'failed', { error: { message: 'boom' } });
+      vi.spyOn(app.get(RunDispatchService), 'dispatch').mockResolvedValue();
+
+      const response = await change(chatId, id, 'steer');
+
+      const compactRun = (await runsOf(chatId)).find(
+        (run) => run.kind === 'compaction',
+      );
+
+      const item = (await pending(chatId)).find((entry) => entry.id === id);
+
+      expect(response.status).toBe(200);
+      expect(compactRun).toMatchObject({ messageId: null });
+      expect(item).toBeUndefined();
+      expect(
+        (await messagesOf(chatId)).some((message) => message.id === id),
+      ).toBe(false);
     });
 
     it('Steer now on a paused item with settings a send cannot use', async () => {

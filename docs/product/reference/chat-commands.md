@@ -45,6 +45,17 @@ focuses, the operator converts them; see
 If the Chat has paused queue items, they stay pending during the compaction
 Run and resume through the normal queue promotion when it completes.
 
-A Chat with a live Run returns `Wait for the current Run to finish.` A
-compaction command sent to another owner's Chat is not found. Archived Chats
+With a live Run, send `/compact` with a delivery mode to add it to the queue.
+The item keeps the command text and send settings. It starts a compaction Run
+after the current Run completes; the response is `202` with the pending delivery.
+The item can also start a compaction Run when Steer now is selected on a paused
+queue. A send without a delivery mode to a live Run returns
+`Wait for the current Run to finish.` A command item cannot be changed to Steer
+now or Interrupt now while a turn Run is live; the API returns
+`Compact waits for the current Run to finish.`
+The pending-delivery response includes `command: "compact"`; ordinary delivery
+items have `command: null`. Every supplied delivery mode is stored as `queue`
+for this command.
+
+A compaction command sent to another owner's Chat is not found. Archived Chats
 cannot be compacted. A command that includes an attachment is rejected.

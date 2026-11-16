@@ -547,13 +547,15 @@ export class ChatDeliveriesRepository {
   async markDelivered(
     id: string,
     ownerUserId: string,
-    delivered: { messageId: string; runId: string },
+    delivered: { messageId?: string; runId: string },
   ): Promise<ChatDelivery | undefined> {
     const [row] = await this.db
       .update(chatDeliveries)
       .set({
         state: 'delivered',
-        deliveredMessageId: delivered.messageId,
+        ...(delivered.messageId !== undefined && {
+          deliveredMessageId: delivered.messageId,
+        }),
         runId: delivered.runId,
         updatedAt: new Date(),
       })

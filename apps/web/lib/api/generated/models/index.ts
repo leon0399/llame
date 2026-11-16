@@ -28,6 +28,7 @@ export * from "./chatCreationDecisionResponseReference";
 export * from "./chatCreationRecordResponse";
 export * from "./chatDeliveriesResponse";
 export * from "./chatDeliveryResponse";
+export * from "./chatDeliveryResponseCommand";
 export * from "./chatDeliveryResponseJobState";
 export * from "./chatDeliveryResponseMode";
 export * from "./chatDeliveryResponsePartsItem";

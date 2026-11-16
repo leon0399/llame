@@ -33,8 +33,29 @@ import {
 } from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
+import { parseChatCommand } from './commands/parse-chat-command';
 import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
+import type { ChatDelivery, Run } from '../db/schema';
+
+function assertModeChangeAllowed(
+  slot: { state: 'free' } | { state: 'blocked'; kind: Run['kind'] },
+  item: ChatDelivery,
+): void {
+  if (slot.state !== 'blocked') return;
+
+  if (slot.kind === 'compaction') {
+    throw new BadRequestException(
+      'Pending items cannot be steered or interrupted during compaction',
+    );
+  }
+
+  if (parseChatCommand(item.parts)?.name === 'compact') {
+    throw new BadRequestException(
+      'Compact waits for the current Run to finish.',
+    );
+  }
+}
 
 /**
  * The owner's view of the pending items of a Chat (run-steering). Every read
@@ -117,18 +138,21 @@ export class ChatDeliveriesService {
 
         if (!chat) throw new NotFoundException(`Chat ${chatId} not found`);
         assertNotArchived(chat);
+
         const items = new ChatDeliveriesRepository(tx);
-        await this.requireChangeableItem(items, chatId, deliveryId, userId);
+
+        const existing = await this.requireChangeableItem(
+          items,
+          chatId,
+          deliveryId,
+          userId,
+        );
         // The slot comes before the change: expiring a stuck Run pauses the
         // queue behind it, which would move the item changed here back to
-        // `queue`.
+
         const slot = await this.claimSlot(tx, chatId, userId);
 
-        if (slot.state === 'blocked' && slot.kind === 'compaction') {
-          throw new BadRequestException(
-            'Pending items cannot be steered or interrupted during compaction',
-          );
-        }
+        assertModeChangeAllowed(slot, existing);
 
         const changed = await items.changePendingMode(
           chatId,
@@ -158,7 +182,7 @@ export class ChatDeliveriesService {
     chatId: string,
     deliveryId: string,
     userId: string,
-  ): Promise<void> {
+  ): Promise<ChatDeliveryView['item']> {
     const existing = await items.findById(deliveryId, userId);
 
     if (existing?.chatId !== chatId)
@@ -166,6 +190,8 @@ export class ChatDeliveriesService {
 
     if (existing.producer === 'job')
       throw new BadRequestException('A job notice cannot change mode');
+
+    return existing;
   }
 
   /** Validate owner-supplied settings before starting a changed pending item. */

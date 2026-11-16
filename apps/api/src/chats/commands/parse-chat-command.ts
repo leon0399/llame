@@ -1,3 +1,5 @@
+import { isRecord, isString } from '@workspace/runtime-safety';
+
 type MessagePart = { type: 'text'; text: string } | { type: 'file' };
 
 export type ChatCommand =
@@ -5,9 +7,19 @@ export type ChatCommand =
   | { name: 'compact'; argument: string };
 
 export function parseChatCommand(
-  parts: ReadonlyArray<MessagePart>,
+  parts: ReadonlyArray<unknown>,
 ): ChatCommand | null {
-  const textParts = parts.filter(
+  const normalized = parts.flatMap((part): Array<MessagePart> => {
+    if (!isRecord(part)) return [];
+
+    if (part['type'] === 'text' && isString(part['text'])) {
+      return [{ type: 'text', text: part['text'] }];
+    }
+
+    return part['type'] === 'file' ? [{ type: 'file' }] : [];
+  });
+
+  const textParts = normalized.filter(
     (part): part is { type: 'text'; text: string } => part.type === 'text',
   );
 

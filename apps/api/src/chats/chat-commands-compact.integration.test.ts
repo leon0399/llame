@@ -106,15 +106,27 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
     vi.spyOn(app.get(RunDispatchService), 'dispatch').mockResolvedValue();
   }
 
-  function sendCompact(chatId: string, cookie = cookieA, modelId = MODEL_ID) {
+  function sendCompact(
+    chatId: string,
+    options: {
+      cookie?: string;
+      modelId?: string;
+      delivery?: 'queue' | 'steer' | 'interrupt';
+      messageId?: string;
+      text?: string;
+    } = {},
+  ) {
+    const cookie = options.cookie ?? cookieA;
+
     return request(http)
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId,
+        modelId: options.modelId ?? MODEL_ID,
+        ...(options.delivery !== undefined && { delivery: options.delivery }),
         message: {
-          id: crypto.randomUUID(),
-          parts: [{ type: 'text', text: '/compact' }],
+          id: options.messageId ?? crypto.randomUUID(),
+          parts: [{ type: 'text', text: options.text ?? '/compact' }],
         },
       });
   }
@@ -280,7 +292,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
     const chatId = await createChat(userAId, 'Unknown compaction model');
     await seedOneTurn(chatId, userAId);
 
-    const response = await sendCompact(chatId, cookieA, 'not-a-chat-model');
+    const response = await sendCompact(chatId, { modelId: 'not-a-chat-model' });
 
     const run = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findLatestByChatId(chatId, userAId),
@@ -366,7 +378,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
     const chatId = await createChat(userAId, 'Private Chat');
     await seedOneTurn(chatId, userAId);
     const before = await listMessages(chatId, userAId);
-    const response = await sendCompact(chatId, cookieB);
+    const response = await sendCompact(chatId, { cookie: cookieB });
 
     const run = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findLatestByChatId(chatId, userAId),
@@ -403,6 +415,39 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
     expect(response.body).toMatchObject({
       message: expect.stringContaining('Wait for the current Run to finish.'),
     });
+  });
+  it('A live compact is queued for every delivery mode and retry returns the same item', async () => {
+    const chatId = await createChat(userAId, 'Queued compact');
+    const { user } = await seedOneTurn(chatId, userAId);
+    await tenantDb.runAs(userAId, async (tx) => {
+      const run = await new RunsRepository(tx).create({
+        id: crypto.randomUUID(),
+        chatId,
+        messageId: user.id,
+        userId: userAId,
+        modelId: MODEL_ID,
+      });
+
+      await new RunsRepository(tx).markStarted(run.id, userAId);
+    });
+
+    for (const delivery of ['queue', 'steer', 'interrupt'] as const) {
+      const id = crypto.randomUUID();
+      const text = `/compact keep ${delivery}`;
+      const options = { delivery, messageId: id, text };
+      const first = await sendCompact(chatId, options);
+      const retry = await sendCompact(chatId, options);
+
+      expect(first.status).toBe(202);
+      expect(first.body).toMatchObject({
+        id,
+        mode: 'queue',
+        state: 'pending',
+        command: 'compact',
+        parts: [{ type: 'text', text }],
+      });
+      expect(retry.body).toEqual(first.body);
+    }
   });
 
   it('A compact on a paused queue', async () => {
