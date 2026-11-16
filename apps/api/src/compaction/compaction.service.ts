@@ -650,4 +650,5 @@ export class CompactionService {
 export type CompactionCapability = Pick<
   CompactionService,
   'summarizeCheckpoint'
->;
+> &
+  Partial<Pick<CompactionService, 'computeBoundarySummary'>>;

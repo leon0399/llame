@@ -10,8 +10,9 @@ import { randomUUID } from 'node:crypto';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { parseChatCommand } from '../chats/commands/parse-chat-command';
 import { type StoppedCall } from '../chats/interrupted-notice';
+import type { MessagePart } from '../chats/context-builder';
+import type { CompactionSummary } from '../compaction/compaction.service';
 import { type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -27,6 +28,14 @@ import {
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { finalizeUsageCompleteness } from './usage-completeness';
+import {
+  appendDeliveryEvent,
+  closeAndPublishBoundaryCheckpoint,
+  deliverCompactionItems,
+  deliveryCause,
+  finishCompactionDelivery,
+  isCompactCommand,
+} from './boundary-compaction-delivery';
 
 /**
  * The baselines only a successful turn establishes: the chat's first digest
@@ -79,6 +88,7 @@ export type BoundaryDelivery =
       attemptId: string;
       /** `interrupt` closed the reply `aborted`; `steer` closed it as given. */
       cause: DeliveryCause;
+      checkpointId?: string;
     }
   /** No pending item remained: the transaction wrote nothing. */
   | { kind: 'nothing-pending' }
@@ -94,9 +104,9 @@ export type DeliveredBoundary = Extract<
 >;
 
 /** What caused a delivery: an interrupt, owner steer, or job notice. */
-export type DeliveryCause = 'steer' | 'interrupt' | 'notice';
+export type DeliveryCause = 'steer' | 'interrupt' | 'notice' | 'compaction';
 
-type DeliveryInput = {
+export type DeliveryInput = {
   run: { runId: string; userId: string };
   attemptId: string;
   /** The closing segment's usage event, as the terminal path writes it. */
@@ -124,14 +134,22 @@ type DeliveryInput = {
    * They are written only when every delivered item is a steer.
    */
   baselines?: FirstEpochBaselines;
+  boundaryCompaction?: {
+    ids: ReadonlyArray<string>;
+    summary: CompactionSummary | null;
+    continueItem: MessagePart;
+    stepBudgetUsed: number;
+    publishCheckpoint: (tx: Db, reply: Message) => Promise<string>;
+  };
 };
 
 async function storeDeliveredMessage(
   tx: Db,
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
+  extraParts: ReadonlyArray<MessagePart> = [],
 ): Promise<Message> {
-  const parts = items.flatMap((item) => item.parts);
+  const parts = [...items.flatMap((item) => item.parts), ...extraParts];
   const ownerAuthored = items.some((item) => item.producer === 'owner');
 
   const message = ownerAuthored
@@ -233,16 +251,12 @@ async function finalizeSegmentUsage(
  * holding every item's parts in order. A steer closes it `completed`, an
  * interrupt `aborted`.
  */
-async function closeSegmentAndStore(
+async function closeReply(
   tx: Db,
   closing: DeliveryInput,
-  delivery: {
-    locked: Run;
-    cause: DeliveryCause;
-    items: ReadonlyArray<ChatDelivery>;
-  },
-): Promise<{ closedReply: Message | undefined; message: Message }> {
-  const { locked, cause, items } = delivery;
+  locked: Run,
+  cause: DeliveryCause,
+): Promise<Message | undefined> {
   await finalizeSegmentUsage(tx, locked, closing);
 
   const closedReply = await finalizeRunReply(tx, {
@@ -262,7 +276,22 @@ async function closeSegmentAndStore(
     );
   }
 
-  const message = await storeDeliveredMessage(tx, locked, items);
+  return closedReply;
+}
+
+async function closeSegmentAndStore(
+  tx: Db,
+  closing: DeliveryInput,
+  delivery: {
+    locked: Run;
+    cause: DeliveryCause;
+    items: ReadonlyArray<ChatDelivery>;
+  },
+  extraParts: ReadonlyArray<MessagePart> = [],
+): Promise<{ closedReply: Message | undefined; message: Message }> {
+  const { locked, cause, items } = delivery;
+  const closedReply = await closeReply(tx, closing, locked, cause);
+  const message = await storeDeliveredMessage(tx, locked, items, extraParts);
 
   return { closedReply, message };
 }
@@ -271,6 +300,32 @@ async function closeSegmentAndStore(
  * Mark the items delivered as `message`, move the Run onto it under a fresh
  * attempt, and append `run.delivered`. Returns that attempt's id.
  */
+async function markDeliveryItems(
+  tx: Db,
+  input: {
+    locked: Run;
+    items: ReadonlyArray<ChatDelivery>;
+    commandItems: ReadonlyArray<ChatDelivery>;
+    message: Message;
+  },
+): Promise<void> {
+  const deliveries = new ChatDeliveriesRepository(tx);
+  const commandIds = new Set(input.commandItems.map((item) => item.id));
+
+  for (const item of [...input.items, ...input.commandItems]) {
+    const marked = await deliveries.markDelivered(
+      item.id,
+      input.locked.userId,
+      {
+        ...(!commandIds.has(item.id) && { messageId: input.message.id }),
+        runId: input.locked.id,
+      },
+    );
+
+    if (!marked) throw new Error(`Steer item ${item.id} was not pending.`);
+  }
+}
+
 async function moveRunToDelivery(
   tx: Db,
   locked: Run,
@@ -280,21 +335,20 @@ async function moveRunToDelivery(
     message: Message;
     cause: DeliveryCause;
     stoppedCalls: ReadonlyArray<StoppedCall>;
+    commandItems?: ReadonlyArray<ChatDelivery>;
+    checkpointId?: string;
+    stepBudgetUsed?: number;
   },
 ): Promise<string> {
   const { id: runId, userId } = locked;
+
   const { items, message } = delivery;
-  const deliveries = new ChatDeliveriesRepository(tx);
-
-  for (const item of items) {
-    const marked = await deliveries.markDelivered(item.id, userId, {
-      messageId: message.id,
-      runId,
-    });
-
-    // The items are locked, so a miss means the transaction must not commit.
-    if (!marked) throw new Error(`Steer item ${item.id} was not pending.`);
-  }
+  await markDeliveryItems(tx, {
+    locked,
+    items,
+    commandItems: delivery.commandItems ?? [],
+    message,
+  });
 
   const attemptId = randomUUID();
 
@@ -306,32 +360,16 @@ async function moveRunToDelivery(
   );
 
   if (!moved) throw new Error(`Run ${runId} could not move to its delivery.`);
-  await new RunEventsRepository(tx).append(runId, 'run.delivered', {
-    messageId: message.id,
-    deliveryIds: items.map((item) => item.id),
-    cause: delivery.cause,
-    stoppedCalls: delivery.stoppedCalls,
-    attemptId,
-  });
+
+  await appendDeliveryEvent({ tx, runId, delivery, message, attemptId });
 
   return attemptId;
 }
 
-/**
- * One tenant transaction, in the Run-then-chat lock order. Locks the Run row
- * behind the attempt and cancel fences, then the chat row. Settles jobs whose
- * worker died before locking the Chat's pending items. With no pending item,
- * it leaves the segment unchanged. Otherwise it closes the current segment's
- * reply, stores the delivered message, marks the items delivered, moves the
- * Run onto that message under a fresh attempt, and appends `run.delivered`
- * (no `run.started`: the claim's delivery sequence stays
- * current). The cause is `interrupt` when the stop cut the step or an
- * `interrupt` item is among the locked items; an item the owner withdrew after
- * the step-end check cannot make that delivery an interrupt.
- *
- * The Run's `message_id` moves last: the foreign key to `messages` is
- * immediate, so the message must exist first, and the row lock taken first
- * already fences every other writer of the Run.
+/** Lock Run then chat, settle dead jobs, and apply the pending boundary set.
+ * The Run pointer moves last because it references the stored delivery message.
+ * An item withdrawn after the step-end check cannot make the delivery an
+ * interrupt; only the fenced item state or a stopped call can do so.
  */
 export async function deliverPendingSteering(
   tx: Db,
@@ -368,49 +406,63 @@ export async function deliverPendingSteering(
   return finishDelivery(tx, input, locked, items);
 }
 
-/** A compact command remains pending until boundary compaction is implemented. */
-function isCompactCommand(item: ChatDelivery): boolean {
-  return (
-    item.producer === 'owner' &&
-    parseChatCommand(item.parts)?.name === 'compact'
-  );
-}
-
-function deliveryCause(
-  input: DeliveryInput,
-  items: ReadonlyArray<ChatDelivery>,
-): DeliveryCause {
-  const hasOwnerSteer = items.some(
-    (item) => item.producer === 'owner' && item.mode === 'steer',
-  );
-
-  const hasInterrupt = items.some(
-    (item) => item.producer === 'owner' && item.mode === 'interrupt',
-  );
-
-  return input.stoppedCalls !== undefined || hasInterrupt
-    ? 'interrupt'
-    : hasOwnerSteer
-      ? 'steer'
-      : 'notice';
-}
-
-/** Closes the reply, stores the message, and moves the Run onto it. */
 async function finishDelivery(
   tx: Db,
   input: DeliveryInput,
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
 ): Promise<BoundaryDelivery> {
+  const compactDelivery = await deliverCompactionItems({
+    tx,
+    delivery: input,
+    locked,
+    items,
+    finish: ({ lockedItems, commandItems, messageItems, compaction }) =>
+      finishCompactionDelivery({
+        delivery: input,
+        locked,
+        lockedItems,
+        commandItems,
+        messageItems,
+        compaction,
+        closeAndPublish: (cause) =>
+          closeAndPublishBoundaryCheckpoint({
+            tx,
+            delivery: input,
+            locked,
+            cause,
+            closeReply: () =>
+              closeReply(tx, closingAs(input, cause), locked, cause),
+            persistBaselines: () =>
+              persistFirstEpochBaselines(tx, locked, input.baselines),
+          }),
+        storeMessage: (storedItems, extraParts) =>
+          storeDeliveredMessage(tx, locked, storedItems, extraParts),
+        moveRun: (move) => moveRunToDelivery(tx, locked, input.attemptId, move),
+      }),
+  });
+
+  if (compactDelivery !== undefined) return compactDelivery;
+
+  return finishOrdinaryDelivery({ tx, delivery: input, locked, items });
+}
+
+async function finishOrdinaryDelivery(input: {
+  tx: Db;
+  delivery: DeliveryInput;
+  locked: Run;
+  items: ReadonlyArray<ChatDelivery>;
+}): Promise<BoundaryDelivery> {
+  const { tx, delivery, locked, items } = input;
   const deliverableItems = items.filter((item) => !isCompactCommand(item));
 
   if (deliverableItems.length === 0) return { kind: 'nothing-pending' };
 
-  const cause = deliveryCause(input, deliverableItems);
+  const cause = deliveryCause(delivery, deliverableItems);
 
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
-    closingAs(input, cause),
+    closingAs(delivery, cause),
     { locked, cause, items: deliverableItems },
   );
 
@@ -418,14 +470,14 @@ async function finishDelivery(
     cause === 'steer' &&
     deliverableItems.every((item) => item.producer === 'owner')
   ) {
-    await persistFirstEpochBaselines(tx, locked, input.baselines);
+    await persistFirstEpochBaselines(tx, locked, delivery.baselines);
   }
 
-  const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
+  const attemptId = await moveRunToDelivery(tx, locked, delivery.attemptId, {
     items: deliverableItems,
     message,
     cause,
-    stoppedCalls: input.stoppedCalls ?? [],
+    stoppedCalls: delivery.stoppedCalls ?? [],
   });
 
   return {

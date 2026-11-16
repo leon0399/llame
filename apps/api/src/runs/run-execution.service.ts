@@ -95,6 +95,8 @@ import {
   sourceSegmentJobNoticeIds,
 } from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+import { createCompactionContinueItem } from '../chats/compaction-continue-item';
+import { readCompactionSet } from '../compaction/boundary-compaction';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
@@ -188,6 +190,7 @@ import {
   continueStepOffset,
   type ContinueState,
 } from '../chats/continue-projection';
+import { readCompactionStepBudget } from './compaction-step-budget';
 import { createDeltaBuffer } from './delta-buffer';
 import {
   createAssistantPartCollector,
@@ -1798,6 +1801,14 @@ export class RunExecutionService {
     } = attempt;
 
     const { client } = input;
+
+    const stepBudgetOffset = await this.tenantDb
+      .runAs(input.userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
+          eventTypes: ['run.delivered'],
+        }),
+      )
+      .then(readCompactionStepBudget);
 
     // A Continue Run starts from the kept parts its admission recorded, in the
     // same transaction as its own row (turn-actions D5). Every later read of
@@ -3527,6 +3538,116 @@ export class RunExecutionService {
       ) => {
         const { telemetry } = modelCompleted;
 
+        const compactionSet =
+          this.compaction.computeBoundarySummary === undefined
+            ? { ids: [], focus: null }
+            : await readCompactionSet({
+                tenantDb: this.tenantDb,
+                chatId: input.chatId,
+                userId: input.userId,
+              });
+
+        let boundaryCompaction: Parameters<
+          typeof deliverPendingSteering
+        >[1]['boundaryCompaction'];
+
+        if (compactionSet.ids.length > 0) {
+          const replyParts = assistantPartCollector.parts().slice(partsBefore);
+
+          const projected = projectStoredReplyParts(replyParts, {
+            privateParts: true,
+            mediaKey: (index) => continuedMediaKey(partsBefore + index),
+          });
+
+          const rows = attemptContext.historyRows;
+
+          const plan = planCompactionCheckpoint({
+            rows: toStoredMessages(rows),
+            boundarySeq:
+              attemptContext.latestCheckpoint?.absorbedThroughSeq ?? 0,
+            triggeringUserSeq: input.userMessage.seq + 1,
+          });
+
+          const uptoSeq = Math.max(0, ...rows.map((row) => row.seq)) + 1;
+
+          const boundaryPlan = plan === null ? null : { ...plan, uptoSeq };
+          let summary: CompactionSummary | null = null;
+
+          if (
+            boundaryPlan !== null &&
+            this.compaction.computeBoundarySummary !== undefined
+          ) {
+            try {
+              summary = await this.compaction.computeBoundarySummary({
+                chatId: input.chatId,
+                userId: input.userId,
+                uptoSeq,
+                plan: boundaryPlan,
+                closedReply: projected.messages,
+                client: input.client,
+                system: prepared.system,
+                toolDeclarations: prepared.toolDeclarations,
+                focus: compactionSet.focus,
+                ...(effort !== undefined && { effort }),
+                reservedOutputTokens:
+                  this.instanceConfig.config.runs.maxOutputTokens,
+                abortSignal: input.abortSignal,
+                media,
+              });
+            } catch {
+              summary = null;
+            }
+          }
+
+          let digestCandidate: RecencyDigestResolution | null = null;
+
+          const initialSettings = await this.tenantDb.runAs(
+            input.userId,
+            (tx) => this.memory.getForOwnerForBinding(tx, input.userId),
+          );
+
+          if (initialSettings.shareRecentChats) {
+            try {
+              digestCandidate = await this.recencyDigest.resolveCandidate(
+                input.userId,
+                input.chatId,
+              );
+            } catch {
+              this.logger.error('recency_digest_resolution_failed');
+            }
+          }
+
+          boundaryCompaction = {
+            ids: compactionSet.ids,
+            summary,
+            continueItem: createCompactionContinueItem({
+              runId: input.runId,
+              quote: partsToText(input.userMessage.parts),
+            }),
+            stepBudgetUsed: stepBudgetOffset + stepBase + stepsStarted,
+            publishCheckpoint: (tx, reply) => {
+              if (summary === null) {
+                throw new Error('Cannot publish an empty boundary summary.');
+              }
+
+              return this.publishCheckpointInTransaction(tx, {
+                run: input,
+                attemptId,
+                summary: { ...summary, uptoSeq: reply.seq },
+                model: attemptContext.model,
+                workspaceRoot: workspaceRoot.current(),
+                digestCandidate,
+              }).then((checkpointId) => {
+                if (checkpointId === undefined) {
+                  throw new Error('Boundary checkpoint was not published.');
+                }
+
+                return checkpointId;
+              });
+            },
+          };
+        }
+
         const boundary = await retryAbortedTransaction(() =>
           this.tenantDb.runAs(input.userId, (tx) =>
             deliverPendingSteering(tx, {
@@ -3543,6 +3664,7 @@ export class RunExecutionService {
               deadWorkerAfterSeconds: workerDeadAfterSeconds(
                 this.instanceConfig.config,
               ),
+              boundaryCompaction,
               ...extra,
             }),
           ),
@@ -3719,6 +3841,7 @@ export class RunExecutionService {
                     0,
                     maxStepsPerRun -
                       stepBase -
+                      stepBudgetOffset -
                       (attempt.wakeState === undefined ? 0 : stepOffset),
                   ),
             stopWhenExtra,
@@ -7002,7 +7125,7 @@ export class RunExecutionService {
       workspaceRoot: string | undefined;
       digestCandidate: RecencyDigestResolution | null;
     },
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const fenced = await new RunsRepository(tx).updateForAttempt(
       input.run.runId,
       input.run.userId,
@@ -7025,15 +7148,13 @@ export class RunExecutionService {
       input.run.userId,
     );
 
-    if (
-      (await messagesRepo.findCheckpointByBoundary(
-        input.run.chatId,
-        input.run.userId,
-        input.summary.uptoSeq,
-      )) !== undefined
-    ) {
-      return;
-    }
+    const existing = await messagesRepo.findCheckpointByBoundary(
+      input.run.chatId,
+      input.run.userId,
+      input.summary.uptoSeq,
+    );
+
+    if (existing !== undefined) return existing.id;
 
     const checkpoint = await messagesRepo.createCheckpoint({
       chatId: input.run.chatId,
@@ -7052,6 +7173,8 @@ export class RunExecutionService {
       shareRecentChats,
       digestCandidate: input.digestCandidate,
     });
+
+    return checkpoint.id;
   }
 
   /** Re-bake digest, skill, and workspace epoch state for a new checkpoint. */
