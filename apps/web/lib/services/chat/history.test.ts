@@ -1692,6 +1692,7 @@ describe("replacementContext", () => {
     >,
   ) =>
     ({
+      kind: "turn",
       id: "11111111-1111-4111-8111-111111111111",
       messageId: "user-1",
       status: "queued",
@@ -1734,6 +1735,19 @@ describe("replacementContext", () => {
       replacementContext({
         status: "ready",
         latestRun: run({ status: "running_model", followUpAction: null }),
+      }).pendingFollowUpMessageId,
+    ).toBe(null);
+  });
+
+  it("does not treat a compaction Run as a pending turn replacement", () => {
+    expect(
+      replacementContext({
+        status: "ready",
+        latestRun: run({
+          kind: "compaction",
+          messageId: null,
+          followUpAction: null,
+        }),
       }).pendingFollowUpMessageId,
     ).toBe(null);
   });

@@ -30,6 +30,7 @@ import {
   type FollowUpAction,
   type Run,
   type RunEvent,
+  type RunKind,
   type RunStatus,
 } from '../db/schema';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -61,15 +62,16 @@ export class RunsRepository {
   constructor(private readonly db: Db) {}
 
   /**
-   * Create a queued run for a user message. The worker resolves
+   * Create a queued turn or compaction Run. The worker resolves
    * prompt/catalog context at execution time, so no snapshot is required.
    */
   async create(input: {
     id?: string;
     chatId: string;
-    messageId: string;
+    messageId: string | null;
     userId: string;
     modelId: string;
+    kind?: RunKind | undefined;
     /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
     effort?: string | undefined;
     /** Accepted at message time; absent lets the database default to `default`. */
@@ -85,6 +87,8 @@ export class RunsRepository {
       userId: input.userId,
       modelId: input.modelId,
     };
+
+    if (input.kind !== undefined) values.kind = input.kind;
 
     if (input.effort !== undefined) values.effort = input.effort;
 

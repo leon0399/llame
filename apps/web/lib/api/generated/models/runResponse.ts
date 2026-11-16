@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1
  */
 import type { RunResponseError } from "./runResponseError";
+import type { RunResponseKind } from "./runResponseKind";
 import type { RunResponsePermissionMode } from "./runResponsePermissionMode";
 import type { RunResponseStatus } from "./runResponseStatus";
 
@@ -14,6 +15,7 @@ export interface RunResponse {
   chatId: string;
   /** @nullable */
   messageId: string | null;
+  kind: RunResponseKind;
   modelId: string;
   /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration. */
   effort?: string;

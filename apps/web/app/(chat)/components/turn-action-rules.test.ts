@@ -24,6 +24,7 @@ function latestRun(
   overrides: Partial<ChatLatestRunResponse> = {},
 ): ChatLatestRunResponse {
   return {
+    kind: "turn",
     id: RUN_ID,
     messageId: "user-1",
     status: "failed",
@@ -175,6 +176,20 @@ describe("turnActionVisibility", () => {
     expect(
       turnActionVisibility({
         latestRun: null,
+        reply: reply(),
+        status: "ready",
+      }),
+    ).toBeNull();
+  });
+
+  it("offers no action for a completed compaction Run", () => {
+    expect(
+      turnActionVisibility({
+        latestRun: latestRun({
+          kind: "compaction",
+          messageId: null,
+          status: "completed",
+        }),
         reply: reply(),
         status: "ready",
       }),

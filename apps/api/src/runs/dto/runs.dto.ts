@@ -4,8 +4,10 @@ import { IsIn, IsInt, IsOptional, Min } from 'class-validator';
 
 import {
   modelContextPromptSource,
+  runKinds,
   runStatus,
   type Run,
+  type RunKind,
   type RunStatus,
 } from '../../db/schema';
 import {
@@ -50,6 +52,9 @@ export class RunResponse {
 
   @ApiProperty({ format: 'uuid', type: String, nullable: true })
   messageId!: string | null;
+
+  @ApiProperty({ enum: runKinds })
+  kind!: RunKind;
 
   @ApiProperty()
   modelId!: string;
@@ -166,6 +171,7 @@ export function toRunResponse(run: Run): RunResponse {
     id: run.id,
     chatId: run.chatId,
     messageId: run.messageId,
+    kind: run.kind,
     modelId: run.modelId,
     permissionMode: run.permissionMode,
     ...(run.effort !== null && { effort: run.effort }),

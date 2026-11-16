@@ -580,6 +580,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     ).toEqual({
       id: failedRunId,
       messageId: userMessageId,
+      kind: 'turn',
       status: 'failed',
       followUpAction: null,
       modelId: 'system:test-model-a',
@@ -621,6 +622,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       z.object({ latestRun: z.unknown() }).parse(read.body).latestRun,
     ).toEqual({
       id: continueRunId,
+      kind: 'turn',
       messageId: userMessageId,
       status: 'cancelled',
       followUpAction: 'continue',
@@ -630,6 +632,39 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       error: null,
     });
     expect(continueRunId).not.toBe(failedRunId);
+
+    let compactionRunId = '';
+    await tenantDb.runAs(userAId, async (tx) => {
+      const compaction = await new RunsRepository(tx).create({
+        chatId: runChatId,
+        messageId: null,
+        userId: userAId,
+        modelId: 'system:test-model-a',
+        kind: 'compaction',
+        permissionMode: 'default',
+      });
+
+      await new RunsRepository(tx).markFinished(
+        compaction.id,
+        userAId,
+        'completed',
+      );
+      compactionRunId = compaction.id;
+    });
+
+    const compactionRead = await request(http)
+      .get(`/api/v1/chats/${runChatId}/messages`)
+      .set('Cookie', cookieA);
+
+    expect(compactionRead.status).toBe(200);
+    expect(
+      z.object({ latestRun: z.unknown() }).parse(compactionRead.body).latestRun,
+    ).toMatchObject({
+      id: compactionRunId,
+      kind: 'compaction',
+      messageId: null,
+      status: 'completed',
+    });
 
     const foreignRead = await request(http)
       .get(`/api/v1/chats/${runChatId}/messages`)

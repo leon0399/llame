@@ -345,10 +345,33 @@ export type FollowUpAction = (typeof followUpActions)[number];
 // A durable run (#48, SPEC §9.3): every user message becomes a worker-processed
 // run. One message may have several runs across retries; the run row is the
 // unit of execution state, the run_events log is the source of truth.
+export const runKinds = ['turn', 'compaction'] as const;
+
+export type RunKind = (typeof runKinds)[number];
+
+function runDomainChecks(t: {
+  permissionMode: AnyPgColumn;
+  followUpAction: AnyPgColumn;
+  kind: AnyPgColumn;
+}) {
+  return [
+    check(
+      'runs_permission_mode_check',
+      sql`${t.permissionMode} IN ('default', 'bypass', 'read-only')`,
+    ),
+    check(
+      'runs_follow_up_action_check',
+      sql`${t.followUpAction} IS NULL OR ${t.followUpAction} IN ('continue', 'regenerate')`,
+    ),
+    check('runs_kind_check', sql`${t.kind} IN ('turn', 'compaction')`),
+  ];
+}
+
 export const runs = pgTable(
   'runs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    kind: text('kind').$type<RunKind>().notNull().default('turn'),
     chatId: uuid('chat_id')
       .notNull()
       .references(() => chats.id, { onDelete: 'cascade' }),
@@ -428,14 +451,7 @@ export const runs = pgTable(
     index('runs_user_status_idx').on(t.userId, t.status),
     // Serves the source-run FK's referential check when a Run is deleted.
     index('runs_source_run_id_user_id_idx').on(t.sourceRunId, t.userId),
-    check(
-      'runs_permission_mode_check',
-      sql`${t.permissionMode} IN ('default', 'bypass', 'read-only')`,
-    ),
-    check(
-      'runs_follow_up_action_check',
-      sql`${t.followUpAction} IS NULL OR ${t.followUpAction} IN ('continue', 'regenerate')`,
-    ),
+    ...runDomainChecks(t),
     // Composite target for owner-matching system prompt receipts.
     uniqueIndex('runs_id_user_id_unique_idx').on(t.id, t.userId),
     foreignKey({

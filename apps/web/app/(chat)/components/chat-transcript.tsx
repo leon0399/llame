@@ -24,6 +24,13 @@ import {
   AlertTitle,
 } from "@workspace/ui/components/alert";
 
+import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
+import { StopCircleIcon } from "lucide-react";
+
+import { Button } from "@workspace/ui/components/button";
+import { toast } from "@workspace/ui/components/sonner";
+
+import { cancelRun } from "@/lib/services/chat/runs";
 import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ChatMessageRow } from "./chat-message-row";
@@ -232,6 +239,10 @@ function ChatTranscriptFailedTurn({
 }: ChatTranscriptMessagesProps) {
   if (latestRun === null) return null;
 
+  if (latestRun.kind === "compaction") {
+    return <CompactionRunRow latestRun={latestRun} />;
+  }
+
   if (!needsFailedTurnRow({ messages: displayMessages, latestRun, status })) {
     return null;
   }
@@ -260,6 +271,43 @@ function ChatTranscriptFailedTurn({
           />
         </AlertAction>
       </Alert>
+    </div>
+  );
+}
+
+function CompactionRunRow({ latestRun }: { latestRun: ChatLatestRunResponse }) {
+  if (latestRun.status === "completed" || latestRun.status === "cancelled") {
+    return null;
+  }
+
+  if (latestRun.status === "failed" || latestRun.status === "expired") {
+    return (
+      <div className="mx-auto w-full max-w-3xl md:px-6">
+        <Alert variant="destructive">
+          <AlertTitle>Compaction failed</AlertTitle>
+          <AlertDescription>
+            {latestRun.error ?? "Compaction failed."}
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl items-center justify-between md:px-6">
+      <Shimmer>Compacting context…</Shimmer>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+          cancelRun(latestRun.id).catch(() =>
+            toast.error("Couldn't stop the compaction. Try again."),
+          )
+        }
+      >
+        <StopCircleIcon />
+        Stop
+      </Button>
     </div>
   );
 }
@@ -307,12 +355,16 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
     status,
   } = props;
 
-  // The failed-turn row already names this message once the history read
-  // reports it; a second alert would announce the same failure twice.
+  // A terminal compaction error row already names its failure.
+  const compactionErrorShown =
+    latestRun?.kind === "compaction" &&
+    (latestRun.status === "failed" || latestRun.status === "expired");
+
   const shownByFailedTurn =
-    latestRun !== null &&
-    latestRun.error === displayedError?.message &&
-    needsFailedTurnRow({ messages: displayMessages, latestRun, status });
+    compactionErrorShown ||
+    (latestRun !== null &&
+      latestRun.error === displayedError?.message &&
+      needsFailedTurnRow({ messages: displayMessages, latestRun, status }));
 
   return (
     <>

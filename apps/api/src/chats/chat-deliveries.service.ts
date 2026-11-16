@@ -36,6 +36,9 @@ import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
 import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
 
+const COMPACTION_MODE_CHANGE_MESSAGE =
+  'Pending items cannot be steered or interrupted during compaction';
+
 /**
  * The owner's view of the pending items of a Chat (run-steering). Every read
  * and write runs in the owner's tenant scope, so a Chat or an item of another
@@ -124,6 +127,9 @@ export class ChatDeliveriesService {
         // `queue`.
         const slot = await this.claimSlot(tx, chatId, userId);
 
+        if (slot.state === 'blocked' && slot.kind === 'compaction')
+          throw new BadRequestException(COMPACTION_MODE_CHANGE_MESSAGE);
+
         const changed = await items.changePendingMode(
           chatId,
           deliveryId,
@@ -134,7 +140,7 @@ export class ChatDeliveriesService {
         if (!changed)
           throw await this.missOf(items, chatId, deliveryId, userId);
 
-        if (slot === 'blocked') {
+        if (slot.state === 'blocked') {
           await notifyLiveRunSteering(
             tx,
             { chatId, userId },

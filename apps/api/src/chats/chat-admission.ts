@@ -90,7 +90,7 @@ type ActiveRunSlotInput = {
  */
 export async function claimActiveRunSlot(
   input: ActiveRunSlotInput,
-): Promise<'free' | 'blocked'> {
+): Promise<{ state: 'free' } | { state: 'blocked'; kind: Run['kind'] }> {
   const runsRepo = new RunsRepository(input.tx);
   const eventsRepo = new RunEventsRepository(input.tx);
 
@@ -99,14 +99,14 @@ export async function claimActiveRunSlot(
 
   const blocking = await findActive();
 
-  if (!blocking) return 'free';
+  if (!blocking) return { state: 'free' };
 
   if (await blockerIsLive({ ...input, run: blocking })) {
-    // Re-check the row once: `blocking` may have finished between the read
-    // above and now, in which case the chat is simply free. Its job state
-    // is not read again, so one request holds the chat row for at most one
-    // bounded wait.
-    return (await findActive()) ? 'blocked' : 'free';
+    const stillBlocking = await findActive();
+
+    return stillBlocking
+      ? { state: 'blocked', kind: stillBlocking.kind }
+      : { state: 'free' };
   }
 
   const message =
@@ -119,9 +119,8 @@ export async function claimActiveRunSlot(
     { error: { message } },
   );
 
-  if (!expired) return 'free';
-  // The chat row is held first and the run row next, so finalizing the reply
-  // after them keeps the worker's run-then-reply order.
+  if (!expired) return { state: 'free' };
+
   await finalizeRunReply(input.tx, {
     run: expired,
     status: 'expired',
@@ -132,7 +131,7 @@ export async function claimActiveRunSlot(
     message,
   });
 
-  return 'free';
+  return { state: 'free' };
 }
 
 /**
@@ -143,7 +142,7 @@ export async function claimActiveRunSlot(
 export async function clearActiveRunSlot(
   input: ActiveRunSlotInput,
 ): Promise<void> {
-  if ((await claimActiveRunSlot(input)) === 'blocked') {
+  if ((await claimActiveRunSlot(input)).state === 'blocked') {
     throw new ConflictException(
       'Another run is already in flight for this chat',
     );

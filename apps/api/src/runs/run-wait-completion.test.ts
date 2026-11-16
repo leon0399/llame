@@ -48,6 +48,7 @@ function job(id: string, state: ChatJob['state']): ChatJob {
 function run(overrides: Partial<Run> = {}): Run {
   return {
     id: 'run-id',
+    kind: 'turn',
     chatId: 'chat-id',
     messageId: null,
     userId: 'owner-id',

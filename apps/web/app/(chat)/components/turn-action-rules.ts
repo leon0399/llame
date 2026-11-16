@@ -104,7 +104,9 @@ export function turnActionVisibility(input: {
 
   if (!isActionableStatus(status)) return null;
 
-  if (latestRun === null || !isTerminalRunStatus(latestRun.status)) return null;
+  if (latestRun === null || latestRun.kind !== "turn") return null;
+
+  if (!isTerminalRunStatus(latestRun.status)) return null;
 
   return {
     continueTurn: reply !== null && continuesTurn(latestRun, reply),
@@ -141,9 +143,12 @@ export function carriesTurnActions(input: {
 }): boolean {
   const { messages, latestRun, status } = input;
 
-  if (!isActionableStatus(status)) return false;
-
-  if (latestRun === null || !isTerminalRunStatus(latestRun.status)) {
+  if (
+    !isActionableStatus(status) ||
+    latestRun === null ||
+    latestRun.kind !== "turn" ||
+    !isTerminalRunStatus(latestRun.status)
+  ) {
     return false;
   }
 
@@ -171,9 +176,12 @@ export function needsFailedTurnRow(input: {
 }): boolean {
   const { messages, latestRun, status } = input;
 
-  if (!isActionableStatus(status)) return false;
-
-  if (latestRun === null || !isTerminalRunStatus(latestRun.status)) {
+  if (
+    !isActionableStatus(status) ||
+    latestRun === null ||
+    latestRun.kind !== "turn" ||
+    !isTerminalRunStatus(latestRun.status)
+  ) {
     return false;
   }
 

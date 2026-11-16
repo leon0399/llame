@@ -131,6 +131,7 @@ const now = new Date('2026-09-02T00:00:00.000Z');
 
 const run: Run = {
   id: 'run-1',
+  kind: 'turn',
   chatId: 'chat-1',
   messageId: 'message-1',
   userId: 'owner-1',

@@ -198,6 +198,7 @@ export const runResponseSchema = z.object({
   id: z.string().uuid(),
   chatId: z.string().uuid(),
   messageId: z.string().uuid().nullable(),
+  kind: z.enum(["turn", "compaction"]),
   modelId: z.string(),
   effort: z
     .string()

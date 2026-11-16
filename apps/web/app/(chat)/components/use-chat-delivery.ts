@@ -18,6 +18,7 @@ import type {
   ChatLatestRunResponse,
   PermissionModeResponseValue,
 } from "@/lib/api/generated/models";
+import { isTerminalRunStatus } from "@/lib/services/chat/run-notifications";
 import {
   changeDeliveryMode,
   deliveriesQueryOptions,
@@ -304,18 +305,29 @@ function restoreFailedSend(input: {
  *  started. Either way history holds its message now. */
 function useDeliveredItems(
   items: ReadonlyArray<ChatDeliveryResponse>,
+  latestRun: ChatLatestRunResponse | null,
   begin: (messageId: string) => void,
+  skip: (messageId: string) => void,
 ) {
   const seenIds = useRef<ReadonlyArray<string>>([]);
   useEffect(() => {
     const present = new Set(items.map((item) => item.id));
 
     for (const id of seenIds.current) {
-      if (!present.has(id)) begin(id);
+      if (present.has(id)) continue;
+
+      if (
+        latestRun?.kind === "compaction" &&
+        !isTerminalRunStatus(latestRun.status)
+      ) {
+        skip(id);
+      } else {
+        begin(id);
+      }
     }
 
     seenIds.current = items.map((item) => item.id);
-  }, [items, begin]);
+  }, [items, latestRun, begin, skip]);
 }
 
 /** Whether the document holds an open popup, which Esc closes first. */
@@ -400,7 +412,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
   const { selectedModel, selectedEffort, getPermissionMode } = useChatContext();
   const items = useChatDeliveries(chatId, exists);
   const runActive = isRunActive({ status, latestRun });
-  useDeliveredItems(items, ctx.begin);
+  useDeliveredItems(items, latestRun, ctx.begin, ctx.skip);
 
   const interrupt = (item: ChatDeliveryResponse) =>
     void changeItem(ctx, item, "interrupt");

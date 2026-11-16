@@ -2529,11 +2529,25 @@ export const PastWorkspaceEntryKeepsCard: Story = {
 const TURN_RUN_ID = "11111111-1111-4111-8111-111111111111";
 const NEXT_TURN_RUN_ID = "22222222-2222-4222-8222-222222222222";
 
+const COMPACTION_RUN_ID = "44444444-4444-4444-8444-444444444444";
+
+function compactionRun(
+  overrides: Partial<ChatLatestRunResponse> = {},
+): ChatLatestRunResponse {
+  return latestTurnRun({
+    id: COMPACTION_RUN_ID,
+    kind: "compaction",
+    messageId: null,
+    ...overrides,
+  });
+}
+
 /** The latest Run the turn-level actions judge. */
 function latestTurnRun(
   overrides: Partial<ChatLatestRunResponse> = {},
 ): ChatLatestRunResponse {
   return {
+    kind: "turn",
     id: TURN_RUN_ID,
     messageId: "user-turn",
     status: "failed",
@@ -2698,11 +2712,11 @@ export const FailedTurnWithEmptyReply: Story = {
 
 /** The resumed stream of a queued follow-up Run: it starts under the Run's own
  *  id, streams one token, and never finishes, so the reply stays live. */
-function resumedFollowUpStream() {
+function resumedFollowUpStream(messageId = NEXT_TURN_RUN_ID) {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId: NEXT_TURN_RUN_ID });
+        writer.write({ type: "start", messageId });
         writer.write({ type: "text-start", id: "text-1" });
         writer.write({
           type: "text-delta",
@@ -2754,6 +2768,82 @@ export const QueuedFollowUpHidesTheReplacedReply: Story = {
     await expect(
       canvas.queryByRole("button", { name: "Regenerate" }),
     ).toBeNull();
+  },
+};
+
+/** A completed compaction changes the history boundary, not turn actions. */
+export const CompactedTurnShowsNoAction: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: compactionRun({ status: "completed" }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
+    await expect(canvas.queryByText("Compacting context…")).toBeNull();
+  },
+};
+
+/** Failed compaction runs report their error without turn-level actions. */
+export const FailedCompactionShowsItsError: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: compactionRun({
+      status: "failed",
+      error: "The summary provider failed.",
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(canvas.getByText("Compaction failed")).toBeVisible();
+    await expect(
+      canvas.getByText("The summary provider failed."),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
+  },
+};
+
+/** On reload the Run-id assistant placeholder is stream transport, not a reply. */
+export const ReloadDuringCompaction: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: compactionRun({ status: "running_model" }),
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [RESUME_ROUTE]: () =>
+        Promise.resolve(resumedFollowUpStream(COMPACTION_RUN_ID)),
+    });
+    cancelRun.mockResolvedValue(undefined);
+  },
+  play: async ({ canvasElement, userEvent }) => {
+    const canvas = within(canvasElement);
+    (await chunkLoad(1)).resolve(RENDERERS);
+    await waitFor(() =>
+      expect(canvas.getByText("Compacting context…")).toBeVisible(),
+    );
+    await expect(canvas.queryByText("resumed stream")).toBeNull();
+    await userEvent.click(canvas.getByRole("button", { name: "Stop" }));
+    await expect(cancelRun).toHaveBeenCalledWith(COMPACTION_RUN_ID);
   },
 };
 
@@ -3488,11 +3578,40 @@ export const FailedSteerNowKeepsTheItem: Story = {
 };
 
 /**
+ * Queue rows cannot be hurried while a compaction Run is live.
+ *
+ * @summary a queue item during compaction offers no Steer now
+ */
+export const QueueItemDuringCompactionOffersNoHurryActions: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: compactionRun({ status: "running_model" }),
+    pending: [pendingItem("compact-q1", "queue", "check the docs later")],
+  } satisfies ChatPageParameters,
+  beforeEach: () => routeAlso(acceptingDeliveries()),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedLiveRun(canvasElement);
+    const row = await canvas.findByRole("listitem");
+
+    await expect(
+      within(row).queryByRole("button", { name: /^Steer now/ }),
+    ).toBeNull();
+    await expect(
+      within(row).queryByRole("button", { name: /^Interrupt now/ }),
+    ).toBeNull();
+    await expect(
+      within(row).getByRole("button", { name: /^Edit/ }),
+    ).toBeVisible();
+  },
+};
+/**
  * Text typed while a delivery send is in flight stays in the composer when
  * that send fails, below the restored text.
  *
  * @summary a failed send keeps text typed meanwhile
  */
+
 export const FailedSendKeepsTextTypedMeanwhile: Story = {
   tags: ["ai-generated"],
   parameters: { latestRun: liveRun() } satisfies ChatPageParameters,

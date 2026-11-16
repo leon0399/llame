@@ -9,6 +9,7 @@ describe("parseLiveMessage", () => {
   it("parses records and run messages the server sends", () => {
     const run = {
       id: runId,
+      kind: "compaction",
       chatId,
       messageId: null,
       modelId: "m",

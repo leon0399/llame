@@ -5767,7 +5767,16 @@ export class RunExecutionService {
     // delivery locks the Run row, then the chat row, and so also serializes
     // with admission. With nothing to deliver it writes nothing, and the Run
     // completes below under the locks it already holds.
-    if (input.status === 'completed' && input.attemptId !== undefined) {
+    const completingRun = await new RunsRepository(tx).findById(
+      input.runId,
+      input.userId,
+    );
+
+    if (
+      completingRun?.kind === 'turn' &&
+      input.status === 'completed' &&
+      input.attemptId !== undefined
+    ) {
       const delivery = await deliverPendingSteering(tx, {
         run: { runId: input.runId, userId: input.userId },
         attemptId: input.attemptId,

@@ -160,8 +160,14 @@ export class JobNoticeRunService {
       permissionMode: resolved.permissionMode,
     });
 
+    const userMessage = runJob.userMessage;
+
+    if (userMessage === undefined) {
+      throw new Error('Host Run has no user message');
+    }
+
     await deliveries.deliverPendingJobNotices(job.chatId, job.ownerUserId, {
-      messageId: runJob.userMessage.id,
+      messageId: userMessage.id,
       runId: runJob.runId,
     });
     await this.dispatch.enqueueInTransaction(tx, runJob);

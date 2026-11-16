@@ -3,9 +3,11 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
   followUpActions,
+  runKinds,
   runStatus,
   type FollowUpAction,
   type Run,
+  type RunKind,
   type RunStatus,
 } from '../../db/schema';
 import {
@@ -20,6 +22,9 @@ import {
 export class ChatLatestRunResponse {
   @ApiProperty({ format: 'uuid' })
   id!: string;
+
+  @ApiProperty({ enum: [...runKinds] })
+  kind!: RunKind;
 
   @ApiProperty({
     type: String,
@@ -78,6 +83,7 @@ function runErrorMessage(run: Run): string | null {
 export function toChatLatestRunResponse(run: Run): ChatLatestRunResponse {
   return {
     id: run.id,
+    kind: run.kind,
     messageId: run.messageId,
     status: run.status,
     followUpAction: run.followUpAction,

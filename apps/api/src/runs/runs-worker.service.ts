@@ -5,6 +5,8 @@ import {
   type OnApplicationBootstrap,
 } from '@nestjs/common';
 
+import type { Run } from '../db/schema/chats';
+
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   InstanceConfigService,
@@ -42,10 +44,30 @@ import { RunsRepository, RunEventsRepository } from './runs-repository';
 import { isTerminalRunStatus } from './run-status';
 import { RunWaitService } from './run-wait.service';
 import { retryRunTransaction } from './run-transaction';
+import { wakeAwaitingRun } from './wake-awaiting-run';
 import {
   CanonicalSearchCoverageService,
   type CanonicalSearchCoverageGate,
 } from '../search/canonical-search-activation.service';
+
+type RunPickup =
+  | {
+      skip: true;
+      settleCancellation: boolean;
+      expiredBudget?: true;
+    }
+  | {
+      kind: 'turn' | 'compaction';
+      skip: false;
+      chatId: string;
+      modelId: string;
+      followUpAction: Run['followUpAction'];
+      budgetDeadlineMs: number | null;
+      expectedQueueIdentity: {
+        currentJobId: string | null;
+        wakeGeneration: number;
+      };
+    };
 
 const RUNS_DEAD_QUEUE = deadLetterQueue(RUNS_QUEUE);
 
@@ -168,18 +190,19 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }
   }
 
-  private async executeJob(job: RunJob): Promise<void> {
-    // Pickup gate (#48): a run superseded/expired while queued is already
-    // terminal — never resurrect it; one cancelled while queued is settled
-    // here without ever touching the model. A run already at running_model
-    // is NOT special-cased here (durable-run-workers D7): with the queue's
-    // native heartbeatSeconds set, a redelivery only ever happens after the
-    // prior holder stopped beating, so any non-terminal run is a legitimate
-    // claim to attempt. markStarted (in executeRun) is the final guard and
-    // also rejects cancellation that wins this pickup/claim TOCTOU.
-    const budgetSeconds = runTimeoutSeconds(this.instanceConfig.config);
-
-    const pickup = await retryRunTransaction(() =>
+  // Pickup gate (#48): a run superseded/expired while queued is already
+  // terminal — never resurrect it; one cancelled while queued is settled
+  // here without ever touching the model. A run already at running_model
+  // is NOT special-cased here (durable-run-workers D7): with the queue's
+  // native heartbeatSeconds set, a redelivery only ever happens after the
+  // prior holder stopped beating, so any non-terminal run is a legitimate
+  // claim to attempt. markStarted (in executeRun) is the final guard and
+  // also rejects cancellation that wins this pickup/claim TOCTOU.
+  private async pickupJob(
+    job: RunJob,
+    budgetSeconds: number | null,
+  ): Promise<RunPickup> {
+    return retryRunTransaction(() =>
       this.tenantDb.runAs(job.userId, async (tx) => {
         const runs = new RunsRepository(tx);
         let run = await runs.findById(job.runId, job.userId);
@@ -198,25 +221,11 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         }
 
         if (run.status === 'awaiting_jobs') {
-          if (!job.wake) {
-            return { skip: true as const, settleCancellation: false as const };
-          }
+          const awake = await wakeAwaitingRun(tx, runs, this.runWait, job);
 
-          const woke = await this.runWait.wakeInTransaction(tx, {
-            runId: job.runId,
-            userId: job.userId,
-            generation: job.wake.generation,
-            cause: 'timeout',
-            deadlineJobId: job.wake.jobId,
-          });
-
-          if (!woke)
+          if (!awake)
             return { skip: true as const, settleCancellation: false as const };
-          run = await runs.findById(job.runId, job.userId);
-
-          if (!run || isTerminalRunStatus(run.status)) {
-            return { skip: true as const, settleCancellation: false as const };
-          }
+          run = awake;
         }
 
         if (run.cancelRequestedAt !== null) {
@@ -246,7 +255,9 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         }
 
         return {
+          kind: run.kind,
           skip: false as const,
+          chatId: run.chatId,
           modelId: run.modelId,
           followUpAction: run.followUpAction,
           budgetDeadlineMs,
@@ -257,18 +268,53 @@ export class RunsWorkerService implements OnApplicationBootstrap {
         };
       }),
     );
+  }
 
-    if ('expiredBudget' in pickup && pickup.expiredBudget) {
+  private async settleSkippedPickup(
+    job: RunJob,
+    pickup: Extract<RunPickup, { skip: true }>,
+  ): Promise<void> {
+    if (pickup.expiredBudget) {
       await this.expireBudget(job);
 
       return;
     }
 
-    if (pickup.skip && pickup.settleCancellation) {
-      await this.settleCancelledBeforeStart(job);
+    if (pickup.settleCancellation) await this.settleCancelledBeforeStart(job);
+  }
+
+  private async executeJob(job: RunJob): Promise<void> {
+    const budgetSeconds = runTimeoutSeconds(this.instanceConfig.config);
+
+    const pickup = await this.pickupJob(job, budgetSeconds);
+
+    if (pickup.skip) {
+      await this.settleSkippedPickup(job, pickup);
+
+      return;
     }
 
-    if (pickup.skip) return;
+    if (pickup.kind === 'compaction') {
+      const message = 'Compaction Runs are not supported yet.';
+      await retryRunTransaction(() =>
+        this.runExecution.settleTerminalRun({
+          runId: job.runId,
+          userId: job.userId,
+          status: 'failed',
+          expectedQueueIdentity: pickup.expectedQueueIdentity,
+          runPayload: { status: 'failed', message },
+          error: { message },
+        }),
+      );
+
+      return;
+    }
+
+    const userMessage = job.userMessage;
+
+    if (userMessage === undefined) {
+      throw new Error(`Turn Run ${job.runId} has no user message.`);
+    }
 
     // Mid-flight cancellation: the run-control listener aborts this controller
     // when a cancellation is recorded, in any topology; executeRun's abort path records the cancelled
@@ -342,9 +388,9 @@ export class RunsWorkerService implements OnApplicationBootstrap {
 
       const result = await this.runExecution.executeRun({
         runId: job.runId,
-        chatId: job.chatId,
+        chatId: pickup.chatId,
         userId: job.userId,
-        userMessage: job.userMessage,
+        userMessage,
         client,
         abortSignal: abort.signal,
         // The worker already read the Run row; a Continue Run is the only one

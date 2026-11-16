@@ -52,6 +52,7 @@ function item(
 
 function run(status: ChatLatestRunResponse["status"]): ChatLatestRunResponse {
   return {
+    kind: "turn",
     id: "run-1",
     messageId: "m1",
     status,
@@ -234,6 +235,19 @@ describe("isRunActive", () => {
   it("is true between two segments, when only the newest Run says so", () => {
     expect(
       isRunActive({ status: "ready", latestRun: run("running_model") }),
+    ).toBe(true);
+  });
+
+  it("treats a live compaction Run as active", () => {
+    expect(
+      isRunActive({
+        status: "ready",
+        latestRun: {
+          ...run("running_model"),
+          kind: "compaction",
+          messageId: null,
+        },
+      }),
     ).toBe(true);
   });
 

@@ -97,6 +97,7 @@ const run: Run = {
   userId: chat.ownerUserId,
   modelId: model.id,
   status: 'queued',
+  kind: 'turn',
   workerId: null,
   activeAttemptId: null,
   completedAttemptId: null,
@@ -259,7 +260,11 @@ function makeService(options?: {
       assistantMessage: undefined,
     });
 
+  const appendEvent = vi
+    .spyOn(RunEventsRepository.prototype, 'append')
+    .mockResolvedValue(asDouble({}));
   // The reply finalizer an admission expiry runs reads the blocker's events.
+
   const listByRunId = vi
     .spyOn(RunEventsRepository.prototype, 'listByRunId')
     .mockResolvedValue([]);
@@ -300,15 +305,9 @@ function makeService(options?: {
       }),
     );
 
-  const appendEvent = vi
-    .spyOn(RunEventsRepository.prototype, 'append')
-    .mockResolvedValue({
-      sequence: 1,
-      runId: run.id,
-      eventType: 'run.created',
-      payload: null,
-      createdAt: now,
-    });
+  const runWait = {
+    wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+  } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>;
 
   const service = new ChatLoopService(
     tenantDb,
@@ -317,9 +316,7 @@ function makeService(options?: {
     bridge,
     dispatch,
     media,
-    {
-      wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
-    } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
+    runWait,
   );
 
   return {
@@ -347,6 +344,7 @@ function makeService(options?: {
     findStoredItem,
     messageIdTaken,
     insertPending,
+    runWait,
   };
 }
 
@@ -1073,6 +1071,49 @@ describe('ChatLoopService.createDeliveryMessage', () => {
 
     return made;
   }
+
+  it.each(['steer', 'interrupt', 'queue'] as const)(
+    'stores a %s send as queue during a compaction Run without steering or waking it',
+    async (delivery) => {
+      const made = makeBlockedService();
+      made.findActiveByChatId.mockResolvedValue({
+        ...blocking,
+        kind: 'compaction',
+        status: 'awaiting_jobs',
+      });
+
+      await made.service.createDeliveryMessage({
+        ...input,
+        message: ids,
+        delivery,
+      });
+
+      expect(made.insertPending.mock.calls[0]?.[0].mode).toBe('queue');
+      expect(
+        made.execute.mock.calls.filter((call) =>
+          JSON.stringify(call).includes('llame_run_control'),
+        ),
+      ).toHaveLength(0);
+      expect(made.runWait.wakeForChatInTransaction).not.toHaveBeenCalled();
+    },
+  );
+
+  it('answers 409 for a plain send while a compaction Run holds the Chat', async () => {
+    const made = makeBlockedService();
+    made.findActiveByChatId.mockResolvedValue({
+      ...blocking,
+      kind: 'compaction',
+    });
+
+    await expect(made.service.createMessageStream(input)).rejects.toMatchObject(
+      {
+        constructor: ConflictException,
+        message: 'Another run is already in flight for this chat',
+      },
+    );
+    expect(made.markFinished).not.toHaveBeenCalled();
+    expect(made.createRun).not.toHaveBeenCalled();
+  });
 
   it('stores a pending item and starts no Run while a live Run holds the Chat', async () => {
     const {

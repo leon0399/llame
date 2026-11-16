@@ -241,19 +241,38 @@ describeIfDb(
     type PersistResult = {
       chatId: string;
       runId: string;
-      userMessage: RunJob['userMessage'];
+      userMessage: NonNullable<RunJob['userMessage']>;
+    };
+
+    type TurnRunJob = RunJob & {
+      chatId: string;
+      userMessage: NonNullable<RunJob['userMessage']>;
+    };
+
+    const requireTurnJob = (job: RunJob): TurnRunJob => {
+      if (job.chatId === undefined || job.userMessage === undefined) {
+        throw new Error(`Expected complete turn job ${job.runId}`);
+      }
+
+      return {
+        ...job,
+        chatId: job.chatId,
+        userMessage: job.userMessage,
+      };
     };
 
     const executeWorker = async (
       job: RunJob,
       options: { consume?: boolean; fail?: boolean } = {},
     ): Promise<Run> => {
+      const turnJob = requireTurnJob(job);
+
       const result = await runExecution.executeRun({
-        runId: job.runId,
-        chatId: job.chatId,
-        userId: job.userId,
-        userMessage: job.userMessage,
-        client: workerModelClient(job.modelId, options.fail),
+        runId: turnJob.runId,
+        chatId: turnJob.chatId,
+        userId: turnJob.userId,
+        userMessage: turnJob.userMessage,
+        client: workerModelClient(turnJob.modelId, options.fail),
       });
 
       if (options.consume !== false) {
@@ -297,12 +316,13 @@ describeIfDb(
         const job = dispatchCalls.at(-1);
 
         if (!job) throw new Error('Expected accepted Run dispatch');
-        await executeWorker(job, { consume: false });
+        const turnJob = requireTurnJob(job);
+        await executeWorker(turnJob, { consume: false });
 
         return {
           chatId,
-          runId: job.runId,
-          userMessage: job.userMessage,
+          runId: turnJob.runId,
+          userMessage: turnJob.userMessage,
         };
       } finally {
         resolve.mockRestore();
@@ -314,15 +334,21 @@ describeIfDb(
      * here dispatched its first request, which is where the item is stored,
      * whatever the Run's later outcome.
      */
-    const availabilityItem = async ({
-      chatId,
-      userMessage,
-    }: Pick<PersistResult, 'chatId' | 'userMessage'>) => {
+    const availabilityItem = async (
+      input: Pick<PersistResult, 'chatId' | 'userMessage'> | RunJob,
+    ) => {
+      const turn = 'runId' in input ? requireTurnJob(input) : input;
+
       const stored = await tenantDb.runAs(userId, (tx) =>
-        new MessagesRepository(tx).findById(chatId, userId, userMessage.id),
+        new MessagesRepository(tx).findById(
+          turn.chatId,
+          userId,
+          turn.userMessage.id,
+        ),
       );
 
-      if (!stored) throw new Error(`Expected user message ${userMessage.id}`);
+      if (!stored)
+        throw new Error(`Expected user message ${turn.userMessage.id}`);
 
       return stored.parts
         .filter(isContextItemPart)
@@ -1761,24 +1787,26 @@ describeIfDb(
         expect(await recoveredTurn).toBeInstanceOf(ConflictException);
 
         const degradedJob = dispatchCalls.find(
-          ({ userMessage }) => userMessage.id === degradedMessageId,
+          ({ userMessage }) => userMessage?.id === degradedMessageId,
         );
 
         if (!degradedJob) throw new Error('Expected degraded Run dispatch');
-        await executeWorker(degradedJob, {
-          consume: false,
-        });
+        const degradedPayload = requireTurnJob(degradedJob);
+        await executeWorker(degradedPayload, { consume: false });
         await finish(degradedJob.runId, 'completed');
         touch.mockRestore();
         await send(chatId, recoveredMessageId, 'recovery after completion');
 
         const recoveredJob = dispatchCalls.find(
-          ({ userMessage }) => userMessage.id === recoveredMessageId,
+          ({ userMessage }) => userMessage?.id === recoveredMessageId,
         );
 
         if (!recoveredJob) throw new Error('Expected recovered Run dispatch');
-        await executeWorker(recoveredJob, { consume: false });
-        expect(await availabilityItem(recoveredJob)).toContain('tool restored');
+        const recoveredPayload = requireTurnJob(recoveredJob);
+        await executeWorker(recoveredPayload, { consume: false });
+        expect(await availabilityItem(recoveredPayload)).toContain(
+          'tool restored',
+        );
         await finish(recoveredJob.runId);
       } finally {
         releaseFirst.release();

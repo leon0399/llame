@@ -273,7 +273,15 @@ function deriveChatTranscript(input: ChatTranscriptInput) {
   const merged = mergeTrustedModelContextParts(
     input.messages,
     input.chatMessages,
-  ).filter((message) => message.role !== "system");
+  ).filter(
+    (message) =>
+      message.role !== "system" &&
+      !(
+        latestRun?.kind === "compaction" &&
+        message.role === "assistant" &&
+        message.id === latestRun.id
+      ),
+  );
 
   // A follow-up Run of the latest turn that has not settled replaced its
   // reply: hide that reply so a reload before the dispatch shows the resumed

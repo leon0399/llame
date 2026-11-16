@@ -66,6 +66,21 @@ function RegenerateSplitButton({
   );
 }
 
+function requestOrConfirmFollowUp(
+  request: FollowUpRunRequest,
+  discarded: ReadonlyArray<string>,
+  setPending: (request: FollowUpRunRequest | null) => void,
+  onFollowUp: (request: FollowUpRunRequest) => void,
+): void {
+  if (discarded.length > 0) {
+    setPending(request);
+
+    return;
+  }
+
+  onFollowUp(request);
+}
+
 type ContinueButtonProps = {
   chatId: string;
   onFollowUp: (request: FollowUpRunRequest) => void;
@@ -110,18 +125,14 @@ export function TurnActions({
   const [pending, setPending] = useState<FollowUpRunRequest | null>(null);
   const visibility = turnActionVisibility({ latestRun, reply, status });
 
-  if (visibility === null || latestRun === null) return null;
+  if (latestRun === null || latestRun.kind !== "turn" || visibility === null) {
+    return null;
+  }
+
   const discarded = reply === null ? [] : discardedCallNames(reply.parts);
 
-  const requestFollowUp = (request: FollowUpRunRequest) => {
-    if (discarded.length > 0) {
-      setPending(request);
-
-      return;
-    }
-
-    onFollowUp(request);
-  };
+  const requestFollowUp = (request: FollowUpRunRequest) =>
+    requestOrConfirmFollowUp(request, discarded, setPending, onFollowUp);
 
   return (
     <>

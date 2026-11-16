@@ -291,6 +291,10 @@ export function isRunActive(input: {
 }): boolean {
   const { status, latestRun } = input;
 
+  if (latestRun?.kind === "compaction") {
+    return !isTerminalRunStatus(latestRun.status);
+  }
+
   if (status === "streaming" || status === "submitted") return true;
 
   return latestRun !== null && !isTerminalRunStatus(latestRun.status);

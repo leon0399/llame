@@ -129,6 +129,7 @@ const MESSAGE_ID = '5a3d1c70-6f0e-4b2a-9d44-0c1e7a8b9f10';
 function previousRun(overrides: Partial<Run> = {}): Run {
   return {
     id: '22222222-2222-4222-8222-222222222222',
+    kind: 'turn',
     chatId: 'chat-id',
     messageId: '33333333-3333-4333-8333-333333333333',
     userId: 'user-id',
@@ -458,6 +459,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue({
         id: 'run-id',
+        kind: 'turn',
         chatId: 'chat-id',
         messageId: MESSAGE_ID,
         userId: 'user-id',
@@ -560,6 +562,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       .mockImplementation((runInput) =>
         Promise.resolve({
           id: runInput.id ?? 'run-id',
+          kind: runInput.kind ?? 'turn',
           chatId: runInput.chatId,
           messageId: runInput.messageId,
           userId: runInput.userId,
