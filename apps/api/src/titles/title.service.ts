@@ -6,7 +6,6 @@ import { type ModelClient } from '../models/model-client';
 import { ModelsService } from '../models/models.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import { queryLatestTitleMessages } from '../chats/title-message-query';
-import { assertNotArchived } from '../db/assert-not-archived';
 import { buildTitleExcerpt } from './title-excerpt';
 import {
   sanitizeTitle,
@@ -64,19 +63,6 @@ export class TitleService {
     | { ok: true; title: string }
     | { ok: false; reason: 'not_configured' | 'empty' | 'failed' }
   > {
-    const chat = await this.tenantDb.runAs(input.userId, async (tx) => {
-      const current = await new ChatsRepository(tx).findById(
-        input.chatId,
-        input.userId,
-      );
-
-      if (current) assertNotArchived(current);
-
-      return current;
-    });
-
-    if (!chat) return { ok: false, reason: 'empty' };
-
     const titleModel = this.models.resolveTitleModelConfig();
 
     if (!titleModel) return { ok: false, reason: 'not_configured' };
@@ -102,10 +88,14 @@ export class TitleService {
         new ChatsRepository(tx).update(input.chatId, input.userId, { title }),
       );
 
-      return updated
-        ? { ok: true, title: updated.title ?? title }
-        : { ok: false, reason: 'failed' };
-    } catch {
+      if (!updated) return { ok: false, reason: 'failed' };
+
+      return { ok: true, title };
+    } catch (error) {
+      this.logger.warn(
+        `Title generation failed: ${error instanceof Error ? error.name : 'unknown error'}`,
+      );
+
       return { ok: false, reason: 'failed' };
     }
   }

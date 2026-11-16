@@ -307,8 +307,6 @@ export class ChatsController {
     };
   }
 
-  // `POST /chats` creates a chat with its project and location instead. Model
-  // selection is validated first, so unavailable models create nothing.
   @Post(':id/messages')
   @ApiCreateChatMessageDocs()
   @HttpCode(200)

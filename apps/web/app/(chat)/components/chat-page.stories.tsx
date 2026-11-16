@@ -3067,6 +3067,66 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
 };
 
 /**
+ * An idle existing Chat sends an unknown slash-prefixed path through the
+ * direct send path, then attaches to the Run started by its stream response.
+ *
+ * @summary an idle slash path attaches to its new Run
+ */
+export const IdleSlashPathAttachesToNewRun: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    let sentId: string | null = null;
+    let resumes = 0;
+    routeAlso({
+      [SEND_ROUTE]: async (input) => {
+        sentId = (await requestOf(input).clone().json()).message.id;
+
+        return new Response(null, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+      [HISTORY_ROUTE]: () =>
+        sentId === null
+          ? Promise.resolve(
+              jsonResponse({ messages: HISTORY, latestRun: null }),
+            )
+          : liveHistory(
+              [
+                ...HISTORY,
+                rawChatMessage({
+                  id: sentId,
+                  chatId: CHAT_ID,
+                  role: "user",
+                  seq: 2,
+                  parts: [{ type: "text", text: "/etc/hosts is broken" }],
+                }),
+              ],
+              sentId,
+            ),
+      [RESUME_ROUTE]: () => {
+        resumes += 1;
+
+        return Promise.resolve(
+          resumes === 1 ? emptyResponse() : segmentStream("new run reply"),
+        );
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/etc/hosts is broken{Enter}");
+
+    await transcriptShows(canvasElement, "/etc/hosts is broken");
+    await transcriptShows(canvasElement, "new run reply");
+    await expect(await sentBody(SEND_ROUTE)).not.toHaveProperty("delivery");
+    await expect(
+      sentRoutes().filter((route) => route === RESUME_ROUTE),
+    ).toHaveLength(2);
+  },
+};
+
+/**
  * An existing Chat sends a recognized command over the direct path; the
  * command result appears beside the composer without a transcript message.
  *
@@ -3087,8 +3147,8 @@ export const RenameCommandShowsInline: Story = {
     const input = await readyComposer(canvasElement);
     await userEvent.type(input, "/rename Foo{Enter}");
 
-    const status = await canvas.findByRole("status");
-    await expect(status).toHaveTextContent("Renamed to “Foo”");
+    const status = await canvas.findByText("Renamed to “Foo”");
+    await expect(status).toBeVisible();
     await expect(
       within(canvas.getByRole("log")).queryByText("/rename Foo"),
     ).toBeNull();

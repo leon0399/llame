@@ -25,6 +25,7 @@ import {
   deliveryText,
   firstPendingSteer,
   isAlreadyDelivered,
+  isCommandText,
   isRunActive,
   sendDelivery,
   updateDeliveries,
@@ -36,6 +37,7 @@ import {
   type DeliverySendResult,
 } from "@/lib/services/chat/deliveries";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
+import { invalidateRenamedChat } from "@/lib/services/chat/management";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { safeRandomUUID } from "@/lib/uuid";
@@ -199,15 +201,14 @@ async function sendComposed({
   if (message === null) return;
 
   const sent = draft.attachments.items;
-  const isCommandText = draft.input.startsWith("/");
+  const commandText = isCommandText(message.text);
 
   const request: DeliverySendRequest = {
     chatId: ctx.chatId,
     message,
     ...selections,
+    delivery: mode,
   };
-
-  if (mode !== undefined) request.delivery = mode;
 
   draft.setInput("");
   draft.attachments.clear();
@@ -223,7 +224,7 @@ async function sendComposed({
       draft,
       message,
       sent,
-      isCommandText,
+      commandText,
       error,
       setNotice,
     });
@@ -253,9 +254,7 @@ function handleSendResult(
     void ctx.queryClient.invalidateQueries({
       queryKey: chatQueryKeys.messages(ctx.chatId),
     });
-    void ctx.queryClient.invalidateQueries({
-      queryKey: chatQueryKeys.lists(),
-    });
+    invalidateRenamedChat(ctx.queryClient, ctx.chatId);
 
     return;
   }
@@ -271,11 +270,11 @@ function restoreFailedSend(input: {
   draft: DraftState;
   message: ComposedMessage;
   sent: ComposerAttachments["items"];
-  isCommandText: boolean;
+  commandText: boolean;
   error: unknown;
   setNotice: (notice: DeliveryNotice | null) => void;
 }) {
-  const { draft, message, sent, isCommandText, error, setNotice } = input;
+  const { draft, message, sent, commandText, error, setNotice } = input;
 
   // The owner may have typed during the send: their draft stays.
   draft.setInput((current) =>
@@ -283,7 +282,7 @@ function restoreFailedSend(input: {
   );
   draft.attachments.restore(sent);
 
-  if (isCommandText) {
+  if (commandText) {
     setNotice({
       kind: "error",
       message: error instanceof Error ? error.message : "The command failed.",

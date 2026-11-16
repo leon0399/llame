@@ -2,8 +2,7 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { type Message } from '../db/schema';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { fileAttachmentLines } from '../media/media-descriptors';
-
-const EXCERPT_MAX = 1000;
+import { TITLE_INPUT_MAX_CHARS } from './title';
 
 function rowText(message: Message): string {
   const lines: Array<string> = [];
@@ -20,7 +19,31 @@ function rowText(message: Message): string {
 
   const role = message.role === 'user' ? 'User' : 'Assistant';
 
-  return sanitizeAuthoredText(`${role}: ${lines.join('\n')}`);
+  const authored = `${role}: ${lines.join('\n')}`
+    .replaceAll('\n', '\n  ')
+    .replaceAll(/<(\/?user)\b/gi, '&lt;$1');
+
+  return sanitizeAuthoredText(authored);
+}
+
+function safePrefix(value: string, maxLength: number): string {
+  let end = Math.min(value.length, maxLength);
+
+  if (end > 0 && end < value.length) {
+    const last = value.charCodeAt(end - 1);
+    const next = value.charCodeAt(end);
+
+    if (
+      last >= 0xd8_00 &&
+      last <= 0xdb_ff &&
+      next >= 0xdc_00 &&
+      next <= 0xdf_ff
+    ) {
+      end -= 1;
+    }
+  }
+
+  return value.slice(0, end);
 }
 
 /** Renders the newest-first rows returned by MessagesRepository for the title prompt. */
@@ -29,19 +52,12 @@ export function buildTitleExcerpt(newestFirst: ReadonlyArray<Message>): string {
   let length = 0;
 
   for (const row of newestFirst) {
-    if (
-      row.role !== 'assistant' &&
-      (row.role !== 'user' || row.senderUserId === null)
-    ) {
-      continue;
-    }
-
     const group = rowText(row);
     const separatorLength = groups.length === 0 ? 0 : 1;
-    const remaining = EXCERPT_MAX - length - separatorLength;
+    const remaining = TITLE_INPUT_MAX_CHARS - length - separatorLength;
 
     if (remaining <= 0) break;
-    groups.push(group.slice(0, remaining));
+    groups.push(safePrefix(group, remaining));
     length += separatorLength + Math.min(group.length, remaining);
 
     if (group.length > remaining) break;

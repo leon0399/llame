@@ -12,6 +12,7 @@ import { assertNotArchived } from '../../db/assert-not-archived';
 import { TenantDbService } from '../../db/tenant-db.service';
 import { ChatsRepository } from '../chats-repository';
 import { TitleService } from '../../titles/title.service';
+import type { ChatCommandResultResponse } from './chat-command-result.dto';
 import type { ChatCommand } from './parse-chat-command';
 
 @Injectable()
@@ -28,9 +29,7 @@ export class ChatCommandsService {
     userId: string;
     command: ChatCommand;
     parts: ReadonlyArray<{ type: 'text' | 'file' }>;
-  }): Promise<
-    { type: 'command'; command: 'rename'; title: string } | undefined
-  > {
+  }): Promise<ChatCommandResultResponse | undefined> {
     const chat = await this.findChat(input.chatId, input.userId);
 
     if (!chat) return undefined;
@@ -60,10 +59,10 @@ export class ChatCommandsService {
     chatId: string,
     userId: string,
     argument: string,
-  ): Promise<{ type: 'command'; command: 'rename'; title: string }> {
-    const title = argument.trim();
+  ): Promise<ChatCommandResultResponse> {
+    const title = argument;
 
-    if (title.length < 1 || title.length > 200) {
+    if (title.length > 200) {
       throw new BadRequestException(
         'A title must be between 1 and 200 characters.',
       );
@@ -85,7 +84,7 @@ export class ChatCommandsService {
   private async regenerate(
     chatId: string,
     userId: string,
-  ): Promise<{ type: 'command'; command: 'rename'; title: string }> {
+  ): Promise<ChatCommandResultResponse> {
     const result = await this.titles.regenerate({ chatId, userId });
 
     if (result.ok) {

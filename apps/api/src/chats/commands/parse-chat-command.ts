@@ -9,16 +9,9 @@ export function parseChatCommand(
     (part): part is { type: 'text'; text: string } => part.type === 'text',
   );
 
-  if (
-    textParts.length !== 1 ||
-    parts.some((part) => part.type !== 'text' && part.type !== 'file')
-  ) {
-    return null;
-  }
+  if (textParts.length !== 1) return null;
 
-  const text = textParts[0]?.text;
-
-  if (text === undefined) return null;
+  const text = textParts[0].text;
 
   if (!text.startsWith('/')) return null;
 

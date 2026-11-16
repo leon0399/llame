@@ -368,17 +368,18 @@ function composerFeedback(
   creationFailure: string | null,
   composer: ChatSessionComposerProps["composer"],
 ) {
-  return {
-    failure: creates
-      ? creationFailure
-      : composer.notice?.kind === "error"
-        ? composer.notice.message
-        : null,
-    notice:
-      !creates && composer.notice?.kind === "status"
-        ? composer.notice.message
-        : null,
-  };
+  let failure: string | null = null;
+  let notice: string | null = null;
+
+  if (creates) {
+    failure = creationFailure;
+  } else if (composer.notice?.kind === "error") {
+    failure = composer.notice.message;
+  } else if (composer.notice?.kind === "status") {
+    notice = composer.notice.message;
+  }
+
+  return { failure, notice };
 }
 
 /**

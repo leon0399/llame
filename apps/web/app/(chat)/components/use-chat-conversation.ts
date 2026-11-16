@@ -31,6 +31,7 @@ import {
   supersededReplyIndexes,
 } from "@/lib/services/chat/history-adoption";
 import { usePendingStop } from "./use-pending-stop";
+import { isCommandText } from "@/lib/services/chat/deliveries";
 import { useChatDelivery } from "./use-chat-delivery";
 import { useRunHandoff } from "./use-run-handoff";
 import {
@@ -386,7 +387,7 @@ function buildComposerState(
         return delivery.deliver("steer");
       }
 
-      if (delivery.exists && actions.input.startsWith("/")) {
+      if (delivery.exists && isCommandText(actions.input)) {
         event.preventDefault();
 
         return delivery.deliver();

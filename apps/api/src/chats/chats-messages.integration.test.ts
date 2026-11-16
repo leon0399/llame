@@ -15,9 +15,10 @@ import { sql as dsql } from 'drizzle-orm';
 import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
-import { type Message } from '../db/schema';
+import { projects, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelsService } from '../models/models.service';
 import { turnTelemetryLogger } from '../chats/turn-telemetry';
@@ -34,6 +35,7 @@ import {
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
+const chatTitleResponse = z.object({ title: z.string().nullable() });
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -1841,13 +1843,72 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     });
     expect(models.client.turns).toHaveLength(0);
     await expect(listMessages(chatA)).resolves.toEqual(before);
+
+    const stored = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(stored.body).toHaveProperty('title', 'Release plan');
+  });
+
+  it('A command to a stored chat is the third exception', async () => {
+    const projectId = crypto.randomUUID();
+
+    const storedChatId = await tenantDb.runAs(userAId, async (tx) => {
+      await tx.insert(projects).values({
+        id: projectId,
+        ownerUserId: userAId,
+        name: 'Command project',
+      });
+
+      const repository = new ChatsRepository(tx);
+
+      const chat = await repository.create({
+        ownerUserId: userAId,
+        title: 'Before command',
+        workspaceRoot: '/srv/command-root',
+        workspaceExecutorId: 'command-executor',
+        workspaceGeneration: 1,
+      });
+
+      await repository.update(chat.id, userAId, { projectId });
+
+      return chat.id;
+    });
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${storedChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'not-a-chat-model',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/rename Filed command' }],
+        },
+      });
+
+    const stored = await tenantDb.runAs(userAId, (tx) =>
+      new ChatsRepository(tx).findById(storedChatId, userAId),
+    );
+
+    expect(response.status).toBe(200);
+    expect(stored).toMatchObject({
+      title: 'Filed command',
+      projectId,
+      workspaceRoot: '/srv/command-root',
+    });
   });
 
   it('rejects a rename title longer than 200 characters', async () => {
+    const before = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
     const response = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: `/rename ${'x'.repeat(201)}` }],
@@ -1856,6 +1917,14 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(response.status).toBe(400);
     expect(models.client.turns).toHaveLength(0);
+
+    const after = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(chatTitleResponse.parse(after.body).title).toBe(
+      chatTitleResponse.parse(before.body).title,
+    );
   });
 
   it('regenerates a title from recent owner and assistant messages', async () => {
@@ -1972,23 +2041,42 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
   it('does not reveal another owner Chat through a command', async () => {
     const before = await listMessages(chatA);
 
-    const response = await request(http)
-      .post(`/api/v1/chats/${chatA}/messages`)
-      .set('Cookie', cookieB)
-      .send({
-        modelId: 'system:openai:gpt-5.4-mini',
-        message: {
-          id: crypto.randomUUID(),
-          parts: [{ type: 'text', text: '/rename Private title' }],
-        },
-      });
+    const beforeChat = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
 
-    expect(response.status).toBe(404);
+    for (const text of ['/rename Private title', '/rename']) {
+      const response = await request(http)
+        .post(`/api/v1/chats/${chatA}/messages`)
+        .set('Cookie', cookieB)
+        .send({
+          modelId: 'system:openai:gpt-5.4-mini',
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text }],
+          },
+        });
+
+      expect(response.status).toBe(404);
+    }
+
     expect(models.client.turns).toHaveLength(0);
     await expect(listMessages(chatA)).resolves.toEqual(before);
+
+    const afterChat = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(chatTitleResponse.parse(afterChat.body).title).toBe(
+      chatTitleResponse.parse(beforeChat.body).title,
+    );
   });
 
   it('rejects attachments on commands for an owned Chat', async () => {
+    const before = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
     const response = await request(http)
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
@@ -2009,6 +2097,14 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(response.status).toBe(400);
     expect(models.client.turns).toHaveLength(0);
+
+    const after = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(chatTitleResponse.parse(after.body).title).toBe(
+      chatTitleResponse.parse(before.body).title,
+    );
   });
   it('refuses to rename an archived Chat before changing its title', async () => {
     const archivedChatId = await createChat(userAId, 'Archived title');
@@ -2051,6 +2147,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${archivedChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
+        modelId: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '/rename' }],
@@ -2059,6 +2156,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(response.status).toBe(409);
     expect(models.client.titleTurns).toHaveLength(0);
+
+    const stored = await request(http)
+      .get(`/api/v1/chats/${archivedChatId}`)
+      .set('Cookie', cookieA);
+
+    expect(stored.body).toHaveProperty('title', 'Archived title');
   });
 
   it('applies a rename with delivery while a Run remains live', async () => {
@@ -2085,7 +2188,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .set('Cookie', cookieA)
       .send({
         modelId: 'not-a-chat-model',
-        delivery: 'queue',
+        delivery: 'steer',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '/rename While running' }],
@@ -2099,6 +2202,12 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       title: 'While running',
     });
     expect(models.client.turns).toHaveLength(1);
+
+    const pending = await tenantDb.runAs(userAId, (tx) =>
+      new ChatDeliveriesRepository(tx).listPending(chatA, userAId),
+    );
+
+    expect(pending).toEqual([]);
     releaseHeldTurn?.();
     const completed = await runResponse;
     expect(completed.status).toBe(200);

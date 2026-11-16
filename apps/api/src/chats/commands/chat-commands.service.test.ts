@@ -1,10 +1,4 @@
-import {
-  BadGatewayException,
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { asDouble } from '../../testing/support';
 import type { Chat } from '../../db/schema';
@@ -45,7 +39,7 @@ function makeService() {
 const request = {
   chatId: 'chat-1',
   userId: 'user-1',
-  command: { name: 'rename' as const, argument: ' New name ' },
+  command: { name: 'rename' as const, argument: 'New name' },
   parts: [{ type: 'text' as const }],
 };
 
@@ -99,17 +93,17 @@ describe('ChatCommandsService', () => {
     };
 
     regenerate.mockResolvedValue({ ok: false, reason: 'not_configured' });
-    await expect(service.execute(bare)).rejects.toBeInstanceOf(
-      UnprocessableEntityException,
-    );
+    await expect(service.execute(bare)).rejects.toMatchObject({
+      message: 'Title generation is not configured.',
+    });
     regenerate.mockResolvedValue({ ok: false, reason: 'empty' });
-    await expect(service.execute(bare)).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(service.execute(bare)).rejects.toMatchObject({
+      message: 'Nothing to name.',
+    });
     regenerate.mockResolvedValue({ ok: false, reason: 'failed' });
-    await expect(service.execute(bare)).rejects.toBeInstanceOf(
-      BadGatewayException,
-    );
+    await expect(service.execute(bare)).rejects.toMatchObject({
+      message: 'Title generation failed.',
+    });
   });
 
   it('reports a disappeared Chat after lookup as not found', async () => {

@@ -817,11 +817,16 @@
         },
         "responses": {
           "200": {
-            "description": "Command result (JSON)\n\nAI SDK v5 UI-message stream (SSE)",
+            "description": "AI SDK v5 UI-message stream (SSE) or chat command result",
             "content": {
               "text/event-stream": {
                 "schema": {
                   "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatCommandResultResponse"
                 }
               }
             }
@@ -846,13 +851,13 @@
             "description": "Chat not found or not owned"
           },
           "409": {
-            "description": "Message id already exists, or another run is already in flight for this chat and the send names no `delivery` mode"
+            "description": "Message id already exists, another run is already in flight without a `delivery` mode, the Chat is archived, or bare `/rename` has nothing to name"
           },
           "413": {
             "description": "The request body is larger than the server accepts."
           },
           "422": {
-            "description": "Selected model is not available, or the requested effort is not one of that model's declared levels",
+            "description": "Selected model is unavailable, effort is invalid, or bare `/rename` has no configured title-generation model",
             "content": {
               "application/json": {
                 "schema": {
@@ -860,6 +865,9 @@
                 }
               }
             }
+          },
+          "502": {
+            "description": "Title generation failed"
           },
           "503": {
             "description": "Model catalog is not configured correctly",

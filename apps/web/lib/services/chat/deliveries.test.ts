@@ -23,6 +23,7 @@ import {
   deliveryText,
   firstPendingSteer,
   isAlreadyDelivered,
+  isCommandText,
   isRunActive,
   sendDelivery,
   withdrawDelivery,
@@ -79,6 +80,14 @@ const REQUEST = {
   effort: "high",
   permissionMode: "default" as const,
 };
+
+describe("isCommandText", () => {
+  it("checks trimmed text", () => {
+    expect(isCommandText("  /rename Foo ")).toBe(true);
+    expect(isCommandText(" /etc/hosts")).toBe(true);
+    expect(isCommandText("ordinary text")).toBe(false);
+  });
+});
 
 describe("sendDelivery", () => {
   it("sends the message with its mode and reports the pending item of a 202", async () => {
@@ -146,6 +155,19 @@ describe("sendDelivery", () => {
 
     await expect(sendDelivery(REQUEST)).rejects.toThrow(
       "Title generation is not configured.",
+    );
+  });
+
+  it("joins validation messages from an array", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { statusCode: 400, message: ["modelId must not be blank", "bad id"] },
+        400,
+      ),
+    );
+
+    await expect(sendDelivery(REQUEST)).rejects.toThrow(
+      "modelId must not be blank; bad id",
     );
   });
 

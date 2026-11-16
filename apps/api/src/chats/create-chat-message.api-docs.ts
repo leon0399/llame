@@ -5,6 +5,7 @@ import {
   ApiBody,
   ApiConflictResponse,
   ApiExtraModels,
+  getSchemaPath,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -14,7 +15,7 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { ApiChatCommandResultResponse } from './commands/chat-command-response';
+import { ChatCommandResultResponse } from './commands/chat-command-result.dto';
 import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { CreateMessageDto } from './dto/chats.dto';
 import { ChatDeliveryResponse } from './dto/chat-deliveries.dto';
@@ -28,13 +29,19 @@ const createChatMessageDocs: Array<MethodDecorator> = [
   ApiTags('streaming'),
   ApiParam({ name: 'id', format: 'uuid' }),
   ApiBody({ type: CreateMessageDto }),
-  ApiExtraModels(CreateTextMessagePartDto, CreateFileMessagePartDto),
-  ApiChatCommandResultResponse(),
+  ApiExtraModels(
+    CreateTextMessagePartDto,
+    CreateFileMessagePartDto,
+    ChatCommandResultResponse,
+  ),
   ApiOkResponse({
-    description: 'AI SDK v5 UI-message stream (SSE)',
+    description: 'AI SDK v5 UI-message stream (SSE) or chat command result',
     content: {
       'text/event-stream': {
         schema: { type: 'string' },
+      },
+      'application/json': {
+        schema: { $ref: getSchemaPath(ChatCommandResultResponse) },
       },
     },
   }),
@@ -58,15 +65,19 @@ const createChatMessageDocs: Array<MethodDecorator> = [
   }),
   ApiUnprocessableEntityResponse({
     description:
-      'Selected model is not available, or the requested effort is not one of ' +
-      "that model's declared levels",
+      'Selected model is unavailable, effort is invalid, or bare `/rename` ' +
+      'has no configured title-generation model',
     type: ModelDomainErrorResponse,
+  }),
+  ApiResponse({
+    status: 502,
+    description: 'Title generation failed',
   }),
   ApiNotFoundResponse({ description: 'Chat not found or not owned' }),
   ApiConflictResponse({
     description:
-      'Message id already exists, or another run is already in flight for ' +
-      'this chat and the send names no `delivery` mode',
+      'Message id already exists, another run is already in flight without a ' +
+      '`delivery` mode, the Chat is archived, or bare `/rename` has nothing to name',
   }),
 ];
 

@@ -410,6 +410,7 @@ function noDeliver() {}
  *  of its own, so a page can set it into its own layout (the project page
  *  sets it into a column). */
 export function ChatComposerBody({
+  status,
   modelSendUnavailableReason,
   pendingStop = false,
   disabled = false,

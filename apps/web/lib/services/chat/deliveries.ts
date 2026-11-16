@@ -29,6 +29,11 @@ import { prepareSendMessagesRequest } from "./transport";
 /** The modes a send may name while a Run of the Chat is live. */
 export type DeliveryMode = "steer" | "interrupt" | "queue";
 
+/** True when the text that will be sent is a slash-command candidate. */
+export function isCommandText(text: string): boolean {
+  return text.trim().startsWith("/");
+}
+
 /** The modes a pending item can change to. */
 export type ChangeableDeliveryMode = "steer" | "interrupt";
 
@@ -108,7 +113,11 @@ const commandResultSchema = z.object({
   title: z.string(),
 });
 
-const sendFailureSchema = z.object({ message: z.string() });
+const sendFailureSchema = z
+  .object({ message: z.union([z.string(), z.array(z.string())]) })
+  .transform(({ message }) => ({
+    message: Array.isArray(message) ? message.join("; ") : message,
+  }));
 
 /**
  * Directly sends an existing Chat's message. A live Run may answer with a
@@ -125,17 +134,11 @@ export async function sendDelivery(
     permissionMode: request.permissionMode,
   });
 
-  const requestBody = { ...body };
-
-  if (request.delivery !== undefined) {
-    Object.assign(requestBody, { delivery: request.delivery });
-  }
-
   const response = await authAwareFetch(api, {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify({ ...body, delivery: request.delivery }),
   });
 
   return interpretSendResponse(response);

@@ -365,6 +365,7 @@ export const SendMenuOffersInterruptAndQueue: Story = {
       await screen.findByRole("menuitem", { name: /Interrupt/ }),
     );
     await expect(args.onDeliver).toHaveBeenLastCalledWith("interrupt");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
     await userEvent.click(menu);
     const queue = await screen.findByRole("menuitem", { name: /Queue/ });
