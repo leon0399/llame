@@ -23663,3 +23663,75 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     ]);
   });
 });
+
+describe('RunExecutionService compaction aborts', () => {
+  it('settles an abort during digest resolution without publishing a checkpoint', async () => {
+    const abort = new AbortController();
+
+    const { promise: digestStarted, resolve: signalDigestStarted } =
+      Promise.withResolvers<void>();
+
+    const { promise: digestGate, resolve: releaseDigest } =
+      Promise.withResolvers<void>();
+
+    const { service } = makeExecutionService(undefined, undefined, undefined, {
+      memory: {
+        getForOwnerForBinding: vi
+          .fn()
+          .mockResolvedValue({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: vi.fn(async () => {
+          signalDigestStarted();
+          await digestGate;
+
+          return {
+            baseline: {
+              pinned: [],
+              recent: [],
+              pinnedShown: 0,
+              pinnedTotal: 0,
+              recentShown: 0,
+              recentTotal: 0,
+              compiledOn: '2026-11-16',
+            },
+            candidates: [],
+          };
+        }),
+      },
+    });
+
+    const settleTerminalRun = vi
+      .spyOn(service, 'settleTerminalRun')
+      .mockResolvedValue({ outcome: 'won' });
+
+    const createCheckpoint = vi.spyOn(
+      MessagesRepository.prototype,
+      'createCheckpoint',
+    );
+
+    const completion = service.completeCompactionRun({
+      runId: 'run-1',
+      chatId: 'chat-1',
+      userId: 'owner-1',
+      attemptId: 'attempt-1',
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      summary: { uptoSeq: 1, summary: 'summary', usage: null },
+      abortSignal: abort.signal,
+    });
+
+    await digestStarted;
+    abort.abort();
+    releaseDigest();
+    await completion;
+
+    expect(createCheckpoint).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'cancelled',
+        attemptId: 'attempt-1',
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      }),
+    );
+  });
+});

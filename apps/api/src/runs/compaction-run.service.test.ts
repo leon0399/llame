@@ -245,7 +245,7 @@ describe('CompactionRunService.execute', () => {
     );
   });
 
-  it('rethrows cancellation without converting it into a failed Run', async () => {
+  it('settles cancellation with the claimed attempt and queue fences', async () => {
     vi.spyOn(
       MessagesRepository.prototype,
       'findActiveCheckpoint',
@@ -254,13 +254,21 @@ describe('CompactionRunService.execute', () => {
       message(1),
     ]);
     const abort = new AbortController();
-    abort.abort();
     const error = new Error('aborted');
     const made = makeService({ summarizeError: error });
 
-    await expect(
-      made.service.execute(job, modelClient, abort.signal, queueIdentity),
-    ).rejects.toBe(error);
-    expect(made.settleTerminalRun).not.toHaveBeenCalled();
+    abort.abort();
+
+    await made.service.execute(job, modelClient, abort.signal, queueIdentity);
+
+    expect(made.settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: job.runId,
+        status: 'cancelled',
+        attemptId: 'attempt-1',
+        expectedQueueIdentity: queueIdentity,
+      }),
+    );
+    expect(made.completeCompactionRun).not.toHaveBeenCalled();
   });
 });

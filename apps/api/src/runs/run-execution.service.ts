@@ -657,6 +657,7 @@ type CompactionCompletionInput = {
   attemptId: string;
   expectedQueueIdentity: NonNullable<FinishRunInput['expectedQueueIdentity']>;
   summary: CompactionSummary | undefined;
+  abortSignal: AbortSignal;
 };
 
 type FinishRunInput = {
@@ -1312,6 +1313,10 @@ export class RunExecutionService {
   ): Promise<FinishRunResult> {
     const digest = await this.resolveCompactionDigest(input);
 
+    if (input.abortSignal.aborted) {
+      return this.settleCompactionAbort(input);
+    }
+
     const result = await retryAbortedTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
         const fenced = await new RunsRepository(tx).updateForAttempt(
@@ -1322,6 +1327,21 @@ export class RunExecutionService {
         );
 
         if (!fenced) return { outcome: 'lost' as const };
+
+        if (input.abortSignal.aborted) {
+          const status = classifyAbortedRun(input.abortSignal);
+          const message = this.abortedRunMessage(status, input.abortSignal);
+
+          return this.finishRunInTransaction(tx, {
+            runId: input.runId,
+            userId: input.userId,
+            status,
+            attemptId: input.attemptId,
+            expectedQueueIdentity: input.expectedQueueIdentity,
+            runPayload: { status, message },
+            error: { message },
+          });
+        }
 
         const status =
           fenced.cancelRequestedAt === null ? 'completed' : 'cancelled';
@@ -1370,6 +1390,23 @@ export class RunExecutionService {
     }
 
     return result;
+  }
+
+  private async settleCompactionAbort(
+    input: CompactionCompletionInput,
+  ): Promise<FinishRunResult> {
+    const status = classifyAbortedRun(input.abortSignal);
+    const message = this.abortedRunMessage(status, input.abortSignal);
+
+    return this.settleTerminalRun({
+      userId: input.userId,
+      runId: input.runId,
+      status,
+      attemptId: input.attemptId,
+      expectedQueueIdentity: input.expectedQueueIdentity,
+      runPayload: { status, message },
+      error: { message },
+    });
   }
 
   private async resolveCompactionDigest(input: {

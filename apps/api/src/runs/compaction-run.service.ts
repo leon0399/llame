@@ -7,6 +7,8 @@ import {
 } from '../compaction/owner-compaction-plan';
 import { errorMessageWithoutParams } from '../db/loggable-error';
 import {
+  classifyAbortedRun,
+  expiredRunMessage,
   RunExecutionService,
   type RunClaimResult,
 } from './run-execution.service';
@@ -62,28 +64,88 @@ export class CompactionRunService {
 
     if ('settledReply' in claim || 'nativeRecovery' in claim) return;
 
-    const { plan, nextSeq, activeCheckpoint } = await this.plan(job);
+    await this.runClaimed({
+      job,
+      client,
+      abortSignal,
+      expectedQueueIdentity,
+      claim,
+    });
+  }
+
+  private async runClaimed(input: {
+    job: RunJob;
+    client: ModelClient;
+    abortSignal: AbortSignal;
+    expectedQueueIdentity: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    };
+    claim: Extract<RunClaimResult, { messageId: string | null }>;
+  }): Promise<void> {
+    try {
+      await this.summarizeAndFinish(input);
+    } catch (error) {
+      if (!input.abortSignal.aborted) throw error;
+
+      const status = classifyAbortedRun(input.abortSignal);
+
+      const message =
+        status === 'expired'
+          ? expiredRunMessage(input.abortSignal)
+          : 'Run was cancelled.';
+
+      await this.execution.settleTerminalRun({
+        runId: input.job.runId,
+        userId: input.job.userId,
+        status,
+        attemptId: input.claim.attemptId,
+        expectedQueueIdentity: input.expectedQueueIdentity,
+        runPayload: { status, message },
+        error: { message },
+      });
+    }
+  }
+
+  private async summarizeAndFinish(input: {
+    job: RunJob;
+    client: ModelClient;
+    abortSignal: AbortSignal;
+    expectedQueueIdentity: {
+      currentJobId: string | null;
+      wakeGeneration: number;
+    };
+    claim: Extract<RunClaimResult, { messageId: string | null }>;
+  }): Promise<void> {
+    const { plan, nextSeq, activeCheckpoint } = await this.plan(input.job);
 
     if (plan === null) {
-      await this.finish(job, claim.attemptId, undefined, expectedQueueIdentity);
+      await this.finish({
+        job: input.job,
+        attemptId: input.claim.attemptId,
+        expectedQueueIdentity: input.expectedQueueIdentity,
+        abortSignal: input.abortSignal,
+      });
 
       return;
     }
 
     const summary = await this.summarizeOrFail({
-      job,
-      client,
-      claim,
+      ...input,
       plan,
       nextSeq,
       activeCheckpoint,
-      abortSignal,
-      expectedQueueIdentity,
     });
 
     if (summary === undefined) return;
 
-    await this.finish(job, claim.attemptId, summary, expectedQueueIdentity);
+    await this.finish({
+      job: input.job,
+      attemptId: input.claim.attemptId,
+      summary,
+      expectedQueueIdentity: input.expectedQueueIdentity,
+      abortSignal: input.abortSignal,
+    });
   }
 
   private async summarizeOrFail(input: {
@@ -157,22 +219,24 @@ export class CompactionRunService {
     });
   }
 
-  private async finish(
-    job: RunJob,
-    attemptId: string,
-    summary: CompactionSummary | undefined,
+  private async finish(input: {
+    job: RunJob;
+    attemptId: string;
+    summary?: CompactionSummary;
     expectedQueueIdentity: {
       currentJobId: string | null;
       wakeGeneration: number;
-    },
-  ): Promise<void> {
+    };
+    abortSignal: AbortSignal;
+  }): Promise<void> {
     await this.execution.completeCompactionRun({
-      runId: job.runId,
-      chatId: job.chatId,
-      userId: job.userId,
-      attemptId,
-      expectedQueueIdentity,
-      summary,
+      runId: input.job.runId,
+      chatId: input.job.chatId,
+      userId: input.job.userId,
+      attemptId: input.attemptId,
+      expectedQueueIdentity: input.expectedQueueIdentity,
+      summary: input.summary,
+      abortSignal: input.abortSignal,
     });
   }
 }
