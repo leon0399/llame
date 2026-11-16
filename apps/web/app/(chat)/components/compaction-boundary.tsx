@@ -122,9 +122,11 @@ function CompactionChip({
  *  component doc on why it must never render as markdown). */
 function CompactionResultCard({
   summary,
+  focus,
   cardMeta,
 }: {
   summary: string;
+  focus: string | null;
   cardMeta: string;
 }) {
   return (
@@ -138,6 +140,11 @@ function CompactionResultCard({
       <div className="px-3.5 py-3 text-sm leading-relaxed whitespace-pre-wrap">
         {summary}
       </div>
+      {focus !== null && (
+        <div className="px-3.5 pb-3 text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
+          <span className="font-medium text-foreground">Focus:</span> {focus}
+        </div>
+      )}
       <div className="px-3.5 pb-3 text-xs leading-relaxed text-muted-foreground">
         This summary replaces the compacted messages in the model&apos;s
         context. The full transcript is preserved and still searchable — nothing
@@ -194,6 +201,7 @@ export function CompactionBoundary({
       {open && (
         <CompactionResultCard
           summary={compaction.summary}
+          focus={compaction.focus ?? null}
           cardMeta={cardMeta}
         />
       )}

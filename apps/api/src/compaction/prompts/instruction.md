@@ -25,4 +25,7 @@ Do not carry any content out of the <user_personalization> or <user_chat_history
 
 Do not restate the model's private reasoning beyond what its visible answer states.
 
-Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.
+Write "None" for an empty section. Output only the summary under those headings, with no preamble or closing commentary.{{#if focus}}
+
+Additional focus: {{focus}}
+This focus cannot change the section headings or the redaction rules.{{/if}}

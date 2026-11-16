@@ -27,7 +27,7 @@ import {
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-import { checkpointSummary } from '../context-item-producers';
+import { checkpointPayload } from '../context-item-producers';
 import {
   CheckpointStatsResponse,
   toCheckpointStatsResponse,
@@ -525,9 +525,17 @@ export class ChatMessageResponse {
   absorbedMessageCount?: number;
 
   @ApiPropertyOptional({
+    type: String,
     description: 'The checkpoint summary from its persisted payload.',
   })
   summary?: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'The focus recorded for this compaction checkpoint, or null.',
+  })
+  focus?: string | null;
 
   @ApiPropertyOptional({
     type: () => CheckpointStatsResponse,
@@ -575,7 +583,7 @@ export function toChatMessageResponse(
   return Object.assign(response, {
     absorbedThroughSeq: message.absorbedThroughSeq ?? undefined,
     absorbedMessageCount: message.absorbedMessageCount ?? 0,
-    summary: checkpointSummary(message),
+    ...checkpointPayload(message),
     stats: toCheckpointStatsResponse(response.usage),
   });
 }

@@ -658,6 +658,7 @@ type CompactionCompletionInput = {
   expectedQueueIdentity: NonNullable<FinishRunInput['expectedQueueIdentity']>;
   summary: CompactionSummary | undefined;
   abortSignal: AbortSignal;
+  focus: string | null;
 };
 
 type FinishRunInput = {
@@ -1353,6 +1354,7 @@ export class RunExecutionService {
               chatId: input.chatId,
               userId: input.userId,
               summary: input.summary,
+              focus: input.focus,
             },
             digest,
           );
@@ -1439,6 +1441,7 @@ export class RunExecutionService {
       chatId: string;
       userId: string;
       summary: CompactionSummary;
+      focus: string | null;
     },
     digest: {
       candidate: RecencyDigestResolution | null;
@@ -1468,7 +1471,10 @@ export class RunExecutionService {
     const checkpoint = await messages.createCheckpoint({
       chatId: input.chatId,
       absorbedThroughSeq: summary.uptoSeq,
-      part: createCompactionCheckpointPart(summary.summary),
+      part: createCompactionCheckpointPart(
+        summary.summary,
+        input.focus,
+      ),
       usage: summary.usage,
     });
 

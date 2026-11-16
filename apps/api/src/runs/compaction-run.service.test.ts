@@ -11,6 +11,7 @@ import { MessagesRepository } from '../chats/messages-repository';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import { asDouble } from '../testing/support';
 import type { ModelClient } from '../models/model-client';
+import { RunEventsRepository } from './runs-repository';
 import { CompactionRunService } from './compaction-run.service';
 import type { RunJob } from './run-queues';
 
@@ -49,6 +50,7 @@ function makeService(
   options: {
     summary?: CompactionSummary | null;
     summarizeError?: Error;
+    focus?: string | null;
   } = {},
 ) {
   const tx = asDouble<Db>({});
@@ -58,6 +60,11 @@ function makeService(
   );
 
   const tenantDb = asDouble<TenantDbService>({ runAs });
+  vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
+    asDouble({
+      payload: { compaction: { focus: options.focus ?? null } },
+    }),
+  );
 
   const summarizeCheckpoint = vi
     .fn<CompactionService['summarizeCheckpoint']>()

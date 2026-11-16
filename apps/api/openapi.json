@@ -5271,6 +5271,11 @@
             "type": "string",
             "description": "The checkpoint summary from its persisted payload."
           },
+          "focus": {
+            "type": "string",
+            "nullable": true,
+            "description": "The focus recorded for this compaction checkpoint, or null."
+          },
           "stats": {
             "description": "Token telemetry for this checkpoint.",
             "allOf": [

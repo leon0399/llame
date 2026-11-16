@@ -12,16 +12,23 @@ import {
 import { assertNotArchived } from '../../db/assert-not-archived';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
 import { type Run } from '../../db/schema';
-import { InstanceConfigService } from '../../instance-config/instance-config.service';
+import {
+  InstanceConfigService,
+  type InstanceConfigReader,
+} from '../../instance-config/instance-config.service';
 import {
   ModelsService,
   resolveSendSettings,
+  type ModelSelectionValidator,
 } from '../../models/models.service';
 import { planOwnerCompaction } from '../../compaction/owner-compaction-plan';
 import { RunDispatchService } from '../../runs/run-dispatch.service';
-import { createCompactionRun } from '../run-creation';
 import { claimActiveRunSlot } from '../chat-admission';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
+import {
+  RunEventsRepository,
+  RunsRepository,
+} from '../../runs/runs-repository';
 import { retryRunTransaction } from '../../runs/run-transaction';
 import { TitleService } from '../../titles/title.service';
 import type { PermissionMode } from '../../tools/permissions/permission-mode';
@@ -38,14 +45,24 @@ type CompactCommandInput = {
   permissionMode?: PermissionMode;
 };
 
-function assertCompactCommandSupported(input: CompactCommandInput): void {
-  if (input.parts.some((part) => part.type === 'file')) {
-    throw new BadRequestException('A command cannot include an attachment.');
+function parseCompactFocus(argument: string): string | null {
+  if (Array.from(argument).length > 1000) {
+    throw new BadRequestException(
+      'Compact focus must be 1,000 characters or fewer.',
+    );
   }
 
-  if (input.command.argument.length > 0) {
-    throw new BadRequestException('Compact focus is not supported yet.');
-  }
+  return argument.length === 0 ? null : argument;
+}
+
+@Injectable()
+export class ChatCommandSettings {
+  constructor(
+    @Inject(ModelsService)
+    readonly models: ModelSelectionValidator,
+    @Inject(InstanceConfigService)
+    readonly instanceConfig: InstanceConfigReader,
+  ) {}
 }
 
 @Injectable()
@@ -126,7 +143,11 @@ export class ChatCommandsService {
     if (!chat) return undefined;
     assertNotArchived(chat);
 
-    assertCompactCommandSupported(input);
+    if (input.parts.some((part) => part.type === 'file')) {
+      throw new BadRequestException('A command cannot include an attachment.');
+    }
+
+    const focus = parseCompactFocus(input.command.argument);
 
     const { effort, permissionMode } = resolveSendSettings(
       this.models,
@@ -156,14 +177,42 @@ export class ChatCommandsService {
       throw new ConflictException('Nothing to compact.');
     }
 
-    return createCompactionRun(tx, {
+    return this.createCompactionRun(tx, input, {
+      effort,
+      permissionMode,
+      focus,
+    });
+  }
+
+
+  private async createCompactionRun(
+    tx: Db,
+    input: CompactCommandInput,
+    settings: {
+      effort: string | undefined;
+      permissionMode: PermissionMode | undefined;
+      focus: string | null;
+    },
+  ): Promise<Run> {
+    const { effort, permissionMode, focus } = settings;
+
+    const run = await new RunsRepository(tx).create({
       id: randomUUID(),
       chatId: input.chatId,
+      messageId: null,
       userId: input.userId,
       modelId: input.modelId,
       effort,
       permissionMode,
     });
+
+    await new RunEventsRepository(tx).append(run.id, 'run.created', {
+      chatId: input.chatId,
+      messageId: null,
+      compaction: { focus },
+    });
+
+    return run;
   }
 
   private async findChat(chatId: string, userId: string): Promise<boolean> {

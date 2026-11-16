@@ -20,10 +20,12 @@ import {
 } from './context-builder';
 import { projectStoredToolPart } from './tool-observation-part';
 import {
+  createCompactionCheckpointPart,
   createModelChangeItem,
   createRecencyDigestDeltaItem,
   createRecencyDigestSupersessionItem,
   createToolAvailabilityItem,
+  toContextCheckpoint,
 } from './context-item-producers';
 import {
   createPromptImportsItem,
@@ -1591,6 +1593,32 @@ describe('buildContext', () => {
         },
         { role: 'user', content: [{ type: 'text', text: 'How are you?' }] },
       ]);
+    });
+
+    it('A later request does not replay the focus', () => {
+      const focus = 'keep the migration plan';
+      const checkpointRow = msg({
+        id: 'focus-checkpoint',
+        role: 'checkpoint',
+        absorbedThroughSeq: assistantMsg1.seq,
+        parts: [createCompactionCheckpointPart('Historical summary.', focus)],
+      });
+
+      const result = buildContext([userMsg2], {
+        systemPrompt,
+        modelId: 'test-model',
+        checkpoint: toContextCheckpoint(checkpointRow),
+      });
+
+      expect(checkpointRow.parts).toContainEqual(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            payload: expect.objectContaining({ focus }),
+          }),
+        }),
+      );
+      expect(JSON.stringify(result)).toContain('Historical summary.');
+      expect(JSON.stringify(result)).not.toContain(focus);
     });
 
     it('never replays checkpoint rows as ordinary assistant content', () => {

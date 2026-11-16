@@ -673,7 +673,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(foreignRead.status).toBe(404);
     expect(foreignRead.body).not.toHaveProperty('latestRun');
   });
-  it('returns checkpoint rows with owner-only summary and boundary-interval counts, per page', async () => {
+  it('The boundary shows the focus', async () => {
     const checkpointChatId = await createChat(userAId, 'Checkpoint API Chat');
     const checkpointIds: Array<string> = [];
 
@@ -693,12 +693,16 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
           attachments: [],
         });
 
-      const checkpoint = async (summary: string, absorbedThroughSeq: number) =>
+      const checkpoint = async (
+        summary: string,
+        absorbedThroughSeq: number,
+        focus: string | null = null,
+      ) =>
         (
           await messagesRepo.createCheckpoint({
             chatId: checkpointChatId,
             absorbedThroughSeq,
-            part: createCompactionCheckpointPart(summary),
+            part: createCompactionCheckpointPart(summary, focus),
             usage: {
               inputTokens: 2000,
               outputTokens: 200,
@@ -715,7 +719,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       await append('user', 'u6');
       await append('assistant', 'a7');
       await append('user', 'u8');
-      checkpointIds.push(await checkpoint('Second API summary', 7));
+      checkpointIds.push(
+        await checkpoint('Second API summary', 7, 'keep the migration plan'),
+      );
       await append('assistant', 'a10');
     });
 
@@ -736,6 +742,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       absorbedThroughSeq: 2,
       absorbedMessageCount: 2,
       summary: 'First API summary',
+      focus: null,
       stats: {
         beforeTokens: 2000,
         afterTokens: 200,
@@ -750,6 +757,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       // Rows 3, 5, 6 and 7: the earlier checkpoint row is not counted.
       absorbedMessageCount: 4,
       summary: 'Second API summary',
+      focus: 'keep the migration plan',
     });
 
     expect(await readMessages('')).toEqual(

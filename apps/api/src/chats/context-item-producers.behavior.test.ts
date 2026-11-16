@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  checkpointFocus,
   checkpointSummary,
   createCompactionCheckpointPart,
   createModelChangeItem,
@@ -271,6 +272,32 @@ describe('compaction checkpoint producer', () => {
     expect(part.data.text).toContain('historical context');
     expect(readCheckpointText(row([part]))).toBe(part.data.text);
     expect(checkpointSummary(row([part]))).toBe(summary);
+    expect(checkpointFocus(row([part]))).toBeNull();
+  });
+
+  it('reads a version-two checkpoint summary and focus', () => {
+    const part = createCompactionCheckpointPart(
+      'Summary only.',
+      'keep the migration plan',
+    );
+
+    expect(part.data.payload).toEqual({
+      v: 2,
+      summary: 'Summary only.',
+      focus: 'keep the migration plan',
+    });
+    expect(checkpointSummary(row([part]))).toBe('Summary only.');
+    expect(checkpointFocus(row([part]))).toBe('keep the migration plan');
+  });
+
+  it('writes version one for an empty or whitespace-only focus', () => {
+    for (const focus of ['', '   ']) {
+      const part = createCompactionCheckpointPart('Summary only.', focus);
+      const stored = row([part]);
+
+      expect(part.data.payload).toEqual({ v: 1, summary: 'Summary only.' });
+      expect(checkpointFocus(stored)).toBeNull();
+    }
   });
 
   it('fails closed for missing, empty, duplicate, or wrong checkpoint parts', () => {
