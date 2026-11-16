@@ -3215,8 +3215,9 @@ export const FailedCommandShowsServerMessage: Story = {
 let failCommand: (() => void) | null = null;
 
 /**
- * Text typed while a command is in flight stays alone in the composer when
- * the command fails: joined to the command it would become its argument.
+ * Text typed while a command is in flight stays first in the composer when
+ * the command fails, and the command follows it: placed after the command it
+ * would become its argument.
  *
  * @summary a failed command keeps a newer draft apart
  */
@@ -3247,7 +3248,9 @@ export const FailedCommandKeepsNewerDraftApart: Story = {
 
     const alert = await canvas.findByRole("alert");
     await expect(alert).toHaveTextContent("Title generation failed.");
-    await expect(composer(canvasElement)).toHaveValue("Explain the failure");
+    await expect(composer(canvasElement)).toHaveValue(
+      "Explain the failure\n\n/rename",
+    );
   },
 };
 
