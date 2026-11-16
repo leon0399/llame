@@ -8,6 +8,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   OpenRouter decisions use its alpha endpoint; non-chat calls reuse static
   account headers without inventing a Chat session identity. See
   [provider routing](docs/product/operator/providers/routing.md).
+  Embedding calls reject redirects to keep custom credentials at the configured
+  destination. Empty Go header overrides retain defaults on every chat wire.
+  Upgrading Go/Zen models to Messages changes the output default for non-Claude
+  model ids to 4,096 tokens, including thinking. Set `maxOutputTokens` explicitly
+  for a larger provider-supported limit.
 
 # 2026-11-14
 

@@ -403,11 +403,11 @@
         "billing": { "$ref": "#/$defs/billingMode" },
         "key": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider credential. Absent, null, or a resolved-empty `{env:...}` token means keyless (e.g. a local Ollama with no auth) — the client is constructed without raising a missing-credential error. Required (and nonblank after interpolation) for `type: \"openai-codex\"`, `type: \"opencode-go\"` and `type: \"system-one\"`, whose upstreams authenticate every request; such an entry fails startup naming the entry and the field rather than loading keyless. A `type: \"cohere-rerank\"` entry may be keyless (for a self-hosted reranker) only with an explicit `baseUrl`; without one it fails startup naming `key`."
+          "description": "Provider credential; absent, null, or resolved-empty means keyless where supported. Codex, Go, and system-one require a nonblank key. Every account used by decisionModels also requires a nonblank key. A cohere-rerank profile permits keyless access only with an explicit baseUrl. Credentials support interpolation and remain private."
         },
         "baseUrl": {
           "$ref": "#/$defs/nullableString",
-          "description": "Provider endpoint base URL. Required (and nonblank after interpolation) for `type: \"openai-completions\"` and `type: \"system-one\"` (the decision wire posts to `{baseUrl}/systemone`); optional for `type: \"cohere-rerank\"` (the rerank wire posts to `{baseUrl}/rerank`, default `https://api.cohere.com/v2`, and a present value must resolve nonblank); absent/null uses the client implementation's own default (OpenAI's hosted API for `type: \"openai-responses\"`, the Anthropic API for `type: \"anthropic-messages\"`). For `type: \"anthropic-messages\"` a present, non-null `baseUrl` must resolve nonblank: a configured endpoint that resolves empty fails startup naming the field rather than falling back to the Anthropic API. Rejected outright for `type: \"openai-codex\"` and `type: \"opencode-go\"`, whose destinations are fixed in llame's code. The client always passes an explicit base URL, so an ambient `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` never moves a request."
+          "description": "Provider endpoint base URL. Required for openai-completions and system-one. Defaults: openai/openai-responses https://api.openai.com/v1; anthropic/anthropic-messages https://api.anthropic.com/v1; openrouter https://openrouter.ai/api/v1; opencode-zen https://opencode.ai/zen/v1; cohere-rerank https://api.cohere.com/v2. A configured non-null endpoint must resolve nonblank. Codex and Go reject baseUrl and keep fixed destinations. Ambient provider endpoint variables never move a request."
         },
         "accountId": {
           "$ref": "#/$defs/nullableString",
@@ -417,7 +417,7 @@
           "type": "object",
           "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": ["string", "null"] },
-          "description": "Optional operator headers. Defaults include `X-Session-Id: {session:id}` for openai-responses, openai-completions, anthropic-messages, and opencode-go (openai-codex, system-one, and cohere-rerank have no default); null removes a default, and operator values take precedence without reserved names. `{env:...}` and `{path:...}` resolve at startup; `{session:id}` resolves per request, and an authored `{session:id}` fails startup for system-one and cohere-rerank."
+          "description": "Optional operator headers. X-Session-Id: {session:id} defaults on openai, anthropic, openrouter, opencode-zen, openai-responses, openai-completions, anthropic-messages, and opencode-go. Codex, system-one, and cohere-rerank have no default. null removes a default; operator values override base headers case-insensitively. Environment and path tokens resolve at startup. Chat calls render session tokens per request; non-chat calls omit session templates and retain static headers. Authored session tokens are rejected on system-one and cohere-rerank profiles."
         }
       },
       "allOf": [

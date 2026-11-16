@@ -5,6 +5,8 @@
  * flow" pattern `openai-model-client.tools.test.ts` uses for streamText — the
  * real `embed`/`embedMany` from `ai` runs against it.
  */
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { createOpenAI } from '@ai-sdk/openai';
 import type {
   EmbeddingModelV3,
@@ -14,7 +16,7 @@ import { APICallError } from 'ai';
 import { MockEmbeddingModelV3 } from 'ai/test';
 
 import { KEYLESS_PLACEHOLDER_API_KEY } from '../models/openai-model-client';
-import type { UnknownRecord } from '@workspace/runtime-safety';
+import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import {
   classifyEmbeddingFailure,
   createOpenAIEmbeddingBackend,
@@ -342,6 +344,71 @@ function fakeEmbeddingHttpFetch(
       }),
     );
 }
+
+describe('embedding credential destination', () => {
+  it('rejects a cross-origin redirect without forwarding custom credentials', async () => {
+    const received: Array<string | undefined> = [];
+
+    const destination = createServer((request, response) => {
+      received.push(request.headers['x-api-key']?.toString());
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          data: [{ object: 'embedding', index: 0, embedding: [1, 2, 3] }],
+          model: 'embedding',
+        }),
+      );
+    });
+
+    destination.listen(0, '127.0.0.1');
+    await once(destination, 'listening');
+    const address = destination.address();
+
+    if (!address || isString(address)) throw new Error('No TCP address');
+
+    const origin = createServer((_request, response) => {
+      response.writeHead(307, {
+        location: `http://127.0.0.1:${address.port}/embeddings`,
+      });
+      response.end();
+    });
+
+    origin.listen(0, '127.0.0.1');
+    await once(origin, 'listening');
+    const originAddress = origin.address();
+
+    if (!originAddress || isString(originAddress))
+      throw new Error('No TCP address');
+
+    try {
+      const backend = createOpenAIEmbeddingBackend({
+        baseUrl: `http://127.0.0.1:${originAddress.port}`,
+        headers: { 'x-api-key': 'private-embedding-credential' },
+        providerModelId: 'embedding',
+        dimensions: 3,
+      });
+
+      await expect(
+        backend.embedDocuments([
+          {
+            documentId: 'private',
+            contentHash: 'hash',
+            content: 'Private document',
+          },
+        ]),
+      ).rejects.toBeInstanceOf(EmbeddingBackendError);
+      expect(received).toEqual([]);
+    } finally {
+      origin.closeAllConnections();
+      destination.closeAllConnections();
+      const originClosed = once(origin, 'close');
+      const destinationClosed = once(destination, 'close');
+      origin.close();
+      destination.close();
+      await Promise.all([originClosed, destinationClosed]);
+    }
+  });
+});
 
 describe('createOpenAIEmbeddingBackend — response-order verification via raw HTTP (design D7, task 5.6)', () => {
   it('detects a reordered same-count response and rejects rather than silently pairing wrong vectors', async () => {

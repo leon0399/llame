@@ -114,26 +114,11 @@ export type SystemOneProviderConfig = {
 };
 
 /**
- * Executable provider client implementations (providers-and-models-as-code,
- * #167). `type` names the wire API the entry speaks — never inferred from
- * the `id`, the `baseUrl`, or a host: `openai-responses` executes the
- * Responses API through `@ai-sdk/openai` (hosted OpenAI or any compatible
- * `/v1/responses` server); `openai-completions` executes the Chat
- * Completions API through `@ai-sdk/openai-compatible` at its required
- * `baseUrl`; `anthropic-messages` executes the Messages API through
- * `@ai-sdk/anthropic` at its optional `baseUrl` (the Anthropic API by
- * default, a Messages-speaking gateway when configured); `openai-codex`
- * uses the personal Codex subscription backend; `opencode-go` executes the
- * Chat Completions wire against the OpenCode Go subscription gateway, at a
- * destination fixed in llame's code, from a required `key` and no endpoint
- * field of its own; `system-one` speaks the System One decision wire for the
- * experimental `decisionModels[]` catalogue, from a required `key` and a
- * required `baseUrl`, and never serves a `models[]` entry; `cohere-rerank` speaks the
- * Cohere Rerank v2 wire for the experimental `rerankModels[]` catalogue and
- * never serves a `models[]` or `embeddingModels[]` entry.
- * This set is strict-closed on purpose — a schema that advertised a `type`
- * it cannot execute would fail at request time instead of at the offending
- * config path.
+ * Provider accounts own credentials and destinations. Vendor profiles supply
+ * model-wire defaults; explicit wire profiles support compatible gateways.
+ * Model entries can override the default wire where the account permits it.
+ * Codex fixes its transport. Go and Zen use exact bundled model metadata
+ * while keeping destinations independent of that metadata.
  */
 export type ProviderConfig =
   | Routing.VendorProviderConfig

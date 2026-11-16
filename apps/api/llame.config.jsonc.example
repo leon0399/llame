@@ -48,7 +48,7 @@
       "type": "openai",
       "key": "{env:OPENAI_API_KEY:-}",
       "baseUrl": "{env:OPENAI_BASE_URL:-https://api.openai.com/v1}",
-      // Optional per-provider request headers. The four non-Codex wires default
+      // Optional per-provider request headers. Chat vendor profiles default
       // to "X-Session-Id": "{session:id}"; use null to remove that default:
       // "headers": { "X-Session-Id": null },
     },

@@ -56,6 +56,8 @@ below state additional ordering where a change needs it.
 
 ## Providers and deployment
 
+- [Provider routing](providers/routing.md): shared accounts, per-model wire
+  selection, and OpenCode Go and Zen examples.
 - [Codex subscription](providers/codex-subscription.md): `openai-codex`.
 - [OpenCode Go](providers/opencode-go.md): `opencode-go`.
 - [LiteLLM gateway](providers/litellm-gateway.md): `openai-completions`

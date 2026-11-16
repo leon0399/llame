@@ -243,6 +243,27 @@ describe('account routing through real SDK clients', () => {
     },
   );
 
+  it.each(['claude-haiku-5-5', 'gpt-5.6-luna', 'glm-5.3-flash'])(
+    'preserves Go defaults when header templates render empty for %s',
+    async (providerModelId) => {
+      const sent = await request(
+        {
+          id: 'account',
+          type: 'opencode-go',
+          key: KEY,
+          headers: {
+            'X-OpenCode-Session': [''],
+            'X-OpenCode-Client': [''],
+          },
+        },
+        { providerModelId },
+      );
+
+      expect(sent?.headers.get('x-opencode-session')).toBe('chat-identity');
+      expect(sent?.headers.get('x-opencode-client')).toBe('llame');
+    },
+  );
+
   it('does not consult ambient endpoint variables', async () => {
     vi.stubEnv('OPENAI_BASE_URL', 'https://wrong.example');
     vi.stubEnv('ANTHROPIC_BASE_URL', 'https://wrong.example');

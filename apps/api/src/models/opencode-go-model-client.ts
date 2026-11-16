@@ -136,11 +136,19 @@ export function createOpenCodeGoModelClient(
 function goRequestHeaders(
   headers: RequestHeaderTemplates,
 ): RequestHeaderTemplates {
-  const names = new Set(Object.keys(headers).map((name) => name.toLowerCase()));
+  const nonempty = Object.fromEntries(
+    Object.entries(headers).filter(
+      ([, parts]) => parts.length > 1 || parts.some((part) => part.length > 0),
+    ),
+  );
+
+  const names = new Set(
+    Object.keys(nonempty).map((name) => name.toLowerCase()),
+  );
 
   return {
     ...(!names.has('x-opencode-client') && { 'x-opencode-client': ['llame'] }),
     ...(!names.has('x-opencode-session') && { 'x-opencode-session': ['', ''] }),
-    ...headers,
+    ...nonempty,
   };
 }

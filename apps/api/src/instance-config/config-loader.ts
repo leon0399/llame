@@ -1229,7 +1229,7 @@ function resolveModelHostedEngine(
     wire !== 'anthropic-messages'
   ) {
     throw new InstanceConfigError(
-      `${modelPath}: unsupported provider type "${wire ?? 'unknown'}"`,
+      `${modelPath}: unsupported model wire "${wire ?? 'unknown'}"`,
     );
   }
 

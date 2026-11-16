@@ -2473,7 +2473,9 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
       }]
     }`);
 
-    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /embeddingModels\[codex-embedding\]\.wire/,
+    );
   });
 
   it('rejects a duplicate model id', () => {
@@ -3742,7 +3744,9 @@ describe('loadInstanceConfig — anthropic-messages providers (anthropic-provide
       }]
     }`);
 
-    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /embeddingModels\[claude-embedding\]\.wire/,
+    );
   });
 });
 
@@ -3868,7 +3872,9 @@ describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, ta
       }]
     }`);
 
-    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /embeddingModels\[go-embedding\]\.wire/,
+    );
   });
 
   it('rejects the same binding at the worker backend-construction path', () => {
@@ -3895,7 +3901,7 @@ describe('loadInstanceConfig — opencode-go providers (opencode-go-provider, ta
         },
         providers,
       ),
-    ).toThrow(InstanceConfigError);
+    ).toThrow(/embeddingModels\[go-embedding\]\.wire/);
   });
 });
 

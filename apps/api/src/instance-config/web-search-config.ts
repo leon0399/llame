@@ -152,9 +152,9 @@ export type WebSearchEngineConfig =
       | { type: 'duckduckgo' }
       | {
           type: 'model-hosted';
-          /** A `models[].id` on an `openai-responses`, `openai-codex`, or `anthropic-messages` provider. */
+          /** A `models[].id` with a Responses, Codex, or Messages wire. */
           model: string;
-          /** That model's provider type, resolved at startup. */
+          /** That model's wire, resolved at startup. */
           wire: 'openai-responses' | 'openai-codex' | 'anthropic-messages';
         }
     ))

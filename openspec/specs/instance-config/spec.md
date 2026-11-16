@@ -258,9 +258,9 @@ nonblank strings and MUST support interpolation. It MUST reject `baseUrl`.
 Resolved `accountId` values MUST have the same non-disclosure protection as
 credentials.
 
-An embedding model entry MUST NOT reference an `openai-codex` or
-`opencode-go` provider. Other accounts require a supported embedding default
-or explicit embedding wire.
+An embedding model entry MUST NOT reference an `openai-codex`,
+`opencode-go`, or `opencode-zen` provider. Other accounts require a supported
+embedding default or explicit embedding wire.
 
 #### Scenario: Duplicable providers of the same type coexist
 
@@ -338,10 +338,10 @@ or explicit embedding wire.
 - **WHEN** an embedding model entry references a Codex provider
 - **THEN** startup fails and identifies the unsupported provider binding
 
-#### Scenario: Anthropic provider cannot back embeddings
+#### Scenario: Anthropic provider has no default embedding wire
 
-- **WHEN** an embedding model entry references an `anthropic-messages` provider
-- **THEN** startup fails and identifies the unsupported provider binding
+- **WHEN** an embedding model entry references an `anthropic-messages` provider without an explicit `wire`
+- **THEN** startup fails and identifies the unsupported model wire
 
 #### Scenario: OpenCode Go provider cannot back embeddings
 
@@ -1481,7 +1481,7 @@ Each engine entry except `aggregate` can set `timeoutSeconds`, a positive intege
 
 ### Requirement: Web search references are validated at startup
 
-Each id in `webSearch.chain` and in the `engines` of an `aggregate` entry MUST name a defined engine. An `aggregate` child MUST NOT be an `aggregate`. The `model` of a `model-hosted` entry MUST name a `models[]` entry with the provider type `openai-responses`, `openai-codex`, or `anthropic-messages`. Each violation MUST fail startup and name the path of the violation.
+Each id in `webSearch.chain` and in the `engines` of an `aggregate` entry MUST name a defined engine. An `aggregate` child MUST NOT be an `aggregate`. The `model` of a `model-hosted` entry MUST name a `models[]` entry with the resolved wire `openai-responses`, `openai-codex`, or `anthropic-messages`. This admission checks the wire, not the gateway's support for hosted search tools. Each violation MUST fail startup and name the path of the violation.
 
 #### Scenario: Unknown chain id fails startup
 
@@ -1495,8 +1495,14 @@ Each id in `webSearch.chain` and in the `engines` of an `aggregate` entry MUST n
 
 #### Scenario: Hosted engine on an unsupported wire fails startup
 
-- **WHEN** a `model-hosted` entry names a model with the provider type `openai-completions`
+- **WHEN** a `model-hosted` entry names a model with the resolved wire `openai-completions`
 - **THEN** startup fails and names the `model` path of that entry
+
+#### Scenario: A gateway model has a hosted-search-capable wire
+
+- **WHEN** a `model-hosted` entry names an OpenCode Go `claude-haiku-5-5` model
+- **THEN** startup accepts its resolved `anthropic-messages` wire
+- **AND** any gateway rejection of hosted search is a request failure, not a fallback to another wire
 
 #### Scenario: Duplicate aggregate child fails startup
 

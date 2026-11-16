@@ -102,6 +102,14 @@ For OpenCode Zen, change the provider's `type` to `opencode-zen` and choose
 model identifiers in its own catalog. Zen uses `https://opencode.ai/zen/v1`;
 a model being listed for Zen does not make it known to Go.
 
+Messages requests require an output limit. Without `maxOutputTokens`, the
+Anthropic adapter defaults non-Claude identifiers to 4,096 output tokens,
+including thinking. This affects Go `minimax-m3` and `qwen3.8-flash`, for
+example, even though the previous Completions route sent no output cap.
+Declare `models[].maxOutputTokens` at a limit the provider supports when
+using these models for long answers, compaction, or large tool arguments.
+Routing metadata selects the wire only; it does not import token limits.
+
 ## One OpenRouter account
 
 This fragment demonstrates all four catalogues. Substitute model identifiers

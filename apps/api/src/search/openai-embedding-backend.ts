@@ -183,7 +183,10 @@ function wrapFetchWithOrderVerification(
     input: Parameters<typeof fetch>[0],
     init: Parameters<typeof fetch>[1],
   ) => {
-    const response = await underlyingFetch(input, init);
+    const response = await underlyingFetch(input, {
+      ...init,
+      redirect: 'error',
+    });
 
     if (!response.ok) return response;
     let body: unknown;

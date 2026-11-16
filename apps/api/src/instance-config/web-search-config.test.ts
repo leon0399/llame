@@ -651,6 +651,37 @@ describe('loadInstanceConfig — webSearch', () => {
     },
   );
 
+  it.each([
+    ['claude-haiku-5-5', 'anthropic-messages'],
+    ['gpt-5.6-luna', 'openai-responses'],
+  ])(
+    'admits a Go hosted-search model by its resolved wire: %s',
+    (providerModelId, wire) => {
+      writeConfig(
+        JSON.stringify({
+          providers: [{ id: 'go', type: 'opencode-go', key: 'test-key' }],
+          models: [
+            {
+              id: 'hosted-model',
+              provider: 'go',
+              providerModelId,
+              contextWindowTokens: 1000,
+            },
+          ],
+          webSearch: {
+            engines: [
+              { id: 'hosted', type: 'model-hosted', model: 'hosted-model' },
+            ],
+            chain: ['hosted'],
+          },
+        }),
+      );
+      expect(loadInstanceConfig().webSearch?.engines).toContainEqual(
+        expect.objectContaining({ id: 'hosted', wire }),
+      );
+    },
+  );
+
   it('rejects model-hosted engines on an unsupported wire', () => {
     writeConfig(
       JSON.stringify({
@@ -665,7 +696,7 @@ describe('loadInstanceConfig — webSearch', () => {
     );
 
     expect(() => loadInstanceConfig()).toThrow(
-      'webSearch.engines[hosted].model: unsupported provider type "openai-completions"',
+      /webSearch\.engines\[hosted\]\.model/,
     );
   });
 
@@ -732,7 +763,7 @@ describe('loadInstanceConfig — webSearch', () => {
     );
 
     expect(() => loadInstanceConfig()).toThrow(
-      'webSearch.engines[hosted].model: unsupported provider type "openai-completions"',
+      /webSearch\.engines\[hosted\]\.model/,
     );
   });
 

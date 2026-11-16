@@ -130,10 +130,6 @@ setting turns that off: a server that rejects the field fails every streaming
 request on that entry. Forced tool choice with `strict` tool schemas, error schemas,
 and cache-read usage are not regressed.
 
-**Breaking**: `type: "openai"` is deleted. Every existing entry fails boot as
-an out-of-enum type until it is re-declared as `openai-responses` or
-`openai-completions`; there is no shim and no migration.
-
 Every text llame sends to a model is built from a Handlebars template file:
 system prompts, tool descriptions, context items, and compaction, title, and
 sub-request instructions. Code supplies only values (data, identifiers, and
