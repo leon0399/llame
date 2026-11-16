@@ -154,12 +154,19 @@ async function withdrawItem(ctx: DeliveryContext, item: ChatDeliveryResponse) {
 }
 
 /** Withdraws `item` and puts its text and files in the composer, ahead of the
- *  owner's draft, which stays. */
+ *  owner's draft, which stays. A slash item needs an empty composer: joined
+ *  to a draft, one command would become the other's argument. */
 async function editItem(
   ctx: DeliveryContext,
   draft: DraftState,
   item: ChatDeliveryResponse,
 ) {
+  if (isCommandText(deliveryText(item)) && draft.input.trim() !== "") {
+    toast.info("Clear the composer to edit this command.");
+
+    return;
+  }
+
   const withdrawn = await withdrawItem(ctx, item);
 
   if (withdrawn === null) return;

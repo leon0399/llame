@@ -3632,6 +3632,34 @@ export const CompactItemEditPutsTheTextBack: Story = {
 };
 
 /**
+ * Edit on a `/compact` row with a draft in the composer withdraws nothing:
+ * joined to the draft, one command would become the other's argument.
+ *
+ * @summary editing a compact row needs an empty composer
+ */
+export const CompactItemEditNeedsAnEmptyComposer: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await openedLiveRun(canvasElement);
+    await userEvent.type(input, "/rename Release");
+
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+
+    await expect(composer(canvasElement)).toHaveValue("/rename Release");
+    await expect(within(stack).getByText("Compact")).toBeVisible();
+    await expect(sentRoutes().some((route) => route.startsWith("DELETE"))).toBe(
+      false,
+    );
+  },
+};
+
+/**
  * Steer now on a paused `/compact` item starts its compaction Run: the row
  * leaves the stack and the compaction row shows once history names the Run.
  *
