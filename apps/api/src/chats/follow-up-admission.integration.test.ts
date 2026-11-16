@@ -47,6 +47,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import type { FollowUpRequestInput } from './follow-up-admission.service';
 
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
+import { createCompactionCheckpointPart } from './context-item-producers';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { deliverPendingSteering } from '../runs/segment-delivery';
 
@@ -721,6 +722,26 @@ describeIfDb('follow-up admission', () => {
         message: 'The message has no Run to follow up',
       });
       expect(await runsOfChat(fixture.chatId)).toHaveLength(2);
+    });
+    it('refuses a follow-up after a compact at the final answer', async () => {
+      const fixture = await seedTurn({ status: 'completed' });
+      const reply = await replyOf(fixture);
+
+      await api.tenantDb.runAs(api.userId, async (tx) => {
+        await new MessagesRepository(tx).createCheckpoint({
+          chatId: fixture.chatId,
+          absorbedThroughSeq: reply!.seq,
+          part: createCompactionCheckpointPart('The turn is complete.'),
+        });
+      });
+
+      await expect(
+        admit(fixture, { action: 'continue' }),
+      ).rejects.toMatchObject({
+        constructor: ConflictException,
+        message: 'A follow-up request cannot target a compacted turn',
+      });
+      expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
     });
 
     it('refuses an older turn before it reads any job state', async () => {

@@ -19,6 +19,10 @@ import {
   keysMatch,
 } from "./context-item-envelope";
 import { isJobNoticePart, type JobNoticePart } from "./job-notice";
+import {
+  isCompactionContinuePart,
+  type CompactionContinuePart,
+} from "./compaction-continue";
 
 export type ChatMessageResponse = {
   id: string;
@@ -480,14 +484,16 @@ function isRenderableControlPart(
   | PromptImportsPart
   | RegenerateNoticePart
   | InterruptedNoticePart
-  | JobNoticePart {
+  | JobNoticePart
+  | CompactionContinuePart {
   return role === "user"
     ? isModelSwitchPart(part) ||
         isInstructionsPart(part) ||
         isPromptImportsPart(part) ||
         isRegenerateNoticePart(part) ||
         isInterruptedNoticePart(part) ||
-        isJobNoticePart(part)
+        isJobNoticePart(part) ||
+        isCompactionContinuePart(part)
     : isInstructionsPart(part);
 }
 
@@ -515,7 +521,8 @@ function trustedContextParts(message: {
       | PromptImportsPart
       | RegenerateNoticePart
       | InterruptedNoticePart
-      | JobNoticePart;
+      | JobNoticePart
+      | CompactionContinuePart;
   }> = [];
 
   let index = 0;

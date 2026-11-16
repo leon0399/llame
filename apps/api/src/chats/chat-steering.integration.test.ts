@@ -389,17 +389,16 @@ describe('chat deliveries — the steer mode', () => {
   });
 
   describe('a mode change', () => {
-    it('Steer now changes a queue item', async () => {
+    it('A /compact steer stops the Run at the next step end', async () => {
       const { chatId, runId } = await chatWithLiveRun();
       const id = crypto.randomUUID();
-      await sendMode(chatId, 'queue', { id });
+      await sendMode(chatId, 'queue', { id, text: '/compact' });
 
       const res = await change(chatId, id, 'steer');
 
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ id, mode: 'steer', state: 'pending' });
 
-      // The next step end of the Run finds it.
       const signal = await tenantDb.runAs(userAId, (tx) =>
         new ChatDeliveriesRepository(tx).stepEndSignal({
           runId,
@@ -409,6 +408,50 @@ describe('chat deliveries — the steer mode', () => {
       );
 
       expect(signal).toBe('delivery');
+    });
+
+    it('a /compact steer makes a foreground job wait return interrupted', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const attemptId = crypto.randomUUID();
+      const workerInstanceId = crypto.randomUUID();
+      const toolCallId = `call-${crypto.randomUUID()}`;
+
+      const job = await tenantDb.runAs(userAId, async (tx) => {
+        await tx
+          .update(runs)
+          .set({ status: 'running_tool', activeAttemptId: attemptId })
+          .where(eq(runs.id, runId));
+        await tx.insert(workerInstances).values({ id: workerInstanceId });
+
+        return new ChatJobsRepository(tx).insert(
+          newChatJob({
+            chatId,
+            ownerUserId: userAId,
+            seq: 1,
+            workerInstanceId,
+            runId,
+            toolCallId,
+            settings: { modelId: MODEL, permissionMode: 'default' },
+          }),
+        );
+      });
+
+      await sendMode(chatId, 'steer', { text: '/compact' });
+
+      await expect(
+        app.get(RunWaitService, { strict: false }).suspend({
+          runId,
+          chatId,
+          userId: userAId,
+          attemptId,
+          toolCallId,
+          toolInput: { jobs: [job.id], timeout: 3600 },
+          jobIds: [job.id],
+          deadline: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          parts: [{ type: 'tool-call', id: toolCallId }],
+          steps: { [toolCallId]: 0 },
+        }),
+      ).resolves.toEqual({ kind: 'ready', cause: 'interrupted' });
     });
 
     it('An interrupt mode change wakes a Run waiting on jobs', async () => {
@@ -650,7 +693,7 @@ describe('chat deliveries — the steer mode', () => {
     });
 
     it.each(['steer', 'interrupt'] as const)(
-      'A compact command cannot change mode to %s during a live turn Run',
+      'A compact command changes to %s during a live turn Run',
       async (mode) => {
         const { chatId } = await chatWithLiveRun();
         const id = crypto.randomUUID();
@@ -663,11 +706,8 @@ describe('chat deliveries — the steer mode', () => {
         const response = await change(chatId, id, mode);
 
         expect(admitted.status).toBe(202);
-        expect(response.status).toBe(400);
-        expect(response.body).toMatchObject({
-          message: 'Compact waits for the current Run to finish.',
-        });
-        expect(await modesOf(chatId)).toEqual([[id, 'queue']]);
+        expect(response.status).toBe(200);
+        expect(await modesOf(chatId)).toEqual([[id, mode]]);
       },
     );
     it('Steer now on a paused item', async () => {

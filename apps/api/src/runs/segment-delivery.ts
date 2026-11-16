@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { parseChatCommand } from '../chats/commands/parse-chat-command';
 import { type StoppedCall } from '../chats/interrupted-notice';
 import { type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
@@ -367,13 +368,18 @@ export async function deliverPendingSteering(
   return finishDelivery(tx, input, locked, items);
 }
 
-/** Closes the reply, stores the message, and moves the Run onto it. */
-async function finishDelivery(
-  tx: Db,
+/** A compact command remains pending until boundary compaction is implemented. */
+function isCompactCommand(item: ChatDelivery): boolean {
+  return (
+    item.producer === 'owner' &&
+    parseChatCommand(item.parts)?.name === 'compact'
+  );
+}
+
+function deliveryCause(
   input: DeliveryInput,
-  locked: Run,
   items: ReadonlyArray<ChatDelivery>,
-): Promise<DeliveredBoundary> {
+): DeliveryCause {
   const hasOwnerSteer = items.some(
     (item) => item.producer === 'owner' && item.mode === 'steer',
   );
@@ -382,25 +388,41 @@ async function finishDelivery(
     (item) => item.producer === 'owner' && item.mode === 'interrupt',
   );
 
-  const cause: DeliveryCause =
-    input.stoppedCalls !== undefined || hasInterrupt
-      ? 'interrupt'
-      : hasOwnerSteer
-        ? 'steer'
-        : 'notice';
+  return input.stoppedCalls !== undefined || hasInterrupt
+    ? 'interrupt'
+    : hasOwnerSteer
+      ? 'steer'
+      : 'notice';
+}
+
+/** Closes the reply, stores the message, and moves the Run onto it. */
+async function finishDelivery(
+  tx: Db,
+  input: DeliveryInput,
+  locked: Run,
+  items: ReadonlyArray<ChatDelivery>,
+): Promise<BoundaryDelivery> {
+  const deliverableItems = items.filter((item) => !isCompactCommand(item));
+
+  if (deliverableItems.length === 0) return { kind: 'nothing-pending' };
+
+  const cause = deliveryCause(input, deliverableItems);
 
   const { closedReply, message } = await closeSegmentAndStore(
     tx,
     closingAs(input, cause),
-    { locked, cause, items },
+    { locked, cause, items: deliverableItems },
   );
 
-  if (cause === 'steer' && items.every((item) => item.producer === 'owner')) {
+  if (
+    cause === 'steer' &&
+    deliverableItems.every((item) => item.producer === 'owner')
+  ) {
     await persistFirstEpochBaselines(tx, locked, input.baselines);
   }
 
   const attemptId = await moveRunToDelivery(tx, locked, input.attemptId, {
-    items,
+    items: deliverableItems,
     message,
     cause,
     stoppedCalls: input.stoppedCalls ?? [],

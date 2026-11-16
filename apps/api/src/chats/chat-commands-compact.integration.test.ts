@@ -416,7 +416,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
       message: expect.stringContaining('Wait for the current Run to finish.'),
     });
   });
-  it('A live compact is queued for every delivery mode and retry returns the same item', async () => {
+  it('A live compact keeps its requested delivery mode and retries the same item', async () => {
     const chatId = await createChat(userAId, 'Queued compact');
     const { user } = await seedOneTurn(chatId, userAId);
     await tenantDb.runAs(userAId, async (tx) => {
@@ -441,7 +441,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
       expect(first.status).toBe(202);
       expect(first.body).toMatchObject({
         id,
-        mode: 'queue',
+        mode: delivery,
         state: 'pending',
         command: 'compact',
         parts: [{ type: 'text', text }],

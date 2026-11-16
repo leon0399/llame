@@ -54,18 +54,8 @@ function actionName(action: string, item: ChatDeliveryResponse) {
 
 type RowActionsProps = { item: ChatDeliveryResponse } & Omit<
   PendingDeliveriesProps,
-  "items"
+  "items" | "paused"
 >;
-
-/** A `/compact` item waits for the live turn Run to end: it cannot steer or
- *  interrupt one. With no live Run, hurrying it starts the compaction. */
-function canHurry({
-  item,
-  hurryable,
-  paused,
-}: Pick<RowActionsProps, "item" | "hurryable" | "paused">): boolean {
-  return hurryable && (item.command !== "compact" || paused);
-}
 
 /** The two ways to hurry an item: absent where the item's mode already has
  *  them. */
@@ -103,13 +93,13 @@ function HurryActions({
 /** The actions a row can take: an absent action is one the item's mode cannot
  *  use. */
 function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
-  const { item } = hurry;
+  const { item, hurryable } = hurry;
 
   return (
     <div className="flex shrink-0 items-center">
       {item.producer === "owner" && (
         <>
-          {canHurry(hurry) && <HurryActions {...hurry} />}
+          {hurryable && <HurryActions {...hurry} />}
           <IconButtonTooltip
             label="Edit"
             aria-label={actionName("Edit", item)}
@@ -172,7 +162,7 @@ export function PendingDeliveries({
       )}
       <ol className="flex flex-col gap-1">
         {items.map((item) => (
-          <PendingRow key={item.id} item={item} paused={paused} {...actions} />
+          <PendingRow key={item.id} item={item} {...actions} />
         ))}
       </ol>
     </section>

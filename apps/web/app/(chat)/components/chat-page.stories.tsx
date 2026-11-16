@@ -3591,9 +3591,8 @@ const COMPACT_ITEM: ChatDeliveryResponse = {
 };
 
 /**
- * A queued `/compact` waits for the live turn Run: its row is labelled
- * Compact, offers no Steer now or Interrupt now, and Edit puts the command
- * back in the composer.
+ * A queued `/compact` row is labelled Compact, offers Steer now and Interrupt
+ * now during a live turn Run, and Edit puts the command back in the composer.
  *
  * @summary a compact row edits back into the composer
  */
@@ -3615,11 +3614,11 @@ export const CompactItemEditPutsTheTextBack: Story = {
     const stack = within(await canvas.findByRole("region", PENDING_REGION));
     await expect(stack.getByText("Compact")).toBeVisible();
     await expect(
-      stack.queryByRole("button", { name: /^Steer now/ }),
-    ).toBeNull();
+      stack.getByRole("button", { name: /^Steer now/ }),
+    ).toBeVisible();
     await expect(
-      stack.queryByRole("button", { name: /^Interrupt now/ }),
-    ).toBeNull();
+      stack.getByRole("button", { name: /^Interrupt now/ }),
+    ).toBeVisible();
     await userEvent.click(stack.getByRole("button", { name: /^Edit/ }));
 
     await waitFor(() =>

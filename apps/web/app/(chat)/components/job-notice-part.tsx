@@ -9,10 +9,12 @@ import {
   MarkerIcon,
 } from "@workspace/ui/components/marker";
 
+import { isCompactionContinuePart } from "@/lib/services/chat/compaction-continue";
 import {
-  jobNoticeParts,
+  isJobNoticePart,
   type JobNoticePart as JobNotice,
 } from "@/lib/services/chat/job-notice";
+import { CompactionContinuePart } from "./compaction-continue-part";
 import { isHostMessageMetadata } from "@/lib/services/chat/history";
 
 /** A host-authored settlement notice, deliberately separate from message
@@ -30,16 +32,20 @@ export function JobNoticePart({ notice }: { notice: JobNotice }) {
   );
 }
 
-/** Render only validated job notices from the host-authored user row. */
+/** Render only validated job notices and the compaction continue notice
+ *  from the host-authored user row, in stored order. */
 export function HostJobNotices({ message }: { message: UIMessage }) {
   const { metadata } = message;
 
   if (message.role !== "user" || !isHostMessageMetadata(metadata)) return null;
 
-  return jobNoticeParts(message).map((notice, index) => (
-    <JobNoticePart
-      key={`${notice.data.payload.locator}-${index}`}
-      notice={notice}
-    />
-  ));
+  return message.parts.map((part, index) => {
+    if (isCompactionContinuePart(part)) {
+      return <CompactionContinuePart key={index} />;
+    }
+
+    return isJobNoticePart(part) ? (
+      <JobNoticePart key={index} notice={part} />
+    ) : null;
+  });
 }

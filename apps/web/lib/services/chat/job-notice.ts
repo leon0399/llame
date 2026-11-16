@@ -29,10 +29,3 @@ export function isJobNoticePart(value: unknown): value is JobNoticePart {
     jobNoticePayloadSchema.safeParse(envelope.payload).success
   );
 }
-
-/** Accepted job notices from a message, in stored order. */
-export function jobNoticeParts(message: {
-  parts: ReadonlyArray<unknown>;
-}): Array<JobNoticePart> {
-  return message.parts.filter(isJobNoticePart);
-}

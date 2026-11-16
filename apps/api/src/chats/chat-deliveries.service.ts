@@ -33,26 +33,17 @@ import {
 } from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
-import { parseChatCommand } from './commands/parse-chat-command';
 import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
-import type { ChatDelivery, Run } from '../db/schema';
+import type { Run } from '../db/schema';
 
-function assertModeChangeAllowed(
-  slot: { state: 'free' } | { state: 'blocked'; kind: Run['kind'] },
-  item: ChatDelivery,
-): void {
-  if (slot.state !== 'blocked') return;
-
-  if (slot.kind === 'compaction') {
+function assertModeChangeAllowed(slot: {
+  state: 'free' | 'blocked';
+  kind?: Run['kind'];
+}): void {
+  if (slot.state === 'blocked' && slot.kind === 'compaction') {
     throw new BadRequestException(
       'Pending items cannot be steered or interrupted during compaction',
-    );
-  }
-
-  if (parseChatCommand(item.parts)?.name === 'compact') {
-    throw new BadRequestException(
-      'Compact waits for the current Run to finish.',
     );
   }
 }
@@ -141,19 +132,14 @@ export class ChatDeliveriesService {
 
         const items = new ChatDeliveriesRepository(tx);
 
-        const existing = await this.requireChangeableItem(
-          items,
-          chatId,
-          deliveryId,
-          userId,
-        );
+        await this.requireChangeableItem(items, chatId, deliveryId, userId);
         // The slot comes before the change: expiring a stuck Run pauses the
         // queue behind it, which would move the item changed here back to
         // `queue`.
 
         const slot = await this.claimSlot(tx, chatId, userId);
 
-        assertModeChangeAllowed(slot, existing);
+        assertModeChangeAllowed(slot);
 
         const changed = await items.changePendingMode(
           chatId,

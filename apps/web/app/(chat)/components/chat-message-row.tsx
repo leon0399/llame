@@ -37,6 +37,7 @@ import {
 } from "./group-assistant-parts";
 import { hasVisibleContent, isVisibleSegment } from "./message-visibility";
 import { InstructionsPart } from "./instructions-part";
+import { CompactionContinuePart } from "./compaction-continue-part";
 import { JobNoticePart } from "./job-notice-part";
 import { HostMessageRow } from "./host-message-row";
 import { InterruptedNoticePart } from "./interrupted-notice-part";
@@ -65,6 +66,7 @@ import {
   messageSeqFromMetadata,
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
+import { isCompactionContinuePart } from "@/lib/services/chat/compaction-continue";
 import { isJobNoticePart } from "@/lib/services/chat/job-notice";
 
 // Markdown/reasoning bodies come from `ChatMarkdownProvider` — never
@@ -453,6 +455,10 @@ function MessageNotice({ message }: { message: UIMessage }) {
 
     if (isRegenerateNoticePart(part)) {
       return <RegenerateNoticePart key={index} payload={part.data.payload} />;
+    }
+
+    if (isCompactionContinuePart(part)) {
+      return <CompactionContinuePart key={index} />;
     }
 
     return isJobNoticePart(part) ? (

@@ -141,6 +141,21 @@ export type CompactionSummaryRequest =
       readonly media?: RunMediaResolver;
     }
   | {
+      readonly variant: 'boundary';
+      readonly chatId: string;
+      readonly userId: string;
+      readonly plan: CompactionPlan;
+      readonly closedReply: ReadonlyArray<ModelMessage>;
+      readonly client: ModelClient;
+      readonly system: string;
+      readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+      readonly instruction: string;
+      readonly effort?: string;
+      readonly reservedOutputTokens: number | null;
+      readonly abortSignal?: AbortSignal;
+      readonly media?: RunMediaResolver;
+    }
+  | {
       readonly variant: Extract<CompactionVariant, 'window'>;
       readonly chatId: string;
       readonly userId: string;
@@ -210,7 +225,12 @@ export class CompactionService {
             new MessagesRepository(tx).findActiveCheckpoint(
               input.chatId,
               input.userId,
-              { beforeSeq: input.triggeringUserSeq },
+              {
+                beforeSeq:
+                  input.variant === 'boundary'
+                    ? input.plan.uptoSeq + 1
+                    : input.triggeringUserSeq,
+              },
             ),
           );
 
@@ -304,7 +324,10 @@ export class CompactionService {
    * prefix cache for exactly the history it compresses.
    */
   private async summarizeWithAttemptModel(
-    input: Extract<CompactionSummaryRequest, { variant: 'threshold' }>,
+    input: Extract<
+      CompactionSummaryRequest,
+      { variant: 'threshold' | 'boundary' }
+    >,
     previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary | null> {
     const request = buildCompactionRequest({
@@ -312,7 +335,14 @@ export class CompactionService {
       modelId: input.client.model,
       previous,
       absorb: input.plan.absorb,
+      ...(input.variant === 'boundary' && {
+        instruction: input.instruction,
+      }),
     });
+
+    if (input.variant === 'boundary') {
+      request.messages.splice(-1, 0, ...input.closedReply);
+    }
 
     // The prefix's retained bytes live in its rows: the summarizer projects
     // them from this attempt's map like any request of the epoch.
@@ -372,10 +402,7 @@ export class CompactionService {
    * the attempt as `context_incompatible`.
    */
   private async loadSourceRun(
-    input: Pick<
-      CompactionSummaryRequest,
-      'chatId' | 'userId' | 'triggeringUserSeq'
-    >,
+    input: Extract<CompactionSummaryRequest, { variant: 'window' | 'owner' }>,
   ): Promise<SourceRun | undefined> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const found = await new RunsRepository(tx).findCompletedReplyRunBefore(

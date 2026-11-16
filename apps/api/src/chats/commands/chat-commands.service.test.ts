@@ -8,8 +8,9 @@ import type {
   RunEvent,
 } from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
-import { ChatsRepository, MessagesRepository } from '../chats-repository';
+import { RunWaitService } from '../../runs/run-wait.service';
 import { ChatDeliveriesRepository } from '../chat-deliveries.repository';
+import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { TitleService } from '../../titles/title.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { ModelsService } from '../../models/models.service';
@@ -75,6 +76,21 @@ function makeService() {
     .spyOn(RunsRepository.prototype, 'findActiveByChatId')
     .mockResolvedValue(undefined);
 
+  const findActive = activeRunLookup;
+
+  const findDeliveryById = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'findById')
+    .mockResolvedValue(undefined);
+
+  const insertPending = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'insertPending')
+    .mockResolvedValue(
+      asDouble<ChatDelivery>({ mode: 'steer', state: 'pending' }),
+    );
+
+  const wakeForChatInTransaction =
+    vi.fn<RunWaitService['wakeForChatInTransaction']>();
+
   const createdRun = asDouble<Run>({
     id: 'run-1',
     modelId: 'model-1',
@@ -121,6 +137,7 @@ function makeService() {
     models,
     instanceConfig,
     dispatch,
+    { wakeForChatInTransaction },
   );
 
   return {
@@ -136,6 +153,10 @@ function makeService() {
     append,
     activeRunLookup,
     dispatch,
+    findDeliveryById,
+    findActive,
+    insertPending,
+    wakeForChatInTransaction,
     validateModelSelection,
     resolveEffortSelection,
     runAs,
@@ -304,6 +325,46 @@ describe('ChatCommandsService', () => {
     );
     expect(validateModelSelection).toHaveBeenCalledWith('model-1');
     expect(runAs).toHaveBeenCalledOnce();
+  });
+  it('admits a /compact steer and signals a Run waiting on jobs', async () => {
+    const {
+      service,
+      dispatch,
+      findActive,
+      insertPending,
+      wakeForChatInTransaction,
+    } = makeService();
+
+    const waitingRun = asDouble<Run>({
+      id: 'run-1',
+      chatId: 'chat-1',
+      userId: 'user-1',
+      status: 'awaiting_jobs',
+      kind: 'turn',
+      currentJobId: 'wake-job',
+    });
+
+    findActive.mockResolvedValue(waitingRun);
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+        messageId: 'compact-message',
+        rawText: '/compact',
+        delivery: 'steer',
+      }),
+    ).resolves.toMatchObject({ type: 'delivery' });
+
+    expect(insertPending).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'compact-message', mode: 'steer' }),
+    );
+    expect(wakeForChatInTransaction).toHaveBeenCalledWith(expect.anything(), {
+      chatId: 'chat-1',
+      userId: 'user-1',
+      kind: 'steer',
+    });
   });
 
   it('refuses an empty Chat without creating or dispatching a Run', async () => {

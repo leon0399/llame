@@ -34,10 +34,6 @@ import {
   type FollowUpRequestInput,
 } from './follow-up-admission.service';
 
-type Savepoint = {
-  transaction: <T>(callback: (inner: Db) => Promise<T>) => Promise<T>;
-};
-
 const now = new Date('2026-10-27T00:00:00.000Z');
 
 const model: SystemModelCatalogEntry = {
@@ -156,13 +152,18 @@ function replyWith(usage: ReplyUsage | null): Message {
 }
 
 function fakeTx(): Db {
-  const savepoint: Savepoint = {
-    transaction: (callback) => callback(tx),
-  };
+  const select = () => ({
+    from: () => ({
+      innerJoin: () => ({
+        where: () => ({ limit: () => Promise.resolve([]) }),
+      }),
+    }),
+  });
 
-  // The service only reaches the transaction for `createRunForMessage`'s
-  // savepoint; every repository method is prototype-spied.
-  const tx = asDouble<Db>(savepoint);
+  const tx = asDouble<Db>({
+    select,
+    transaction: <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
+  });
 
   return tx;
 }

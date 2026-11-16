@@ -52,6 +52,8 @@ export const CONTEXT_ITEM_PRODUCERS = [
   // A settlement notice follows the interruption marker, which explains why
   // the previous response stopped, and precedes every other state description.
   'job',
+  // The continuation follows settlement notices, then the remaining state items.
+  'compaction',
   'effective-context-change',
   // A Regenerate's disclosure of the calls it discarded follows the switch that
   // names the model making the new attempt, and precedes every other notice
@@ -73,7 +75,6 @@ export const CONTEXT_ITEM_PRODUCERS = [
   'prompt-imports',
   'recency-digest',
   'temporal',
-  'compaction',
 ] as const;
 
 export type ContextItemProducer = (typeof CONTEXT_ITEM_PRODUCERS)[number];
