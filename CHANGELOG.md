@@ -3,7 +3,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-11-16
 
 - Share one provider account across chat, embedding, decision, and rerank
-  models. Resolve each model's wire at startup from vendor/kind/family defaults
+  models. Resolve each model's wire at startup from provider/kind defaults and exact-model metadata
   or an explicit override, including OpenCode Go's three chat protocols.
   OpenRouter decisions use its alpha endpoint; non-chat calls reuse static
   account headers without inventing a Chat session identity. See

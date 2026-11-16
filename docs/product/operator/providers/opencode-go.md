@@ -9,7 +9,7 @@ read_when:
 
 `opencode-go` lets one llame instance use an OpenCode Go subscription: a
 key-only provider entry whose endpoint is fixed in llame's code. Models select
-Responses, Messages, or Chat Completions through family defaults or an explicit
+Responses, Messages, or Chat Completions through exact model metadata or an explicit
 `wire`. It adds no per-user account linking, model discovery, or embeddings.
 
 ## Obtaining and configuring the key
@@ -72,7 +72,7 @@ No entry name, ambient environment variable, or configuration value can move
 the base, and redirects are rejected before credentials can reach another
 destination.
 
-Known model families select a native wire; unknown families require an explicit
+Bundled provider-specific model metadata selects a native wire; unknown models require an explicit
 `wire` at startup. See [provider routing](routing.md) for the selection table.
 The gateway still decides model eligibility at request time. Selecting a wire
 does not promise that the subscription includes the model.
@@ -143,9 +143,9 @@ gateway on 2026-09-22, except where noted:
   that text for `grok-4.6` on this route: the failure surfaced after the SDK's
   own three retries as `RetryError: Failed after 3 attempts. Last error: Upstream request failed: Endpoint is unavailable.`
   Match on that message. Because a model id the route does not serve is the
-  likeliest operator error, check this first: remedy it by declaring a model
-  the Chat Completions route accepts, or wait for #904, which owns the
-  per-model route override that reaches `grok-4.6` on `/responses`.
+  likeliest operator error, check this first: choose a model the selected
+  route accepts, or set the model's `wire` to the protocol the gateway
+  documents for it (for example `openai-responses` for `/responses`).
 - **An invalid credential.** HTTP 401 with the gateway's envelope
   (`{"type":"error","error":{"type":"AuthError","message":"Invalid API key."}}`);
   the run's failure is exactly `Invalid API key.`, and nothing else — no

@@ -3,6 +3,7 @@
   "exclude": [
     "node_modules",
     "evals",
+    "scripts",
     "dist",
     "**/*.test.ts",
     "src/testing",

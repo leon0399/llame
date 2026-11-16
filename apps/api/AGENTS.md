@@ -87,7 +87,7 @@ Traps:
 
 Provider accounts own credentials, headers, and destinations. The loader
 resolves each model's `wire` from its explicit override or the account's kind
-and family defaults. `provider-routing.ts` owns that decision for all four
+and exact model metadata. `provider-routing.ts` owns that decision for all four
 catalogues. Never infer a vendor from `id` or a URL host, or switch accounts
 after a protocol failure. Keep normalized routing metadata server-only.
 

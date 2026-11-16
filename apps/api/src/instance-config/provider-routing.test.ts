@@ -90,14 +90,13 @@ describe('account-level providers', () => {
   });
 
   it.each([
-    ['claude-sonnet-4-6', 'anthropic-messages'],
-    ['union-alpha', 'anthropic-messages'],
-    ['gpt-5.4', 'openai-responses'],
+    ['claude-haiku-5-5', 'anthropic-messages'],
+    ['gpt-5.6-luna', 'openai-responses'],
     ['glm-5.3-flash', 'openai-completions'],
-    ['deepseek-v4-flash', 'openai-responses'],
-    ['qwen3.6-plus', 'openai-completions'],
+    ['minimax-m3', 'anthropic-messages'],
+    ['minimax-m3.1-flash', 'openai-completions'],
     ['qwen3.8-max', 'anthropic-messages'],
-    ['qwen3.6-plus-preview', 'anthropic-messages'],
+    ['beam-free', 'openai-completions'],
   ])(
     'selects the Go route for %s without another account',
     (providerModelId, wire) => {
@@ -110,8 +109,14 @@ describe('account-level providers', () => {
     },
   );
 
-  it.each(['proxy-gpt-5.4', 'proxy-glm-5', 'proxy-qwen3.6-plus'])(
-    'does not infer a family from an interior substring in %s',
+  it.each([
+    'gpt-unreleased',
+    'claude-unreleased',
+    'qwen3.6-plus-preview',
+    'toString',
+    'gemini-4-argon',
+  ])(
+    'rejects an unknown model or unsupported metadata protocol for %s',
     (providerModelId) => {
       expect(() =>
         load({
@@ -122,18 +127,21 @@ describe('account-level providers', () => {
     },
   );
 
-  it('keeps Go-only route pins out of Zen while sharing its decision account', () => {
+  it('uses provider-specific membership rather than borrowing a sibling account model', () => {
+    expect(() =>
+      load({
+        providers: [{ ...account, type: 'opencode-go' }],
+        models: [{ ...chat, providerModelId: 'claude-sonnet-4-6' }],
+      }),
+    ).toThrow('models[chat].wire');
+
     const config = load({
       providers: [{ ...account, type: 'opencode-zen' }],
-      models: [
-        { ...chat, id: 'deepseek', providerModelId: 'deepseek-v4-flash' },
-        { ...chat, id: 'qwen', providerModelId: 'qwen3.6-plus' },
-      ],
+      models: [{ ...chat, providerModelId: 'claude-sonnet-4-6' }],
       decisionModels: [{ id: 'decision', provider: 'account', model: 'jev' }],
     });
 
     expect(config.models.map((model) => model.wire)).toEqual([
-      'openai-completions',
       'anthropic-messages',
     ]);
     expect(config.decisionModels?.[0]?.wire).toBe('system-one');
@@ -204,7 +212,7 @@ describe('account-level providers', () => {
     ]);
   });
 
-  it('requires an explicit wire for an unknown Go family', () => {
+  it('requires an explicit wire for an unknown Go model', () => {
     const raw = {
       providers: [{ ...account, type: 'opencode-go' }],
       models: [{ ...chat, providerModelId: 'unregistered-family' }],

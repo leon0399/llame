@@ -2,14 +2,14 @@
 
 ## Purpose
 
-Execute OpenCode Go's subscription models through the gateway's Chat
-Completions route under llame's existing configuration, execution, telemetry,
+Execute OpenCode Go's subscription models through each model's resolved
+wire under llame's existing configuration, execution, telemetry,
 and failure contracts. Destination selection, the operator-owned configuration
 posture, credential non-disclosure, and the transport-neutral Chat identity are
 owned by `provider-api-selection` and `instance-config`; this capability
 specifies only what the Go gateway adds: a fixed destination for a key-only
 entry, the conversation identity every request must carry including auxiliary
-calls, client self-identification, the absence of client-side cache control,
+calls, client self-identification, the resolved wire's cache behavior,
 the failure boundary with its accepted upstream shapes, unknown cost unless
 the operator declares pricing, and the operator runbook.
 
@@ -17,8 +17,8 @@ the operator declares pricing, and the operator runbook.
 
 ### Requirement: Fixed transport for a key-only entry
 
-An `opencode-go` provider entry SHALL execute the Chat Completions wire at the
-endpoint fixed in llame's code, using the entry's own credential, and SHALL
+An `opencode-go` provider entry SHALL execute the model's resolved wire under
+`provider-api-selection` at the endpoint fixed in llame's code, using the entry's own credential, and SHALL
 accept no operator-supplied destination: the entry declares a `key` and no
 endpoint field, and a configuration that supplies one SHALL fail at boot. The
 credential SHALL be resolved once at startup through the existing interpolation
@@ -66,9 +66,9 @@ authenticate a request.
 - **WHEN** the fixed endpoint answers a request with a redirect
 - **THEN** the request fails without sending the credential or the session header to the redirect destination
 
-### Requirement: The provider identifies itself as `opencode-go` and composes options under its own namespace
+### Requirement: The provider identifies itself as `opencode-go` and uses the resolved wire's options
 
-A model client built for an `opencode-go` entry SHALL report `opencode-go` as its provider identifier in run events, telemetry, and model metadata, not the name of the wire module it is composed over. The operator's `models[].providerOptions` for such a model SHALL be composed under the namespace the Chat Completions adapter derives from that identifier, under the shipped fixed precedence, with the Chat Completions wire's reserved paths stripped exactly as for an `openai-completions` entry; no `opencode-go`-specific option key, default, or invariant is added.
+A model client built for an `opencode-go` entry SHALL report `opencode-go` as its provider identifier in run events, telemetry, and model metadata, not the name of the wire module it is composed over. The operator's `models[].providerOptions` SHALL use the resolved wire's namespace, precedence, reserved paths, defaults, and invariants under `provider-api-selection`. For Chat Completions, the adapter SHALL derive its namespace from `opencode-go`; Responses and Messages SHALL retain their existing wire namespaces.
 
 #### Scenario: Runs record the Go provider identifier
 
@@ -78,7 +78,7 @@ A model client built for an `opencode-go` entry SHALL report `opencode-go` as it
 
 #### Scenario: Operator options reach the adapter under the Go namespace
 
-- **WHEN** an `opencode-go` model entry declares `providerOptions`
+- **WHEN** an `opencode-go` Chat Completions model entry declares `providerOptions`
 - **THEN** the request carries them under the namespace the adapter derives from `opencode-go`
 - **AND** a reserved Chat Completions path in that object is stripped before composition
 
@@ -147,18 +147,25 @@ or credential data.
 - **AND** the only Chat-derived headers are the gateway session header and the default `X-Session-Id`
 - **AND** no header value names a different product
 
-### Requirement: llame sends no cache control for this provider
+### Requirement: Cache behavior follows the resolved wire
 
-The client SHALL send no cache-control field and no cache-breakpoint marker on
-requests to this provider. Prompt caching is the gateway's own behavior, keyed
-on the session identity the client sends; llame neither requests it, configures
-it, nor counts breakpoints for this type. A request that observes no cache hit
-SHALL remain a successful request.
+The client SHALL retain the resolved wire's cache defaults and operator
+overrides under `provider-api-selection`. The Go wrapper SHALL add no
+cache-breakpoint markers or cache controls of its own. Messages requests SHALL
+therefore retain the Messages wire's default ephemeral cache control unless
+the operator removes it. A request that observes no cache hit SHALL remain
+a successful request.
 
 #### Scenario: A request carries no cache control
 
-- **WHEN** a language-model request is rendered for an `opencode-go` model
+- **WHEN** a language-model request is rendered for an `opencode-go` Chat Completions model without operator cache options
 - **THEN** it carries no cache-control field and no cache-breakpoint marker authored by llame
+
+#### Scenario: Messages retains its cache default
+
+- **WHEN** a Go model selects Messages without an operator cache override
+- **THEN** its requests carry the Messages wire's default ephemeral cache control
+- **AND** an operator `cacheControl: null` removes that default
 
 #### Scenario: A reused prefix is served from the gateway's cache
 
@@ -174,12 +181,11 @@ SHALL remain a successful request.
 
 ### Requirement: Upstream failures are mirrored under the existing contract
 
-The provider MUST surface the gateway's failures at request time. It MUST apply
-the Chat Completions wire's failure contract to them, exactly as for an
-`openai-completions` entry. That contract is `provider-api-selection`, "Chat
-Completions failures reach the run as bounded messages".
+The provider MUST surface gateway failures under the resolved wire's existing
+failure contract in `provider-api-selection`, with credential redaction and
+no fallback to another route.
 
-The request's failure message MUST be the gateway's parsed error message. That
+For Chat Completions, the request's failure message MUST be the gateway's parsed error message. That
 message applies whether the message arrives on a failure response or inside
 the response stream. The SDK's own retry rules for retryable statuses apply
 first. The run MUST show that message to the owner whose run failed and record
@@ -200,8 +206,9 @@ except a configured credential. llame MUST redact that credential
 (`provider-api-selection`, "Provider failures never carry a configured
 credential").
 
-The system MUST NOT validate a model's eligibility or route at boot. It MUST
-NOT keep a compiled model, route, or capability table. It MUST NOT classify Go
+The system MUST NOT probe a model's eligibility or route at boot. It SHALL
+resolve model wires from bundled provider-specific metadata or an explicit
+override under `provider-api-selection`. It MUST NOT classify Go
 failures into llame-owned error types. It MUST NOT replace the gateway's
 parsed message with a fixed one, other than for a redirect response. It MUST
 NOT introduce a quota ledger or a typed quota error. It MUST NOT retry against
@@ -215,27 +222,27 @@ state that llame tracks no quota.
 
 #### Scenario: A rejected model surfaces at request time
 
-- **WHEN** the gateway's format gate does not accept a configured model for the route llame uses
+- **WHEN** the gateway's format gate does not accept a configured model for the Chat Completions route llame uses
 - **THEN** startup succeeded earlier and did not check eligibility
 - **AND** the request fails at request time with the gateway's own message as the failure
 - **AND** no other provider, wire, or model is tried in its place
 
 #### Scenario: A quota rejection is reported without inventing state
 
-- **WHEN** the gateway rejects a request because a usage limit is exhausted
+- **WHEN** the gateway rejects a Chat Completions request because a usage limit is exhausted
 - **THEN** the affected request fails under the current failure and retry rules with the gateway's message
 - **AND** llame reports no quota state of its own and claims no cost
 - **AND** no paid fallback is attempted
 
 #### Scenario: Raw upstream details stay out of every surface
 
-- **WHEN** the gateway's failure response carries a body, headers, or metadata beyond its message
+- **WHEN** the gateway's Chat Completions failure response carries a body, headers, or metadata beyond its message
 - **THEN** owner events, persisted errors, logs, and telemetry carry the parsed message (or the status text when the body is not the envelope)
 - **AND** no credential, response body, response header, or request body appears in any of them
 
 #### Scenario: An unreadable stream event from the gateway is not quoted
 
-- **WHEN** the gateway's stream delivers an event that is not JSON or does not match the wire's chunk shape. The event can also carry an error value without a string message
+- **WHEN** the gateway's Chat Completions stream delivers an event that is not JSON or does not match the wire's chunk shape. The event can also carry an error value without a string message
 - **THEN** the run fails with the Chat Completions wire's fixed unreadable-event text
 - **AND** none of that event's content appears in owner events, persisted errors, or the run's failure log line
 

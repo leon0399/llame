@@ -8,7 +8,7 @@ const KEY = 'provider-credential-9f8e7d6c5b4a';
 const model = {
   id: 'chat',
   provider: 'account',
-  providerModelId: 'claude-sonnet-4-6',
+  providerModelId: 'claude-haiku-5-5',
   source: 'system' as const,
   input: ['text'] as const,
   contextWindowTokens: 128_000,
@@ -113,7 +113,7 @@ describe('account routing through real SDK clients', () => {
     const sent = await request(
       { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
       {
-        providerModelId: 'claude-sonnet-4-6',
+        providerModelId: 'claude-haiku-5-5',
         maxOutputTokens: 256,
         providerOptions: { cacheControl: null },
       },
@@ -128,7 +128,7 @@ describe('account routing through real SDK clients', () => {
     const sent = await request(
       { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
       {
-        providerModelId: 'gpt-5.4',
+        providerModelId: 'gpt-5.6-luna',
         maxOutputTokens: 256,
         providerOptions: { reasoningSummary: 'concise', store: true },
       },
@@ -145,7 +145,7 @@ describe('account routing through real SDK clients', () => {
     const sent = await request(
       { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
       {
-        providerModelId: 'claude-sonnet-4-6',
+        providerModelId: 'claude-haiku-5-5',
         reasoning: {
           effortLevels: [{ value: 'high' }],
           defaultEffort: 'high',
@@ -173,7 +173,7 @@ describe('account routing through real SDK clients', () => {
       expect(sent?.headers.get(credentialHeader)).toBe(
         credentialHeader === 'authorization' ? `Bearer ${KEY}` : KEY,
       );
-      expect(sent?.body).toMatchObject({ model: 'claude-sonnet-4-6' });
+      expect(sent?.body).toMatchObject({ model: 'claude-haiku-5-5' });
       expect(sent?.headers.get('user-agent')).toContain('llame/test');
     },
   );
@@ -188,9 +188,11 @@ describe('account routing through real SDK clients', () => {
   });
 
   it.each([
-    ['claude-sonnet-4-6', '/messages', 'x-api-key'],
-    ['gpt-5.4', '/responses', 'authorization'],
+    ['claude-haiku-5-5', '/messages', 'x-api-key'],
+    ['gpt-5.6-luna', '/responses', 'authorization'],
     ['glm-5.3-flash', '/chat/completions', 'authorization'],
+    ['minimax-m3', '/messages', 'x-api-key'],
+    ['minimax-m3.1-flash', '/chat/completions', 'authorization'],
   ])(
     'selects the Go wire for %s and keeps its session and redirect boundary',
     async (providerModelId, suffix, credentialHeader) => {
@@ -209,7 +211,18 @@ describe('account routing through real SDK clients', () => {
     },
   );
 
-  it.each(['claude-sonnet-4-6', 'gpt-5.4', 'glm-5.3-flash'])(
+  it('lets an explicit Go wire override the catalog without changing accounts', async () => {
+    const sent = await request(
+      { id: 'account', type: 'opencode-go', key: KEY, headers: {} },
+      { providerModelId: 'minimax-m3', wire: 'openai-completions' },
+    );
+
+    expect(sent?.url).toBe('https://opencode.ai/zen/go/v1/chat/completions');
+    expect(sent?.headers.get('authorization')).toBe(`Bearer ${KEY}`);
+    expect(sent?.body).toMatchObject({ model: 'minimax-m3' });
+  });
+
+  it.each(['claude-haiku-5-5', 'gpt-5.6-luna', 'glm-5.3-flash'])(
     'replaces Go headers case-insensitively for %s',
     async (providerModelId) => {
       const sent = await request(

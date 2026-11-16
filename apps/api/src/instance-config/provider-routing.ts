@@ -2,6 +2,7 @@ import { InstanceConfigError } from '@workspace/config-interpolation';
 import type { ProviderConfig } from './llame-config';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import type { BillingMode } from '../models/model-client';
+import modelMetadata from './provider-model-wires.json';
 
 /** One vendor account shared by every model kind it serves. */
 export type VendorProviderConfig = {
@@ -72,30 +73,29 @@ const VENDOR_DEFAULTS: VendorDefaults = {
   'cohere-rerank': { rerank: 'cohere-rerank' },
 };
 
-// OMP's verified route pins take precedence over family defaults. Unknown
-// families require an explicit wire; a new name is not evidence of a protocol.
+// Exact provider/model keys from OpenCode's pinned catalog. Unknown protocols
+// remain unknown: never infer a wire from a model's spelling or another account.
+const OPEN_CODE_MODELS: Record<
+  string,
+  Readonly<Record<string, string>>
+> = modelMetadata.providers;
+
 function openCodeChatWire(type: string, model: string): ModelWire | undefined {
-  if (model.startsWith('claude-') || model === 'union-alpha')
-    return 'anthropic-messages';
+  const models = OPEN_CODE_MODELS[type];
 
-  if (/^(?:gpt-|grok-|muse-spark-)/u.test(model)) return 'openai-responses';
+  const protocol =
+    models && Object.hasOwn(models, model) ? models[model] : undefined;
 
-  if (type === 'opencode-go' && model === 'deepseek-v4-flash')
-    return 'openai-responses';
-
-  if (/^(?:glm-|kimi-|deepseek-|minimax-)/u.test(model))
-    return 'openai-completions';
-
-  if (
-    type === 'opencode-go' &&
-    /^(?:qwen3\.5-plus|qwen3\.6-plus)$/u.test(model)
-  ) {
-    return 'openai-completions';
+  switch (protocol) {
+    case 'messages':
+      return 'anthropic-messages';
+    case 'responses':
+      return 'openai-responses';
+    case 'chat-completions':
+      return 'openai-completions';
+    default:
+      return undefined;
   }
-
-  if (model.startsWith('qwen')) return 'anthropic-messages';
-
-  return undefined;
 }
 
 function defaultWire(

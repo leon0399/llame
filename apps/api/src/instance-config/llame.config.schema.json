@@ -369,11 +369,11 @@
         "system-one",
         "cohere-rerank"
       ],
-      "description": "Optional per-model wire override. Otherwise the provider account, model kind, and known model family select the wire. Unknown combinations fail startup at this model's path. Credentials and headers remain on the provider."
+      "description": "Optional per-model wire override. Otherwise provider/kind defaults or exact provider/model metadata select the wire. Unknown combinations fail startup at this model's path. Credentials and headers remain on the provider."
     },
     "providerType": {
       "type": "string",
-      "description": "Provider account profile. Vendor profiles share credentials, base URL, and headers across model kinds; each model resolves a wire from its explicit override or provider/kind/family defaults. Explicit wire profiles support custom endpoints. Codex and Go retain fixed subscription destinations. Unsupported types and unresolved model routes fail startup. See docs/product/operator/providers/routing.md.",
+      "description": "Provider account profile. Vendor profiles share credentials, base URL, and headers across model kinds; each model resolves a wire from its explicit override, provider/kind defaults, or exact provider/model metadata. Explicit wire profiles support custom endpoints. Codex and Go retain fixed subscription destinations. Unsupported types and unresolved model routes fail startup. See docs/product/operator/providers/routing.md.",
       "enum": [
         "openai",
         "anthropic",

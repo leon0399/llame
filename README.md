@@ -14,7 +14,7 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   reconnect.
 - Operator-managed providers, models, and per-model system prompts in
   `llame.config.jsonc`. Provider accounts share credentials and endpoints;
-  models resolve their wire through vendor, kind, family, or an explicit
+  models resolve their wire through provider/kind defaults, exact model metadata, or an explicit
   override. OpenRouter can serve chat, embeddings, decisions, and reranking
   through one account. Codex and OpenCode Go retain fixed subscription
   destinations.
@@ -90,7 +90,7 @@ loaded, so an existing `llame.config.json` keeps working; more than one fails
 startup. Provider entries describe accounts: `openai`, `anthropic`,
 `openrouter`, and `opencode-zen` share one credential, base URL, and headers
 across their models. Each model resolves its wire from the provider, model
-kind, and known family; an explicit `wire` overrides that default. OpenRouter
+kind, and exact model metadata; an explicit `wire` overrides that default. OpenRouter
 supports chat, embeddings, decisions, and reranking with one provider entry.
 Unknown combinations fail startup at the model's `.wire` field.
 

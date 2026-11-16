@@ -3,8 +3,8 @@
 ## Purpose
 
 Provider accounts own credentials, headers, and destinations. Model entries
-select a wire by explicit override or the account's model-kind and family
-defaults, resolved before work is accepted.
+select a wire by explicit override, provider/kind defaults, or exact
+provider/model metadata, resolved before work is accepted.
 
 ## Requirements
 
@@ -12,7 +12,7 @@ defaults, resolved before work is accepted.
 
 The system SHALL resolve a wire for every chat, embedding, decision, and
 rerank model at startup. A model's explicit `wire` SHALL take precedence over
-provider-type, kind, and known-family defaults. An unsupported kind/wire pair
+provider-type, kind, and exact-model metadata defaults. An unsupported kind/wire pair
 or missing default SHALL fail startup naming that model's `.wire` field.
 Routing SHALL NOT infer a vendor from an account's `id` or URL host.
 
@@ -20,8 +20,12 @@ The `openrouter` provider SHALL support all four kinds through one account.
 The `openai` provider SHALL default to Responses for chat and OpenAI embeddings
 for embeddings; `anthropic` SHALL default to Messages for chat. Explicit wire
 profiles SHALL remain available for custom services. OpenCode Zen and Go SHALL
-select chat wires from known families, with an explicit override for unknown
-families. Go SHALL remain chat-only, and Zen SHALL support chat and decisions.
+select chat wires by exact provider/model lookup in bundled upstream metadata,
+using the model's first declared API. Unknown models and unsupported metadata
+protocols SHALL require an explicit supported wire, without prefix inference
+or borrowing another provider's model entry. Startup SHALL use the bundled
+snapshot without network discovery. Go SHALL remain chat-only, and Zen SHALL
+support chat and decisions.
 The Codex subscription account SHALL use only its fixed Codex transport, and
 no other account SHALL select that transport.
 
@@ -45,10 +49,21 @@ chat wire and its existing option and failure contracts.
 - **THEN** its requests use the selected wire at the same account base
 - **AND** neither the provider id nor an ambient endpoint variable retargets it
 
-#### Scenario: Unknown family requires an explicit wire
+#### Scenario: Unknown model requires an explicit wire
 
-- **WHEN** an OpenCode chat model has no known family and declares no wire
+- **WHEN** an OpenCode chat model is absent from its provider's metadata and declares no wire, even if its name starts with a known vendor prefix
 - **THEN** startup fails naming that model's `.wire` field
+
+#### Scenario: Exact metadata wins over family spelling
+
+- **WHEN** a configured Go `minimax-m3` model declares no wire
+- **THEN** its Messages metadata selects the Anthropic Messages wire
+- **AND** Go `minimax-m3.1-flash` selects Chat Completions from its own metadata
+
+#### Scenario: Unsupported metadata protocol is not replaced
+
+- **WHEN** a configured model's metadata selects an unimplemented protocol and the model declares no explicit wire
+- **THEN** startup rejects the model instead of guessing a supported protocol
 
 #### Scenario: Wrong kind fails before a request
 
