@@ -23664,6 +23664,137 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
   });
 });
 
+describe('RunExecutionService compaction completion', () => {
+  it.each([
+    ['a successful attempt', false, 'completed'],
+    ['a cancellation requested before completion', true, 'cancelled'],
+  ] as const)(
+    'finishes a compaction run as %s',
+    async (_scenario, cancellationRequested, expectedStatus) => {
+      const repositories = mockNormalExecutionRepositories();
+
+      const fenced = {
+        ...run,
+        kind: 'compaction' as const,
+        messageId: null,
+        cancelRequestedAt: cancellationRequested ? now : null,
+      };
+
+      repositories.updateForAttempt.mockResolvedValue(fenced);
+      repositories.markFinished.mockResolvedValue({
+        ...fenced,
+        status: expectedStatus,
+      });
+
+      const execution = makeExecutionService();
+
+      const result = await execution.service.completeCompactionRun({
+        runId,
+        chatId,
+        userId,
+        attemptId: testAttemptId,
+        summary: undefined,
+        abortSignal: new AbortController().signal,
+      });
+
+      expect(result.outcome).toBe('won');
+      expect(repositories.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        expectedStatus,
+        expect.objectContaining({ attemptId: testAttemptId }),
+      );
+    },
+  );
+
+  it('settles an abort observed inside the completion transaction', async () => {
+    const abort = new AbortController();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.updateForAttempt.mockImplementation(() => {
+      abort.abort();
+
+      return Promise.resolve({ ...run, kind: 'compaction', messageId: null });
+    });
+    const execution = makeExecutionService();
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: abort.signal,
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+  });
+  it('does not republish a checkpoint at an already absorbed boundary', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findCheckpointByBoundary',
+    ).mockResolvedValue(assistantMessage);
+
+    const createCheckpoint = vi.spyOn(
+      MessagesRepository.prototype,
+      'createCheckpoint',
+    );
+
+    const execution = makeExecutionService();
+
+    await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: { uptoSeq: 1, summary: 'summary', usage: null },
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(createCheckpoint).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunExecutionService claimRun', () => {
+  it('fences cancellation settlement by the queue identity seen at pickup', async () => {
+    const expectedQueueIdentity = {
+      currentJobId: 'wake-job',
+      wakeGeneration: 9,
+    };
+
+    const abort = new AbortController();
+    abort.abort();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markFinished.mockResolvedValue(undefined);
+    const execution = makeExecutionService();
+
+    const claim = await execution.service.claimRun({
+      runId,
+      chatId,
+      userId,
+      abortSignal: abort.signal,
+      expectedQueueIdentity,
+    });
+
+    expect(claim).toEqual({ settledReply: undefined });
+    expect(repositories.markFinished).toHaveBeenLastCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      {
+        error: { message: 'Run was cancelled before model inference.' },
+        expectedQueueIdentity,
+      },
+    );
+  });
+});
+
 describe('RunExecutionService compaction aborts', () => {
   it('settles an abort during digest resolution without publishing a checkpoint', async () => {
     const abort = new AbortController();
