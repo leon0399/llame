@@ -208,14 +208,18 @@ describe('Compaction Run execution', () => {
       state: 'pending',
     });
 
-    await waitForRun(harness, userId, compaction.id, 'completed');
     await waitFor(
       async () => {
         const pending = await harness.tenantDb.runAs(userId, (tx) =>
           new ChatDeliveriesRepository(tx).listPending(source.chatId, userId),
         );
 
-        return pending.length === 0 ? true : undefined;
+        return pending.length === 0 &&
+          JSON.stringify(harness.models.prompts).includes(
+            'result-during-compaction',
+          )
+          ? true
+          : undefined;
       },
       15_000,
       'the idle-Chat notice Run to adopt the held result',
@@ -224,6 +228,95 @@ describe('Compaction Run execution', () => {
     expect(JSON.stringify(harness.models.prompts)).toContain(
       'result-during-compaction',
     );
+  });
+
+  it('leaves a lost job notice pending after a compaction Run', async () => {
+    const turnModel = `compact-lost-turn-${randomUUID()}`;
+    const compactModel = `compact-lost-run-${randomUUID()}`;
+    harness.models.register(turnModel, {
+      kind: 'complete',
+      text: 'turn answer',
+    });
+    harness.models.register(compactModel, {
+      kind: 'complete',
+      text: 'lost-notice-summary',
+      delayMs: 300,
+    });
+
+    const source = await completeSourceTurn(
+      harness,
+      userId,
+      turnModel,
+      'lost notice source',
+    );
+
+    const compaction = await createCompactionRun(
+      harness.tenantDb,
+      source.chatId,
+      userId,
+      compactModel,
+    );
+
+    await harness.dispatch.dispatch({
+      runId: compaction.id,
+      chatId: source.chatId,
+      userId,
+      modelId: compactModel,
+    });
+    await waitFor(
+      () =>
+        harness.models.streamCalls.some(
+          ({ modelId }) => modelId === compactModel,
+        ) || undefined,
+      15_000,
+      'the compaction summary request to start',
+    );
+
+    const job = await createRunningJob({
+      tenantDb: harness.tenantDb,
+      chatId: source.chatId,
+      ownerUserId: userId,
+      runId: source.runId,
+      modelId: turnModel,
+    });
+
+    await settleBashJob(
+      harness.tenantDb,
+      job,
+      {
+        output: {
+          stdout: 'lost job result',
+          stderr: '',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'lost', result: { outcomeUnknown: true } },
+        offsets: { stdout: 0, stderr: 0 },
+      },
+      {
+        maxBytes: 65_536,
+        hostFiles: false,
+        noticeRuns: harness.moduleRef.get(JobNoticeRunService),
+      },
+    );
+
+    await waitForRun(harness, userId, compaction.id, 'completed');
+
+    const state = await harness.tenantDb.runAs(userId, async (tx) => ({
+      pending: await new ChatDeliveriesRepository(tx).listPending(
+        source.chatId,
+        userId,
+      ),
+      latest: await new RunsRepository(tx).findLatestByChatId(
+        source.chatId,
+        userId,
+      ),
+    }));
+
+    expect(state.pending).toMatchObject([
+      { producer: 'job', mode: 'notice', state: 'pending' },
+    ]);
+    expect(state.latest?.id).toBe(compaction.id);
   });
 
   it('A completed compaction Run promotes the next item', async () => {
@@ -317,12 +410,9 @@ describe('Compaction Run execution', () => {
       modelId: model,
     });
     await waitFor(
-      async () =>
-        (
-          await harness.tenantDb.runAs(userId, (tx) =>
-            new RunEventsRepository(tx).listByRunId(compact.id, userId),
-          )
-        ).some((event) => event.eventType === 'model.requested') || undefined,
+      () =>
+        harness.models.streamCalls.some(({ modelId }) => modelId === model) ||
+        undefined,
       15_000,
       'the compaction summary request to start',
     );
@@ -368,12 +458,9 @@ describe('Compaction Run execution', () => {
       modelId: model,
     });
     await waitFor(
-      async () =>
-        (
-          await harness.tenantDb.runAs(userId, (tx) =>
-            new RunEventsRepository(tx).listByRunId(compact.id, userId),
-          )
-        ).some((event) => event.eventType === 'model.requested') || undefined,
+      () =>
+        harness.models.streamCalls.some(({ modelId }) => modelId === model) ||
+        undefined,
       15_000,
       'the compaction summary request to start',
     );
@@ -436,7 +523,6 @@ async function createRunningJob(input: {
 
   return tenantDb.runAs(ownerUserId, async (tx) => {
     const workerInstanceId = randomUUID();
-
     await tx.insert(workerInstances).values({ id: workerInstanceId });
 
     return new ChatJobsRepository(tx).insert({

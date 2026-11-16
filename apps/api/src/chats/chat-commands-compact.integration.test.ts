@@ -390,9 +390,11 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Hold this turn.' }],
         },
-      });
+      })
+      .then((response) => response);
 
     await held.started;
+
     const response = await sendCompact(chatId);
     releaseHeldTurn?.();
     await runResponse;
