@@ -144,12 +144,15 @@ export type CompactionSummaryRequest =
       readonly variant: 'boundary';
       readonly chatId: string;
       readonly userId: string;
+      /** The exact committed prefix boundary, equal to the closed reply seq. */
+      readonly uptoSeq: number;
       readonly plan: CompactionPlan;
+      /** The freshly projected parts of the reply, not its stale stored row. */
       readonly closedReply: ReadonlyArray<ModelMessage>;
       readonly client: ModelClient;
       readonly system: string;
       readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-      readonly instruction: string;
+      readonly focus: string | null;
       readonly effort?: string;
       readonly reservedOutputTokens: number | null;
       readonly abortSignal?: AbortSignal;
@@ -228,7 +231,7 @@ export class CompactionService {
               {
                 beforeSeq:
                   input.variant === 'boundary'
-                    ? input.plan.uptoSeq + 1
+                    ? input.uptoSeq + 1
                     : input.triggeringUserSeq,
               },
             ),
@@ -243,6 +246,18 @@ export class CompactionService {
     return input.variant === 'owner'
       ? this.summarizeOwner(input, previous)
       : this.summarizeWithAttemptModel(input, previous);
+  }
+  /**
+   * Compute one step-boundary summary outside the delivery transaction. The
+   * closed reply is passed in because its persisted row is not current yet.
+   */
+  computeBoundarySummary(
+    input: Omit<
+      Extract<CompactionSummaryRequest, { variant: 'boundary' }>,
+      'variant'
+    >,
+  ): Promise<CompactionSummary | null> {
+    return this.summarizeCheckpoint({ ...input, variant: 'boundary' });
   }
   private async summarizeOwner(
     input: Extract<CompactionSummaryRequest, { variant: 'owner' }>,
@@ -336,7 +351,7 @@ export class CompactionService {
       previous,
       absorb: input.plan.absorb,
       ...(input.variant === 'boundary' && {
-        instruction: input.instruction,
+        instruction: renderCompactionInstruction('owner', input.focus),
       }),
     });
 
@@ -536,7 +551,10 @@ export class CompactionService {
     inference: SummaryInference;
   }): CompactionSummary {
     return {
-      uptoSeq: input.request.plan.uptoSeq,
+      uptoSeq:
+        input.request.variant === 'boundary'
+          ? input.request.uptoSeq
+          : input.request.plan.uptoSeq,
       summary: input.summary,
       usage: buildTurnTelemetry({
         usage: input.inference.usage,

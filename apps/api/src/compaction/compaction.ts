@@ -43,7 +43,7 @@ export const COMPACTION_WINDOW_RATIO = 0.8;
  * window variants still select different model and prompt inputs in
  * CompactionService, but both use the same summarization instruction.
  */
-export type CompactionVariant = 'threshold' | 'window' | 'owner';
+export type CompactionVariant = 'threshold' | 'window' | 'owner' | 'boundary';
 
 /**
  * The summarize instruction — sent as the FINAL USER MESSAGE of the compaction
