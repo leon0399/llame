@@ -33,6 +33,56 @@ They default to their named wire; both OpenAI profiles also support embeddings.
 `openai-codex` remains a separate fixed subscription transport and cannot be
 selected by another account's wire override.
 
+## One OpenCode Go account, different native APIs
+
+Claude and GPT models can share one `opencode-go` provider and API key.
+No per-model `wire` is needed for these known families:
+
+```jsonc
+{
+  "providers": [
+    { "id": "go", "type": "opencode-go", "key": "{env:OPENCODE_API_KEY}" },
+  ],
+  "models": [
+    {
+      "id": "claude",
+      "provider": "go",
+      "providerModelId": "claude-sonnet-4-6",
+      "contextWindowTokens": 200000,
+    },
+    {
+      "id": "gpt",
+      "provider": "go",
+      "providerModelId": "gpt-5.4",
+      "contextWindowTokens": 200000,
+    },
+    {
+      "id": "glm",
+      "provider": "go",
+      "providerModelId": "glm-5.3-flash",
+      "contextWindowTokens": 200000,
+    },
+  ],
+}
+```
+
+The selected model determines the request protocol and path:
+
+| Model               | Wire               | Request URL                                      | Credential header         |
+| ------------------- | ------------------ | ------------------------------------------------ | ------------------------- |
+| `claude-sonnet-4-6` | Anthropic Messages | `https://opencode.ai/zen/go/v1/messages`         | `x-api-key`               |
+| `gpt-5.4`           | OpenAI Responses   | `https://opencode.ai/zen/go/v1/responses`        | `Authorization: Bearer …` |
+| `glm-5.3-flash`     | Chat Completions   | `https://opencode.ai/zen/go/v1/chat/completions` | `Authorization: Bearer …` |
+
+All three use the same resolved account key and retain Go's session headers
+and redirect rejection. The model names illustrate routing; substitute models
+and context limits your subscription supports. Routing does not grant access
+to a model, and these examples do not attest to live provider availability.
+
+For OpenCode Zen, change the provider's `type` to `opencode-zen`. These three
+families select the same protocols under `https://opencode.ai/zen/v1`.
+The Go-specific DeepSeek and Qwen pins described above do not apply to Zen.
+
 ## One OpenRouter account
 
 This fragment demonstrates all four catalogues. Substitute model identifiers
