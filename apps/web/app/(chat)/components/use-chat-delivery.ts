@@ -278,13 +278,14 @@ function restoreFailedSend(input: {
   const { draft, message, sent, commandText, error, setNotice } = input;
 
   // The owner may have typed during the send: their draft stays. Slash text
-  // goes after it, so the draft never becomes a command's argument.
+  // goes after it, so the draft never becomes a command's argument; under a
+  // newer slash draft it is not restored, so it never becomes one either.
   draft.setInput((current) => {
     if (current.trim() === "") return message.text;
 
-    return commandText
-      ? `${current}\n\n${message.text}`
-      : `${message.text}\n\n${current}`;
+    if (!commandText) return `${message.text}\n\n${current}`;
+
+    return isCommandText(current) ? current : `${current}\n\n${message.text}`;
   });
   draft.attachments.restore(sent);
 

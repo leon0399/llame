@@ -3215,6 +3215,44 @@ export const FailedCommandShowsServerMessage: Story = {
 let failCommand: (() => void) | null = null;
 
 /**
+ * A command typed while another command is in flight stays alone when the
+ * first one fails: joined to it, the failed text would become its argument.
+ *
+ * @summary a failed command leaves a newer command alone
+ */
+export const FailedCommandLeavesNewerCommandAlone: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    failCommand = null;
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        new Promise<Response>((resolve) => {
+          failCommand = () =>
+            resolve(
+              jsonResponse(
+                { statusCode: 502, message: "Title generation failed." },
+                502,
+              ),
+            );
+        }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename{Enter}");
+    await waitFor(() => expect(failCommand).not.toBeNull());
+    await userEvent.type(input, "/rename Foo");
+    failCommand?.();
+
+    await expect(await canvas.findByRole("alert")).toHaveTextContent(
+      "Title generation failed.",
+    );
+    await expect(composer(canvasElement)).toHaveValue("/rename Foo");
+  },
+};
+
+/**
  * Text typed while a command is in flight stays first in the composer when
  * the command fails, and the command follows it: placed after the command it
  * would become its argument.
