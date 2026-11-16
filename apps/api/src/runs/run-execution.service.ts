@@ -1375,10 +1375,7 @@ export class RunExecutionService {
   private async resolveCompactionDigest(input: {
     userId: string;
     chatId: string;
-  }): Promise<{
-    shareRecentChats: ResolvedMemorySettings;
-    candidate: RecencyDigestResolution | null;
-  }> {
+  }): Promise<{ candidate: RecencyDigestResolution | null }> {
     const shareRecentChats = await this.tenantDb.runAs(input.userId, (tx) =>
       this.memory.getForOwnerForBinding(tx, input.userId),
     );
@@ -1396,7 +1393,7 @@ export class RunExecutionService {
       }
     }
 
-    return { shareRecentChats, candidate };
+    return { candidate };
   }
 
   private async publishCompactionCheckpoint(
@@ -1407,7 +1404,6 @@ export class RunExecutionService {
       summary: CompactionSummary;
     },
     digest: {
-      shareRecentChats: ResolvedMemorySettings;
       candidate: RecencyDigestResolution | null;
     },
   ): Promise<void> {

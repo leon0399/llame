@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 
+import { CompactionService } from '../compaction/compaction.service';
+import { ModelsService } from '../models/models.service';
 import { MessagesRepository } from '../chats/messages-repository';
+
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { settleBashJob } from '../jobs/bash-job-store';
 import { workerInstances, type ChatJob } from '../db/schema';
 import { JobNoticeRunService } from './job-notice-run.service';
 import { TenantDbService } from '../db/tenant-db.service';
-import { waitFor } from '../testing/support';
+import { asDouble, waitFor } from '../testing/support';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
   bootWorkerHarness,
@@ -455,6 +458,67 @@ describe('Compaction Run execution', () => {
     );
 
     await waitForRun(harness, userId, compact.id, 'cancelled');
+
+    const messages = await harness.tenantDb.runAs(userId, (tx) =>
+      new MessagesRepository(tx).findByChatId(source.chatId, userId),
+    );
+
+    expect(
+      messages.filter((message) => message.role === 'checkpoint'),
+    ).toHaveLength(0);
+  });
+  it('settles cancelled when cancellation is recorded after the summary returns', async () => {
+    const sourceModel = `compact-late-cancel-source-${randomUUID()}`;
+    const compactModel = `compact-late-cancel-run-${randomUUID()}`;
+    harness.models.register(sourceModel, { kind: 'complete', text: 'reply' });
+    harness.models.register(compactModel, {
+      kind: 'complete',
+      text: 'late-cancel-summary',
+    });
+
+    const source = await completeSourceTurn(
+      harness,
+      userId,
+      sourceModel,
+      'late cancellation history',
+    );
+
+    const compact = await createCompactionRun(
+      harness.tenantDb,
+      source.chatId,
+      userId,
+      compactModel,
+    );
+
+    const compaction = asDouble<CompactionService>(
+      harness.moduleRef.get(CompactionService),
+    );
+
+    const originalCompaction = new CompactionService(
+      asDouble<TenantDbService>(harness.moduleRef.get(TenantDbService)),
+      asDouble<ModelsService>(harness.moduleRef.get(ModelsService)),
+    );
+
+    const summarySpy = vi
+      .spyOn(compaction, 'summarizeCheckpoint')
+      .mockImplementation(async (input) => {
+        const summary = await originalCompaction.summarizeCheckpoint(input);
+
+        await harness.tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).requestCancel(compact.id, userId),
+        );
+
+        return summary;
+      });
+
+    await harness.dispatch.dispatch({
+      runId: compact.id,
+      chatId: source.chatId,
+      userId,
+      modelId: compactModel,
+    });
+    await waitForRun(harness, userId, compact.id, 'cancelled');
+    summarySpy.mockRestore();
 
     const messages = await harness.tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(source.chatId, userId),

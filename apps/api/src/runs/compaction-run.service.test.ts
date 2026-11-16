@@ -1,3 +1,4 @@
+import { ContextIncompatibleError } from './model-context-errors';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import type { Message } from '../db/schema';
@@ -10,6 +11,8 @@ import { createFakeModelClient } from '../models/fake-model-client';
 import { asDouble } from '../testing/support';
 import { CompactionRunService } from './compaction-run.service';
 import { RunExecutionService } from './run-execution.service';
+
+const expectedQueueIdentity = { currentJobId: null, wakeGeneration: 0 };
 
 const job = {
   runId: 'run-compact',
@@ -120,6 +123,7 @@ describe('CompactionRunService', () => {
       job,
       setup.client,
       new AbortController().signal,
+      expectedQueueIdentity,
     );
 
     expect(setup.summarizeCheckpoint).toHaveBeenCalledWith(
@@ -127,6 +131,7 @@ describe('CompactionRunService', () => {
         variant: 'owner',
         client: setup.client,
         effort: 'low',
+        previousCheckpoint: undefined,
       }),
     );
   });
@@ -138,6 +143,7 @@ describe('CompactionRunService', () => {
       job,
       setup.client,
       new AbortController().signal,
+      expectedQueueIdentity,
     );
 
     expect(setup.summarizeCheckpoint).toHaveBeenCalledWith(
@@ -146,6 +152,35 @@ describe('CompactionRunService', () => {
         client: setup.client,
       }),
     );
+  });
+
+  it('fails a Run when no source Run can summarize a non-fitting history', async () => {
+    const setup = makeService({
+      summarize: () =>
+        Promise.reject(
+          new ContextIncompatibleError(
+            'The complete request exceeds the target model context window and no previous completed run can summarize its history.',
+          ),
+        ),
+    });
+
+    await setup.service.execute(
+      job,
+      setup.client,
+      new AbortController().signal,
+      expectedQueueIdentity,
+    );
+
+    expect(setup.settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        error: {
+          message:
+            'The complete request exceeds the target model context window and no previous completed run can summarize its history.',
+        },
+      }),
+    );
+    expect(setup.completeCompactionRun).not.toHaveBeenCalled();
   });
 
   it('A provider error during a compaction Run', async () => {
@@ -157,6 +192,7 @@ describe('CompactionRunService', () => {
       job,
       setup.client,
       new AbortController().signal,
+      expectedQueueIdentity,
     );
 
     expect(setup.settleTerminalRun).toHaveBeenCalledWith(

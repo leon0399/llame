@@ -852,6 +852,7 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
       userId: ownerId,
       triggeringUserSeq: 3,
       plan: plan(),
+      previousCheckpoint,
       client,
       effort: 'high',
       reservedOutputTokens: 10,
@@ -877,8 +878,8 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
     );
   });
 
-  it('fails an owner Run when the summary is empty', async () => {
-    const { client } = recordingClient({ responses: [''] });
+  it('fails an owner Run when the summary is empty and omits system without a source Run', async () => {
+    const { client, calls } = recordingClient({ responses: [''] });
     const setup = makeService(client);
     mockReads();
 
@@ -889,10 +890,80 @@ describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
         userId: ownerId,
         triggeringUserSeq: 3,
         plan: plan(),
+        previousCheckpoint: undefined,
         client,
         reservedOutputTokens: 10,
       }),
     ).rejects.toThrow('Compaction summary returned no valid text summary.');
+
+    expect(Object.keys(calls[0] ?? {})).not.toContain('system');
+  });
+  it('falls back to the source Run model, receipt and effort when the owner request does not fit', async () => {
+    const { client: ownerClient } = recordingClient({ contextWindowTokens: 1 });
+    const { client: sourceClient, calls } = recordingClient();
+    const setup = makeService(ownerClient);
+
+    const createClient = vi
+      .spyOn(setup.models, 'createClient')
+      .mockReturnValue(sourceClient);
+
+    const reads = mockReads({
+      previous: previousCheckpoint,
+      source: {
+        run: { ...sourceRun, effort: 'high' },
+        receipt: sourceReceipt,
+      },
+    });
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'owner',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      previousCheckpoint,
+      client: ownerClient,
+      effort: 'low',
+      reservedOutputTokens: 10,
+    });
+
+    expect(summary?.summary).toBe('summary text');
+    expect(createClient).toHaveBeenCalledWith(sourceRun.modelId);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      system: sourceReceipt.systemPrompt,
+      effort: 'high',
+    });
+    expect(calls[0]?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: renderCompactionInstruction('owner'),
+    });
+    expect(calls[0]?.messages.at(-1)?.content).not.toContain(
+      'newer triggering user message',
+    );
+
+    expect(reads.findActive).not.toHaveBeenCalled();
+  });
+
+  it('fails with context-incompatible when no source Run can fit a non-fitting owner request', async () => {
+    const { client, calls } = recordingClient({ contextWindowTokens: 1 });
+    const setup = makeService(client);
+    mockReads();
+
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'owner',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        previousCheckpoint: undefined,
+        client,
+        reservedOutputTokens: 10,
+      }),
+    ).rejects.toBeInstanceOf(ContextIncompatibleError);
+
+    expect(calls).toHaveLength(0);
   });
 });
 

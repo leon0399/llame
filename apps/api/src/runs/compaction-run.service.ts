@@ -1,7 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 
 import { MessagesRepository } from '../chats/messages-repository';
-import { planOwnerCompaction } from '../compaction/owner-compaction-plan';
+import {
+  planOwnerCompaction,
+  type OwnerCompactionPlan,
+} from '../compaction/owner-compaction-plan';
 import { errorMessageWithoutParams } from '../db/loggable-error';
 import {
   RunExecutionService,
@@ -47,9 +50,6 @@ export class CompactionRunService {
     expectedQueueIdentity: {
       currentJobId: string | null;
       wakeGeneration: number;
-    } = {
-      currentJobId: null,
-      wakeGeneration: 0,
     },
   ): Promise<void> {
     const claim = await this.execution.claimRun({
@@ -62,7 +62,7 @@ export class CompactionRunService {
 
     if ('settledReply' in claim || 'nativeRecovery' in claim) return;
 
-    const { plan, nextSeq } = await this.plan(job);
+    const { plan, nextSeq, activeCheckpoint } = await this.plan(job);
 
     if (plan === null) {
       await this.finish(job, claim.attemptId, undefined, expectedQueueIdentity);
@@ -76,6 +76,7 @@ export class CompactionRunService {
       claim,
       plan,
       nextSeq,
+      activeCheckpoint,
       abortSignal,
       expectedQueueIdentity,
     });
@@ -91,6 +92,7 @@ export class CompactionRunService {
     claim: Extract<RunClaimResult, { messageId: string | null }>;
     plan: CompactionPlan;
     nextSeq: number;
+    activeCheckpoint: OwnerCompactionPlan['activeCheckpoint'];
     abortSignal: AbortSignal;
     expectedQueueIdentity: {
       currentJobId: string | null;
@@ -124,7 +126,7 @@ export class CompactionRunService {
     }
   }
 
-  private async plan(job: RunJob) {
+  private async plan(job: RunJob): Promise<OwnerCompactionPlan> {
     return this.tenantDb.runAs(job.userId, (tx) =>
       planOwnerCompaction(new MessagesRepository(tx), job.chatId, job.userId),
     );
@@ -136,6 +138,7 @@ export class CompactionRunService {
     claim: Extract<RunClaimResult, { messageId: string | null }>;
     plan: CompactionPlan;
     nextSeq: number;
+    activeCheckpoint: OwnerCompactionPlan['activeCheckpoint'];
     abortSignal: AbortSignal;
   }): Promise<CompactionSummary | null> {
     return this.compaction.summarizeCheckpoint({
@@ -144,6 +147,7 @@ export class CompactionRunService {
       userId: input.job.userId,
       triggeringUserSeq: input.nextSeq,
       plan: input.plan,
+      previousCheckpoint: input.activeCheckpoint,
       client: input.client,
       reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
       abortSignal: input.abortSignal,

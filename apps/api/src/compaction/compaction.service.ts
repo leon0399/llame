@@ -29,6 +29,7 @@ import { buildTurnTelemetry } from '../chats/turn-telemetry';
 import type { Message, ModelToolDeclaration, Run } from '../db/schema';
 import { toContextCheckpoint } from '../chats/context-item-producers';
 import { isRecord } from '@workspace/runtime-safety';
+import type { CheckpointMessage } from '../chats/messages-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { ContextIncompatibleError } from '../runs/model-context-errors';
@@ -156,6 +157,7 @@ export type CompactionSummaryRequest =
       readonly userId: string;
       readonly triggeringUserSeq: number;
       readonly plan: CompactionPlan;
+      readonly previousCheckpoint: CheckpointMessage | undefined;
       readonly client: ModelClient;
       readonly instruction?: string;
       readonly effort?: string;
@@ -201,13 +203,16 @@ export class CompactionService {
   ): Promise<CompactionSummary | null> {
     input.abortSignal?.throwIfAborted();
 
-    const checkpoint = await this.tenantDb.runAs(input.userId, (tx) =>
-      new MessagesRepository(tx).findActiveCheckpoint(
-        input.chatId,
-        input.userId,
-        { beforeSeq: input.triggeringUserSeq },
-      ),
-    );
+    const checkpoint =
+      input.variant === 'owner'
+        ? input.previousCheckpoint
+        : await this.tenantDb.runAs(input.userId, (tx) =>
+            new MessagesRepository(tx).findActiveCheckpoint(
+              input.chatId,
+              input.userId,
+              { beforeSeq: input.triggeringUserSeq },
+            ),
+          );
 
     const previous = checkpoint && toContextCheckpoint(checkpoint);
 
@@ -257,7 +262,12 @@ export class CompactionService {
 
     if (!fits) {
       return this.summarizeWithSourceModel(
-        { ...input, variant: 'window' },
+        {
+          ...input,
+          variant: 'window',
+          instruction:
+            input.instruction ?? renderCompactionInstruction('owner'),
+        },
         previous,
         source ?? null,
       );
@@ -551,7 +561,7 @@ export class CompactionService {
     }
 
     const result = input.client.streamText({
-      system: input.system,
+      ...(input.system !== undefined && { system: input.system }),
       messages: input.messages,
       chat: { id: input.chatId, lane: 'main' },
       abortSignal: input.abortSignal,
