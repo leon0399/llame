@@ -31,7 +31,7 @@ import {
   supersededReplyIndexes,
 } from "@/lib/services/chat/history-adoption";
 import { usePendingStop } from "./use-pending-stop";
-import { isCommandText } from "@/lib/services/chat/deliveries";
+import { isCommandText, sendableText } from "@/lib/services/chat/deliveries";
 import { useChatDelivery } from "./use-chat-delivery";
 import { useRunHandoff } from "./use-run-handoff";
 import {
@@ -101,7 +101,7 @@ function createHandleSubmit(args: ChatSubmitHandlersArgs) {
 
   return async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const text = input.trim();
+    const text = sendableText(input);
     const files = attachmentFileParts(attachments.items);
 
     if (

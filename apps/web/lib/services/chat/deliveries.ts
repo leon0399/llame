@@ -29,9 +29,18 @@ import { prepareSendMessagesRequest } from "./transport";
 /** The modes a send may name while a Run of the Chat is live. */
 export type DeliveryMode = "steer" | "interrupt" | "queue";
 
-/** True when the text that will be sent is a slash-command candidate. */
-export function isCommandText(text: string): boolean {
-  return text.trim().startsWith("/");
+/** The text a send carries: trimmed, except that whitespace before a `/`
+ *  stays, so the API stores ` /rename Foo` as a message, not a command. */
+export function sendableText(input: string): string {
+  const text = input.trim();
+
+  return text.startsWith("/") ? input.trimEnd() : text;
+}
+
+/** True when the composer text is a slash-command candidate: its first
+ *  character is `/`. */
+export function isCommandText(input: string): boolean {
+  return input.startsWith("/");
 }
 
 /** The modes a pending item can change to. */

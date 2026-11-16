@@ -861,7 +861,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ModelDomainErrorResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ErrorResponse"
+                    }
+                  ]
                 }
               }
             }
@@ -5422,6 +5429,39 @@
         },
         "required": ["type", "command", "title"]
       },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "error", "message"]
+      },
+      "ModelDomainErrorResponse": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number"
+          },
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": ["statusCode", "error", "message", "code"]
+      },
       "CreateMessageBodyDto": {
         "type": "object",
         "properties": {
@@ -5551,24 +5591,6 @@
           "permissionMode",
           "createdAt"
         ]
-      },
-      "ModelDomainErrorResponse": {
-        "type": "object",
-        "properties": {
-          "statusCode": {
-            "type": "number"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          }
-        },
-        "required": ["statusCode", "error", "message", "code"]
       },
       "ContinueFollowUpRunDto": {
         "type": "object",
@@ -5973,21 +5995,6 @@
           }
         },
         "required": ["chat", "workspace"]
-      },
-      "ErrorResponse": {
-        "type": "object",
-        "properties": {
-          "statusCode": {
-            "type": "number"
-          },
-          "error": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          }
-        },
-        "required": ["statusCode", "error", "message"]
       },
       "ChatCreationDecisionResponse": {
         "type": "object",

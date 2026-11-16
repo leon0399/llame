@@ -3127,6 +3127,25 @@ export const IdleSlashPathAttachesToNewRun: Story = {
 };
 
 /**
+ * A space before the slash keeps the text a message: the composer sends it
+ * with the space, so the API stores it instead of renaming the Chat.
+ *
+ * @summary a space before the slash sends a message
+ */
+export const SpaceBeforeSlashSendsAMessage: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, " /rename Foo{Enter}");
+
+    await waitFor(() => expect(sentRoutes()).toContain(SEND_ROUTE));
+    await expect(await sentBody(SEND_ROUTE)).toMatchObject({
+      message: { parts: [{ type: "text", text: " /rename Foo" }] },
+    });
+  },
+};
+
+/**
  * An existing Chat sends a recognized command over the direct path; the
  * command result appears beside the composer without a transcript message.
  *

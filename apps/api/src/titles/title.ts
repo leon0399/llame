@@ -81,6 +81,22 @@ export function titleUserPrompt(boundedText: string): string {
   return renderTitleUserTemplate({ text: boundedText });
 }
 
+const renderTitleExcerptTemplate = loadPackagedTemplate<{
+  readonly rows: ReadonlyArray<{
+    readonly user: boolean;
+    readonly lines: ReadonlyArray<string>;
+  }>;
+}>(__dirname, 'excerpt');
+
+export function renderTitleExcerpt(
+  rows: ReadonlyArray<{
+    readonly user: boolean;
+    readonly lines: ReadonlyArray<string>;
+  }>,
+): string {
+  return renderTitleExcerptTemplate({ rows });
+}
+
 /** Hard cap on persisted title length — the sidebar is not a paragraph. */
 export const MAX_TITLE_LENGTH = 80;
 

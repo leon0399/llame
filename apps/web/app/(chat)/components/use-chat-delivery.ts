@@ -26,6 +26,7 @@ import {
   firstPendingSteer,
   isAlreadyDelivered,
   isCommandText,
+  sendableText,
   isRunActive,
   sendDelivery,
   updateDeliveries,
@@ -169,7 +170,7 @@ type ComposedMessage = {
 /** The message the composer holds, or null when there is nothing to send. A
  *  new id for every send, so an edited item never reuses its own. */
 function composedMessage(draft: DraftState): ComposedMessage | null {
-  const text = draft.input.trim();
+  const text = sendableText(draft.input);
   const files = attachmentFileParts(draft.attachments.items);
 
   if (text === "" && files.length === 0) return null;

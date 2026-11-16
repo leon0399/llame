@@ -24,6 +24,7 @@ import {
   firstPendingSteer,
   isAlreadyDelivered,
   isCommandText,
+  sendableText,
   isRunActive,
   sendDelivery,
   withdrawDelivery,
@@ -81,10 +82,18 @@ const REQUEST = {
   permissionMode: "default" as const,
 };
 
+describe("sendableText", () => {
+  it("trims ordinary text and keeps whitespace before a slash", () => {
+    expect(sendableText("  hello \n")).toBe("hello");
+    expect(sendableText("/rename Foo \n")).toBe("/rename Foo");
+    expect(sendableText(" /rename Foo ")).toBe(" /rename Foo");
+  });
+});
+
 describe("isCommandText", () => {
-  it("checks trimmed text", () => {
-    expect(isCommandText("  /rename Foo ")).toBe(true);
-    expect(isCommandText(" /etc/hosts")).toBe(true);
+  it("needs the slash as the first character", () => {
+    expect(isCommandText("/rename Foo")).toBe(true);
+    expect(isCommandText(" /rename Foo")).toBe(false);
     expect(isCommandText("ordinary text")).toBe(false);
   });
 });

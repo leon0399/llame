@@ -13,9 +13,9 @@ import {
   ApiResponse,
   ApiTags,
   ApiUnauthorizedResponse,
-  ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { ChatCommandResultResponse } from './commands/chat-command-result.dto';
+import { ErrorResponse } from '../common/dto/error-response.dto';
 import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { CreateMessageDto } from './dto/chats.dto';
 import { ChatDeliveryResponse } from './dto/chat-deliveries.dto';
@@ -33,6 +33,8 @@ const createChatMessageDocs: Array<MethodDecorator> = [
     CreateTextMessagePartDto,
     CreateFileMessagePartDto,
     ChatCommandResultResponse,
+    ErrorResponse,
+    ModelDomainErrorResponse,
   ),
   ApiOkResponse({
     description: 'AI SDK v5 UI-message stream (SSE) or chat command result',
@@ -63,11 +65,21 @@ const createChatMessageDocs: Array<MethodDecorator> = [
     description: 'Model catalog is not configured correctly',
     type: ModelDomainErrorResponse,
   }),
-  ApiUnprocessableEntityResponse({
+  ApiResponse({
+    status: 422,
     description:
       'Selected model is unavailable, effort is invalid, or bare `/rename` ' +
       'has no configured title-generation model',
-    type: ModelDomainErrorResponse,
+    content: {
+      'application/json': {
+        schema: {
+          oneOf: [
+            { $ref: getSchemaPath(ModelDomainErrorResponse) },
+            { $ref: getSchemaPath(ErrorResponse) },
+          ],
+        },
+      },
+    },
   }),
   ApiResponse({
     status: 502,
