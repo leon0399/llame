@@ -28,6 +28,7 @@ import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { asDouble } from '../testing/support';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { type CheckpointMessage } from './messages-repository';
 import { continueKeptParts } from './continue-kept-parts';
 import {
   FollowUpAdmissionService,
@@ -966,12 +967,15 @@ describe('FollowUpAdmissionService', () => {
     // The turn check runs before any Run state is read.
     expect(findLatestByChatId).not.toHaveBeenCalled();
   });
+
   it('refuses a follow-up whose user turn is absorbed by a checkpoint', async () => {
     const { service, createRun } = makeService();
     vi.spyOn(
       MessagesRepository.prototype,
       'findCheckpointAbsorbing',
-    ).mockResolvedValue(asDouble<Message>({ id: 'checkpoint-message' }));
+    ).mockResolvedValue(
+      asDouble<CheckpointMessage>({ absorbedThroughSeq: userMessage.seq }),
+    );
 
     await expect(admit(service)).rejects.toMatchObject({
       constructor: ConflictException,
