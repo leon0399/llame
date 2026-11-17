@@ -21959,6 +21959,12 @@ describe('RunExecutionService executeRun — run segments', () => {
     'summarizes a compact command from the closed step reply with effort %s',
     async (effort) => {
       const repositories = mockNormalExecutionRepositories();
+
+      const listByRunId = vi.spyOn(
+        RunEventsRepository.prototype,
+        'listByRunId',
+      );
+
       repositories.markStarted.mockResolvedValue({
         ...run,
         activeAttemptId: testAttemptId,
@@ -22008,17 +22014,35 @@ describe('RunExecutionService executeRun — run segments', () => {
       const options = segment.calls[0];
       signal.mockResolvedValueOnce('delivery');
       await options?.stopWhenExtra?.();
+      options?.onReasoningDelta?.('private analysis', 'reasoning-1', {
+        anthropic: { signature: 'private-signature' },
+      });
+      options?.onTextDelta?.('assistant answer before delivery');
       serveDelivery([compact]);
       await options?.onFinish?.(finishToolCalls);
 
       expect(computeBoundarySummary).toHaveBeenCalledOnce();
+      expect(listByRunId).toHaveBeenCalledWith(runId, userId, {
+        eventTypes: ['run.delivered'],
+      });
       expect(computeBoundarySummary.mock.calls[0]?.[0]).toMatchObject({
         plan: { uptoSeq: 4 },
         focus: 'keep the requested details',
       });
+      expect(
+        computeBoundarySummary.mock.calls[0]?.[0].plan.absorb.some(
+          (row) => row.id === deliveredId && row.seq === 3,
+        ),
+      ).toBe(true);
       expect(computeBoundarySummary.mock.calls[0]?.[0].closedReply).toEqual(
         expect.arrayContaining([expect.objectContaining({ role: 'user' })]),
       );
+      expect(
+        JSON.stringify(computeBoundarySummary.mock.calls[0]?.[0].closedReply),
+      ).toContain('assistant answer before delivery');
+      expect(
+        JSON.stringify(computeBoundarySummary.mock.calls[0]?.[0].closedReply),
+      ).toContain('private analysis');
 
       if (effort === undefined) {
         expect(computeBoundarySummary.mock.calls[0]?.[0]).not.toHaveProperty(
@@ -22032,6 +22056,83 @@ describe('RunExecutionService executeRun — run segments', () => {
       }
     },
   );
+
+  it('projects only new assistant parts after a continued reply prefix', async () => {
+    mockNormalExecutionRepositories();
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _userId, eventType) =>
+      Promise.resolve(
+        eventType === 'run.continued'
+          ? {
+              sequence: 2,
+              runId,
+              eventType: 'run.continued',
+              payload: {
+                sourceRunId: runId,
+                parts: [{ type: 'text', text: 'retained reply prefix' }],
+                steps: {},
+                results: {},
+              },
+              createdAt: now,
+            }
+          : undefined,
+      ),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(segment.client);
+    const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        id: messageId,
+        seq: 4,
+        parts: [{ type: 'text', text: 'current request' }],
+      },
+      followUpAction: 'continue',
+    });
+    signal.mockResolvedValueOnce('delivery');
+    await segment.calls[0]?.stopWhenExtra?.();
+    segment.calls[0]?.onTextDelta?.('new answer part');
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.(finishToolCalls);
+
+    const closedReply = JSON.stringify(
+      summarize.mock.calls[0]?.[0].closedReply,
+    );
+
+    expect(closedReply.match(/retained reply prefix/g)).toHaveLength(1);
+
+    expect(closedReply).toContain('new answer part');
+  });
 
   it('stops after a tool-call step whose attempt has a suspension receipt', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -22082,6 +22183,60 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(spies.markFinished).not.toHaveBeenCalled();
     expect(appended.map(({ type }) => type)).not.toContain('model.completed');
     expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+  });
+
+  it('does not finish a final compaction when the closing reply was not persisted', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const loggerError = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => {});
+
+    repositories.createAssistantReplyIfAbsent.mockResolvedValue(undefined);
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockResolvedValue(
+      checkpointSummary(2),
+    );
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        id: messageId,
+        seq: 4,
+        parts: [{ type: 'text', text: 'current request' }],
+      },
+    });
+    serveDelivery([compact]);
+
+    await segment.calls[0]?.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(loggerError).toHaveBeenCalledWith(
+      `Failed to finish run ${runId}`,
+      expect.stringContaining('Final compaction has no assistant reply.'),
+    );
+    expect(repositories.markFinished).not.toHaveBeenCalled();
   });
 
   it('keeps the Run live when the final answer meets a pending item', async () => {
