@@ -22453,6 +22453,10 @@ describe('RunExecutionService executeRun — run segments', () => {
         activeAttemptId: testAttemptId,
         ...(effort !== undefined && { effort }),
       });
+      repositories.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
 
       const compact = {
         ...pendingItem,
