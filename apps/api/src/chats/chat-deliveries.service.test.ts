@@ -359,7 +359,7 @@ describe('ChatDeliveriesService.changeMode', () => {
   );
 
   it.each(['steer', 'interrupt'] as const)(
-    'refuses changing a queued compact to %s during a live Run',
+    'changes a queued compact to %s during a live turn Run',
     async (mode) => {
       const {
         service,
@@ -381,11 +381,16 @@ describe('ChatDeliveriesService.changeMode', () => {
       findActiveRun.mockResolvedValue(
         asDouble<Run>({ id: 'live-run', kind: 'turn' }),
       );
+      changePendingMode.mockResolvedValue({ ...item, mode });
 
-      await expect(
-        service.changeMode(chatId, item.id, mode, userId),
-      ).rejects.toThrow('Compact waits for the current Run to finish.');
-      expect(changePendingMode).not.toHaveBeenCalled();
+      await service.changeMode(chatId, item.id, mode, userId);
+
+      expect(changePendingMode).toHaveBeenCalledWith(
+        chatId,
+        item.id,
+        userId,
+        mode,
+      );
       expect(dispatcher.dispatch).not.toHaveBeenCalled();
     },
   );
