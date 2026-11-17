@@ -140,8 +140,10 @@ where a smaller safe merge point appears.
   - Evidence: a command row is labelled "Compact", keeps Edit and Delete, and hides Steer now and Interrupt now during a live turn Run (shown on a paused queue); a delivered command item starts no stream hand-off; Edit puts slash text after a newer draft. Stories `CompactItemEditPutsTheTextBack`, `DeliveredCompactItemLeavesTheStack`, `CompactRow`, `PausedCompactRow` pass with the other chat-page and pending-deliveries stories (88).
 - [x] 6.3 Extend the command reference and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
   - Evidence: Updated `docs/product/reference/chat-commands.md` for queued `/compact` and the live-turn mode-change response; added dated changelog entry. `pnpm lint:markdown` passed.
-- [ ] 6.4 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
-- [ ] 6.5 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+- [x] 6.4 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: API/web lint and typecheck, API unit suite, deliveries/steering/compact integration files, chat-page and pending-deliveries stories, `pnpm format:check`, `git diff --check` pass; CI green on #1738.
+- [x] 6.5 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+  - Evidence: four-lens local review fixed before ready; #1738 GitHub review loop: 6 threads resolved (2 rejected per design D10 with reasons); CI green.
 
 ## 7. compact-boundary
 
