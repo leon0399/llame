@@ -1453,6 +1453,92 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       error: { message: 'Run was cancelled.' },
     });
   });
+
+  it('rethrows a compaction failure that was not caused by cancellation', async () => {
+    const compactionRun = { ...queuedRun, kind: 'compaction' as const };
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
+      compactionRun,
+    );
+    const failure = new Error('compaction provider failed');
+    const settleTerminalRun = vi.fn();
+
+    const executeCompaction = vi
+      .fn<CompactionRunService['execute']>()
+      .mockRejectedValue(failure);
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+      aborts: new RunAbortRegistry(),
+      compactionRun: { execute: executeCompaction },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await expect(
+      handler({
+        runId: job.runId,
+        chatId: job.chatId,
+        userId: job.userId,
+        modelId: job.modelId,
+      }),
+    ).rejects.toBe(failure);
+    expect(settleTerminalRun).not.toHaveBeenCalled();
+  });
+
+  it('settles an expired compaction abort with the timeout message', async () => {
+    const compactionRun = { ...queuedRun, kind: 'compaction' as const };
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
+      compactionRun,
+    );
+    const abort = new AbortController();
+    const settleTerminalRun = vi.fn().mockResolvedValue({ outcome: 'won' });
+
+    const executeCompaction = vi.fn<CompactionRunService['execute']>(
+      (_job, _client, _signal) => {
+        abort.abort(RUN_TIMEOUT_ABORT_REASON);
+
+        return Promise.reject(new Error('worker timed out'));
+      },
+    );
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      models: { createClient: vi.fn().mockReturnValue({}) },
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+      aborts: {
+        register: vi.fn().mockReturnValue(abort),
+        unregister: vi.fn(),
+      },
+      compactionRun: { execute: executeCompaction },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      runId: job.runId,
+      chatId: job.chatId,
+      userId: job.userId,
+      modelId: job.modelId,
+    });
+
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      runId: job.runId,
+      userId: job.userId,
+      status: 'expired',
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      runPayload: {
+        status: 'expired',
+        message: 'Run timed out: exceeded its wall-clock budget.',
+      },
+      error: { message: 'Run timed out: exceeded its wall-clock budget.' },
+    });
+  });
 });
 
 const ONE_SECOND_MS = 1000;
