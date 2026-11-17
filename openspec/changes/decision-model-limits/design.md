@@ -129,8 +129,9 @@ four requests in flight, one run per variant plus a repeat as the noise floor:
   the fixtures cannot separate layouts on quality. One run, one injection
   phrasing, one model. The per-card variant reused llame's keyed template, not
   TypeSafe's `{ query, candidate }` pair shape. The eval script was a one-off
-  and its raw output is not committed; the implementation layer records the
-  injection and reversed-order cases through `ranking:record`.
+  and its raw output is not committed; the implementation layer adds the
+  reversed-order `ranking:record` variant and the fixtures layer records the
+  injection case.
 
 ### OpenRouter decision routes
 
@@ -148,9 +149,13 @@ Measured on 2026-11-17 with `typesafe/jev-1.14` on one OpenRouter key:
   one System One body and differ only in path. OMP models the alpha route as
   its own `openrouter-decisions` dialect for the same reason: it adds image
   parts in `state` and a billed `cost`, neither of which llame sends or needs.
-- Neither route returns `truncated` or `state_tokens_dropped`, even at 78k
-  input tokens, above Jev's documented 64k per-request ceiling. On OpenRouter
-  the declared or default token limits are the only guard.
+- Neither route returned `truncated` or `state_tokens_dropped`. The largest
+  probe, 78k input tokens, stayed inside OpenRouter's 262k Jev window, so it
+  shows the fields are absent on success, not what OpenRouter reports when it
+  cuts. Treat the declared or default token limits as the only guard there.
+- The two 64-card rows are different requests (233,710 and 259,018 bytes:
+  the probe's `rg` card order varied between runs), so their token counts do
+  not compare the routes.
 - OpenAI and Gemini Decisions also post to a `/decisions` path but use other
   bodies (`input`, ordered predicates, positional keys), so a shared path is
   not a shared wire.
@@ -267,8 +272,8 @@ tokens and many round trips) and a per-model layout field (no evidence yet).
 
 **G8. A card that alone exceeds a limit is cut to fit (revised).** The lane
 sends the longest code-point prefix of the card text that fits, cut after key
-replacement. When the state without any card text already exceeds the limit,
-nothing can fit, so the call is `unavailable` with a new lane reason,
+replacement. When not even one code point of a card fits beside the shared
+state, nothing can fit, so the call is `unavailable` with a new lane reason,
 `state_too_large`, and logs 0 requests. Today an empty request list reports
 `upstream_error`, which would misstate the cause. A 2,000-unit grep objective
 alone estimates about 950 tokens, so this case is real on 512- and 1,024-token
@@ -278,10 +283,12 @@ members).
 **G11. One call judges at most its first 256 cards (changed).** The
 grilling chose no per-call cap, on the premise that the tool deadline leaves an
 unjudged tail. The review showed that premise false: a deadline during ranking
-fails the whole tool call, and `grep` can send thousands of cards, which at 32
-per request and four slots becomes dozens of queued waves. A fixed lane
-constant of 256, the old single-request size, bounds a call to eight requests
-when 32 cards fit per request: two waves at the default slots on Jev. The tail keeps its canonical order
+fails the whole tool call, and `grep` can send thousands of cards. At the
+default 32 slots, 3,000 cards are about 94 requests in three waves, and on a
+member that declares one slot or fits a few cards per request they are dozens
+to hundreds of sequential waves. A fixed lane constant of 256, the old
+single-request size, bounds a call to eight requests when 32 cards fit per
+request, one wave at the default slots. The tail keeps its canonical order
 unjudged, which the tool-result-rendering contract already places last. It is
 a lane constant, not a tool option, so the non-goal of a configurable item
 cap stands. It binds only the decision lane; the rerank lane keeps its
@@ -290,8 +297,9 @@ deadline) and leaving the call unbounded.
 
 Cut-to-fit and the existing `cardBound` cut are both exceptions to the
 canonical rule that a card's text is verbatim except for key replacement. The
-requirement `A card that alone exceeds the limit is cut to fit` names the new cut; the
-older wording predates both cuts and is left for the requirement owner.
+requirement `A card that alone exceeds the limit is cut to fit` names the new cut,
+and this change modifies `Each request carries the criterion and its cards`
+and `Cards are judged by a fixed rubric` to name both cuts as exceptions.
 
 **G12. Canonical order in production.** The order effect is measurable but
 moved one rank in the eval; shuffling only randomizes a bias and makes
@@ -358,5 +366,7 @@ No data or API migration. Configuration migration is required: every
 `decisionModels[]` and `rerankModels[]` entry renames `model` to
 `providerModelId`, or startup fails naming the entry. Otherwise an existing
 configuration gets the default limits and concurrency; a small self-hosted
-member should add `limits` in the same deploy. Rollback is a revert of the implementation layer;
+member should add `limits` in the same deploy. An `openrouter` decision entry
+that sets `"wire": "system-one"` moves from `/api/alpha/decisions` to
+`/api/v1/systemone`; remove the override to keep the alpha route. Rollback is a revert of the implementation layer;
 no persisted state depends on the new fields.

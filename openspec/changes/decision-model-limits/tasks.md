@@ -39,7 +39,7 @@ master
 ## 2. decision-wires
 
 - [ ] 2.1 Create `decision-model-limits/decision-wires` from `proposal` with `$gh-stack`.
-- [ ] 2.2 Add `openrouter-decisions` to the decision wires in `provider-routing.ts` and the schema `modelWire` enum; make `decisionEndpoint` select the path from the resolved wire; keep `openrouter`'s default; verify unit tests for every scenario of `The resolved decision wire selects the endpoint` and `Two decision models on one account use different routes`, and that `openai-codex` and `opencode-go` still reject both wires.
+- [ ] 2.2 Add `openrouter-decisions` to the decision wires in `provider-routing.ts` and the schema `modelWire` enum; make `decisionEndpoint` select the path from the resolved wire; change `openrouter`'s decision default from `system-one` to `openrouter-decisions` so its default route stays `/alpha/decisions`; extend the nonblank-key check to both decision wires; verify unit tests for every scenario of `The resolved decision wire selects the endpoint` and `Two decision models on one account use different routes`, that `openai-codex` and `opencode-go` still reject both wires, and that a keyless `openrouter` decision entry fails startup; note in `CHANGELOG.md` that an explicit `wire: "system-one"` on an `openrouter` account moves from `/alpha/decisions` to `/api/v1/systemone`.
 - [ ] 2.3 Commit the 2026-11-17 captured responses from both OpenRouter routes as client fixtures and replay them through the decision client; verify both parse to the same answers and usage.
 - [ ] 2.4 Update `docs/product/operator/decisions.md`, `docs/product/operator/providers/routing.md`, the JSON schema descriptions, and the dated `CHANGELOG.md` entry.
 - [ ] 2.5 Run api lint, typecheck, focused unit tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish with `$gh-stack`; SR; mark ready; GR; update the Project.
@@ -48,7 +48,7 @@ master
 
 - [ ] 3.1 Create `decision-model-limits/catalog-rename` from `decision-wires` with `$gh-stack`.
 - [ ] 3.2 Rename `model` to `providerModelId` in `decisionModels[]` and `rerankModels[]`: schema, types, loader, diagnostics, `decisions.service.ts`, `ranking/record.ts`, and every test and config fixture; keep a tool's `rerank.model`; verify unit tests for `Decision model catalog entries carry a provider model id`, `Decision model catalog fields accept interpolation`, `The rerank catalog names models by id`, and `A rerank call reports scores, usage, and cost`, including startup failure for the former field.
-- [ ] 3.3 Update `docs/product/operator/decisions.md`, `apps/api/llame.config.jsonc.example`, and the dated `CHANGELOG.md` entry with a **Breaking** note.
+- [ ] 3.3 Update `docs/product/operator/decisions.md`, `docs/product/operator/providers/routing.md`, `apps/api/llame.config.jsonc.example`, and the dated `CHANGELOG.md` entry with a **Breaking** note.
 - [ ] 3.4 Run api lint, typecheck, focused unit tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish with `$gh-stack`; SR; mark ready; GR; update the Project.
 
 ## 4. impl

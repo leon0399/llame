@@ -6,7 +6,7 @@ The decision lane sizes every request by one constant, 256 cards, whatever the
 model behind the catalog entry accepts, and sends all split requests at once
 ([#1717](https://github.com/leon0399/llame/issues/1717)). By llame's own
 estimate a full 256-card grep request is about 34k tokens per question and 73k
-per request: near Jev's documented 32k per-question and 64k per-request ceilings,
+per request: above Jev's documented 32k per-question and 64k per-request ceilings,
 and far past the ~32,000 bytes at which OpenRouter moves Jev to its slower
 long-context mode. A small self-hosted member fails harder.
 `laya-multilingual` behind a LiteLLM gateway takes 1,024 tokens per question.
@@ -28,7 +28,7 @@ endpoint, and both catalogs call the provider's model `model` instead of
 - Each `decisionModels[]` entry can declare optional `limits`:
   `perQuestionContextTokens` (state plus one question),
   `perRequestContextTokens` (state plus every question) and
-  `maxQuestionsPerRequest`, and `maxConcurrentRequests`. The token names follow TypeSafe's
+  `maxQuestionsPerRequest` and `maxConcurrentRequests`. The token names follow TypeSafe's
   `per_question_context` and `per_request_context`. An omitted limit uses a
   default: 8,192 per question and 32,768 per request (or the per-question
   limit when larger), with no question default.
