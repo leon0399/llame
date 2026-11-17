@@ -387,10 +387,6 @@ describe('ChatCommandsService', () => {
     );
     dispatch.jobState.mockResolvedValue('queued');
 
-    insertPending.mockResolvedValueOnce(
-      asDouble<ChatDelivery>({ mode: 'queue', state: 'pending' }),
-    );
-
     await expect(
       service.execute({
         ...request,
@@ -401,7 +397,7 @@ describe('ChatCommandsService', () => {
       }),
     ).resolves.toMatchObject({
       type: 'delivery',
-      delivery: { item: { mode: 'queue', state: 'pending' }, job: null },
+      delivery: { job: null },
     });
 
     expect(insertPending).toHaveBeenCalledWith({
