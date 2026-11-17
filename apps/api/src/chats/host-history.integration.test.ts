@@ -467,6 +467,23 @@ describe('seeded host history boundaries', () => {
     expect(
       previews.find((row) => row.chat.id === chat.id)?.lastMessage?.id,
     ).toBe(reply.id);
+
+    const continuation = await tenantDb.runAs(owner, (tx) =>
+      new MessagesRepository(tx).create({
+        chatId: chat.id,
+        role: 'user',
+        parts: [
+          createCompactionContinueItem({
+            runId: randomUUID(),
+            quote: 'CONTINUE_SEARCH_EVIDENCE_TOKEN',
+          }),
+        ],
+      }),
+    );
+
+    expect(JSON.stringify(continuation.parts)).toContain(
+      'CONTINUE_SEARCH_EVIDENCE_TOKEN',
+    );
     await new SearchIndexService(tenantDb).reindexChat(chat.id, owner);
 
     const evidence = await tenantDb.runAs(owner, (tx) =>
