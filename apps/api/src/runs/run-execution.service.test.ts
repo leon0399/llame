@@ -21921,64 +21921,80 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
   });
 
-  it('summarizes a compact command from the closed step reply', async () => {
-    mockNormalExecutionRepositories();
+  it.each([undefined, 'high'] as const)(
+    'summarizes a compact command from the closed step reply with effort %s',
+    async (effort) => {
+      const repositories = mockNormalExecutionRepositories();
+      repositories.markStarted.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+        ...(effort !== undefined && { effort }),
+      });
 
-    const compact = {
-      ...pendingItem,
-      parts: [{ type: 'text', text: '/compact keep the requested details' }],
-    };
+      const compact = {
+        ...pendingItem,
+        parts: [{ type: 'text', text: '/compact keep the requested details' }],
+      };
 
-    const historyRows = [
-      { ...userMessage, seq: 1 },
-      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
-      { ...userMessage, id: deliveredId, seq: 3 },
-    ];
+      const historyRows = [
+        { ...userMessage, seq: 1 },
+        { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+        { ...userMessage, id: deliveredId, seq: 3 },
+      ];
 
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
-      historyRows,
-    );
-    vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'listPending',
-    ).mockResolvedValue([compact]);
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+        historyRows,
+      );
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'listPending',
+      ).mockResolvedValue([compact]);
 
-    const signal = vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'stepEndSignal',
-    );
+      const signal = vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'stepEndSignal',
+      );
 
-    const segment = makeSegmentClient();
-    const execution = makeExecutionService(segment.client);
+      const segment = makeSegmentClient();
+      const execution = makeExecutionService(segment.client);
 
-    const computeBoundarySummary = vi.spyOn(
-      execution.compaction,
-      'computeBoundarySummary',
-    );
+      const computeBoundarySummary = vi.spyOn(
+        execution.compaction,
+        'computeBoundarySummary',
+      );
 
-    await execution.service.executeRun({
-      ...executionInput(segment.client),
-      userMessage: {
-        ...userMessage,
-        seq: 4,
-        parts: [{ type: 'text', text: 'current request' }],
-      },
-    });
-    const options = segment.calls[0];
-    signal.mockResolvedValueOnce('delivery');
-    await options?.stopWhenExtra?.();
-    serveDelivery([compact]);
-    await options?.onFinish?.(finishToolCalls);
+      await execution.service.executeRun({
+        ...executionInput(segment.client),
+        userMessage: {
+          ...userMessage,
+          seq: 4,
+          parts: [{ type: 'text', text: 'current request' }],
+        },
+      });
+      const options = segment.calls[0];
+      signal.mockResolvedValueOnce('delivery');
+      await options?.stopWhenExtra?.();
+      serveDelivery([compact]);
+      await options?.onFinish?.(finishToolCalls);
 
-    expect(computeBoundarySummary).toHaveBeenCalledOnce();
-    expect(computeBoundarySummary.mock.calls[0]?.[0]).toMatchObject({
-      plan: { uptoSeq: 4 },
-      focus: 'keep the requested details',
-    });
-    expect(computeBoundarySummary.mock.calls[0]?.[0]).not.toHaveProperty(
-      'effort',
-    );
-  });
+      expect(computeBoundarySummary).toHaveBeenCalledOnce();
+      expect(computeBoundarySummary.mock.calls[0]?.[0]).toMatchObject({
+        plan: { uptoSeq: 4 },
+        focus: 'keep the requested details',
+      });
+
+      if (effort === undefined) {
+        expect(computeBoundarySummary.mock.calls[0]?.[0]).not.toHaveProperty(
+          'effort',
+        );
+      } else {
+        expect(computeBoundarySummary.mock.calls[0]?.[0]).toHaveProperty(
+          'effort',
+          effort,
+        );
+      }
+    },
+  );
 
   it('stops after a tool-call step whose attempt has a suspension receipt', async () => {
     const spies = mockNormalExecutionRepositories();
