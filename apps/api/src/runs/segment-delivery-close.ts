@@ -77,7 +77,11 @@ export type BoundaryDelivery =
       compaction: NonNullable<DeliveryInput['boundaryCompaction']>;
     }
   /** No pending item remained: the transaction wrote nothing. */
-  | { kind: 'nothing-pending'; compactionFailed?: true }
+  | {
+      kind: 'nothing-pending';
+      compactionFailed?: true;
+      compactionDisabled?: true;
+    }
   /** The attempt was superseded or the Run is terminal. */
   | { kind: 'fenced' }
   /** A cancellation is recorded: the items stay pending. */
@@ -163,6 +167,7 @@ export type DeliveryInput = {
     summary: CompactionSummary | null;
     quote: string | null;
     stepBudgetUsed: number;
+    automatic?: true;
     finalAnswer?: true;
     publishCheckpoint: (tx: Db, reply: Message) => Promise<string>;
   };

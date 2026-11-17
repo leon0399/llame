@@ -160,32 +160,39 @@ export async function deliverPendingSteering(
     userId,
   );
 
-  if (items.length === 0) return { kind: 'nothing-pending' };
+  if (items.length === 0 && input.boundaryCompaction?.automatic !== true) {
+    return { kind: 'nothing-pending' };
+  }
 
   return finishDelivery(tx, input, locked, items);
 }
 
-async function settleFailedCompaction(
-  tx: Db,
-  locked: Run,
-  commandItems: ReadonlyArray<ChatDelivery>,
-  live: DeliveryInput['live'],
-): Promise<void> {
+async function settleFailedCompaction(input: {
+  tx: Db;
+  locked: Run;
+  commandItems: ReadonlyArray<ChatDelivery>;
+  live: DeliveryInput['live'];
+  automatic: boolean;
+}): Promise<void> {
+  const { tx, locked, commandItems, live, automatic } = input;
+
+  const partType = automatic
+    ? 'data-compaction-disabled'
+    : 'data-compaction-failed';
+
+  const eventType = automatic
+    ? 'run.compaction_disabled'
+    : 'run.compaction_failed';
+
   if (
     live &&
-    !live.parts.some(
-      (part) => isRecord(part) && part['type'] === 'data-compaction-failed',
-    )
+    !live.parts.some((part) => isRecord(part) && part['type'] === partType)
   ) {
-    live.parts.push({ type: 'data-compaction-failed', data: {} });
+    live.parts.push({ type: partType, data: {} });
   }
 
   await markCompactItemsDelivered(tx, commandItems, locked.userId, locked.id);
-  await new RunEventsRepository(tx).append(
-    locked.id,
-    'run.compaction_failed',
-    {},
-  );
+  await new RunEventsRepository(tx).append(locked.id, eventType, {});
 }
 
 function compactCommandItems(
@@ -205,12 +212,13 @@ async function settleFailedCompactionDelivery(input: {
   commandItems: ReadonlyArray<ChatDelivery>;
   items: ReadonlyArray<ChatDelivery>;
 }): Promise<BoundaryDelivery> {
-  await settleFailedCompaction(
-    input.tx,
-    input.locked,
-    input.commandItems,
-    input.delivery.live,
-  );
+  await settleFailedCompaction({
+    tx: input.tx,
+    locked: input.locked,
+    commandItems: input.commandItems,
+    live: input.delivery.live,
+    automatic: input.delivery.boundaryCompaction?.automatic === true,
+  });
 
   const ordinary = await finishOrdinaryDelivery({
     tx: input.tx,
@@ -220,7 +228,9 @@ async function settleFailedCompactionDelivery(input: {
   });
 
   return ordinary.kind === 'nothing-pending'
-    ? { kind: 'nothing-pending', compactionFailed: true }
+    ? input.delivery.boundaryCompaction?.automatic === true
+      ? { kind: 'nothing-pending', compactionDisabled: true }
+      : { kind: 'nothing-pending', compactionFailed: true }
     : ordinary;
 }
 
@@ -401,7 +411,9 @@ async function attemptCompactionDelivery(
     compaction.finalAnswer === true,
   );
 
-  if (commandItems.length === 0) return undefined;
+  if (commandItems.length === 0 && compaction.automatic !== true) {
+    return undefined;
+  }
 
   return settleCompactionDelivery({
     tx,

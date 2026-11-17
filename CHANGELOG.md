@@ -28,6 +28,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   sets `"wire": "system-one"` therefore moves from `/api/alpha/decisions` to
   `/api/v1/systemone`; remove the override to keep the alpha route. See
   [decisions](docs/product/operator/decisions.md).
+- Automatically compact long tool loops at step boundaries, and stop retrying when
+  compaction fails or does not make enough progress.
+
 - Compact a `/compact` command that wakes a Run waiting for a build job before
   the woken attempt's first model request, then continue from the checkpoint.
 

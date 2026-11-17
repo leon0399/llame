@@ -92,6 +92,10 @@ function partEvents(part: unknown, index: number): Array<RunEventLike> {
     return [{ eventType: 'run.compaction_failed', payload: {} }];
   }
 
+  if (type === 'data-compaction-disabled') {
+    return [{ eventType: 'run.compaction_disabled', payload: {} }];
+  }
+
   if (type === 'data-cap-notice') {
     const data = part['data'];
     const stepsUsed = isRecord(data) ? data['stepsUsed'] : undefined;

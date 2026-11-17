@@ -98,6 +98,7 @@ import {
 } from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { readCompactionSet } from '../compaction/boundary-compaction';
+import { automaticBoundaryThresholdReached } from '../compaction/automatic-boundary-trigger';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
@@ -885,6 +886,20 @@ export function expiredRunMessage(signal: AbortSignal | undefined): string {
  * and DB-free — so the tagging is unit-testable without the full executeRun
  * path.
  */
+function terminalStatus(
+  signal: AbortSignal | undefined,
+  finishReason: string,
+  stopped: string | undefined,
+): TerminalRunStatus {
+  if (signal?.aborted) return classifyAbortedRun(signal);
+
+  if (finishReason === 'error') return 'failed';
+
+  if (stopped === 'cancel') return 'cancelled';
+
+  return 'completed';
+}
+
 export function classifyAbortedRun(
   signal: AbortSignal | undefined,
 ): 'cancelled' | 'expired' | 'failed' {
@@ -1804,6 +1819,101 @@ export class RunExecutionService {
     });
   }
 
+  private async automaticCompactionState(
+    input: ExecuteRunInput,
+    deliveryEvents: ReadonlyArray<{ payload: unknown }>,
+  ): Promise<{
+    compactionDisabledAtStart: boolean;
+    startsAfterCompaction: boolean;
+  }> {
+    const disabledEvents = await this.tenantDb.runAs(input.userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
+        eventTypes: ['run.compaction_disabled'],
+      }),
+    );
+
+    const lastDelivery = deliveryEvents.at(-1);
+
+    return {
+      compactionDisabledAtStart: disabledEvents.length > 0,
+      startsAfterCompaction:
+        lastDelivery !== undefined &&
+        isRecord(lastDelivery.payload) &&
+        (lastDelivery.payload['cause'] === 'compaction' ||
+          lastDelivery.payload['checkpointId'] !== undefined),
+    };
+  }
+
+  private async automaticCompactionDueAtBoundary(input: {
+    hasCompletedTools: boolean;
+    disabled: boolean;
+    hasBoundary: boolean;
+    replyParts: ReadonlyArray<MessagePart>;
+    latestRequestContextTokens: number | undefined;
+    requestMessages: PreparedExecutionContext['messages'];
+    system: string;
+    toolDeclarations: PreparedExecutionContext['toolDeclarations'];
+    client: ExecuteRunInput['client'];
+    media: RunMediaResolver;
+  }): Promise<boolean> {
+    if (!input.hasCompletedTools || input.disabled || !input.hasBoundary) {
+      return false;
+    }
+
+    const projected = projectStoredReplyParts(input.replyParts, {
+      privateParts: true,
+      mediaKey: continuedMediaKey,
+    });
+
+    const mediaContext = this.mediaAdmissionContext(input.client);
+
+    const sizingMedia: RunMediaResolver = {
+      ...input.media,
+      retainedMedia: new Map([
+        ...input.media.retainedMedia,
+        ...projected.retainedMedia,
+      ]),
+    };
+
+    const stepToolResultMedia = await loadMediaSizing(
+      projected.messages,
+      sizingMedia,
+      mediaContext,
+    );
+
+    const nextRequestMedia =
+      input.latestRequestContextTokens === undefined
+        ? await loadMediaSizing(
+            [...input.requestMessages, ...projected.messages],
+            sizingMedia,
+            mediaContext,
+          )
+        : undefined;
+
+    return automaticBoundaryThresholdReached({
+      latestRequestContextTokens: input.latestRequestContextTokens,
+      system: input.system,
+      requestMessages: input.requestMessages,
+      stepToolResults: projected.messages,
+      toolDeclarations: input.toolDeclarations,
+      stepToolResultMedia,
+      nextRequestMedia,
+      thresholdTokens: resolveCompactionThreshold({
+        explicitThresholdTokens: input.client.compactionThresholdTokens,
+        contextWindowTokens: input.client.contextWindowTokens,
+      }),
+    });
+  }
+
+  private async settleAbortedAttempt(
+    input: ExecuteRunInput,
+    attemptId: string,
+  ): Promise<void> {
+    if (input.abortSignal?.aborted) {
+      await this.settleAbortedRun(input, attemptId);
+    }
+  }
+
   private async executeAttempt(attempt: {
     input: ExecuteRunInput;
     nativeAbort: AbortController | undefined;
@@ -1830,13 +1940,21 @@ export class RunExecutionService {
 
     const { client } = input;
 
-    const stepBudgetOffset = await this.tenantDb
-      .runAs(input.userId, (tx) =>
-        new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
-          eventTypes: ['run.delivered'],
-        }),
-      )
-      .then(readCompactionStepBudget);
+    const deliveryEvents = await this.tenantDb.runAs(input.userId, (tx) =>
+      new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
+        eventTypes: ['run.delivered'],
+      }),
+    );
+
+    const stepBudgetOffset = readCompactionStepBudget(deliveryEvents);
+
+    const automaticCompactionState = await this.automaticCompactionState(
+      input,
+      deliveryEvents,
+    );
+
+    const { compactionDisabledAtStart, startsAfterCompaction } =
+      automaticCompactionState;
 
     // A Continue Run starts from the kept parts its admission recorded, in the
     // same transaction as its own row (turn-actions D5). Every later read of
@@ -2018,6 +2136,7 @@ export class RunExecutionService {
       throw error;
     }
 
+    const compactionAttemptStarted = wakeCompaction || startsAfterCompaction;
     const { system, messages, untitled, tools: executableTools } = prepared;
 
     const boundExecutables = new Map<string, AttemptToolBinding>(
@@ -2251,6 +2370,17 @@ export class RunExecutionService {
 
         if (!recorded) progressWriteFailed = true;
       });
+    };
+
+    const disableAutomaticCompaction = (): void => {
+      if (automaticCompactionDisabled) return;
+
+      automaticCompactionDisabled = true;
+      assistantPartCollector.compactionDisabled({
+        type: 'data-compaction-disabled',
+        data: {},
+      });
+      enqueueEvent('run.compaction_disabled', {});
     };
 
     // Each buffered `model.delta` event carries the adapter part id of the
@@ -2589,6 +2719,7 @@ export class RunExecutionService {
       }
 
       settledToolCallIds.add(toolCallId);
+      stepToolsCompleted += 1;
       const open = openToolCalls.get(toolCallId);
       const permission = open?.permission;
       const derivedDecisions = open?.derivedDecisions;
@@ -3438,7 +3569,47 @@ export class RunExecutionService {
     // and one more whenever a step end found nothing left to deliver), so the
     // abort listener and the workspace hold belong to the call.
     let endWorkspaceAttempt = noop;
-    let stopCause: 'cancel' | 'delivery' | 'suspend' | undefined;
+    let stopCause: 'cancel' | 'delivery' | 'suspend' | 'compact' | undefined;
+    let automaticCompactionDisabled = compactionDisabledAtStart;
+    let boundaryCallMessages: typeof messages = messages;
+    let stepResultStart = 0;
+    let stepToolsCompleted = 0;
+
+    const boundaryPlan = (): CompactionPlan | null => {
+      const rows = attemptContext.historyRows;
+
+      const plan = planCompactionCheckpoint({
+        rows: toStoredMessages(rows),
+        boundarySeq: attemptContext.latestCheckpoint?.absorbedThroughSeq ?? 0,
+        triggeringUserSeq: input.userMessage.seq + 1,
+      });
+
+      return plan === null
+        ? null
+        : { ...plan, uptoSeq: Math.max(0, ...rows.map((row) => row.seq)) + 1 };
+    };
+
+    const automaticCompactionDueAtBoundary = async (): Promise<boolean> => {
+      const projectedParts = assistantPartCollector
+        .parts()
+        .slice(stepResultStart);
+
+      return this.automaticCompactionDueAtBoundary({
+        hasCompletedTools: stepToolsCompleted > 0,
+        disabled: automaticCompactionDisabled,
+        hasBoundary:
+          stepToolsCompleted > 0 &&
+          !automaticCompactionDisabled &&
+          boundaryPlan() !== null,
+        replyParts: projectedParts,
+        latestRequestContextTokens: requestUsageReceipts.at(-1)?.inputTokens,
+        requestMessages: boundaryCallMessages,
+        system,
+        toolDeclarations: prepared.toolDeclarations,
+        client,
+        media,
+      });
+    };
 
     const suspendedByThisAttempt = async (tx: Db): Promise<boolean> => {
       const events = await new RunEventsRepository(tx).listByRunId(
@@ -3473,7 +3644,13 @@ export class RunExecutionService {
         }),
       );
 
-      return stopCause !== undefined;
+      if (stopCause !== undefined) return true;
+
+      if (!(await automaticCompactionDueAtBoundary())) return false;
+
+      stopCause = 'compact';
+
+      return true;
     };
 
     const suspendPendingWait = async (
@@ -3563,6 +3740,8 @@ export class RunExecutionService {
 
       const partsBefore = assistantPartCollector.parts().length;
       let stepsStarted = 0;
+      boundaryCallMessages = callMessages;
+      stepResultStart = partsBefore;
 
       // The stop is a delivery with cause `interrupt` (run-steering D4): the
       // reply closes `aborted`, and the Run stays live on the delivered
@@ -3580,12 +3759,15 @@ export class RunExecutionService {
           stoppedCalls?: Array<StoppedCall>;
           baselines?: FirstEpochBaselines;
           finalAnswer?: true;
+          automatic?: true;
         },
       ): Promise<BoundaryDelivery['kind']> => {
         const { telemetry } = modelCompleted;
 
         const boundaryCompaction =
-          stopCause === 'delivery' || extra.stoppedCalls !== undefined
+          stopCause === 'delivery' ||
+          stopCause === 'compact' ||
+          extra.stoppedCalls !== undefined
             ? await this.prepareBoundaryCompaction({
                 run: input,
                 attemptId,
@@ -3603,6 +3785,10 @@ export class RunExecutionService {
                   stepBase,
                   stepsStarted,
                   wakeStepOffset,
+                }),
+                ...(stopCause === 'compact' && {
+                  compactionSet: { ids: [], focus: null },
+                  automatic: true as const,
                 }),
                 ...extra,
               })
@@ -3631,6 +3817,17 @@ export class RunExecutionService {
             }),
           ),
         );
+
+        if (
+          boundary.kind === 'nothing-pending' &&
+          boundary.compactionDisabled === true
+        ) {
+          automaticCompactionDisabled = true;
+          assistantPartCollector.compactionDisabled({
+            type: 'data-compaction-disabled',
+            data: {},
+          });
+        }
 
         if (
           boundary.kind === 'nothing-pending' &&
@@ -3794,7 +3991,22 @@ export class RunExecutionService {
 
         const result = client.streamText({
           onRequestUsage: (usage, requestGenerationMs) => {
+            const firstReceipt = requestUsageReceipts.length === 0;
             requestUsageReceipts.push(usage);
+
+            if (
+              firstReceipt &&
+              compactionAttemptStarted &&
+              usage.inputTokens !== undefined &&
+              usage.inputTokens >=
+                resolveCompactionThreshold({
+                  explicitThresholdTokens: client.compactionThresholdTokens,
+                  contextWindowTokens: client.contextWindowTokens,
+                })
+            ) {
+              disableAutomaticCompaction();
+            }
+
             generationMs += requestGenerationMs;
           },
           system,
@@ -3830,6 +4042,9 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
+              boundaryCallMessages = messages;
+              stepResultStart = assistantPartCollector.parts().length;
+              stepToolsCompleted = 0;
               waitCallIdInStep = undefined;
               deferredWaitStep = false;
               stepsStarted += 1;
@@ -3861,7 +4076,10 @@ export class RunExecutionService {
 
               // Recomputed from the step's own messages on every step, so a
               // retained override is replaced rather than accumulated (D1).
-              return inRunItems.applyToStep(messages);
+              const preparedMessages = inRunItems.applyToStep(messages);
+              boundaryCallMessages = preparedMessages ?? messages;
+
+              return preparedMessages;
             },
             // Fires once, the moment the model client disables tools for
             // the next step because maxStepsPerRun tool-requesting steps
@@ -4241,17 +4459,11 @@ export class RunExecutionService {
             const stopped =
               finishReason === 'tool-calls' ? stopCause : undefined;
 
-            let status: TerminalRunStatus;
-
-            if (input.abortSignal?.aborted) {
-              status = classifyAbortedRun(input.abortSignal);
-            } else if (finishReason === 'error') {
-              status = 'failed';
-            } else if (stopped === 'cancel') {
-              status = 'cancelled';
-            } else {
-              status = 'completed';
-            }
+            let status = terminalStatus(
+              input.abortSignal,
+              finishReason,
+              stopped,
+            );
 
             // Drain buffered reasoning + deltas BEFORE the terminal events so the
             // log reads in stream order: …model.delta, model.completed, run.completed.
@@ -4492,7 +4704,10 @@ export class RunExecutionService {
               }
             };
 
-            if (stopped !== 'delivery' || status !== 'completed') {
+            if (
+              (stopped !== 'delivery' && stopped !== 'compact') ||
+              status !== 'completed'
+            ) {
               await settleRun(status);
 
               return;
@@ -4507,7 +4722,10 @@ export class RunExecutionService {
 
             const boundaryKind = await deliverAtBoundary(
               { usage, finishReason, telemetry: closingTelemetry },
-              { baselines: attemptContext },
+              {
+                baselines: attemptContext,
+                ...(stopped === 'compact' && { automatic: true as const }),
+              },
             );
 
             if (boundaryKind === 'nothing-pending') {
@@ -6975,6 +7193,7 @@ export class RunExecutionService {
     keptPartCount: number;
     stepBudgetUsed: number;
     compactionSet?: Awaited<ReturnType<typeof readCompactionSet>>;
+    automatic?: true;
     finalAnswer?: true;
   }): Promise<DeliveryInput['boundaryCompaction']> {
     const activeRun = await this.tenantDb.runAs(input.run.userId, (tx) =>
@@ -6991,7 +7210,9 @@ export class RunExecutionService {
         userId: input.run.userId,
       }));
 
-    if (compactionSet.ids.length === 0) return undefined;
+    if (compactionSet.ids.length === 0 && input.automatic !== true) {
+      return undefined;
+    }
 
     const rows = input.context.historyRows;
 
@@ -7051,6 +7272,7 @@ export class RunExecutionService {
       summary,
       quote,
       stepBudgetUsed: input.stepBudgetUsed,
+      ...(input.automatic === true && { automatic: true as const }),
       ...(input.finalAnswer === true && { finalAnswer: true as const }),
       publishCheckpoint: async (tx, reply) => {
         if (summary === null) {

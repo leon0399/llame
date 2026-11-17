@@ -25,6 +25,7 @@ import { notifyRunControl } from '../runs/run-control';
 import { isTerminalRunStatus } from '../runs/run-status';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { type ScriptedStep } from '../runs/scripted-model-step';
+import { type ScriptedBehavior } from '../runs/scripted-model-client';
 import {
   bootWorkerHarness,
   createUser,
@@ -219,11 +220,16 @@ export function useSegmentsFixture(
     seeded: SeededRun,
     steps: ReadonlyArray<ScriptedStep>,
     beforeStep?: (stepIndex: number, seeded: SeededRun) => Promise<void> | void,
+    options?: Pick<
+      Extract<ScriptedBehavior, { kind: 'step-script' }>,
+      'compactionThresholdTokens' | 'requestUsages'
+    >,
   ) {
     const { harness, userId } = state();
     harness.models.register(seeded.modelId, {
       kind: 'step-script',
       steps,
+      ...options,
       ...(beforeStep !== undefined && {
         beforeStep: (index) => beforeStep(index, seeded),
       }),

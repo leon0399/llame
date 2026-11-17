@@ -941,6 +941,18 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('streams a disabled compaction note as a persisted live-reply part', () => {
+    const t = createRunEventTranslator('run-16');
+    t.translate({ eventType: 'model.delta', payload: { text: 'answer' } });
+
+    expect(
+      t.translate({ eventType: 'run.compaction_disabled', payload: {} }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      { type: 'data-compaction-disabled', data: {} },
+    ]);
+  });
+
   it('drops a step-cap event missing its numeric fields', () => {
     const t = createRunEventTranslator('run-14');
     expect(

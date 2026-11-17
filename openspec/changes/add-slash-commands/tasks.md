@@ -177,8 +177,11 @@ where a smaller safe merge point appears.
 
 ## 9. compact-auto
 
-- [ ] 9.1 Add the automatic step-boundary trigger and its progress guard (design D13). Verify "A long tool loop compacts itself", "A final answer does not compact automatically", "Ten compactions in a long Run", "A compaction that does not help", "A failed automatic compaction stops the trigger", and "A segment start does not compact" in a worker integration test with the fake model client and fixed request receipts.
+- [x] 9.1 Add the automatic step-boundary trigger and its progress guard (design D13). Verify "A long tool loop compacts itself", "A final answer does not compact automatically", "Ten compactions in a long Run", "A compaction that does not help", "A failed automatic compaction stops the trigger", and "A segment start does not compact" in a worker integration test with the fake model client and fixed request receipts.
+  - Evidence: `run-boundary-compaction.integration.test.ts` covers `A long tool loop compacts itself`, `A final answer does not compact automatically`, `Ten compactions in a long Run`, `A compaction that does not help disables the automatic trigger`, `A failed automatic compaction stops the trigger`, and `A segment start does not compact automatically`. The full fresh-DB integration matrix across `src/runs`, `src/chats`, `src/compaction`, and `src/jobs` passed 947 tests across 82 files.
 - [ ] 9.2 Render the persisted disabled note on the web, document automatic mid-turn compaction for operators, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - [x] Documentation: add the operator procedure and dated changelog entry.
+  - [ ] Web: render the persisted disabled note on the web.
 - [ ] 9.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
 - [ ] 9.4 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
 

@@ -747,6 +747,7 @@ describe('reconstructDurableAssistant', () => {
       event('reasoning.delta', { text: 'think' }),
       event('run.step_cap_reached', { stepsUsed: 4, maxSteps: 4 }),
       event('run.compaction_failed', {}),
+      event('run.compaction_disabled', {}),
       event('ignored.event', { text: 'not persisted' }),
       event('model.delta', null),
       event('reasoning.delta', { text: 3 }),
@@ -757,6 +758,7 @@ describe('reconstructDurableAssistant', () => {
       { type: 'reasoning', text: 'think' },
       { type: 'data-cap-notice', data: { stepsUsed: 4, maxSteps: 4 } },
       { type: 'data-compaction-failed', data: {} },
+      { type: 'data-compaction-disabled', data: {} },
     ]);
     expect(result.openToolCalls).toEqual(new Map());
   });
