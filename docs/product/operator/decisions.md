@@ -105,11 +105,11 @@ results over time.
 }
 ```
 
-| Field      | Meaning                                                                                                                       |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.                                             |
-| `provider` | A `providers[].id` whose default or explicit model wire is `system-one`. Unknown accounts or unsupported routes fail startup. |
-| `model`    | Model id sent verbatim on the wire.                                                                                           |
+| Field      | Meaning                                                                                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.                                                                                             |
+| `provider` | A `providers[].id` that resolves a decision wire (`system-one` or `openrouter-decisions`) by default or explicit `wire`. Unknown accounts or unsupported routes fail startup. |
+| `model`    | Model id sent verbatim on the wire.                                                                                                                                           |
 
 There is no price field. A request's cost is the cost the wire reports; a wire
 that reports none is recorded as unknown, never as zero.
