@@ -23809,6 +23809,82 @@ describe('RunExecutionService compaction completion', () => {
       ownerUserId: userId,
     });
   });
+  it('does not start pending notices when another completion already won', async () => {
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    mockNormalExecutionRepositories();
+
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+    Object.defineProperty(execution.service, 'finishRunInTransaction', {
+      value: vi.fn().mockResolvedValue({
+        outcome: 'lost',
+        assistantMessage: undefined,
+        promoted: undefined,
+      }),
+    });
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('lost');
+    expect(startAfterRunCompletion).not.toHaveBeenCalled();
+  });
+
+  it('does not start pending notices when completion promotes a queued run', async () => {
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    mockNormalExecutionRepositories();
+
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+    Object.defineProperty(execution.service, 'finishRunInTransaction', {
+      value: vi.fn().mockResolvedValue({
+        outcome: 'won',
+        assistantMessage: undefined,
+        promoted: run,
+      }),
+    });
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(startAfterRunCompletion).not.toHaveBeenCalled();
+  });
+
   it('does not publish a summary when cancellation wins completion', async () => {
     const repositories = mockNormalExecutionRepositories();
 
