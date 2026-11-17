@@ -23857,9 +23857,11 @@ describe('RunExecutionService compaction completion', () => {
     mockNormalExecutionRepositories();
 
     const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
 
     const execution = makeExecutionService(undefined, undefined, undefined, {
       jobNoticeRuns: { startAfterRunCompletion },
+      runDispatch: { dispatch },
     });
 
     mockCompactionCompletionFence(execution, fenced);
@@ -23883,6 +23885,7 @@ describe('RunExecutionService compaction completion', () => {
 
     expect(result.outcome).toBe('won');
     expect(startAfterRunCompletion).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(run);
   });
 
   it('does not publish a summary when cancellation wins completion', async () => {
