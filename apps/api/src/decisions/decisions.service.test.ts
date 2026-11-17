@@ -693,7 +693,7 @@ function configWith(
 }
 
 const CATALOGUE: LlameConfig['decisionModels'] = [
-  { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+  { id: 'jev', provider: 'opencode-decisions', providerModelId: 'jev-1.13' },
 ];
 
 describe('DecisionsService', () => {
@@ -862,13 +862,13 @@ describe('DecisionsService decision wires', () => {
           {
             id: 'alpha',
             provider: 'router',
-            model: 'typesafe/jev-1.14',
+            providerModelId: 'typesafe/jev-1.14',
             wire: 'openrouter-decisions',
           },
           {
             id: 'legacy',
             provider: 'router',
-            model: 'typesafe/jev-1.14',
+            providerModelId: 'typesafe/jev-1.14',
             wire: 'system-one',
           },
         ],
@@ -1105,7 +1105,7 @@ describe('DecisionsService rerank catalogue', () => {
           {
             id: 'rr-fast',
             provider: provider.id,
-            model: 'cohere/rerank-5-fast',
+            providerModelId: 'cohere/rerank-5-fast',
           },
         ],
       },

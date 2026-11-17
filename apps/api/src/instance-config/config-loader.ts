@@ -911,19 +911,23 @@ function resolveRankModel(
     );
   }
 
-  const model = requireNonBlankString(`${base}.model`, entry.model, env);
+  const providerModelId = requireNonBlankString(
+    `${base}.providerModelId`,
+    entry.providerModelId,
+    env,
+  );
 
   const wire = resolveModelWire(
     provider,
     {
       kind,
-      modelId: model,
+      modelId: providerModelId,
       wire: entry.wire,
     },
     base,
   );
 
-  return { id, provider: providerId, model, wire };
+  return { id, provider: providerId, providerModelId, wire };
 }
 
 /**

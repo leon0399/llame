@@ -480,7 +480,7 @@
       "type": "object",
       "additionalProperties": false,
       "description": "One entry of the decision-model catalogue. Referenced by id from a tool's `rerank` block. Every field accepts `{env:...}` and `{path:...}` interpolation and must resolve nonblank; the loader reports a blank value at its `decisionModels[<index>]` path.",
-      "required": ["id", "provider", "model"],
+      "required": ["id", "provider", "providerModelId"],
       "properties": {
         "wire": { "$ref": "#/$defs/modelWire" },
         "id": {
@@ -489,11 +489,11 @@
         },
         "provider": {
           "type": "string",
-          "description": "A `providers[].id` whose `type` is \"system-one\" (boot failure otherwise)."
+          "description": "A `providers[].id` whose default or explicit model wire is a decision wire (boot failure otherwise)."
         },
-        "model": {
+        "providerModelId": {
           "type": "string",
-          "description": "Model id sent verbatim on the wire, e.g. \"~typesafe/jev-latest\", \"typesafe/jev-1.14\", or \"jev-1.13\". The alias is not a revision: the response's `model` is logged, so a moved alias is visible."
+          "description": "Provider model id, sent verbatim as the wire `model`, e.g. \"~typesafe/jev-latest\", \"typesafe/jev-1.14\", or \"jev-1.13\". The alias is not a revision: the response's `model` is logged, so a moved alias is visible."
         }
       }
     },
@@ -501,7 +501,7 @@
       "type": "object",
       "additionalProperties": false,
       "description": "One entry of the rerank-model catalogue (a conventional cross-encoder reranker such as Cohere Rerank). Referenced by id from a tool's `rerank` block, exactly like a decision model; ids are unique across `decisionModels[]` and `rerankModels[]` together. Every field accepts `{env:...}` and `{path:...}` interpolation and must resolve nonblank; the loader reports a blank value at its `rerankModels[<index>]` path.",
-      "required": ["id", "provider", "model"],
+      "required": ["id", "provider", "providerModelId"],
       "properties": {
         "wire": { "$ref": "#/$defs/modelWire" },
         "id": {
@@ -510,11 +510,11 @@
         },
         "provider": {
           "type": "string",
-          "description": "A `providers[].id` whose `type` is \"cohere-rerank\" (boot failure otherwise)."
+          "description": "A `providers[].id` whose default or explicit model wire is \"cohere-rerank\" (boot failure otherwise)."
         },
-        "model": {
+        "providerModelId": {
           "type": "string",
-          "description": "Model id sent verbatim on the wire, e.g. \"rerank-v3.5\" on the Cohere API or \"cohere/rerank-5-fast\" through OpenRouter."
+          "description": "Provider model id, sent verbatim as the wire `model`, e.g. \"rerank-v3.5\" on the Cohere API or \"cohere/rerank-5-fast\" through OpenRouter."
         }
       }
     },

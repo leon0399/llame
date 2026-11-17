@@ -60,10 +60,18 @@ describe('account-level providers', () => {
         },
       ],
       decisionModels: [
-        { id: 'decision', provider: 'account', model: 'typesafe/jev' },
+        {
+          id: 'decision',
+          provider: 'account',
+          providerModelId: 'typesafe/jev',
+        },
       ],
       rerankModels: [
-        { id: 'rerank', provider: 'account', model: 'cohere/rerank-v3.5' },
+        {
+          id: 'rerank',
+          provider: 'account',
+          providerModelId: 'cohere/rerank-v3.5',
+        },
       ],
     });
 
@@ -138,7 +146,9 @@ describe('account-level providers', () => {
     const config = load({
       providers: [{ ...account, type: 'opencode-zen' }],
       models: [{ ...chat, providerModelId: 'claude-sonnet-4-6' }],
-      decisionModels: [{ id: 'decision', provider: 'account', model: 'jev' }],
+      decisionModels: [
+        { id: 'decision', provider: 'account', providerModelId: 'jev' },
+      ],
     });
 
     expect(config.models.map((model) => model.wire)).toEqual([
@@ -180,7 +190,7 @@ describe('account-level providers', () => {
           {
             id: 'decision',
             provider: 'account',
-            model: 'jev',
+            providerModelId: 'jev',
             wire: 'system-one',
           },
         ],
@@ -195,7 +205,7 @@ describe('account-level providers', () => {
         load({
           providers: [{ ...account, key }],
           decisionModels: [
-            { id: 'decision', provider: 'account', model: 'jev' },
+            { id: 'decision', provider: 'account', providerModelId: 'jev' },
           ],
         }),
       ).toThrow('decisionModels[0].wire');
@@ -260,7 +270,7 @@ describe('account-level providers', () => {
         {
           id: 'decision',
           provider: 'account',
-          model: 'jev',
+          providerModelId: 'jev',
           wire: 'openai-responses',
         },
       ],
@@ -270,7 +280,7 @@ describe('account-level providers', () => {
         {
           id: 'rerank',
           provider: 'account',
-          model: 'rank',
+          providerModelId: 'rank',
           wire: 'system-one',
         },
       ],
@@ -337,11 +347,15 @@ describe('provider route boundaries', () => {
         { id: 'account', type: 'openrouter', key: '{env:SHARED_PROVIDER_KEY}' },
       ],
       decisionModels: [
-        { id: 'alpha', provider: 'account', model: 'typesafe/jev-1.14' },
+        {
+          id: 'alpha',
+          provider: 'account',
+          providerModelId: 'typesafe/jev-1.14',
+        },
         {
           id: 'legacy',
           provider: 'account',
-          model: 'typesafe/jev-1.14',
+          providerModelId: 'typesafe/jev-1.14',
           wire: 'system-one',
         },
       ],
@@ -371,7 +385,7 @@ describe('provider route boundaries', () => {
         {
           id: 'decision',
           provider: 'account',
-          model: 'jev',
+          providerModelId: 'jev',
           wire: 'openrouter-decisions',
         },
       ],
@@ -393,7 +407,12 @@ describe('provider route boundaries', () => {
           load({
             providers: [account],
             decisionModels: [
-              { id: 'decision', provider: 'account', model: 'jev', wire },
+              {
+                id: 'decision',
+                provider: 'account',
+                providerModelId: 'jev',
+                wire,
+              },
             ],
           }),
         ).toThrow('decisionModels[0].wire');

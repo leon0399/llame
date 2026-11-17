@@ -1048,7 +1048,11 @@ describe('ranking with a rerank model', () => {
           },
         ],
         rerankModels: [
-          { id: 'rr-fast', provider: 'rerank', model: 'cohere/rerank-5-fast' },
+          {
+            id: 'rr-fast',
+            provider: 'rerank',
+            providerModelId: 'cohere/rerank-5-fast',
+          },
         ],
       },
     });

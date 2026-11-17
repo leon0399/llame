@@ -43,11 +43,15 @@ send the same System One body, so one account can use either route per model:
     { "id": "router", "type": "openrouter", "key": "{env:OPENROUTER_API_KEY}" },
   ],
   "decisionModels": [
-    { "id": "jev", "provider": "router", "model": "typesafe/jev-1.14" },
+    {
+      "id": "jev",
+      "provider": "router",
+      "providerModelId": "typesafe/jev-1.14",
+    },
     {
       "id": "jev-systemone",
       "provider": "router",
-      "model": "typesafe/jev-1.14",
+      "providerModelId": "typesafe/jev-1.14",
       "wire": "system-one",
     },
   ],
@@ -99,17 +103,17 @@ results over time.
     {
       "id": "jev-openrouter",
       "provider": "openrouter-decisions",
-      "model": "~typesafe/jev-latest",
+      "providerModelId": "~typesafe/jev-latest",
     },
   ],
 }
 ```
 
-| Field      | Meaning                                                                                                                                                                       |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.                                                                                             |
-| `provider` | A `providers[].id` that resolves a decision wire (`system-one` or `openrouter-decisions`) by default or explicit `wire`. Unknown accounts or unsupported routes fail startup. |
-| `model`    | Model id sent verbatim on the wire.                                                                                                                                           |
+| Field             | Meaning                                                                                                                                                                       |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.                                                                                             |
+| `provider`        | A `providers[].id` that resolves a decision wire (`system-one` or `openrouter-decisions`) by default or explicit `wire`. Unknown accounts or unsupported routes fail startup. |
+| `providerModelId` | Provider model id, sent verbatim as the wire `model`. The former `model` key fails startup.                                                                                   |
 
 There is no price field. A request's cost is the cost the wire reports; a wire
 that reports none is recorded as unknown, never as zero.
@@ -171,9 +175,10 @@ Self-hosting needs no key: point `baseUrl` at the server and leave `key` out.
 may name an id from either catalogue, so an id is unique across both: a blank
 or repeated id fails startup naming the array-index paths (for example
 `decisionModels[0].id` and `rerankModels[1].id`) and never the value. `id`,
-`provider`, and `model` accept `{env:…}` and `{path:…}` and must resolve
+`provider`, and `providerModelId` accept `{env:…}` and `{path:…}` and must resolve
 nonblank. `provider` must resolve the `cohere-rerank` wire by default or an
-explicit model `wire` override. `model` is sent verbatim.
+explicit model `wire` override. `providerModelId` is sent verbatim as the wire
+`model`.
 
 ```jsonc
 {
@@ -189,7 +194,7 @@ explicit model `wire` override. `model` is sent verbatim.
     {
       "id": "rr-fast",
       "provider": "openrouter-rerank",
-      "model": "cohere/rerank-5-fast",
+      "providerModelId": "cohere/rerank-5-fast",
     },
   ],
 }

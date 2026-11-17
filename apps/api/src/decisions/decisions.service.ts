@@ -620,7 +620,7 @@ export class DecisionsService implements DecisionJudge {
       if (provider === undefined || provider.key === null) continue;
 
       const client = createDecisionClient(provider, {
-        id: entry.model,
+        id: entry.providerModelId,
         wire: entry.wire,
       });
 
@@ -636,7 +636,7 @@ export class DecisionsService implements DecisionJudge {
       const provider = providers.get(entry.provider);
 
       if (provider === undefined) continue;
-      const client = createRerankClient(provider, entry.model);
+      const client = createRerankClient(provider, entry.providerModelId);
 
       const protectedValues = normalizeProtectedValues(
         provider.key === null ? [] : [provider.key],

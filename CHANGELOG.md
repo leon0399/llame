@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-17
 
+- **Breaking**: `decisionModels[].model` and `rerankModels[].model` are now
+  `providerModelId`, matching `models[]` and `embeddingModels[]`. Rename the key
+  in both catalogs before upgrading; an entry that still sets `model` fails
+  startup. A tool's `rerank.model` still names a catalog id. See
+  [decisions](docs/product/operator/decisions.md).
+
 - Let a decision model's `wire` select its endpoint, as chat wires do. The new
   `openrouter-decisions` wire posts to the `/alpha/decisions` sibling of the
   account base and stays the `openrouter` default; `"wire": "system-one"` on

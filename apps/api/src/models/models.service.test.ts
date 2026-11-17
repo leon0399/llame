@@ -234,8 +234,16 @@ describe('ModelsService', () => {
         },
       ],
       decisionModels: [
-        { id: chatModel.id, provider: 'decisions', model: 'jev-1.13' },
-        { id: 'decision-only', provider: 'decisions', model: 'jev-1.14' },
+        {
+          id: chatModel.id,
+          provider: 'decisions',
+          providerModelId: 'jev-1.13',
+        },
+        {
+          id: 'decision-only',
+          provider: 'decisions',
+          providerModelId: 'jev-1.14',
+        },
       ],
     });
 
@@ -264,8 +272,16 @@ describe('ModelsService', () => {
         },
       ],
       rerankModels: [
-        { id: chatModel.id, provider: 'rerank', model: 'rerank-v5.0-fast' },
-        { id: 'rerank-only', provider: 'rerank', model: 'rerank-v5.0-pro' },
+        {
+          id: chatModel.id,
+          provider: 'rerank',
+          providerModelId: 'rerank-v5.0-fast',
+        },
+        {
+          id: 'rerank-only',
+          provider: 'rerank',
+          providerModelId: 'rerank-v5.0-pro',
+        },
       ],
     });
 
