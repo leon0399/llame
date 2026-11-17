@@ -25303,4 +25303,72 @@ describe('RunExecutionService wake boundary preparation', () => {
       finalAnswer: true,
     });
   });
+
+  it('skips boundary compaction when the attempt no longer owns the Run', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: 'stale-attempt',
+    });
+
+    const execution = makeExecutionService();
+    const currentRun = executionInput(createFakeModelClient(['answer']));
+
+    const boundary = await execution.service['prepareBoundaryCompaction']({
+      run: currentRun,
+      attemptId: testAttemptId,
+      context: {
+        historyRows: committedTurn(),
+        latestCheckpoint: undefined,
+        model: testModelEntry,
+      },
+      prepared: {
+        messages: [],
+        system: '',
+        toolDeclarations: [],
+      },
+      effort: undefined,
+      media: undefined,
+      workspaceRoot: { current: () => '/workspace' },
+      replyParts: [],
+      stepBudgetUsed: 0,
+      compactionSet: { ids: ['compact-id'], focus: null },
+    });
+
+    expect(boundary).toBeUndefined();
+    expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
+  });
+
+  it('skips boundary compaction when the compact set is empty', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const execution = makeExecutionService();
+    const currentRun = executionInput(createFakeModelClient(['answer']));
+
+    const boundary = await execution.service['prepareBoundaryCompaction']({
+      run: currentRun,
+      attemptId: testAttemptId,
+      context: {
+        historyRows: committedTurn(),
+        latestCheckpoint: undefined,
+        model: testModelEntry,
+      },
+      prepared: {
+        messages: [],
+        system: '',
+        toolDeclarations: [],
+      },
+      effort: undefined,
+      media: undefined,
+      workspaceRoot: { current: () => '/workspace' },
+      replyParts: [],
+      stepBudgetUsed: 0,
+      compactionSet: { ids: [], focus: null },
+    });
+
+    expect(boundary).toBeUndefined();
+    expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
+  });
 });
