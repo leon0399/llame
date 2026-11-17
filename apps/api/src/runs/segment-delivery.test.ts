@@ -514,6 +514,123 @@ describe('deliverPendingSteering', () => {
     expect(publishCheckpoint).not.toHaveBeenCalled();
   });
 
+  it('publishes a checkpoint and quotes the newest owner message on continuation', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const newestOwnerMessage = {
+      ...second,
+      parts: [{ type: 'text', text: 'Finish the report.' }],
+    };
+
+    const spies = serve({ items: [compact, first, newestOwnerMessage] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-7');
+
+    const result = await deliver({
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: 'fallback quote',
+        stepBudgetUsed: 3,
+        publishCheckpoint,
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(publishCheckpoint).toHaveBeenCalledOnce();
+    const stored = spies.createUser.mock.calls[0]?.[0];
+
+    expect(stored?.parts).toHaveLength(3);
+    expect(stored?.parts.at(-1)).toMatchObject({
+      data: {
+        producer: 'compaction',
+        payload: { quote: 'Finish the report.' },
+      },
+    });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({
+        deliveryIds: [first.id, newestOwnerMessage.id, compact.id],
+        cause: 'steer',
+        checkpointId: 'checkpoint-7',
+        stepBudgetUsed: 3,
+      }),
+    );
+  });
+
+  it('uses the compaction quote when no owner message is delivered', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, jobNotice] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-8');
+
+    await deliver({
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: 'original owner request',
+        stepBudgetUsed: 2,
+        publishCheckpoint,
+      },
+    });
+
+    const stored = spies.createHost.mock.calls[0]?.[0];
+
+    expect(stored?.parts[0]).toMatchObject({
+      data: { payload: { quote: 'original owner request' } },
+    });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'notice' }),
+    );
+  });
+
+  it('does not add a continuation item to a completed final answer', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const ownerMessage = {
+      ...second,
+      parts: [{ type: 'text', text: 'The final request.' }],
+    };
+
+    const spies = serve({ items: [compact, ownerMessage] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-9');
+
+    await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: 'The final request.',
+        stepBudgetUsed: 2,
+        finalAnswer: true,
+        publishCheckpoint,
+      },
+    });
+
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'The final request.' }],
+      }),
+    );
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+  });
+
   it('is fenced when the attempt no longer owns the Run', async () => {
     const spies = serve({ locked: undefined });
 
