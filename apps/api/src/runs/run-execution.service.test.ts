@@ -25463,3 +25463,43 @@ describe('RunExecutionService wake boundary preparation', () => {
     expect(startDelivered).toHaveBeenCalledExactlyOnceWith(delivered);
   });
 });
+
+describe('RunExecutionService wake-compaction fallback context fit', () => {
+  async function prepareWakeFallback(client: ModelClient) {
+    const execution = makeExecutionService(client);
+    mockNormalExecutionRepositories();
+
+    return execution.service['prepareAttemptForFirstStep']({
+      run: executionInput(client),
+      attemptId: testAttemptId,
+      workspacePreparation: { root: undefined, chat, detaching: false },
+      workspaceMcpKey: undefined,
+      dynamicResolver: undefined,
+      effectivePermissionMode: 'default',
+      nativeDeliverySequence: 0,
+      workspaceRootCell: createWorkspaceRootCell('/workspace'),
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      continued: undefined,
+      gitObservation: undefined,
+      firstSegment: false,
+      wakeCompaction: true,
+    });
+  }
+
+  it('rejects an oversized request when a failed wake summary falls back to dispatch', async () => {
+    const client = makeCapturingClient(1).client;
+
+    await expect(prepareWakeFallback(client)).rejects.toThrow(
+      'The complete request still exceeds the target model context window after one compaction.',
+    );
+  });
+
+  it('keeps a fitting request dispatchable after the owner withdraws the compact command', async () => {
+    const client = createFakeModelClient(['answer']);
+
+    const prepared = await prepareWakeFallback(client);
+
+    expect(prepared.request.messages.length).toBeGreaterThan(0);
+  });
+});
