@@ -28,7 +28,7 @@ supported wire. Routing MUST NOT infer a wire from a prefix or from the model
 entry of another provider. Startup MUST use the bundled snapshot without
 network discovery. Go MUST serve chat only, and Zen MUST serve chat and
 decisions. The Codex subscription account MUST use only its fixed Codex
-transport, and no other account can select that transport.
+transport. Another account MUST NOT select that transport.
 
 Wire selection MUST keep the account destination and the protected credentials.
 A decision model MUST use the `system-one` wire or the `openrouter-decisions`
