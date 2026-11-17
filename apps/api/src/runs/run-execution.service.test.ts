@@ -25243,6 +25243,10 @@ describe('RunExecutionService compaction digest resolution', () => {
 });
 
 describe('RunExecutionService wake boundary preparation', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   function boundaryContext(historyRows: Array<Message> = committedTurn()) {
     return {
       system: '',
@@ -25333,6 +25337,95 @@ describe('RunExecutionService wake boundary preparation', () => {
       stepBudgetUsed: 4,
       finalAnswer: true,
     });
+  });
+
+  it('keeps a non-final wake summary free of final-answer metadata and includes its reply', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const summary = checkpointSummary(2);
+    const execution = makeExecutionService();
+    execution.computeBoundarySummary.mockResolvedValue(summary);
+    const currentRun = executionInput(createFakeModelClient(['answer']));
+
+    const prepared = {
+      messages: [{ role: 'user' as const, content: 'history' }],
+      system: 'system prompt',
+      untitled: false,
+      toolDeclarations: [],
+      tools: [],
+    };
+
+    const boundary = await execution.service['prepareBoundaryCompaction']({
+      run: currentRun,
+      attemptId: testAttemptId,
+      context: boundaryContext(),
+      prepared,
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
+      replyParts: [{ type: 'text', text: 'closing answer' }],
+      keptPartCount: 0,
+      stepBudgetUsed: 1,
+      compactionSet: { ids: ['compact-id'], focus: null },
+    });
+
+    expect(boundary).not.toHaveProperty('finalAnswer');
+    expect(execution.computeBoundarySummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        closedReply: [
+          { role: 'user', content: 'history' },
+          {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'closing answer' }],
+          },
+        ],
+      }),
+    );
+    expect(
+      execution.computeBoundarySummary.mock.calls[0]?.[0],
+    ).not.toHaveProperty('effort');
+  });
+
+  it('does not publish a checkpoint when boundary summary generation fails', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const execution = makeExecutionService();
+    execution.computeBoundarySummary.mockRejectedValue(
+      new Error('summary unavailable'),
+    );
+
+    const boundary = await execution.service['prepareBoundaryCompaction']({
+      run: executionInput(createFakeModelClient(['answer'])),
+      attemptId: testAttemptId,
+      context: boundaryContext(),
+      prepared: {
+        messages: [],
+        system: '',
+        untitled: false,
+        toolDeclarations: [],
+        tools: [],
+      },
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
+      replyParts: [],
+      keptPartCount: 0,
+      stepBudgetUsed: 0,
+      compactionSet: { ids: ['compact-id'], focus: null },
+    });
+
+    if (boundary === undefined) throw new Error('Boundary was not prepared.');
+
+    expect(boundary.summary).toBeNull();
+    await expect(
+      boundary.publishCheckpoint(drizzle.mock(), assistantMessage),
+    ).rejects.toThrow('Cannot publish an empty boundary summary.');
   });
 
   it('skips boundary compaction when the attempt no longer owns the Run', async () => {
@@ -25436,6 +25529,43 @@ describe('RunExecutionService wake boundary preparation', () => {
     expect(startDelivered).not.toHaveBeenCalled();
   });
 
+  it('returns no compaction attempt when the captured wake set is empty', async () => {
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService();
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'finishWakeCompactionBoundary',
+    ).mockResolvedValue(undefined);
+    const onCompactionSet = vi.fn();
+    const startDelivered = vi.fn();
+
+    await expect(
+      execution.service['prepareWakeAttempt']({
+        run: executionInput(createFakeModelClient(['answer'])),
+        attemptId: testAttemptId,
+        wakeState: { toolCallId: 'wait-call', parts: [] },
+        startDelivered,
+        onCompactionSet,
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(onCompactionSet).toHaveBeenCalledExactlyOnceWith({
+      ids: [],
+      focus: null,
+    });
+    expect(startDelivered).not.toHaveBeenCalled();
+  });
+
+  it('returns only a compact wake attempt as the compaction signal', () => {
+    const execution = makeExecutionService();
+    expect(
+      execution.service['deliveredWakeAttempt'](undefined),
+    ).toBeUndefined();
+    expect(
+      execution.service['deliveredWakeAttempt']('compact'),
+    ).toBeUndefined();
+  });
+
   it('starts the delivered message after closing the wake boundary', async () => {
     const execution = makeExecutionService();
 
@@ -25465,41 +25595,161 @@ describe('RunExecutionService wake boundary preparation', () => {
 });
 
 describe('RunExecutionService wake-compaction fallback context fit', () => {
-  async function prepareWakeFallback(client: ModelClient) {
-    const execution = makeExecutionService(client);
-    mockNormalExecutionRepositories();
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-    return execution.service['prepareAttemptForFirstStep']({
-      run: executionInput(client),
+  function prepareWakeFallback(client: ModelClient) {
+    const execution = makeExecutionService(client);
+    const spies = mockNormalExecutionRepositories();
+
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
-      workspacePreparation: { root: undefined, chat, detaching: false },
-      workspaceMcpKey: undefined,
-      dynamicResolver: undefined,
-      effectivePermissionMode: 'default',
-      nativeDeliverySequence: 0,
-      workspaceRootCell: createWorkspaceRootCell('/workspace'),
       effort: undefined,
-      media: createRunMediaResolver(execution.tenantDb, userId),
-      continued: undefined,
-      gitObservation: undefined,
-      firstSegment: false,
-      wakeCompaction: true,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: {
+        toolCallId: 'wait-call',
+        parts: [{ type: 'text', text: 'kept context', step: 2 }],
+      },
     });
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareWakeAttempt',
+    ).mockResolvedValue('compact');
+
+    const deliverWakeCompaction = vi
+      .spyOn(Object.getPrototypeOf(execution.service), 'deliverWakeCompaction')
+      .mockResolvedValue({
+        kind: 'nothing-pending',
+        compactionFailed: true,
+      });
+
+    return {
+      execution,
+      request: executionInput(client),
+      deliverWakeCompaction,
+      spies,
+    };
   }
 
-  it('rejects an oversized request when a failed wake summary falls back to dispatch', async () => {
+  it('rejects an oversized request after a failed wake summary', async () => {
     const client = makeCapturingClient(1).client;
+    const { execution, request } = prepareWakeFallback(client);
 
-    await expect(prepareWakeFallback(client)).rejects.toThrow(
+    await expect(execution.service.executeRun(request)).rejects.toThrow(
       'The complete request still exceeds the target model context window after one compaction.',
     );
   });
 
-  it('keeps a fitting request dispatchable after the owner withdraws the compact command', async () => {
-    const client = createFakeModelClient(['answer']);
+  it('dispatches a fitting request when the owner withdraws the compact command', async () => {
+    const capturing = makeCapturingClient();
 
-    const prepared = await prepareWakeFallback(client);
+    const { execution, request, deliverWakeCompaction, spies } =
+      prepareWakeFallback(capturing.client);
 
-    expect(prepared.request.messages.length).toBeGreaterThan(0);
+    await expect(execution.service.executeRun(request)).resolves.toBeDefined();
+    expect(deliverWakeCompaction).toHaveBeenCalledWith(
+      expect.objectContaining({ stepBudgetUsed: 3 }),
+    );
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const failedMarkerParts: unknown = expect.arrayContaining([
+      expect.objectContaining({ type: 'data-compaction-failed' }),
+    ]);
+
+    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: failedMarkerParts }),
+    );
+  });
+
+  it('does not schedule another boundary summary when a wake-resumed answer completes', async () => {
+    const capturing = makeCapturingClient();
+    const { execution, request } = prepareWakeFallback(capturing.client);
+
+    const prepareBoundary = vi
+      .spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareBoundaryCompaction',
+      )
+      .mockResolvedValue(undefined);
+
+    const finishWakeBoundary = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'finishWakeCompactionBoundary',
+    );
+
+    await execution.service.executeRun(request);
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(prepareBoundary).not.toHaveBeenCalled();
+    expect(finishWakeBoundary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundary: { kind: 'nothing-pending', compactionFailed: true },
+      }),
+    );
+  });
+
+  it('prepares the final boundary summary for a completed ordinary answer', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    const prepareBoundary = vi
+      .spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareBoundaryCompaction',
+      )
+      .mockResolvedValue(undefined);
+
+    const finishWakeBoundary = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'finishWakeCompactionBoundary',
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(prepareBoundary).toHaveBeenCalledTimes(1);
+    expect(finishWakeBoundary).not.toHaveBeenCalled();
+  });
+
+  it('does not prepare a final boundary summary for a failed ordinary answer', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    const prepareBoundary = vi
+      .spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareBoundaryCompaction',
+      )
+      .mockResolvedValue(undefined);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onFinish?.({
+      text: 'failed answer',
+      usage: ZERO_USAGE,
+      finishReason: 'error',
+      stepCount: 1,
+    });
+
+    expect(prepareBoundary).not.toHaveBeenCalled();
   });
 });
