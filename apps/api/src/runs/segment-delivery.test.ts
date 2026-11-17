@@ -309,6 +309,211 @@ describe('deliverPendingSteering', () => {
     );
   });
 
+  it('marks only selected compact commands delivered after failed compaction', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const unselected = {
+      ...second,
+      parts: [{ type: 'text', text: '/compact Keep this pending' }],
+    };
+
+    const spies = serve({ items: [compact, unselected, first] });
+
+    const result = await deliver({
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+    expect(spies.markDelivered).not.toHaveBeenCalledWith(
+      unselected.id,
+      userId,
+      {
+        runId,
+      },
+    );
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'first' }],
+      }),
+    );
+  });
+
+  it('records a failed-compaction marker on the live reply', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, first] });
+
+    const liveReply = {
+      ...live,
+      parts: [{ type: 'text' as const, text: 'so far' }],
+    };
+
+    await deliver({
+      live: liveReply,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(liveReply.parts).toEqual([
+      { type: 'text', text: 'so far' },
+      { type: 'data-compaction-failed', data: {} },
+    ]);
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.compaction_failed',
+      {},
+    );
+  });
+
+  it('does not duplicate an existing failed-compaction marker', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, first] });
+
+    const failedMarker = { type: 'data-compaction-failed', data: {} };
+
+    const liveReply = {
+      ...live,
+      parts: [failedMarker, { type: 'text' as const, text: 'so far' }],
+    };
+
+    await deliver({
+      live: liveReply,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(liveReply.parts).toEqual([
+      failedMarker,
+      { type: 'text', text: 'so far' },
+    ]);
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.compaction_failed',
+      {},
+    );
+  });
+
+  it('reports a failed compaction with no other pending item', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact] });
+
+    await expect(
+      deliver({
+        boundaryCompaction: {
+          ids: [compact.id],
+          summary: null,
+          quote: null,
+          stepBudgetUsed: 3,
+          publishCheckpoint: vi.fn(),
+        },
+      }),
+    ).resolves.toEqual({ kind: 'nothing-pending', compactionFailed: true });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.compaction_failed',
+      {},
+    );
+  });
+
+  it('marks every compact command delivered for a final-answer compaction', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const otherCompact = {
+      ...second,
+      parts: [{ type: 'text', text: '/compact Keep this pending' }],
+    };
+
+    const spies = serve({ items: [compact, otherCompact, first] });
+
+    await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        finalAnswer: true,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+    expect(spies.markDelivered).toHaveBeenCalledWith(otherCompact.id, userId, {
+      runId,
+    });
+  });
+
+  it('rejects a boundary compaction without a closed reply', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const publishCheckpoint = vi.fn();
+
+    serve({ items: [compact] });
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue(
+      {},
+    );
+
+    await expect(
+      deliver({
+        boundaryCompaction: {
+          ids: [compact.id],
+          summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+          quote: null,
+          stepBudgetUsed: 3,
+          publishCheckpoint,
+        },
+      }),
+    ).rejects.toThrow(`Run ${runId} has no closed reply.`);
+    expect(publishCheckpoint).not.toHaveBeenCalled();
+  });
+
   it('is fenced when the attempt no longer owns the Run', async () => {
     const spies = serve({ locked: undefined });
 
