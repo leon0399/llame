@@ -84,8 +84,10 @@ where a smaller safe merge point appears.
 - [x] 2.5 Send `/`-text on an existing Chat through the direct send path, add its 200-JSON branch by `Content-Type`, show the result or the `message` of an error body inline, invalidate the history query after a command result, and keep the new-Chat path (design D3). Verify with stories and a focused component test that `/rename Foo` shows the result, a 4xx restores the draft with the server message, `/etc/hosts` attaches to its Run, and a first message `/etc/hosts` on the new-Chat page starts a Chat.
   - Evidence: `RenameCommandShowsInline`, `FailedCommandShowsServerMessage`, `DeliveryAfterTheRunEndedAttaches`, and `FirstSlashMessageCreatesChat` stories; `sendDelivery` focused unit test file passed.
 - [x] 2.6 Document `/rename` in `docs/product/reference/` and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 2.7 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
-- [ ] 2.8 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+- [x] 2.7 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: `pnpm lint`, API and web typecheck, focused API/web unit tests, web stories, `pnpm format:check` and `git diff --check` pass; CI green on #1733.
+- [x] 2.8 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+  - Evidence: local review (correctness, security, simplify, over-engineering) fixed before ready; #1733 GitHub review loop: 13 threads answered and resolved, CI green, mutation gate passing.
 
 ## 3. run-kind
 
