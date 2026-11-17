@@ -21982,6 +21982,9 @@ describe('RunExecutionService executeRun — run segments', () => {
         plan: { uptoSeq: 4 },
         focus: 'keep the requested details',
       });
+      expect(computeBoundarySummary.mock.calls[0]?.[0].closedReply).toEqual(
+        expect.arrayContaining([expect.objectContaining({ role: 'user' })]),
+      );
 
       if (effort === undefined) {
         expect(computeBoundarySummary.mock.calls[0]?.[0]).not.toHaveProperty(
