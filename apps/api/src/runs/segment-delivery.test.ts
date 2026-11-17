@@ -307,6 +307,32 @@ describe('deliverPendingSteering', () => {
       attemptId,
       expect.objectContaining({ messageId: deliveredMessage.id }),
     );
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ stepBudgetUsed: 3 }),
+    );
+  });
+
+  it('does not publish a checkpoint when no compact command was selected', async () => {
+    const spies = serve({ items: [first] });
+    const publishCheckpoint = vi.fn();
+
+    const result = await deliver({
+      boundaryCompaction: {
+        ids: [],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint,
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(publishCheckpoint).not.toHaveBeenCalled();
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [{ type: 'text', text: 'first' }] }),
+    );
   });
 
   it('marks only selected compact commands delivered after failed compaction', async () => {
