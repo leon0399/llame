@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { type DecisionJudge } from '../decisions/decisions.service';
+import {
+  DECISION_MAX_CARDS_PER_CALL,
+  type DecisionJudge,
+} from '../decisions/decisions.service';
 import { CARD_BOUND, type RankingCase, type RecordedAnswer } from './fixtures';
 import { rankCards } from './rank-cards';
 import { GREP_RERANK_RUBRIC, WEB_SEARCH_RERANK_RUBRIC } from './rubrics';
@@ -83,6 +86,15 @@ export async function recordAll(
   cases: ReadonlyArray<RankingCase>,
   models: ReadonlyArray<string>,
 ): Promise<void> {
+  const reserved = models.filter((model) => model.includes(VARIANT_MARK));
+
+  // A `~` id would share a file name with a recording variant of another id.
+  if (reserved.length > 0) {
+    throw new Error(
+      `Model ids must not contain "${VARIANT_MARK}", which marks recording variants: ${reserved.join(', ')}`,
+    );
+  }
+
   let unavailable = 0;
 
   for (const rankingCase of cases) {
@@ -97,11 +109,15 @@ export async function recordAll(
   }
 }
 
+/** Separates a model id from its recording variant in labels and file names. */
+const VARIANT_MARK = '~';
+
 /** The label suffix of an answer recorded with the cards in reverse order. */
-const REVERSED_SUFFIX = '~reversed';
+const REVERSED_SUFFIX = `${VARIANT_MARK}reversed`;
 
 /**
- * The same cases with their cards in reverse order, and a sink that records
+ * The same cases with the cards the lane judges (the first 256) in reverse
+ * order, so both passes judge one card set, and a sink that records
  * each answer as `<model>~reversed`. Comparing the two answers of a case
  * measures how much card position moves the model's scores.
  */
@@ -114,7 +130,7 @@ export function reversedVariant(
   return {
     cases: cases.map((rankingCase) => ({
       ...rankingCase,
-      cards: [...rankingCase.cards].reverse(),
+      cards: rankingCase.cards.slice(0, DECISION_MAX_CARDS_PER_CALL).reverse(),
     })),
     sink: {
       write: (caseName: string, model: string, answer: RecordedAnswer) =>

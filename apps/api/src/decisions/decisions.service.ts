@@ -44,7 +44,7 @@ const DECISION_MAX_CARDS_PER_REQUEST = 32;
  * queued waves of a large walk stay bounded (design G11). The rest keep
  * their canonical order unjudged.
  */
-const DECISION_MAX_CARDS_PER_CALL = 256;
+export const DECISION_MAX_CARDS_PER_CALL = 256;
 
 const NO_VALUES: Record<string, never> = {};
 
