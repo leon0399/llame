@@ -157,7 +157,7 @@ describe('step-boundary compaction admission', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'waiting task checkpoint',
           usage: {},
         }),

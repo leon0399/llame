@@ -78,7 +78,7 @@ describe('step-boundary compaction follow-up', () => {
       await releaseSummary.promise;
 
       return {
-        uptoSeq: input.uptoSeq,
+        uptoSeq: input.plan.uptoSeq,
         summary: 'follow-up checkpoint',
         usage: {},
       };

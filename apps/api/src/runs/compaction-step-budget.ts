@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
+const deliveryCauseSchema = z.object({ cause: z.string() });
+
 const compactionDeliverySchema = z.object({
-  cause: z.string(),
+  cause: z.literal('compaction'),
   stepBudgetUsed: z.number().int().nonnegative(),
 });
 
@@ -15,13 +17,15 @@ export function readCompactionStepBudget(
 
   if (delivery === undefined) return 0;
 
+  const cause = deliveryCauseSchema.safeParse(delivery.payload);
+
+  if (!cause.success) return Number.MAX_SAFE_INTEGER;
+
+  if (cause.data.cause !== 'compaction') return 0;
+
   const parsed = compactionDeliverySchema.safeParse(delivery.payload);
 
-  return parsed.success && parsed.data.cause === 'compaction'
-    ? parsed.data.stepBudgetUsed
-    : parsed.success
-      ? 0
-      : Number.MAX_SAFE_INTEGER;
+  return parsed.success ? parsed.data.stepBudgetUsed : Number.MAX_SAFE_INTEGER;
 }
 
 export function boundaryStepBudgetUsed(input: {

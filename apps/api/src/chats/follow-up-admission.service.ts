@@ -46,7 +46,6 @@ import {
 } from '../runs/run-dispatch.service';
 import { isCompletedAssistantTurn } from './assistant-completion';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { hasCheckpointAbsorbingTurn } from './checkpoint-absorbs-turn';
 import { clearActiveRunSlot } from './chat-admission';
 import { type AcceptedRun } from './chat-loop.service';
 import { toRunUserMessage } from './chat-message-parts';
@@ -111,7 +110,13 @@ async function assertTurnNotCompacted(
   tx: Db,
   input: { chatId: string; userId: string; userSeq: number },
 ): Promise<void> {
-  if (await hasCheckpointAbsorbingTurn(tx, input)) {
+  if (
+    (await new MessagesRepository(tx).findCheckpointAbsorbing(
+      input.chatId,
+      input.userId,
+      input.userSeq,
+    )) !== undefined
+  ) {
     throw new ConflictException(
       'A follow-up request cannot target a compacted turn',
     );

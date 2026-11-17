@@ -1218,7 +1218,6 @@ describe('CompactionService.computeBoundarySummary', () => {
     const summary = await setup.service.computeBoundarySummary({
       chatId,
       userId: ownerId,
-      uptoSeq: 4,
       plan: { ...plan(), uptoSeq: 4 },
       closedReply,
       client,
@@ -1262,7 +1261,6 @@ describe('CompactionService.computeBoundarySummary', () => {
     await setup.service.computeBoundarySummary({
       chatId,
       userId: ownerId,
-      uptoSeq: 4,
       plan: { ...plan(), uptoSeq: 4 },
       closedReply: [{ role: 'assistant', content: 'closed reply' }],
       client: liveClient,
@@ -1285,7 +1283,6 @@ describe('CompactionService.computeBoundarySummary', () => {
     await setup.service.computeBoundarySummary({
       chatId,
       userId: ownerId,
-      uptoSeq: 4,
       plan: { ...plan(), uptoSeq: 4 },
       closedReply: [{ role: 'assistant', content: 'closed reply' }],
       client,
@@ -1313,7 +1310,6 @@ describe('CompactionService.computeBoundarySummary', () => {
       setup.service.computeBoundarySummary({
         chatId,
         userId: ownerId,
-        uptoSeq: 4,
         plan: { ...plan(), uptoSeq: 4 },
         closedReply: [{ role: 'assistant', content: 'closed reply' }],
         client,

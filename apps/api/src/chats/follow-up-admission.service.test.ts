@@ -155,7 +155,9 @@ function fakeTx(): Db {
   const select = () => ({
     from: () => ({
       innerJoin: () => ({
-        where: () => ({ limit: () => Promise.resolve([]) }),
+        where: () => ({
+          orderBy: () => ({ limit: () => Promise.resolve([]) }),
+        }),
       }),
     }),
   });

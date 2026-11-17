@@ -1,3 +1,5 @@
+import type { ChatDelivery } from '../../db/schema';
+
 import { BadRequestException } from '@nestjs/common';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
@@ -29,6 +31,21 @@ export function parseChatCommand(
     name,
     argument: (separator === -1 ? '' : text.slice(separator)).trim(),
   };
+}
+
+export function compactCommandOf(
+  item: Pick<ChatDelivery, 'producer' | 'parts'>,
+): Extract<ChatCommand, { name: 'compact' }> | undefined {
+  const command =
+    item.producer === 'owner' ? parseChatCommand(item.parts) : null;
+
+  return command?.name === 'compact' ? command : undefined;
+}
+
+export function isCompactCommand(
+  item: Pick<ChatDelivery, 'producer' | 'parts'>,
+): boolean {
+  return compactCommandOf(item) !== undefined;
 }
 
 export function validateCompactCommand(

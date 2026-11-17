@@ -616,7 +616,14 @@ function makeExecutionService(
     .fn<CompactionCapability['summarizeCheckpoint']>()
     .mockResolvedValue(null);
 
-  const compaction: CompactionCapability = { summarizeCheckpoint };
+  const computeBoundarySummary = vi
+    .fn<CompactionCapability['computeBoundarySummary']>()
+    .mockResolvedValue(null);
+
+  const compaction: CompactionCapability = {
+    summarizeCheckpoint,
+    computeBoundarySummary,
+  };
 
   const titles: TitleCapability = {
     maybeGenerateTitle: vi.fn(() => Promise.resolve()),
@@ -824,6 +831,9 @@ function mockNormalExecutionRepositories() {
     ChatDeliveriesRepository.prototype,
     'lockPendingBoundary',
   ).mockResolvedValue([]);
+  vi.spyOn(ChatDeliveriesRepository.prototype, 'listPending').mockResolvedValue(
+    [],
+  );
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
     'deliverPendingJobNotices',

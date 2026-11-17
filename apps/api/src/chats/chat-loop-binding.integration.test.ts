@@ -664,6 +664,7 @@ describe('ChatLoopService accept/worker context binding', () => {
               new Error('binding window summarization is not exercised'),
             )
           : Promise.resolve(null),
+      computeBoundarySummary: () => Promise.resolve(null),
     };
 
     const noopTitles: TitleCapability = {

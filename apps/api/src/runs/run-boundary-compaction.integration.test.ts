@@ -68,7 +68,7 @@ describe('step-boundary compaction', () => {
         }
 
         return {
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'final answer summary',
           usage: {},
         };
@@ -124,7 +124,7 @@ describe('step-boundary compaction', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'final answer with notice',
           usage: {},
         }),
@@ -215,7 +215,7 @@ describe('step-boundary compaction', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'the open turn summary',
           usage: {},
         }),
@@ -309,7 +309,7 @@ describe('step-boundary compaction', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'compacted steer context',
           usage: {},
         }),
@@ -368,7 +368,7 @@ describe('step-boundary compaction', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'one shared compacted context',
           usage: {},
         }),
@@ -419,7 +419,7 @@ describe('step-boundary compaction', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'mixed boundary context',
           usage: {},
         }),
@@ -548,7 +548,7 @@ describe('step-boundary compaction', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'updated task checkpoint',
           usage: {},
         }),
@@ -691,7 +691,7 @@ describe('step-boundary compaction', () => {
       entered.resolve();
 
       return release.promise.then(() => ({
-        uptoSeq: input.uptoSeq,
+        uptoSeq: input.plan.uptoSeq,
         summary: 'withdrawn summary',
         usage: {},
       }));
@@ -748,7 +748,7 @@ describe('step-boundary compaction', () => {
       )
       .mockImplementation((input) =>
         Promise.resolve({
-          uptoSeq: input.uptoSeq,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'live-prefix checkpoint',
           usage: {},
         }),
@@ -790,6 +790,6 @@ describe('step-boundary compaction', () => {
     expect(request?.system.length).toBeGreaterThan(0);
     expect(request?.toolDeclarations.length).toBeGreaterThan(0);
     expect(request?.focus).toBeNull();
-    expect(request?.uptoSeq).toBeGreaterThan(seeded.userMessage.seq);
+    expect(request?.plan.uptoSeq).toBeGreaterThan(seeded.userMessage.seq);
   });
 });

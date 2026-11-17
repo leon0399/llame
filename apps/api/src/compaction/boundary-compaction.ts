@@ -1,5 +1,5 @@
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { parseChatCommand } from '../chats/commands/parse-chat-command';
+import { compactCommandOf } from '../chats/commands/parse-chat-command';
 import type { TenantDbService } from '../db/tenant-db.service';
 
 export type CompactionSet = {
@@ -18,14 +18,9 @@ export async function readCompactionSet(input: {
   );
 
   const commands = pending.flatMap((item) => {
-    if (
-      item.producer !== 'owner' ||
-      (item.mode !== 'steer' && item.mode !== 'interrupt')
-    ) {
-      return [];
-    }
+    if (item.mode !== 'steer' && item.mode !== 'interrupt') return [];
 
-    const command = parseChatCommand(item.parts);
+    const command = compactCommandOf(item);
 
     return command?.name === 'compact'
       ? [{ item, focus: command.argument }]

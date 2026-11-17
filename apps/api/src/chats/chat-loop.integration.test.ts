@@ -480,6 +480,7 @@ describeIfDb(
                 new Error('chat-loop window summarization is not exercised'),
               )
             : Promise.resolve(null),
+        computeBoundarySummary: () => Promise.resolve(null),
       };
 
       runExecution = new RunExecutionService(

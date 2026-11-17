@@ -189,6 +189,7 @@ describeIfDb('personalization binds per run', () => {
       // is published.
       {
         summarizeCheckpoint: () => Promise.resolve(null),
+        computeBoundarySummary: () => Promise.resolve(null),
       } satisfies CompactionCapability,
       { maybeGenerateTitle: async () => {} } satisfies TitleCapability,
       { config: BUILT_IN_DEFAULTS } satisfies InstanceConfigReader,

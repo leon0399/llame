@@ -144,8 +144,6 @@ export type CompactionSummaryRequest =
       readonly variant: 'boundary';
       readonly chatId: string;
       readonly userId: string;
-      /** The exact committed prefix boundary, equal to the closed reply seq. */
-      readonly uptoSeq: number;
       readonly plan: CompactionPlan;
       /** The live prefix through the newly projected closing reply. */
       readonly closedReply: ReadonlyArray<ModelMessage>;
@@ -231,7 +229,7 @@ export class CompactionService {
               {
                 beforeSeq:
                   input.variant === 'boundary'
-                    ? input.uptoSeq + 1
+                    ? input.plan.uptoSeq + 1
                     : input.triggeringUserSeq,
               },
             ),
@@ -259,6 +257,7 @@ export class CompactionService {
   ): Promise<CompactionSummary | null> {
     return this.summarizeCheckpoint({ ...input, variant: 'boundary' });
   }
+
   private async summarizeOwner(
     input: Extract<CompactionSummaryRequest, { variant: 'owner' }>,
     previous: ContextCheckpoint | undefined,
@@ -551,10 +550,7 @@ export class CompactionService {
     inference: SummaryInference;
   }): CompactionSummary {
     return {
-      uptoSeq:
-        input.request.variant === 'boundary'
-          ? input.request.uptoSeq
-          : input.request.plan.uptoSeq,
+      uptoSeq: input.request.plan.uptoSeq,
       summary: input.summary,
       usage: buildTurnTelemetry({
         usage: input.inference.usage,
@@ -645,6 +641,5 @@ export class CompactionService {
 /** The narrow `RunExecutionService` capability; tests implement this API directly. */
 export type CompactionCapability = Pick<
   CompactionService,
-  'summarizeCheckpoint'
-> &
-  Partial<Pick<CompactionService, 'computeBoundarySummary'>>;
+  'summarizeCheckpoint' | 'computeBoundarySummary'
+>;

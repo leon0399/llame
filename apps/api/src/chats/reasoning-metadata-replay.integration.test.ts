@@ -231,6 +231,7 @@ describeWithDatabase(
                 new Error('replay window summary is not exercised'),
               )
             : Promise.resolve(null),
+        computeBoundarySummary: () => Promise.resolve(null),
       };
 
       const noopTitles: TitleCapability = {

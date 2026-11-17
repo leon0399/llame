@@ -150,6 +150,7 @@ export function makeRunExecutionService(input: {
       request.variant === 'window'
         ? Promise.reject(new Error('window summarization is not exercised'))
         : Promise.resolve(null),
+    computeBoundarySummary: () => Promise.resolve(null),
   };
 
   return new RunExecutionService(

@@ -42,6 +42,14 @@ describe('readCompactionStepBudget', () => {
     ).toBe(0);
   });
 
+  it('starts a fresh budget after a delivery without a compaction budget', () => {
+    expect(
+      readCompactionStepBudget([
+        { eventType: 'run.delivered', payload: { cause: 'steer' } },
+      ]),
+    ).toBe(0);
+  });
+
   it('treats a malformed delivery payload as a fully used budget', () => {
     expect(
       readCompactionStepBudget([
