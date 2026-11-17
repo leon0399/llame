@@ -1849,40 +1849,18 @@ export class RunExecutionService {
         createdMessage,
       });
 
-    if (attempt.wakeState !== undefined) {
-      const boundary = await retryRunTransaction(() =>
-        this.tenantDb.runAs(input.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.runId, userId: input.userId },
+    const wakeAttempt =
+      attempt.wakeState === undefined
+        ? undefined
+        : await this.prepareWakeAttempt({
+            run: input,
             attemptId,
-            models: this.instanceConfig.config.models,
-            deadWorkerAfterSeconds: workerDeadAfterSeconds(
-              this.instanceConfig.config,
-            ),
-          }),
-        ),
-      );
-
-      if (boundary.kind === 'delivered') {
-        await this.afterAssistantTurn(boundary.closedReply, input.userId);
-
-        return startDelivered(boundary);
-      }
-
-      if (boundary.kind !== 'nothing-pending') {
-        if (boundary.kind === 'cancelled') {
-          await this.settleTerminalRun({
-            userId: input.userId,
-            runId: input.runId,
-            status: 'cancelled',
-            attemptId,
-            runPayload: { status: 'cancelled' },
+            startDelivered,
           });
-        }
 
-        throw new RunNotRunnableError(input.runId);
-      }
-    }
+    if (wakeAttempt?.attempt !== undefined) return wakeAttempt.attempt;
+
+    const wakeCompaction = wakeAttempt?.compactCommand === true;
 
     // Workspace validation is the first accepted-turn preparation step. Load
     // the owner-scoped Chat row once here and derive the binding from it; pass
@@ -1985,7 +1963,7 @@ export class RunExecutionService {
         media,
         continued,
         gitObservation,
-        firstSegment,
+        firstSegment: firstSegment && !wakeCompaction,
       });
 
       prepared = firstStep.request;
@@ -2015,6 +1993,30 @@ export class RunExecutionService {
 
       throw error;
     }
+
+    const wakeBoundary = wakeCompaction
+      ? await this.deliverWakeCompaction({
+          run: input,
+          attemptId,
+          prepared,
+          context: attemptContext,
+          continued,
+          effort,
+          media,
+          workspaceRoot,
+          stepBudgetUsed: stepBudgetOffset,
+        })
+      : undefined;
+
+    const resumedWake = await this.finishWakeCompactionBoundary({
+      boundary: wakeBoundary,
+      userId: input.userId,
+      runId: input.runId,
+      attemptId,
+      startDelivered,
+    });
+
+    if (resumedWake !== undefined) return resumedWake;
 
     const { system, messages, untitled, tools: executableTools } = prepared;
 
@@ -7026,6 +7028,203 @@ export class RunExecutionService {
       }),
       untitled: prompt.chat.title === null,
     };
+  }
+
+  private async finishWakeCompactionBoundary(input: {
+    boundary: BoundaryDelivery | undefined;
+    userId: string;
+    runId: string;
+    attemptId: string;
+    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+  }): Promise<AttemptRun | undefined> {
+    if (input.boundary?.kind === 'delivered') {
+      await this.afterAssistantTurn(input.boundary.closedReply, input.userId);
+
+      return input.startDelivered(input.boundary);
+    }
+
+    if (
+      input.boundary !== undefined &&
+      input.boundary.kind !== 'nothing-pending'
+    ) {
+      if (input.boundary.kind === 'cancelled') {
+        await this.settleTerminalRun({
+          userId: input.userId,
+          runId: input.runId,
+          status: 'cancelled',
+          attemptId: input.attemptId,
+          runPayload: { status: 'cancelled' },
+        });
+      }
+
+      throw new RunNotRunnableError(input.runId);
+    }
+
+    return undefined;
+  }
+
+  private async prepareWakeAttempt(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+  }): Promise<{ compactCommand: boolean; attempt?: AttemptRun }> {
+    const compactionSet = await readCompactionSet({
+      tenantDb: this.tenantDb,
+      chatId: input.run.chatId,
+      userId: input.run.userId,
+    });
+
+    if (compactionSet.ids.length > 0) return { compactCommand: true };
+
+    const boundary = await retryRunTransaction(() =>
+      this.tenantDb.runAs(input.run.userId, (tx) =>
+        deliverPendingSteering(tx, {
+          run: { runId: input.run.runId, userId: input.run.userId },
+          attemptId: input.attemptId,
+          models: this.instanceConfig.config.models,
+          deadWorkerAfterSeconds: workerDeadAfterSeconds(
+            this.instanceConfig.config,
+          ),
+        }),
+      ),
+    );
+
+    if (boundary.kind === 'delivered') {
+      await this.afterAssistantTurn(boundary.closedReply, input.run.userId);
+
+      return {
+        compactCommand: false,
+        attempt: await input.startDelivered(boundary),
+      };
+    }
+
+    if (boundary.kind !== 'nothing-pending') {
+      if (boundary.kind === 'cancelled') {
+        await this.settleTerminalRun({
+          userId: input.run.userId,
+          runId: input.run.runId,
+          status: 'cancelled',
+          attemptId: input.attemptId,
+          runPayload: { status: 'cancelled' },
+        });
+      }
+
+      throw new RunNotRunnableError(input.run.runId);
+    }
+
+    return { compactCommand: false };
+  }
+
+  private async deliverWakeCompaction(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    prepared: PreparedExecutionContext;
+    context: PreparedAttemptContext;
+    continued: ContinueState | undefined;
+    effort: string | undefined;
+    media: RunMediaResolver;
+    workspaceRoot: WorkspaceRootCell;
+    stepBudgetUsed: number;
+  }): Promise<BoundaryDelivery | undefined> {
+    const compactionSet = await readCompactionSet({
+      tenantDb: this.tenantDb,
+      chatId: input.run.chatId,
+      userId: input.run.userId,
+    });
+
+    if (compactionSet.ids.length === 0) return undefined;
+
+    const rows = input.context.historyRows;
+
+    const plan = planCompactionCheckpoint({
+      rows: toStoredMessages(rows),
+      boundarySeq: input.context.latestCheckpoint?.absorbedThroughSeq ?? 0,
+      triggeringUserSeq: input.run.userMessage.seq + 1,
+    });
+
+    const boundaryPlan =
+      plan === null
+        ? null
+        : {
+            ...plan,
+            uptoSeq: Math.max(0, ...rows.map((row) => row.seq)) + 1,
+          };
+
+    const kept = projectStoredReplyParts(input.continued?.parts ?? [], {
+      privateParts: true,
+      mediaKey: continuedMediaKey,
+    });
+
+    const summary =
+      boundaryPlan === null
+        ? null
+        : await this.compaction
+            .computeBoundarySummary({
+              chatId: input.run.chatId,
+              userId: input.run.userId,
+              plan: boundaryPlan,
+              closedReply: [...input.prepared.messages, ...kept.messages],
+              client: input.run.client,
+              system: input.prepared.system,
+              toolDeclarations: input.prepared.toolDeclarations,
+              focus: compactionSet.focus,
+              ...(input.effort !== undefined && { effort: input.effort }),
+              reservedOutputTokens:
+                this.instanceConfig.config.runs.maxOutputTokens,
+              abortSignal: input.run.abortSignal,
+              media: input.media,
+            })
+            .catch(() => null);
+
+    const { candidate: digestCandidate } = await this.resolveCompactionDigest({
+      userId: input.run.userId,
+      chatId: input.run.chatId,
+    });
+
+    const quote = await this.newestOwnerQuote(input.run, rows);
+
+    return retryRunTransaction(() =>
+      this.tenantDb.runAs(input.run.userId, (tx) =>
+        deliverPendingSteering(tx, {
+          run: { runId: input.run.runId, userId: input.run.userId },
+          attemptId: input.attemptId,
+          models: this.instanceConfig.config.models,
+          deadWorkerAfterSeconds: workerDeadAfterSeconds(
+            this.instanceConfig.config,
+          ),
+          boundaryCompaction: {
+            ids: compactionSet.ids,
+            summary,
+            quote,
+            stepBudgetUsed: input.stepBudgetUsed,
+            publishCheckpoint: async (checkpointTx, reply) => {
+              if (summary === null) {
+                throw new Error('Cannot publish an empty boundary summary.');
+              }
+
+              const checkpointId = await this.publishCheckpointInTransaction(
+                checkpointTx,
+                {
+                  run: input.run,
+                  attemptId: input.attemptId,
+                  summary: { ...summary, uptoSeq: reply.seq },
+                  focus: compactionSet.focus,
+                  model: input.context.model,
+                  workspaceRoot: input.workspaceRoot.current(),
+                  digestCandidate,
+                },
+              );
+
+              if (checkpointId === undefined) {
+                throw new Error('Boundary checkpoint was not published.');
+              }
+
+              return checkpointId;
+            },
+          },
+        }),
+      ),
+    );
   }
 
   /** Re-bake after publication so the receipt binds the request actually sent. */

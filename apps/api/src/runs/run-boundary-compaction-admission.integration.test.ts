@@ -15,6 +15,7 @@ import {
 } from '../testing/run-segments.test-fixture';
 import { seedLiveChatJob } from './worker-harness';
 import { RunsRepository } from './runs-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -169,7 +170,22 @@ describe('step-boundary compaction admission', () => {
     ]);
 
     await awaiting(seeded.runId);
-    await fx.storeItems(seeded.chatId, ['/compact'], 'steer');
+
+    const autoTrigger = vi.spyOn(
+      fx.harness.moduleRef.get(CompactionService),
+      'summarizeCheckpoint',
+    );
+
+    const [compactId] = await fx.storeItems(
+      seeded.chatId,
+      ['/compact Keep the build context.'],
+      'steer',
+    );
+
+    fx.harness.models.register(seeded.modelId, {
+      kind: 'step-script',
+      steps: [answer('Build follow-up complete.')],
+    });
 
     const woke = await fx.db((tx) =>
       fx.harness.moduleRef.get(RunWaitService).wakeForChatInTransaction(tx, {
@@ -188,6 +204,16 @@ describe('step-boundary compaction admission', () => {
       (message) => message.role === 'checkpoint',
     );
 
+    const continueMessage = messages.find((message) =>
+      message.parts.some(
+        (part) =>
+          isRecord(part) &&
+          isRecord(part['data']) &&
+          part['data']['producer'] === 'compaction' &&
+          part['data']['form'] === 'notice',
+      ),
+    );
+
     const completedWait = (await fx.events(seeded.runId)).find(
       (event) =>
         event.eventType === 'tool.completed' &&
@@ -196,9 +222,20 @@ describe('step-boundary compaction admission', () => {
         event.payload['toolCallId'] === 'wait-build',
     );
 
-    expect(summarize).toHaveBeenCalledOnce();
+    expect(summarize).toHaveBeenCalledWith(
+      expect.objectContaining({ focus: 'Keep the build context.' }),
+    );
+    expect(autoTrigger).not.toHaveBeenCalled();
     expect(checkpoint).toBeDefined();
-    expect(started.prompts()).toHaveLength(3);
+    expect(started.prompts()).toHaveLength(2);
+    expect(compactId).toBeDefined();
+    expect(
+      await fx.db((tx) =>
+        new ChatDeliveriesRepository(tx).findById(compactId, fx.userId),
+      ),
+    ).toMatchObject({ state: 'delivered', deliveredMessageId: null });
+    expect(continueMessage?.role).toBe('user');
+    expect(continueMessage?.seq).toBeGreaterThan(checkpoint?.seq ?? 0);
     expect(completedWait?.payload).toMatchObject({
       output: { ended: 'interrupted' },
     });

@@ -166,8 +166,10 @@ where a smaller safe merge point appears.
 
 ## 8. compact-wake
 
-- [ ] 8.1 Compact before the first model request of an attempt that a command item woke, and skip the pre-step automatic trigger there (design D11). Verify "Compact during a job wait" in a worker integration test, and that the build job keeps `running`.
-- [ ] 8.2 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+- [x] 8.1 Compact before the first model request of an attempt that a command item woke, and skip the pre-step automatic trigger there (design D11). Verify "Compact during a job wait" in a worker integration test, and that the build job keeps `running`.
+  - Evidence: "Compact during a job wait" verifies the summary runs once, a checkpoint is published, the compact item is delivered, a compaction continue item is stored after the checkpoint, the interrupted wait continues, and the build job remains `running`.
+- [x] 8.2 Add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: Added the 2026-11-17 compact-wake entry to `CHANGELOG.md`; `pnpm lint:markdown` passed.
 - [ ] 8.3 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused tests above, `pnpm format:check`, `git diff --check`.
 - [ ] 8.4 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
 
