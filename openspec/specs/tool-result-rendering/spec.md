@@ -813,7 +813,7 @@ order. `scores` MUST map each judged key to its answered score.
 
 #### Scenario: A partial answer lists unjudged keys last
 
-- **WHEN** a 300-card rank call has two requests and only the 256-card request answers every question
+- **WHEN** a 300-card rank call judges its first 256 cards and leaves 44 cards unjudged
 - **THEN** `order` holds all 300 keys, with the 256 judged keys first by score
 - **AND** `scores` holds 256 keys
 
