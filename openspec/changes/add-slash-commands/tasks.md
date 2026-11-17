@@ -114,8 +114,10 @@ where a smaller safe merge point appears.
 - [x] 4.3 Hold notices during a compaction Run and apply the idle-Chat notice rule at its completion (design D8, step 5). Verify "A compaction Run leaves a notice pending" and "A result during a compaction Run", and keep "A result after a Stop waits for the owner", "A result after a failed Run waits for Continue", "A monitor wakes the Chat at night", "Two jobs settle together", and "A lost job starts no Run" green.
   - Evidence: `holds a result during a compaction Run and starts its idle-Chat notice Run at completion` asserts the result remains pending during compaction and is delivered by the notice Run after completion; DB integration is CI-only in this environment.
 - [x] 4.4 Update `SPEC.md` §2.1 and §9.3 for compaction Runs, extend the command reference, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 4.5 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm --filter api test:coverage` for the touched modules, the focused integration tests above, `pnpm format:check`, `git diff --check`.
-- [ ] 4.6 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+- [x] 4.5 Verify the layer: `pnpm --filter api lint`, `pnpm --filter api typecheck`, `pnpm --filter api test:coverage` for the touched modules, the focused integration tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: API lint/typecheck, unit suite, the compaction-run and compact-admission integration files on a local Postgres, `pnpm format:check`, `git diff --check` pass; CI green on #1736.
+- [x] 4.6 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+  - Evidence: four-lens local review plus a second correctness pass fixed before ready; #1736 GitHub review loop: 4 threads accepted and resolved; mutation gate 87.26% and rising.
 
 ## 5. compact-focus
 
