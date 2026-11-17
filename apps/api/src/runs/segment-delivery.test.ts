@@ -285,6 +285,19 @@ describe('deliverPendingSteering', () => {
     });
   }
 
+  it('omits checkpoint metadata from an ordinary delivery event', async () => {
+    const spies = serve({ items: [first] });
+
+    await deliver();
+
+    const event = spies.append.mock.calls.find(
+      ([, type]) => type === 'run.delivered',
+    );
+
+    expect(event?.[2]).not.toHaveProperty('checkpointId');
+    expect(event?.[2]).not.toHaveProperty('stepBudgetUsed');
+  });
+
   it('delivers a late final-answer compact command to the next boundary', async () => {
     const compact = {
       ...first,
