@@ -710,6 +710,7 @@ describe('deliverPendingSteering', () => {
     });
 
     expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(spies.findTurnState).toHaveBeenCalledTimes(1);
     expect(publishCheckpoint).toHaveBeenCalledOnce();
     const stored = spies.createUser.mock.calls[0]?.[0];
 
