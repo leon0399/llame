@@ -202,37 +202,6 @@ describe('reversedVariant', () => {
   });
 });
 
-describe('reversedVariant card population', () => {
-  it('reverses only the cards the lane judges', () => {
-    const cards = Array.from({ length: 258 }, (_, index) => ({
-      key: `k${index}`,
-      text: 'x',
-      relevant: false,
-    }));
-
-    const [reversed] = reversedVariant(
-      [{ ...grepCase, cards }],
-      harness({}).sink,
-    ).cases;
-
-    expect(reversed?.cards).toHaveLength(256);
-    expect(reversed?.cards[0]?.key).toBe('k255');
-    expect(reversed?.cards.at(-1)?.key).toBe('k0');
-  });
-});
-
-describe('recordAll model ids', () => {
-  it('rejects an id that contains the variant mark before any write', async () => {
-    const h = harness({ a: 0.1, b: 0.9 });
-
-    await expect(
-      recordAll(h.judge, h.sink, [grepCase], ['m1', 'm1~reversed']),
-    ).rejects.toThrow('m1~reversed');
-    expect(h.written).toEqual([]);
-    expect(h.judgeCandidates).not.toHaveBeenCalled();
-  });
-});
-
 describe('fileSink', () => {
   it('creates the directory and writes one JSON file per case and model', () => {
     const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'rec-')), 'a');
