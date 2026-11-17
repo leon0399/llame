@@ -12,13 +12,13 @@ Declare credentials, headers, and an API base once on a provider. Each entry in
 provider and may set `wire`. Startup resolves the wire before accepting work;
 this performs no network discovery or model eligibility check.
 
-| Provider type  | Chat default         | Other default kinds                                | Default API base                      |
-| -------------- | -------------------- | -------------------------------------------------- | ------------------------------------- |
-| `openai`       | `openai-responses`   | `openai-embeddings`                                | `https://api.openai.com/v1`           |
-| `anthropic`    | `anthropic-messages` | None                                               | `https://api.anthropic.com/v1`        |
-| `openrouter`   | `openai-completions` | `openai-embeddings`, `system-one`, `cohere-rerank` | `https://openrouter.ai/api/v1`        |
-| `opencode-zen` | Exact model metadata | `system-one`                                       | `https://opencode.ai/zen/v1`          |
-| `opencode-go`  | Exact model metadata | None                                               | Fixed `https://opencode.ai/zen/go/v1` |
+| Provider type  | Chat default         | Other default kinds                                          | Default API base                      |
+| -------------- | -------------------- | ------------------------------------------------------------ | ------------------------------------- |
+| `openai`       | `openai-responses`   | `openai-embeddings`                                          | `https://api.openai.com/v1`           |
+| `anthropic`    | `anthropic-messages` | None                                                         | `https://api.anthropic.com/v1`        |
+| `openrouter`   | `openai-completions` | `openai-embeddings`, `openrouter-decisions`, `cohere-rerank` | `https://openrouter.ai/api/v1`        |
+| `opencode-zen` | Exact model metadata | `system-one`                                                 | `https://opencode.ai/zen/v1`          |
+| `opencode-go`  | Exact model metadata | None                                                         | Fixed `https://opencode.ai/zen/go/v1` |
 
 OpenCode routes use exact `(provider type, providerModelId)` entries from a
 bundled snapshot of [OpenCode's model catalog](https://github.com/anomalyco/opencode/blob/cdd0585e048b08d85df1f854b7deb3fa52b8dac4/packages/core/src/models-dev/snapshot.txt).
@@ -144,16 +144,20 @@ and context limits supported by your account; the gateway decides availability.
 ```
 
 Chat calls use `/chat/completions`, embeddings `/embeddings`, and reranking
-`/rerank` under the configured API base. OpenRouter decisions use the sibling
-`/alpha/decisions` endpoint: `/api/v1` becomes `/api/alpha/decisions`. A custom
-base without a trailing `/v1` gets `/alpha/decisions` appended. Other decision
-profiles append `/systemone` to their API base.
+`/rerank` under the configured API base. A decision model's resolved wire picks
+its endpoint, never the provider type. `openrouter-decisions` uses the sibling
+`/alpha/decisions` endpoint: `/api/v1` becomes `/api/alpha/decisions`, and a
+base without a trailing `/v1` gets `/alpha/decisions` appended. `system-one`
+appends `/systemone` to the API base, so `"wire": "system-one"` on an
+`openrouter` decision model posts to `/api/v1/systemone` from the same
+account.
 
 ## Explicit overrides and failures
 
 Set `wire` on the model, not on a duplicate provider. Chat permits
 `openai-responses`, `openai-completions`, or `anthropic-messages`. Embeddings
-permit `openai-embeddings`, decisions `system-one`, and rerankers
+permit `openai-embeddings`, decisions `system-one` or
+`openrouter-decisions`, and rerankers
 `cohere-rerank`. An explicit supported wire can describe a custom gateway's
 extra kind; Go remains chat-only and Zen chat-or-decision-only. An unsupported
 kind/wire pair or missing model metadata fails startup naming the model's

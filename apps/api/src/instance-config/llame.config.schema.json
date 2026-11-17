@@ -367,9 +367,10 @@
         "openai-codex",
         "openai-embeddings",
         "system-one",
+        "openrouter-decisions",
         "cohere-rerank"
       ],
-      "description": "Optional per-model wire override. Otherwise provider/kind defaults or exact provider/model metadata select the wire. Unknown combinations fail startup at this model's path. Credentials and headers remain on the provider."
+      "description": "Optional per-model wire override. Decision models choose system-one (POST {base}/systemone) or openrouter-decisions (the /alpha/decisions sibling of the account base); the resolved wire selects the decision endpoint. Otherwise provider/kind defaults or exact provider/model metadata select the wire. Unknown combinations fail startup at this model's path. Credentials and headers remain on the provider."
     },
     "providerType": {
       "type": "string",
@@ -809,7 +810,7 @@
     },
     "decisionModels": {
       "type": "array",
-      "description": "Optional System One decision-model catalogue. Each entry references an account and resolves the system-one wire by default or explicit override. Provider references and unique ids are validated at startup. Tools select a catalogue id through their rerank block. Decision usage remains separate from Run message usage. See docs/product/operator/decisions.md.",
+      "description": "Optional System One decision-model catalogue. Each entry references an account and resolves a decision wire (system-one or openrouter-decisions) by default or explicit override; the resolved wire selects the endpoint. Provider references and unique ids are validated at startup. Tools select a catalogue id through their rerank block. Decision usage remains separate from Run message usage. See docs/product/operator/decisions.md.",
       "items": { "$ref": "#/$defs/decisionModel" }
     },
     "rerankModels": {

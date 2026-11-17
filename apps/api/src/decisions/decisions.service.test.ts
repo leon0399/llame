@@ -645,18 +645,22 @@ describe('judgeCandidatesWith', () => {
         headers: {},
       };
 
-      const client = createDecisionClient(provider, 'jev', {
-        fetch: (url) => {
-          fetchCalls.push(url);
+      const client = createDecisionClient(
+        provider,
+        { id: 'jev' },
+        {
+          fetch: (url) => {
+            fetchCalls.push(url);
 
-          return Promise.resolve(new Response('', { status: 503 }));
-        },
-        sleep: () => {
-          controller.abort(reason);
+            return Promise.resolve(new Response('', { status: 503 }));
+          },
+          sleep: () => {
+            controller.abort(reason);
 
-          return Promise.resolve();
+            return Promise.resolve();
+          },
         },
-      });
+      );
 
       await expect(
         judgeCandidatesWith(client, input({ abortSignal: controller.signal }), {
@@ -823,6 +827,64 @@ function rerankClientOf(
     },
   };
 }
+
+describe('DecisionsService decision wires', () => {
+  it('posts each entry to the endpoint of its resolved wire on one account', async () => {
+    const urls: Array<string> = [];
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+      urls.push(url instanceof Request ? url.url : url.toString());
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            model: 'jev-1.14',
+            answers: { p0: { type: 'noul', noul: 0.5 } },
+            usage: { input_tokens: 1, output_tokens: 0 },
+          }),
+        ),
+      );
+    });
+
+    const service = new DecisionsService({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        providers: [
+          {
+            id: 'router',
+            type: 'openrouter',
+            key: KEY,
+            baseUrl: null,
+            headers: {},
+          },
+        ],
+        decisionModels: [
+          {
+            id: 'alpha',
+            provider: 'router',
+            model: 'typesafe/jev-1.14',
+            wire: 'openrouter-decisions',
+          },
+          {
+            id: 'legacy',
+            provider: 'router',
+            model: 'typesafe/jev-1.14',
+            wire: 'system-one',
+          },
+        ],
+      },
+    });
+
+    await service.judgeCandidates(input({ model: 'alpha' }));
+    await service.judgeCandidates(input({ model: 'legacy' }));
+    fetchSpy.mockRestore();
+
+    expect(urls).toEqual([
+      'https://openrouter.ai/api/alpha/decisions',
+      'https://openrouter.ai/api/v1/systemone',
+    ]);
+  });
+});
 
 describe('judgeCandidatesWithReranker', () => {
   it('sends the objective as the query and the card texts in card order', async () => {

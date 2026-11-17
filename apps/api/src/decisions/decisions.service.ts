@@ -618,7 +618,12 @@ export class DecisionsService implements DecisionJudge {
       const provider = providers.get(entry.provider);
 
       if (provider === undefined || provider.key === null) continue;
-      const client = createDecisionClient(provider, entry.model);
+
+      const client = createDecisionClient(provider, {
+        id: entry.model,
+        wire: entry.wire,
+      });
+
       const protectedValues = normalizeProtectedValues([provider.key]);
       entries.set(entry.id, {
         judge: (input) =>

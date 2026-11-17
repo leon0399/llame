@@ -32,8 +32,30 @@ usage, cost, measured context, reasoning count, or completeness, exactly as
 title generation and hosted search are excluded.
 
 A single `openrouter` account can serve both catalogues alongside chat and
-embeddings. Use that vendor profile for its alpha decision endpoint; the
-explicit profiles below describe custom services. See
+embeddings. The decision entry's resolved `wire` selects its endpoint:
+`openrouter-decisions` (the `openrouter` default) posts to
+`/api/alpha/decisions`, and `system-one` posts to `/api/v1/systemone`. Both
+send the same System One body, so one account can use either route per model:
+
+```jsonc
+{
+  "providers": [
+    { "id": "router", "type": "openrouter", "key": "{env:OPENROUTER_API_KEY}" },
+  ],
+  "decisionModels": [
+    { "id": "jev", "provider": "router", "model": "typesafe/jev-1.14" },
+    {
+      "id": "jev-systemone",
+      "provider": "router",
+      "model": "typesafe/jev-1.14",
+      "wire": "system-one",
+    },
+  ],
+}
+```
+
+Any account that can serve decisions may set either wire; the explicit
+`system-one` profile below describes custom services. See
 [provider routing](providers/routing.md) for defaults and `wire` overrides.
 
 ## 1. A provider of type `system-one`
@@ -83,11 +105,11 @@ results over time.
 }
 ```
 
-| Field      | Meaning                                                                                                                       |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.                                             |
-| `provider` | A `providers[].id` whose default or explicit model wire is `system-one`. Unknown accounts or unsupported routes fail startup. |
-| `model`    | Model id sent verbatim on the wire.                                                                                           |
+| Field      | Meaning                                                                                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`       | Unique catalogue id. A tool's `rerank.model` names it; a duplicate fails startup.                                                                                             |
+| `provider` | A `providers[].id` that resolves a decision wire (`system-one` or `openrouter-decisions`) by default or explicit `wire`. Unknown accounts or unsupported routes fail startup. |
+| `model`    | Model id sent verbatim on the wire.                                                                                                                                           |
 
 There is no price field. A request's cost is the cost the wire reports; a wire
 that reports none is recorded as unknown, never as zero.

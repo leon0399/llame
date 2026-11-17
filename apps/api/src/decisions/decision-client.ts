@@ -18,6 +18,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { ProviderConfig } from '../instance-config/llame-config';
 import {
   decisionEndpoint,
+  type ModelWire,
   nonChatHeaders,
 } from '../instance-config/provider-routing';
 import {
@@ -67,17 +68,17 @@ export type DecisionClientDependencies = {
  */
 export function createDecisionClient(
   provider: ProviderConfig,
-  modelId: string,
+  model: { readonly id: string; readonly wire?: ModelWire },
   dependencies: DecisionClientDependencies = {},
 ): DecisionClient {
   if (provider.key === null)
     throw new Error('Decision provider requires a credential');
 
   const wire: DecisionWire = {
-    endpoint: decisionEndpoint(provider),
+    endpoint: decisionEndpoint(provider, model.wire),
     headers: requestHeaders(provider),
     key: provider.key,
-    modelId,
+    modelId: model.id,
     fetch: dependencies.fetch ?? ((input, init) => fetch(input, init)),
     sleep: dependencies.sleep ?? sleepFor,
     now: dependencies.now ?? Date.now,

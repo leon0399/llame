@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-17
+
+- Let a decision model's `wire` select its endpoint, as chat wires do. The new
+  `openrouter-decisions` wire posts to the `/alpha/decisions` sibling of the
+  account base and stays the `openrouter` default; `"wire": "system-one"` on
+  the same account posts to `/api/v1/systemone`. An existing `openrouter` decision entry that
+  sets `"wire": "system-one"` therefore moves from `/api/alpha/decisions` to
+  `/api/v1/systemone`; remove the override to keep the alpha route. See
+  [decisions](docs/product/operator/decisions.md).
+
 # 2026-11-16
 
 - Share one provider account across chat, embedding, decision, and rerank
