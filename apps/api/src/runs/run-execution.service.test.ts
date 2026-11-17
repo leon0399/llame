@@ -21463,7 +21463,13 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     expect(output['type']).toBe('invalid_input');
   });
-  it.each(['nothing-pending', 'cancelled', 'delivered', 'fenced'] as const)(
+  it.each([
+    'nothing-pending',
+    'cancelled',
+    'delivered',
+    'fenced',
+    'missing-checkpoint',
+  ] as const)(
     'claims a resumed wait before the %s steering boundary',
     async (boundaryKind) => {
       registerTestOnlyTool(waitTool);
@@ -21534,7 +21540,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
         (_runId, _userId, options) =>
           Promise.resolve(
-            wakeEvents.filter(
+            (boundaryKind === 'missing-checkpoint' ? [] : wakeEvents).filter(
               ({ eventType }) =>
                 options?.eventTypes === undefined ||
                 options.eventTypes.some((type) => type === eventType),
@@ -21612,6 +21618,14 @@ describe('RunExecutionService executeRun — run segments', () => {
           }),
         }),
       });
+
+      if (boundaryKind === 'missing-checkpoint') {
+        await expect(
+          execution.service.executeRun(executionInput(segment.client)),
+        ).rejects.toThrow('The resumed Run has no complete wait checkpoint.');
+
+        return;
+      }
 
       if (boundaryKind === 'cancelled' || boundaryKind === 'fenced') {
         await expect(
@@ -23978,11 +23992,13 @@ describe('RunExecutionService claimRun', () => {
     });
 
     expect(claim).toEqual({ settledReply: undefined });
-    expect(repositories.markFinished).toHaveBeenCalledWith(
-      runId,
-      userId,
-      'cancelled',
-      { error: { message: 'Run was cancelled before model inference.' } },
+    const finishOptions = repositories.markFinished.mock.calls.at(-1)?.[3];
+
+    expect(finishOptions).toEqual({
+      error: { message: 'Run was cancelled before model inference.' },
+    });
+    expect(Object.hasOwn(finishOptions ?? {}, 'expectedQueueIdentity')).toBe(
+      false,
     );
   });
 });
@@ -24057,6 +24073,83 @@ describe('RunExecutionService compaction aborts', () => {
       }),
     );
   });
+
+  it('records the precise timeout reason when completion starts aborted', async () => {
+    const abort = new AbortController();
+    abort.abort(RUN_TIMEOUT_ABORT_REASON);
+
+    const { service } = makeExecutionService();
+
+    const settleTerminalRun = vi
+      .spyOn(service, 'settleTerminalRun')
+      .mockResolvedValue({ outcome: 'won' });
+
+    const queueIdentity = { currentJobId: null, wakeGeneration: 0 };
+
+    const result = await service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      expectedQueueIdentity: queueIdentity,
+      summary: undefined,
+      abortSignal: abort.signal,
+    });
+
+    expect(result).toEqual({ outcome: 'won' });
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      userId,
+      runId,
+      status: 'expired',
+      attemptId: testAttemptId,
+      expectedQueueIdentity: queueIdentity,
+      runPayload: {
+        status: 'expired',
+        message: 'Run timed out: exceeded its wall-clock budget.',
+      },
+      error: { message: 'Run timed out: exceeded its wall-clock budget.' },
+    });
+  });
+
+  it('publishes a checkpoint when a completed summary adds a new boundary', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+
+    const execution = makeExecutionService();
+    mockCompactionCompletionFence(execution, fenced);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findCheckpointByBoundary',
+    ).mockResolvedValue(undefined);
+
+    const createCheckpoint = vi
+      .spyOn(MessagesRepository.prototype, 'createCheckpoint')
+      .mockResolvedValue(assistantMessage);
+
+    await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      summary: { uptoSeq: 3, summary: 'checkpoint summary', usage: null },
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(createCheckpoint).toHaveBeenCalledWith({
+      chatId,
+      absorbedThroughSeq: 3,
+      part: createCompactionCheckpointPart('checkpoint summary'),
+      usage: null,
+    });
+  });
 });
 
 describe('RunExecutionService compaction digest resolution', () => {
@@ -24107,5 +24200,44 @@ describe('RunExecutionService compaction digest resolution', () => {
       'completed',
       expect.objectContaining({ attemptId: testAttemptId }),
     );
+  });
+
+  it('does not resolve a digest when recent-chat sharing is disabled', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+
+    const resolveCandidate = vi
+      .fn()
+      .mockRejectedValue(new Error('must not resolve a digest'));
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      memory: {
+        getForOwnerForBinding: vi
+          .fn()
+          .mockResolvedValue({ shareRecentChats: false }),
+      },
+      recencyDigest: { resolveCandidate },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(resolveCandidate).not.toHaveBeenCalled();
   });
 });
