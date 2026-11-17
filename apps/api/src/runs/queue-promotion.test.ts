@@ -64,10 +64,9 @@ function makeSetup(
     .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
     .mockResolvedValue(item);
 
-  vi.spyOn(
-    ChatDeliveriesRepository.prototype,
-    'deliverPendingJobNotices',
-  ).mockResolvedValue(undefined);
+  const deliverPendingJobNotices = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'deliverPendingJobNotices')
+    .mockResolvedValue(undefined);
 
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
@@ -103,6 +102,7 @@ function makeSetup(
     markDelivered,
     createUserMessageIfAbsent,
     createRun,
+    deliverPendingJobNotices,
   };
 }
 
@@ -118,6 +118,7 @@ describe('promoteNextQueueItem', () => {
       createUserMessageIfAbsent,
       createRun,
       markDelivered,
+      deliverPendingJobNotices,
     } = makeSetup();
 
     const job = await promote();
@@ -145,6 +146,11 @@ describe('promoteNextQueueItem', () => {
       messageId: item.id,
       runId,
     });
+    expect(deliverPendingJobNotices).toHaveBeenCalledWith(
+      item.chatId,
+      item.ownerUserId,
+      { messageId: item.id, runId },
+    );
     expect(job).toMatchObject({
       runId,
       chatId: item.chatId,

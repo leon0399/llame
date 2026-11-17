@@ -2,6 +2,7 @@ import type { ChatStreamResponse } from '../chat-stream-response';
 import type { CreateMessageDto } from '../dto/chats.dto';
 import type { ChatCommandsService } from './chat-commands.service';
 import { asDouble } from '../../testing/support';
+import { chatDeliveryRow } from '../../testing/chat-delivery-rows';
 import { respondToChatCommand } from './respond-to-chat-command';
 
 describe('respondToChatCommand', () => {
@@ -34,6 +35,9 @@ describe('respondToChatCommand', () => {
       messageId: undefined,
       rawText: '/compact',
     });
+    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty('delivery');
+    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty('effort');
+    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty('permissionMode');
     expect(status).toHaveBeenCalledWith(200);
     expect(json).toHaveBeenCalledWith({ command: 'compacted' });
   });
@@ -50,6 +54,7 @@ describe('respondToChatCommand', () => {
       modelId: 'model-1',
       effort: 'high',
       permissionMode: 'read-only',
+      delivery: 'queue',
       message: { parts: [{ type: 'text', text: '/rename' }] },
     });
 
@@ -66,6 +71,7 @@ describe('respondToChatCommand', () => {
         permissionMode: 'read-only',
       }),
     );
+    expect(execute.mock.calls[0]?.[0]).not.toHaveProperty('delivery');
   });
 
   it('propagates an unclassified command failure without writing a response', async () => {
@@ -89,5 +95,55 @@ describe('respondToChatCommand', () => {
       }),
     ).rejects.toBe(failure);
     expect(status).not.toHaveBeenCalled();
+  });
+
+  it('returns a 202 delivery response for a queued compact command', async () => {
+    const item = chatDeliveryRow({
+      parts: [{ type: 'text', text: '/compact keep the plan' }],
+      mode: 'queue',
+    });
+
+    const execute = vi.fn().mockResolvedValue({
+      type: 'delivery',
+      delivery: { item, job: null },
+    });
+
+    const commands = asDouble<ChatCommandsService>({ execute });
+    const json = vi.fn();
+    const status = vi.fn(() => ({ json }));
+    const response = asDouble<ChatStreamResponse>({ status });
+
+    const input = asDouble<CreateMessageDto>({
+      modelId: 'model-1',
+      delivery: 'queue',
+      message: {
+        id: item.id,
+        parts: [
+          { type: 'text' },
+          { type: 'text', text: '/compact keep the plan' },
+        ],
+      },
+    });
+
+    await expect(
+      respondToChatCommand(commands, {
+        userId: 'owner-1',
+        chatId: 'chat-1',
+        input,
+        response,
+      }),
+    ).resolves.toBe(true);
+
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: { name: 'compact', argument: 'keep the plan' },
+        delivery: 'queue',
+      }),
+    );
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({ rawText: '' });
+    expect(status).toHaveBeenCalledWith(202);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({ id: item.id, command: 'compact' }),
+    );
   });
 });
