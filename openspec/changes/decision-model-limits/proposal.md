@@ -17,17 +17,25 @@ answered HTTP 200; the current codec accepts that answer as a ranking. After a
 Decision models are a general model class, not a search feature, so the fix
 describes what each model accepts and lets the lane derive request sizes.
 
+Since #1739 merged, the decision and rerank catalogs also diverge from
+`models[]` ([#1745](https://github.com/leon0399/llame/issues/1745)): a decision
+entry's `wire` cannot move its request, because the account type picks the
+endpoint, and both catalogs call the provider's model `model` instead of
+`providerModelId`.
+
 ## What Changes
 
 - Each `decisionModels[]` entry can declare optional `limits`:
   `perQuestionContextTokens` (state plus one question),
   `perRequestContextTokens` (state plus every question) and
-  `maxQuestionsPerRequest`. The token names follow TypeSafe's
+  `maxQuestionsPerRequest`, and `maxConcurrentRequests`. The token names follow TypeSafe's
   `per_question_context` and `per_request_context`. An omitted limit uses a
   default: 8,192 per question and 32,768 per request (or the per-question
   limit when larger), with no question default.
-- A `system-one` provider can declare `maxConcurrentRequests`, default 4. Every
-  catalog entry on that provider id shares the bound in one process.
+- `limits.maxConcurrentRequests` bounds in-flight attempts per catalog entry,
+  default 32. Every call to that entry shares the bound in one process; two
+  entries keep separate bounds even on one account. Shared groups are
+  [#1746](https://github.com/leon0399/llame/issues/1746).
 - The lane keeps one shared state per request and fills each request in
   canonical order up to 32 cards and the model's limits. One call judges at
   most its first 256 cards; the rest keep their canonical order unjudged. A
@@ -36,9 +44,15 @@ describes what each model accepts and lets the lane derive request sizes.
   rounded up.
 - A response that reports truncation (`usage.truncated: true` or
   `usage.state_tokens_dropped` above 0) makes its request unavailable.
-- An existing configuration loads unchanged. A small self-hosted member must
-  declare its `limits`: the defaults fit hosted members such as Jev, not a
-  1,024-token checkpoint.
+- A second decision wire, `openrouter-decisions`, posts to the
+  `/alpha/decisions` sibling of the account base; `system-one` posts to
+  `{base}/systemone`. The resolved wire, not the account type, selects the
+  endpoint. `openrouter` keeps `openrouter-decisions` as its default, and any
+  account that can serve decisions may select either wire.
+- **Breaking:** `decisionModels[].model` and `rerankModels[].model` become
+  `providerModelId`. A tool's `rerank.model` still names a catalog id.
+- A small self-hosted member must declare its `limits`: the defaults fit
+  hosted members such as Jev, not a 1,024-token checkpoint.
 
 ## Capabilities
 
@@ -50,10 +64,15 @@ None.
 
 - `decision-models`: request bound and parallelism change from 256 cards sent
   together to model-derived packing under a 32-card request bound, a 256-card
-  call bound, and a per-provider attempt bound; truncation reports make a
-  request unavailable; queued slot waits follow the enclosing cancellation.
-- `instance-config`: the decision catalog entry gains optional `limits`, and a
-  `system-one` provider gains optional `maxConcurrentRequests`.
+  call bound, and a per-entry attempt bound; truncation reports make a
+  request unavailable; queued slot waits follow the enclosing cancellation;
+  the resolved wire selects the endpoint.
+- `instance-config`: the decision catalog entry gains optional `limits`
+  (including `maxConcurrentRequests`), renames `model` to `providerModelId`,
+  and may resolve either decision wire.
+- `rerank-models`: the catalog entry renames `model` to `providerModelId`.
+- `provider-api-selection`: decision models choose between `system-one` and
+  `openrouter-decisions`, and the wire selects the endpoint.
 - `web-search`: the 300-card aggregate scenario judges its first 256 cards.
 - `tool-result-rendering`: the partial-answer rank-record scenario follows the
   256-card call bound.
@@ -70,9 +89,13 @@ per request, at about a third of the tokens; the fixtures are too easy to
 separate the layouts on quality. Leo settled the shape on 2026-11-13; the
 design records each decision and its rejected options.
 
+The OpenRouter route probe on 2026-11-17 found identical answers and usage on
+both routes and no truncation fields on either; see the design.
+
 Non-goals: the Gemini and OpenAI decision wires, a configurable per-tool item
-cap, a `choice` pass over top candidates, changes to `rerankModels[]`, and any
-change to how Laya checkpoints are served.
+cap, a `choice` pass over top candidates, rerank changes beyond the rename,
+shared concurrency groups (#1746), and any change to how Laya checkpoints are
+served.
 
 Assumptions: vendor ceilings are documented in tokens, and llame has no
 tokenizer for these models, so the estimate is a byte heuristic. A server can
@@ -82,12 +105,15 @@ a backstop.
 ## Impact
 
 - `apps/api/src/instance-config`: schema, types, loader validation for the new
-  fields; JSON schema descriptions.
+  fields and the renamed field; the decision wire set and endpoint selection
+  in `provider-routing.ts`; JSON schema descriptions.
 - `apps/api/src/decisions`: request packing, token estimate, card fit,
-  per-provider attempt bound, call bound, truncation check, a
+  per-entry attempt bound, call bound, truncation check, a
   `state_too_large` failure reason.
-- `docs/product/operator/decisions.md`: the fields, defaults, the per-process
-  bound, and guidance for small members.
+- `docs/product/operator/decisions.md` and `providers/routing.md`: the fields,
+  defaults, the per-process bound, both decision routes, the rename, and
+  guidance for small members. The example config and every catalog fixture
+  rename `model`.
 - No database or API surface change. A ranked call past 256 cards leaves its
   tail unjudged in canonical order, so the order the model reads changes for
   such calls.

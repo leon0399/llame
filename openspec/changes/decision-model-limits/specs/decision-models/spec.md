@@ -1,17 +1,70 @@
 ## RENAMED Requirements
 
+- FROM: `### Requirement: A system-one provider speaks the decision wire`
+- TO: `### Requirement: The resolved decision wire selects the endpoint`
 - FROM: `### Requirement: Requests are bounded and sent together`
-- TO: `### Requirement: Requests are bounded and share the provider slots`
+- TO: `### Requirement: Requests are bounded and share the entry slots`
 
 ## MODIFIED Requirements
 
-### Requirement: Requests are bounded and share the provider slots
+### Requirement: The resolved decision wire selects the endpoint
+
+A decision catalog entry's resolved wire MUST select its endpoint. The
+`system-one` wire MUST send `POST {base}/systemone`. The
+`openrouter-decisions` wire MUST send to the `/alpha/decisions` sibling of the
+account's API base: a base that ends in `/v1` MUST have that segment replaced,
+and any other base MUST have `/alpha/decisions` appended. The client MUST strip
+trailing `/` characters from the base first. Both wires MUST send the same
+System One body with a bearer `key`. The account `type` MUST NOT select the
+endpoint. A `providers[]` entry of `type: "system-one"` MUST have the fields
+`id`, `key`, and `baseUrl`. The optional `headers` field MUST accept the same
+interpolation as every other provider. A `key` or a `baseUrl` that resolves
+blank MUST fail startup. The message MUST name the entry and the field.
+
+#### Scenario: A decision provider is configured
+
+- **WHEN** `providers[]` holds an entry with `type: "system-one"`, a `key`, and a `baseUrl`
+- **THEN** the entry serves the decision wire at `POST {baseUrl}/systemone`
+- **AND** each request to that entry carries a bearer `key`
+
+#### Scenario: A trailing slash does not duplicate the route separator
+
+- **WHEN** `baseUrl` is `https://judge.example/v1/`
+- **THEN** the request goes to `https://judge.example/v1/systemone`
+
+#### Scenario: The key or the base URL resolves blank
+
+- **WHEN** a `system-one` entry has a `key` or a `baseUrl` that interpolates to an empty value
+- **THEN** startup fails
+- **AND** the message names the entry and the field
+
+#### Scenario: A decision provider sets headers
+
+- **WHEN** a `system-one` entry sets `headers`
+- **THEN** the entry resolves each value with the interpolation of every other provider
+
+#### Scenario: An OpenRouter entry uses the default wire
+
+- **WHEN** a decision entry names an `openrouter` account with the default base and declares no `wire`
+- **THEN** each request goes to `https://openrouter.ai/api/alpha/decisions`
+
+#### Scenario: An OpenRouter entry selects the System One route
+
+- **WHEN** a decision entry names the same `openrouter` account and declares `wire: "system-one"`
+- **THEN** each request goes to `https://openrouter.ai/api/v1/systemone`
+- **AND** another entry on that account without a `wire` still goes to `https://openrouter.ai/api/alpha/decisions`
+
+#### Scenario: Another account selects the OpenRouter route
+
+- **WHEN** a decision entry names an `openai-completions` account with the base `https://proxy.example/v1` and declares `wire: "openrouter-decisions"`
+- **THEN** each request goes to `https://proxy.example/alpha/decisions`
+
+### Requirement: Requests are bounded and share the entry slots
 
 One request MUST carry at most 32 cards with their questions. One call MUST
 judge at most its first 256 cards in canonical order. The other cards MUST
 stay unjudged. Each request MUST carry only its own cards and questions. Each
-attempt to a `system-one` provider MUST start only when that provider has a
-free slot. Each attempt MUST time out after 10 seconds. A request MUST have at
+attempt MUST start only when its catalog entry has a free slot. Each attempt MUST time out after 10 seconds. A request MUST have at
 most 3 attempts. After status 408, 429, 5xx, or a transport failure, the system
 MUST retry unless three attempts ran or the enclosing call aborted. The system MUST honour
 `retry-after` up to 5 seconds.
@@ -32,13 +85,13 @@ MUST retry unless three attempts ran or the enclosing call aborted. The system M
 
 #### Scenario: All requests of one call are in flight
 
-- **WHEN** a call has three requests and its provider has three free slots
+- **WHEN** a call has three requests and its catalog entry has three free slots
 - **THEN** every request starts at the same time
 
-#### Scenario: Requests of one call share the provider bound
+#### Scenario: Requests of one call share the entry bound
 
-- **WHEN** a call has eight requests and the provider allows four concurrent attempts
-- **THEN** at most four attempts to that provider are in flight at one time
+- **WHEN** a call has eight requests and the entry declares `maxConcurrentRequests: 4`
+- **THEN** at most four attempts for that entry are in flight at one time
 - **AND** each other attempt starts in arrival order when a slot is free
 
 #### Scenario: A transient failure is retried
@@ -213,25 +266,32 @@ answers or usage.
 - **WHEN** a valid response has no `truncated` field and no `state_tokens_dropped` field
 - **THEN** the system accepts the answers of that response
 
-### Requirement: Concurrent attempts to one provider are bounded
+### Requirement: Concurrent attempts to one catalog entry are bounded
 
-The system MUST NOT have more in-flight attempts to one `system-one` provider
-than its `maxConcurrentRequests`. Every catalog entry and every call on that
-provider id MUST share the bound in one process. Without the field, the bound
-MUST be 4. Waiting attempts MUST start in arrival order. A retry wait MUST NOT
-hold a slot. An attempt MUST release its slot when it settles or aborts.
+The system MUST NOT have more in-flight attempts for one catalog entry than
+its `limits.maxConcurrentRequests`. Every call to that entry MUST share the
+bound in one process. Without the field, the bound MUST be 32. Two entries
+MUST NOT share a bound, even when they name one account. Waiting attempts MUST
+start in arrival order. A retry wait MUST NOT hold a slot. An attempt MUST
+release its slot when it settles or aborts.
 
-#### Scenario: Two catalog entries share one provider
+#### Scenario: Two calls share one entry
 
-- **WHEN** two catalog entries name one provider without `maxConcurrentRequests` and two calls run at one time
-- **THEN** at most four attempts to that provider are in flight in the process
+- **WHEN** an entry declares no `maxConcurrentRequests` and two calls with 256 cards each run at one time
+- **THEN** all 16 requests of the two calls start together
+- **AND** at most 32 attempts for that entry are in flight in the process
 
-#### Scenario: An operator raises the bound
+#### Scenario: An entry declares one slot
 
-- **WHEN** a provider declares `maxConcurrentRequests: 16`
-- **THEN** at most 16 attempts to that provider are in flight in the process
+- **WHEN** an entry declares `maxConcurrentRequests: 1` and a call has three requests
+- **THEN** at most one attempt for that entry is in flight at one time
+
+#### Scenario: Two entries on one account keep separate bounds
+
+- **WHEN** two entries name one account and each declares `maxConcurrentRequests: 1`
+- **THEN** one attempt for each entry can be in flight at the same time
 
 #### Scenario: A retry wait releases its slot
 
-- **WHEN** one request waits to retry and another request waits for a slot on a provider with one slot
+- **WHEN** one request waits to retry and another request waits for a slot on an entry with one slot
 - **THEN** the other request starts during the retry wait

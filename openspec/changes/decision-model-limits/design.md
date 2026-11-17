@@ -3,7 +3,7 @@
 ## Context
 
 See [proposal.md](proposal.md) for motivation. Current state, read at
-`6eb012d0a`:
+`6eb012d0a` and rechecked at `e9d6c2ebd` after #1739 merged:
 
 - `apps/api/src/decisions/decisions.service.ts` cuts each card to the tool's
   `cardBound` (384 UTF-16 units for `grep`, 400 for `web_search`), groups the
@@ -14,9 +14,16 @@ See [proposal.md](proposal.md) for motivation. Current state, read at
   envelope, the `noul` answers and `usage.input_tokens`/`output_tokens` are
   valid. It ignores unknown fields, so Laya's `usage.truncated` and
   `usage.state_tokens_dropped` pass through unread.
-- `decisionModels[]` entries are `{ id, provider, model }`; a `system-one`
-  provider is `{ id, type, key, baseUrl, billing?, headers? }`. Nothing
-  describes what a model accepts.
+- `decisionModels[]` entries are `{ id, provider, model, wire? }`, and
+  `rerankModels[]` entries the same; `models[]` and `embeddingModels[]` name
+  the provider's model `providerModelId`. Nothing describes what a model
+  accepts.
+- Since #1739 one account serves every model kind. `openrouter` and
+  `opencode-zen` default decisions to the only decision wire, `system-one`,
+  and any account except `openai-codex` and `opencode-go` may select it.
+  `decisionEndpoint()` picks the path from `provider.type`: `openrouter` posts
+  to `/api/alpha/decisions`, every other account to `{base}/systemone`, so a
+  decision entry's `wire` cannot move its request.
 - `apps/api` has pg-boss worker concurrency and fixed-size batching in the
   search reindex paths (`CONCURRENCY = 20`), but no shared limiter keyed by an
   external server, and no limiter library is installed.
@@ -125,11 +132,34 @@ four requests in flight, one run per variant plus a repeat as the noise floor:
   and its raw output is not committed; the implementation layer records the
   injection and reversed-order cases through `ranking:record`.
 
+### OpenRouter decision routes
+
+Measured on 2026-11-17 with `typesafe/jev-1.14` on one OpenRouter key:
+
+| Route                  | Request                   | HTTP | Input tokens | `usage` keys                                                       |
+| ---------------------- | ------------------------- | ---- | ------------ | ------------------------------------------------------------------ |
+| `/api/alpha/decisions` | 2 grep cards (lane-built) | 200  | 664          | `input_tokens`, `output_tokens`, `cost`, `is_byok`, `cost_details` |
+| `/api/v1/systemone`    | 2 grep cards (lane-built) | 200  | 664          | same                                                               |
+| `/api/alpha/decisions` | 64 cards of about 6,000 B | 200  | 69,691       | same                                                               |
+| `/api/v1/systemone`    | 64 cards of about 6,000 B | 200  | 78,139       | same                                                               |
+
+- The same lane-built request returned identical answers (0.96 and 0.03),
+  token counts and cost on both routes. With text-only state the routes take
+  one System One body and differ only in path. OMP models the alpha route as
+  its own `openrouter-decisions` dialect for the same reason: it adds image
+  parts in `state` and a billed `cost`, neither of which llame sends or needs.
+- Neither route returns `truncated` or `state_tokens_dropped`, even at 78k
+  input tokens, above Jev's documented 64k per-request ceiling. On OpenRouter
+  the declared or default token limits are the only guard.
+- OpenAI and Gemini Decisions also post to a `/decisions` path but use other
+  bodies (`input`, ordered predicates, positional keys), so a shared path is
+  not a shared wire.
+
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Request size follows the model, attempt concurrency follows the server, and
+- Request size and attempt concurrency follow the catalog entry, and
   card counts stay ranking constants of the lane.
 - A server-reported cut never becomes an accepted ranking.
 - Ranking queues a bounded number of waves per call, so a large walk does not
@@ -140,14 +170,18 @@ four requests in flight, one run per variant plus a repeat as the noise floor:
 - Choosing a layout per model, a `choice` pass, shuffled order, and a
   configurable per-tool item cap. Each waits for evidence on llame's own data.
 - Exact token counts. No tokenizer for these members ships in llame.
-- Bounding concurrency across processes or across provider ids that point at
-  one server. The bound is per process and per provider id.
+- Bounding concurrency across processes, or across catalog entries served by
+  one server ([#1746](https://github.com/leon0399/llame/issues/1746)). The
+  bound is per process and per catalog entry.
+- OpenAI and Gemini Decisions wires.
 
 ## Decisions
 
 Decision codes match the review with Leo on 2026-11-13. The proposal reviews
 changed G2, G4, G5, G7, G8 and G11; G4, G8 and G11 changed in substance and
-are marked.
+are marked. After #1739 merged, the 2026-11-17 review with Leo changed G4 again
+and added G14 to G16, which also serve
+[#1745](https://github.com/leon0399/llame/issues/1745).
 
 **G1. Limits belong to the catalog entry.** A limit is a property of one model
 on one route: Jev is 64k per request on TypeSafe and 262k through OpenRouter,
@@ -188,18 +222,27 @@ multilingual checkpoint). The per-question limit subtracts the estimated
 question instead, so the operator page tells such an operator to declare the
 state budget plus a typical question, not the raw window.
 
-**G4. `maxConcurrentRequests` on the `system-one` provider, default 4
-(revised).** Capacity belongs to the server: both Laya checkpoints share one
-server, and hosted routes rate-limit per account. A FIFO counting
-semaphore keyed by provider id, built once with the decision clients, wraps
-each attempt, not each request: a retry wait releases its slot, so one failing
-request cannot hold the server while it backs off. A slot wait listens to the
-call's signal and leaves the queue at once on abort; the earlier draft claimed
-the existing signal check covered this, but that check runs only after a slot
-is held. The call's `latencyMs` becomes its wall time, including slot waits,
-instead of the slowest request's own time. Rejected: unbounded by default (a
-self-hosted server receives every split request at once) and a bound per
-catalog entry (two checkpoints on one server double it).
+**G4. `limits.maxConcurrentRequests` per catalog entry, default 32 (revised
+twice).** After #1739 a decision model can live on any account, and one
+`openrouter` account also serves chat and embeddings, so a bound on the
+`system-one` provider type no longer reached the documented path. A bound per
+account would also throttle hosted entries that share an account with a
+fragile one: one self-hosted gateway serves a fragile Laya checkpoint beside a
+model that needs no bound. The bound therefore sits in the entry's `limits`, beside
+the other limits of what that deployment tolerates. A FIFO counting semaphore
+per entry, built once with the decision clients, wraps each attempt, not each
+request: a retry wait releases its slot, so one failing request cannot hold
+the server while it backs off. A slot wait listens to the call's signal and
+leaves the queue at once on abort. The call's `latencyMs` is its wall time,
+including slot waits. The default follows OMP's `EVAL_HANDLE_CONCURRENCY =
+32` process-wide judgment slots: four full 256-card calls run before any
+attempt waits. OMP's own per-provider HTTP limit defaults to unlimited.
+Accepted limit: two entries on one server each get their own bound until
+[#1746](https://github.com/leon0399/llame/issues/1746) adds shared groups.
+Rejected: a bound per account (throttles unrelated entries on a shared
+gateway), a per-kind block on the account (no second kind needs one), and
+unbounded by default (a self-hosted server receives every split request at
+once).
 
 **G5. A truncation report makes its request unavailable.** The cut is to the
 shared state, so every question of that request read less evidence. The usage
@@ -261,6 +304,27 @@ does not stop self-promotion. A recorded injection fixture for `ranking:record`
 lets the measurement repeat when a model changes; it is a live-model eval, not
 a CI test.
 
+**G14. `providerModelId` replaces `model` in both rank catalogs.** The main
+and embedding catalogs already name the provider's model `providerModelId`,
+while a tool's `rerank.model` names a catalog id, so `model` meant two things.
+The rename is breaking: the closed schema rejects `model`, and startup names
+the entry. A tool's `rerank.model` keeps naming the internal catalog id.
+
+**G15. The resolved wire selects the decision endpoint.** A second decision
+wire, `openrouter-decisions`, posts to the `/alpha/decisions` sibling of the
+account base; `system-one` posts to `{base}/systemone`. `openrouter` keeps the
+alpha default from #1739, and any account that can serve decisions may select
+either wire, as with chat wires, so one OpenRouter account serves both routes
+per model. The name follows the API, like `openai-responses` and
+`cohere-rerank`, and stays right if the route leaves alpha. Rejected:
+`system-one-alpha` (encodes a release stage) and a second provider entry per
+route (duplicates the key and account).
+
+**G16. A response without truncation fields is complete.** The existing
+scenario stays and now has evidence behind it: OpenRouter returns neither
+field on either route. The operator page says that on such routes the token
+limits are the only guard.
+
 ## Risks / Trade-offs
 
 - [The estimate undercounts for some tokenizer and script] → the truncation
@@ -270,25 +334,29 @@ a CI test.
   operator who declares limits above the real window gets degraded answers.
   The operator page states this.
 - [Small members need many requests] → at about three cards per request, a
-  256-card call is about 86 requests, about 22 waves at four slots, and a
-  deadline still fails the whole tool call. The operator can raise
-  `maxConcurrentRequests` only as far as the server tolerates.
-- [One call can delay another on a shared provider] → before this change
+  256-card call is about 86 requests: three waves at the default 32 slots, 86
+  at one slot, and a deadline still fails the whole tool call. The operator
+  sets `maxConcurrentRequests` only as low as the server needs.
+- [One call can delay another on a shared entry] → before this change
   every request started at once; now a call can wait behind another Run's
   attempts. Grep ranks inside the time left before its enclosing deadline
   (about 12 s at the default tool timeout), so a busy shared provider can turn
   a successful rank into a whole-call timeout. FIFO slots and the 256-card call
-  bound limit the waves ahead; the operator raises the bound where the server
-  allows.
-- [Per-process and per-provider-id bound] → several worker processes, or two
-  provider ids on one server URL, multiply the load; the operator page states
-  both.
+  bound limit the waves ahead.
+- [Per-process and per-entry bound] → several worker processes, or two
+  entries on one server, multiply the load; the operator page states both, and
+  #1746 tracks shared groups.
+- [OpenRouter reports no truncation] → an entry whose declared limits exceed
+  the model's window gets silently cut state on that route; the defaults stay
+  under Jev's documented ceilings.
 - [Layout evidence is thin] → the fixtures saturate. Harder cases, starting
   with #1606, are needed before any later layout change.
 
 ## Migration Plan
 
-No data or API migration. An existing configuration loads unchanged and gets
-the default limits and concurrency; a small self-hosted member should add
-`limits` in the same deploy. Rollback is a revert of the implementation layer;
+No data or API migration. Configuration migration is required: every
+`decisionModels[]` and `rerankModels[]` entry renames `model` to
+`providerModelId`, or startup fails naming the entry. Otherwise an existing
+configuration gets the default limits and concurrency; a small self-hosted
+member should add `limits` in the same deploy. Rollback is a revert of the implementation layer;
 no persisted state depends on the new fields.
