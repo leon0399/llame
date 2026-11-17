@@ -229,6 +229,12 @@ describe('step-boundary compaction admission', () => {
 
     const events = await fx.events(seeded.runId);
 
+    const absorbedReply = messages.find(
+      (message) =>
+        message.role === 'assistant' &&
+        message.inReplyTo === seeded.userMessage.id,
+    );
+
     const completedWait = events.find(
       (event) =>
         event.eventType === 'tool.completed' &&
@@ -266,6 +272,10 @@ describe('step-boundary compaction admission', () => {
     expect(completedWait?.payload).toMatchObject({
       output: { ended: 'interrupted' },
     });
+    expect(absorbedReply?.usage).toMatchObject({ status: 'completed' });
+    expect(JSON.stringify(absorbedReply?.parts)).toContain(
+      '"ended":"interrupted"',
+    );
     expect(
       (
         await fx.db((tx) =>

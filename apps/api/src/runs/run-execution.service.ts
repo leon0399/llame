@@ -712,6 +712,27 @@ type FinishRunResult =
       delivery: DeliveredBoundary;
     };
 
+function hasNoCommittedAssistantTurn(finish: FinishRunResult): boolean {
+  return (
+    (finish.outcome === 'errored' && !finish.assistantMessage) ||
+    (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
+  );
+}
+
+function startsAutomaticCompaction(
+  firstSegment: boolean,
+  wakeCompaction: boolean,
+): boolean {
+  return firstSegment && !wakeCompaction;
+}
+
+function completesBoundaryCompaction(
+  status: TerminalRunStatus,
+  wakeCompaction: boolean,
+): boolean {
+  return status === 'completed' && !wakeCompaction;
+}
+
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
   system: string;
@@ -1829,9 +1850,7 @@ export class RunExecutionService {
     const effectivePermissionMode =
       this.resolveEffectivePermissionMode(permissionMode);
 
-    if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input, attemptId);
-    }
+    await this.settleIfAborted(input, attemptId);
 
     // The segment of a delivered message: a new attempt of this Run, in this
     // worker, with no new claim.
@@ -1969,7 +1988,7 @@ export class RunExecutionService {
         media,
         continued,
         gitObservation,
-        firstSegment: firstSegment && !wakeCompaction,
+        firstSegment: startsAutomaticCompaction(firstSegment, wakeCompaction),
         wakeCompaction,
       });
 
@@ -1978,9 +1997,7 @@ export class RunExecutionService {
       turnInstructions = firstStep.turnInstructions;
       turnGit = firstStep.turnGit;
     } catch (error) {
-      if (input.abortSignal?.aborted) {
-        await this.settleAbortedRun(input, attemptId);
-      }
+      await this.settleIfAborted(input, attemptId);
 
       if (error instanceof ModelContextExecutionError) {
         const message = error.message;
@@ -2014,9 +2031,7 @@ export class RunExecutionService {
       ]),
     );
 
-    if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input, attemptId);
-    }
+    await this.settleIfAborted(input, attemptId);
 
     const streamStartedAt = Date.now();
     const requestUsageReceipts: Array<LanguageModelUsage> = [];
@@ -2082,12 +2097,7 @@ export class RunExecutionService {
       media,
       workspaceRoot,
       compactionSet: wakeCompactionSet,
-      live: {
-        chatId: input.chatId,
-        inReplyTo: input.userMessage.id,
-        parts: assistantPartCollector.parts(),
-        telemetry: buildAssistantTelemetry(null, 'aborted'),
-      },
+      keptPartCount: continued?.parts.length ?? 0,
       wakeCompaction,
       stepBudgetUsed: stepBudgetOffset + continueStepOffset(continued),
     });
@@ -2185,6 +2195,7 @@ export class RunExecutionService {
     // continue after the steps it kept (design D5), so the kept steps and the
     // new ones stay separate in the reply it stores.
     const stepOffset = continueStepOffset(continued);
+    const wakeStepOffset = attempt.wakeState === undefined ? 0 : stepOffset;
     // The retained base64 this reply's message already holds: the kept parts
     // of a Continue Run, which the settled reads below add to. A read past the
     // rest of the bound keeps no bytes and records that instead (D5).
@@ -3586,12 +3597,12 @@ export class RunExecutionService {
                 replyParts: assistantPartCollector
                   .parts()
                   .slice(continued?.parts.length ?? 0),
+                keptPartCount: continued?.parts.length ?? 0,
                 stepBudgetUsed: boundaryStepBudgetUsed({
                   stepBudgetOffset,
                   stepBase,
                   stepsStarted,
-                  wakeStepOffset:
-                    attempt.wakeState === undefined ? 0 : stepOffset,
+                  wakeStepOffset,
                 }),
                 ...extra,
               })
@@ -3809,7 +3820,7 @@ export class RunExecutionService {
                     maxStepsPerRun -
                       stepBase -
                       stepBudgetOffset -
-                      (attempt.wakeState === undefined ? 0 : stepOffset),
+                      wakeStepOffset,
                   ),
             stopWhenExtra,
             onStepStart: async ({ messages, stepNumber }) => {
@@ -4349,8 +4360,7 @@ export class RunExecutionService {
                     stepBudgetOffset,
                     stepBase,
                     stepsStarted,
-                    wakeStepOffset:
-                      attempt.wakeState === undefined ? 0 : stepOffset,
+                    wakeStepOffset,
                   }),
                   finalAnswer: true,
                 });
@@ -4403,6 +4413,7 @@ export class RunExecutionService {
                   ? { message: 'Run was cancelled.' }
                   : undefined;
 
+
               const finish = await this.finishRun({
                 userId: input.userId,
                 runId: input.runId,
@@ -4411,8 +4422,7 @@ export class RunExecutionService {
                   stepBudgetOffset,
                   stepBase,
                   stepsStarted,
-                  wakeStepOffset:
-                    attempt.wakeState === undefined ? 0 : stepOffset,
+                  wakeStepOffset,
                 }),
                 ...(boundaryCompaction !== undefined && { boundaryCompaction }),
                 attemptId,
@@ -4468,10 +4478,7 @@ export class RunExecutionService {
               // outcome, because 'errored' no longer implies nothing committed —
               // the catch salvages the answer in its own transaction, and a chat
               // whose first turn landed that way still needs a title.
-              if (
-                (finish.outcome === 'errored' && !finish.assistantMessage) ||
-                (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
-              ) {
+              if (hasNoCommittedAssistantTurn(finish)) {
                 return;
               }
 
@@ -4533,9 +4540,7 @@ export class RunExecutionService {
         // A synchronous throw from streamText (provider/config validation before
         // any callback can fire) would otherwise strand the claimed run at
         // 'running_model' until the deadman sweep expires it — fail it now.
-        if (input.abortSignal?.aborted) {
-          await this.settleAbortedRun(input, attemptId);
-        }
+        await this.settleIfAborted(input, attemptId);
 
         const message = errorMessageWithoutParams(error);
         // This attempt holds the claim; a reclaim during the synchronous throw
@@ -5946,6 +5951,19 @@ export class RunExecutionService {
    * after the terminal state + matching event are durably visible. Fenced by
    * `attemptId`: only the attempt that observed the abort may settle it, so a
    * reclaimed attempt's late abort cannot cancel the live attempt's run. */
+  private async settleIfAborted(
+    input: {
+      userId: string;
+      runId: string;
+      abortSignal?: AbortSignal;
+    },
+    attemptId: string,
+  ): Promise<void> {
+    if (!input.abortSignal?.aborted) return;
+
+    await this.settleAbortedRun(input, attemptId);
+  }
+
   private async settleAbortedRun(
     input: {
       userId: string;
@@ -6955,6 +6973,7 @@ export class RunExecutionService {
     media: RunMediaResolver;
     workspaceRoot: WorkspaceRootCell;
     replyParts: ReadonlyArray<MessagePart>;
+    keptPartCount: number;
     stepBudgetUsed: number;
     compactionSet?: Awaited<ReturnType<typeof readCompactionSet>>;
     finalAnswer?: true;
@@ -6993,8 +7012,10 @@ export class RunExecutionService {
 
     const projected = projectStoredReplyParts(input.replyParts, {
       privateParts: true,
-      mediaKey: continuedMediaKey,
+      mediaKey: (index) => continuedMediaKey(input.keptPartCount + index),
     });
+
+    mergeRetainedMedia(input.media.retainedMedia, projected.retainedMedia);
 
     let summary: CompactionSummary | null = null;
 
@@ -7144,7 +7165,7 @@ export class RunExecutionService {
     media: RunMediaResolver;
     workspaceRoot: WorkspaceRootCell;
     compactionSet: Awaited<ReturnType<typeof readCompactionSet>> | undefined;
-    live: AssistantTurnWrite;
+    keptPartCount: number;
     wakeCompaction: boolean;
     stepBudgetUsed: number;
   }): Promise<BoundaryDelivery | undefined> {
@@ -7176,6 +7197,7 @@ export class RunExecutionService {
       media: input.media,
       workspaceRoot: input.workspaceRoot,
       replyParts: [],
+      keptPartCount: input.keptPartCount,
       stepBudgetUsed: input.stepBudgetUsed,
       compactionSet,
     });
@@ -7185,7 +7207,6 @@ export class RunExecutionService {
         deliverPendingSteering(tx, {
           run: { runId: input.run.runId, userId: input.run.userId },
           attemptId: input.attemptId,
-          live: input.live,
           models: this.instanceConfig.config.models,
           deadWorkerAfterSeconds: workerDeadAfterSeconds(
             this.instanceConfig.config,

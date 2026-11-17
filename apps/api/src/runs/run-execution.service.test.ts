@@ -25303,6 +25303,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       media,
       workspaceRoot: createWorkspaceRootCell('/workspace'),
       replyParts: [],
+      keptPartCount: 0,
       stepBudgetUsed: 4,
       compactionSet: { ids: ['compact-id'], focus: 'owner focus' },
       finalAnswer: true,
@@ -25358,6 +25359,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       media: createRunMediaResolver(execution.tenantDb, userId),
       workspaceRoot: createWorkspaceRootCell('/workspace'),
       replyParts: [],
+      keptPartCount: 0,
       stepBudgetUsed: 0,
       compactionSet: { ids: ['compact-id'], focus: null },
     });
@@ -25390,6 +25392,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       media: createRunMediaResolver(execution.tenantDb, userId),
       workspaceRoot: createWorkspaceRootCell('/workspace'),
       replyParts: [],
+      keptPartCount: 0,
       stepBudgetUsed: 0,
       compactionSet: { ids: [], focus: null },
     });
