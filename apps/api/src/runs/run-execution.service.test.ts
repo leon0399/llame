@@ -22737,6 +22737,10 @@ describe('RunExecutionService executeRun — run segments', () => {
   it('settles an expired Run when step-boundary summarization aborts', async () => {
     const controller = new AbortController();
     const spies = mockNormalExecutionRepositories();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
     const appended = recordAppendedEvents();
 
     const compact = {
@@ -22789,6 +22793,10 @@ describe('RunExecutionService executeRun — run segments', () => {
   it('settles an expired Run when final-answer boundary summarization aborts', async () => {
     const controller = new AbortController();
     const spies = mockNormalExecutionRepositories();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
     const appended = recordAppendedEvents();
 
     const compact = {
