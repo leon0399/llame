@@ -25920,6 +25920,7 @@ describe('RunExecutionService automatic compaction boundary measurement', () => 
 describe('RunExecutionService disabled automatic compaction state', () => {
   it('does not retrigger boundary compaction after its disabled event', async () => {
     mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
 
     const disabledEvent: RunEvent = {
       ...event,
@@ -25927,13 +25928,22 @@ describe('RunExecutionService disabled automatic compaction state', () => {
       payload: {},
     };
 
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'compaction' },
+    };
+
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
       (_runId, _userId, options) =>
-        Promise.resolve(
-          options?.eventTypes?.includes('run.compaction_disabled')
+        Promise.resolve([
+          ...(options?.eventTypes?.includes('run.compaction_disabled')
             ? [disabledEvent]
-            : [],
-        ),
+            : []),
+          ...(options?.eventTypes?.includes('run.delivered')
+            ? [deliveryEvent]
+            : []),
+        ]),
     );
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
       ...committedTurn(),
@@ -25966,10 +25976,20 @@ describe('RunExecutionService disabled automatic compaction state', () => {
       userMessage: { ...input.userMessage, seq: 3 },
     });
     const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
 
     await executeBoundTool(options, { q: 'lookup' }, 'call-1');
 
     await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+    expect(
+      appended.filter(({ type }) => type === 'run.compaction_disabled'),
+    ).toHaveLength(0);
     expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
   });
 
