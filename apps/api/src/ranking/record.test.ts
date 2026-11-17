@@ -14,6 +14,7 @@ import {
   recordAll,
   recordCase,
   type RecordSink,
+  reversedVariant,
   selectModels,
 } from './record';
 import { GREP_RERANK_RUBRIC, WEB_SEARCH_RERANK_RUBRIC } from './rubrics';
@@ -171,6 +172,33 @@ describe('recordAll', () => {
       recordAll(h.judge, h.sink, [grepCase], ['m1', 'm2']),
     ).rejects.toThrow('2 judgement(s) unavailable and not written.');
     expect(h.judgeCandidates).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('reversedVariant', () => {
+  it('reverses the cards and records the answer under the reversed label', async () => {
+    const h = harness({ a: 0.1, b: 0.9, c: 0.5 });
+
+    const threeCards: RankingCase = {
+      ...grepCase,
+      cards: [
+        { key: 'b', text: 'b', relevant: true },
+        { key: 'c', text: 'c', relevant: false },
+        { key: 'a', text: 'a', relevant: false },
+      ],
+    };
+
+    const variant = reversedVariant([threeCards], h.sink);
+
+    await recordCase(h.judge, variant.sink, variant.cases[0] ?? grepCase, 'm1');
+
+    expect(
+      h.judgeCandidates.mock.calls[0]?.[0].cards.map((card) => card.key),
+    ).toEqual(['a', 'c', 'b']);
+    expect(h.written[0]?.[1]).toBe('m1~reversed');
+    expect(h.written[0]?.[2].model).toBe('m1~reversed');
+    expect(h.written[0]?.[2].scores).toEqual({ a: 0.1, b: 0.9, c: 0.5 });
+    expect(h.lines).toEqual(['case-a m1: ranked (reversed)']);
   });
 });
 

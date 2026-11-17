@@ -49,7 +49,24 @@ const DecisionUsageSchema = z
     output_tokens: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     /** Authoritative USD cost. Absent means unknown, never zero. */
     cost: z.number().nonnegative().optional(),
+    /**
+     * Truncation reports of a server that cuts an oversized state instead of
+     * refusing it (Laya). A cut state means every question read less
+     * evidence, so a report fails the request closed, and so does a report
+     * of the wrong type. Jev and Liquid send neither field.
+     */
+    truncated: z.boolean().optional(),
+    state_tokens_dropped: z
+      .number()
+      .int()
+      .min(0)
+      .max(Number.MAX_SAFE_INTEGER)
+      .optional(),
   })
+  .refine(
+    (usage) =>
+      usage.truncated !== true && (usage.state_tokens_dropped ?? 0) === 0,
+  )
   .transform((usage): DecisionUsage => ({
     inputTokens: usage.input_tokens,
     outputTokens: usage.output_tokens,

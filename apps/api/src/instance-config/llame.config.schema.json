@@ -494,6 +494,29 @@
         "providerModelId": {
           "type": "string",
           "description": "Provider model id, sent verbatim as the wire `model`, e.g. \"~typesafe/jev-latest\", \"typesafe/jev-1.14\", or \"jev-1.13\". The alias is not a revision: the response's `model` is logged, so a moved alias is visible."
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional token ceilings of this model on this route, as its vendor documents them. Omitted fields default to 8,192 per question and 32,768 per request (or the per-question limit when larger). A small self-hosted model must declare them. llame estimates tokens as UTF-8 bytes of the serialized JSON divided by 3.",
+          "properties": {
+            "perQuestionContextTokens": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "State plus the largest single question (TypeSafe `per_question_context`)."
+            },
+            "perRequestContextTokens": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "State plus every question (TypeSafe `per_request_context`). Must not be below `perQuestionContextTokens` when both are declared."
+            },
+            "maxQuestionsPerRequest": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Questions in one request. The lane never sends more than 32, so a larger value has no effect."
+            },
+            "maxConcurrentRequests": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Attempts in flight for this catalog entry in one process, shared by every call to it. Default 32. Two entries keep separate bounds even on one account. A retry wait holds no slot. Lower it to what the server tolerates; a self-hosted model often needs 1."
+            }
+          }
         }
       }
     },

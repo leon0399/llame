@@ -3,9 +3,9 @@ import path from 'node:path';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import type { ProductIdentityReader } from '../instance-config/product-identity';
 import { loadInstanceConfig } from '../instance-config/config-loader';
+import { type DecisionModelConfig } from '../instance-config/decision-catalog';
 import {
   BUILT_IN_DEFAULTS,
-  type DecisionModelConfig,
   type ProviderConfig,
 } from '../instance-config/llame-config';
 import type { RerankModelConfig } from '../instance-config/rerank-config';
@@ -238,11 +238,23 @@ describe('ModelsService', () => {
           id: chatModel.id,
           provider: 'decisions',
           providerModelId: 'jev-1.13',
+          limits: {
+            perQuestionContextTokens: 8192,
+            perRequestContextTokens: 32_768,
+            maxQuestionsPerRequest: null,
+            maxConcurrentRequests: 32,
+          },
         },
         {
           id: 'decision-only',
           provider: 'decisions',
           providerModelId: 'jev-1.14',
+          limits: {
+            perQuestionContextTokens: 8192,
+            perRequestContextTokens: 32_768,
+            maxQuestionsPerRequest: null,
+            maxConcurrentRequests: 32,
+          },
         },
       ],
     });

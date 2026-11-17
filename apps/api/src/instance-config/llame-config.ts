@@ -7,6 +7,10 @@
  * drift.
  */
 
+import type {
+  DecisionModelConfig,
+  RawDecisionModelEntry,
+} from './decision-catalog';
 import type { BillingMode } from '../models/model-client';
 import type { RequestHeaderTemplates } from '../models/request-headers';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
@@ -288,30 +292,6 @@ export type RawProviderEntry =
       headers?: Record<string, string | null>;
     }
   | Rerank.RawCohereRerankProviderEntry;
-
-/**
- * One entry of the decision-model catalogue: the model a tool's rerank block
- * names. `provider` must be a `providers[]` entry of `type: 'system-one'` and
- * `providerModelId` is sent verbatim as the wire `model`; both references are checked at boot,
- * because the published JSON Schema cannot express them.
- */
-export type DecisionModelConfig = {
-  /** Unique catalogue id, referenced by a tool's `rerank.model`. */
-  readonly id: string;
-  /** A `providers[]` entry that resolves a decision wire (checked at boot). */
-  readonly provider: string;
-  /** Provider model id, sent verbatim as the wire `model`. */
-  readonly providerModelId: string;
-  readonly wire?: Routing.ModelWire;
-};
-
-/** The still-uninterpolated `decisionModels[]` entry once schema-validated. */
-export type RawDecisionModelEntry = {
-  id: string;
-  provider: string;
-  providerModelId: string;
-  wire?: Routing.ModelWire;
-};
 
 /**
  * Distance metric a declared embedding model produces (chat-search-embeddings

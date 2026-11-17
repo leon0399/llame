@@ -580,6 +580,15 @@
   //     "id": "jev-openrouter",
   //     "provider": "openrouter-decisions",
   //     "providerModelId": "~typesafe/jev-latest",
+  //     // Token ceilings of this model on this route. Omitted: 8,192 per
+  //     // question and 32,768 per request. A small self-hosted model must
+  //     // declare its own.
+  //     "limits": {
+  //       "perQuestionContextTokens": 32768,
+  //       "perRequestContextTokens": 65536,
+  //       // Attempts in flight for this entry per process (default 32).
+  //       "maxConcurrentRequests": 8,
+  //     },
   //   },
   // ],
 
