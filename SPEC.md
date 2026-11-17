@@ -135,20 +135,25 @@ boundary. The summary absorbs the closed reply through that boundary. The Run
 continues from the checkpoint with a continue notice and the owner's current
 request, without replaying absorbed history. If summary generation fails, the
 command is settled and the Run continues without a checkpoint; the failure is
-recorded on the reply. When a compaction absorbs the final answer, the Run
-completes without a continue notice.
+recorded on the reply. When a compaction absorbs the final answer and no other
+deliverable item is pending, the Run completes without a continue notice. If a
+message or notice item is also pending, the Run delivers it and stays live,
+without a continue notice.
 
 A live Run delivers the Chat's pending `steer` and `interrupt` items at two
 points: the end of a model step, after its tool results, and the transaction
 that would complete the Run, which finds them first and keeps the Run live
-instead. The part of a Run that answers one user message is a segment. One
-delivery transaction, in the Run-then-Chat lock order, locks the Run row behind
-the current attempt and `cancel_requested_at IS NULL` (a superseded or
-cancelled Run delivers nothing), locks the Chat row, reads the pending items in
-`position` order, closes the segment's reply as `completed`, publishes its
-usage as `model.completed`, stores one user message holding the items' parts in
-order, marks the items `delivered`, moves `runs.message_id` to the new message
-under a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
+instead. The final-answer rule has one exception: when only `/compact` commands
+are pending, the Run publishes its checkpoint and completes without a delivery
+message or `run.delivered` event. The part of a Run that answers one user
+message is a segment. One delivery transaction, in the Run-then-Chat lock
+order, locks the Run row behind the current attempt and
+`cancel_requested_at IS NULL` (a superseded or cancelled Run delivers
+nothing), locks the Chat row, reads the pending items in `position` order,
+closes the segment's reply as `completed`, publishes its usage as
+`model.completed`, stores one user message holding the items' parts in order,
+marks the items `delivered`, moves `runs.message_id` to the new message under
+a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
 `run.started`. A crash before the commit leaves the items `pending`; a crash
 after it leaves the delivered message as the Run's message. The API admits
 `queue`, `steer`, and `interrupt`.
