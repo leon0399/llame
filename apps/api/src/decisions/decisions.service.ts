@@ -172,8 +172,8 @@ function cardKey(index: number, width: number): string {
 /**
  * The state and questions of ONE decision request: its cards are keyed by wire
  * key in one shared state and each gets its own `noul` question. The caller
- * sends one such request per group of at most 256 cards, so a request never
- * carries another group's cards.
+ * sends one such request per packed group of at most 32 cards, so a request
+ * never carries another group's cards.
  */
 export function buildJudgeRequest(input: {
   readonly objective?: string;

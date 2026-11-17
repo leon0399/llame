@@ -137,7 +137,9 @@ field is a positive integer or a whole-value `{env:…}` / `{path:…}` token.
 | `maxQuestionsPerRequest`   | Questions in one request; above 32 it has no effect. | none                                        |
 | `maxConcurrentRequests`    | Attempts in flight for this entry, per process.      | 32                                          |
 
-Declaring a per-question limit above the per-request one fails startup. The
+Declaring a per-question limit above the per-request one fails startup. A
+per-request limit declared alone below 8,192 also caps every question, because
+the per-request check covers the state plus every question. The
 names follow TypeSafe's `per_question_context` and `per_request_context`.
 
 ```jsonc
@@ -352,7 +354,9 @@ request failed.
 
 Attempts for one catalogue entry share its `limits.maxConcurrentRequests`
 slots, default 32, first come first served. Every call to that entry shares
-them, a retry wait holds none, and a cancelled call leaves the queue at once.
+them, a retry wait holds none, and a cancelled call leaves the queue at once. A
+retried attempt joins the back of the queue, so on a one-slot entry it can wait
+behind every other waiting request.
 The bound is per process and per entry: several worker processes, or two
 entries served by one server, multiply the load on that server, even when the
 entries name one account. Shared bounds across entries are
