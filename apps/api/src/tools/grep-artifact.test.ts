@@ -1368,7 +1368,7 @@ describe('grep rerank', () => {
             {
               id: 'rr-fast',
               provider: 'rerank',
-              model: 'cohere/rerank-5-fast',
+              providerModelId: 'cohere/rerank-5-fast',
             },
           ],
         },

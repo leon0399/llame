@@ -43,7 +43,7 @@ export const COHERE_DEFAULT_BASE_URL = 'https://api.cohere.com/v2';
 
 /**
  * One entry of the rerank-model catalogue. `provider` must be a `providers[]`
- * entry of `type: 'cohere-rerank'` and `model` is sent verbatim on the wire
+ * entry that resolves the `cohere-rerank` wire and `providerModelId` is sent verbatim as the wire `model`
  * (e.g. `rerank-v3.5`, or `cohere/rerank-5-fast` via OpenRouter). Ids are
  * unique across `decisionModels[]` and `rerankModels[]` together. The raw
  * entry, before interpolation, has the same shape.
@@ -51,6 +51,6 @@ export const COHERE_DEFAULT_BASE_URL = 'https://api.cohere.com/v2';
 export type RerankModelConfig = {
   readonly id: string;
   readonly provider: string;
-  readonly model: string;
+  readonly providerModelId: string;
   readonly wire?: ModelWire;
 };

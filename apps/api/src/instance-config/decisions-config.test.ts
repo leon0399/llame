@@ -52,12 +52,12 @@ const CATALOGUE = [
   {
     id: 'opencode',
     provider: 'opencode-decisions',
-    model: 'jev-1.13',
+    providerModelId: 'jev-1.13',
   },
   {
     id: 'openrouter',
     provider: 'openrouter-decisions',
-    model: '~typesafe/jev-latest',
+    providerModelId: '~typesafe/jev-latest',
   },
 ];
 
@@ -102,9 +102,21 @@ describe('decisionModels config', () => {
 
   it('rejects a duplicate catalogue id naming both array indices', () => {
     configWith([
-      { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
-      { id: 'other', provider: 'opencode-decisions', model: 'jev-1.13' },
-      { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+      {
+        id: 'jev',
+        provider: 'opencode-decisions',
+        providerModelId: 'jev-1.13',
+      },
+      {
+        id: 'other',
+        provider: 'opencode-decisions',
+        providerModelId: 'jev-1.13',
+      },
+      {
+        id: 'jev',
+        provider: 'opencode-decisions',
+        providerModelId: 'jev-1.13',
+      },
     ]);
 
     expect(() => loadInstanceConfig()).toThrow(
@@ -116,8 +128,16 @@ describe('decisionModels config', () => {
 
   it('does not print an interpolated duplicate id', () => {
     configWith([
-      { id: '{env:DECISION_ID}', provider: 'opencode-decisions', model: 'm' },
-      { id: 'secret-shared-id', provider: 'opencode-decisions', model: 'm' },
+      {
+        id: '{env:DECISION_ID}',
+        provider: 'opencode-decisions',
+        providerModelId: 'm',
+      },
+      {
+        id: 'secret-shared-id',
+        provider: 'opencode-decisions',
+        providerModelId: 'm',
+      },
     ]);
 
     let message = '';
@@ -141,7 +161,7 @@ describe('decisionModels config', () => {
   ])('rejects an id that is a %s, naming its array-index path', (_, id) => {
     configWith([
       CATALOGUE[0],
-      { id, provider: 'opencode-decisions', model: 'jev-1.13' },
+      { id, provider: 'opencode-decisions', providerModelId: 'jev-1.13' },
     ]);
 
     expect(() => loadInstanceConfig()).toThrow(
@@ -150,7 +170,9 @@ describe('decisionModels config', () => {
   });
 
   it('rejects a catalogue entry naming a provider that does not exist', () => {
-    configWith([{ id: 'jev', provider: 'missing', model: 'jev-1.13' }]);
+    configWith([
+      { id: 'jev', provider: 'missing', providerModelId: 'jev-1.13' },
+    ]);
 
     expect(() => loadInstanceConfig()).toThrow(
       new InstanceConfigError(
@@ -160,21 +182,32 @@ describe('decisionModels config', () => {
   });
 
   it('rejects a catalogue entry whose account has no decision default', () => {
-    configWith([{ id: 'jev', provider: 'openai', model: 'jev-1.13' }], {
-      providers: [CHAT_PROVIDER],
-    });
+    configWith(
+      [{ id: 'jev', provider: 'openai', providerModelId: 'jev-1.13' }],
+      { providers: [CHAT_PROVIDER] },
+    );
 
     expect(() => loadInstanceConfig()).toThrow('decisionModels[0].wire');
+  });
+
+  it('rejects the former model field name', () => {
+    configWith([
+      { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+    ]);
+
+    expect(() => loadInstanceConfig()).toThrow(/\/decisionModels\/0/u);
   });
 
   it.each([
     ['whitespace', '   '],
     ['empty interpolation', '{env:NOT_SET_DECISION_MODEL:-}'],
   ])('rejects a model that is %s', (_, model) => {
-    configWith([{ id: 'jev', provider: 'opencode-decisions', model }]);
+    configWith([
+      { id: 'jev', provider: 'opencode-decisions', providerModelId: model },
+    ]);
 
     expect(() => loadInstanceConfig()).toThrow(
-      'decisionModels[0].model: must resolve to a nonblank string',
+      'decisionModels[0].providerModelId: must resolve to a nonblank string',
     );
   });
 
@@ -183,7 +216,7 @@ describe('decisionModels config', () => {
       {
         id: '{env:DECISION_ID}',
         provider: '{env:DECISION_PROVIDER}',
-        model: '{env:DECISION_MODEL}',
+        providerModelId: '{env:DECISION_MODEL}',
       },
     ]);
 
@@ -194,7 +227,11 @@ describe('decisionModels config', () => {
         DECISION_MODEL: 'jev-1.13',
       }).decisionModels,
     ).toMatchObject([
-      { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+      {
+        id: 'jev',
+        provider: 'opencode-decisions',
+        providerModelId: 'jev-1.13',
+      },
     ]);
   });
 
@@ -203,7 +240,7 @@ describe('decisionModels config', () => {
       {
         id: 'jev',
         provider: '{env:NOT_SET_DECISION_PROVIDER:-}',
-        model: 'jev-1.13',
+        providerModelId: 'jev-1.13',
       },
     ]);
 
@@ -217,7 +254,7 @@ describe('decisionModels config', () => {
       {
         id: '{env:DECISION_ID}',
         provider: 'missing-provider',
-        model: '{env:DECISION_MODEL}',
+        providerModelId: '{env:DECISION_MODEL}',
       },
     ]);
 
@@ -248,7 +285,11 @@ describe('decisionModels config', () => {
         },
       ],
       decisionModels: [
-        { id: 'shared', provider: 'opencode-decisions', model: 'jev-1.13' },
+        {
+          id: 'shared',
+          provider: 'opencode-decisions',
+          providerModelId: 'jev-1.13',
+        },
       ],
     });
 

@@ -292,16 +292,16 @@ export type RawProviderEntry =
 /**
  * One entry of the decision-model catalogue: the model a tool's rerank block
  * names. `provider` must be a `providers[]` entry of `type: 'system-one'` and
- * `model` is sent verbatim on the wire; both references are checked at boot,
+ * `providerModelId` is sent verbatim as the wire `model`; both references are checked at boot,
  * because the published JSON Schema cannot express them.
  */
 export type DecisionModelConfig = {
   /** Unique catalogue id, referenced by a tool's `rerank.model`. */
   readonly id: string;
-  /** A `providers[]` entry of `type: 'system-one'` (checked at boot). */
+  /** A `providers[]` entry that resolves a decision wire (checked at boot). */
   readonly provider: string;
-  /** Model id sent verbatim on the wire. */
-  readonly model: string;
+  /** Provider model id, sent verbatim as the wire `model`. */
+  readonly providerModelId: string;
   readonly wire?: Routing.ModelWire;
 };
 
@@ -309,7 +309,7 @@ export type DecisionModelConfig = {
 export type RawDecisionModelEntry = {
   id: string;
   provider: string;
-  model: string;
+  providerModelId: string;
   wire?: Routing.ModelWire;
 };
 

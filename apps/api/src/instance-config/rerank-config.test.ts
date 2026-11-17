@@ -45,7 +45,7 @@ const SYSTEM_ONE_PROVIDER = {
 const RERANK_MODEL = {
   id: 'rr-fast',
   provider: 'openrouter-rerank',
-  model: 'cohere/rerank-5-fast',
+  providerModelId: 'cohere/rerank-5-fast',
 };
 
 describe('cohere-rerank provider config', () => {
@@ -209,7 +209,7 @@ describe('rerankModels config', () => {
         {
           id: '{env:RR_ID}',
           provider: '{env:RR_PROVIDER}',
-          model: '{env:RR_MODEL}',
+          providerModelId: '{env:RR_MODEL}',
         },
       ],
     });
@@ -223,7 +223,7 @@ describe('rerankModels config', () => {
     ).toMatchObject([RERANK_MODEL]);
   });
 
-  it.each(['id', 'model'] as const)(
+  it.each(['id', 'providerModelId'] as const)(
     'rejects a blank %s naming its array-index path',
     (field) => {
       writeConfig({
@@ -246,11 +246,30 @@ describe('rerankModels config', () => {
     },
   );
 
+  it('rejects the former model field name', () => {
+    writeConfig({
+      providers: [COHERE_PROVIDER],
+      rerankModels: [
+        {
+          id: 'rr',
+          provider: 'openrouter-rerank',
+          model: 'cohere/rerank-5-fast',
+        },
+      ],
+    });
+
+    expect(() => loadInstanceConfig()).toThrow(/\/rerankModels\/0/u);
+  });
+
   it('names both paths and no value when an interpolated id repeats', () => {
     writeConfig({
       providers: [COHERE_PROVIDER, SYSTEM_ONE_PROVIDER],
       decisionModels: [
-        { id: '{env:SHARED_ID}', provider: 'decisions', model: 'jev' },
+        {
+          id: '{env:SHARED_ID}',
+          provider: 'decisions',
+          providerModelId: 'jev',
+        },
       ],
       rerankModels: [{ ...RERANK_MODEL, id: '{env:SHARED_ID}' }],
     });
@@ -316,8 +335,8 @@ describe('rerankModels config', () => {
     writeConfig({
       providers: [COHERE_PROVIDER, SYSTEM_ONE_PROVIDER],
       decisionModels: [
-        { id: 'other', provider: 'decisions', model: 'jev' },
-        { id: 'rr-fast', provider: 'decisions', model: 'jev' },
+        { id: 'other', provider: 'decisions', providerModelId: 'jev' },
+        { id: 'rr-fast', provider: 'decisions', providerModelId: 'jev' },
       ],
       rerankModels: [RERANK_MODEL],
     });
@@ -332,7 +351,9 @@ describe('rerankModels config', () => {
   it('lets a tool rerank block name a reranker or a decision model', () => {
     writeConfig({
       providers: [COHERE_PROVIDER, SYSTEM_ONE_PROVIDER],
-      decisionModels: [{ id: 'jev', provider: 'decisions', model: 'jev' }],
+      decisionModels: [
+        { id: 'jev', provider: 'decisions', providerModelId: 'jev' },
+      ],
       rerankModels: [RERANK_MODEL],
       webSearch: {
         engines: [{ id: 'duckduckgo', type: 'duckduckgo' }],

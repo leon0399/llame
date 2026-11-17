@@ -46,9 +46,9 @@ master
 
 ## 3. catalog-rename
 
-- [ ] 3.1 Create `decision-model-limits/catalog-rename` from `decision-wires` with `$gh-stack`.
-- [ ] 3.2 Rename `model` to `providerModelId` in `decisionModels[]` and `rerankModels[]`: schema, types, loader, diagnostics, `decisions.service.ts`, `ranking/record.ts`, and every test and config fixture; keep a tool's `rerank.model`; verify unit tests for `Decision model catalog entries carry a provider model id`, `Decision model catalog fields accept interpolation`, `The rerank catalog names models by id`, and `A rerank call reports scores, usage, and cost`, including startup failure for the former field.
-- [ ] 3.3 Update `docs/product/operator/decisions.md`, `docs/product/operator/providers/routing.md`, `apps/api/llame.config.jsonc.example`, and the dated `CHANGELOG.md` entry with a **Breaking** note.
+- [x] 3.1 Create `decision-model-limits/catalog-rename` from `decision-wires` with `$gh-stack`.
+- [x] 3.2 Rename `model` to `providerModelId` in `decisionModels[]` and `rerankModels[]`: schema, types, loader, diagnostics, `decisions.service.ts`, `ranking/record.ts`, and every test and config fixture; keep a tool's `rerank.model`; verify unit tests for `Decision model catalog entries carry a provider model id`, `Decision model catalog fields accept interpolation`, `The rerank catalog names models by id`, and `A rerank call reports scores, usage, and cost`, including startup failure for the former field.
+- [x] 3.3 Update `docs/product/operator/decisions.md`, `docs/product/operator/providers/routing.md`, `apps/api/llame.config.jsonc.example`, and the dated `CHANGELOG.md` entry with a **Breaking** note.
 - [ ] 3.4 Run api lint, typecheck, focused unit tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish with `$gh-stack`; SR; mark ready; GR; update the Project.
 
 ## 4. impl

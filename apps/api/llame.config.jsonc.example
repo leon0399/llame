@@ -565,8 +565,8 @@
   // decision client is built and no tool changes its order. Each entry needs a
   // unique `id`; its `provider` must be a `providers[]` entry that resolves a
   // decision wire: an "openrouter" account, or a "system-one" entry (see the
-  // commented entries above `models[]`), and the model id
-  // is sent verbatim on the wire. Decision calls are side calls, logged with
+  // commented entries above `models[]`), and its `providerModelId` is sent
+  // verbatim as the wire `model`. Decision calls are side calls, logged with
   // their own usage and never folded into a Run's message usage. A TOOL opts in
   // through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`),
   // which names one of these ids; see docs/product/operator/decisions.md.
@@ -574,19 +574,19 @@
   //   {
   //     "id": "jev-opencode",
   //     "provider": "opencode-decisions",
-  //     "model": "jev-1.13",
+  //     "providerModelId": "jev-1.13",
   //   },
   //   {
   //     "id": "jev-openrouter",
   //     "provider": "openrouter-decisions",
-  //     "model": "~typesafe/jev-latest",
+  //     "providerModelId": "~typesafe/jev-latest",
   //   },
   // ],
 
   // Optional rerank-model catalogue (experimental): a conventional reranker
   // in the SAME rank seat as a decision model. Each entry needs an `id` unique
   // across `decisionModels[]` and `rerankModels[]`, a `provider` of type
-  // "cohere-rerank", and a `model` sent verbatim. All three accept {env:…}
+  // "cohere-rerank", and a `providerModelId` sent verbatim. All three accept {env:…}
   // and {path:…}. A tool's `rerank.model` may name either kind, and the
   // stored record (`display.rerank.scores`) has the same shape. The catalogue
   // never appears in GET /api/v1/models. Via OpenRouter the model ids are
@@ -596,12 +596,12 @@
   //   {
   //     "id": "rr-fast",
   //     "provider": "openrouter-rerank",
-  //     "model": "cohere/rerank-5-fast",
+  //     "providerModelId": "cohere/rerank-5-fast",
   //   },
   //   {
   //     "id": "rr-pro",
   //     "provider": "openrouter-rerank",
-  //     "model": "cohere/rerank-5-pro",
+  //     "providerModelId": "cohere/rerank-5-pro",
   //   },
   // ],
 

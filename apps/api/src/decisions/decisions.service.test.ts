@@ -693,7 +693,7 @@ function configWith(
 }
 
 const CATALOGUE: LlameConfig['decisionModels'] = [
-  { id: 'jev', provider: 'opencode-decisions', model: 'jev-1.13' },
+  { id: 'jev', provider: 'opencode-decisions', providerModelId: 'jev-1.13' },
 ];
 
 describe('DecisionsService', () => {
@@ -1105,7 +1105,7 @@ describe('DecisionsService rerank catalogue', () => {
           {
             id: 'rr-fast',
             provider: provider.id,
-            model: 'cohere/rerank-5-fast',
+            providerModelId: 'cohere/rerank-5-fast',
           },
         ],
       },

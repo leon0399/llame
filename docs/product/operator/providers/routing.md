@@ -137,9 +137,11 @@ and context limits supported by your account; the gateway decides availability.
     },
   ],
   "decisionModels": [
-    { "id": "decide", "provider": "router", "model": "system-one" },
+    { "id": "decide", "provider": "router", "providerModelId": "system-one" },
   ],
-  "rerankModels": [{ "id": "rank", "provider": "router", "model": "rerank" }],
+  "rerankModels": [
+    { "id": "rank", "provider": "router", "providerModelId": "rerank" },
+  ],
 }
 ```
 
