@@ -73,7 +73,9 @@ None.
 - `rerank-models`: the catalog entry renames `model` to `providerModelId`.
 - `provider-api-selection`: decision models choose between `system-one` and
   `openrouter-decisions`, and the wire selects the endpoint.
-- `web-search`: the 300-card aggregate scenario judges its first 256 cards.
+- `web-search`: the rank sends every card but a decision model judges only the
+  cards within the call bound; the 300-card aggregate scenario judges its first
+  256 cards.
 - `tool-result-rendering`: the partial-answer rank-record scenario follows the
   256-card call bound.
 - `grep-tool`: the rank sends every card but a decision model judges only the
