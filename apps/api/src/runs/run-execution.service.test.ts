@@ -707,6 +707,7 @@ function makeExecutionService(
     runAs,
     compaction,
     summarizeCheckpoint,
+    computeBoundarySummary,
     titles,
     searchIndex,
     reindexChat,
@@ -25235,5 +25236,71 @@ describe('RunExecutionService compaction digest resolution', () => {
     });
 
     expect(resolveCandidate).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunExecutionService wake boundary preparation', () => {
+  it('prepares a boundary summary from the current attempt and preserves final-answer metadata', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const summary = checkpointSummary(2);
+    const execution = makeExecutionService();
+    execution.computeBoundarySummary.mockResolvedValue(summary);
+
+    const context = {
+      historyRows: committedTurn(),
+      latestCheckpoint: undefined,
+      model: testModelEntry,
+    };
+
+    const prepared = {
+      messages: [{ role: 'user', content: 'history' }],
+      system: 'system prompt',
+      toolDeclarations: [],
+    };
+
+    const currentRun = executionInput(createFakeModelClient(['answer']));
+
+    const boundary = await execution.service['prepareBoundaryCompaction']({
+      run: currentRun,
+      attemptId: testAttemptId,
+      context,
+      prepared,
+      effort: 'high',
+      media: undefined,
+      workspaceRoot: { current: () => '/workspace' },
+      replyParts: [],
+      stepBudgetUsed: 4,
+      compactionSet: { ids: ['compact-id'], focus: 'owner focus' },
+      finalAnswer: true,
+    });
+
+    expect(execution.computeBoundarySummary).toHaveBeenCalledTimes(1);
+
+    const summaryInput = execution.computeBoundarySummary.mock.calls[0]?.[0];
+
+    expect(summaryInput).toEqual({
+      chatId,
+      userId,
+      plan: { uptoSeq: 3, absorb: [committedTurn()[0]] },
+      closedReply: prepared.messages,
+      client: currentRun.client,
+      system: prepared.system,
+      toolDeclarations: prepared.toolDeclarations,
+      focus: 'owner focus',
+      effort: 'high',
+      reservedOutputTokens: null,
+      abortSignal: currentRun.abortSignal,
+      media: undefined,
+    });
+    expect(boundary).toMatchObject({
+      ids: ['compact-id'],
+      summary,
+      stepBudgetUsed: 4,
+      finalAnswer: true,
+    });
   });
 });
