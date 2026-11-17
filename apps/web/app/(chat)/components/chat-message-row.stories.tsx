@@ -326,6 +326,34 @@ export const CompactionFailedNote: Story = {
 };
 
 /**
+ * A reloaded reply whose automatic compaction stopped keeps the persisted
+ * `data-compaction-disabled` part, so the muted note shows after a reload.
+ *
+ * @summary an automatic-compaction-off note survives a reload
+ */
+export const CompactionDisabledNote: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-compaction-disabled",
+    message: {
+      id: "assistant-compaction-disabled",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "Ran the migration." },
+        { type: "data-compaction-disabled", data: {} },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      await canvas.findByText(
+        "Automatic compaction is off for this Run — use /compact to compact",
+      ),
+    ).toBeVisible();
+  },
+};
+
+/**
  * The same run while the model is still thinking: live output has the same
  * panel boundaries and the same tool position as the reloaded chat, so a
  * reconnect or reload cannot re-flow the transcript.

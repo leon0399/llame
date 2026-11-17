@@ -16,3 +16,19 @@ export function CompactionFailedNote() {
     </Badge>
   );
 }
+
+/**
+ * The persisted `data-compaction-disabled` part of a reply (design D13): the
+ * automatic compaction did not bring the request under its threshold, or
+ * failed, so it stays off for the rest of this Run. `/compact` still works.
+ *
+ * @summary a muted note that automatic compaction stopped for this Run
+ */
+export function CompactionDisabledNote() {
+  return (
+    <Badge variant="outline" className="my-1">
+      <InfoIcon className="h-3 w-3 shrink-0" />
+      Automatic compaction is off for this Run — use /compact to compact
+    </Badge>
+  );
+}
