@@ -127,8 +127,10 @@ where a smaller safe merge point appears.
   - Evidence: the expanded result card shows `Focus:` and the focus under the summary as plain text; stories `WithFocus` and `WithoutFocus` pass with the other boundary stories (7).
 - [x] 5.3 Document the focus and the rollback data fix in the command reference and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
   - Evidence: `docs/product/reference/chat-commands.md` documents `/compact <focus>` and links the exact D6 SQL data fix, which lives on the operator page `docs/product/operator/chat-commands.md` because reference pages carry no operator procedure (`docs/AGENTS.md`); added a 2026-11-16 changelog entry. `pnpm lint:markdown` passed.
-- [ ] 5.4 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
-- [ ] 5.5 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+- [x] 5.4 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: API/web lint and typecheck, focused unit and history/compaction integration tests, boundary stories, `pnpm format:check`, `git diff --check` pass; CI green on #1737.
+- [x] 5.5 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+  - Evidence: four-lens local review fixed before ready; #1737 GitHub review loop: 8 threads resolved (rollback SQL corrected and verified on a migrated database); mutation gate 98.61%.
 
 ## 6. compact-queue
 
