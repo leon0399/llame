@@ -7422,7 +7422,6 @@ export class RunExecutionService {
     }
 
     if (
-      !input.wakeCompaction &&
       !requestFitsContextWindow({
         system: request.system,
         messages: request.messages,
