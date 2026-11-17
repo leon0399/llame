@@ -73,7 +73,7 @@ where a smaller safe merge point appears.
 - [x] 1.3 Self-review the published proposal PR diff (SR), mark it ready, and run the GitHub review loop (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
   - Evidence: PR #1732 marked ready; all 9 bot review threads answered and resolved (8 accepted as clarifications in e969d5f7/b0689db6, 1 rejected with reasons); CI green.
 - [x] 1.4 Obtain Leo's approval of the published revision, including the decisions that the proposal lists as made in review.
-  - Evidence: Leo, in chat on 2026-11-16: "Spec is approved." This approves revision `d2531bd3`, including the review-made decisions D18-D23.
+  - Evidence: Leo, in chat on 2026-11-16: "Spec is approved." This approves revision `d2531bd3`, including the review-made decisions D18-D23. After the rebase onto `69aa40e8` that revision is `e2411c01`. The later proposal commits `3d899b77` and `59b4ce59` answer the GitHub review: they clarify wording, correct the focus rollback statement, and align task text with behavior the approved specs already require; they change no approved behavior. Leo confirms that reading before any merge.
 
 ## 2. commands
 
