@@ -1212,4 +1212,17 @@ describe('boundary compaction delivery cause', () => {
       deliveryCause(input, [{ ...compact, producer: 'job', mode: 'notice' }]),
     ).toBe('notice');
   });
+
+  it('does not treat a queued owner message as a steer or interrupt', () => {
+    expect(deliveryCause(input, [{ ...first, mode: 'queue' }])).toBe('notice');
+  });
+
+  it('does not let a job delivery signal owner steering or interruption', () => {
+    expect(deliveryCause(input, [{ ...jobNotice, mode: 'steer' }])).toBe(
+      'notice',
+    );
+    expect(deliveryCause(input, [{ ...jobNotice, mode: 'interrupt' }])).toBe(
+      'notice',
+    );
+  });
 });
