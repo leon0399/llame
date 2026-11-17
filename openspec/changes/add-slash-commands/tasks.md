@@ -101,8 +101,10 @@ where a smaller safe merge point appears.
   - Evidence: Added `refuses a follow-up after a compaction Run`, which seeds a completed compaction Run with no message after a completed turn and expects 409. API typecheck passed; integration tests were not run.
 - [x] 3.5 Read `kind` in every web reader that design D15 lists: the "Compacting context" row with Stop, the error row, the dropped resumed assistant message, no reply notice, no hand-off wait, and hidden Steer now and Interrupt now during a compaction Run. Verify "A compacted turn shows no action", "A failed compaction shows its error", "A compaction Run in a hidden tab raises no reply notice", "A reload during a compaction Run", and "A queue item during a compaction Run offers no Steer now" in stories with stored compaction Runs. Keep "A failed agentic turn shows both actions", "A failed turn with no completed step shows only Regenerate", "A turn with no reply shows Regenerate", "A failed turn with an empty reply shows its cause", "Older turns show no action", and "Continue sends the composer mode" green.
   - Evidence: Added the `CompactedTurnShowsNoAction`, `FailedCompactionShowsItsError`, `ReloadDuringCompaction`, and `QueueItemDuringCompactionOffersNoHurryActions` stories and the "does not notify or mark unseen for a compaction Run in a hidden tab" test. `pnpm --filter web typecheck` passed after the generated `kind` fields landed.
-- [ ] 3.6 Verify the layer: the API and web lint and typecheck, the focused tests above, Storybook tests for the changed stories, `pnpm format:check`, `git diff --check`.
-- [ ] 3.7 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+- [x] 3.6 Verify the layer: the API and web lint and typecheck, the focused tests above, Storybook tests for the changed stories, `pnpm format:check`, `git diff --check`.
+  - Evidence: lint, API/web typecheck, API and web unit suites, Storybook stories for the changed rows, `pnpm format:check`, `git diff --check` pass; CI green on #1734.
+- [x] 3.7 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+  - Evidence: four-lens local review fixed before ready (web isRunActive and hand-off regressions among them); #1734 GitHub review loop clean, CI green.
 
 ## 4. compact-run
 
