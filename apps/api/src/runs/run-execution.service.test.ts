@@ -25778,3 +25778,206 @@ describe('RunExecutionService wake-compaction fallback context fit', () => {
     expect(prepareBoundary).not.toHaveBeenCalled();
   });
 });
+
+describe('RunExecutionService automatic compaction boundary measurement', () => {
+  it('does not inspect reply parts when there is no compactable boundary', async () => {
+    const execution = makeExecutionService();
+    const { resolver } = fakeResolver([]);
+
+    await expect(
+      execution.service['automaticCompactionDueAtBoundary']({
+        hasBoundary: false,
+        replyParts: [],
+        latestRequestContextTokens: undefined,
+        requestMessages: [],
+        system: '',
+        toolDeclarations: [],
+        thresholdTokens: 1,
+        client: createFakeModelClient(['answer']),
+        media: resolver,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('does not reload request media when a request receipt exists', async () => {
+    const execution = makeExecutionService();
+    const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+    const { resolver } = fakeResolver([descriptor(imageId)]);
+    const describe = vi.spyOn(resolver, 'describe');
+
+    const client = Object.assign(createFakeModelClient(['answer']), {
+      input: ['text', 'image'],
+    });
+
+    await execution.service['automaticCompactionDueAtBoundary']({
+      hasBoundary: true,
+      replyParts: [],
+      latestRequestContextTokens: 100,
+      requestMessages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              data: `media://${imageId}`,
+              mediaType: 'image/png',
+            },
+          ],
+        },
+      ],
+      system: '',
+      toolDeclarations: [],
+      thresholdTokens: 1,
+      client,
+      media: resolver,
+    });
+
+    expect(describe).not.toHaveBeenCalledWith([imageId]);
+  });
+
+  it('measures request media when no request receipt exists', async () => {
+    const execution = makeExecutionService();
+    const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+    const { resolver } = fakeResolver([descriptor(imageId)]);
+    const describe = vi.spyOn(resolver, 'describe');
+
+    const client = Object.assign(createFakeModelClient(['answer']), {
+      input: ['text', 'image'],
+    });
+
+    await expect(
+      execution.service['automaticCompactionDueAtBoundary']({
+        hasBoundary: true,
+        replyParts: [],
+        latestRequestContextTokens: undefined,
+        requestMessages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'file',
+                data: `media://${imageId}`,
+                mediaType: 'image/png',
+              },
+            ],
+          },
+        ],
+        system: '',
+        toolDeclarations: [],
+        thresholdTokens: 1,
+        client,
+        media: resolver,
+      }),
+    ).resolves.toBe(true);
+    expect(describe).toHaveBeenCalledWith([imageId]);
+  });
+});
+
+describe('RunExecutionService disabled automatic compaction state', () => {
+  it('does not retrigger boundary compaction after its disabled event', async () => {
+    mockNormalExecutionRepositories();
+
+    const disabledEvent: RunEvent = {
+      ...event,
+      eventType: 'run.compaction_disabled',
+      payload: {},
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.compaction_disabled')
+            ? [disabledEvent]
+            : [],
+        ),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+
+    const execute = vi.fn(() =>
+      Promise.resolve({ status: 'success' as const, hits: 1 }),
+    );
+
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    const input = executionInput(capturing.client);
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = capturing.streamOptions();
+
+    await executeBoundTool(options, { q: 'lookup' }, 'call-1');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+    expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
+  });
+
+  it('does not disable boundary compaction for a delivery event', async () => {
+    mockNormalExecutionRepositories();
+
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'steer' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.delivered') ? [deliveryEvent] : [],
+        ),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+
+    const execute = vi.fn(() =>
+      Promise.resolve({ status: 'success' as const, hits: 1 }),
+    );
+
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    const input = executionInput(capturing.client);
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = capturing.streamOptions();
+
+    await executeBoundTool(options, { q: 'lookup' }, 'call-1');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(true);
+  });
+});
