@@ -22545,7 +22545,11 @@ describe('RunExecutionService executeRun — run segments', () => {
   );
 
   it('projects only new assistant parts after a continued reply prefix', async () => {
-    mockNormalExecutionRepositories();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
 
     const compact = {
       ...pendingItem,
@@ -22674,6 +22678,10 @@ describe('RunExecutionService executeRun — run segments', () => {
 
   it('does not finish a final compaction when the closing reply was not persisted', async () => {
     const repositories = mockNormalExecutionRepositories();
+    repositories.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
 
     const loggerError = vi
       .spyOn(Logger.prototype, 'error')
