@@ -862,13 +862,13 @@ describe('DecisionsService decision wires', () => {
           {
             id: 'alpha',
             provider: 'router',
-            model: 'typesafe/jev-1.14',
+            providerModelId: 'typesafe/jev-1.14',
             wire: 'openrouter-decisions',
           },
           {
             id: 'legacy',
             provider: 'router',
-            model: 'typesafe/jev-1.14',
+            providerModelId: 'typesafe/jev-1.14',
             wire: 'system-one',
           },
         ],
