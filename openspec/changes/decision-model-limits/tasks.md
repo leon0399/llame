@@ -66,8 +66,8 @@ master
 
 ## 5. fixtures
 
-- [ ] 5.1 Create `decision-model-limits/fixtures` from `impl` with `$gh-stack`.
-- [ ] 5.2 Add the cross-card injection case to `fixtures/ranking`; record Jev answers in canonical and reversed order, and Laya answers under declared limits with one request in flight, with live keys; post the `ranking:eval` table on the PR. This is a live-model eval, not a CI test.
+- [x] 5.1 Create `decision-model-limits/fixtures` from `impl` with `$gh-stack`.
+- [x] 5.2 Add the cross-card injection case to `fixtures/ranking`; record Jev answers in canonical and reversed order, and Laya answers under declared limits with one request in flight, with live keys; post the `ranking:eval` table on the PR. This is a live-model eval, not a CI test.
 - [ ] 5.3 Run the focused ranking tests, `pnpm format:check`, `pnpm lint:markdown`, `git diff --check`; publish with `$gh-stack`; SR; mark ready; GR; update the Project.
 
 ## 6. finalize
