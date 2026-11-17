@@ -21,6 +21,7 @@ import {
   type DeliveredBoundary,
   type DeliveryCause,
 } from './segment-delivery';
+import { deliveryCause } from './boundary-compaction-delivery';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 const runId = '11111111-1111-4111-8111-111111111111';
@@ -851,5 +852,42 @@ describe('the usage an interrupt closes a reply with', () => {
     expect(closedTelemetry(interrupt, telemetry)).toEqual(
       abortedByInterrupt(telemetry),
     );
+  });
+});
+
+describe('boundary compaction delivery cause', () => {
+  const input = {
+    run: { runId, userId },
+    attemptId,
+    models,
+    deadWorkerAfterSeconds: 60,
+  };
+
+  const compact = {
+    ...pending('dddddddd-dddd-4ddd-8ddd-dddddddddddd', '/compact'),
+    parts: [{ type: 'text', text: '/compact' }],
+  };
+
+  it('uses compaction only when every pending item is a compact command', () => {
+    expect(deliveryCause(input, [compact])).toBe('compaction');
+    expect(deliveryCause(input, [])).toBe('compaction');
+    expect(deliveryCause(input, [compact, first])).toBe('steer');
+  });
+
+  it('distinguishes ordinary owner steer, notice, interrupt, and stopped calls', () => {
+    expect(deliveryCause(input, [first])).toBe('steer');
+    expect(deliveryCause(input, [jobNotice])).toBe('notice');
+    expect(deliveryCause(input, [{ ...first, mode: 'interrupt' }])).toBe(
+      'interrupt',
+    );
+    expect(deliveryCause({ ...input, stoppedCalls: [] }, [jobNotice])).toBe(
+      'interrupt',
+    );
+  });
+
+  it('does not treat another producer command as a compact command', () => {
+    expect(
+      deliveryCause(input, [{ ...compact, producer: 'job', mode: 'notice' }]),
+    ).toBe('notice');
   });
 });

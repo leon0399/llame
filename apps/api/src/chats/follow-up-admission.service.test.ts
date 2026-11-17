@@ -966,6 +966,19 @@ describe('FollowUpAdmissionService', () => {
     // The turn check runs before any Run state is read.
     expect(findLatestByChatId).not.toHaveBeenCalled();
   });
+  it('refuses a follow-up whose user turn is absorbed by a checkpoint', async () => {
+    const { service, createRun } = makeService();
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findCheckpointAbsorbing',
+    ).mockResolvedValue(asDouble<Message>({ id: 'checkpoint-message' }));
+
+    await expect(admit(service)).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'A follow-up request cannot target a compacted turn',
+    });
+    expect(createRun).not.toHaveBeenCalled();
+  });
 
   it('refuses a message with no Run of its own', async () => {
     const { service, findLatestByChatId } = makeService();

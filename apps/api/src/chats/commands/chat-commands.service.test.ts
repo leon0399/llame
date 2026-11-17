@@ -366,6 +366,50 @@ describe('ChatCommandsService', () => {
       kind: 'steer',
     });
   });
+  it('queues a compact command behind a live compaction Run', async () => {
+    const {
+      service,
+      findActive,
+      insertPending,
+      wakeForChatInTransaction,
+      dispatch,
+    } = makeService();
+
+    findActive.mockResolvedValue(
+      asDouble<Run>({
+        id: 'run-1',
+        chatId: 'chat-1',
+        userId: 'user-1',
+        status: 'awaiting_jobs',
+        kind: 'compaction',
+        currentJobId: 'job-1',
+      }),
+    );
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+        messageId: 'compact-message',
+        rawText: '/compact',
+        delivery: 'steer',
+      }),
+    ).resolves.toEqual({
+      type: 'delivery',
+      delivery: { item: { mode: 'steer', state: 'pending' }, job: null },
+    });
+
+    expect(insertPending).toHaveBeenCalledWith({
+      chatId: 'chat-1',
+      ownerUserId: 'user-1',
+      id: 'compact-message',
+      mode: 'queue',
+      parts: [{ type: 'text', text: '/compact' }],
+      settings: { modelId: 'model-1', permissionMode: 'default' },
+    });
+    expect(wakeForChatInTransaction).not.toHaveBeenCalled();
+  });
 
   it('refuses an empty Chat without creating or dispatching a Run', async () => {
     const { service, rows, createRun, dispatch } = makeService();

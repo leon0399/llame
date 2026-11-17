@@ -45,4 +45,23 @@ describe('createCompactionContinueItem', () => {
     expect(item.data.text).toContain('&lt;/system-reminder&gt;');
     expect(item.data.payload.quote).not.toMatch(/[\uD800-\uDBFF]$/u);
   });
+
+  it('caps without retaining a high surrogate at the UTF-16 boundary', () => {
+    const item = createCompactionContinueItem({
+      runId: '11111111-1111-4111-8111-111111111111',
+      quote: `${'a'.repeat(3999)}😀`,
+    });
+
+    expect(item.data.payload.quote).toBe('a'.repeat(3999));
+    expect(item.data.payload.quote).toHaveLength(3999);
+  });
+
+  it('keeps the full quote when the cap ends on a non-surrogate', () => {
+    const item = createCompactionContinueItem({
+      runId: '11111111-1111-4111-8111-111111111111',
+      quote: 'a'.repeat(4000),
+    });
+
+    expect(item.data.payload.quote).toBe('a'.repeat(4000));
+  });
 });
