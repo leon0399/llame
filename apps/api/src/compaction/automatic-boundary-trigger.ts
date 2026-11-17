@@ -38,3 +38,14 @@ export function automaticBoundaryThresholdReached(input: {
     }) >= input.thresholdTokens
   );
 }
+
+export function compactionAttemptStarted(input: {
+  readonly wakeCompaction: boolean;
+  readonly startsAfterCompaction: boolean;
+  readonly isWakeAttempt: boolean;
+}): boolean {
+  return (
+    input.wakeCompaction ||
+    (input.startsAfterCompaction && !input.isWakeAttempt)
+  );
+}

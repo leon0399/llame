@@ -228,9 +228,7 @@ async function settleFailedCompactionDelivery(input: {
   });
 
   return ordinary.kind === 'nothing-pending'
-    ? input.delivery.boundaryCompaction?.automatic === true
-      ? { kind: 'nothing-pending', compactionDisabled: true }
-      : { kind: 'nothing-pending', compactionFailed: true }
+    ? { kind: 'nothing-pending', compactionFailed: true }
     : ordinary;
 }
 

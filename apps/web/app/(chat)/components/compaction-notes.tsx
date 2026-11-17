@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { Badge } from "@workspace/ui/components/badge";
 import { InfoIcon } from "lucide-react";
 
@@ -8,12 +10,20 @@ import { InfoIcon } from "lucide-react";
  *
  * @summary a muted note that a mid-turn compaction failed
  */
-export function CompactionFailedNote() {
+function CompactionNote({ children }: { children: ReactNode }) {
   return (
     <Badge variant="outline" className="my-1">
       <InfoIcon className="h-3 w-3 shrink-0" />
-      Compaction failed — continued with the full history
+      {children}
     </Badge>
+  );
+}
+
+export function CompactionFailedNote() {
+  return (
+    <CompactionNote>
+      Compaction failed — continued with the full history
+    </CompactionNote>
   );
 }
 
@@ -26,9 +36,8 @@ export function CompactionFailedNote() {
  */
 export function CompactionDisabledNote() {
   return (
-    <Badge variant="outline" className="my-1">
-      <InfoIcon className="h-3 w-3 shrink-0" />
+    <CompactionNote>
       Automatic compaction is off for this Run — use /compact to compact
-    </Badge>
+    </CompactionNote>
   );
 }

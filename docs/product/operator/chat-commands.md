@@ -14,7 +14,7 @@ behavior:
 
 During a tool loop, a Run automatically compacts at a step boundary when its next request reaches the configured model threshold. The Run then continues from the checkpoint. A final answer is not compacted automatically.
 
-If compaction fails, the Run continues without a checkpoint and records the failure in its reply. If compaction does not reduce the request below the threshold, automatic compaction is disabled for that Run and the reply records that status. An owner `/compact` command remains available.
+If an automatic compaction fails or does not reduce the request below the threshold, it is disabled for the rest of the Run. The reply records that status, and an owner `/compact` command remains available.
 
 ## Downgrading below the `/compact` focus
 

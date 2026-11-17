@@ -49,7 +49,7 @@ import { RegenerateNoticePart } from "./regenerate-notice-part";
 import {
   CompactionDisabledNote,
   CompactionFailedNote,
-} from "./compaction-failed-note";
+} from "./compaction-notes";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { TurnActions } from "./turn-actions";
 import {

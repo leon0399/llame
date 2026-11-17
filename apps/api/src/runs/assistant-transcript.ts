@@ -399,11 +399,7 @@ class AssistantPartCollectorImpl {
     this.collected.push(part);
   }
 
-  compactionFailed(part: CompactionFailedPart): void {
-    this.collected.push(part);
-  }
-
-  compactionDisabled(part: CompactionDisabledPart): void {
+  compactionNote(part: CompactionFailedPart | CompactionDisabledPart): void {
     this.collected.push(part);
   }
 
@@ -668,11 +664,8 @@ class DurableAssistantReconstructor {
 
         return;
       case 'run.compaction_failed':
-        this.applyCompactionFailed();
-
-        return;
       case 'run.compaction_disabled':
-        this.applyCompactionDisabled();
+        this.applyCompactionNote(event);
 
         return;
       case 'tool.requested':
@@ -692,16 +685,12 @@ class DurableAssistantReconstructor {
     }
   }
 
-  private applyCompactionFailed(): void {
-    this.collector.compactionFailed({
-      type: 'data-compaction-failed',
-      data: {},
-    });
-  }
-
-  private applyCompactionDisabled(): void {
-    this.collector.compactionDisabled({
-      type: 'data-compaction-disabled',
+  private applyCompactionNote(event: RunEvent): void {
+    this.collector.compactionNote({
+      type:
+        event.eventType === 'run.compaction_failed'
+          ? 'data-compaction-failed'
+          : 'data-compaction-disabled',
       data: {},
     });
   }

@@ -80,7 +80,6 @@ export type BoundaryDelivery =
   | {
       kind: 'nothing-pending';
       compactionFailed?: true;
-      compactionDisabled?: true;
     }
   /** The attempt was superseded or the Run is terminal. */
   | { kind: 'fenced' }

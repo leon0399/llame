@@ -98,7 +98,10 @@ import {
 } from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { readCompactionSet } from '../compaction/boundary-compaction';
-import { automaticBoundaryThresholdReached } from '../compaction/automatic-boundary-trigger';
+import {
+  automaticBoundaryThresholdReached,
+  compactionAttemptStarted,
+} from '../compaction/automatic-boundary-trigger';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { type CheckpointMessage } from '../chats/messages-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
@@ -580,6 +583,23 @@ type PreparedAttemptContext = ModelRequestContext & {
   untitled: boolean;
 };
 
+function boundaryCompactionPlan(
+  context: PreparedAttemptContext,
+  triggeringUserSeq: number,
+): (CompactionPlan & { uptoSeq: number }) | null {
+  const { historyRows: rows, latestCheckpoint } = context;
+
+  const plan = planCompactionCheckpoint({
+    rows: toStoredMessages(rows),
+    boundarySeq: latestCheckpoint?.absorbedThroughSeq ?? 0,
+    triggeringUserSeq: triggeringUserSeq + 1,
+  });
+
+  return plan === null
+    ? null
+    : { ...plan, uptoSeq: Math.max(0, ...rows.map((row) => row.seq)) + 1 };
+}
+
 type CompactionTriggerInput = {
   run: ExecuteRunInput;
   prepared: PreparedExecutionContext;
@@ -879,13 +899,6 @@ export function expiredRunMessage(signal: AbortSignal | undefined): string {
     : 'Run timed out: exceeded its wall-clock budget.';
 }
 
-/**
- * Classify an aborted run's terminal status from the signal that aborted it:
- * a worker-side wall-clock timeout is run.expired; any other abort (a user
- * cancel, a superseding retry) is run.cancelled. Exported standalone — pure
- * and DB-free — so the tagging is unit-testable without the full executeRun
- * path.
- */
 function terminalStatus(
   signal: AbortSignal | undefined,
   finishReason: string,
@@ -900,6 +913,13 @@ function terminalStatus(
   return 'completed';
 }
 
+/**
+ * Classify an aborted run's terminal status from the signal that aborted it:
+ * a worker-side wall-clock timeout is run.expired; any other abort (a user
+ * cancel, a superseding retry) is run.cancelled. Exported standalone — pure
+ * and DB-free — so the tagging is unit-testable without the full executeRun
+ * path.
+ */
 export function classifyAbortedRun(
   signal: AbortSignal | undefined,
 ): 'cancelled' | 'expired' | 'failed' {
@@ -1819,46 +1839,18 @@ export class RunExecutionService {
     });
   }
 
-  private async automaticCompactionState(
-    input: ExecuteRunInput,
-    deliveryEvents: ReadonlyArray<{ payload: unknown }>,
-  ): Promise<{
-    compactionDisabledAtStart: boolean;
-    startsAfterCompaction: boolean;
-  }> {
-    const disabledEvents = await this.tenantDb.runAs(input.userId, (tx) =>
-      new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
-        eventTypes: ['run.compaction_disabled'],
-      }),
-    );
-
-    const lastDelivery = deliveryEvents.at(-1);
-
-    return {
-      compactionDisabledAtStart: disabledEvents.length > 0,
-      startsAfterCompaction:
-        lastDelivery !== undefined &&
-        isRecord(lastDelivery.payload) &&
-        (lastDelivery.payload['cause'] === 'compaction' ||
-          lastDelivery.payload['checkpointId'] !== undefined),
-    };
-  }
-
   private async automaticCompactionDueAtBoundary(input: {
-    hasCompletedTools: boolean;
-    disabled: boolean;
     hasBoundary: boolean;
     replyParts: ReadonlyArray<MessagePart>;
     latestRequestContextTokens: number | undefined;
     requestMessages: PreparedExecutionContext['messages'];
     system: string;
     toolDeclarations: PreparedExecutionContext['toolDeclarations'];
+    thresholdTokens: number;
     client: ExecuteRunInput['client'];
     media: RunMediaResolver;
   }): Promise<boolean> {
-    if (!input.hasCompletedTools || input.disabled || !input.hasBoundary) {
-      return false;
-    }
+    if (!input.hasBoundary) return false;
 
     const projected = projectStoredReplyParts(input.replyParts, {
       privateParts: true,
@@ -1898,20 +1890,8 @@ export class RunExecutionService {
       toolDeclarations: input.toolDeclarations,
       stepToolResultMedia,
       nextRequestMedia,
-      thresholdTokens: resolveCompactionThreshold({
-        explicitThresholdTokens: input.client.compactionThresholdTokens,
-        contextWindowTokens: input.client.contextWindowTokens,
-      }),
+      thresholdTokens: input.thresholdTokens,
     });
-  }
-
-  private async settleAbortedAttempt(
-    input: ExecuteRunInput,
-    attemptId: string,
-  ): Promise<void> {
-    if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input, attemptId);
-    }
   }
 
   private async executeAttempt(attempt: {
@@ -1940,21 +1920,29 @@ export class RunExecutionService {
 
     const { client } = input;
 
-    const deliveryEvents = await this.tenantDb.runAs(input.userId, (tx) =>
+    const attemptEvents = await this.tenantDb.runAs(input.userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
-        eventTypes: ['run.delivered'],
+        eventTypes: ['run.delivered', 'run.compaction_disabled'],
       }),
+    );
+
+    const deliveryEvents = attemptEvents.filter(
+      (event) => event.eventType === 'run.delivered',
     );
 
     const stepBudgetOffset = readCompactionStepBudget(deliveryEvents);
 
-    const automaticCompactionState = await this.automaticCompactionState(
-      input,
-      deliveryEvents,
+    const compactionDisabledAtStart = attemptEvents.some(
+      (event) => event.eventType === 'run.compaction_disabled',
     );
 
-    const { compactionDisabledAtStart, startsAfterCompaction } =
-      automaticCompactionState;
+    const lastDelivery = deliveryEvents.at(-1);
+
+    const startsAfterCompaction =
+      lastDelivery !== undefined &&
+      isRecord(lastDelivery.payload) &&
+      (lastDelivery.payload['cause'] === 'compaction' ||
+        lastDelivery.payload['checkpointId'] !== undefined);
 
     // A Continue Run starts from the kept parts its admission recorded, in the
     // same transaction as its own row (turn-actions D5). Every later read of
@@ -2136,7 +2124,17 @@ export class RunExecutionService {
       throw error;
     }
 
-    const compactionAttemptStarted = wakeCompaction || startsAfterCompaction;
+    const compactionStartedThisAttempt = compactionAttemptStarted({
+      wakeCompaction,
+      startsAfterCompaction,
+      isWakeAttempt: attempt.wakeState !== undefined,
+    });
+
+    const compactionThreshold = resolveCompactionThreshold({
+      explicitThresholdTokens: client.compactionThresholdTokens,
+      contextWindowTokens: client.contextWindowTokens,
+    });
+
     const { system, messages, untitled, tools: executableTools } = prepared;
 
     const boundExecutables = new Map<string, AttemptToolBinding>(
@@ -2237,7 +2235,7 @@ export class RunExecutionService {
       wakeBoundary?.kind === 'nothing-pending' &&
       wakeBoundary.compactionFailed
     ) {
-      assistantPartCollector.compactionFailed({
+      assistantPartCollector.compactionNote({
         type: 'data-compaction-failed',
         data: {},
       });
@@ -2372,15 +2370,22 @@ export class RunExecutionService {
       });
     };
 
-    const disableAutomaticCompaction = (): void => {
-      if (automaticCompactionDisabled) return;
+    const markCompactionDisabled = (): boolean => {
+      if (automaticCompactionDisabled) return false;
 
       automaticCompactionDisabled = true;
-      assistantPartCollector.compactionDisabled({
+      assistantPartCollector.compactionNote({
         type: 'data-compaction-disabled',
         data: {},
       });
-      enqueueEvent('run.compaction_disabled', {});
+
+      return true;
+    };
+
+    const disableAutomaticCompaction = (): void => {
+      if (markCompactionDisabled()) {
+        enqueueEvent('run.compaction_disabled', {});
+      }
     };
 
     // Each buffered `model.delta` event carries the adapter part id of the
@@ -3570,24 +3575,15 @@ export class RunExecutionService {
     // abort listener and the workspace hold belong to the call.
     let endWorkspaceAttempt = noop;
     let stopCause: 'cancel' | 'delivery' | 'suspend' | 'compact' | undefined;
+    let automaticCompactionAtBoundary = false;
     let automaticCompactionDisabled = compactionDisabledAtStart;
     let boundaryCallMessages: typeof messages = messages;
     let stepResultStart = 0;
     let stepToolsCompleted = 0;
+    let progressCheckMedia: MediaSizing | undefined;
 
-    const boundaryPlan = (): CompactionPlan | null => {
-      const rows = attemptContext.historyRows;
-
-      const plan = planCompactionCheckpoint({
-        rows: toStoredMessages(rows),
-        boundarySeq: attemptContext.latestCheckpoint?.absorbedThroughSeq ?? 0,
-        triggeringUserSeq: input.userMessage.seq + 1,
-      });
-
-      return plan === null
-        ? null
-        : { ...plan, uptoSeq: Math.max(0, ...rows.map((row) => row.seq)) + 1 };
-    };
+    const compactableRange =
+      boundaryCompactionPlan(attemptContext, input.userMessage.seq) !== null;
 
     const automaticCompactionDueAtBoundary = async (): Promise<boolean> => {
       const projectedParts = assistantPartCollector
@@ -3595,17 +3591,16 @@ export class RunExecutionService {
         .slice(stepResultStart);
 
       return this.automaticCompactionDueAtBoundary({
-        hasCompletedTools: stepToolsCompleted > 0,
-        disabled: automaticCompactionDisabled,
         hasBoundary:
           stepToolsCompleted > 0 &&
           !automaticCompactionDisabled &&
-          boundaryPlan() !== null,
+          compactableRange,
         replyParts: projectedParts,
         latestRequestContextTokens: requestUsageReceipts.at(-1)?.inputTokens,
         requestMessages: boundaryCallMessages,
         system,
         toolDeclarations: prepared.toolDeclarations,
+        thresholdTokens: compactionThreshold,
         client,
         media,
       });
@@ -3644,11 +3639,14 @@ export class RunExecutionService {
         }),
       );
 
-      if (stopCause !== undefined) return true;
+      if (stopCause === 'cancel' || stopCause === 'suspend') return true;
 
-      if (!(await automaticCompactionDueAtBoundary())) return false;
+      if (!(await automaticCompactionDueAtBoundary()))
+        return stopCause !== undefined;
 
-      stopCause = 'compact';
+      automaticCompactionAtBoundary = true;
+
+      if (stopCause === undefined) stopCause = 'compact';
 
       return true;
     };
@@ -3693,6 +3691,7 @@ export class RunExecutionService {
       stepBase: number,
     ): Promise<AttemptRun> => {
       let nextCall = noNextCall;
+      const partsBefore = assistantPartCollector.parts().length;
 
       if (input.abortSignal?.aborted) {
         settleToolsOnParentAbort();
@@ -3738,10 +3737,7 @@ export class RunExecutionService {
         callSegment.signal.reason === INTERRUPT_ABORT_REASON &&
         !input.abortSignal?.aborted;
 
-      const partsBefore = assistantPartCollector.parts().length;
       let stepsStarted = 0;
-      boundaryCallMessages = callMessages;
-      stepResultStart = partsBefore;
 
       // The stop is a delivery with cause `interrupt` (run-steering D4): the
       // reply closes `aborted`, and the Run stays live on the delivered
@@ -3759,7 +3755,6 @@ export class RunExecutionService {
           stoppedCalls?: Array<StoppedCall>;
           baselines?: FirstEpochBaselines;
           finalAnswer?: true;
-          automatic?: true;
         },
       ): Promise<BoundaryDelivery['kind']> => {
         const { telemetry } = modelCompleted;
@@ -3767,6 +3762,7 @@ export class RunExecutionService {
         const boundaryCompaction =
           stopCause === 'delivery' ||
           stopCause === 'compact' ||
+          automaticCompactionAtBoundary ||
           extra.stoppedCalls !== undefined
             ? await this.prepareBoundaryCompaction({
                 run: input,
@@ -3786,8 +3782,11 @@ export class RunExecutionService {
                   stepsStarted,
                   wakeStepOffset,
                 }),
-                ...(stopCause === 'compact' && {
-                  compactionSet: { ids: [], focus: null },
+                ...((stopCause === 'compact' ||
+                  automaticCompactionAtBoundary) && {
+                  ...(stopCause !== 'delivery' && {
+                    compactionSet: { ids: [], focus: null },
+                  }),
                   automatic: true as const,
                 }),
                 ...extra,
@@ -3820,24 +3819,24 @@ export class RunExecutionService {
 
         if (
           boundary.kind === 'nothing-pending' &&
-          boundary.compactionDisabled === true
+          (stopCause === 'compact' || automaticCompactionAtBoundary)
         ) {
-          automaticCompactionDisabled = true;
-          assistantPartCollector.compactionDisabled({
-            type: 'data-compaction-disabled',
-            data: {},
-          });
+          markCompactionDisabled();
         }
 
         if (
           boundary.kind === 'nothing-pending' &&
-          boundary.compactionFailed === true
+          boundary.compactionFailed === true &&
+          stopCause !== 'compact' &&
+          !automaticCompactionAtBoundary
         ) {
-          assistantPartCollector.compactionFailed({
+          assistantPartCollector.compactionNote({
             type: 'data-compaction-failed',
             data: {},
           });
         }
+
+        automaticCompactionAtBoundary = false;
 
         if (boundary.kind === 'delivered') {
           await this.afterAssistantTurn(
@@ -3996,13 +3995,16 @@ export class RunExecutionService {
 
             if (
               firstReceipt &&
-              compactionAttemptStarted &&
-              usage.inputTokens !== undefined &&
-              usage.inputTokens >=
-                resolveCompactionThreshold({
-                  explicitThresholdTokens: client.compactionThresholdTokens,
-                  contextWindowTokens: client.contextWindowTokens,
-                })
+              compactionStartedThisAttempt &&
+              (usage.inputTokens ??
+                estimateModelRequestTokens({
+                  system,
+                  messages: boundaryCallMessages,
+                  toolDeclarations: prepared.toolDeclarations,
+                  ...(progressCheckMedia !== undefined && {
+                    media: progressCheckMedia,
+                  }),
+                })) >= compactionThreshold
             ) {
               disableAutomaticCompaction();
             }
@@ -4042,7 +4044,6 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
-              boundaryCallMessages = messages;
               stepResultStart = assistantPartCollector.parts().length;
               stepToolsCompleted = 0;
               waitCallIdInStep = undefined;
@@ -4078,6 +4079,17 @@ export class RunExecutionService {
               // retained override is replaced rather than accumulated (D1).
               const preparedMessages = inRunItems.applyToStep(messages);
               boundaryCallMessages = preparedMessages ?? messages;
+
+              if (
+                compactionStartedThisAttempt &&
+                progressCheckMedia === undefined
+              ) {
+                progressCheckMedia = await loadMediaSizing(
+                  boundaryCallMessages,
+                  media,
+                  this.mediaAdmissionContext(client),
+                );
+              }
 
               return preparedMessages;
             },
@@ -4724,7 +4736,6 @@ export class RunExecutionService {
               { usage, finishReason, telemetry: closingTelemetry },
               {
                 baselines: attemptContext,
-                ...(stopped === 'compact' && { automatic: true as const }),
               },
             );
 
@@ -7216,19 +7227,10 @@ export class RunExecutionService {
 
     const rows = input.context.historyRows;
 
-    const plan = planCompactionCheckpoint({
-      rows: toStoredMessages(rows),
-      boundarySeq: input.context.latestCheckpoint?.absorbedThroughSeq ?? 0,
-      triggeringUserSeq: input.run.userMessage.seq + 1,
-    });
-
-    const boundaryPlan =
-      plan === null
-        ? null
-        : {
-            ...plan,
-            uptoSeq: Math.max(0, ...rows.map((row) => row.seq)) + 1,
-          };
+    const boundaryPlan = boundaryCompactionPlan(
+      input.context,
+      input.run.userMessage.seq,
+    );
 
     const projected = projectStoredReplyParts(input.replyParts, {
       privateParts: true,

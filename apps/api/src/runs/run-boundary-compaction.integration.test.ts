@@ -422,19 +422,22 @@ describe('step-boundary compaction', () => {
   it('A compact and a steer at one boundary', async () => {
     const seeded = await fx.seed('Keep the requested context.');
     let stored = false;
+    let summaryFocus: string | null = null;
 
     const summarize = vi
       .spyOn(
         fx.harness.moduleRef.get(CompactionService),
         'computeBoundarySummary',
       )
-      .mockImplementation((input) =>
-        Promise.resolve({
+      .mockImplementation((input) => {
+        summaryFocus = input.focus;
+
+        return Promise.resolve({
           uptoSeq: input.plan.uptoSeq,
           summary: 'mixed boundary context',
           usage: {},
-        }),
-      );
+        });
+      });
 
     const callsBefore = summarize.mock.calls.length;
 
@@ -446,11 +449,15 @@ describe('step-boundary compaction', () => {
           stored = true;
           await fx.storeItems(
             seeded.chatId,
-            ['/compact', 'Keep going'],
+            ['/compact Focus this command', 'Keep going'],
             'steer',
             seeded.runId,
           );
         }
+      },
+      {
+        compactionThresholdTokens: 1,
+        requestUsages: [requestUsage(0), requestUsage(0)],
       },
     );
 
@@ -467,6 +474,7 @@ describe('step-boundary compaction', () => {
     );
 
     expect(summarize).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(summaryFocus).toBe('Focus this command');
 
     const checkpoint = (await fx.messages(seeded.chatId)).find(
       (candidate) => candidate.role === 'checkpoint',
@@ -888,6 +896,113 @@ describe('step-boundary compaction', () => {
     ).toHaveLength(10);
   });
 
+  it('Automatic compaction includes a steer locked at the boundary', async () => {
+    const seeded = await fx.seed('Keep the delivery after compaction.');
+
+    const summarize = vi
+      .spyOn(
+        fx.harness.moduleRef.get(CompactionService),
+        'computeBoundarySummary',
+      )
+      .mockImplementation((input) =>
+        Promise.resolve({
+          uptoSeq: input.plan.uptoSeq,
+          summary: 'automatic checkpoint with steer',
+          usage: {},
+        }),
+      );
+
+    const callsBefore = summarize.mock.calls.length;
+
+    await fx.launch(
+      seeded,
+      [
+        call('read-before-delivery', 'read', { path: fx.directory }),
+        answer('The delivered segment completes.'),
+      ],
+      async (stepIndex) => {
+        if (stepIndex === 0) {
+          await fx.storeItems(
+            seeded.chatId,
+            ['Continue after the checkpoint.'],
+            'steer',
+            seeded.runId,
+          );
+
+          const job = await fx.db((tx) =>
+            new ChatJobsRepository(tx).insert({
+              chatId: seeded.chatId,
+              ownerUserId: fx.userId,
+              executor: 'bash',
+              seq: 1,
+              runId: seeded.runId,
+              toolCallId: `notice-${randomUUID()}`,
+              workerInstanceId: randomUUID(),
+              startedAt: new Date(),
+              outputs: [],
+              artifactReadable: false,
+              settings: { modelId: seeded.modelId, permissionMode: 'default' },
+            }),
+          );
+
+          await settleBashJob(
+            fx.harness.tenantDb,
+            job,
+            {
+              output: {
+                stdout: 'completed job output',
+                stderr: '',
+                truncated: false,
+                truncatedStreams: { stdout: false, stderr: false },
+              },
+              settlement: { state: 'failed', result: { exitCode: 1 } },
+              offsets: { stdout: 0, stderr: 0 },
+            },
+            {
+              maxBytes: 65_536,
+              hostFiles: false,
+              noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+            },
+          );
+        }
+      },
+      {
+        compactionThresholdTokens: 1,
+        requestUsages: [requestUsage(0), requestUsage(0)],
+      },
+    );
+    await fx.terminal(seeded.runId);
+
+    const messages = await fx.messages(seeded.chatId);
+
+    const checkpoint = messages.find(
+      (message) => message.role === 'checkpoint',
+    );
+
+    const delivered = (await fx.events(seeded.runId)).find(
+      (event) => event.eventType === 'run.delivered',
+    );
+
+    expect(summarize).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(delivered?.payload).toMatchObject({
+      cause: 'steer',
+      checkpointId: checkpoint?.id,
+    });
+
+    const deliveredMessage = messages.find(
+      (message) =>
+        message.role === 'user' &&
+        partKinds(message).includes('data-context:compaction'),
+    );
+
+    expect(checkpoint?.seq).toBeLessThan(deliveredMessage?.seq ?? 0);
+    expect(deliveredMessage?.parts).toContainEqual({
+      type: 'text',
+      text: 'Continue after the checkpoint.',
+    });
+    expect(partKinds(deliveredMessage!)).toContain('data-context:job');
+  });
+
   it('A compaction that does not help disables the automatic trigger', async () => {
     const seeded = await fx.seed('Keep testing compaction progress.');
 
@@ -911,22 +1026,49 @@ describe('step-boundary compaction', () => {
       [
         call('first-read', 'read', { path: fx.directory }),
         call('second-read', 'read', { path: fx.directory }),
-        answer('Finished after the guard.'),
+        call('third-read', 'read', { path: fx.directory }),
+        answer('Finished after the manual checkpoint.'),
       ],
-      undefined,
+      async (stepIndex) => {
+        if (stepIndex === 1) {
+          await fx.storeItems(
+            seeded.chatId,
+            ['Continue while automatic compaction stays off.'],
+            'steer',
+            seeded.runId,
+          );
+        }
+
+        if (stepIndex === 3) {
+          await fx.storeItems(
+            seeded.chatId,
+            ['/compact'],
+            'steer',
+            seeded.runId,
+          );
+        }
+      },
       {
         compactionThresholdTokens: 1,
-        requestUsages: [requestUsage(0), requestUsage(1), requestUsage(1)],
+        requestUsages: [
+          requestUsage(0),
+          null,
+          requestUsage(0),
+          requestUsage(0),
+        ],
       },
     );
     const finished = await fx.terminal(seeded.runId);
     const events = await fx.events(seeded.runId);
 
     expect(finished.status).toBe('completed');
-    expect(summarize).toHaveBeenCalledTimes(callsBefore + 1);
+    expect(summarize).toHaveBeenCalledTimes(callsBefore + 2);
     expect(
       events.filter((event) => event.eventType === 'run.compaction_disabled'),
     ).toHaveLength(1);
+    expect(
+      (await fx.messages(seeded.chatId)).flatMap((message) => message.parts),
+    ).toContainEqual({ type: 'data-compaction-disabled', data: {} });
   });
 
   it('A failed automatic compaction stops the trigger', async () => {
@@ -988,14 +1130,14 @@ describe('step-boundary compaction', () => {
     await fx.launch(
       seeded,
       [
-        call('segment-read', 'read', { path: fx.directory }),
-        answer('The delivered segment ends.'),
+        answer('The first segment ends above the threshold.'),
+        answer('The steered segment answers without pre-step compaction.'),
       ],
       async (stepIndex) => {
         if (stepIndex === 0) {
           await fx.storeItems(
             seeded.chatId,
-            ['continue the segment'],
+            ['Start another segment.'],
             'steer',
             seeded.runId,
           );
@@ -1003,7 +1145,7 @@ describe('step-boundary compaction', () => {
       },
       {
         compactionThresholdTokens: 1,
-        requestUsages: [requestUsage(0), requestUsage(10)],
+        requestUsages: [requestUsage(10), requestUsage(10)],
       },
     );
     await fx.terminal(seeded.runId);

@@ -162,9 +162,9 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       case 'run.step_cap_reached':
         return this.onStepCapReached(event);
       case 'run.compaction_failed':
-        return this.onCompactionFailed();
+        return this.onCompactionNote('data-compaction-failed');
       case 'run.compaction_disabled':
-        return this.onCompactionDisabled();
+        return this.onCompactionNote('data-compaction-disabled');
       case 'run.continued':
         return this.onRunContinued(event);
       case 'run.completed':
@@ -380,21 +380,14 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     ];
   }
 
-  private onCompactionFailed(): Array<UiChunk> {
+  private onCompactionNote(
+    type: 'data-compaction-failed' | 'data-compaction-disabled',
+  ): Array<UiChunk> {
     return [
       ...this.prelude(),
       ...this.closeReasoning(),
       ...this.closeText(),
-      { type: 'data-compaction-failed', data: {} },
-    ];
-  }
-
-  private onCompactionDisabled(): Array<UiChunk> {
-    return [
-      ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
-      { type: 'data-compaction-disabled', data: {} },
+      { type, data: {} },
     ];
   }
 
