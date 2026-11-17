@@ -62,6 +62,8 @@ import { searchConversationsTool } from '../tools/search-conversations';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from './native-files-repository';
+import { createRunMediaResolver } from '../media/media-descriptors';
+import { createWorkspaceRootCell } from '../tools/workspace-path';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
@@ -704,6 +706,7 @@ function makeExecutionService(
   return {
     service,
     db,
+    tenantDb,
     runAs,
     compaction,
     summarizeCheckpoint,
@@ -25254,15 +25257,21 @@ describe('RunExecutionService wake boundary preparation', () => {
       historyRows: committedTurn(),
       latestCheckpoint: undefined,
       model: testModelEntry,
+      system: '',
+      messages: [],
+      retainedMedia: new Map(),
     };
 
     const prepared = {
       messages: [{ role: 'user', content: 'history' }],
       system: 'system prompt',
+      untitled: false,
       toolDeclarations: [],
+      tools: [],
     };
 
     const currentRun = executionInput(createFakeModelClient(['answer']));
+    const media = createRunMediaResolver(execution.tenantDb, userId);
 
     const boundary = await execution.service['prepareBoundaryCompaction']({
       run: currentRun,
@@ -25270,8 +25279,8 @@ describe('RunExecutionService wake boundary preparation', () => {
       context,
       prepared,
       effort: 'high',
-      media: undefined,
-      workspaceRoot: { current: () => '/workspace' },
+      media,
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
       replyParts: [],
       stepBudgetUsed: 4,
       compactionSet: { ids: ['compact-id'], focus: 'owner focus' },
@@ -25294,7 +25303,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       effort: 'high',
       reservedOutputTokens: null,
       abortSignal: currentRun.abortSignal,
-      media: undefined,
+      media,
     });
     expect(boundary).toMatchObject({
       ids: ['compact-id'],
@@ -25320,15 +25329,20 @@ describe('RunExecutionService wake boundary preparation', () => {
         historyRows: committedTurn(),
         latestCheckpoint: undefined,
         model: testModelEntry,
+        system: '',
+        messages: [],
+        retainedMedia: new Map(),
       },
       prepared: {
         messages: [],
         system: '',
+        untitled: false,
         toolDeclarations: [],
+        tools: [],
       },
       effort: undefined,
-      media: undefined,
-      workspaceRoot: { current: () => '/workspace' },
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
       replyParts: [],
       stepBudgetUsed: 0,
       compactionSet: { ids: ['compact-id'], focus: null },
@@ -25354,15 +25368,20 @@ describe('RunExecutionService wake boundary preparation', () => {
         historyRows: committedTurn(),
         latestCheckpoint: undefined,
         model: testModelEntry,
+        system: '',
+        messages: [],
+        retainedMedia: new Map(),
       },
       prepared: {
         messages: [],
         system: '',
+        untitled: false,
         toolDeclarations: [],
+        tools: [],
       },
       effort: undefined,
-      media: undefined,
-      workspaceRoot: { current: () => '/workspace' },
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
       replyParts: [],
       stepBudgetUsed: 0,
       compactionSet: { ids: [], focus: null },
@@ -25370,5 +25389,40 @@ describe('RunExecutionService wake boundary preparation', () => {
 
     expect(boundary).toBeUndefined();
     expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
+  });
+
+  it('captures the compact set before preparing the woken attempt', async () => {
+    const compact = chatDeliveryRow({
+      mode: 'steer',
+      parts: [{ type: 'text', text: '/compact keep the decision' }],
+    });
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+    const execution = makeExecutionService();
+    const currentRun = executionInput(createFakeModelClient(['answer']));
+
+    const onCompactionSet = vi.fn();
+
+    const startDelivered = vi.fn(() =>
+      Promise.reject(new Error('unexpected delivery')),
+    );
+
+    const wakeAttempt = await execution.service['prepareWakeAttempt']({
+      run: currentRun,
+      attemptId: testAttemptId,
+      wakeState: { toolCallId: 'wait-call', parts: [] },
+      startDelivered,
+      onCompactionSet,
+    });
+
+    expect(onCompactionSet).toHaveBeenCalledExactlyOnceWith({
+      ids: [compact.id],
+      focus: 'keep the decision',
+    });
+    expect(wakeAttempt).toBe('compact');
+    expect(startDelivered).not.toHaveBeenCalled();
   });
 });
