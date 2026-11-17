@@ -25243,6 +25243,34 @@ describe('RunExecutionService compaction digest resolution', () => {
 });
 
 describe('RunExecutionService wake boundary preparation', () => {
+  function boundaryContext(historyRows: Array<Message> = committedTurn()) {
+    return {
+      system: '',
+      messages: [],
+      retainedMedia: new Map(),
+      effectiveContext: {
+        promptHash: 'prompt-hash',
+        source: 'project_default' as const,
+        systemPrompt: '',
+      },
+      model: testModelEntry,
+      toolCatalog: {
+        availabilityManifest: { version: 1 as const, entries: [] },
+        declarations: [],
+        admittedIds: [],
+      },
+      stagedParts: [],
+      placement: 'append' as const,
+      removesModelSwitch: false,
+      triggerParts: undefined,
+      historyRows,
+      latestCheckpoint: undefined,
+      seenInstructionPaths: new Set<string>(),
+      toldGit: { text: undefined, root: undefined },
+      untitled: false,
+    };
+  }
+
   it('prepares a boundary summary from the current attempt and preserves final-answer metadata', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
       ...run,
@@ -25253,17 +25281,10 @@ describe('RunExecutionService wake boundary preparation', () => {
     const execution = makeExecutionService();
     execution.computeBoundarySummary.mockResolvedValue(summary);
 
-    const context = {
-      historyRows: committedTurn(),
-      latestCheckpoint: undefined,
-      model: testModelEntry,
-      system: '',
-      messages: [],
-      retainedMedia: new Map(),
-    };
+    const context = boundaryContext();
 
     const prepared = {
-      messages: [{ role: 'user', content: 'history' }],
+      messages: [{ role: 'user' as const, content: 'history' }],
       system: 'system prompt',
       untitled: false,
       toolDeclarations: [],
@@ -25325,14 +25346,7 @@ describe('RunExecutionService wake boundary preparation', () => {
     const boundary = await execution.service['prepareBoundaryCompaction']({
       run: currentRun,
       attemptId: testAttemptId,
-      context: {
-        historyRows: committedTurn(),
-        latestCheckpoint: undefined,
-        model: testModelEntry,
-        system: '',
-        messages: [],
-        retainedMedia: new Map(),
-      },
+      context: boundaryContext(),
       prepared: {
         messages: [],
         system: '',
@@ -25364,14 +25378,7 @@ describe('RunExecutionService wake boundary preparation', () => {
     const boundary = await execution.service['prepareBoundaryCompaction']({
       run: currentRun,
       attemptId: testAttemptId,
-      context: {
-        historyRows: committedTurn(),
-        latestCheckpoint: undefined,
-        model: testModelEntry,
-        system: '',
-        messages: [],
-        retainedMedia: new Map(),
-      },
+      context: boundaryContext(),
       prepared: {
         messages: [],
         system: '',
@@ -25424,5 +25431,32 @@ describe('RunExecutionService wake boundary preparation', () => {
     });
     expect(wakeAttempt).toBe('compact');
     expect(startDelivered).not.toHaveBeenCalled();
+  });
+
+  it('starts the delivered message after closing the wake boundary', async () => {
+    const execution = makeExecutionService();
+
+    const delivered = {
+      kind: 'delivered' as const,
+      message: userMessage,
+      attemptId: testAttemptId,
+      cause: 'compaction' as const,
+    };
+
+    const startDelivered = vi.fn(() =>
+      Promise.reject(new Error('continuation started')),
+    );
+
+    await expect(
+      execution.service['finishWakeCompactionBoundary']({
+        boundary: delivered,
+        userId,
+        runId,
+        attemptId: testAttemptId,
+        startDelivered,
+      }),
+    ).rejects.toThrow('continuation started');
+
+    expect(startDelivered).toHaveBeenCalledExactlyOnceWith(delivered);
   });
 });
