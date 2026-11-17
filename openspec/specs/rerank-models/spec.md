@@ -40,14 +40,15 @@ credential from the process environment.
 ### Requirement: The rerank catalog names models by id
 
 The config file MUST accept an optional top-level `rerankModels` array. Each
-entry MUST be `{ id, provider, model, wire? }`. `provider` MUST name a
+entry MUST be `{ id, provider, providerModelId, wire? }`. `provider` MUST name a
 `providers[].id` whose default or explicit model wire resolves to
-`cohere-rerank`. `model` MUST be a nonblank string, sent verbatim.
-`id`, `provider`, and `model` MUST accept `{env:…}` and `{path:…}` interpolation.
+`cohere-rerank`. `providerModelId` MUST be a nonblank string, sent verbatim
+as the wire `model`. An entry that sets `model` MUST fail startup.
+`id`, `provider`, and `providerModelId` MUST accept `{env:…}` and `{path:…}` interpolation.
 
 #### Scenario: A rerank catalog loads
 
-- **WHEN** the file declares a `rerankModels` entry with an `id`, a `cohere-rerank` `provider`, and the `model` `cohere/rerank-5-fast`
+- **WHEN** the file declares a `rerankModels` entry with an `id`, a `cohere-rerank` `provider`, and the `providerModelId` `cohere/rerank-5-fast`
 - **THEN** startup succeeds
 - **AND** a rank call that names that id sends `cohere/rerank-5-fast` on the wire
 
@@ -63,8 +64,13 @@ entry MUST be `{ id, provider, model, wire? }`. `provider` MUST name a
 
 #### Scenario: A blank rerank model fails startup
 
-- **WHEN** a `rerankModels` entry has a `model` that is blank or resolves to blank
-- **THEN** startup fails and names `rerankModels[0].model` for the first entry
+- **WHEN** a `rerankModels` entry has a `providerModelId` that is blank or resolves to blank
+- **THEN** startup fails and names `rerankModels[0].providerModelId` for the first entry
+
+#### Scenario: The former rerank field name fails startup
+
+- **WHEN** a `rerankModels` entry sets `model` instead of `providerModelId`
+- **THEN** startup fails and names the first entry of `rerankModels`
 
 ### Requirement: Rank model ids are unique across both catalogs
 
@@ -149,7 +155,7 @@ MUST stop reading a body at 1,048,576 bytes, and that request is unavailable.
 
 The judge result MUST map each judged card key to its `relevance_score`. The
 representative model MUST be the first accepted response's served `model` in
-request order if it names one, else the catalog `model`. It MUST be `null` when no response is
+request order if it names one, else the entry's `providerModelId`. It MUST be `null` when no response is
 accepted.
 
 #### Scenario: Two requests report different served models

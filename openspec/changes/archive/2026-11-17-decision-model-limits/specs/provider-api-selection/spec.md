@@ -2,36 +2,37 @@
 
 ### Requirement: Model routing shares provider accounts
 
-The system SHALL resolve a wire for every chat, embedding, decision, and
-rerank model at startup. A model's explicit `wire` SHALL take precedence over
-provider-type, kind, and exact-model metadata defaults. An unsupported kind/wire pair
-or missing default SHALL fail startup naming that model's `.wire` field.
-Routing SHALL NOT infer a vendor from an account's `id` or URL host.
+The system MUST resolve a wire for every chat, embedding, decision, and rerank
+model at startup. A model's explicit `wire` MUST take precedence over the
+provider-type, kind, and exact-model metadata defaults. An unsupported kind and
+wire pair, or a missing default, MUST fail startup. The message MUST name that
+model's `.wire` field. Routing MUST NOT infer a vendor from the `id` or the URL
+host of an account.
 
-The `openrouter` provider SHALL support all four kinds through one account.
-The `openai` provider SHALL default to Responses for chat and OpenAI embeddings
-for embeddings; `anthropic` SHALL default to Messages for chat. Explicit wire
-profiles SHALL remain available for custom services. OpenCode Zen and Go SHALL
-select chat wires by exact provider/model lookup in bundled upstream metadata,
-using the model's first declared API. Unknown models and unsupported metadata
-protocols SHALL require an explicit supported wire, without prefix inference
-or borrowing another provider's model entry. Startup SHALL use the bundled
-snapshot without network discovery. Go SHALL remain chat-only, and Zen SHALL
-support chat and decisions.
-The Codex subscription account SHALL use only its fixed Codex transport, and
-no other account SHALL select that transport.
+The `openrouter` provider MUST support all four kinds through one account. The
+`openai` provider MUST default to Responses for chat and to OpenAI embeddings
+for embeddings. The `anthropic` provider MUST default to Messages for chat.
+Explicit wire profiles MUST stay available for custom services. OpenCode Zen and
+Go MUST select chat wires by an exact provider and model lookup in bundled
+upstream metadata. That lookup MUST use the first API that the model declares.
+An unknown model or an unsupported metadata protocol MUST require an explicit
+supported wire. Routing MUST NOT infer a wire from a prefix or from the model
+entry of another provider. Startup MUST use the bundled snapshot without
+network discovery. Go MUST serve chat only, and Zen MUST serve chat and
+decisions. The Codex subscription account MUST use only its fixed Codex
+transport, and no other account can select that transport.
 
-Wire selection SHALL preserve the account destination and protected
-credentials. Decision models SHALL choose between the `system-one` and
-`openrouter-decisions` wires, and the resolved wire, not the account type,
-SHALL select the decision endpoint. `openrouter` SHALL default decisions to
-`openrouter-decisions`; every other account that serves decisions SHALL
-default to `system-one` where it has a decision default. Every account except
-`openai-codex` and `opencode-go` SHALL accept either decision wire as an
-explicit override. Startup SHALL NOT probe endpoint availability. A remote
-protocol rejection SHALL fail the request without switching wire or account.
-Streaming, structured generation, and compaction SHALL use the same resolved
-chat wire and its existing option and failure contracts.
+Wire selection MUST keep the account destination and the protected credentials.
+A decision model MUST use the `system-one` wire or the `openrouter-decisions`
+wire. The resolved wire MUST select the decision endpoint, and the account type
+MUST NOT select it. The `openrouter` account MUST default decisions to
+`openrouter-decisions`. Another account with a decision default MUST default to
+`system-one`. Every account except `openai-codex` and `opencode-go` MUST accept
+either decision wire as an explicit override. Startup MUST NOT probe endpoint
+availability. A remote protocol rejection MUST fail the request, and the system
+MUST NOT change the wire or the account. Streaming, structured generation, and
+compaction MUST use the same resolved chat wire with its option and failure
+contracts.
 
 #### Scenario: One account serves four model kinds
 
