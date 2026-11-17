@@ -1299,6 +1299,10 @@ describe('CompactionService.computeBoundarySummary', () => {
         'Keep the migration detail.',
       ),
     });
+
+    expect(JSON.stringify(calls[0]?.messages.at(-1))).toContain(
+      'Keep the migration detail.',
+    );
   });
 
   it('returns null when the boundary summary is empty', async () => {
