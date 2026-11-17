@@ -23843,6 +23843,7 @@ describe('RunExecutionService compaction completion', () => {
       summary: undefined,
       abortSignal: new AbortController().signal,
       expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      focus: null,
     });
 
     expect(result.outcome).toBe('lost');
@@ -23883,6 +23884,7 @@ describe('RunExecutionService compaction completion', () => {
       summary: undefined,
       abortSignal: new AbortController().signal,
       expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      focus: null,
     });
 
     expect(result.outcome).toBe('won');
