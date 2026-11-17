@@ -22239,6 +22239,108 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(repositories.markFinished).not.toHaveBeenCalled();
   });
 
+  it('settles an expired Run when step-boundary summarization aborts', async () => {
+    const controller = new AbortController();
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockImplementation(
+      () => {
+        controller.abort(RUN_TIMEOUT_ABORT_REASON);
+
+        return Promise.reject(new Error('summary request aborted'));
+      },
+    );
+
+    await execution.service.executeRun(
+      executionInput(segment.client, controller.signal),
+    );
+    signal.mockResolvedValueOnce('delivery');
+    await segment.calls[0]?.stopWhenExtra?.();
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.(finishToolCalls);
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.anything(),
+    );
+    expect(appended.map(({ type }) => type)).toContain('run.expired');
+  });
+
+  it('settles an expired Run when final-answer boundary summarization aborts', async () => {
+    const controller = new AbortController();
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockImplementation(
+      () => {
+        controller.abort(RUN_TIMEOUT_ABORT_REASON);
+
+        return Promise.reject(new Error('summary request aborted'));
+      },
+    );
+
+    await execution.service.executeRun(
+      executionInput(segment.client, controller.signal),
+    );
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.({
+      text: 'final answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.anything(),
+    );
+    expect(appended.map(({ type }) => type)).toContain('run.expired');
+  });
+
   it('keeps the Run live when the final answer meets a pending item', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();

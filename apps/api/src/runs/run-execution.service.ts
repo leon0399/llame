@@ -3706,6 +3706,8 @@ export class RunExecutionService {
             ? await prepareBoundaryCompaction(extra)
             : undefined;
 
+        if (input.abortSignal?.aborted) return 'cancelled';
+
         const boundary = await retryAbortedTransaction(() =>
           this.tenantDb.runAs(input.userId, (tx) =>
             deliverPendingSteering(tx, {
@@ -4423,8 +4425,27 @@ export class RunExecutionService {
             }
 
             const settleRun = async (
-              settling: TerminalRunStatus,
+              requestedStatus: TerminalRunStatus,
             ): Promise<void> => {
+              let settling = input.abortSignal?.aborted
+                ? classifyAbortedRun(input.abortSignal)
+                : requestedStatus;
+
+              let boundaryCompaction:
+                | DeliveryInput['boundaryCompaction']
+                | undefined;
+
+              if (settling === 'completed') {
+                boundaryCompaction = await prepareBoundaryCompaction({
+                  finalAnswer: true,
+                });
+
+                if (input.abortSignal?.aborted) {
+                  settling = classifyAbortedRun(input.abortSignal);
+                  boundaryCompaction = undefined;
+                }
+              }
+
               const assistantTelemetry = buildAssistantTelemetry(
                 finishReason,
                 turnStatusForTerminalRun(settling),
@@ -4465,11 +4486,6 @@ export class RunExecutionService {
               const recorded =
                 settling === 'cancelled' && !input.abortSignal?.aborted
                   ? { message: 'Run was cancelled.' }
-                  : undefined;
-
-              const boundaryCompaction =
-                settling === 'completed'
-                  ? await prepareBoundaryCompaction({ finalAnswer: true })
                   : undefined;
 
               const finish = await this.finishRun({
