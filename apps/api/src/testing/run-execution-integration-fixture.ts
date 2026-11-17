@@ -144,6 +144,7 @@ export function makeRunExecutionService(input: {
   tenantDb: TenantDbService;
   instanceConfig: InstanceConfigReader;
   models: ModelSelectionValidator;
+  compaction?: CompactionCapability;
 }): RunExecutionService {
   const noopCompaction: CompactionCapability = {
     summarizeCheckpoint: (request) =>
@@ -155,7 +156,7 @@ export function makeRunExecutionService(input: {
 
   return new RunExecutionService(
     input.tenantDb,
-    noopCompaction,
+    input.compaction ?? noopCompaction,
     { maybeGenerateTitle: async () => {} },
     input.instanceConfig,
     { reindexChat: () => Promise.resolve() },

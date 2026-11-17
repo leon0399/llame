@@ -23,8 +23,10 @@ import {
 
 import * as schema from '../db/schema';
 import { type Message, type Run } from '../db/schema';
+import { type CompactionCapability } from '../compaction/compaction.service';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { isContextItemPart } from '../chats/context-item';
 import { createTemporalItem } from '../chats/context-item-producers';
 import { type MessagePart } from '../chats/context-builder';
@@ -565,6 +567,80 @@ describeIfDb('a Continue Run', () => {
 
       return (turnState.userMessage?.parts ?? []).filter(isContextItemPart);
     });
+
+  it('summarizes a Continue boundary with the live kept call only once', async () => {
+    const turn = await seedContinuedTurn();
+
+    const summaryRequests: Array<
+      Parameters<CompactionCapability['computeBoundarySummary']>[0]
+    > = [];
+
+    const compaction: CompactionCapability = {
+      summarizeCheckpoint: () => Promise.resolve(null),
+      computeBoundarySummary: (input) => {
+        summaryRequests.push(input);
+
+        return Promise.resolve({
+          uptoSeq: input.plan.uptoSeq,
+          summary: 'continued boundary',
+          usage: {},
+        });
+      },
+    };
+
+    const execution = makeRunExecutionService({
+      tenantDb,
+      instanceConfig,
+      models: catalogValidator([MODEL_ENTRY]),
+      compaction,
+    });
+
+    await tenantDb.runAs(userId, (tx) =>
+      new ChatDeliveriesRepository(tx).insertPending({
+        id: crypto.randomUUID(),
+        chatId: turn.chatId,
+        ownerUserId: userId,
+        mode: 'steer',
+        parts: [{ type: 'text', text: '/compact' }],
+        settings: { modelId: MODEL_ID, permissionMode: 'default' },
+      }),
+    );
+
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+    await execution
+      .executeRun({
+        runId: turn.runId,
+        chatId: turn.chatId,
+        userId,
+        userMessage: userMessageOf(turn),
+        client: scriptedClient(
+          scriptedModel(answerChunks('finished after the kept step')),
+          MODEL_ID,
+          { requests },
+        ),
+        followUpAction: 'continue',
+      })
+      .then(async (result) => result.consumeStream?.() ?? result.text);
+
+    const summary = summaryRequests[0];
+
+    const live = requests[0]?.messages;
+
+    expect(summary).toBeDefined();
+    expect(live).toBeDefined();
+    expect(summary?.closedReply.slice(0, live?.length)).toEqual(live);
+
+    const keptCallIdOccurrences =
+      JSON.stringify(summary?.closedReply).split(CALL_ID).length - 1;
+
+    expect(keptCallIdOccurrences).toBe(2);
+    expect(summary?.closedReply.slice(live?.length)).toEqual([
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'finished after the kept step' }],
+      },
+    ]);
+  });
 
   it('sends the kept steps, executes no kept call, and finalizes kept then new parts', async () => {
     const turn = await seedContinuedTurn();
