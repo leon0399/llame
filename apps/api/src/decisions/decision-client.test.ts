@@ -770,7 +770,7 @@ describe('decision client truncation reports', () => {
 });
 
 describe('decision client attempt slots', () => {
-  it('keeps attempts to one provider within its slots across clients', async () => {
+  it('keeps attempts within shared slots across clients', async () => {
     const slots = createAttemptSlots(2);
     let inFlight = 0;
     let peak = 0;

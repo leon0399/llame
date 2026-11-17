@@ -1316,7 +1316,8 @@ describe('DecisionsService attempt bound', () => {
     vi.unstubAllGlobals();
   });
 
-  it('keeps a separate bound for each of two catalog entries on one provider', async () => {
+  /** Stub fetch with a 5 ms answer to every question; report the peak in flight. */
+  function countingFetch() {
     let inFlight = 0;
     let peak = 0;
 
@@ -1347,9 +1348,53 @@ describe('DecisionsService attempt bound', () => {
       }),
     );
 
+    return { peak: () => peak };
+  }
+
+  function firstEntry() {
     const entry = CATALOGUE?.[0];
 
     if (entry === undefined) throw new Error('catalogue fixture is empty');
+
+    return entry;
+  }
+
+  it('starts every request of two default-bound calls to one entry together', async () => {
+    const fetch = countingFetch();
+    const service = new DecisionsService(configWith([firstEntry()]));
+
+    const judgements = await Promise.all([
+      service.judgeCandidates(input({ model: 'jev', cards: cards(256) })),
+      service.judgeCandidates(input({ model: 'jev', cards: cards(256) })),
+    ]);
+
+    expect(fetch.peak()).toBe(16);
+    expect(
+      judgements.map((judgement) => judgement.probabilities?.size),
+    ).toEqual([256, 256]);
+  });
+
+  it('keeps an entry that declares one slot to one attempt in flight', async () => {
+    const fetch = countingFetch();
+    const entry = firstEntry();
+
+    const service = new DecisionsService(
+      configWith([
+        { ...entry, limits: { ...entry.limits, maxConcurrentRequests: 1 } },
+      ]),
+    );
+
+    const judgement = await service.judgeCandidates(
+      input({ model: 'jev', cards: cards(96) }),
+    );
+
+    expect(fetch.peak()).toBe(1);
+    expect(judgement.probabilities?.size).toBe(96);
+  });
+
+  it('keeps a separate bound for each of two catalog entries on one provider', async () => {
+    const fetch = countingFetch();
+    const entry = firstEntry();
 
     const single = { ...entry.limits, maxConcurrentRequests: 1 };
 
@@ -1372,7 +1417,7 @@ describe('DecisionsService attempt bound', () => {
       ),
     ]);
 
-    expect(peak).toBe(2);
+    expect(fetch.peak()).toBe(2);
     expect(
       judgements.map((judgement) => judgement.probabilities?.size),
     ).toEqual([128, 128]);
