@@ -3649,13 +3649,17 @@ export class RunExecutionService {
 
         if (compactionSet.ids.length === 0) return undefined;
 
+        const keptPartCount = continued?.parts.length ?? 0;
+
         const projected = projectStoredReplyParts(
-          assistantPartCollector.parts(),
+          assistantPartCollector.parts().slice(keptPartCount),
           {
             privateParts: true,
-            mediaKey: (index) => continuedMediaKey(index),
+            mediaKey: (index) => continuedMediaKey(keptPartCount + index),
           },
         );
+
+        mergeRetainedMedia(media.retainedMedia, projected.retainedMedia);
 
         const rows = attemptContext.historyRows;
 

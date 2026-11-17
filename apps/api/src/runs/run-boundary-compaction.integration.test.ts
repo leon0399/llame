@@ -1,5 +1,6 @@
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { randomUUID } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 
 import { CompactionService } from '../compaction/compaction.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
@@ -737,6 +738,44 @@ describe('step-boundary compaction', () => {
       (await fx.types(seeded.runId)).filter((type) => type === 'run.delivered'),
     ).toHaveLength(0);
   });
+  it('resolves retained image media from the closing reply', async () => {
+    const seeded = await fx.seed('Inspect this image.');
+    const imagePath = `${fx.directory}/tiny.png`;
+    await writeFile(
+      imagePath,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    );
+
+    await fx.launch(
+      seeded,
+      [
+        call('read-image', 'read', { path: imagePath }),
+        answer('The image was inspected.'),
+      ],
+      async (stepIndex) => {
+        if (stepIndex === 0) {
+          await fx.storeItems(
+            seeded.chatId,
+            ['/compact'],
+            'steer',
+            seeded.runId,
+          );
+        }
+      },
+    );
+    const finished = await fx.terminal(seeded.runId);
+
+    expect(finished.status).toBe('completed');
+    expect(
+      (await fx.messages(seeded.chatId)).filter(
+        (message) => message.role === 'checkpoint',
+      ),
+    ).toHaveLength(1);
+  });
+
   it('The summary request reuses the live prefix', async () => {
     const seeded = await fx.seed('Keep the live request.');
     let stored = false;
