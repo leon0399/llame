@@ -88,6 +88,12 @@ async function queueCompactItem(
     throw new ConflictException('Wait for the current Run to finish.');
   }
 
+  // A send never reuses the id of a stored message, as the plain send path
+  // checks too.
+  if (await items.messageIdTaken(input.messageId, input.userId)) {
+    throw new ConflictException('Message id already exists');
+  }
+
   const item = await items.insertPending({
     id: input.messageId,
     chatId: input.chatId,

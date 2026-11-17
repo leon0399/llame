@@ -1,3 +1,4 @@
+import { isString } from '@workspace/runtime-safety';
 import type { ChatStreamResponse } from '../chat-stream-response';
 import type { CreateMessageDto } from '../dto/chats.dto';
 import { toChatDeliveryResponse } from '../dto/chat-deliveries.dto';
@@ -61,8 +62,11 @@ async function executeCommand(
     command,
     parts: request.message.parts,
     messageId: request.message.id,
+    // The text part the parser read: the only one with string text.
     rawText:
-      request.message.parts.find((part) => part.type === 'text')?.text ?? '',
+      request.message.parts.flatMap((part) =>
+        'text' in part && isString(part.text) ? [part.text] : [],
+      )[0] ?? '',
     ...(command.name === 'compact' &&
       request.delivery !== undefined && { delivery: request.delivery }),
     modelId: request.modelId,

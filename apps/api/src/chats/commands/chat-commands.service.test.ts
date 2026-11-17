@@ -44,6 +44,10 @@ function makeService() {
     undefined,
   );
 
+  const messageIdTaken = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'messageIdTaken')
+    .mockResolvedValue(false);
+
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
     .mockResolvedValue(chat);
@@ -120,6 +124,7 @@ function makeService() {
   );
 
   return {
+    messageIdTaken,
     service,
     findById,
     lock,
@@ -394,6 +399,32 @@ describe('ChatCommandsService', () => {
       }),
     ).rejects.toThrow('Selected model is unavailable.');
     expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses a queued compact whose id names a stored message', async () => {
+    const { service, activeRunLookup, messageIdTaken, dispatch } =
+      makeService();
+
+    const insertPending = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'insertPending',
+    );
+
+    activeRunLookup.mockResolvedValue(
+      asDouble<Run>({ id: 'active-run', kind: 'turn', currentJobId: 'job-1' }),
+    );
+    dispatch.jobState.mockResolvedValue('queued');
+    messageIdTaken.mockResolvedValue(true);
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+        rawText: '/compact',
+        delivery: 'queue',
+      }),
+    ).rejects.toMatchObject({ message: 'Message id already exists' });
+    expect(insertPending).not.toHaveBeenCalled();
   });
 
   it('queues a compact with its selected settings while a Run holds the Chat slot', async () => {

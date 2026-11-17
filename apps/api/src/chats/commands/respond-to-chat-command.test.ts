@@ -140,7 +140,9 @@ describe('respondToChatCommand', () => {
         delivery: 'queue',
       }),
     );
-    expect(execute.mock.calls[0]?.[0]).toMatchObject({ rawText: '' });
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      rawText: '/compact keep the plan',
+    });
     expect(status).toHaveBeenCalledWith(202);
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({ id: item.id, command: 'compact' }),

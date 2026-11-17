@@ -158,7 +158,7 @@ async function withdrawItem(ctx: DeliveryContext, item: ChatDeliveryResponse) {
  *  to a draft, one command would become the other's argument. */
 async function editItem(
   ctx: DeliveryContext,
-  draft: DraftState,
+  draft: DraftState & { latestInput: () => string },
   item: ChatDeliveryResponse,
 ) {
   if (isCommandText(deliveryText(item)) && draft.input.trim() !== "") {
@@ -171,14 +171,23 @@ async function editItem(
 
   if (withdrawn === null) return;
   const text = deliveryText(withdrawn);
+
   // The owner may have typed during the round trip: their draft stays. Slash
-  // text goes after it, so the draft never becomes the command's argument.
-  draft.setInput((current) => {
-    if (current.trim() === "") return text;
+  // text goes after a plain draft, so the draft never becomes the command's
+  // argument. Two slash texts cannot share the composer: the newer one stays
+  // and the withdrawn one is shown so it can be copied back.
+  if (isCommandText(text) && isCommandText(draft.latestInput())) {
+    toast.info(`Kept your newer command. The withdrawn one was: ${text}`);
+
+    return;
+  }
+
+  draft.setInput((latest) => {
+    if (latest.trim() === "") return text;
 
     return isCommandText(text)
-      ? `${current}\n\n${text}`
-      : `${text}\n\n${current}`;
+      ? `${latest}\n\n${text}`
+      : `${text}\n\n${latest}`;
   });
   await draft.attachments.restoreFiles(deliveryFiles(withdrawn));
 }
@@ -421,6 +430,17 @@ type UseChatDeliveryArgs = DraftState & {
   handoff: Pick<RunHandoff, "begin" | "skip">;
 };
 
+/** Edit resolves after a round trip: it reads the composer as it is then. */
+function useLatestInput(input: string): () => string {
+  const ref = useRef(input);
+
+  useEffect(() => {
+    ref.current = input;
+  }, [input]);
+
+  return () => ref.current;
+}
+
 /**
  * Sends slash-prefixed text on an existing Chat through the direct message
  * path, idle or not. While a Run is active, other sends use it too so Enter
@@ -431,6 +451,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
   const { chatId, exists, status, latestRun, attachments } = args;
   const [notice, setNotice] = useState<DeliveryNotice | null>(null);
   const ctx = { queryClient: useQueryClient(), chatId, ...args.handoff };
+  const latestInput = useLatestInput(args.input);
   const { selectedModel, selectedEffort, getPermissionMode } = useChatContext();
   const items = useChatDeliveries(chatId, exists);
   const runActive = isRunActive({ status, latestRun });
@@ -468,6 +489,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
       void changeItem(ctx, item, "steer"),
     interruptNow: interrupt,
     remove: (item: ChatDeliveryResponse) => void withdrawItem(ctx, item),
-    edit: (item: ChatDeliveryResponse) => void editItem(ctx, args, item),
+    edit: (item: ChatDeliveryResponse) =>
+      void editItem(ctx, { ...args, latestInput }, item),
   };
 }

@@ -3632,6 +3632,45 @@ export const CompactItemEditPutsTheTextBack: Story = {
 };
 
 /**
+ * A slash command typed while a `/compact` edit is withdrawing stays alone:
+ * joined, one command would become the other's argument.
+ *
+ * @summary a newer slash draft survives a compact edit
+ */
+export const CompactEditKeepsANewerSlashDraft: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    typingDone = new Promise<void>((resolve) => {
+      releaseTyping = resolve;
+    });
+    routeAlso({
+      [`DELETE ${DELIVERY_ROUTE("c1")}`]: async () => {
+        await typingDone;
+
+        return jsonResponse({ ...COMPACT_ITEM, state: "withdrawn" });
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await openedLiveRun(canvasElement);
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+    await userEvent.type(input, "/rename Release");
+    releaseTyping();
+
+    await waitFor(() =>
+      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+    );
+    await expect(composer(canvasElement)).toHaveValue("/rename Release");
+  },
+};
+
+/**
  * Edit on a `/compact` row with a draft in the composer withdraws nothing:
  * joined to the draft, one command would become the other's argument.
  *
