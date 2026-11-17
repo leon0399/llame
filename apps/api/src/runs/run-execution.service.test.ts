@@ -12146,6 +12146,35 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     },
   );
 
+  it('keeps compaction enabled when the first request is below threshold', async () => {
+    const capturing = triggerClient();
+
+    const { execution } = await executeTriggerCase({
+      client: capturing.client,
+      historyRows: [...committedTurn({ contextTokens: 40_000 }), triggerTurn()],
+      summary: checkpointSummary(2),
+    });
+
+    const appended = recordAppendedEvents();
+    const options = capturing.streamOptions();
+
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: triggerThreshold - 1 }),
+      1,
+    );
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledOnce();
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
+
   it.each([
     {
       name: 'a chat under the threshold',
@@ -25944,6 +25973,96 @@ describe('RunExecutionService disabled automatic compaction state', () => {
     expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { label: 'a compaction cause', payload: { cause: 'compaction' } },
+    {
+      label: 'a checkpoint id',
+      payload: { checkpointId: publishedCheckpointId },
+    },
+  ])(
+    'arms the progress guard when a normal attempt starts after $label',
+    async ({ payload }) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const deliveryEvent: RunEvent = {
+        ...event,
+        eventType: 'run.delivered',
+        payload,
+      };
+
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        deliveryEvent,
+      ]);
+
+      const capturing = makeCapturingClient();
+      Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+      const execution = makeExecutionService(capturing.client);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+      await options.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+
+      expect(appended.map(({ type }) => type)).toContain(
+        'run.compaction_disabled',
+      );
+    },
+  );
+
+  it('does not arm the progress guard for a wake after prior compaction', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'compaction' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      deliveryEvent,
+    ]);
+
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+    const execution = makeExecutionService(capturing.client);
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareWakeAttempt',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      attemptId: testAttemptId,
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: {
+        toolCallId: 'wait-call',
+        parts: [{ type: 'text', text: 'kept context', step: 2 }],
+      },
+    });
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
+
   it('does not disable boundary compaction for a delivery event', async () => {
     mockNormalExecutionRepositories();
 
@@ -25990,6 +26109,7 @@ describe('RunExecutionService disabled automatic compaction state', () => {
       userMessage: { ...input.userMessage, seq: 3 },
     });
     const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
 
     await executeBoundTool(options, { q: 'lookup' }, 'call-1');
 
