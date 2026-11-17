@@ -273,6 +273,27 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     });
   });
 
+  it('loads the checkpoint active at the boundary reply sequence', async () => {
+    const { client } = recordingClient();
+    const setup = makeService(client);
+    const { findActive } = mockReads({ previous: previousCheckpoint });
+
+    await setup.service.summarizeCheckpoint({
+      variant: 'boundary',
+      chatId,
+      userId: ownerId,
+      plan: plan(),
+      closedReply: [{ role: 'assistant', content: 'The closing reply.' }],
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      focus: null,
+      reservedOutputTokens: null,
+    });
+
+    expect(findActive).toHaveBeenCalledWith(chatId, ownerId, { beforeSeq: 3 });
+  });
+
   it('omits effort and media from the request and the recorded usage when the turn had none', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
