@@ -21921,6 +21921,40 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
   });
 
+  it('skips summary work for a normal delivery without a compact command', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([]);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = makeExecutionService(segment.client);
+
+    const computeBoundarySummary = vi.spyOn(
+      execution.compaction,
+      'computeBoundarySummary',
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('delivery');
+    await options?.stopWhenExtra?.();
+    serveDelivery([pendingItem]);
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(computeBoundarySummary).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, 'high'] as const)(
     'summarizes a compact command from the closed step reply with effort %s',
     async (effort) => {
