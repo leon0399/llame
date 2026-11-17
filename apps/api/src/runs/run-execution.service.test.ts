@@ -12078,6 +12078,21 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       );
 
       if (variant === 'threshold') {
+        const options = thresholdCapture.streamOptions();
+        options.onRequestUsage?.(
+          requestUsageReceipt({ inputTokens: triggerThreshold }),
+          1,
+        );
+        await options.onFinish?.({
+          text: 'answer',
+          usage: ZERO_USAGE,
+          finishReason: 'stop',
+          stepCount: 1,
+        });
+        expect(appended.map(({ type }) => type)).toContain(
+          'run.compaction_disabled',
+        );
+
         // The threshold variant summarizes with the attempt's own model, the
         // estimate pass's prompt (the chat's own anchor, not the re-baked one),
         // and the effort this run resolved.

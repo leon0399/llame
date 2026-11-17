@@ -624,6 +624,7 @@ type PreparedFirstStep = {
   readonly context: PreparedAttemptContext;
   readonly turnInstructions: TurnInstructions;
   readonly turnGit: TurnGit;
+  readonly preStepCompactionStarted: boolean;
 };
 
 type AttemptDigestInputs = {
@@ -2077,6 +2078,7 @@ export class RunExecutionService {
     // templates, and the receipt binds last, after any checkpoint published.
     let prepared: PreparedExecutionContext;
     let attemptContext: PreparedAttemptContext;
+    let preStepCompactionStarted = false;
     let turnInstructions: TurnInstructions;
     let turnGit: TurnGit;
 
@@ -2100,6 +2102,7 @@ export class RunExecutionService {
 
       prepared = firstStep.request;
       attemptContext = firstStep.context;
+      preStepCompactionStarted = firstStep.preStepCompactionStarted;
       turnInstructions = firstStep.turnInstructions;
       turnGit = firstStep.turnGit;
     } catch (error) {
@@ -2124,11 +2127,13 @@ export class RunExecutionService {
       throw error;
     }
 
-    const compactionStartedThisAttempt = compactionAttemptStarted({
-      wakeCompaction,
-      startsAfterCompaction,
-      isWakeAttempt: attempt.wakeState !== undefined,
-    });
+    const compactionStartedThisAttempt =
+      preStepCompactionStarted ||
+      compactionAttemptStarted({
+        wakeCompaction,
+        startsAfterCompaction,
+        isWakeAttempt: attempt.wakeState !== undefined,
+      });
 
     const compactionThreshold = resolveCompactionThreshold({
       explicitThresholdTokens: client.compactionThresholdTokens,
@@ -7665,7 +7670,13 @@ export class RunExecutionService {
       );
     }
 
-    return { request, context, turnInstructions, turnGit };
+    return {
+      request,
+      context,
+      turnInstructions,
+      turnGit,
+      preStepCompactionStarted: summary !== undefined && summary !== null,
+    };
   }
 
   /**
