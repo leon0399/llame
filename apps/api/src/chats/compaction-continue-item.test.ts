@@ -56,6 +56,29 @@ describe('createCompactionContinueItem', () => {
     expect(item.data.payload.quote).toHaveLength(3999);
   });
 
+  it.each([55_296, 56_319])(
+    'removes a high surrogate at UTF-16 boundary %i',
+    (codeUnit) => {
+      const item = createCompactionContinueItem({
+        runId: '11111111-1111-4111-8111-111111111111',
+        quote: `${'a'.repeat(3999)}${String.fromCharCode(codeUnit)}x`,
+      });
+
+      expect(item.data.payload.quote).toBe('a'.repeat(3999));
+    },
+  );
+
+  it('keeps a complete surrogate pair ending at the cap', () => {
+    const quote = `${'a'.repeat(3998)}😀`;
+
+    const item = createCompactionContinueItem({
+      runId: '11111111-1111-4111-8111-111111111111',
+      quote,
+    });
+
+    expect(item.data.payload.quote).toBe(quote);
+  });
+
   it('keeps the full quote when the cap ends on a non-surrogate', () => {
     const item = createCompactionContinueItem({
       runId: '11111111-1111-4111-8111-111111111111',
