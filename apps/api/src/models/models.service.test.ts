@@ -231,7 +231,6 @@ describe('ModelsService', () => {
           key: 'decision-key',
           baseUrl: 'https://decisions.example/v1',
           headers: {},
-          maxConcurrentRequests: 4,
         },
       ],
       decisionModels: [
@@ -243,6 +242,7 @@ describe('ModelsService', () => {
             perQuestionContextTokens: 8192,
             perRequestContextTokens: 32_768,
             maxQuestionsPerRequest: null,
+            maxConcurrentRequests: 32,
           },
         },
         {
@@ -253,6 +253,7 @@ describe('ModelsService', () => {
             perQuestionContextTokens: 8192,
             perRequestContextTokens: 32_768,
             maxQuestionsPerRequest: null,
+            maxConcurrentRequests: 32,
           },
         },
       ],

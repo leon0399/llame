@@ -66,9 +66,8 @@ Any account that can serve decisions may set either wire; the explicit
 
 `type: "system-one"` posts to `{baseUrl}/systemone` with a bearer `key`. Both
 `key` and `baseUrl` are required and must resolve nonblank; an entry that
-interpolates to empty fails startup naming the entry and the field. Optional
-`maxConcurrentRequests` bounds the attempts in flight to this provider (default
-4; see [Cost and failure](#cost-and-failure)). The type never serves a
+interpolates to empty fails startup naming the entry and the field. The type
+never serves a
 `models[]` or `embeddingModels[]` entry, and `GET /api/v1/models` never lists a
 decision model.
 
@@ -127,15 +126,16 @@ exists at all, and every call names an id outside the catalogue.
 
 ### Limits
 
-`limits` states what one request to this model may hold, in the vendor's own
-tokens. Each field is a positive integer or a whole-value `{env:…}` /
-`{path:…}` token.
+`limits` states what this model on this route tolerates: what one request may
+hold, in the vendor's own tokens, and how many attempts may be in flight. Each
+field is a positive integer or a whole-value `{env:…}` / `{path:…}` token.
 
 | Field                      | Meaning                                              | Default                                     |
 | -------------------------- | ---------------------------------------------------- | ------------------------------------------- |
 | `perQuestionContextTokens` | State plus the largest single question.              | 8,192                                       |
 | `perRequestContextTokens`  | State plus every question.                           | 32,768, or the per-question limit if larger |
 | `maxQuestionsPerRequest`   | Questions in one request; above 32 it has no effect. | none                                        |
+| `maxConcurrentRequests`    | Attempts in flight for this entry, per process.      | 32                                          |
 
 Declaring a per-question limit above the per-request one fails startup. The
 names follow TypeSafe's `per_question_context` and `per_request_context`.
@@ -146,7 +146,7 @@ names follow TypeSafe's `per_question_context` and `per_request_context`.
     {
       "id": "jev",
       "provider": "openrouter-decisions",
-      "model": "typesafe/jev-1.14",
+      "providerModelId": "typesafe/jev-1.14",
       "limits": {
         "perQuestionContextTokens": 32768,
         "perRequestContextTokens": 65536,
@@ -169,7 +169,15 @@ Declared limits are the guard. A server that cuts an oversized state and
 reports it (`usage.truncated: true` or `usage.state_tokens_dropped` above 0)
 gets that request marked unavailable as a backstop; a server that cuts
 silently, or one run with `LAYA_JEV_STRICT=1`, returns degraded answers for a
-request sized above its real window.
+request sized above its real window. OpenRouter reports neither field on
+either decision route (observed 2026-11-17, at up to 78k input tokens), so
+there the token limits are the only guard: do not raise them above the
+model's documented ceilings.
+
+A small self-hosted server usually also needs `"maxConcurrentRequests": 1`.
+Laya re-encodes the shared state once per question, so its real input is
+about questions × state; on such a server `maxQuestionsPerRequest` is the
+limit that keeps a request inside its budget.
 
 ## 3. A provider of type `cohere-rerank`
 
@@ -342,13 +350,14 @@ a larger rerank batch is split into requests sent at once. A failed request
 leaves only its own cards unjudged, and the call is unavailable only when every
 request failed.
 
-Attempts to one `system-one` provider share `maxConcurrentRequests` slots,
-default 4, first come first served. Every catalogue entry and every call on that
-provider id shares them, a retry wait holds none, and a cancelled call leaves
-the queue at once. The bound is per process and per provider id: several worker
-processes, or two provider ids pointing at one server, multiply the load on
-that server. Raise it only as far as the server tolerates. A call's
-`latencyMs` includes the time its requests waited for a slot.
+Attempts for one catalogue entry share its `limits.maxConcurrentRequests`
+slots, default 32, first come first served. Every call to that entry shares
+them, a retry wait holds none, and a cancelled call leaves the queue at once.
+The bound is per process and per entry: several worker processes, or two
+entries served by one server, multiply the load on that server, even when the
+entries name one account. Shared bounds across entries are
+[#1746](https://github.com/leon0399/llame/issues/1746). A call's `latencyMs`
+includes the time its requests waited for a slot.
 
 A rerank response must score every card of its request exactly once, with a
 finite score. A skipped, repeated, or out-of-range index, a malformed body, a

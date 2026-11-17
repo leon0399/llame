@@ -671,7 +671,6 @@ describe('judgeCandidatesWith', () => {
         key: KEY,
         baseUrl: 'https://judge.example/v1',
         headers: {},
-        maxConcurrentRequests: 4,
       };
 
       const client = createDecisionClient(
@@ -714,7 +713,6 @@ function configWith(
           key: KEY,
           baseUrl: 'https://opencode.ai/zen/v1',
           headers: {},
-          maxConcurrentRequests: 4,
         },
       ],
       ...(decisionModels !== undefined && { decisionModels }),
@@ -731,6 +729,7 @@ const CATALOGUE: LlameConfig['decisionModels'] = [
       perQuestionContextTokens: 8192,
       perRequestContextTokens: 32_768,
       maxQuestionsPerRequest: null,
+      maxConcurrentRequests: 32,
     },
   },
 ];
@@ -743,6 +742,7 @@ function limits(
     perQuestionContextTokens,
     perRequestContextTokens: 1_000_000,
     maxQuestionsPerRequest: null,
+    maxConcurrentRequests: 32,
     ...overrides,
   };
 }
@@ -1316,7 +1316,7 @@ describe('DecisionsService attempt bound', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shares the default four slots between two catalog entries on one provider', async () => {
+  it('keeps a separate bound for each of two catalog entries on one provider', async () => {
     let inFlight = 0;
     let peak = 0;
 
@@ -1351,10 +1351,17 @@ describe('DecisionsService attempt bound', () => {
 
     if (entry === undefined) throw new Error('catalogue fixture is empty');
 
+    const single = { ...entry.limits, maxConcurrentRequests: 1 };
+
     const service = new DecisionsService(
       configWith([
-        entry,
-        { ...entry, id: 'jev-second', providerModelId: 'jev-1.14' },
+        { ...entry, limits: single },
+        {
+          ...entry,
+          id: 'jev-second',
+          providerModelId: 'jev-1.14',
+          limits: single,
+        },
       ]),
     );
 
@@ -1365,7 +1372,7 @@ describe('DecisionsService attempt bound', () => {
       ),
     ]);
 
-    expect(peak).toBe(4);
+    expect(peak).toBe(2);
     expect(
       judgements.map((judgement) => judgement.probabilities?.size),
     ).toEqual([128, 128]);

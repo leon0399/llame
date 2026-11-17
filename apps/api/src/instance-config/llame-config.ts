@@ -115,8 +115,6 @@ export type SystemOneProviderConfig = {
   key: string;
   baseUrl: string;
   headers: RequestHeaderTemplates;
-  /** Attempts in flight to this provider id in one process. */
-  maxConcurrentRequests: number;
 };
 
 /**
@@ -292,8 +290,6 @@ export type RawProviderEntry =
       /** Schema-required for this branch; may still be `null`/blank after interpolation. */
       baseUrl: string | null;
       headers?: Record<string, string | null>;
-      /** Positive integer or a whole-value interpolation token. */
-      maxConcurrentRequests?: number | string;
     }
   | Rerank.RawCohereRerankProviderEntry;
 

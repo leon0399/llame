@@ -10,11 +10,10 @@ import {
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import {
-  DEFAULT_DECISION_CONCURRENT_REQUESTS,
   DEFAULT_DECISION_LIMITS,
   type DecisionModelLimits,
 } from '../instance-config/decision-catalog';
-import { createAttemptSlots, type AttemptSlots } from './attempt-slots';
+import { createAttemptSlots } from './attempt-slots';
 import { createDecisionClient, type DecisionClient } from './decision-client';
 import { fitsLimits, packCards, type WireCard } from './request-packing';
 import {
@@ -654,24 +653,13 @@ export class DecisionsService implements DecisionJudge {
     const providers = new Map(config.providers.map((p) => [p.id, p]));
     const entries = new Map<string, CatalogueEntry>();
 
-    // One attempt bound per provider id, shared by every entry on it.
-    const slotsByProvider = new Map<string, AttemptSlots>();
-
     for (const entry of config.decisionModels ?? []) {
       const provider = providers.get(entry.provider);
 
       if (provider === undefined || provider.key === null) continue;
 
-      let slots = slotsByProvider.get(provider.id);
-
-      if (slots === undefined) {
-        slots = createAttemptSlots(
-          provider.type === 'system-one'
-            ? provider.maxConcurrentRequests
-            : DEFAULT_DECISION_CONCURRENT_REQUESTS,
-        );
-        slotsByProvider.set(provider.id, slots);
-      }
+      // One attempt bound per catalog entry, shared by every call to it.
+      const slots = createAttemptSlots(entry.limits.maxConcurrentRequests);
 
       const client = createDecisionClient(
         provider,

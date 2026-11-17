@@ -419,10 +419,6 @@
           "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": ["string", "null"] },
           "description": "Optional operator headers. X-Session-Id: {session:id} defaults on openai, anthropic, openrouter, opencode-zen, openai-responses, openai-completions, anthropic-messages, and opencode-go. Codex, system-one, and cohere-rerank have no default. null removes a default; operator values override base headers case-insensitively. Environment and path tokens resolve at startup. Chat calls render session tokens per request; non-chat calls omit session templates and retain static headers. Authored session tokens are rejected on system-one and cohere-rerank profiles."
-        },
-        "maxConcurrentRequests": {
-          "$ref": "#/$defs/numberOrToken",
-          "description": "Optional, `type: \"system-one\"` only: attempts in flight to this provider id in one process, shared by every `decisionModels[]` entry on it. Default 4. A retry wait holds no slot. Raise it only as far as the server tolerates."
         }
       },
       "allOf": [
@@ -477,12 +473,6 @@
           "then": {
             "properties": { "accountId": false }
           }
-        },
-        {
-          "if": {
-            "properties": { "type": { "not": { "const": "system-one" } } }
-          },
-          "then": { "properties": { "maxConcurrentRequests": false } }
         }
       ]
     },
@@ -521,6 +511,10 @@
             "maxQuestionsPerRequest": {
               "$ref": "#/$defs/numberOrToken",
               "description": "Questions in one request. The lane never sends more than 32, so a larger value has no effect."
+            },
+            "maxConcurrentRequests": {
+              "$ref": "#/$defs/numberOrToken",
+              "description": "Attempts in flight for this catalog entry in one process, shared by every call to it. Default 32. Two entries keep separate bounds even on one account. A retry wait holds no slot. Lower it to what the server tolerates; a self-hosted model often needs 1."
             }
           }
         }

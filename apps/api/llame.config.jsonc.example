@@ -116,9 +116,7 @@
     //   "id": "openrouter-decisions",
     //   "type": "system-one",
     //   "key": "{env:OPENROUTER_API_KEY}",
-    //   "baseUrl": "https://openrouter.ai/api/v1",
-    //   // Attempts in flight to this provider per process (default 4).
-    //   "maxConcurrentRequests": 8
+    //   "baseUrl": "https://openrouter.ai/api/v1"
     // },
 
     // A Cohere v2 rerank endpoint (experimental rank seat). It serves the
@@ -588,6 +586,8 @@
   //     "limits": {
   //       "perQuestionContextTokens": 32768,
   //       "perRequestContextTokens": 65536,
+  //       // Attempts in flight for this entry per process (default 32).
+  //       "maxConcurrentRequests": 8,
   //     },
   //   },
   // ],

@@ -60,7 +60,6 @@ function provider(
     key: KEY,
     baseUrl: 'https://judge.example/v1',
     headers: {},
-    maxConcurrentRequests: 4,
     ...overrides,
   };
 }

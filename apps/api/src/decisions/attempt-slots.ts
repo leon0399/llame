@@ -1,8 +1,8 @@
 /**
- * A first-in, first-out bound on attempts in flight to one decision provider.
- * One instance per `system-one` provider id is shared by every catalog entry
- * and every call on it, so two checkpoints behind one server share its
- * capacity. A waiter whose signal aborts leaves the queue at once and rejects
+ * A first-in, first-out bound on attempts in flight for one decision catalog
+ * entry. One instance per entry is shared by every call to it; two entries
+ * keep separate instances even on one account (#1746 tracks shared groups).
+ * A waiter whose signal aborts leaves the queue at once and rejects
  * with the signal's reason (an `AbortError` when that reason is not an
  * `Error`); it never takes a slot.
  */

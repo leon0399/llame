@@ -40,7 +40,6 @@ import {
 import { resolveModelWire } from './provider-routing';
 import type { VendorProviderConfig } from './provider-routing';
 import {
-  DEFAULT_DECISION_CONCURRENT_REQUESTS,
   DEFAULT_DECISION_LIMITS,
   type DecisionModelConfig,
   type DecisionModelLimits,
@@ -932,6 +931,9 @@ function resolveDecisionLimits(
         perQuestionContextTokens,
       ),
     maxQuestionsPerRequest: field('maxQuestionsPerRequest') ?? null,
+    maxConcurrentRequests:
+      field('maxConcurrentRequests') ??
+      DEFAULT_DECISION_LIMITS.maxConcurrentRequests,
   };
 }
 
@@ -3225,12 +3227,6 @@ function resolveSystemOneProvider(
       env,
       credentials,
     }),
-    maxConcurrentRequests:
-      resolveOptionalPositiveInteger(
-        `providers[${entry.id}].maxConcurrentRequests`,
-        entry.maxConcurrentRequests,
-        env,
-      ) ?? DEFAULT_DECISION_CONCURRENT_REQUESTS,
   };
 }
 

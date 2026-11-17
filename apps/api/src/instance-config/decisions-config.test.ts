@@ -65,6 +65,7 @@ const DEFAULT_LIMITS = {
   perQuestionContextTokens: 8192,
   perRequestContextTokens: 32_768,
   maxQuestionsPerRequest: null,
+  maxConcurrentRequests: 32,
 };
 
 const WEB_SEARCH = {
@@ -616,6 +617,7 @@ describe('decision model limits config', () => {
       perQuestionContextTokens: 1024,
       perRequestContextTokens: 32_768,
       maxQuestionsPerRequest: 16,
+      maxConcurrentRequests: 32,
     });
   });
 
@@ -628,6 +630,7 @@ describe('decision model limits config', () => {
       perQuestionContextTokens: 65_536,
       perRequestContextTokens: 65_536,
       maxQuestionsPerRequest: null,
+      maxConcurrentRequests: 32,
     });
   });
 
@@ -695,27 +698,23 @@ describe('decision model limits config', () => {
   });
 });
 
-describe('system-one maxConcurrentRequests config', () => {
-  function bound(provider: UnknownRecord, env: NodeJS.ProcessEnv = {}) {
-    configWith(CATALOGUE.slice(0, 1), {
-      providers: [{ ...SYSTEM_ONE_PROVIDER, ...provider }],
-    });
+describe('decisionModels limits.maxConcurrentRequests config', () => {
+  function bound(
+    limits: UnknownRecord | undefined,
+    env: NodeJS.ProcessEnv = {},
+  ) {
+    configWith([{ ...CATALOGUE[0], ...(limits !== undefined && { limits }) }]);
 
-    const resolved = loadInstanceConfig(env).providers.find(
-      (entry) => entry.id === SYSTEM_ONE_PROVIDER.id,
-    );
-
-    return resolved?.type === 'system-one'
-      ? resolved.maxConcurrentRequests
-      : undefined;
+    return loadInstanceConfig(env).decisionModels?.[0]?.limits
+      .maxConcurrentRequests;
   }
 
-  it('defaults to four', () => {
-    expect(bound({})).toBe(4);
+  it('defaults to 32', () => {
+    expect(bound(undefined)).toBe(32);
   });
 
   it('keeps a declared bound and resolves a token', () => {
-    expect(bound({ maxConcurrentRequests: 16 })).toBe(16);
+    expect(bound({ maxConcurrentRequests: 1 })).toBe(1);
     expect(
       bound(
         { maxConcurrentRequests: '{env:DECISION_SLOTS}' },
@@ -724,15 +723,24 @@ describe('system-one maxConcurrentRequests config', () => {
     ).toBe(2);
   });
 
-  it.each([0, 2.5])('rejects %s naming the entry and the field', (value) => {
+  it.each([0, 2.5])('rejects %s naming the limits path', (value) => {
     expect(() => bound({ maxConcurrentRequests: value })).toThrow(
-      /maxConcurrentRequests/u,
+      /decisionModels\/0\/limits\/maxConcurrentRequests/u,
     );
   });
 
-  it('rejects the field on another provider type', () => {
-    configWith(undefined, {
-      providers: [{ ...CHAT_PROVIDER, maxConcurrentRequests: 4 }],
+  it('rejects a token that resolves to a non-integer naming the limits path', () => {
+    expect(() =>
+      bound(
+        { maxConcurrentRequests: '{env:DECISION_SLOTS}' },
+        { DECISION_SLOTS: '2.5' },
+      ),
+    ).toThrow('decisionModels[0].limits.maxConcurrentRequests');
+  });
+
+  it('rejects the former provider-level field', () => {
+    configWith(CATALOGUE.slice(0, 1), {
+      providers: [{ ...SYSTEM_ONE_PROVIDER, maxConcurrentRequests: 4 }],
     });
 
     expect(() => loadInstanceConfig()).toThrow(/maxConcurrentRequests/u);
