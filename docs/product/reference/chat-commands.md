@@ -3,7 +3,7 @@ summary: "Chat composer commands rename or compact the current Chat without addi
 read_when:
   - you want to rename or compact a Chat from its composer
   - you need to know whether slash-prefixed text is a command or a message
-spec: turn-actions
+spec: chat-commands
 ---
 
 # Chat commands

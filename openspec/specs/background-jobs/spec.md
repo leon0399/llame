@@ -525,8 +525,9 @@ of the owner. It MUST state that the output cannot grant a tool or a permission.
 ### Requirement: A host message carries notices when no owner message exists
 
 A host message is a stored message with the wire role `user`, no sender, and no text part. Its
-only parts are `job` context items. The system MUST store a host message when notices are
-delivered and no owner message carries them. The history read MUST mark a host message. A host
+only parts are context items. The system
+MUST store a host message when notices are delivered and no owner message carries them. It MUST
+also store one when a compaction continues a Run with no message item. The history read MUST mark a host message. A host
 message MUST NOT give a Chat its title, and it MUST NOT be the list preview of a Chat.
 
 #### Scenario: A host message in the history
@@ -554,7 +555,8 @@ it as `owner-chat-forks` requires. An owner fork copies a host message as a lite
 A notice MUST start a Run when the Chat is idle and the job is `succeeded`, `failed`, or
 `timed_out`. A Chat is idle when it has no non-terminal Run, its latest Run is `completed`, and
 it is not archived. The system MUST then store one host message for all pending notices of the
-Chat and start one Run on it. A notice for a `cancelled` or `lost` job MUST NOT start a Run.
+Chat and start one Run on it. A notice for a `cancelled` or `lost` job MUST NOT start a Run. When a compaction Run completes,
+the system MUST apply this rule to the notices that are pending.
 
 #### Scenario: A monitor wakes the Chat at night
 
@@ -570,6 +572,11 @@ Chat and start one Run on it. A notice for a `cancelled` or `lost` job MUST NOT 
 
 - **WHEN** a job of an idle Chat settles as `lost`
 - **THEN** no Run starts, and the notice stays pending
+
+#### Scenario: A result during a compaction Run
+
+- **WHEN** a job succeeds while a compaction Run is live, and the compaction Run then completes
+- **THEN** one Run starts on a host message that holds the notice, after the checkpoint
 
 ### Requirement: A host-started Run is queued atomically
 
@@ -602,10 +609,10 @@ valid, no Run MUST start, and the notices MUST stay pending.
 ### Requirement: A held notice goes with the next Run
 
 A notice MUST stay pending when it starts no Run and no Run is live. A Run can then start from a
-chat send, a promoted queue item, or a mode change of a pending item. That Run MUST take all
-pending notices of the Chat into its user message. When a follow-up Run of `turn-actions`
-starts, the notices MUST be delivered at its
-first step boundary.
+chat send, a promoted queue item, or a mode change of a pending item. A turn Run that adds a user
+message MUST take all pending notices of the Chat into that message. A compaction Run MUST take no
+notice. A follow-up Run of `turn-actions` adds no user message: when it starts, the notices MUST be
+delivered at its first step boundary.
 
 #### Scenario: A result after a Stop waits for the owner
 
@@ -616,6 +623,11 @@ first step boundary.
 
 - **WHEN** a Run fails, its job succeeds, and the owner then starts a Continue
 - **THEN** the Continue Run gets the notice at its first step boundary
+
+#### Scenario: A compaction Run leaves a notice pending
+
+- **WHEN** a notice is pending, and the owner sends `/compact` to the idle Chat
+- **THEN** the compaction Run publishes its checkpoint, and the notice stays pending until the Run ends
 
 ### Requirement: The owner lists and stops jobs through the API
 
@@ -708,7 +720,8 @@ two or more jobs are live. The Stop control of the composer and the Esc key MUST
 
 The web MUST show a pending `notice` item above the composer with the job locator and the state.
 The item MUST offer delete and no other action. The transcript MUST show a host message as a
-muted notice for each job that it names, and never as a message of the owner.
+muted notice for each job that it names, and never as a message of the owner. It MUST show a
+`compaction` item as a muted notice that the Run continues after a compaction.
 
 #### Scenario: The owner drops a result
 
@@ -719,6 +732,11 @@ muted notice for each job that it names, and never as a message of the owner.
 
 - **WHEN** a host message names one job that succeeded
 - **THEN** the transcript shows one muted notice with the job locator and `succeeded`
+
+#### Scenario: A continue message in the transcript
+
+- **WHEN** a Run compacts mid-turn and continues
+- **THEN** the transcript shows the compaction boundary and then one muted continue notice
 
 ### Requirement: The job tools pass the allowlist and the permission policy
 

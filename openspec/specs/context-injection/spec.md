@@ -34,16 +34,18 @@ call. Thus the result is the same whether or not the model client keeps the mess
 earlier step. The item MUST use the same envelope, frame, and vocabulary as an attached item. The
 system MUST persist an in-Run item on that assistant message in the dispatch transaction of the
 first model request that carries it. This applies whatever the outcome of the Run. Each terminal outcome
-MUST keep it after the last tool part of its triggering step.
+MUST keep it after the last tool part of its triggering step. When a step-boundary compaction
+absorbs the triggering step, the item reaches later requests only through the checkpoint summary,
+and the system MUST NOT place it again.
 
 Each item MUST have its **own text content block** in that message. It MUST NOT join another item
 or the user's text in one block. Thus the separation between server-authored content and
 user-authored content is structural, not a text convention that user input can copy.
 
 A `job` item of `background-jobs` is never an in-Run item. `run-steering` delivers it at a step
-boundary in the delivered message of the owner. When that delivery has no owner item, or when
-the host starts a Run for it, a host message carries it. The host message is the message that
-the `job` producer owns, and it MUST hold no other content.
+boundary in the delivered message of the owner. When that delivery has no owner message item, or
+when the host starts a Run for it, a host message carries it. A host message MUST hold
+context items only, and no text part.
 
 #### Scenario: Two items are injected on one turn
 
@@ -147,8 +149,8 @@ again, and count as told those stored items and the told, seen, and baseline sta
 dispatch advanced. It MUST store only the items that this comparison newly yields. It stores them in its own dispatch transaction,
 after the last stored context item and before the user text. Its own new items follow producer
 order. This keep-and-append rule MUST apply only to items that the
-dispatch transaction of an earlier attempt stored. A retry of a Run whose earlier attempts never
-dispatched MUST store each item that it yields at its producer rank, as a first attempt does. The
+dispatch transaction of an earlier attempt stored. Some Runs retry with no earlier dispatch. Such a
+retry MUST store each item that it yields at its producer rank, as a first attempt does. The
 rank is relative to the `prompt-imports` and `skill-activation` facts persisted before dispatch.
 
 A follow-up Run from `turn-actions` MUST follow the same keep-and-append rule. The rule applies to
@@ -174,6 +176,11 @@ attempt. Committed parts keep the exact prepared text and the current envelope a
 compaction checkpoint row and the epoch state published with it are not contributions of a
 dispatch transaction. They commit in their own transaction before the model step that they
 precede, and a later failure of that attempt MUST NOT retract them.
+
+#### Scenario: A continue message holds only context items
+
+- **WHEN** a Run compacts mid-turn and continues with a host message
+- **THEN** that host message holds a `compaction` context item and no text part
 
 ### Requirement: The envelope states its own provenance and an operator cannot remove it
 
@@ -404,23 +411,25 @@ order. They MUST go before the user text in the user message of the turn:
 
 1. `interrupted`
 2. `job`
-3. `effective-context-change`
-4. `regenerate`
-5. `tool-availability`
-6. `workspace`
-7. `git`
-8. `instructions`
-9. `skill-catalog`
-10. `skill-activation`
-11. `prompt-imports`
-12. `recency-digest`
-13. `temporal`
+3. `compaction`
+4. `effective-context-change`
+5. `regenerate`
+6. `tool-availability`
+7. `workspace`
+8. `git`
+9. `instructions`
+10. `skill-catalog`
+11. `skill-activation`
+12. `prompt-imports`
+13. `recency-digest`
+14. `temporal`
 
 When one producer contributes more than one item, the system MUST store those
 items in emission order. A producer added later MUST extend this list
 in the rail specification. The `interrupted` producer of `run-steering` attaches its item to a
 delivered message. The `job` producer of `background-jobs` attaches its items to a delivered
-message, to the user message of a send, or to a host message.
+message, to the user message of a send, or to a host message. The `compaction` producer attaches its
+`notice` item to the host message that continues a Run after a step-boundary compaction.
 
 In-Run items MUST be in the order of the model step that caused them. In a step,
 they MUST be in this same producer precedence. The system MUST NOT sort them
@@ -528,6 +537,11 @@ rule of a retry after a dispatch.
 - **WHEN** a Run delivers an interrupt and a job notice in one user message
 - **THEN** the `interrupted` item is the first attached item, and the `job` item is the second
 - **AND** both come before the owner text
+
+#### Scenario: A continue message after an interrupt and a job
+
+- **WHEN** an interrupt `/compact` stops a step while a job settles
+- **THEN** the continue message holds the `interrupted` item, then the `job` item, then the `compaction` item
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
