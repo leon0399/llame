@@ -36,7 +36,10 @@ import {
   UNTRUSTED_STATE_INSTRUCTION,
   type JudgeCandidatesInput,
 } from './decisions.service';
-import { type DecisionModelLimits } from '../instance-config/decision-catalog';
+import {
+  DEFAULT_DECISION_LIMITS,
+  type DecisionModelLimits,
+} from '../instance-config/decision-catalog';
 import { estimatedTokens } from './request-packing';
 
 const RUBRIC = 'Does this result help answer the objective or query?';
@@ -1090,12 +1093,14 @@ describe('DecisionsService decision wires', () => {
             provider: 'router',
             providerModelId: 'typesafe/jev-1.14',
             wire: 'openrouter-decisions',
+            limits: DEFAULT_DECISION_LIMITS,
           },
           {
             id: 'legacy',
             provider: 'router',
             providerModelId: 'typesafe/jev-1.14',
             wire: 'system-one',
+            limits: DEFAULT_DECISION_LIMITS,
           },
         ],
       },
