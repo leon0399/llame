@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { z } from 'zod';
 
 import { type SystemOneProviderConfig } from '../instance-config/llame-config';
@@ -105,11 +108,15 @@ function decide(
   signal?: AbortSignal,
   config: SystemOneProviderConfig = provider(),
 ) {
-  return createDecisionClient(config, 'jev-latest', {
-    fetch,
-    sleep: () => Promise.resolve(),
-    ...extra,
-  }).decide({
+  return createDecisionClient(
+    config,
+    { id: 'jev-latest' },
+    {
+      fetch,
+      sleep: () => Promise.resolve(),
+      ...extra,
+    },
+  ).decide({
     state: { query: 'retry' },
     questions: QUESTIONS,
     ...(signal !== undefined && { signal }),
@@ -611,9 +618,13 @@ describe('decision client abort', () => {
     const { calls, fetch } = scripted(() => new Response('', { status: 503 }));
 
     // The real default sleep: 500 ms backoff, aborted after 20 ms.
-    const pending = createDecisionClient(provider(), 'jev-latest', {
-      fetch,
-    }).decide({
+    const pending = createDecisionClient(
+      provider(),
+      { id: 'jev-latest' },
+      {
+        fetch,
+      },
+    ).decide({
       state: 'x',
       questions: QUESTIONS,
       signal: controller.signal,
@@ -644,4 +655,77 @@ describe('decision client abort', () => {
       'mid-body',
     );
   });
+});
+
+describe('decision client OpenRouter routes', () => {
+  const recordedSchema = z.object({
+    route: z.string(),
+    request: z.object({
+      model: z.string(),
+      state: z.record(z.string(), z.unknown()),
+      questions: z.record(
+        z.string(),
+        z.object({
+          type: z.literal('noul'),
+          instructions: z.string(),
+          criteria: z.object({ true: z.string(), false: z.string() }),
+        }),
+      ),
+    }),
+    status: z.number(),
+    response: z.record(z.string(), z.unknown()),
+  });
+
+  function recorded(name: string) {
+    const file = path.join(
+      __dirname,
+      '../../fixtures/decisions',
+      `openrouter-${name}.json`,
+    );
+
+    return recordedSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
+  }
+
+  const router = {
+    id: 'account',
+    type: 'openrouter' as const,
+    key: KEY,
+    baseUrl: null,
+    headers: {},
+  };
+
+  it.each([
+    ['alpha', undefined],
+    ['systemone', 'system-one' as const],
+  ])(
+    'replays the recorded %s response through one account',
+    async (name, wire) => {
+      const fixture = recorded(name);
+
+      const { calls, fetch } = scripted(
+        () => new Response(JSON.stringify(fixture.response), { status: 200 }),
+      );
+
+      const outcome = await createDecisionClient(
+        router,
+        { id: fixture.request.model, wire },
+        { fetch, sleep: () => Promise.resolve() },
+      ).decide({
+        state: fixture.request.state,
+        questions: fixture.request.questions,
+      });
+
+      expect(calls[0]?.url).toBe(fixture.route);
+      expect(JSON.parse(bodyText(calls[0]))).toEqual(fixture.request);
+      expect(outcome).toMatchObject({
+        status: 'answered',
+        model: 'typesafe/jev-1.14-20261014',
+        answers: {
+          p000: { type: 'noul', noul: 0.96 },
+          p001: { type: 'noul', noul: 0.03 },
+        },
+        usage: { inputTokens: 664, outputTokens: 42 },
+      });
+    },
+  );
 });

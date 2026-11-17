@@ -77,7 +77,7 @@ describe('account-level providers', () => {
     });
     expect(config.decisionModels?.[0]).toMatchObject({
       provider: 'account',
-      wire: 'system-one',
+      wire: 'openrouter-decisions',
     });
     expect(config.rerankModels?.[0]).toMatchObject({
       provider: 'account',
@@ -145,9 +145,11 @@ describe('account-level providers', () => {
       'anthropic-messages',
     ]);
     expect(config.decisionModels?.[0]?.wire).toBe('system-one');
-    expect(config.providers.map(decisionEndpoint)).toEqual([
-      'https://opencode.ai/zen/v1/systemone',
-    ]);
+    expect(
+      config.providers.map((provider) =>
+        decisionEndpoint(provider, config.decisionModels?.[0]?.wire),
+      ),
+    ).toEqual(['https://opencode.ai/zen/v1/systemone']);
   });
 
   it.each(['opencode-go', 'opencode-zen'])(
@@ -312,19 +314,92 @@ const router: ProviderConfig = {
 
 describe('provider route boundaries', () => {
   it('keeps the OpenRouter decision endpoint on the configured gateway', () => {
-    expect(decisionEndpoint(router)).toBe(
+    expect(decisionEndpoint(router, undefined)).toBe(
       'https://openrouter.ai/api/alpha/decisions',
     );
     expect(
-      decisionEndpoint({
-        ...router,
-        baseUrl: 'https://proxy.example/prefix/v1/',
-      }),
+      decisionEndpoint(
+        { ...router, baseUrl: 'https://proxy.example/prefix/v1/' },
+        undefined,
+      ),
     ).toBe('https://proxy.example/prefix/alpha/decisions');
     expect(
-      decisionEndpoint({ ...router, baseUrl: 'https://proxy.example/prefix' }),
+      decisionEndpoint(
+        { ...router, baseUrl: 'https://proxy.example/prefix' },
+        undefined,
+      ),
     ).toBe('https://proxy.example/prefix/alpha/decisions');
   });
+
+  it('lets the resolved decision wire select the endpoint on one account', () => {
+    const config = load({
+      providers: [
+        { id: 'account', type: 'openrouter', key: '{env:SHARED_PROVIDER_KEY}' },
+      ],
+      decisionModels: [
+        { id: 'alpha', provider: 'account', model: 'typesafe/jev-1.14' },
+        {
+          id: 'legacy',
+          provider: 'account',
+          model: 'typesafe/jev-1.14',
+          wire: 'system-one',
+        },
+      ],
+    });
+
+    const [account] = config.providers;
+    const wires = (config.decisionModels ?? []).map((entry) => entry.wire);
+
+    expect(wires).toEqual(['openrouter-decisions', 'system-one']);
+    expect(wires.map((wire) => decisionEndpoint(account, wire))).toEqual([
+      'https://openrouter.ai/api/alpha/decisions',
+      'https://openrouter.ai/api/v1/systemone',
+    ]);
+  });
+
+  it('lets another account select the OpenRouter decision route', () => {
+    const config = load({
+      providers: [
+        {
+          id: 'account',
+          type: 'openai-completions',
+          key: '{env:SHARED_PROVIDER_KEY}',
+          baseUrl: 'https://proxy.example/v1',
+        },
+      ],
+      decisionModels: [
+        {
+          id: 'decision',
+          provider: 'account',
+          model: 'jev',
+          wire: 'openrouter-decisions',
+        },
+      ],
+    });
+
+    expect(
+      decisionEndpoint(config.providers[0], config.decisionModels?.[0]?.wire),
+    ).toBe('https://proxy.example/alpha/decisions');
+  });
+
+  it.each(['system-one', 'openrouter-decisions'])(
+    'rejects the %s wire on subscription accounts',
+    (wire) => {
+      for (const account of [
+        { id: 'account', type: 'openai-codex', key: 'key', accountId: 'acct' },
+        { id: 'account', type: 'opencode-go', key: 'key' },
+      ]) {
+        expect(() =>
+          load({
+            providers: [account],
+            decisionModels: [
+              { id: 'decision', provider: 'account', model: 'jev', wire },
+            ],
+          }),
+        ).toThrow('decisionModels[0].wire');
+      }
+    },
+  );
 
   it('does not retarget an OpenAI account when its model overrides the wire', () => {
     const provider: ProviderConfig = { ...router, type: 'openai' };

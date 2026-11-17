@@ -645,18 +645,22 @@ describe('judgeCandidatesWith', () => {
         headers: {},
       };
 
-      const client = createDecisionClient(provider, 'jev', {
-        fetch: (url) => {
-          fetchCalls.push(url);
+      const client = createDecisionClient(
+        provider,
+        { id: 'jev' },
+        {
+          fetch: (url) => {
+            fetchCalls.push(url);
 
-          return Promise.resolve(new Response('', { status: 503 }));
-        },
-        sleep: () => {
-          controller.abort(reason);
+            return Promise.resolve(new Response('', { status: 503 }));
+          },
+          sleep: () => {
+            controller.abort(reason);
 
-          return Promise.resolve();
+            return Promise.resolve();
+          },
         },
-      });
+      );
 
       await expect(
         judgeCandidatesWith(client, input({ abortSignal: controller.signal }), {

@@ -30,6 +30,7 @@ export type ModelWire =
   | 'openai-codex'
   | 'openai-embeddings'
   | 'system-one'
+  | 'openrouter-decisions'
   | 'cohere-rerank';
 
 export type ModelKind = 'chat' | 'embedding' | 'decision' | 'rerank';
@@ -42,7 +43,7 @@ const KIND_WIRES: Record<ModelKind, ReadonlyArray<ModelWire>> = {
     'openai-codex',
   ],
   embedding: ['openai-embeddings'],
-  decision: ['system-one'],
+  decision: ['system-one', 'openrouter-decisions'],
   rerank: ['cohere-rerank'],
 };
 
@@ -56,7 +57,7 @@ const VENDOR_DEFAULTS: VendorDefaults = {
   openrouter: {
     chat: 'openai-completions',
     embedding: 'openai-embeddings',
-    decision: 'system-one',
+    decision: 'openrouter-decisions',
     rerank: 'cohere-rerank',
   },
   'openai-responses': {
@@ -144,7 +145,7 @@ export function resolveModelWire(
     );
   }
 
-  if (wire === 'system-one' && !provider.key?.trim()) {
+  if (model.kind === 'decision' && !provider.key?.trim()) {
     throw new InstanceConfigError(
       `${path}.wire: decision requests require a nonblank provider key`,
     );
@@ -186,10 +187,18 @@ export function nonChatHeaders(
   );
 }
 
-export function decisionEndpoint(provider: ProviderConfig): string {
+/**
+ * The resolved decision wire picks the path; the account only supplies the
+ * base. An absent wire takes the account's decision default.
+ */
+export function decisionEndpoint(
+  provider: ProviderConfig,
+  wire: ModelWire | undefined,
+): string {
   const base = providerBaseUrl(provider).replace(/\/+$/u, '');
+  const resolved = wire ?? defaultWire(provider, 'decision', '');
 
-  if (provider.type !== 'openrouter') return `${base}/systemone`;
+  if (resolved !== 'openrouter-decisions') return `${base}/systemone`;
 
   const alpha = base.endsWith('/v1')
     ? `${base.slice(0, -3)}/alpha`
