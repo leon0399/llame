@@ -879,23 +879,23 @@ function resolveDecisionModels(
     return resolveRankModel(
       entry,
       { id, base },
-      { providerType: 'system-one', env, providersById },
+      { kind: 'decision', env, providersById },
     );
   });
 }
 
-/** One catalogue entry: its provider has the catalogue's `type` and its model is nonblank. */
+/** One catalogue entry: its provider exists, resolves a wire of the catalogue's kind, and its model is nonblank. */
 function resolveRankModel(
   entry: RerankModelConfig,
   position: { readonly id: string; readonly base: string },
   catalogue: {
-    readonly providerType: ProviderConfig['type'];
+    readonly kind: 'decision' | 'rerank';
     readonly env: NodeJS.ProcessEnv;
     readonly providersById: ReadonlyMap<string, ProviderConfig>;
   },
 ): RerankModelConfig {
   const { id, base } = position;
-  const { providerType, env, providersById } = catalogue;
+  const { kind, env, providersById } = catalogue;
 
   const providerId = requireNonBlankString(
     `${base}.provider`,
@@ -916,7 +916,7 @@ function resolveRankModel(
   const wire = resolveModelWire(
     provider,
     {
-      kind: providerType === 'system-one' ? 'decision' : 'rerank',
+      kind,
       modelId: model,
       wire: entry.wire,
     },
@@ -966,7 +966,7 @@ function resolveRerankModels(
     return resolveRankModel(
       entry,
       { id, base },
-      { providerType: 'cohere-rerank', env, providersById },
+      { kind: 'rerank', env, providersById },
     );
   });
 }

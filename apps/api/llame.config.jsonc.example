@@ -563,8 +563,9 @@
   // Optional System One decision-model catalogue (experimental). Leave this
   // commented unless a Jev / System One endpoint is configured: without it no
   // decision client is built and no tool changes its order. Each entry needs a
-  // unique `id`; its `provider` must be a `providers[]` entry of type
-  // "system-one" (see the commented entries above `models[]`), and the model id
+  // unique `id`; its `provider` must be a `providers[]` entry that resolves a
+  // decision wire: an "openrouter" account, or a "system-one" entry (see the
+  // commented entries above `models[]`), and the model id
   // is sent verbatim on the wire. Decision calls are side calls, logged with
   // their own usage and never folded into a Run's message usage. A TOOL opts in
   // through its own `rerank` block (`webSearch.rerank`, `tools.grep.rerank`),

@@ -159,12 +159,12 @@ describe('decisionModels config', () => {
     );
   });
 
-  it('rejects a catalogue entry naming a provider that is not a system-one entry', () => {
+  it('rejects a catalogue entry whose account has no decision default', () => {
     configWith([{ id: 'jev', provider: 'openai', model: 'jev-1.13' }], {
       providers: [CHAT_PROVIDER],
     });
 
-    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow('decisionModels[0].wire');
   });
 
   it.each([
