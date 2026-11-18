@@ -171,8 +171,8 @@ The Run MUST append one `run.suspended` event when it enters `awaiting_quota`. I
 `kind: 'quota'`, `attemptId`, `generation`, `failureClass`, `resetsAt`, `wakeAt`, `resumeAt`,
 `waitCount`, `parts`, and `steps`. Its checkpoint parts and steps MUST exclude the failed send.
 The Run MUST append one `run.resumed` event when it wakes, with `kind: 'quota'`, the waking
-`attemptId`, the same `generation`, and the cause `timeout` or `cancelled`. Event payloads without
-`kind` MUST mean a job suspension or wake. The event stream MUST stay open between suspension and wake.
+`attemptId`, the same `generation`, and the cause `timeout` or `cancelled`. A `run.suspended` or
+`run.resumed` payload without `kind` MUST mean a job suspension or wake. The event stream MUST stay open between suspension and wake.
 
 On successful recovery of the request, `run.quota_recovered` MUST carry the suspension's
 `generation` and `resumeAt`. It MUST end only that request's wait count. A summary MUST write it in

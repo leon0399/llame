@@ -433,3 +433,7 @@ None. Each grilling decision is recorded in the proposal.
   first-wake reply-prefix recovery and added a generation-matched `run.quota_recovered` success
   marker, so worker redelivery and compaction replanning preserve the four-wait bound. No new column
   or request identifier; no change to approved wait or retry limits.
+- **v6 (2026-11-18):** Scoped reasoning durability to deltas released for live delivery,
+  preserving the approved whole-send buffer for non-live callers. Scoped legacy kind-less
+  payload interpretation to suspension and resumption events, not the quota recovery marker.
+  Both are consistency corrections; retry, waiting, and signed-reasoning decisions are unchanged.

@@ -336,20 +336,20 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 
 ### Requirement: Received reasoning is durable before browser delivery
 
-Each normalized reasoning delta that llame receives MUST be durably recorded before llame forwards
-it to a browser stream. The event log of the Run MUST keep the deltas received before a worker
+Each normalized reasoning delta that llame receives for live delivery MUST be durably recorded
+before llame forwards it to a browser stream. The event log of the Run MUST keep those deltas before a worker
 failure or an upstream provider failure. The transcript MUST project them on successful and failed
 terminal Runs. It MUST NOT project the deltas of a send that a `model.superseded` event of
 `provider-failures` names.
 
 #### Scenario: Successful run retains streamed reasoning
 
-- **WHEN** llame receives reasoning deltas and the run subsequently succeeds
+- **WHEN** llame receives reasoning deltas for live delivery and the run subsequently succeeds
 - **THEN** the final assistant message contains the received reasoning in durable event order
 
 #### Scenario: Provider failure retains received reasoning
 
-- **WHEN** llame receives reasoning deltas and the upstream provider subsequently fails
+- **WHEN** llame receives reasoning deltas for live delivery and the upstream provider subsequently fails
 - **THEN** the terminal failed run retains every reasoning delta durably recorded before that failure
 
 #### Scenario: Worker failure never contradicts prior browser output
@@ -359,6 +359,6 @@ terminal Runs. It MUST NOT project the deltas of a send that a `model.superseded
 
 #### Scenario: A superseded send keeps its reasoning in the log only
 
-- **WHEN** a send streams reasoning deltas, breaks, and its request retry completes the Run
+- **WHEN** a send streams reasoning deltas for live delivery, breaks, and its request retry completes the Run
 - **THEN** the event log holds the reasoning deltas of the broken send
 - **AND** the final assistant message holds only the reasoning of the request retry
