@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AgUiChat,
+  ChatRequestRejectedError,
   type ChatFinish,
   type ChatRequest,
   type ChatTransport,
@@ -245,32 +246,32 @@ describe("AgUiChat", () => {
     });
   });
 
-  it("reports a refused send through onError instead of rejecting, and a dropped fetch as a disconnect", async () => {
-    const refused = chatWith({
-      sendMessages: () =>
-        Promise.reject(new Error('{"code":"permission_mode_not_available"}')),
-    });
+  it("reports a refused follow-up through the error state without rejecting its fire-and-forget caller", async () => {
+    const refusal = new ChatRequestRejectedError("Follow-up refused");
 
-    await expect(refused.chat.sendMessage({ text: "hi" })).resolves.toBe(
-      undefined,
+    const { chat, errors, finishes } = chatWith(
+      {
+        sendMessages: () => Promise.reject(refusal),
+      },
+      [USER],
     );
-    expect(refused.errors[0]?.message).toContain(
-      "permission_mode_not_available",
-    );
-    expect(refused.finishes[0]).toMatchObject({
-      isError: true,
-      isDisconnect: false,
-    });
 
-    const dropped = chatWith({
-      sendMessages: () => Promise.reject(new TypeError("Failed to fetch")),
+    await expect(
+      chat.regenerate({ body: { action: "continue" } }),
+    ).resolves.toBeUndefined();
+    expect(chat.getSnapshot()).toMatchObject({
+      status: "error",
+      error: refusal,
+      messages: [USER],
     });
-
-    await dropped.chat.sendMessage({ text: "hi" });
-    expect(dropped.finishes[0]).toMatchObject({
-      isError: true,
-      isDisconnect: true,
-    });
+    expect(errors).toEqual([refusal]);
+    expect(finishes).toEqual([
+      expect.objectContaining({
+        isError: true,
+        isDisconnect: false,
+        finishReason: undefined,
+      }),
+    ]);
   });
 
   it("ends a stopped request as an abort, even when the stream ignores the abort signal", async () => {
@@ -397,6 +398,23 @@ describe("AgUiChat", () => {
     });
   });
 
+  it("returns to durable history when repair finds the disconnected Run already terminal", async () => {
+    const { chat, finishes } = chatWith({
+      sendMessages: () => Promise.resolve(eventsOf([started("run-1")])),
+      reconnectToStream: () => Promise.resolve(null),
+    });
+
+    await chat.sendMessage({ text: "hi" });
+    expect(chat.getSnapshot().status).toBe("error");
+    await chat.resumeStream();
+
+    expect(chat.getSnapshot()).toMatchObject({
+      status: "ready",
+      error: undefined,
+    });
+    expect(finishes).toHaveLength(1);
+  });
+
   it("rebuilds a reply the log already holds when a resume replays the Run from its start", async () => {
     const partial: UIMessage = {
       id: "run-1",
@@ -428,18 +446,6 @@ describe("AgUiChat", () => {
         parts: [{ type: "text", text: "Hello", state: "done" }],
       },
     ]);
-  });
-
-  it("reports a failed attach as an error without a finish", async () => {
-    const { chat, finishes, errors } = chatWith({
-      reconnectToStream: () => Promise.reject(new TypeError("Failed to fetch")),
-    });
-
-    await chat.resumeStream();
-
-    expect(chat.getSnapshot().status).toBe("error");
-    expect(errors).toHaveLength(1);
-    expect(finishes).toEqual([]);
   });
 
   it("does not start a second attach while a request owns the log", async () => {

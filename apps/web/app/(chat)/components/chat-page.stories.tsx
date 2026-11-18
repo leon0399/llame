@@ -677,6 +677,71 @@ export const SendsImageOnlyMessage: Story = {
   },
 };
 
+/** An HTTP refusal restores both parts of the draft for an owner's retry. */
+export const RefusedSendRestoresTextAndImage: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  parameters: contrastKnownIssue232,
+  beforeEach: () => {
+    useModelsQuery.mockReturnValue({
+      data: { defaultModelId: VISION.id, models: [VISION] },
+      isError: false,
+      isPending: false,
+      isSuccess: true,
+    });
+    uploadAttachment.mockImplementation((file: File) =>
+      Promise.resolve(
+        uploaded("0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01", file.name),
+      ),
+    );
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(jsonResponse({ message: "Send was refused" }, 422)),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    const files = new DataTransfer();
+
+    const png = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+      ),
+      (character) => character.charCodeAt(0),
+    );
+
+    files.items.add(new File([png], "draft.png", { type: "image/png" }));
+    await userEvent.click(input);
+    await userEvent.type(input, "Inspect this draft");
+    await userEvent.paste(files);
+    const form = input.closest("form");
+
+    if (form === null) throw new Error("expected the composer form");
+    const list = await within(form).findByRole("list", { name: "Attachments" });
+    await waitFor(() =>
+      expect(within(list).queryAllByRole("status")).toEqual([]),
+    );
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(input).toHaveValue("Inspect this draft"));
+
+    const restoredImage = within(
+      await within(form).findByRole("list", { name: "Attachments" }),
+    ).getByRole("img", { name: "draft.png" });
+
+    await expect(restoredImage).toBeVisible();
+    await waitFor(() =>
+      expect(restoredImage).toHaveProperty("naturalWidth", 1),
+    );
+    await expect(
+      canvas.getByRole("button", { name: "Send message" }),
+    ).toBeEnabled();
+    await expect(
+      within(canvas.getByRole("log")).queryByText("Inspect this draft"),
+    ).not.toBeInTheDocument();
+  },
+};
+
 /** Serves a two-model catalog whose default is GPT-5.4 mini. */
 function serveTwoModelCatalog(gpt54: AvailableModel = GPT_5_4) {
   useModelsQuery.mockReturnValue({

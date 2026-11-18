@@ -32,7 +32,10 @@ export type ChatTransport = {
   ): Promise<AsyncIterable<AGUIEvent> | null>;
 };
 
-/** How one request ended, reported once per request that opened a stream. */
+/** An explicit HTTP refusal: no Run accepted this send, so its draft is recoverable. */
+export class ChatRequestRejectedError extends Error {}
+
+/** How a stream request or failed reconnect ended. */
 export type ChatFinish = {
   message: UIMessage;
   messages: Array<UIMessage>;
@@ -104,12 +107,13 @@ export class AgUiChat {
   readonly sendMessage = async (input: SendMessageInput): Promise<void> => {
     this.assertIdle();
     const { text, files = [] } = input;
+    const messageId = this.init.generateId();
 
     this.set({
       messages: [
         ...this.snapshot.messages,
         {
-          id: this.init.generateId(),
+          id: messageId,
           role: "user",
           parts: [
             ...files,
@@ -119,12 +123,21 @@ export class AgUiChat {
       ],
     });
 
-    await this.stream((signal) =>
+    const refusal = await this.stream((signal) =>
       this.init.transport.sendMessages(
         this.chatRequest("submit-message", undefined),
         signal,
       ),
     );
+
+    if (refusal !== undefined) {
+      this.set({
+        messages: this.snapshot.messages.filter(
+          (message) => message.id !== messageId,
+        ),
+      });
+      throw refusal;
+    }
   };
 
   /**
@@ -152,10 +165,9 @@ export class AgUiChat {
   /**
    * Attaches to the Chat's executing Run, if it has one. A request already in
    * flight owns the log, so a second attach is not started, and an attach that
-   * a send overtakes while it is still connecting yields to that send. A Chat
-   * with no executing Run changes nothing and reports no finish; neither does
-   * an attach that fails before its stream opens, which reports the error
-   * alone.
+   * a send overtakes while it is still connecting yields to that send. With no
+   * executing Run, it clears stale disconnect errors for the durable-history
+   * handoff. A failed network attach reports interruption for bounded repair.
    */
   readonly resumeStream = async (): Promise<void> => {
     if (this.active !== null) return;
@@ -184,7 +196,11 @@ export class AgUiChat {
     if (events === null) {
       this.active = null;
 
-      if (failure !== null && !abort.signal.aborted) this.fail(failure);
+      if (failure !== null && !abort.signal.aborted) {
+        this.reconnectFailed(failure);
+      } else if (!abort.signal.aborted) {
+        this.clearError();
+      }
 
       return;
     }
@@ -193,6 +209,22 @@ export class AgUiChat {
 
     await this.stream(() => Promise.resolve(attached), abort);
   };
+
+  private reconnectFailed(error: Error): void {
+    this.fail(error);
+
+    if (!(error instanceof TypeError) || !/fetch|network/i.test(error.message))
+      return;
+
+    this.init.onFinish({
+      message: this.replyMessage(new ReplyReducer().reply()),
+      messages: this.snapshot.messages,
+      isAbort: false,
+      isDisconnect: true,
+      isError: true,
+      finishReason: undefined,
+    });
+  }
 
   private chatRequest(
     trigger: ChatRequest["trigger"],
@@ -225,7 +257,7 @@ export class AgUiChat {
   private async stream(
     open: (signal: AbortSignal) => Promise<AsyncIterable<AGUIEvent>>,
     abort = new AbortController(),
-  ): Promise<void> {
+  ): Promise<ChatRequestRejectedError | undefined> {
     const reducer = new ReplyReducer();
     const finish = { isAbort: false, isDisconnect: false, isError: false };
 
@@ -250,6 +282,8 @@ export class AgUiChat {
         // A dropped fetch is a TypeError naming the fetch or the network.
         finish.isDisconnect =
           error instanceof TypeError && /fetch|network/i.test(error.message);
+
+        if (error instanceof ChatRequestRejectedError) return error;
       }
     } finally {
       if (this.active === abort) this.active = null;
@@ -263,6 +297,8 @@ export class AgUiChat {
         finishReason: reply.finished && !reply.cancelled ? "stop" : undefined,
       });
     }
+
+    return undefined;
   }
 
   /**

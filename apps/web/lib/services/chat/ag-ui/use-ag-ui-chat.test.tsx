@@ -5,6 +5,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { StrictMode, useEffect, useRef } from "react";
 import { expect, it, vi } from "vitest";
 
+import { isInterruptedStream } from "../run-notifications";
+import { useStreamInterruption, useStreamRepair } from "../stream-repair";
 import { useAgUiChat } from "./use-ag-ui-chat";
 
 it("closes an unmounted chat stream without delivering callbacks to the departed view", async () => {
@@ -131,4 +133,112 @@ it("keeps the initial reconnect alive through Strict Mode effect replay", async 
   );
   expect(onError).not.toHaveBeenCalled();
   unmount();
+});
+
+it("ignores an old engine's late completion after switching X to Y to X", async () => {
+  let release: (events: AsyncIterable<AGUIEvent>) => void = () => {};
+  const onFinish = vi.fn();
+  const onError = vi.fn();
+
+  const transport = {
+    sendMessages: () =>
+      new Promise<AsyncIterable<AGUIEvent>>((resolve) => {
+        release = resolve;
+      }),
+    reconnectToStream: () => Promise.resolve(null),
+  };
+
+  const { result, rerender, unmount } = renderHook(
+    ({ id }) =>
+      useAgUiChat({
+        id,
+        messages: [],
+        generateId: () => "message-1",
+        onFinish,
+        onError,
+        transport,
+      }),
+    { initialProps: { id: "X" } },
+  );
+
+  let pending: Promise<void> | undefined;
+  act(() => {
+    pending = result.current.sendMessage({ text: "old X" });
+  });
+  rerender({ id: "Y" });
+  rerender({ id: "X" });
+  await act(async () => {
+    release(
+      (async function* (): AsyncGenerator<AGUIEvent> {
+        yield { type: EventType.RUN_STARTED, threadId: "X", runId: "old-run" };
+      })(),
+    );
+    await pending;
+  });
+
+  expect(onFinish).not.toHaveBeenCalled();
+  expect(onError).not.toHaveBeenCalled();
+  expect(result.current.messages).toEqual([]);
+  unmount();
+});
+
+it("retries failed repair attaches to the existing five-attempt ceiling", async () => {
+  vi.useFakeTimers();
+
+  const reconnectToStream = vi.fn(() =>
+    Promise.reject(new TypeError("Failed to fetch")),
+  );
+
+  const onError = vi.fn();
+
+  const { unmount } = renderHook(() => {
+    const { interruption, report } = useStreamInterruption();
+
+    const chat = useAgUiChat({
+      id: "chat-1",
+      messages: [
+        {
+          id: "run-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "Partial", state: "streaming" }],
+        },
+      ],
+      generateId: () => "message-1",
+      onFinish: (finish) => {
+        if (isInterruptedStream(finish)) report("run-1");
+      },
+      onError,
+      transport: {
+        sendMessages: () => Promise.reject(new Error("Unexpected send")),
+        reconnectToStream,
+      },
+    });
+
+    useStreamRepair({
+      attach: () => {
+        void chat.resumeStream();
+      },
+      interruption,
+      currentRunId: "run-1",
+      healthy: chat.status === "streaming",
+      onAttempt: () => {},
+    });
+    useEffect(() => {
+      report("run-1");
+    }, [report]);
+  });
+
+  try {
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+    }
+
+    expect(reconnectToStream).toHaveBeenCalledTimes(5);
+    expect(onError).toHaveBeenCalledTimes(5);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
 });

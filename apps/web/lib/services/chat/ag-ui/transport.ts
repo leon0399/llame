@@ -1,13 +1,17 @@
 import { authAwareFetch } from "../../../api/fetch";
 import { buildChatStreamUrl, type PreparedChatRequest } from "../transport";
-import type { ChatRequest, ChatTransport } from "./chat";
+import {
+  ChatRequestRejectedError,
+  type ChatRequest,
+  type ChatTransport,
+} from "./chat";
 import { readAgUiEvents } from "./event-stream";
 
 /** The events of an accepted stream response, or the api's refusal thrown as
  *  an error whose message is the response body (its error envelope). */
 async function streamEvents(response: Response) {
   if (!response.ok) {
-    throw new Error(
+    throw new ChatRequestRejectedError(
       (await response.text()) || "Failed to fetch the chat response.",
     );
   }

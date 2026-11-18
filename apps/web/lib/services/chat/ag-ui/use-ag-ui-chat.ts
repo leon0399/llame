@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 
@@ -23,6 +29,8 @@ function useChatCallbacks(
 ): Pick<ChatInit, "onFinish" | "onError"> {
   const latest = useLatestRef(options);
   const mounted = useRef(false);
+  const owner = useMemo(() => ({ id: options.id }), [options.id]);
+  const binding = useLatestRef(owner);
 
   useEffect(() => {
     mounted.current = true;
@@ -34,11 +42,11 @@ function useChatCallbacks(
 
   return {
     onFinish: (finish) => {
-      if (mounted.current && latest.current.id === options.id)
+      if (mounted.current && binding.current === owner)
         latest.current.onFinish(finish);
     },
     onError: (error) => {
-      if (mounted.current && latest.current.id === options.id)
+      if (mounted.current && binding.current === owner)
         latest.current.onError(error);
     },
   };

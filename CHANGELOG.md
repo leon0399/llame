@@ -12,7 +12,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   unchanged: these routes are llame's authenticated binding rather than the
   standard AG-UI `RunAgentInput` endpoint. The web client uses an incremental,
   bounded SSE parser and no longer depends on `@ai-sdk/react`. Cancellation
-  carries an explicit outcome; incomplete streams enter reconnect repair.
+  carries an explicit outcome; incomplete streams enter bounded reconnect
+  repair, and a terminal Run found by repair returns to durable history.
+  Refused HTTP sends restore the owner's draft text and images; late callbacks
+  from a departed engine cannot affect a replacement for the same Chat.
 
 # 2026-11-17
 
