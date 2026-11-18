@@ -16,6 +16,7 @@ export const TOOL_PROMPT_IDS = [
   'web_search',
   'wait',
   'grep',
+  'render_ui',
 ] as const;
 
 export type ToolPromptId = (typeof TOOL_PROMPT_IDS)[number];
