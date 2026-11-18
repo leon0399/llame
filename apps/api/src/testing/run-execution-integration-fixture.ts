@@ -10,7 +10,7 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { streamText } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { z } from 'zod';
-import { withToolIntent } from '../tools/tool-intent';
+import { scriptedToolInput as encodeScriptedToolInput } from '../runs/scripted-model-step';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -93,13 +93,10 @@ export function answerChunks(text: string): Array<LanguageModelV3StreamPart> {
 /** Provider fixtures supply the same presentation envelope real models must. */
 export function scriptedToolInput(toolName: string, input: unknown): string {
   const parsed = z.record(z.string(), z.unknown()).safeParse(input);
-  const required = withToolIntent(toolName, {}).required;
 
-  return JSON.stringify(
-    parsed.success && Array.isArray(required) && required.includes('i')
-      ? { i: 'Executing the test call', ...parsed.data }
-      : input,
-  );
+  return parsed.success
+    ? encodeScriptedToolInput(toolName, parsed.data)
+    : JSON.stringify(input);
 }
 
 export function scriptedModel(

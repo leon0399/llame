@@ -46,6 +46,7 @@ import {
   PROVIDER_ZERO_USAGE,
   stepHold,
   scriptedStepParts,
+  scriptedToolInput,
   type ScriptedStep,
 } from './scripted-model-step';
 import {
@@ -316,7 +317,7 @@ function enqueueToolScript(
     type: 'tool-call',
     toolCallId: next.id,
     toolName: next.name,
-    input: JSON.stringify(next.input),
+    input: scriptedToolInput(next.name, next.input),
   });
   controller.enqueue({
     type: 'finish',

@@ -139,20 +139,20 @@ function appendSpan(
 }
 
 /** Scripted providers obey the model envelope, while malformed test input stays malformed. */
-function scriptedToolInput(part: ScriptedToolCall): string {
-  const encoded = isString(part.input)
-    ? part.input
-    : JSON.stringify(part.input);
-
-  const required = withToolIntent(part.toolName, {}).required;
+export function scriptedToolInput(
+  toolName: string,
+  input: string | UnknownRecord,
+): string {
+  const encoded = isString(input) ? input : JSON.stringify(input);
+  const required = withToolIntent(toolName, {}).required;
 
   if (!Array.isArray(required) || !required.includes('i')) return encoded;
 
   try {
-    const input: unknown = JSON.parse(encoded);
+    const parsed: unknown = JSON.parse(encoded);
 
-    return isRecord(input)
-      ? JSON.stringify({ i: 'Running the scripted call', ...input })
+    return isRecord(parsed)
+      ? JSON.stringify({ i: 'Running the scripted call', ...parsed })
       : encoded;
   } catch {
     return encoded;
@@ -175,7 +175,7 @@ function appendBlock(
         type: 'tool-call',
         toolCallId: part.toolCallId,
         toolName: part.toolName,
-        input: scriptedToolInput(part),
+        input: scriptedToolInput(part.toolName, part.input),
         ...(part.providerMetadata !== undefined && {
           providerMetadata: part.providerMetadata,
         }),
