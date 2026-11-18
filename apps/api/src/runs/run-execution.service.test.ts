@@ -20950,6 +20950,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     readonly boundaryFenced?: boolean;
     readonly boundaryDelivered?: boolean;
     readonly completeWaitLockMissing?: boolean;
+    readonly boundaryItems?: Array<ChatDelivery>;
   };
 
   const resumesAfterSuspend = (scenario: WaitOutcomeCase): boolean =>
@@ -20995,10 +20996,14 @@ describe('RunExecutionService executeRun — run segments', () => {
           : undefined,
       );
     } else {
-      serveDelivery(scenario.boundaryDelivered === true ? [pendingItem] : [], {
-        ...run,
-        activeAttemptId: testAttemptId,
-      });
+      serveDelivery(
+        scenario.boundaryItems ??
+          (scenario.boundaryDelivered === true ? [pendingItem] : []),
+        {
+          ...run,
+          activeAttemptId: testAttemptId,
+        },
+      );
     }
 
     if (scenario.boundaryDelivered === true) {
@@ -21032,6 +21037,10 @@ describe('RunExecutionService executeRun — run segments', () => {
       toolName: 'wait',
       input: { jobs: ['job://bash-44'], timeout: 30 },
     });
+
+    if (scenario.boundaryItems !== undefined) {
+      await options.stopWhenExtra?.();
+    }
 
     if (
       scenario.boundaryFenced === true ||
@@ -21118,6 +21127,87 @@ describe('RunExecutionService executeRun — run segments', () => {
     if (boundaryReached) expect(types).toContain('tool.completed');
     else expect(types).not.toContain('tool.completed');
   }
+
+  it('summarizes a compact command delivered at a wait boundary', async () => {
+    registerTestOnlyTool(waitTool);
+    mockNormalExecutionRepositories();
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue('delivery');
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+    vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
+      deliveredMessage,
+    );
+    const segment = makeSegmentClient();
+
+    const suspend = vi
+      .fn<RunWaitService['suspend']>()
+      .mockResolvedValue({ kind: 'ready', cause: 'settled' });
+
+    const execution = makeExecutionService(
+      segment.client,
+      undefined,
+      undefined,
+      {
+        allowed: ['wait'],
+        permissionPolicy: compileTestPermissionPolicy(['wait']),
+        runWait: asDouble<RunWaitService>({ suspend }),
+      },
+    );
+
+    const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
+    summarize.mockResolvedValue(checkpointSummary(2));
+    serveCheckpointPublication();
+
+    const scenario: WaitOutcomeCase = {
+      outcome: { kind: 'ready', cause: 'settled' },
+      terminalStatus: undefined,
+      expectedContinuation: false,
+      boundaryDelivered: true,
+      boundaryItems: [compact],
+    };
+
+    const job = {
+      ...settledBashJob(44),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    };
+
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+      job,
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    arrangeWaitCompletion(execution, scenario, {
+      ...job,
+      state: 'succeeded',
+      settledAt: new Date(now.getTime() + 1000),
+      result: { exitCode: 0 },
+    });
+    await driveWaitCall(segment, result, scenario);
+
+    expect(summarize).toHaveBeenCalledOnce();
+    expect(segment.calls).toHaveLength(2);
+  });
 
   it.each([
     {
@@ -21919,6 +22009,327 @@ describe('RunExecutionService executeRun — run segments', () => {
       continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
     ).toHaveLength(1);
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('carries a compaction quote when the boundary input has no text', async () => {
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    mockNormalExecutionRepositories();
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...userMessage,
+        parts: [{ type: 'text', text: 'older request' }],
+        seq: 1,
+      },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const create = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(deliveredMessage);
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+    const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
+    summarize.mockResolvedValue(checkpointSummary(2));
+    serveCheckpointPublication();
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        ...userMessage,
+        seq: 4,
+        parts: [
+          {
+            type: 'data-context',
+            data: { producer: 'compaction', payload: null },
+          },
+          {
+            type: 'data-context',
+            data: {
+              producer: 'compaction',
+              payload: { quote: 'Carried request' },
+            },
+          },
+        ],
+      },
+    });
+    signal.mockResolvedValueOnce('delivery');
+    await expect(segment.calls[0]?.stopWhenExtra?.()).resolves.toBe(true);
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.(finishToolCalls);
+    expect(summarize).toHaveBeenCalled();
+
+    const compactionNoticeData: unknown = expect.objectContaining({
+      producer: 'compaction',
+      payload: { quote: 'Carried request' },
+    });
+
+    const compactionNotice: unknown = expect.objectContaining({
+      data: compactionNoticeData,
+    });
+
+    const continuationParts: unknown = expect.arrayContaining([
+      compactionNotice,
+    ]);
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: continuationParts }),
+    );
+  });
+
+  it('prefers current request text over a carried compaction quote', async () => {
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    mockNormalExecutionRepositories();
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const create = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(deliveredMessage);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockResolvedValue(
+      checkpointSummary(2),
+    );
+    serveCheckpointPublication();
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        ...userMessage,
+        seq: 4,
+        parts: [
+          { type: 'text', text: 'Current request' },
+          {
+            type: 'data-context',
+            data: {
+              producer: 'compaction',
+              payload: { quote: 'Old carried request' },
+            },
+          },
+        ],
+      },
+    });
+    signal.mockResolvedValueOnce('delivery');
+    await segment.calls[0]?.stopWhenExtra?.();
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.(finishToolCalls);
+
+    const compactionNoticeData: unknown = expect.objectContaining({
+      producer: 'compaction',
+      payload: { quote: 'Current request' },
+    });
+
+    const compactionNotice: unknown = expect.objectContaining({
+      data: compactionNoticeData,
+    });
+
+    const continuationParts: unknown = expect.arrayContaining([
+      compactionNotice,
+    ]);
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: continuationParts }),
+    );
+  });
+
+  it('uses the newest owner request as the quote when no request text is carried', async () => {
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    mockNormalExecutionRepositories();
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...userMessage,
+        id: 'older-owner',
+        parts: [{ type: 'text', text: 'older' }],
+        seq: 1,
+      },
+      { ...assistantMessage, seq: 2, inReplyTo: 'older-owner' },
+      {
+        ...userMessage,
+        id: 'other-owner',
+        senderUserId: 'someone-else',
+        parts: [{ type: 'text', text: 'not the owner' }],
+        seq: 3,
+      },
+      {
+        ...userMessage,
+        id: 'newest-owner',
+        parts: [{ type: 'text', text: 'Newest owner request' }],
+        seq: 4,
+      },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const create = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(deliveredMessage);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockResolvedValue(
+      checkpointSummary(4),
+    );
+    serveCheckpointPublication();
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: { ...userMessage, seq: 5, parts: [] },
+    });
+    signal.mockResolvedValueOnce('delivery');
+    await segment.calls[0]?.stopWhenExtra?.();
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.(finishToolCalls);
+
+    const compactionNoticeData: unknown = expect.objectContaining({
+      producer: 'compaction',
+      payload: { quote: 'Newest owner request' },
+    });
+
+    const compactionNotice: unknown = expect.objectContaining({
+      data: compactionNoticeData,
+    });
+
+    const continuationParts: unknown = expect.arrayContaining([
+      compactionNotice,
+    ]);
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: continuationParts }),
+    );
+  });
+
+  it('leaves the continuation quote absent for a host-created Run', async () => {
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _ownerUserId, eventType) =>
+      Promise.resolve(
+        eventType === 'run.created'
+          ? { ...event, eventType, payload: { messageId: null } }
+          : undefined,
+      ),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...userMessage,
+        parts: [{ type: 'text', text: 'unrelated history' }],
+        seq: 1,
+      },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const create = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(deliveredMessage);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockResolvedValue(
+      checkpointSummary(1),
+    );
+    serveCheckpointPublication();
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: { ...userMessage, parts: [] },
+    });
+    signal.mockResolvedValueOnce('delivery');
+    await segment.calls[0]?.stopWhenExtra?.();
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.(finishToolCalls);
+
+    const compactionNoticeData: unknown = expect.objectContaining({
+      producer: 'compaction',
+      payload: { quote: null },
+    });
+
+    const compactionNotice: unknown = expect.objectContaining({
+      data: compactionNoticeData,
+    });
+
+    const continuationParts: unknown = expect.arrayContaining([
+      compactionNotice,
+    ]);
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: continuationParts }),
+    );
   });
 
   it('skips summary work for a normal delivery without a compact command', async () => {
