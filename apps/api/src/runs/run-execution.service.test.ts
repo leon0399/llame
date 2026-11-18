@@ -141,6 +141,7 @@ import {
 import {
   buildContext,
   userPartsToModelContent,
+  projectStoredReplyParts,
   type MessagePart,
   type StoredMessage,
 } from '../chats/context-builder';
@@ -200,7 +201,10 @@ import type {
   CompactionCapability,
   CompactionSummary,
 } from '../compaction/compaction.service';
-import { estimateContinuationTokens } from '../compaction/compaction';
+import {
+  estimateContinuationTokens,
+  estimateModelRequestTokens,
+} from '../compaction/compaction';
 import type { MediaDescriptor } from '../media/media-descriptors';
 import {
   descriptor,
@@ -20834,7 +20838,11 @@ describe('RunExecutionService git state', () => {
 
     const result = await execution.service.executeRun({
       ...executionInput(client),
-      userMessage: turnMessage(3),
+      userMessage: {
+        id: messageId,
+        seq: 3,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
     });
 
     await expect(result.text).resolves.toBe('answer');
@@ -22035,7 +22043,7 @@ describe('RunExecutionService executeRun — run segments', () => {
   });
 
   it('records an automatic compaction failure when the summary cannot be produced', async () => {
-    mockNormalExecutionRepositories();
+    const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
     vi.spyOn(
       RunRowFenceRepository.prototype,
@@ -22067,10 +22075,11 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     const input = executionInput(segment.client);
 
-    await execution.service.executeRun({
+    const result = await execution.service.executeRun({
       ...input,
       userMessage: { ...input.userMessage, seq: 3 },
     });
+
     const options = segment.calls[0];
 
     if (!options) throw new Error('model stream was not captured');
@@ -22079,13 +22088,155 @@ describe('RunExecutionService executeRun — run segments', () => {
     await executeBoundTool(options, { q: 'lookup' }, 'auto-call');
     await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
     await options?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
 
+    const continuation = segment.calls[1];
+
+    if (!continuation)
+      throw new Error('continued model stream was not captured');
+
+    await continuation.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const persistedParts =
+      spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts;
+
+    expect(persistedParts).not.toContainEqual(
+      expect.objectContaining({ type: 'data-compaction-failed' }),
+    );
+    expect(persistedParts).toContainEqual(
+      expect.objectContaining({ type: 'data-compaction-disabled' }),
+    );
     expect(prepareBoundary).toHaveBeenCalledWith(
-      expect.objectContaining({ automatic: true }),
+      expect.objectContaining({
+        automatic: true,
+        compactionSet: { ids: [], focus: null },
+      }),
     );
     expect(appended.map(({ type }) => type)).toContain(
       'run.compaction_disabled',
     );
+  });
+
+  it('measures only the current step reply at its boundary', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 20_000 });
+    const execution = toolService(segment.client);
+    const input = executionInput(segment.client);
+
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = segment.calls[0];
+
+    if (!options?.onStepStart)
+      throw new Error('step callbacks were not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 0 }), 1);
+    await options.onStepStart({ messages: [], stepNumber: 0 });
+    options.onTextDelta?.('a'.repeat(40_000));
+    await executeBoundTool(options, { q: 'first' }, 'first-step-call');
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+
+    await options.onStepStart({ messages: [], stepNumber: 1 });
+    options.onTextDelta?.('b'.repeat(40_000));
+    await executeBoundTool(options, { q: 'second' }, 'second-step-call');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+  });
+
+  it('does not compact a tool result when no earlier turn can be absorbed', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      [],
+    );
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 1 });
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await executeBoundTool(options, { q: 'lookup' }, 'no-history-call');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+  });
+
+  it('does not round a counted context receipt up across the threshold', async () => {
+    const receiptTokens = 100;
+
+    const projected = projectStoredReplyParts(
+      [
+        toolActivityPart({
+          toolCallId: 'boundary-call',
+          toolName: toolDeclaration.id,
+          input: { q: 'lookup' },
+          result: { status: 'success', hits: 1 },
+        }),
+      ],
+      { privateParts: true, mediaKey: () => 'continued/0' },
+    );
+
+    const stepResultTokens = estimateModelRequestTokens({
+      messages: projected.messages,
+      toolDeclarations: [],
+    });
+
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, {
+      compactionThresholdTokens: receiptTokens + stepResultTokens + 1,
+    });
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        id: messageId,
+        seq: 3,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+    });
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: receiptTokens }),
+      1,
+    );
+    await executeBoundTool(options, { q: 'lookup' }, 'boundary-call');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
   });
 
   it('waits for a completed tool result before checking the boundary threshold', async () => {
@@ -22564,6 +22715,56 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(computeBoundarySummary).not.toHaveBeenCalled();
   });
 
+  it('does not auto-compact a normal delivery with an older compactable turn', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const historyRows = [
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ];
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      historyRows,
+    );
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const computeBoundarySummary = vi.spyOn(
+      execution.compaction,
+      'computeBoundarySummary',
+    );
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        ...userMessage,
+        seq: 4,
+        parts: [{ type: 'text', text: 'current request' }],
+      },
+    });
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    signal.mockResolvedValueOnce('delivery');
+    await options.stopWhenExtra?.();
+    serveDelivery([pendingItem]);
+    await options.onFinish?.(finishToolCalls);
+
+    expect(computeBoundarySummary).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, 'high'] as const)(
     'summarizes a compact command from the closed step reply with effort %s',
     async (effort) => {
@@ -22609,7 +22810,13 @@ describe('RunExecutionService executeRun — run segments', () => {
       );
 
       const segment = makeSegmentClient();
-      const execution = makeExecutionService(segment.client);
+      Object.assign(segment.client, { compactionThresholdTokens: 1 });
+      const execution = toolService(segment.client);
+
+      const prepareBoundary = vi.spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareBoundaryCompaction',
+      );
 
       const computeBoundarySummary = vi.spyOn(
         execution.compaction,
@@ -22625,8 +22832,13 @@ describe('RunExecutionService executeRun — run segments', () => {
         },
       });
       const options = segment.calls[0];
+
+      if (!options) throw new Error('model stream was not captured');
+
+      options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+      await executeBoundTool(options, { q: 'lookup' }, 'compact-delivery-call');
       signal.mockResolvedValueOnce('delivery');
-      await options?.stopWhenExtra?.();
+      await options.stopWhenExtra?.();
       options?.onReasoningDelta?.('private analysis', 'reasoning-1', {
         anthropic: { signature: 'private-signature' },
       });
@@ -22635,6 +22847,12 @@ describe('RunExecutionService executeRun — run segments', () => {
       await options?.onFinish?.(finishToolCalls);
 
       expect(computeBoundarySummary).toHaveBeenCalledOnce();
+      expect(prepareBoundary).toHaveBeenCalledWith(
+        expect.objectContaining({ automatic: true }),
+      );
+      expect(prepareBoundary.mock.calls[0]?.[0]).not.toHaveProperty(
+        'compactionSet',
+      );
       expect(listByRunId).toHaveBeenCalledWith(runId, userId, {
         eventTypes: ['run.delivered'],
       });
@@ -22669,6 +22887,88 @@ describe('RunExecutionService executeRun — run segments', () => {
       }
     },
   );
+
+  it('records a failed owner compaction when its command is the only delivered item', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    repositories.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    repositories.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const prepareBoundary = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareBoundaryCompaction',
+    );
+
+    const result = await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        ...userMessage,
+        seq: 4,
+        parts: [{ type: 'text', text: 'current request' }],
+      },
+    });
+
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    signal.mockResolvedValueOnce('delivery');
+    await options.stopWhenExtra?.();
+    options.onTextDelta?.('assistant answer before delivery');
+    serveDelivery([compact]);
+    await options.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    const continuation = segment.calls[1];
+
+    if (!continuation)
+      throw new Error('continued model stream was not captured');
+
+    await continuation.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      repositories.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
+    ).toContainEqual(
+      expect.objectContaining({ type: 'data-compaction-failed' }),
+    );
+    expect(prepareBoundary).toHaveBeenCalled();
+    expect(prepareBoundary.mock.calls[0]?.[0]).not.toHaveProperty('automatic');
+    expect(appended.map(({ type }) => type)).toContain('run.compaction_failed');
+  });
 
   it('projects only new assistant parts after a continued reply prefix', async () => {
     const repositories = mockNormalExecutionRepositories();
@@ -26165,6 +26465,39 @@ describe('RunExecutionService disabled automatic compaction state', () => {
       );
     },
   );
+
+  it('uses only the first usage receipt for the progress guard', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'compaction' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      deliveryEvent,
+    ]);
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 0 }), 1);
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
 
   it('does not arm the progress guard for a wake after prior compaction', async () => {
     mockNormalExecutionRepositories();
