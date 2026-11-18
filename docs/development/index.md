@@ -14,6 +14,8 @@ Contributor documentation. Not served to the assistant.
   pnpm, and the pnpm workspace contracts.
 - [Mutation gate redesign](mutation-gate-redesign.md): design record for the
   changed-lines mutation gate.
+- [Wayfinding](wayfinding.md): how planning maps and decision tickets
+  are expressed on GitHub issues.
 
 ## Harness comparison
 
