@@ -23,5 +23,7 @@ authoritative.
 | Out of scope      | Close the ticket as not planned and add one line to the map's Out of scope.                                                                                                           |
 | Research findings | Pushed to a throwaway `research/<name>` branch that is never merged; the ticket links to it.                                                                                          |
 
-A map may link to the implementation issues it informs, but those issues are
-never sub-issues of the map: the map's children are its decisions only.
+Implementation issues a map or ticket informs are linked with GitHub's native
+"relates to" relationship (the `addRelatesTo` GraphQL mutation; `gh` has no
+flag for it), never as sub-issues: the map's children are its decisions only.
+A body mention does not create the link.
