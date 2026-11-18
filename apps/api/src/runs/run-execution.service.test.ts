@@ -22091,6 +22091,8 @@ describe('RunExecutionService executeRun — run segments', () => {
       'listPending',
     ).mockResolvedValue([compact]);
 
+    const listByRunId = vi.spyOn(RunEventsRepository.prototype, 'listByRunId');
+
     const signal = vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'stepEndSignal',
@@ -22130,6 +22132,10 @@ describe('RunExecutionService executeRun — run segments', () => {
     await expect(segment.calls[0]?.stopWhenExtra?.()).resolves.toBe(true);
     serveDelivery([compact]);
     await segment.calls[0]?.onFinish?.(finishToolCalls);
+    expect(listByRunId).toHaveBeenCalledWith(runId, userId, {
+      eventTypes: ['run.delivered'],
+    });
+
     expect(summarize).toHaveBeenCalled();
 
     const compactionNoticeData: unknown = expect.objectContaining({
