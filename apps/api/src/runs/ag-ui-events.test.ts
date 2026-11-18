@@ -76,6 +76,36 @@ describe('createAgUiEncoder', () => {
     ]);
   });
 
+  it('carries a live step title to AG-UI without exposing it as executor input', () => {
+    expect(
+      streamOf([
+        {
+          eventType: 'tool.requested',
+          payload: {
+            toolCallId: 'intent-call',
+            toolName: 'read',
+            intent: 'Reading the source file',
+            input: { path: '/work/a.txt' },
+          },
+        },
+      ]),
+    ).toEqual([
+      { type: 'RUN_STARTED', threadId: THREAD_ID, runId: RUN_ID },
+      {
+        type: 'TOOL_CALL_START',
+        toolCallId: 'intent-call',
+        toolCallName: 'read',
+        metadata: { llame: { intent: 'Reading the source file' } },
+      },
+      {
+        type: 'TOOL_CALL_ARGS',
+        toolCallId: 'intent-call',
+        delta: '{"path":"/work/a.txt"}',
+      },
+      { type: 'TOOL_CALL_END', toolCallId: 'intent-call' },
+    ]);
+  });
+
   it('gives each text part its own message id so text never merges across a tool call or reasoning', () => {
     const events = encodeAll([
       { type: 'text-start', id: 'text-1' },

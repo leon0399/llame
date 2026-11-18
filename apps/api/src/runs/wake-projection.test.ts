@@ -21,6 +21,7 @@ function firstWakeEvents(
       toolCallId: 'wait-1',
       toolName: 'wait',
       stepNumber: 0,
+      intent: 'Waiting for the command',
       permission: {
         policyId: 'policy-1',
         decision: 'allow',
@@ -69,6 +70,7 @@ describe('wakeStateFromEvents', () => {
     });
     expect(state?.parts[1]).toMatchObject({
       toolCallId: 'wait-1',
+      intent: 'Waiting for the command',
       permission: {
         policyId: 'policy-1',
         decision: 'allow',

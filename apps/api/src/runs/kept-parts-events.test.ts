@@ -75,6 +75,20 @@ describe('keptPartEvents', () => {
     ]);
   });
 
+  it('retains the step title on Continue without moving it into executor arguments', () => {
+    expect(
+      keptPartEvents([{ ...CALL, intent: 'Inspecting the source file' }])[0],
+    ).toEqual({
+      eventType: 'tool.requested',
+      payload: {
+        toolCallId: 'call-1',
+        toolName: 'read',
+        input: { path: '/work/a.txt' },
+        intent: 'Inspecting the source file',
+      },
+    });
+  });
+
   it('replays a kept failed call as an error completion with its message', () => {
     const events = keptPartEvents([
       {

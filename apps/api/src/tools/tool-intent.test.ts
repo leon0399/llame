@@ -24,7 +24,7 @@ it('requires intent on the model envelope without changing executor validation',
   ).toBe(false);
 });
 
-it.each(['', 'x'.repeat(121), 42, null])(
+it.each(['', '   \n\t', 'x'.repeat(121), 42, null])(
   'refuses malformed intent in the model envelope: %j',
   (i) => {
     expect(
@@ -35,6 +35,19 @@ it.each(['', 'x'.repeat(121), 42, null])(
     ).toBe(false);
   },
 );
+
+it('requires only the intent for an otherwise optional argument object', () => {
+  const schema = withToolIntent('read', {
+    type: 'object',
+    properties: { path: { type: 'string' } },
+    additionalProperties: false,
+  });
+
+  expect(safeParseArgs(schema, {}).success).toBe(false);
+  expect(safeParseArgs(schema, { i: 'Listing allowed roots' }).success).toBe(
+    true,
+  );
+});
 
 it('leaves an MCP server own i argument under its original schema', () => {
   const serverSchema = {
