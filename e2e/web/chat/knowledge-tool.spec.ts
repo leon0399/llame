@@ -42,12 +42,9 @@ const modelId = "system:openai:gpt-5.4-mini";
 const longNotePath = "notes/long-note.md";
 const pagedQuery = "KNOWLEDGE_E2E_PAGED";
 
-// The `read` tool's rendered title is the bare id ("read"). `ToolHeader`
-// renders that title span immediately followed by the status badge span with
-// no separating text node, so a card's text reads "readCompleted" and a
-// `/\bread\b/` filter matches nothing at all. Anchor at the start instead and
-// exclude the longer ids that end in `_read`.
-const readToolFilter = /^read(?![a-z_])/u;
+// Match the tool identity exposed beside its intent/action and lifecycle state,
+// excluding longer ids such as conversation_read.
+const readToolFilter = /\bread, /u;
 
 type KnowledgeSpaceResponse = {
   id: string;

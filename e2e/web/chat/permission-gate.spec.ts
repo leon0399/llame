@@ -27,7 +27,7 @@ test("rejects a Bash call, continues with an allowed read, and persists the deci
 
   const bashCard = log
     .getByRole("button")
-    .filter({ hasText: /^bash/u })
+    .filter({ hasText: /\bbash, /u })
     .first();
 
   await expect(bashCard).toContainText("Error", { timeout: 30_000 });
@@ -39,7 +39,7 @@ test("rejects a Bash call, continues with an allowed read, and persists the deci
   // The rejected call does not stop the Run: the allowed read still executes.
   const readCard = log
     .getByRole("button")
-    .filter({ hasText: /^read/u })
+    .filter({ hasText: /\bread, /u })
     .first();
 
   await expect(readCard).toBeVisible({ timeout: 30_000 });
@@ -52,7 +52,7 @@ test("rejects a Bash call, continues with an allowed read, and persists the deci
   const reloadedBash = page
     .getByRole("log")
     .getByRole("button")
-    .filter({ hasText: /^bash/u })
+    .filter({ hasText: /\bbash, /u })
     .first();
 
   await expect(reloadedBash).toContainText("Error", { timeout: 30_000 });

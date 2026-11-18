@@ -2299,6 +2299,28 @@ export const FoldedSteps: Story = {
     await userEvent.click(summary);
     await expect(await canvas.findByText("pnpm typecheck")).toBeVisible();
     await expect(canvas.getByText("All three checks pass.")).toBeVisible();
+
+    const tool = canvas.getByRole("button", {
+      name: /pnpm lint.*bash, Completed/u,
+    });
+
+    await userEvent.click(tool);
+    await expect(
+      canvas.getByLabelText("Command and standard output"),
+    ).toBeVisible();
+    summary.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect(summary).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() =>
+      expect(
+        canvas.getByLabelText("Command and standard output"),
+      ).not.toBeVisible(),
+    );
+    await userEvent.keyboard("{Enter}");
+    await expect(tool).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      canvas.getByLabelText("Command and standard output"),
+    ).toBeVisible();
   },
 };
 

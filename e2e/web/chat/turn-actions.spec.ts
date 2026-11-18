@@ -88,7 +88,10 @@ test("regenerates a completed answer after confirming the calls it discards", as
 
   const log = page.getByRole("log");
   await expect(
-    log.getByRole("button").filter({ hasText: /^bash/u }).first(),
+    log
+      .getByRole("button")
+      .filter({ hasText: /\bbash, /u })
+      .first(),
   ).toBeVisible({ timeout: 30_000 });
 
   const answer = log.getByText("Here are the past conversations", {
@@ -144,6 +147,9 @@ test("regenerates a completed answer after confirming the calls it discards", as
     timeout: 30_000,
   });
   await expect(
-    page.getByRole("log").getByRole("button").filter({ hasText: /^bash/u }),
+    page
+      .getByRole("log")
+      .getByRole("button")
+      .filter({ hasText: /\bbash, /u }),
   ).toHaveCount(1, { timeout: 30_000 });
 });

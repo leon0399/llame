@@ -3,7 +3,7 @@
  *
  * The mock model requests bash only for the unique marker below. The real api
  * then admits the host tool, executes a command that prints an absolute path,
- * and renders its non-zero exit as the ordinary tool error panel.
+ * and renders its non-zero exit with the command's terminal output and details.
  */
 
 import { readyComposer } from "../../support/composer";
@@ -25,7 +25,7 @@ test("renders host bash output and a non-zero exit code", async ({ page }) => {
 
   const bashCard = log
     .getByRole("button")
-    .filter({ hasText: /^bash/u })
+    .filter({ hasText: /\bbash, /u })
     .first();
 
   await expect(bashCard).toContainText("Error", { timeout: 30_000 });
@@ -33,13 +33,17 @@ test("renders host bash output and a non-zero exit code", async ({ page }) => {
   await bashCard.click();
   const details = bashCard.locator("..");
 
-  const errorPanel = details
-    .locator("h4")
-    .filter({ hasText: "Error" })
-    .locator("..");
+  const terminal = details.getByLabel("Command and standard output");
 
-  // A failing command reads as the same text shape a success does: the exit
-  // code in the header, then the streams.
-  await expect(errorPanel).toContainText("exit 7");
-  await expect(errorPanel).toContainText(BASH_OUTPUT_PATH);
+  const stdout = await terminal.locator("code").evaluate((code) =>
+    Array.from(code.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent)
+      .join(""),
+  );
+
+  expect(stdout).toBe(`${BASH_OUTPUT_PATH}\n`);
+  await expect(
+    details.getByText("Exit code:", { exact: true }).locator(".."),
+  ).toHaveText(/Exit code:\s*7/u);
 });
