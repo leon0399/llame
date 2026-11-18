@@ -22264,6 +22264,13 @@ describe('RunExecutionService executeRun — run segments', () => {
         parts: [{ type: 'text', text: 'Newest owner request' }],
         seq: 4,
       },
+      {
+        ...userMessage,
+        id: 'host-message',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'host continuation' }],
+        seq: 5,
+      },
     ]);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
@@ -22282,13 +22289,13 @@ describe('RunExecutionService executeRun — run segments', () => {
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
     vi.spyOn(execution.compaction, 'computeBoundarySummary').mockResolvedValue(
-      checkpointSummary(4),
+      checkpointSummary(5),
     );
     serveCheckpointPublication();
 
     await execution.service.executeRun({
       ...executionInput(segment.client),
-      userMessage: { ...userMessage, seq: 5, parts: [] },
+      userMessage: { ...userMessage, seq: 6, parts: [] },
     });
     signal.mockResolvedValueOnce('delivery');
     await segment.calls[0]?.stopWhenExtra?.();
