@@ -84,7 +84,6 @@ export const Pending: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Pending")).toBeInTheDocument();
     await expect(canvas.getByText("Parameters")).toBeInTheDocument();
   },
 };
@@ -108,7 +107,6 @@ export const NoInputYet: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Pending")).toBeInTheDocument();
     await expect(canvas.queryByText("Parameters")).not.toBeInTheDocument();
   },
 };
@@ -150,7 +148,6 @@ export const Running: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Running")).toBeInTheDocument();
     await expect(canvas.getByText("Parameters")).toBeInTheDocument();
     await expect(canvas.queryByText("Result")).not.toBeInTheDocument();
   },
@@ -196,22 +193,12 @@ export const Cancelled: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getAllByText("Cancelled")).toHaveLength(2);
-
     const message = canvas.getByText(
       "The run was cancelled before this tool finished.",
     );
 
     await expect(message).toBeInTheDocument();
     await expect(canvas.queryByText("Error")).not.toBeInTheDocument();
-    await expect(message.parentElement).toHaveClass(
-      "bg-muted/50",
-      "text-foreground",
-    );
-    await expect(message.parentElement).not.toHaveClass(
-      "bg-destructive/10",
-      "text-destructive",
-    );
   },
 };
 
@@ -292,9 +279,89 @@ export const Completed: Story = {
       </ToolContent>
     </Tool>
   ),
+};
+
+/**
+ * A long command's compact action must leave room for its intent. The expanded
+ * Parameters group still exposes every character of the command.
+ *
+ * @summary an intent stays readable beside a truncated command preview
+ */
+export const LongCommandWithIntent: Story = {
+  render: () => {
+    const command = `echo ${"item ".repeat(100)}`;
+
+    return (
+      <div className="w-80">
+        <Tool>
+          <ToolHeader
+            type="tool-bash"
+            state="output-available"
+            intent="Inspecting output"
+            summary={command}
+          />
+          <ToolContent>
+            <ToolInput input={{ command }} />
+            <ToolOutput output="Command completed." errorText={undefined} />
+          </ToolContent>
+        </Tool>
+      </div>
+    );
+  },
+  play: async ({ canvas, userEvent }) => {
+    const header = canvas.getByRole("button", { name: /Inspecting output/u });
+    const title = canvas.getByText("Inspecting output", { exact: true });
+
+    await expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth);
+    await expect(title.scrollWidth).toBeLessThanOrEqual(title.clientWidth);
+    await userEvent.click(header);
+    await expect(
+      canvas.getByRole("group", { name: "Parameters" }).textContent,
+    ).toContain(`echo ${"item ".repeat(100)}`);
+  },
+};
+
+/**
+ * When a transcript has room, neither a compact intent nor its command preview
+ * should be shortened merely because one is wider than the other.
+ *
+ * @summary wide tool lines use available space before truncating either preview
+ */
+export const WideIntentPreviews: Story = {
+  render: () => (
+    <div className="w-full">
+      {[
+        { intent: "Checking lint", command: "pnpm --filter web lint" },
+        { intent: "Inspecting the generated migration journal", command: "ls" },
+      ].map(({ intent, command }) => (
+        <Tool key={intent}>
+          <ToolHeader
+            type="tool-bash"
+            state="output-available"
+            intent={intent}
+            summary={command}
+          />
+          <ToolContent>
+            <ToolInput input={{ command }} />
+          </ToolContent>
+        </Tool>
+      ))}
+    </div>
+  ),
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Completed")).toBeInTheDocument();
-    await expect(canvas.getByText("Result")).toBeInTheDocument();
+    for (const header of canvas.getAllByRole("button")) {
+      for (const slot of ["trace-title", "trace-description"]) {
+        const preview = header.querySelector<HTMLElement>(
+          `[data-slot="${slot}"]`,
+        );
+
+        if (preview === null)
+          throw new Error("Expected the intent and action preview");
+        await expect(preview.scrollWidth).toBeLessThanOrEqual(
+          preview.clientWidth,
+        );
+      }
+    }
   },
 };
 
@@ -346,8 +413,6 @@ export const Failed: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    // "Error" appears twice — the status badge and the output panel heading.
-    await expect(canvas.getAllByText("Error").length).toBeGreaterThan(0);
     await expect(
       canvas.getByText(
         "Connection timeout: The request took longer than 5000ms to complete. Please check your network connection and try again.",

@@ -467,12 +467,14 @@ export function ChatTranscript({
             several-thousand-message walk still measures heavy after that. */}
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {/* The message column's own rhythm: 20px gutters, 48px of air above
-              and below, 48px between rows — the 32px the primitive's gap-8
-              gave plus the 16px each row carried as a `space-y-4` margin.
-              Both now come from this wrapper's gap-12, and its negative margin
-              cancels the primitive's p-4 so the wrapper, not the component,
-              sets the inset. */}
-          <div className="-m-4 flex flex-col gap-12 px-5 py-12">
+              and below, and 10px between rows: the gap `MessageContent` puts
+              between a message and its actions, repeated between the actions
+              and the next message. A row ends in its action row, invisible
+              until the row is hovered or focused, so the air between two
+              messages is that row plus both gaps. The negative margin cancels
+              the primitive's p-4 so the wrapper, not the component, sets the
+              inset. */}
+          <div className="-m-4 flex flex-col gap-2.5 px-5 py-12">
             <ChatTranscriptBody {...props} />
           </div>
         </ConversationContent>

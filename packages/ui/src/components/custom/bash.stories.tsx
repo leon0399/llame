@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, within } from "storybook/test";
+import { expect } from "storybook/test";
 
 import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { BashTool } from "./bash.js";
@@ -47,13 +47,12 @@ export const Basic: Story = {
   tags: ["ai-generated"],
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    await expect(canvas.getByText("exit 0")).toBeInTheDocument();
-    await expect(
-      canvas.getByRole("group", { name: "Standard output" }),
-    ).toHaveTextContent("README.md");
-    await expect(
-      canvas.queryByRole("group", { name: "Standard error" }),
-    ).not.toBeInTheDocument();
+
+    const output = canvas.getByLabelText("Command and standard output");
+
+    await expect(output).toHaveTextContent(/apps\/\s+packages\/\s+README.md/u);
+    output.focus();
+    await expect(output).toHaveFocus();
     // The arguments already show as the prompt.
     await expect(canvas.queryByText("Parameters")).not.toBeInTheDocument();
   },
@@ -77,11 +76,9 @@ export const WorkingDirectoryAndEnvironment: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    await expect(canvas.getByText("in /home/operator/repo")).toBeVisible();
-    await expect(canvas.getByText("env CI=1")).toBeVisible();
-    await expect(
-      canvas.getByRole("group", { name: "Standard error" }),
-    ).toHaveTextContent("warn: peer dependency");
+    await expect(canvas.getByText(/\/home\/operator\/repo/u)).toBeVisible();
+    await expect(canvas.getByText(/CI=1/u)).toBeVisible();
+    await expect(canvas.getByText("warn: peer dependency")).toBeVisible();
   },
 };
 
@@ -93,10 +90,6 @@ export const WorkingDirectoryAndEnvironment: Story = {
 export const NoOutput: Story = {
   tags: ["ai-generated"],
   args: { input: { command: "true" }, output: { ...success, stdout: "" } },
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    await expect(canvas.getByText("No output.")).toBeInTheDocument();
-  },
 };
 
 /**
@@ -150,13 +143,14 @@ export const Failed: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    const error = canvas.getByRole("group", { name: "Error" });
-    await expect(error).toHaveTextContent("exit 1, 2.4 s");
-    await expect(error).toHaveTextContent("[stderr]");
-    await expect(within(error).getByText(/AssertionError/u)).toBeVisible();
-    await expect(
-      canvas.getByText("pnpm test", { selector: "p" }),
-    ).toBeVisible();
+    const result = canvas.getByRole("group", { name: "Error" });
+
+    await expect(result).toHaveProperty(
+      "textContent",
+      "exit 1, 2.4 s\n1 failed\n[stderr]\nAssertionError",
+    );
+    result.focus();
+    await expect(result).toHaveFocus();
   },
 };
 
@@ -168,10 +162,6 @@ export const Failed: Story = {
 export const Running: Story = {
   tags: ["ai-generated"],
   args: { output: undefined, state: "input-available" as const },
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    await expect(canvas.getByText("Running…")).toBeInTheDocument();
-  },
 };
 
 /**

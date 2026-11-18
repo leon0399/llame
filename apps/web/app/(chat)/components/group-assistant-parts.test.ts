@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 
-import { groupAssistantParts } from "./group-assistant-parts";
+import { groupAssistantParts, groupReplyBlocks } from "./group-assistant-parts";
 
 const reasoning = (
   text: string,
@@ -169,5 +169,42 @@ describe("groupAssistantParts", () => {
     groupAssistantParts(parts);
 
     expect(parts).toEqual(before);
+  });
+});
+
+/** The kind of each block, with a steps block's step count. */
+function replyOutline(parts: UIMessage["parts"]): Array<string> {
+  return groupReplyBlocks(groupAssistantParts(parts)).map((block) =>
+    block.kind === "steps" ? `steps:${block.steps.length}` : block.kind,
+  );
+}
+
+describe("groupReplyBlocks", () => {
+  it("folds a run of thinking and tool calls into one block of steps", () => {
+    expect(
+      replyOutline([reasoning("plan"), tool("c1"), tool("c2"), text("answer")]),
+    ).toEqual(["steps:3", "part"]);
+  });
+
+  it("starts a new run of steps after each piece of the answer", () => {
+    expect(
+      replyOutline([
+        tool("c1"),
+        text("first"),
+        reasoning("check"),
+        tool("c2"),
+        text("second"),
+      ]),
+    ).toEqual(["steps:1", "part", "steps:2", "part"]);
+  });
+
+  it("keeps the steps of a run in their stored order", () => {
+    const [block] = groupReplyBlocks(
+      groupAssistantParts([tool("c1"), reasoning("between"), tool("c2")]),
+    );
+
+    expect(
+      block?.kind === "steps" ? block.steps.map((s) => s.kind) : [],
+    ).toEqual(["tool", "reasoning", "tool"]);
   });
 });

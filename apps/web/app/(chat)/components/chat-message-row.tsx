@@ -1,40 +1,21 @@
 import type { ReactNode } from "react";
 
-import {
-  Message,
-  MessageContent,
-} from "@workspace/ui/components/ai-elements/message";
-import {
-  Reasoning,
-  ReasoningTrigger,
-} from "@workspace/ui/components/ai-elements/reasoning";
 import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-  type ToolHeaderState,
-} from "@workspace/ui/components/ai-elements/tool";
-import {
-  getToolName,
-  isToolUIPart,
-  type ChatStatus,
-  type DynamicToolUIPart,
-  type ToolUIPart,
-  type UIMessage,
-} from "ai";
+import { Bubble, BubbleContent } from "@workspace/ui/components/bubble";
+import { Message, MessageContent } from "@workspace/ui/components/message";
+import type { ChatStatus, UIMessage } from "ai";
 import { FileSearchIcon, PencilIcon } from "lucide-react";
 
 import { cn } from "@workspace/ui/lib/utils";
 
-import { dedicatedToolRow } from "./dedicated-tool-row";
 import { MessageActionButton } from "./message-action-button";
 import {
   groupAssistantParts,
-  type NonReasoningPart,
+  groupReplyBlocks,
+  type GroupedAssistantPart,
+  type PlainPart,
 } from "./group-assistant-parts";
+import { StepsBlock } from "./message-steps";
 import { hasVisibleContent, isVisibleSegment } from "./message-visibility";
 import { InstructionsPart } from "./instructions-part";
 import { HostNoticePart } from "./job-notice-part";
@@ -76,92 +57,6 @@ import {
 // handles so bodies land in one paint. TODO(#417): server-rendered markdown
 // per message under 'use cache' removes the client wait.
 
-function toolHeaderState(
-  part: ToolUIPart | DynamicToolUIPart,
-): ToolHeaderState {
-  return part.state === "output-error" &&
-    part.resultProviderMetadata?.llame?.cancelled === true
-    ? "cancelled"
-    : (part.state ?? "input-streaming");
-}
-
-/** A tool call/result part — its own component since a tool's header + output
- *  block carries real internal structure. */
-function ToolPartView({ part }: { part: UIMessage["parts"][number] }) {
-  if (!isToolUIPart(part)) return null;
-  const toolName = getToolName(part);
-  const toolState = toolHeaderState(part);
-
-  return (
-    <Tool>
-      <ToolHeader
-        type={`tool-${toolName}`}
-        state={toolState}
-        title={part.type === "dynamic-tool" ? toolName : undefined}
-      />
-      <ToolContent>
-        <ToolInput input={part.input} />
-        <ToolOutput
-          output={part.output}
-          errorText={part.errorText}
-          state={
-            toolState === "cancelled"
-              ? "cancelled"
-              : part.state === "output-error"
-                ? "output-error"
-                : undefined
-          }
-        />
-      </ToolContent>
-    </Tool>
-  );
-}
-
-/** One Thinking panel for a run of consecutive reasoning parts: the run is a
- *  single visual thought until a tool or visible text part interrupts it.
- *  `ReasoningContent` repairs glued summary headings at display; the parts
- *  themselves keep the provider's exact text. */
-function ReasoningPanel({
-  text,
-  isStreaming,
-  renderers,
-}: {
-  text: string;
-  isStreaming: boolean;
-  renderers: ChatMarkdownRenderers;
-}) {
-  const ReasoningContent = renderers.ReasoningContent;
-
-  return (
-    <Reasoning isStreaming={isStreaming} defaultOpen={false}>
-      <ReasoningTrigger />
-      <ReasoningContent>{text}</ReasoningContent>
-    </Reasoning>
-  );
-}
-
-/** A tool call/result: its dedicated row, else the generic tool block. */
-function ToolUIPartView({
-  part,
-  renderers,
-}: {
-  part: ToolUIPart | DynamicToolUIPart;
-  renderers: ChatMarkdownRenderers;
-}) {
-  const row = dedicatedToolRow({
-    toolName: getToolName(part),
-    props: {
-      input: part.input,
-      output: part.output,
-      errorText: part.errorText,
-      state: toolHeaderState(part),
-    },
-    renderers,
-  });
-
-  return row ?? <ToolPartView part={part} />;
-}
-
 /** Renders one non-reasoning message part — text, a tool call/result, a
  *  step-cap notice, the instructions or prompt-imports chip, or a
  *  server-authored context item this build does not render (the walk
@@ -170,17 +65,13 @@ function MessagePartView({
   part,
   renderers,
 }: {
-  part: NonReasoningPart;
+  part: PlainPart;
   renderers: ChatMarkdownRenderers;
 }) {
   if (part.type === "text") {
     const MessageResponse = renderers.MessageResponse;
 
     return <MessageResponse>{part.text}</MessageResponse>;
-  }
-
-  if (isToolUIPart(part)) {
-    return <ToolUIPartView part={part} renderers={renderers} />;
   }
 
   if (part.type === "data-compaction-failed") {
@@ -418,35 +309,51 @@ type ChatMessageRowProps = ChatMessageActionProps & {
   isLast: boolean;
 };
 
-/** Walks the stored parts as grouped segments, so consecutive reasoning parts
- *  share one Thinking panel and everything else renders in stored order. */
+/** Empty answer starts do not move a streaming reply past its steps. */
+function isVisibleReplySegment(segment: GroupedAssistantPart) {
+  return (
+    isVisibleSegment(segment) &&
+    (segment.kind === "reasoning" ||
+      segment.part.type !== "text" ||
+      segment.part.text.trim() !== "")
+  );
+}
+
+/** Walks the stored parts as blocks: each run of steps (thinking and tool
+ *  calls) is one trace, and everything else renders in stored order. Only the
+ *  last block of a reply that is still streaming can be running. */
 function MessageSegments({
   parts,
   renderKey,
   renderers,
+  streaming,
 }: {
   parts: UIMessage["parts"];
   renderKey: string;
   renderers: ChatMarkdownRenderers;
+  streaming: boolean;
 }) {
-  return groupAssistantParts(parts).map((segment) => {
-    if (!isVisibleSegment(segment)) return null;
+  const blocks = groupReplyBlocks(
+    groupAssistantParts(parts).filter(isVisibleReplySegment),
+  );
 
-    if (segment.kind !== "reasoning") {
+  return blocks.map((block, at) => {
+    if (block.kind === "steps") {
       return (
-        <MessagePartView
-          key={`message-part-${renderKey}-${segment.index}`}
-          part={segment.part}
+        <StepsBlock
+          key={`message-steps-${renderKey}-${block.startIndex}`}
+          block={block}
+          running={streaming && at === blocks.length - 1}
+          renderKey={renderKey}
           renderers={renderers}
         />
       );
     }
 
     return (
-      <ReasoningPanel
-        key={`message-part-${renderKey}-${segment.startIndex}`}
-        text={segment.text}
-        isStreaming={segment.isStreaming}
+      <MessagePartView
+        key={`message-part-${renderKey}-${block.index}`}
+        part={block.part}
         renderers={renderers}
       />
     );
@@ -470,34 +377,44 @@ function MessageNotice({ message }: { message: UIMessage }) {
   });
 }
 
-/** The row's bubble: the pending shimmer or the stored parts. A turn whose
- *  parts all paint nothing (an image-only owner message) keeps its row and
- *  footer but no empty bubble. */
+/** The row's body: the pending shimmer or the stored parts — the owner's in a
+ *  bubble, the reply's flush with the column. A turn whose parts all paint
+ *  nothing (an image-only owner message) keeps its row and footer but no empty
+ *  bubble. */
 function MessageBubble({
+  from,
   mode,
   parts,
   renderKey,
   renderers,
+  streaming,
 }: {
+  from: UIMessage["role"];
   mode: MessageRowMode;
   parts: UIMessage["parts"];
   renderKey: string;
   renderers: ChatMarkdownRenderers;
+  streaming: boolean;
 }) {
-  if (mode !== "pending" && !hasVisibleContent(parts)) return null;
+  if (mode === "pending") return <Shimmer as="span">Thinking…</Shimmer>;
 
-  return (
-    <MessageContent>
-      {mode === "pending" ? (
-        <Shimmer as="span">Thinking…</Shimmer>
-      ) : (
-        <MessageSegments
-          parts={parts}
-          renderKey={renderKey}
-          renderers={renderers}
-        />
-      )}
-    </MessageContent>
+  if (!hasVisibleContent(parts)) return null;
+
+  const segments = (
+    <MessageSegments
+      parts={parts}
+      renderKey={renderKey}
+      renderers={renderers}
+      streaming={streaming}
+    />
+  );
+
+  return from === "user" ? (
+    <Bubble align="end" variant="muted">
+      <BubbleContent>{segments}</BubbleContent>
+    </Bubble>
+  ) : (
+    segments
   );
 }
 
@@ -517,15 +434,7 @@ function hostMessageRow(
   ) : null;
 }
 
-function VisibleChatMessage({
-  message,
-  messageSeq,
-  mode,
-  renderKey,
-  renderers,
-  footerProps,
-  isLast,
-}: {
+type VisibleChatMessageProps = {
   message: UIMessage;
   messageSeq: number | null;
   mode: MessageRowMode;
@@ -533,25 +442,35 @@ function VisibleChatMessage({
   renderers: ChatMarkdownRenderers;
   footerProps: ChatMessageActionProps;
   isLast: boolean;
-}) {
+};
+
+function VisibleChatMessage(props: VisibleChatMessageProps) {
+  const { message, messageSeq, renderKey, footerProps, isLast } = props;
+  const { status } = footerProps;
+
   return (
+    // `Message` names the `group/message` the action row reveals on, so no
+    // outer `group` can trigger it.
     <Message
       id={messageSeq === null ? undefined : `msg-${messageSeq}`}
-      from={message.role}
-      // Names the group the action row reveals on, so no outer `group`
-      // can trigger it.
-      className="group/message"
+      align={message.role === "user" ? "end" : "start"}
       data-message-key={renderKey}
     >
-      <MessageAttachments message={message} />
-      <MessageNotice message={message} />
-      <MessageBubble
-        mode={mode}
-        parts={message.parts}
-        renderKey={renderKey}
-        renderers={renderers}
-      />
-      <ChatMessageFooter {...footerProps} isLast={isLast} />
+      <MessageContent>
+        <MessageAttachments message={message} />
+        <MessageNotice message={message} />
+        <MessageBubble
+          from={message.role}
+          mode={props.mode}
+          parts={message.parts}
+          renderKey={renderKey}
+          renderers={props.renderers}
+          streaming={
+            isLast && (status === "submitted" || status === "streaming")
+          }
+        />
+        <ChatMessageFooter {...footerProps} isLast={isLast} />
+      </MessageContent>
     </Message>
   );
 }

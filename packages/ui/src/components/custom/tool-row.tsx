@@ -12,7 +12,12 @@ import {
   ToolOutput,
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
-import { ScrollRegion } from "@workspace/ui/components/custom/scroll-region";
+import {
+  CodeBlock,
+  CodeBlockContent,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "@workspace/ui/components/code-block";
 
 /** What every dedicated tool row receives from its message part. */
 export type ToolPartProps = {
@@ -104,7 +109,7 @@ export function ToolResultFallback({
   pendingLabel?: string;
 }): ReactElement {
   return output === undefined ? (
-    <p className="p-4 text-muted-foreground text-sm">{pendingLabel}</p>
+    <p className="text-muted-foreground text-sm">{pendingLabel}</p>
   ) : (
     <ToolOutput output={output} errorText={undefined} />
   );
@@ -123,7 +128,7 @@ export function ToolSection({
   children: ReactNode;
 }): ReactElement {
   return (
-    <div className="space-y-2 px-4 py-3">
+    <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-4">
         <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
           {label}
@@ -140,7 +145,7 @@ export function ToolSection({
 }
 
 /** Verbatim monospace text in a height-capped, keyboard-reachable region:
- *  command output, excerpts, remote tool text. */
+ *  command output, excerpts, remote tool text. `label` titles the block. */
 export function ToolText({
   label,
   text,
@@ -149,11 +154,14 @@ export function ToolText({
   text: string;
 }): ReactElement {
   return (
-    <ScrollRegion label={label} className="rounded-md bg-muted/50">
-      <pre className="whitespace-pre-wrap break-words p-3 font-mono text-xs">
+    <CodeBlock size="sm">
+      <CodeBlockHeader>
+        <CodeBlockTitle>{label}</CodeBlockTitle>
+      </CodeBlockHeader>
+      <CodeBlockContent wrap className="max-h-64" aria-label={label}>
         {text}
-      </pre>
-    </ScrollRegion>
+      </CodeBlockContent>
+    </CodeBlock>
   );
 }
 
@@ -170,7 +178,7 @@ export function ToolDetails({
   if (shown.length === 0) return null;
 
   return (
-    <ul className="space-y-0.5 border-border border-t px-4 py-3 text-muted-foreground text-xs">
+    <ul className="space-y-0.5 border-border border-t pt-3 text-muted-foreground text-xs">
       {shown.map(([label, value], index) => (
         <li className="break-words" key={`${label}-${index}`}>
           <span className="font-medium">{label}:</span> {value}

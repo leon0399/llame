@@ -17,6 +17,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Refused HTTP sends restore the owner's draft text and images; late callbacks
   from a departed engine cannot affect a replacement for the same Chat.
 
+- Restyle the transcript with shadcn/ui AI Elements Trace, Message, and Bubble
+  components. A tool call or a thought is one line that expands into its
+  detail, and a run of four or more between two pieces of the answer folds
+  into one "Worked through N steps" line once the answer moves on, open while
+  it is still running. Bash output uses a terminal trace with exact command,
+  standard output, standard error, and exit status. Failed calls stay visible
+  in folded summaries. Empty answer-start events do not prematurely fold live
+  steps. Named, keyboard-focusable groups expose tool inputs and results;
+  compact intent lines constrain long command previews without hiding their
+  expanded input. Message rows use the same 10px gap as their action rows.
+  The scroll-to-latest icon has an accessible name when the reader moves away
+  from the bottom.
+
 # 2026-11-17
 
 - Size decision-model requests by the model. A `decisionModels[]` entry can

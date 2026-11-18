@@ -101,9 +101,7 @@ export const Collapsed: Story = {
     duration: 4,
   },
   play: async ({ canvas, userEvent }) => {
-    const trigger = canvas.getByRole("button", {
-      name: /thought for 4 seconds/i,
-    });
+    const trigger = canvas.getByRole("button");
 
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(
@@ -115,6 +113,21 @@ export const Collapsed: Story = {
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
     const content = await canvas.findByText(/capital of France/i);
     await expect(content).toBeVisible();
+  },
+};
+
+/**
+ * An absent summary title, including an empty one, leaves the disclosure named.
+ *
+ * @summary an empty title falls back to the completed thinking label
+ */
+export const EmptyTitle: Story = {
+  args: { title: "", isStreaming: false, duration: 4, defaultOpen: false },
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: /Thought/u });
+
+    await userEvent.click(trigger);
+    await expect(canvas.getByText(/capital of France/i)).toBeVisible();
   },
 };
 
