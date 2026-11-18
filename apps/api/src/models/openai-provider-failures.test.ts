@@ -9,6 +9,10 @@ import { createOpenAIModelClient } from './openai-model-client';
 import { ProviderFailure } from './provider-failure/provider-failure';
 import { createAnthropicModelClient } from './anthropic-model-client';
 
+vi.mock('node:timers/promises', () => ({
+  setTimeout: () => Promise.resolve(),
+}));
+
 const CHAT = { id: 'failure-test', lane: 'main' } as const;
 
 const messages = [
@@ -300,7 +304,7 @@ describe('OpenAI Responses provider failures', () => {
     expect(error.resetsAt).toBeLessThan(receivedAt + 10_000);
   });
 
-  it('leaves retryable Responses request failures available to SDK retries', async () => {
+  it('recovers a transient Responses rejection through llame-owned retry', async () => {
     let requestCount = 0;
 
     const fetchMock = vi.fn(
@@ -338,9 +342,14 @@ describe('OpenAI Responses provider failures', () => {
       fetch: fetchMock,
     });
 
+    const onRetry = vi.fn();
+
     await expect(
-      client.streamText({ chat: CHAT, messages }).text,
+      client.streamText({ chat: CHAT, messages, onRetry }).text,
     ).resolves.toBe('ok');
-    expect(requestCount).toBeGreaterThan(1);
+    expect(requestCount).toBe(2);
+    expect(onRetry).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'overloaded', retry: 1 }),
+    );
   });
 });

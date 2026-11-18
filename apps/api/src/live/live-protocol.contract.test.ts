@@ -119,7 +119,7 @@ describe('live protocol contract', () => {
         run: liveRunRecord({
           status: 'failed',
           effort: 'high',
-          error: { code: 'model_stream_idle' },
+          error: { code: 'first_token_timeout' },
           finishedAt: new Date(),
         }),
       },
