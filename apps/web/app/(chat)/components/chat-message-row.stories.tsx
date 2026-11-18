@@ -615,6 +615,69 @@ export const PendingIndicator: Story = {
   },
 };
 
+/** A replayed retry replaces the pending indicator until the next part arrives. */
+export const OverloadedProvider: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: {
+      ...PENDING_MESSAGE,
+      parts: [
+        {
+          type: "data-model-retrying",
+          data: { code: "overloaded", retry: 3, delayMs: 1000 },
+        },
+      ],
+    },
+    isLast: true,
+    status: "streaming",
+  },
+  play: async ({ canvas }) => {
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByText("Retrying after provider overload (3/10)"),
+        ).toBeVisible(),
+      {
+        timeout: 15_000,
+      },
+    );
+    await expect(canvas.queryByText("Thinking…")).toBeNull();
+  },
+};
+
+/** A part from the next send removes the old retry label without an effect. */
+export const ContentAfterRetry: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: {
+      ...PENDING_MESSAGE,
+      parts: [
+        {
+          type: "data-model-retrying",
+          data: { code: "overloaded", retry: 3, delayMs: 1000 },
+        },
+        { type: "text", text: "The provider is responding again." },
+      ],
+    },
+    isLast: true,
+    status: "streaming",
+  },
+  play: async ({ canvas }) => {
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByText("The provider is responding again."),
+        ).toBeVisible(),
+      {
+        timeout: 15_000,
+      },
+    );
+    await expect(
+      canvas.queryByText("Retrying after provider overload (3/10)"),
+    ).toBeNull();
+  },
+};
+
 /**
  * A live-only empty placeholder after Stop settles: the bubble is withheld,
  * but a compaction marker attached to that index stays visible.

@@ -112,19 +112,19 @@ reviews. Accepted findings were verified and fixed; GR remains non-gating under 
 
 ## 3. request-retries
 
-- [ ] 3.1 Send `maxRetries: 0` on every chat-wire request, including the structured builders, and
+- [x] 3.1 Send `maxRetries: 0` on every chat-wire request, including the structured builders, and
       remove the `RetryError` unwrap paths. Verify "One request on a 503" and the modified
       `provider-api-selection` scenarios "An HTTP failure keeps its current message", "A redirect after
       a retried failure is still described as a redirect", and "A transport failure keeps its message".
-- [ ] 3.2 Replace `stream-idle-watchdog.ts` with `request-recovery.ts` (design D3), remove
+- [x] 3.2 Replace `stream-idle-watchdog.ts` with `request-recovery.ts` (design D3), remove
       `model_stream_idle`, and add `models[].firstTokenTimeoutSeconds` (design D10). Verify "Metadata
       alone does not end the window", "A per-model timeout", "A stream ends without a finish part", "A
       long tool call does not count", "An invalid first-token timeout", "The timeout stays private",
       and the `durable-runs` scenarios "A stalled model stream fails the run" and "A long tool call does
       not trip the stream watchdog".
-- [ ] 3.3 Hold parts before the first content part. Verify "A redacted thinking start and then a
+- [x] 3.3 Hold parts before the first content part. Verify "A redacted thinking start and then a
       stall" and "A send that finishes with no content part".
-- [ ] 3.4 Retry transient failures before the first released part with full jitter, honor stated
+- [x] 3.4 Retry transient failures before the first released part with full jitter, honor stated
       waits up to 60 s, and fail long `rate_limited` hints. Verify "Ten overloaded answers fail the
       request", "A retry succeeds", "An authentication failure is not sent again", "A 20-second bucket
       reset", "A short Go usage limit", "An unclassified long hint", "An overload with a long hint", "A
@@ -134,22 +134,29 @@ reviews. Accepted findings were verified and fixed; GR remains non-gating under 
       "A hidden failed send makes usage incomplete". For callers without live deliveries, hold the
       complete send and verify a compaction summary and a Codex title that break after text and then
       succeed, plus a hosted-search failure after a complete tool call that is not retried.
-- [ ] 3.5 Add the `wrapGenerate` variant to the structured builders (design D3, D9). Verify a title
+- [x] 3.5 Add the `wrapGenerate` variant to the structured builders (design D3, D9). Verify a title
       request that gets HTTP 529 once and then succeeds: "A title request is retried".
-- [ ] 3.6 Fail the Run with the class of the failure once a complete tool-call part streamed. Verify
+- [x] 3.6 Fail the Run with the class of the failure once a complete tool-call part streamed. Verify
       "The stream breaks after a tool call", "An overload after a tool call", and "A hosted search
       breaks after its search tool call".
 - [ ] 3.7 Append `model.retrying` for the Run's own requests and show the retry line. Verify "A
       reload during a retry delay" in an API test and "An overloaded provider" in a story test.
-- [ ] 3.8 Add "Request retry" to the glossary, with "send" defined in it as one provider call of a
-      request, with "send" defined in it as one provider call of a
+- [x] 3.8 Add "Request retry" to the glossary, with "send" defined in it as one provider call of a
       request, update `docs/product/operator/scaling.md` and the
       provider runbooks, and add a dated `CHANGELOG.md` entry that names the removal of
       `model_stream_idle` as breaking.
-- [ ] 3.9 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`,
+- [x] 3.9 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`,
       `pnpm --filter web lint`, `pnpm --filter web typecheck`, the changed test files, the changed
       stories, `pnpm format:check`, `git diff --check`.
 - [ ] 3.10 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+
+Local evidence: deterministic request-recovery windows, shared send budget, short reset/hint timing,
+buffered output discard, tool-call cutoff, real Responses/Codex and Completions premature EOFs,
+structured 529/503 recovery with preserved request settings, and hidden-send usage lower bounds.
+The live retry writer is attempt-fenced in its serialized transaction; summary retries use the same
+owner fence. Both retry feedback stories passed Storybook MCP tests and actual browser inspection.
+The owner-scoped replay and fence integration cases await CI; SR used reuse, quality, efficiency,
+ponytail, and an independent security pass. GR remains non-gating for the next layer.
 
 ## 4. broken-streams
 

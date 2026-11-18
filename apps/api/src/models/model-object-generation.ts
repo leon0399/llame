@@ -25,6 +25,7 @@ export async function generateToolBoundObject<OBJECT>(
     abortSignal: input.abortSignal,
     experimental_telemetry: agentTelemetry(input.chat),
     ...callSettings,
+    maxRetries: 0,
     tools: {
       [toolName]: tool({
         description: input.schemaDescription,

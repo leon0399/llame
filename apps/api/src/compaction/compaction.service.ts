@@ -3,7 +3,7 @@ import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { toFlexibleSchema } from '../tools/schema-utils';
-import { type ModelClient } from '../models/model-client';
+import type { ModelClient, ModelStreamInput } from '../models/model-client';
 import { mergeRetainedMedia } from '../media/attempt-media';
 import type { RunMediaResolver } from '../media/media-descriptors';
 import { loadMediaSizing } from '../media/epoch-admission';
@@ -115,72 +115,55 @@ type SourceRun = {
  * previous completed Run — is resolved here, where the receipt and the effort it
  * was persisted with are read.
  */
-export type CompactionSummaryRequest =
-  | {
-      readonly variant: Extract<CompactionVariant, 'threshold'>;
-      readonly chatId: string;
-      readonly userId: string;
-      readonly triggeringUserSeq: number;
-      readonly plan: CompactionPlan;
-      /** The attempt's own model, pre-re-bake prompt, declarations and effort. */
-      readonly client: ModelClient;
-      readonly system: string;
-      readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-      readonly effort?: string;
-      /**
-       * The configured output reserve, which the epoch media window's PDF
-       * page bound subtracts as the Run's own requests do (pdf-media D5).
-       */
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      /**
-       * The Run owner's media, so the summary request projects the prefix's
-       * images and PDFs for the summarizing client's own `input`
-       * (vision-media D9, pdf-media D5).
-       */
-      readonly media?: RunMediaResolver;
-    }
-  | {
-      readonly variant: 'boundary';
-      readonly chatId: string;
-      readonly userId: string;
-      readonly plan: CompactionPlan;
-      /** The live prefix through the newly projected closing reply. */
-      readonly closedReply: ReadonlyArray<ModelMessage>;
-      readonly client: ModelClient;
-      readonly system: string;
-      readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-      readonly focus: string | null;
-      readonly effort?: string;
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      readonly media?: RunMediaResolver;
-    }
-  | {
-      readonly variant: Extract<CompactionVariant, 'window'>;
-      readonly chatId: string;
-      readonly userId: string;
-      readonly triggeringUserSeq: number;
-      readonly plan: CompactionPlan;
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      readonly media?: RunMediaResolver;
-      readonly instruction?: string;
-    }
-  | {
-      readonly variant: Extract<CompactionVariant, 'owner'>;
-      readonly chatId: string;
-      readonly userId: string;
-      readonly triggeringUserSeq: number;
-      readonly plan: CompactionPlan;
-      readonly previousCheckpoint: CheckpointMessage | undefined;
-      readonly client: ModelClient;
-      readonly instruction?: string;
-      readonly effort?: string;
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      readonly media?: RunMediaResolver;
-    };
+type CompactionSummaryContext = {
+  readonly chatId: string;
+  readonly userId: string;
+  readonly plan: CompactionPlan;
+  /** The output reserve also bounds the media window's PDF pages. */
+  readonly reservedOutputTokens: number | null;
+  readonly abortSignal?: AbortSignal;
+  /** The Run owner's media, projected for the summarizing model's input. */
+  readonly media?: RunMediaResolver;
+};
+
+export type CompactionSummaryRequest = CompactionSummaryContext &
+  (
+    | {
+        readonly variant: Extract<CompactionVariant, 'threshold'>;
+        readonly triggeringUserSeq: number;
+        /** The attempt's own model, pre-re-bake prompt, declarations and effort. */
+        readonly client: ModelClient;
+        readonly system: string;
+        readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+        readonly effort?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+      }
+    | {
+        readonly variant: 'boundary';
+        /** The live prefix through the newly projected closing reply. */
+        readonly closedReply: ReadonlyArray<ModelMessage>;
+        readonly client: ModelClient;
+        readonly system: string;
+        readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+        readonly focus: string | null;
+        readonly effort?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+      }
+    | {
+        readonly variant: Extract<CompactionVariant, 'window'>;
+        readonly triggeringUserSeq: number;
+        readonly instruction?: string;
+      }
+    | {
+        readonly variant: Extract<CompactionVariant, 'owner'>;
+        readonly triggeringUserSeq: number;
+        readonly previousCheckpoint: CheckpointMessage | undefined;
+        readonly client: ModelClient;
+        readonly instruction?: string;
+        readonly effort?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+      }
+  );
 
 /**
  * CompactionService (#57) — one summarization path for the pre-step
@@ -315,6 +298,7 @@ export class CompactionService {
       toolDeclarations: [],
       ...(input.effort !== undefined && { effort: input.effort }),
       abortSignal: input.abortSignal,
+      onRetry: input.onRetry,
       media: input.media,
       reservedOutputTokens: input.reservedOutputTokens,
     });
@@ -375,6 +359,7 @@ export class CompactionService {
         toolDeclarations: input.toolDeclarations,
         ...(input.effort !== undefined && { effort: input.effort }),
         abortSignal: input.abortSignal,
+        onRetry: input.onRetry,
         media: input.media,
         reservedOutputTokens: input.reservedOutputTokens,
       });
@@ -586,6 +571,7 @@ export class CompactionService {
      */
     effort?: string;
     abortSignal?: AbortSignal;
+    onRetry?: ModelStreamInput['onRetry'];
     media: RunMediaResolver | undefined;
     reservedOutputTokens: number | null;
   }): Promise<SummaryInference> {
@@ -608,6 +594,7 @@ export class CompactionService {
       messages: input.messages,
       chat: { id: input.chatId, lane: 'main' },
       abortSignal: input.abortSignal,
+      onRetry: input.onRetry,
       ...(input.media !== undefined && { media: input.media }),
       reservedOutputTokens: input.reservedOutputTokens,
       ...(input.effort !== undefined && { effort: input.effort }),

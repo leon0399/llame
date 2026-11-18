@@ -210,6 +210,35 @@ describe('createAgUiEncoder', () => {
     });
   });
 
+  it('carries a retry between the failed prefix and replacement text over AG-UI', () => {
+    const events = streamOf([
+      { eventType: 'model.delta', payload: { text: 'prefix' } },
+      {
+        eventType: 'model.retrying',
+        payload: { code: 'server_error', retry: 1, delayMs: 750 },
+      },
+      { eventType: 'model.delta', payload: { text: 'replacement' } },
+      { eventType: 'run.completed', payload: null },
+    ]).map((event) => EventSchemas.parse(event));
+
+    expect(events.map((event) => event.type)).toEqual([
+      'RUN_STARTED',
+      'TEXT_MESSAGE_START',
+      'TEXT_MESSAGE_CONTENT',
+      'TEXT_MESSAGE_END',
+      'CUSTOM',
+      'TEXT_MESSAGE_START',
+      'TEXT_MESSAGE_CONTENT',
+      'TEXT_MESSAGE_END',
+      'RUN_FINISHED',
+    ]);
+    expect(events[4]).toEqual({
+      type: EventType.CUSTOM,
+      name: 'llame.model-retrying',
+      value: { code: 'server_error', retry: 1, delayMs: 750 },
+    });
+  });
+
   it('carries notices, reply metadata, and a delivery as llame custom events', () => {
     expect(
       encodeAll([

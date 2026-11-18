@@ -553,6 +553,77 @@ describe('createRunEventTranslator', () => {
     },
   );
 
+  it('translates valid retry notices and rejects malformed retry fields', () => {
+    const t = createRunEventTranslator('run-retrying');
+    expect(
+      t.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'rate_limited', retry: 2, delayMs: 500 },
+      }),
+    ).toContainEqual({
+      type: 'data-model-retrying',
+      data: { code: 'rate_limited', retry: 2, delayMs: 500 },
+    });
+
+    for (const payload of [
+      { code: 42, retry: 2, delayMs: 500 },
+      { code: 'rate_limited', retry: 0, delayMs: 500 },
+      { code: 'rate_limited', retry: 2, delayMs: -1 },
+      { code: 'rate_limited', retry: 2.5, delayMs: 500 },
+      { code: 'rate_limited', retry: 2, delayMs: '500' },
+      { code: 'rate_limited', retry: 2 },
+      null,
+    ]) {
+      expect(t.translate({ eventType: 'model.retrying', payload })).toEqual([]);
+    }
+  });
+
+  it('preserves model.retrying through the UI stream parser as a data part', async () => {
+    const t = createRunEventTranslator('run-retrying-transport');
+
+    const chunks = [
+      ...t.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'server_error', retry: 1, delayMs: 750 },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'recovered' },
+      }),
+    ];
+
+    const parsed = parseJsonEventStream({
+      stream: new Blob(
+        chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`),
+      ).stream(),
+      schema: uiMessageChunkSchema,
+    }).pipeThrough(
+      new TransformStream<
+        | { success: true; value: UIMessageChunk }
+        | { success: false; error: Error },
+        UIMessageChunk
+      >({
+        transform(result, controller) {
+          if (!result.success) throw result.error;
+          controller.enqueue(result.value);
+        },
+      }),
+    );
+
+    let reconstructed: UIMessage | undefined;
+
+    for await (const message of readUIMessageStream({ stream: parsed })) {
+      reconstructed = message;
+    }
+
+    expect(reconstructed?.parts).toContainEqual({
+      type: 'data-model-retrying',
+      data: { code: 'server_error', retry: 1, delayMs: 750 },
+    });
+    expect(reconstructed?.parts).toContainEqual(
+      expect.objectContaining({ type: 'text', text: 'recovered' }),
+    );
+  });
   it('ignores empty or malformed delta payloads', () => {
     const t = createRunEventTranslator('run-4');
 

@@ -542,6 +542,12 @@ _Avoid_: API, transport
 The provider-neutral code of a failed model request, retained on a failed Run.
 It distinguishes usage limits, billing, temporary failures, and rejected requests.
 
+**Request retry**:
+A repeated send of a model request after a retryable failure, within the same
+Run attempt. A send is one provider call of that request. A request retry does
+not replay a completed tool call.
+_Avoid_: retry (when the model request is meant)
+
 **Effort**:
 The reasoning level a Run asks a model for, chosen from the levels that model
 declares.

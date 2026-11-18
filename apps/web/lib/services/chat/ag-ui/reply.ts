@@ -22,6 +22,7 @@ const NOTICE_PART_TYPE = new Map<string, `data-${string}`>([
   ["llame.cap-notice", "data-cap-notice"],
   ["llame.compaction-failed", "data-compaction-failed"],
   ["llame.compaction-disabled", "data-compaction-disabled"],
+  ["llame.model-retrying", "data-model-retrying"],
   ["llame.run-delivered", "data-run-delivered"],
 ]);
 

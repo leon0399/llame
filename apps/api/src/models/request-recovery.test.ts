@@ -1,0 +1,634 @@
+import type {
+  LanguageModelV3,
+  LanguageModelV3StreamPart,
+} from '@ai-sdk/provider';
+import { MockLanguageModelV3 } from 'ai/test';
+
+import { classifyCompletions } from './provider-failure/classify-completions';
+import { ProviderFailure } from './provider-failure/provider-failure';
+import { withRequestRecovery } from './request-recovery';
+
+const usage = {
+  inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
+  outputTokens: { total: 2, text: 2, reasoning: 0 },
+};
+
+const complete: Array<LanguageModelV3StreamPart> = [
+  { type: 'text-start', id: 'answer' },
+  { type: 'text-delta', id: 'answer', delta: 'Recovered answer.' },
+  { type: 'text-end', id: 'answer' },
+  { type: 'finish', finishReason: { unified: 'stop', raw: undefined }, usage },
+];
+
+const options = { provider: 'openai', classify: classifyCompletions };
+const immediate = { random: () => 0, delay: () => Promise.resolve() };
+
+const overloaded = () =>
+  new ProviderFailure('Provider overload', { code: 'overloaded' });
+
+function scriptedModel(
+  scripts: Array<Array<LanguageModelV3StreamPart> | Error>,
+) {
+  let sends = 0;
+
+  const model = new MockLanguageModelV3({
+    doStream: () => {
+      const script = scripts[Math.min(sends, scripts.length - 1)];
+      sends += 1;
+
+      if (script instanceof Error) return Promise.reject(script);
+
+      if (script === undefined) throw new Error('Missing send fixture');
+
+      return Promise.resolve({
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
+          start(controller) {
+            for (const part of script) controller.enqueue(part);
+            controller.close();
+          },
+        }),
+      });
+    },
+  });
+
+  return { model, sends: () => sends };
+}
+
+async function collect(model: LanguageModelV3, signal?: AbortSignal) {
+  const result = await model.doStream({ prompt: [], abortSignal: signal });
+  const reader = result.stream.getReader();
+  const parts: Array<LanguageModelV3StreamPart> = [];
+
+  for (;;) {
+    const item = await reader.read();
+
+    if (item.done) return parts;
+    parts.push(item.value);
+  }
+}
+
+function controlledModel() {
+  const controllers: Array<
+    ReadableStreamDefaultController<LanguageModelV3StreamPart>
+  > = [];
+
+  const cancelled: Array<unknown> = [];
+
+  const model = new MockLanguageModelV3({
+    doStream: () =>
+      Promise.resolve({
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
+          start(controller) {
+            controllers.push(controller);
+          },
+          cancel(reason) {
+            cancelled.push(reason);
+          },
+        }),
+      }),
+  });
+
+  return { model, controllers, cancelled };
+}
+
+function sendController(
+  controllers: Array<
+    ReadableStreamDefaultController<LanguageModelV3StreamPart>
+  >,
+  index: number,
+) {
+  const controller = controllers[index];
+
+  if (controller === undefined)
+    throw new Error('The expected send has not started');
+
+  return controller;
+}
+
+function finish(
+  controller: ReadableStreamDefaultController<LanguageModelV3StreamPart>,
+) {
+  for (const part of complete) controller.enqueue(part);
+  controller.close();
+}
+
+function text(parts: Array<LanguageModelV3StreamPart>) {
+  return parts
+    .flatMap((part) => (part.type === 'text-delta' ? [part.delta] : []))
+    .join('');
+}
+
+afterEach(() => vi.useRealTimers());
+
+describe('withRequestRecovery', () => {
+  it('drops metadata from repeated failed sends and forwards one successful usage receipt', async () => {
+    const failed: Array<LanguageModelV3StreamPart> = [
+      { type: 'reasoning-start', id: 'discarded' },
+      { type: 'error', error: overloaded() },
+      {
+        type: 'finish',
+        finishReason: { unified: 'error', raw: undefined },
+        usage: { ...usage, inputTokens: { ...usage.inputTokens, total: 999 } },
+      },
+    ];
+
+    const fixture = scriptedModel([failed, failed, complete]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    expect(fixture.sends()).toBe(3);
+    expect(text(parts)).toBe('Recovered answer.');
+    expect(parts.filter((part) => part.type === 'finish')).toMatchObject([
+      { usage },
+    ]);
+    expect(parts.some((part) => part.type === 'reasoning-start')).toBe(false);
+  });
+
+  it('shares the eleven-send ceiling across streamed failures and header failures', async () => {
+    const fixture = scriptedModel([
+      [{ type: 'error', error: overloaded() }],
+      overloaded(),
+    ]);
+
+    const retries: Array<number> = [];
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        onRetry: ({ retry }) => {
+          retries.push(retry);
+        },
+      },
+      immediate,
+    );
+
+    const parts = await collect(model);
+
+    expect(fixture.sends()).toBe(11);
+    expect(retries).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(parts).toMatchObject([
+      { type: 'error', error: { code: 'overloaded' } },
+    ]);
+  });
+
+  it('awaits retry persistence before delaying or sending again', async () => {
+    const fixture = scriptedModel([overloaded(), complete]);
+    const entered = Promise.withResolvers<void>();
+    const persisted = Promise.withResolvers<void>();
+    let delayed = false;
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        onRetry: async () => {
+          entered.resolve();
+          await persisted.promise;
+        },
+      },
+      {
+        random: () => 0,
+        delay: () => {
+          delayed = true;
+
+          return Promise.resolve();
+        },
+      },
+    );
+
+    const pending = collect(model);
+    await entered.promise;
+
+    expect(fixture.sends()).toBe(1);
+    expect(delayed).toBe(false);
+    persisted.resolve();
+    expect(text(await pending)).toBe('Recovered answer.');
+    expect(fixture.sends()).toBe(2);
+  });
+
+  it('reports the owner retry callback exception without another send', async () => {
+    const fixture = scriptedModel([
+      [{ type: 'error', error: overloaded() }],
+      complete,
+    ]);
+
+    const ownerError = new Error('Retry persistence failed');
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        onRetry: () => {
+          throw ownerError;
+        },
+      },
+      immediate,
+    );
+
+    const parts = await collect(model);
+
+    expect(parts).toEqual([{ type: 'error', error: ownerError }]);
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('honors an authoritative short reset after recording the retry', async () => {
+    const now = 1_900_000_000_000;
+
+    const fixture = scriptedModel([
+      new ProviderFailure('Quota', {
+        code: 'quota_exhausted',
+        resetsAt: now + 20_000,
+      }),
+      complete,
+    ]);
+
+    const order: Array<string> = [];
+    const delays: Array<number> = [];
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        onRetry: () => {
+          order.push('recorded');
+        },
+      },
+      {
+        now: () => now,
+        random: () => 0.5,
+        delay: (milliseconds) => {
+          order.push('delayed');
+          delays.push(milliseconds);
+
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(order).toEqual(['recorded', 'delayed']);
+    expect(delays).toEqual([20_000]);
+  });
+
+  it('does not turn a long rate-limit hint into an in-process retry', async () => {
+    const fixture = scriptedModel([
+      new ProviderFailure('Rate limit', {
+        code: 'rate_limited',
+        hintMs: 60_001,
+      }),
+      complete,
+    ]);
+
+    await expect(
+      collect(withRequestRecovery(fixture.model, options, immediate)),
+    ).rejects.toMatchObject({ code: 'rate_limited' });
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('ignores a long overload hint rather than sleeping for it', async () => {
+    const fixture = scriptedModel([
+      new ProviderFailure('Overload', { code: 'overloaded', hintMs: 120_000 }),
+      complete,
+    ]);
+
+    const delays: Array<number> = [];
+
+    const model = withRequestRecovery(fixture.model, options, {
+      random: () => 0.5,
+      delay: (milliseconds) => {
+        delays.push(milliseconds);
+
+        return Promise.resolve();
+      },
+    });
+
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(delays).toEqual([250]);
+  });
+
+  it('fails a long authoritative reset without consuming a retry', async () => {
+    const now = Date.now();
+
+    const fixture = scriptedModel([
+      new ProviderFailure('Quota', {
+        code: 'quota_exhausted',
+        resetsAt: now + 60_001,
+      }),
+      complete,
+    ]);
+
+    await expect(
+      collect(
+        withRequestRecovery(fixture.model, options, {
+          ...immediate,
+          now: () => now,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'quota_exhausted' });
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('counts signature-only reasoning and repeated metadata inside the first window', async () => {
+    vi.useFakeTimers();
+    const fixture = controlledModel();
+
+    const pending = collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    const first = sendController(fixture.controllers, 0);
+    first.enqueue({ type: 'reasoning-start', id: 'discarded' });
+    await vi.advanceTimersByTimeAsync(100_000);
+    first.enqueue({
+      type: 'reasoning-delta',
+      id: 'discarded',
+      delta: '',
+      providerMetadata: { anthropic: { signature: 'metadata-only' } },
+    });
+    await vi.advanceTimersByTimeAsync(199_999);
+    expect(fixture.controllers).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    finish(sendController(fixture.controllers, 1));
+    const parts = await pending;
+
+    expect(fixture.cancelled).toHaveLength(1);
+    expect(text(parts)).toBe('Recovered answer.');
+    expect(parts.some((part) => part.type === 'reasoning-start')).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('allows content after ten minutes when the model first window is fifteen minutes', async () => {
+    vi.useFakeTimers();
+    const fixture = controlledModel();
+
+    const pending = collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, firstTokenTimeoutSeconds: 900 },
+        immediate,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(600_000);
+    finish(sendController(fixture.controllers, 0));
+
+    expect(text(await pending)).toBe('Recovered answer.');
+    expect(fixture.controllers).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('keeps a first-content window longer than the native timer maximum', async () => {
+    vi.useFakeTimers();
+    const fixture = controlledModel();
+
+    const pending = collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, firstTokenTimeoutSeconds: 3_000_000 },
+        immediate,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(fixture.controllers).toHaveLength(1);
+    finish(sendController(fixture.controllers, 0));
+
+    expect(text(await pending)).toBe('Recovered answer.');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('fails a live stream after five minutes of silence following content', async () => {
+    vi.useFakeTimers();
+    const fixture = controlledModel();
+
+    const pending = collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    const controller = sendController(fixture.controllers, 0);
+    controller.enqueue({ type: 'text-start', id: 'answer' });
+    controller.enqueue({
+      type: 'text-delta',
+      id: 'answer',
+      delta: 'Partial answer.',
+    });
+    await vi.advanceTimersByTimeAsync(299_999);
+    expect(fixture.controllers).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    const parts = await pending;
+
+    expect(text(parts)).toBe('Partial answer.');
+    expect(parts.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'stream_broken' },
+    });
+    expect(fixture.controllers).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not count a paused tool consumer as provider silence', async () => {
+    vi.useFakeTimers();
+
+    const fixture = scriptedModel([
+      [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'read',
+          input: '{}',
+        },
+        {
+          type: 'finish',
+          finishReason: { unified: 'tool-calls', raw: undefined },
+          usage,
+        },
+      ],
+    ]);
+
+    const result = await withRequestRecovery(
+      fixture.model,
+      options,
+      immediate,
+    ).doStream({ prompt: [] });
+
+    const reader = result.stream.getReader();
+
+    expect((await reader.read()).value).toMatchObject({ type: 'tool-call' });
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(vi.getTimerCount()).toBe(0);
+    expect((await reader.read()).value).toMatchObject({ type: 'finish' });
+    expect((await reader.read()).done).toBe(true);
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('releases an empty successful send at finish without retrying it', async () => {
+    const fixture = scriptedModel([
+      [
+        { type: 'response-metadata', id: 'empty' },
+        {
+          type: 'finish',
+          finishReason: { unified: 'content-filter', raw: undefined },
+          usage,
+        },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    expect(parts.map((part) => part.type)).toEqual([
+      'response-metadata',
+      'finish',
+    ]);
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('fails a released live stream but retries the same break for a buffered summary', async () => {
+    const broken: Array<LanguageModelV3StreamPart> = [
+      { type: 'text-start', id: 'failed' },
+      { type: 'text-delta', id: 'failed', delta: 'Partial answer.' },
+    ];
+
+    const live = scriptedModel([broken, complete]);
+
+    const liveParts = await collect(
+      withRequestRecovery(live.model, options, immediate),
+    );
+
+    const summary = scriptedModel([broken, complete]);
+
+    const summaryParts = await collect(
+      withRequestRecovery(
+        summary.model,
+        { ...options, bufferWholeSend: true },
+        immediate,
+      ),
+    );
+
+    expect(text(liveParts)).toBe('Partial answer.');
+    expect(liveParts.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'stream_broken' },
+    });
+    expect(live.sends()).toBe(1);
+    expect(text(summaryParts)).toBe('Recovered answer.');
+    expect(summary.sends()).toBe(2);
+  });
+
+  it('does not retry a buffered provider tool call even for a transient failure', async () => {
+    const fixture = scriptedModel([
+      [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'search',
+          input: '{}',
+        },
+        { type: 'error', error: overloaded() },
+      ],
+      complete,
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, bufferWholeSend: true },
+        immediate,
+      ),
+    );
+
+    expect(parts).toMatchObject([
+      { type: 'error', error: { code: 'overloaded' } },
+    ]);
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('preserves caller cancellation during an uncooperative header wait', async () => {
+    const requested = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const reason = new Error('Owner stopped the request');
+
+    const base = new MockLanguageModelV3({
+      doStream: () => {
+        requested.resolve();
+
+        return new Promise(() => undefined);
+      },
+    });
+
+    const pending = collect(
+      withRequestRecovery(base, options, immediate),
+      controller.signal,
+    );
+
+    const rejected = pending.catch((error: unknown) => error);
+    await requested.promise;
+    controller.abort(reason);
+    expect(await rejected).toBe(reason);
+  });
+
+  it('cancels the source even before the first consumer read', async () => {
+    const fixture = controlledModel();
+
+    const result = await withRequestRecovery(
+      fixture.model,
+      options,
+      immediate,
+    ).doStream({ prompt: [] });
+
+    const reason = new Error('Consumer detached');
+    await result.stream.cancel(reason);
+
+    expect(fixture.cancelled).toEqual([reason]);
+  });
+
+  it('stops a retry delay on cancellation without another provider send', async () => {
+    const fixture = scriptedModel([overloaded(), complete]);
+    const controller = new AbortController();
+    const reason = new Error('Owner stopped the delay');
+
+    const model = withRequestRecovery(fixture.model, {
+      ...options,
+      onRetry: () => {
+        controller.abort(reason);
+      },
+    });
+
+    await expect(collect(model, controller.signal)).rejects.toBe(reason);
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('retries structured generation on the same model without stream windows', async () => {
+    let sends = 0;
+
+    const base = new MockLanguageModelV3({
+      doGenerate: () => {
+        sends += 1;
+
+        return sends === 1
+          ? Promise.reject(overloaded())
+          : Promise.resolve({
+              content: [{ type: 'text', text: 'Recovered title' }],
+              finishReason: { unified: 'stop', raw: undefined },
+              usage,
+              warnings: [],
+            });
+      },
+    });
+
+    const result = await withRequestRecovery(
+      base,
+      options,
+      immediate,
+    ).doGenerate({ prompt: [] });
+
+    expect(result.content).toEqual([{ type: 'text', text: 'Recovered title' }]);
+    expect(sends).toBe(2);
+  });
+});

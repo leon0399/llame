@@ -73,12 +73,6 @@ function messageOf(error: FailureInput['error']): string {
   return error instanceof Error ? error.message : 'Provider request failed';
 }
 
-function unwrapError(error: FailureInput['error']): UnknownRecord {
-  if (!isRecord(error)) return {};
-
-  return isRecord(error.lastError) ? error.lastError : error;
-}
-
 function decodeResponse(raw: UnknownRecord) {
   const response = isRecord(raw.response) ? raw.response : undefined;
 
@@ -89,7 +83,7 @@ function decodeResponse(raw: UnknownRecord) {
 }
 
 function decodeResponseBody(input: FailureInput) {
-  const raw = unwrapError(input.error);
+  const raw = isRecord(input.error) ? input.error : {};
   const { response, bodyFromResponse } = decodeResponse(raw);
   const body = parseBody(raw.responseBody);
 

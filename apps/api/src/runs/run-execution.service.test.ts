@@ -113,7 +113,6 @@ import type {
 import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
-import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
@@ -4881,6 +4880,70 @@ describe('RunExecutionService executeRun — stream completion', () => {
       spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
     ).toMatchObject({ latencyMs: 750 });
   });
+  it('keeps retry-following usage as an incomplete lower bound without throughput', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      status: 'running_model',
+    });
+
+    await options.onRetry?.({
+      code: 'server_error',
+      retry: 1,
+      delayMs: 750,
+    });
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: 80, outputTokens: 12 }),
+      300,
+    );
+    await options.onFinish?.({
+      text: 'answer after retry',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const usage = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
+    expect(usage).toMatchObject({
+      inputTokens: 80,
+      outputTokens: 12,
+      totalTokens: 92,
+      status: 'completed',
+      complete: false,
+    });
+    expect(Object.hasOwn(usage ?? {}, 'tokensPerSecond')).toBe(false);
+  });
+
+  it('refuses a live retry after another worker owns the attempt', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    await execution.service.executeRun(executionInput(capturing.client));
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: 'replacement-attempt',
+      status: 'running_model',
+    });
+
+    await expect(
+      capturing.streamOptions().onRetry?.({
+        code: 'server_error',
+        retry: 1,
+        delayMs: 750,
+      }),
+    ).rejects.toBeInstanceOf(Error);
+    expect(
+      spies.appendEvent.mock.calls.filter(
+        ([, type]) => type === 'model.retrying',
+      ),
+    ).toEqual([]);
+  });
 
   it('stamps the first streamed delta, counts the deltas, and derives throughput on the completed usage (#155)', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -6455,46 +6518,6 @@ describe('RunExecutionService executeRun — stream failure', () => {
         code: error.code,
       },
     });
-  });
-
-  it('records a stalled model stream as a terminal failure carrying model_stream_idle', async () => {
-    const spies = mockNormalExecutionRepositories();
-    const appended = recordAppendedEvents();
-    const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
-
-    await execution.service.executeRun(executionInput(capturing.client));
-    const options = capturing.streamOptions();
-    options.onTextDelta?.('half an answer');
-    const idle = new ModelStreamIdleError();
-    await options.onError?.({ error: idle });
-
-    expect(spies.markFinished).toHaveBeenCalledWith(
-      runId,
-      userId,
-      'failed',
-      expect.objectContaining({
-        error: {
-          message: idle.message,
-          code: 'model_stream_idle',
-        },
-      }),
-    );
-    // The parts observed before the stall are kept — the run answers with what
-    // it actually saw, and the code rides the run.failed event.
-    expect(appended.at(-1)).toStrictEqual({
-      type: 'run.failed',
-      payload: {
-        status: 'failed',
-        message: idle.message,
-        code: 'model_stream_idle',
-      },
-    });
-    expect(spies.createAssistantReplyIfAbsent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        parts: [expect.objectContaining({ text: 'half an answer' })],
-      }),
-    );
   });
 
   it('preserves a typed code and reset time when streamText throws synchronously', async () => {

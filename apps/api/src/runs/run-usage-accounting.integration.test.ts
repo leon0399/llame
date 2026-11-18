@@ -39,7 +39,11 @@ import {
   seedRun,
   type WorkerHarness,
 } from './worker-harness';
-import { type RunUserMessage } from './run-execution.service';
+import {
+  RunExecutionService,
+  RunNotRunnableError,
+  type RunUserMessage,
+} from './run-execution.service';
 import {
   awaitSettlementAfter,
   trackAbortSettlement,
@@ -964,6 +968,147 @@ describe('Run usage accounting through the worker and Postgres', () => {
       billing: 'usage',
       modelId,
     });
+  });
+
+  it('fences retry events to the active non-terminal attempt', async () => {
+    const seed = await seedRun({
+      tenantDb: harness!.tenantDb,
+      userId: ownerId,
+      modelId: `test:run-usage:retry-fence:${crypto.randomUUID()}`,
+    });
+
+    const started = await harness!.tenantDb.runAs(ownerId, (tx) =>
+      new RunsRepository(tx).markStarted(seed.runId, ownerId),
+    );
+
+    if (!started?.activeAttemptId) {
+      throw new Error('Expected an active attempt.');
+    }
+
+    const execution = harness!.moduleRef.get(RunExecutionService, {
+      strict: false,
+    });
+
+    const retry = { code: 'server_error', retry: 1, delayMs: 750 } as const;
+
+    const retryInput = {
+      runId: seed.runId,
+      chatId: seed.chatId,
+      userId: ownerId,
+      attemptId: started.activeAttemptId,
+    };
+
+    await expect(
+      execution.recordModelRetry(
+        { ...retryInput, attemptId: crypto.randomUUID() },
+        retry,
+      ),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(
+      (await runEvents(seed.runId)).filter(
+        (event) => event.eventType === 'model.retrying',
+      ),
+    ).toEqual([]);
+
+    await execution.recordModelRetry(retryInput, retry);
+    expect(
+      (await runEvents(seed.runId))
+        .filter((event) => event.eventType === 'model.retrying')
+        .map((event) => event.payload),
+    ).toEqual([retry]);
+
+    await harness!.tenantDb.runAs(ownerId, async (tx) => {
+      const terminal = await new RunsRepository(tx).markFinished(
+        seed.runId,
+        ownerId,
+        'completed',
+        { attemptId: retryInput.attemptId },
+      );
+
+      if (!terminal) throw new Error('Expected to finish the active Run.');
+      await new RunEventsRepository(tx).append(seed.runId, 'run.completed');
+    });
+
+    await expect(
+      execution.recordModelRetry(retryInput, {
+        ...retry,
+        retry: 2,
+      }),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+    expect(
+      (await runEvents(seed.runId)).filter(
+        (event) => event.eventType === 'model.retrying',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('persists retry notices for the owner and replays them before resumed content', async () => {
+    const seed = await seedRun({
+      tenantDb: harness!.tenantDb,
+      userId: ownerId,
+      modelId: `test:run-usage:retry-replay:${crypto.randomUUID()}`,
+    });
+
+    const otherOwnerId = await createUser(
+      harness!.db,
+      `run-retry-replay-other-${crypto.randomUUID()}`,
+    );
+
+    const started = await harness!.tenantDb.runAs(ownerId, (tx) =>
+      new RunsRepository(tx).markStarted(seed.runId, ownerId),
+    );
+
+    if (!started?.activeAttemptId) {
+      throw new Error('Expected an active attempt.');
+    }
+
+    const execution = harness!.moduleRef.get(RunExecutionService, {
+      strict: false,
+    });
+
+    await execution.recordModelRetry(
+      {
+        runId: seed.runId,
+        chatId: seed.chatId,
+        userId: ownerId,
+        attemptId: started.activeAttemptId,
+      },
+      { code: 'server_error', retry: 1, delayMs: 750 },
+    );
+    await harness!.tenantDb.runAs(ownerId, async (tx) => {
+      const events = new RunEventsRepository(tx);
+      await events.append(seed.runId, 'model.delta', {
+        text: 'resumed content',
+      });
+      await events.append(seed.runId, 'run.completed');
+    });
+
+    const ownerEvents = await runEvents(seed.runId, ownerId);
+    const otherOwnerEvents = await runEvents(seed.runId, otherOwnerId);
+    expect(
+      ownerEvents
+        .filter((event) =>
+          ['model.retrying', 'model.delta'].includes(event.eventType),
+        )
+        .map((event) => event.eventType),
+    ).toEqual(['model.retrying', 'model.delta']);
+    expect(otherOwnerEvents).toEqual([]);
+
+    const bridge = harness!.moduleRef.get(RunStreamBridgeService, {
+      strict: false,
+    });
+
+    const replay = await bridge
+      .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+      .text();
+
+    const retryOffset = replay.indexOf('"type":"data-model-retrying"');
+    const resumedOffset = replay.indexOf('"delta":"resumed content"');
+    expect(retryOffset).toBeGreaterThanOrEqual(0);
+    expect(resumedOffset).toBeGreaterThan(retryOffset);
+    expect(replay).toContain(
+      '"data":{"code":"server_error","retry":1,"delayMs":750}',
+    );
   });
 
   it('streams failed-run usage that matches history and reconnect replay (1.8)', async () => {

@@ -71,6 +71,7 @@ const ENV_KEYS = [
   'TRUST_PROXY_SRC',
   'IC_MODEL_MAX_OUTPUT_TOKENS',
   'PROVIDER_OPTIONS_SECRET',
+  'IC_MODEL_FIRST_TOKEN_TIMEOUT',
   'GITHUB_READ_TOKEN',
 ] as const;
 
@@ -3528,21 +3529,79 @@ describe('loadInstanceConfig — models[].providerOptions / models[].maxOutputTo
     },
   );
 
-  it('leaves both fields absent when the model declares neither', () => {
+  it('resolves a literal firstTokenTimeoutSeconds', () => {
+    writeModel(', "firstTokenTimeoutSeconds": 900');
+
+    expect(loadInstanceConfig().models[0].firstTokenTimeoutSeconds).toBe(900);
+  });
+
+  it('resolves a whole-value interpolation token for firstTokenTimeoutSeconds', () => {
+    process.env.IC_MODEL_FIRST_TOKEN_TIMEOUT = '900';
+    writeModel(
+      ', "firstTokenTimeoutSeconds": "{env:IC_MODEL_FIRST_TOKEN_TIMEOUT}"',
+    );
+
+    expect(loadInstanceConfig().models[0].firstTokenTimeoutSeconds).toBe(900);
+  });
+
+  it.each([
+    ['zero', '0'],
+    ['a fraction', '0.5'],
+    ['null', 'null'],
+  ])(
+    'rejects a literal firstTokenTimeoutSeconds of %s and names its config path',
+    (_kind, literal) => {
+      writeModel(`, "firstTokenTimeoutSeconds": ${literal}`);
+
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(
+        /models\[m\].*firstTokenTimeoutSeconds|models\[0\].*firstTokenTimeoutSeconds/,
+      );
+    },
+  );
+
+  it.each([
+    ['zero', '0'],
+    ['a fraction', '0.5'],
+  ])(
+    'fails boot naming the model id and firstTokenTimeoutSeconds when interpolation resolves to %s',
+    (_kind, resolved) => {
+      process.env.IC_MODEL_FIRST_TOKEN_TIMEOUT = resolved;
+      writeModel(
+        ', "firstTokenTimeoutSeconds": "{env:IC_MODEL_FIRST_TOKEN_TIMEOUT}"',
+      );
+
+      expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+      expect(() => loadInstanceConfig()).toThrow(
+        /models\[m\]\.firstTokenTimeoutSeconds: must be a positive integer/,
+      );
+    },
+  );
+
+  it('resolves a whole-value path interpolation for firstTokenTimeoutSeconds', () => {
+    const valuePath = writeConfig('1200', 'first-token-timeout.txt');
+    writeModel(`, "firstTokenTimeoutSeconds": "{path:${valuePath}}"`);
+
+    expect(loadInstanceConfig().models[0].firstTokenTimeoutSeconds).toBe(1200);
+  });
+
+  it('leaves server-only fields absent when the model declares neither', () => {
     writeModel('');
 
     const entry = loadInstanceConfig().models[0];
     expect(entry).not.toHaveProperty('providerOptions');
     expect(entry).not.toHaveProperty('maxOutputTokens');
+    expect(entry).not.toHaveProperty('firstTokenTimeoutSeconds');
   });
 
-  it('keeps both fields out of the public model projection while retaining them for execution', () => {
+  it('keeps server-only fields out of the public model projection while retaining them for execution', () => {
     writeModel(
-      ', "maxOutputTokens": 4096, "providerOptions": { "reasoningSummary": "detailed" }',
+      ', "maxOutputTokens": 4096, "firstTokenTimeoutSeconds": 900, "providerOptions": { "reasoningSummary": "detailed" }',
     );
 
     const entry = loadInstanceConfig().models[0];
     expect(entry.maxOutputTokens).toBe(4096);
+    expect(entry.firstTokenTimeoutSeconds).toBe(900);
     expect(entry.providerOptions).toEqual({
       reasoningSummary: 'detailed',
     });
@@ -3550,6 +3609,7 @@ describe('loadInstanceConfig — models[].providerOptions / models[].maxOutputTo
     const publicModel = toPublicModel(entry);
     expect(publicModel).not.toHaveProperty('providerOptions');
     expect(publicModel).not.toHaveProperty('maxOutputTokens');
+    expect(publicModel).not.toHaveProperty('firstTokenTimeoutSeconds');
     // The projection still carries what the catalog DOES publish.
     expect(publicModel).toMatchObject({
       id: 'm',

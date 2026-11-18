@@ -10,7 +10,6 @@ import {
   type LanguageModelV3Message,
 } from '@ai-sdk/provider';
 import {
-  RetryError,
   streamText,
   type OutputInterface,
   type StreamTextOnErrorCallback,
@@ -50,7 +49,7 @@ import {
   type RequestHeaderTemplates,
 } from './request-headers';
 import { applyRequestUsageCallback } from './request-usage';
-import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
+import { applyRequestRecovery, withRequestRecovery } from './request-recovery';
 import { forwardChunk } from './stream-parts';
 import { createToolCallGate, type ToolCallGate } from './tool-call-gate';
 
@@ -59,7 +58,6 @@ import { classifyCompletions } from './provider-failure/classify-completions';
 import {
   classifiedFailure,
   captureRequestFailure,
-  withProviderFailures,
 } from './provider-failure-middleware';
 
 /**
@@ -125,6 +123,7 @@ export type OpenAICompletionsModelClientConfig = {
   pricing?: TokenPrice;
   billing?: BillingMode;
   compactionThresholdTokens?: number;
+  firstTokenTimeoutSeconds?: number;
   /** Catalog `models[].input`; absent means `['text']`. */
   input?: ReadonlyArray<ModelInput>;
   /**
@@ -286,10 +285,8 @@ const UNREADABLE_EVENT_MESSAGE =
 
 /** The redirect's status, when `error` reports one directly or as a retry's last attempt. */
 function redirectStatus(error: unknown): number | undefined {
-  const response = RetryError.isInstance(error) ? error.lastError : error;
-
-  if (!APICallError.isInstance(response)) return undefined;
-  const status = response.statusCode;
+  if (!APICallError.isInstance(error)) return undefined;
+  const status = error.statusCode;
 
   return status !== undefined && REDIRECT_STATUSES.has(status)
     ? status
@@ -482,7 +479,6 @@ function prepareOpenAICompatibleStream(
   });
   applyToolCallReasoningReplay(streamOptions, input);
   applyRequestUsageCallback(streamOptions, input);
-  applyStreamIdleWatchdog(streamOptions, input);
   applyChunkDelivery(streamOptions, input, gate);
 
   return deferTerminalCallbacks(streamOptions);
@@ -498,6 +494,7 @@ function completionsFailureOptions(
     classify: classifyCompletions,
     sanitize: boundCompletionsFailure,
     abortSignal,
+    firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
   };
 }
 
@@ -512,24 +509,21 @@ function runOpenAICompatibleStream(
   const failureOptions = completionsFailureOptions(config, input.abortSignal);
 
   const streamOptions: StreamOptions = {
-    // The entry's declared wire, at its required base URL (design D1).
-    model: withProviderFailures(
-      provider(config.providerModelId),
-      failureOptions,
-    ),
+    model: provider(config.providerModelId),
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
     onError: reportBoundedFailure(input.onError, failureOptions),
     onAbort: settlement.onAbort,
     onFinish: createModelStreamFinishCallback(input.onFinish),
-    // llame's identity, per call (design D6).
     headers: perCallHeaders(config, input.chat),
     experimental_telemetry: agentTelemetry(input.chat),
     ...composeCompletionsOptions(config, input),
     maxOutputTokens: config.maxOutputTokens,
+    maxRetries: 0,
   };
 
+  applyRequestRecovery(streamOptions, input, failureOptions);
   const terminals = prepareOpenAICompatibleStream(
     streamOptions,
     input,
@@ -575,13 +569,21 @@ function createCompletionsObjectGenerator(
   return <OBJECT>(input: ModelObjectInput<OBJECT>) => {
     const failureOptions = completionsFailureOptions(config, input.abortSignal);
 
-    return generateToolBoundObject(provider(config.providerModelId), input, {
-      headers: perCallHeaders(config, input.chat),
-      ...composeStructuredProviderOptions(config),
-      ...(config.maxOutputTokens !== undefined && {
-        maxOutputTokens: config.maxOutputTokens,
+    return generateToolBoundObject(
+      withRequestRecovery(provider(config.providerModelId), {
+        ...failureOptions,
+        firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
+        bufferWholeSend: true,
       }),
-    }).catch((error: unknown) => {
+      input,
+      {
+        headers: perCallHeaders(config, input.chat),
+        ...composeStructuredProviderOptions(config),
+        ...(config.maxOutputTokens !== undefined && {
+          maxOutputTokens: config.maxOutputTokens,
+        }),
+      },
+    ).catch((error: unknown) => {
       throw classifiedFailure(error, failureOptions);
     });
   };

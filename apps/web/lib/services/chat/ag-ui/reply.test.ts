@@ -192,6 +192,11 @@ describe("ReplyReducer", () => {
       },
       {
         type: EventType.CUSTOM,
+        name: "llame.model-retrying",
+        value: { code: "server_error", retry: 1, delayMs: 750 },
+      },
+      {
+        type: EventType.CUSTOM,
         name: "llame.run-delivered",
         value: { messageId: "m1" },
       },
@@ -199,6 +204,10 @@ describe("ReplyReducer", () => {
 
     expect(reply.parts.slice(1)).toEqual([
       { type: "data-cap-notice", data: { stepsUsed: 3, maxSteps: 3 } },
+      {
+        type: "data-model-retrying",
+        data: { code: "server_error", retry: 1, delayMs: 750 },
+      },
       { type: "data-run-delivered", data: { messageId: "m1" } },
     ]);
   });

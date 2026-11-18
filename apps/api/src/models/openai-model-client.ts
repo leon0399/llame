@@ -5,10 +5,10 @@ import { classifyResponses } from './provider-failure/classify-responses';
 import {
   captureRequestFailure,
   classifiedFailure,
-  withProviderFailures,
   promiseFailureOverrides,
   type ProviderFailureMiddlewareOptions,
 } from './provider-failure-middleware';
+import { applyRequestRecovery, withRequestRecovery } from './request-recovery';
 
 import {
   agentTelemetry,
@@ -42,7 +42,6 @@ import {
   type ToolCallGate,
 } from './tool-call-gate';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
-import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
 
 /**
  * Non-empty placeholder credential for a keyless provider (#162): a genuinely
@@ -480,6 +479,7 @@ export type OpenAIModelClientConfig = {
   pricing?: TokenPrice;
   billing?: BillingMode;
   compactionThresholdTokens?: number;
+  firstTokenTimeoutSeconds?: number;
   /** Catalog `models[].input`; absent means `['text']`. */
   input?: ReadonlyArray<ModelInput>;
   /**
@@ -664,23 +664,24 @@ function buildOpenAIStreamOptions(
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
-    model: withProviderFailures(
-      openai(config.providerModelId),
-      providerFailureOptions(config, input.abortSignal),
-    ),
+    model: openai(config.providerModelId),
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
     onError: ({ error }) => input.onError?.({ error: sanitize(error) }),
     onFinish: createModelStreamFinishCallback(input.onFinish),
     maxOutputTokens: config.maxOutputTokens,
+    maxRetries: 0,
   };
 
   applyRequestOptions(streamOptions, config, input, invariants);
   applyToolCallingOptions(streamOptions, input, gate);
   installStepPreparation(streamOptions, input, config);
+  applyRequestRecovery(streamOptions, input, {
+    ...providerFailureOptions(config, input.abortSignal),
+    firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
+  });
   applyRequestUsageCallback(streamOptions, input);
-  applyStreamIdleWatchdog(streamOptions, input);
 
   return streamOptions;
 }
@@ -730,7 +731,11 @@ function createStructuredObjectGenerator(context: ResponsesClientContext) {
   return async <OBJECT>(input: ModelObjectInput<OBJECT>) => {
     try {
       return await generateToolBoundObject(
-        context.openai(config.providerModelId),
+        withRequestRecovery(context.openai(config.providerModelId), {
+          ...providerFailureOptions(config, input.abortSignal),
+          firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
+          bufferWholeSend: true,
+        }),
         input,
         {
           headers: perCallHeaders(config, input.chat),

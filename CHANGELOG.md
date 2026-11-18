@@ -38,6 +38,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   shares. SDK refusal diagnostics retain their original text and can quote the
   original model arguments. Reasoning rows use a complete standalone bold heading
   outside code fences when present and retain accessible lifecycle state.
+- Retry eligible model requests with bounded same-model sends instead of the
+  SDK's hidden retries. The initial send can be followed by up to 10 retries
+  with full jitter and provider delay/reset hints up to 60 seconds. Completed
+  tool calls are never replayed; buffered title and summary calls discard
+  failed output before retrying. Runs record `model.retrying` events and owners
+  see a retry line. **Breaking**: remove `model_stream_idle`; first-token
+  timeouts now use `first_token_timeout`, and broken streams use
+  `stream_broken`. First-token timeout defaults to 300 s across response
+  headers and metadata; content-idle timeout remains 300 s. Long rate-limit
+  hints and long authoritative resets fail the request. See
+  [provider diagnostics](docs/product/operator/providers/routing.md#diagnosing-failed-model-requests)
+  and [horizontal scaling](docs/product/operator/scaling.md#runtime-invariants-and-current-limitation).
+
 - Classify provider failures before sanitizing them, and retain the failure class
   and any stated reset instant on failed Runs and their events. Compaction Runs
   retain the same diagnostic fields. Hosted web search maps usage limits to its

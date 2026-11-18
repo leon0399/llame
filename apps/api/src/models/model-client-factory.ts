@@ -294,16 +294,18 @@ function assignModelMetadata(
   // Every client's step composer decides image parts from this (vision-media D6).
   config.input = model.input;
 
-  // The operator's provider-options object and the catalog output limit ride
-  // the model entry, not the provider entry (provider-api-selection): every
-  // client unwraps them from its own config at request time. Copied by
-  // reference like the resolved entry the loader already retains — overloads
-  // stay absent here, so a client without the option simply never sends it.
+  // The operator's provider options and per-model request limits/timeouts
+  // ride the model entry, not the provider entry. Each client consumes its
+  // own options; absent values stay absent.
   if (model.providerOptions !== undefined) {
     config.providerOptions = model.providerOptions;
   }
 
   if (model.maxOutputTokens !== undefined) {
     config.maxOutputTokens = model.maxOutputTokens;
+  }
+
+  if (model.firstTokenTimeoutSeconds !== undefined) {
+    config.firstTokenTimeoutSeconds = model.firstTokenTimeoutSeconds;
   }
 }

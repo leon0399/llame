@@ -5,15 +5,7 @@ import type {
   ModelStreamInput,
   ModelStreamResult,
 } from './model-client';
-import type {
-  LanguageModelV3,
-  LanguageModelV3StreamPart,
-  LanguageModelV3StreamResult,
-} from '@ai-sdk/provider';
-import { wrapLanguageModel } from 'ai';
 import { STREAM_PROMISE_CHANNELS } from './model-client-failures';
-
-import { ModelStreamIdleError } from './stream-idle-watchdog';
 import {
   ProviderFailure,
   type FailureInput,
@@ -67,26 +59,6 @@ export function captureRequestFailure(
       : (sanitize?.(error) ?? error);
 }
 
-function responseHeaders(
-  headers: NonNullable<LanguageModelV3StreamResult['response']>['headers'],
-): Readonly<Record<string, string>> | undefined {
-  if (headers === undefined) return undefined;
-
-  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
-
-  return headers;
-}
-
-function isAbortOrIdle(
-  error: unknown,
-  abortSignal: AbortSignal | undefined,
-): boolean {
-  return (
-    error instanceof ModelStreamIdleError ||
-    (abortSignal !== undefined && error === abortSignal.reason)
-  );
-}
-
 /** Classify before sanitizing; return no provider-owned error graph. */
 export function classifiedFailure(
   error: ModelFailure,
@@ -96,7 +68,7 @@ export function classifiedFailure(
 ): ModelFailure {
   if (
     error instanceof ProviderFailure ||
-    isAbortOrIdle(error, options.abortSignal)
+    (options.abortSignal !== undefined && error === options.abortSignal.reason)
   ) {
     return error;
   }
@@ -122,82 +94,3 @@ export function classifiedFailure(
   });
 }
 
-function transformedStream(
-  result: LanguageModelV3StreamResult,
-  options: ProviderFailureMiddlewareOptions,
-  receiptAt: number,
-): ReadableStream<LanguageModelV3StreamPart> {
-  const reader = result.stream.getReader();
-  const headers = responseHeaders(result.response?.headers);
-
-  const classify = (error: unknown) =>
-    classifiedFailure(error, options, headers, receiptAt);
-
-  let cancelled = false;
-
-  return new ReadableStream<LanguageModelV3StreamPart>({
-    async pull(controller) {
-      try {
-        const next = await reader.read();
-
-        if (cancelled) return;
-
-        if (next.done) {
-          controller.close();
-
-          return;
-        }
-
-        const part = next.value;
-
-        controller.enqueue(
-          part.type === 'error'
-            ? { ...part, error: classify(part.error) }
-            : part,
-        );
-      } catch (error) {
-        if (cancelled) return;
-        controller.enqueue({
-          type: 'error',
-          error: classify(error),
-        });
-        controller.close();
-      }
-    },
-    cancel(reason) {
-      cancelled = true;
-
-      return reader.cancel(reason);
-    },
-  });
-}
-
-/** Classifies stream error parts without intercepting the SDK's retryable call. */
-export function withProviderFailures(
-  model: LanguageModelV3,
-  options: ProviderFailureMiddlewareOptions,
-): LanguageModelV3 {
-  return wrapLanguageModel({
-    model,
-    middleware: {
-      specificationVersion: 'v3',
-      wrapStream: async ({ doStream, params }) => {
-        // Rejections deliberately remain raw: the SDK owns its retry loop.
-        const result = await doStream();
-        const receiptAt = Date.now();
-
-        return {
-          ...result,
-          stream: transformedStream(
-            result,
-            {
-              ...options,
-              abortSignal: params.abortSignal ?? options.abortSignal,
-            },
-            receiptAt,
-          ),
-        };
-      },
-    },
-  });
-}

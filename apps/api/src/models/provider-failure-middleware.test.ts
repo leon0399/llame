@@ -1,27 +1,22 @@
-import { isString } from '@workspace/runtime-safety';
-import type { LanguageModelV3CallOptions } from '@ai-sdk/provider';
-import { MockLanguageModelV3 } from 'ai/test';
-
-import { ModelStreamIdleError } from './stream-idle-watchdog';
+import { NoOutputGeneratedError } from 'ai';
 
 import {
   ProviderFailure,
   type FailureInput,
 } from './provider-failure/provider-failure';
 import {
+  captureRequestFailure,
   classifiedFailure,
-  withProviderFailures,
+  type ProviderFailureMiddlewareOptions,
 } from './provider-failure-middleware';
 
-function options(signal?: AbortSignal) {
+function options(signal?: AbortSignal): ProviderFailureMiddlewareOptions {
   return {
     provider: 'test-provider',
     classify: vi.fn(
       ({ error }: FailureInput) =>
         new ProviderFailure(error instanceof Error ? error.message : 'bad', {
-          code: 'rate_limited',
-          resetsAt: 1_900_000_000_000,
-          statusCode: 429,
+          code: 'server_error',
         }),
     ),
     sanitize: vi.fn(() => new Error('bounded provider failure')),
@@ -29,153 +24,54 @@ function options(signal?: AbortSignal) {
   };
 }
 
-describe('withProviderFailures', () => {
-  it('bounds error parts and does not retain raw error graphs', async () => {
-    const raw = Object.assign(new Error('body secret'), {
-      body: { token: 'credential secret' },
-      headers: { authorization: 'credential secret' },
-    });
-
+describe('provider failure helpers', () => {
+  it('classifies before sanitizing and retains only bounded failure details', () => {
     const middlewareOptions = options();
 
-    const model = new MockLanguageModelV3({
-      doStream: () =>
-        Promise.resolve({
-          stream: new ReadableStream({
-            start(controller) {
-              controller.enqueue({ type: 'error', error: raw });
-              controller.close();
-            },
-          }),
-          response: { headers: { 'x-request-id': 'request-1' } },
-        }),
+    const raw = Object.assign(new Error('response secret'), {
+      body: { token: 'credential secret' },
     });
 
-    const wrapped = withProviderFailures(model, middlewareOptions);
+    const failure = classifiedFailure(raw, middlewareOptions);
 
-    const result = await wrapped.doStream({
-      prompt: [],
-    } satisfies LanguageModelV3CallOptions);
-
-    const reader = result.stream.getReader();
-    const part = await reader.read();
-
-    expect(part.value?.type).toBe('error');
-
-    if (part.value?.type !== 'error') throw new Error('expected error part');
-    expect(part.value.error).toMatchObject({
-      name: 'ProviderFailure',
-      code: 'rate_limited',
-      resetsAt: 1_900_000_000_000,
-      statusCode: 429,
+    expect(failure).toMatchObject({
       message: 'bounded provider failure',
+      code: 'server_error',
     });
-    expect(Object.getOwnPropertyNames(part.value.error)).not.toContain('cause');
-    expect(JSON.stringify(part.value.error)).not.toContain('secret');
+    expect(Object.getOwnPropertyNames(failure)).not.toContain('cause');
+    expect(JSON.stringify(failure)).not.toContain('secret');
     expect(middlewareOptions.classify).toHaveBeenCalledWith(
       expect.objectContaining({ error: raw, provider: 'test-provider' }),
     );
   });
 
-  it('isolates per-send response headers when classifying stream failures', async () => {
-    const middlewareOptions = options();
-
-    const wrapped = withProviderFailures(
-      new MockLanguageModelV3({
-        doStream: ({ headers }) => {
-          const requestId = headers?.['x-request-id'];
-
-          return Promise.resolve({
-            stream: new ReadableStream({
-              start(controller) {
-                controller.enqueue({
-                  type: 'error',
-                  error: new Error('failed'),
-                });
-                controller.close();
-              },
-            }),
-            response: {
-              headers: {
-                ...(isString(requestId) && { 'x-request-id': requestId }),
-              },
-            },
-          });
-        },
-      }),
-      middlewareOptions,
-    );
-
-    const results = await Promise.all(
-      ['request-a', 'request-b'].map((id) =>
-        wrapped.doStream({ prompt: [], headers: { 'x-request-id': id } }),
-      ),
-    );
-
-    await Promise.all(
-      results.map((result) => result.stream.getReader().read()),
-    );
-    expect(
-      middlewareOptions.classify.mock.calls.map(([input]) => input.headers),
-    ).toEqual([
-      { 'x-request-id': 'request-a' },
-      { 'x-request-id': 'request-b' },
-    ]);
-  });
-
-  it('preserves abort reason identity and does not classify it', async () => {
-    const reason = new Error('caller abort');
+  it('preserves abort reason identity without classifying it', () => {
     const controller = new AbortController();
+    const reason = new Error('owner abort');
     controller.abort(reason);
     const middlewareOptions = options(controller.signal);
 
-    const wrapped = withProviderFailures(
-      new MockLanguageModelV3({
-        doStream: () =>
-          Promise.resolve({
-            stream: new ReadableStream({
-              start(streamController) {
-                streamController.enqueue({ type: 'error', error: reason });
-                streamController.close();
-              },
-            }),
-          }),
-      }),
-      middlewareOptions,
-    );
+    expect(classifiedFailure(reason, middlewareOptions)).toBe(reason);
+    expect(middlewareOptions.classify).not.toHaveBeenCalled();
+  });
 
-    const result = await wrapped.doStream({
-      prompt: [],
-      abortSignal: controller.signal,
+  it('captures the provider failure when the SDK rejects with no output', () => {
+    const failure = new ProviderFailure('bounded provider failure', {
+      code: 'rate_limited',
     });
 
-    const part = await result.stream.getReader().read();
+    const onError = vi.fn();
 
-    expect(part.value).toEqual({ type: 'error', error: reason });
+    const request = {
+      onError,
+    };
 
-    if (part.value?.type !== 'error') throw new Error('expected error part');
-    expect(part.value.error).toBe(reason);
-    expect(middlewareOptions.classify).not.toHaveBeenCalled();
-  });
+    const sanitize = captureRequestFailure(request, () => failure);
 
-  it('preserves watchdog failures by identity', () => {
-    const middlewareOptions = options();
-    const error = new ModelStreamIdleError();
+    request.onError?.({ error: new Error('raw') });
 
-    expect(classifiedFailure(error, middlewareOptions)).toBe(error);
-    expect(middlewareOptions.classify).not.toHaveBeenCalled();
-  });
-  it('classifies raw errors before sanitizing and preserves final SDK retry errors', () => {
-    const raw = Object.assign(new Error('raw failure'), { body: 'secret' });
-    const middlewareOptions = options();
-    const classified = classifiedFailure(raw, middlewareOptions);
-
-    expect(middlewareOptions.classify).toHaveBeenCalledWith(
-      expect.objectContaining({ error: raw }),
-    );
-    expect(middlewareOptions.sanitize).toHaveBeenCalledWith(raw);
-    expect(classified).toBeInstanceOf(ProviderFailure);
-    expect(classified).toMatchObject({ message: 'bounded provider failure' });
+    expect(sanitize(new NoOutputGeneratedError())).toBe(failure);
+    expect(onError).toHaveBeenCalledWith({ error: failure });
   });
   it('classifies rejected stream reads as an error frame at the consumer boundary', async () => {
     const raw = new Error('reader rejected');
