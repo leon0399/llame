@@ -22117,6 +22117,9 @@ describe('RunExecutionService executeRun — run segments', () => {
         compactionSet: { ids: [], focus: null },
       }),
     );
+    expect(prepareBoundary).toHaveBeenCalledWith(
+      expect.objectContaining({ stepBudgetUsed: 2 }),
+    );
     expect(appended.map(({ type }) => type)).toContain(
       'run.compaction_disabled',
     );
