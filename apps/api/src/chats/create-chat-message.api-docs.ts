@@ -14,7 +14,10 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ChatCommandResultResponse } from './commands/chat-command-result.dto';
+import {
+  CompactChatCommandResultResponse,
+  RenameChatCommandResultResponse,
+} from './commands/chat-command-result.dto';
 import { ErrorResponse } from '../common/dto/error-response.dto';
 import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { CreateMessageDto } from './dto/chats.dto';
@@ -32,7 +35,8 @@ const createChatMessageDocs: Array<MethodDecorator> = [
   ApiExtraModels(
     CreateTextMessagePartDto,
     CreateFileMessagePartDto,
-    ChatCommandResultResponse,
+    RenameChatCommandResultResponse,
+    CompactChatCommandResultResponse,
     ErrorResponse,
     ModelDomainErrorResponse,
   ),
@@ -43,7 +47,19 @@ const createChatMessageDocs: Array<MethodDecorator> = [
         schema: { type: 'string' },
       },
       'application/json': {
-        schema: { $ref: getSchemaPath(ChatCommandResultResponse) },
+        schema: {
+          oneOf: [
+            { $ref: getSchemaPath(RenameChatCommandResultResponse) },
+            { $ref: getSchemaPath(CompactChatCommandResultResponse) },
+          ],
+          discriminator: {
+            propertyName: 'command',
+            mapping: {
+              rename: getSchemaPath(RenameChatCommandResultResponse),
+              compact: getSchemaPath(CompactChatCommandResultResponse),
+            },
+          },
+        },
       },
     },
   }),
@@ -56,8 +72,8 @@ const createChatMessageDocs: Array<MethodDecorator> = [
   }),
   ApiBadRequestResponse({
     description:
-      'Malformed chat id or invalid message body, including a file part ' +
-      'naming media the sender does not own',
+      'Malformed chat id or invalid message body, including unsupported ' +
+      '`/compact` focus text or a file part naming media the sender does not own',
   }),
   ApiUnauthorizedResponse(),
   ApiResponse({
@@ -88,8 +104,8 @@ const createChatMessageDocs: Array<MethodDecorator> = [
   ApiNotFoundResponse({ description: 'Chat not found or not owned' }),
   ApiConflictResponse({
     description:
-      'Message id already exists, another run is already in flight without a ' +
-      '`delivery` mode, the Chat is archived, or bare `/rename` has nothing to name',
+      'Message id already exists, a Run is already in flight, the Chat is ' +
+      'archived, compaction has nothing to absorb, or bare `/rename` has nothing to name',
   }),
 ];
 

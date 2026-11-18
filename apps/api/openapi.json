@@ -826,7 +826,21 @@
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatCommandResultResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RenameChatCommandResultResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CompactChatCommandResultResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "command",
+                    "mapping": {
+                      "rename": "#/components/schemas/RenameChatCommandResultResponse",
+                      "compact": "#/components/schemas/CompactChatCommandResultResponse"
+                    }
+                  }
                 }
               }
             }
@@ -842,7 +856,7 @@
             }
           },
           "400": {
-            "description": "Malformed chat id or invalid message body, including a file part naming media the sender does not own"
+            "description": "Malformed chat id or invalid message body, including unsupported `/compact` focus text or a file part naming media the sender does not own"
           },
           "401": {
             "description": ""
@@ -851,7 +865,7 @@
             "description": "Chat not found or not owned"
           },
           "409": {
-            "description": "Message id already exists, another run is already in flight without a `delivery` mode, the Chat is archived, or bare `/rename` has nothing to name"
+            "description": "Message id already exists, a Run is already in flight, the Chat is archived, compaction has nothing to absorb, or bare `/rename` has nothing to name"
           },
           "413": {
             "description": "The request body is larger than the server accepts."
@@ -5416,7 +5430,7 @@
         "required": ["type", "mediaType", "url"],
         "additionalProperties": false
       },
-      "ChatCommandResultResponse": {
+      "RenameChatCommandResultResponse": {
         "type": "object",
         "properties": {
           "type": {
@@ -5433,6 +5447,24 @@
           }
         },
         "required": ["type", "command", "title"]
+      },
+      "CompactChatCommandResultResponse": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["command"]
+          },
+          "command": {
+            "type": "string",
+            "enum": ["compact"]
+          },
+          "runId": {
+            "type": "string",
+            "description": "The admitted compaction Run id."
+          }
+        },
+        "required": ["type", "command", "runId"]
       },
       "ErrorResponse": {
         "type": "object",

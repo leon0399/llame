@@ -66,6 +66,7 @@ import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { asDouble } from '../testing/support';
+import type { JobNoticeRunService } from './job-notice-run.service';
 import { type RunDispatcher } from './run-dispatch.service';
 import {
   RunAbortRegistry,
@@ -544,6 +545,7 @@ type ExecutionServiceOptions = {
   segmentAborts?: RunSegmentRegistrar;
   /** Durable wait suspension dependency for the host-controlled wait tool. */
   runWait?: RunWaitService;
+  jobNoticeRuns?: Pick<JobNoticeRunService, 'startAfterRunCompletion'>;
 };
 
 function makeExecutionService(
@@ -689,6 +691,7 @@ function makeExecutionService(
       { startOnSettlement: vi.fn() },
     ),
     options.runWait,
+    options.jobNoticeRuns,
   );
 
   return {
@@ -799,7 +802,10 @@ function mockNormalExecutionRepositories() {
       createdAt: now,
     });
 
-  vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue(event);
+  const appendEvent = vi
+    .spyOn(RunEventsRepository.prototype, 'append')
+    .mockResolvedValue(event);
+
   vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
     undefined,
   );
@@ -954,7 +960,28 @@ function mockNormalExecutionRepositories() {
     findCompleted,
     findDispatched,
     findActiveCheckpoint,
+    appendEvent,
   };
+}
+
+function mockCompactionCompletionFence(execution: { db: Db }, fenced: Run) {
+  const responses = [[fenced], [fenced]];
+  let queryIndex = 0;
+
+  const select = vi.fn(() => {
+    const rows = responses[queryIndex++] ?? [];
+
+    return {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue(rows),
+          for: vi.fn().mockResolvedValue(rows),
+        })),
+      })),
+    };
+  });
+
+  Object.assign(execution.db, asDouble<Pick<Db, 'select'>>({ select }));
 }
 
 /** The two rows of the committed turn a checkpoint absorbs, in seq order. */
@@ -21436,7 +21463,13 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     expect(output['type']).toBe('invalid_input');
   });
-  it.each(['nothing-pending', 'cancelled', 'delivered', 'fenced'] as const)(
+  it.each([
+    'nothing-pending',
+    'cancelled',
+    'delivered',
+    'fenced',
+    'missing-checkpoint',
+  ] as const)(
     'claims a resumed wait before the %s steering boundary',
     async (boundaryKind) => {
       registerTestOnlyTool(waitTool);
@@ -21507,7 +21540,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
         (_runId, _userId, options) =>
           Promise.resolve(
-            wakeEvents.filter(
+            (boundaryKind === 'missing-checkpoint' ? [] : wakeEvents).filter(
               ({ eventType }) =>
                 options?.eventTypes === undefined ||
                 options.eventTypes.some((type) => type === eventType),
@@ -21585,6 +21618,14 @@ describe('RunExecutionService executeRun — run segments', () => {
           }),
         }),
       });
+
+      if (boundaryKind === 'missing-checkpoint') {
+        await expect(
+          execution.service.executeRun(executionInput(segment.client)),
+        ).rejects.toThrow('The resumed Run has no complete wait checkpoint.');
+
+        return;
+      }
 
       if (boundaryKind === 'cancelled' || boundaryKind === 'fenced') {
         await expect(
@@ -23661,5 +23702,621 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       'tool.requested',
       'tool.completed',
     ]);
+  });
+});
+
+describe('RunExecutionService compaction completion', () => {
+  it.each([
+    ['a successful attempt', false, 'completed'],
+    ['a cancellation requested before completion', true, 'cancelled'],
+  ] as const)(
+    'finishes a compaction run as %s',
+    async (_scenario, cancellationRequested, expectedStatus) => {
+      const repositories = mockNormalExecutionRepositories();
+
+      const fenced = {
+        ...run,
+        kind: 'compaction' as const,
+        messageId: null,
+        cancelRequestedAt: cancellationRequested ? now : null,
+      };
+
+      repositories.updateForAttempt.mockResolvedValue(fenced);
+      repositories.markFinished.mockResolvedValue({
+        ...fenced,
+        status: expectedStatus,
+      });
+
+      const execution = makeExecutionService();
+
+      mockCompactionCompletionFence(execution, fenced);
+
+      await execution.service.completeCompactionRun({
+        runId,
+        chatId,
+        userId,
+        attemptId: testAttemptId,
+        summary: undefined,
+        abortSignal: new AbortController().signal,
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      });
+
+      expect(repositories.updateForAttempt).toHaveBeenCalledWith(
+        runId,
+        userId,
+        testAttemptId,
+        { activeAttemptId: testAttemptId },
+      );
+      expect(repositories.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        expectedStatus,
+        {
+          error:
+            expectedStatus === 'cancelled'
+              ? { message: 'Run was cancelled.' }
+              : undefined,
+          attemptId: testAttemptId,
+        },
+      );
+      expect(repositories.appendEvent).toHaveBeenCalledWith(
+        runId,
+        `run.${expectedStatus}`,
+        { status: expectedStatus },
+      );
+    },
+  );
+
+  it('starts pending notices after successful compaction completion', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+    repositories.markFinished.mockResolvedValue({
+      ...fenced,
+      status: 'completed',
+    });
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result).toEqual({
+      outcome: 'won',
+      assistantMessage: undefined,
+      promoted: undefined,
+    });
+    expect(startAfterRunCompletion).toHaveBeenCalledWith(execution.db, {
+      chatId,
+      ownerUserId: userId,
+    });
+  });
+  it('does not start pending notices when another completion already won', async () => {
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    mockNormalExecutionRepositories();
+
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+    Object.defineProperty(execution.service, 'finishRunInTransaction', {
+      value: vi.fn().mockResolvedValue({
+        outcome: 'lost',
+        assistantMessage: undefined,
+        promoted: undefined,
+      }),
+    });
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('lost');
+    expect(startAfterRunCompletion).not.toHaveBeenCalled();
+  });
+
+  it('does not start pending notices when completion promotes a queued run', async () => {
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    mockNormalExecutionRepositories();
+
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+      runDispatch: { dispatch },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+    Object.defineProperty(execution.service, 'finishRunInTransaction', {
+      value: vi.fn().mockResolvedValue({
+        outcome: 'won',
+        assistantMessage: undefined,
+        promoted: run,
+      }),
+    });
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(startAfterRunCompletion).not.toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalledWith(run);
+  });
+
+  it('does not publish a summary when cancellation wins completion', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+      cancelRequestedAt: now,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+
+    const createCheckpoint = vi.spyOn(
+      MessagesRepository.prototype,
+      'createCheckpoint',
+    );
+
+    const startAfterRunCompletion = vi.fn(() => Promise.resolve());
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      jobNoticeRuns: { startAfterRunCompletion },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: { uptoSeq: 1, summary: 'summary', usage: null },
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      {
+        error: { message: 'Run was cancelled.' },
+        attemptId: testAttemptId,
+      },
+    );
+    expect(repositories.appendEvent).toHaveBeenCalledWith(
+      runId,
+      'run.cancelled',
+      { status: 'cancelled' },
+    );
+    expect(createCheckpoint).not.toHaveBeenCalled();
+    expect(startAfterRunCompletion).not.toHaveBeenCalled();
+  });
+
+  it('settles an abort observed inside the completion transaction', async () => {
+    const abort = new AbortController();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.updateForAttempt.mockImplementation(() => {
+      abort.abort();
+
+      return Promise.resolve({ ...run, kind: 'compaction', messageId: null });
+    });
+    const execution = makeExecutionService();
+
+    mockCompactionCompletionFence(execution, {
+      ...run,
+      kind: 'compaction',
+      messageId: null,
+    });
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: abort.signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      {
+        error: {
+          message: 'Run was cancelled before model inference.',
+        },
+        attemptId: testAttemptId,
+      },
+    );
+    expect(repositories.appendEvent).toHaveBeenCalledWith(
+      runId,
+      'run.cancelled',
+      {
+        status: 'cancelled',
+        message: 'Run was cancelled before model inference.',
+      },
+    );
+  });
+  it('does not republish a checkpoint at an already absorbed boundary', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findCheckpointByBoundary',
+    ).mockResolvedValue({ ...assistantMessage, absorbedThroughSeq: 1 });
+
+    const createCheckpoint = vi.spyOn(
+      MessagesRepository.prototype,
+      'createCheckpoint',
+    );
+
+    const execution = makeExecutionService();
+
+    mockCompactionCompletionFence(execution, {
+      ...run,
+      kind: 'compaction',
+      messageId: null,
+    });
+
+    await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: { uptoSeq: 1, summary: 'summary', usage: null },
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(createCheckpoint).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunExecutionService claimRun', () => {
+  it('fences cancellation settlement by the queue identity seen at pickup', async () => {
+    const expectedQueueIdentity = {
+      currentJobId: 'wake-job',
+      wakeGeneration: 9,
+    };
+
+    const abort = new AbortController();
+    abort.abort();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markFinished.mockResolvedValue(undefined);
+    const execution = makeExecutionService();
+
+    const claim = await execution.service.claimRun({
+      runId,
+      chatId,
+      userId,
+      abortSignal: abort.signal,
+      expectedQueueIdentity,
+    });
+
+    expect(claim).toEqual({ settledReply: undefined });
+    expect(repositories.markFinished).toHaveBeenLastCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      {
+        error: { message: 'Run was cancelled before model inference.' },
+        expectedQueueIdentity,
+      },
+    );
+  });
+
+  it('omits a queue fence when a pre-aborted claim has no queue identity', async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const repositories = mockNormalExecutionRepositories();
+    repositories.markFinished.mockResolvedValue(undefined);
+    const execution = makeExecutionService();
+
+    const claim = await execution.service.claimRun({
+      runId,
+      chatId,
+      userId,
+      abortSignal: abort.signal,
+    });
+
+    expect(claim).toEqual({ settledReply: undefined });
+    const finishOptions = repositories.markFinished.mock.calls.at(-1)?.[3];
+
+    expect(finishOptions).toEqual({
+      error: { message: 'Run was cancelled before model inference.' },
+    });
+    expect(Object.hasOwn(finishOptions ?? {}, 'expectedQueueIdentity')).toBe(
+      false,
+    );
+  });
+});
+
+describe('RunExecutionService compaction aborts', () => {
+  it('settles an abort during digest resolution without publishing a checkpoint', async () => {
+    const abort = new AbortController();
+
+    const { promise: digestStarted, resolve: signalDigestStarted } =
+      Promise.withResolvers<void>();
+
+    const { promise: digestGate, resolve: releaseDigest } =
+      Promise.withResolvers<void>();
+
+    const { service } = makeExecutionService(undefined, undefined, undefined, {
+      memory: {
+        getForOwnerForBinding: vi
+          .fn()
+          .mockResolvedValue({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: vi.fn(async () => {
+          signalDigestStarted();
+          await digestGate;
+
+          return {
+            baseline: {
+              pinned: [],
+              recent: [],
+              pinnedShown: 0,
+              pinnedTotal: 0,
+              recentShown: 0,
+              recentTotal: 0,
+              compiledOn: '2026-11-16',
+            },
+            candidates: [],
+          };
+        }),
+      },
+    });
+
+    const settleTerminalRun = vi
+      .spyOn(service, 'settleTerminalRun')
+      .mockResolvedValue({ outcome: 'won' });
+
+    const createCheckpoint = vi.spyOn(
+      MessagesRepository.prototype,
+      'createCheckpoint',
+    );
+
+    const completion = service.completeCompactionRun({
+      runId: 'run-1',
+      chatId: 'chat-1',
+      userId: 'owner-1',
+      attemptId: 'attempt-1',
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      summary: { uptoSeq: 1, summary: 'summary', usage: null },
+      abortSignal: abort.signal,
+    });
+
+    await digestStarted;
+    abort.abort();
+    releaseDigest();
+    await completion;
+
+    expect(createCheckpoint).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'cancelled',
+        attemptId: 'attempt-1',
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      }),
+    );
+  });
+
+  it('records the precise timeout reason when completion starts aborted', async () => {
+    const abort = new AbortController();
+    abort.abort(RUN_TIMEOUT_ABORT_REASON);
+
+    const { service } = makeExecutionService();
+
+    const settleTerminalRun = vi
+      .spyOn(service, 'settleTerminalRun')
+      .mockResolvedValue({ outcome: 'won' });
+
+    const queueIdentity = { currentJobId: null, wakeGeneration: 0 };
+
+    const result = await service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      expectedQueueIdentity: queueIdentity,
+      summary: undefined,
+      abortSignal: abort.signal,
+    });
+
+    expect(result).toEqual({ outcome: 'won' });
+    expect(settleTerminalRun).toHaveBeenCalledWith({
+      userId,
+      runId,
+      status: 'expired',
+      attemptId: testAttemptId,
+      expectedQueueIdentity: queueIdentity,
+      runPayload: {
+        status: 'expired',
+        message: 'Run timed out: exceeded its wall-clock budget.',
+      },
+      error: { message: 'Run timed out: exceeded its wall-clock budget.' },
+    });
+  });
+
+  it('publishes a checkpoint when a completed summary adds a new boundary', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+
+    const execution = makeExecutionService();
+    mockCompactionCompletionFence(execution, fenced);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findCheckpointByBoundary',
+    ).mockResolvedValue(undefined);
+
+    const createCheckpoint = vi
+      .spyOn(MessagesRepository.prototype, 'createCheckpoint')
+      .mockResolvedValue(assistantMessage);
+
+    await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      summary: { uptoSeq: 3, summary: 'checkpoint summary', usage: null },
+      abortSignal: new AbortController().signal,
+    });
+
+    expect(createCheckpoint).toHaveBeenCalledWith({
+      chatId,
+      absorbedThroughSeq: 3,
+      part: createCompactionCheckpointPart('checkpoint summary'),
+      usage: null,
+    });
+  });
+});
+
+describe('RunExecutionService compaction digest resolution', () => {
+  it('completes without a digest when the candidate lookup fails', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+    repositories.markFinished.mockResolvedValue({
+      ...fenced,
+      status: 'completed',
+    });
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      memory: {
+        getForOwnerForBinding: vi
+          .fn()
+          .mockResolvedValue({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: vi
+          .fn()
+          .mockRejectedValue(new Error('digest unavailable')),
+      },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    const result = await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(result.outcome).toBe('won');
+    expect(repositories.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+  });
+
+  it('does not resolve a digest when recent-chat sharing is disabled', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const fenced = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    repositories.updateForAttempt.mockResolvedValue(fenced);
+
+    const resolveCandidate = vi
+      .fn()
+      .mockRejectedValue(new Error('must not resolve a digest'));
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      memory: {
+        getForOwnerForBinding: vi
+          .fn()
+          .mockResolvedValue({ shareRecentChats: false }),
+      },
+      recencyDigest: { resolveCandidate },
+    });
+
+    mockCompactionCompletionFence(execution, fenced);
+
+    await execution.service.completeCompactionRun({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      summary: undefined,
+      abortSignal: new AbortController().signal,
+      expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+    });
+
+    expect(resolveCandidate).not.toHaveBeenCalled();
   });
 });

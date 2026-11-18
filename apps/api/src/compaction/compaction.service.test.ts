@@ -27,8 +27,11 @@ import {
   fakeResolver,
   pdfDescriptor,
 } from '../media/media-fixtures';
-import type { CompactionPlan } from './compaction';
-import { COMPACTION_INSTRUCTION } from './compaction';
+import {
+  COMPACTION_INSTRUCTION,
+  renderCompactionInstruction,
+  type CompactionPlan,
+} from './compaction';
 import { CompactionService, toStoredMessages } from './compaction.service';
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -830,6 +833,141 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
   });
 });
 
+describe('CompactionService.summarizeCheckpoint (owner Run)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses the Run model, stored prompt, effort, no tools, and owner instruction', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    mockReads({
+      previous: previousCheckpoint,
+      source: { run: sourceRun, receipt: sourceReceipt },
+    });
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'owner',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      previousCheckpoint,
+      client,
+      effort: 'high',
+      reservedOutputTokens: 10,
+    });
+
+    expect(summary?.summary).toBe('summary text');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      system: 'the source run system prompt',
+      effort: 'high',
+      toolChoice: 'none',
+    });
+    expect(calls[0]?.tools).toBeUndefined();
+    expect(calls[0]?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: renderCompactionInstruction('owner'),
+    });
+    expect(calls[0]?.messages.at(-1)?.content).not.toContain(
+      'newer triggering user message',
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(
+      'The newer triggering user message follows that prefix',
+    );
+  });
+
+  it('fails an owner Run when the summary is empty and omits system without a source Run', async () => {
+    const { client, calls } = recordingClient({ responses: [''] });
+    const setup = makeService(client);
+    mockReads();
+
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'owner',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        previousCheckpoint: undefined,
+        client,
+        reservedOutputTokens: 10,
+      }),
+    ).rejects.toThrow('Compaction summary returned no valid text summary.');
+
+    expect(Object.keys(calls[0] ?? {})).not.toContain('system');
+  });
+  it('falls back to the source Run model, receipt and effort when the owner request does not fit', async () => {
+    const { client: ownerClient } = recordingClient({ contextWindowTokens: 1 });
+    const { client: sourceClient, calls } = recordingClient();
+    const setup = makeService(ownerClient);
+
+    const createClient = vi
+      .spyOn(setup.models, 'createClient')
+      .mockReturnValue(sourceClient);
+
+    const reads = mockReads({
+      previous: previousCheckpoint,
+      source: {
+        run: { ...sourceRun, effort: 'high' },
+        receipt: sourceReceipt,
+      },
+    });
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'owner',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      previousCheckpoint,
+      client: ownerClient,
+      effort: 'low',
+      reservedOutputTokens: 10,
+    });
+
+    expect(summary?.summary).toBe('summary text');
+    expect(createClient).toHaveBeenCalledWith(sourceRun.modelId);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      system: sourceReceipt.systemPrompt,
+      effort: 'high',
+    });
+    expect(calls[0]?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: renderCompactionInstruction('owner'),
+    });
+    expect(calls[0]?.messages.at(-1)?.content).not.toContain(
+      'newer triggering user message',
+    );
+
+    expect(reads.findActive).not.toHaveBeenCalled();
+  });
+
+  it('fails with context-incompatible when no source Run can fit a non-fitting owner request', async () => {
+    const { client, calls } = recordingClient({ contextWindowTokens: 1 });
+    const setup = makeService(client);
+    const reads = mockReads();
+
+    await expect(
+      setup.service.summarizeCheckpoint({
+        variant: 'owner',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        previousCheckpoint: undefined,
+        client,
+        reservedOutputTokens: 10,
+      }),
+    ).rejects.toBeInstanceOf(ContextIncompatibleError);
+
+    expect(calls).toHaveLength(0);
+    expect(reads.findRun).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
   const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
 
@@ -897,6 +1035,32 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
     const sent = sentImages(models);
     expect(sent.files).toEqual(['image/png']);
     expect(sent.text).toContain(`Image 1 (media://${imageId}):`);
+  });
+
+  it('keeps owner attachments in the context-sized summary request', async () => {
+    const models = new ScriptedModelsService();
+    models.register('vision', { kind: 'complete', text: 'summary text' });
+    models.registerInput('vision', ['text', 'image']);
+
+    const client = models.createClient('vision');
+
+    const setup = makeService(client);
+    mockReads();
+
+    const summary = await setup.service.summarizeCheckpoint({
+      variant: 'owner',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 4,
+      plan: attachmentPlan(),
+      previousCheckpoint: undefined,
+      reservedOutputTokens: 10,
+      client,
+      media,
+    });
+
+    expect(summary).toMatchObject({ summary: 'summary text' });
+    expect(sentImages(models).files).toEqual(['image/png']);
   });
 
   it('gives a text-only source model the omitted placeholder and no image part', async () => {

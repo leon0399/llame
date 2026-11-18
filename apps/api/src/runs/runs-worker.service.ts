@@ -29,10 +29,13 @@ import { ModelContextExecutionError } from './model-context-errors';
 import {
   RUN_CEILING_ABORT_REASON,
   RUN_TIMEOUT_ABORT_REASON,
+  classifyAbortedRun,
+  expiredRunMessage,
   RunExecutionService,
   RunNotRunnableError,
   type RunExecutor,
 } from './run-execution.service';
+import { CompactionRunService } from './compaction-run.service';
 import {
   RUN_EXECUTION_CEILING_SECONDS,
   runsQueueDefinition,
@@ -115,6 +118,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     private readonly aborts: RunAbortRegistrar,
     @Inject(RunWaitService)
     private readonly runWait: Pick<RunWaitService, 'wakeInTransaction'>,
+    @Inject(CompactionRunService)
+    private readonly compactionRun: Pick<CompactionRunService, 'execute'>,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -309,16 +314,8 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }
 
     if (pickup.kind === 'compaction') {
-      const message = 'Compaction Runs are not supported yet.';
-      await retryRunTransaction(() =>
-        this.runExecution.settleTerminalRun({
-          runId: job.runId,
-          userId: job.userId,
-          status: 'failed',
-          expectedQueueIdentity: pickup.expectedQueueIdentity,
-          runPayload: { status: 'failed', message },
-          error: { message },
-        }),
+      await this.runGuarded(job, pickup, budgetSeconds, (signal) =>
+        this.executeCompaction(job, pickup, signal),
       );
 
       return;
@@ -330,6 +327,22 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       throw new Error(`Turn Run ${job.runId} has no user message.`);
     }
 
+    await this.runGuarded(job, pickup, budgetSeconds, (signal) =>
+      this.executeTurn(job, pickup, userMessage, signal),
+    );
+  }
+
+  /**
+   * The guards every claimed Run executes under, whatever its kind: the abort
+   * controller, the cancel re-check, the budget deadline and timer, and the
+   * settlement of run-level failures.
+   */
+  private async runGuarded(
+    job: RunJob,
+    pickup: Extract<RunPickup, { skip: false }>,
+    budgetSeconds: number | null,
+    execute: (signal: AbortSignal) => Promise<void>,
+  ): Promise<void> {
     // Mid-flight cancellation: the run-control listener aborts this controller
     // when a cancellation is recorded, in any topology; executeRun's abort path records the cancelled
     // terminal state exactly like a client abort did in inline mode.
@@ -398,50 +411,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     }, limitMs);
 
     try {
-      const client = this.models.createClient(pickup.modelId);
-
-      const result = await this.runExecution.executeRun({
-        runId: job.runId,
-        chatId: job.chatId,
-        userId: job.userId,
-        userMessage,
-        client,
-        abortSignal: abort.signal,
-        // The worker already read the Run row; a Continue Run is the only one
-        // that resumes kept parts.
-        expectedQueueIdentity: pickup.expectedQueueIdentity,
-        followUpAction: pickup.followUpAction,
-      });
-
-      // Drain the stream — executeRun's callbacks persist the assistant turn,
-      // delta events, and the terminal run status as a side effect.
-      await (result.consumeStream ? result.consumeStream() : result.text);
-
-      // The AI SDK can resolve stream consumption after swallowing an async
-      // tool callback rejection. Treat a resolved drain as successful only
-      // when the durable owner-scoped run agrees. Otherwise the queue must
-      // retry; acknowledging here would strand the run as nonterminal forever.
-      const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
-        new RunsRepository(tx).findById(job.runId, job.userId),
-      );
-
-      const jobStillCurrent =
-        persisted !== undefined &&
-        (job.wake === undefined
-          ? persisted.currentJobId === null
-          : persisted.currentJobId === job.wake.jobId &&
-            persisted.wakeGeneration === job.wake.generation);
-
-      if (
-        persisted &&
-        jobStillCurrent &&
-        !isTerminalRunStatus(persisted.status) &&
-        persisted.status !== 'awaiting_jobs'
-      ) {
-        throw new Error(
-          `Run ${job.runId} stream drained without a durable terminal or suspension state.`,
-        );
-      }
+      await execute(abort.signal);
     } catch (error) {
       // The run went terminal before execution could claim it (superseded,
       // cancelled, expired): already settled durably — the job is done, not
@@ -489,6 +459,90 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     } finally {
       clearTimeout(timeoutTimer);
       this.aborts.unregister(job.runId, abort);
+    }
+  }
+
+  private async executeTurn(
+    job: RunJob,
+    pickup: Extract<RunPickup, { skip: false }>,
+    userMessage: NonNullable<RunJob['userMessage']>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const client = this.models.createClient(pickup.modelId);
+
+    const result = await this.runExecution.executeRun({
+      runId: job.runId,
+      chatId: job.chatId,
+      userId: job.userId,
+      userMessage,
+      client,
+      abortSignal: signal,
+      // The worker already read the Run row; a Continue Run is the only one
+      // that resumes kept parts.
+      expectedQueueIdentity: pickup.expectedQueueIdentity,
+      followUpAction: pickup.followUpAction,
+    });
+
+    // Drain the stream — executeRun's callbacks persist the assistant turn,
+    // delta events, and the terminal run status as a side effect.
+    await (result.consumeStream ? result.consumeStream() : result.text);
+
+    // The AI SDK can resolve stream consumption after swallowing an async
+    // tool callback rejection. Treat a resolved drain as successful only
+    // when the durable owner-scoped run agrees. Otherwise the queue must
+    // retry; acknowledging here would strand the run as nonterminal forever.
+    const persisted = await this.tenantDb.runAs(job.userId, (tx) =>
+      new RunsRepository(tx).findById(job.runId, job.userId),
+    );
+
+    const jobStillCurrent =
+      persisted !== undefined &&
+      (job.wake === undefined
+        ? persisted.currentJobId === null
+        : persisted.currentJobId === job.wake.jobId &&
+          persisted.wakeGeneration === job.wake.generation);
+
+    if (
+      persisted &&
+      jobStillCurrent &&
+      !isTerminalRunStatus(persisted.status) &&
+      persisted.status !== 'awaiting_jobs'
+    ) {
+      throw new Error(
+        `Run ${job.runId} stream drained without a durable terminal or suspension state.`,
+      );
+    }
+  }
+
+  /** A compaction Run streams nothing; an abort is settled here because the
+   *  compaction service rethrows it rather than recording it. */
+  private async executeCompaction(
+    job: RunJob,
+    pickup: Extract<RunPickup, { skip: false }>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    try {
+      await this.compactionRun.execute(
+        job,
+        this.models.createClient(pickup.modelId),
+        signal,
+        pickup.expectedQueueIdentity,
+      );
+    } catch (error) {
+      if (!signal.aborted) throw error;
+      const status = classifyAbortedRun(signal);
+
+      const message =
+        status === 'expired' ? expiredRunMessage(signal) : 'Run was cancelled.';
+
+      await this.runExecution.settleTerminalRun({
+        runId: job.runId,
+        userId: job.userId,
+        status,
+        expectedQueueIdentity: pickup.expectedQueueIdentity,
+        runPayload: { status, message },
+        error: { message },
+      });
     }
   }
 

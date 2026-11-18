@@ -33,6 +33,7 @@ import {
   RunAbortRegistry,
   type SegmentControl,
 } from '../runs/run-abort-registry';
+import { CompactionRunService } from '../runs/compaction-run.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunWaitService } from '../runs/run-wait.service';
 import { RUNS_QUEUE, type RunJob } from '../runs/run-queues';
@@ -256,6 +257,7 @@ describe('chat deliveries — the steer mode', () => {
       tenantDb,
       app.get(RunAbortRegistry, { strict: false }),
       app.get(RunWaitService, { strict: false }),
+      app.get(CompactionRunService, { strict: false }),
     ).onApplicationBootstrap();
 
     if (!handler) throw new Error('runs.dead consumer not registered');

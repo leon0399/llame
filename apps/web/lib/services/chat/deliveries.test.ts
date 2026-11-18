@@ -147,9 +147,19 @@ describe("sendDelivery", () => {
     expect(body).not.toHaveProperty("delivery");
   });
 
+  it("parses a JSON compact result with its Run id", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ type: "command", command: "compact", runId: "run-9" }),
+    );
+
+    await expect(
+      sendDelivery({ ...REQUEST, delivery: undefined }),
+    ).resolves.toEqual({ kind: "command", command: "compact", runId: "run-9" });
+  });
+
   it("treats an unknown JSON command as a generic success", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ type: "command", command: "compact", runId: "run-1" }),
+      jsonResponse({ type: "command", command: "later", ok: true }),
     );
 
     await expect(sendDelivery(REQUEST)).resolves.toEqual({ kind: "success" });

@@ -2,6 +2,7 @@ import type { ChatStreamResponse } from '../chat-stream-response';
 import type { CreateMessageDto } from '../dto/chats.dto';
 import type { ChatCommandsService } from './chat-commands.service';
 import { parseChatCommand } from './parse-chat-command';
+import { throwModelDomainError } from '../model-domain-error';
 
 export async function respondToChatCommand(
   commands: ChatCommandsService,
@@ -17,12 +18,23 @@ export async function respondToChatCommand(
 
   if (!command) return false;
 
-  const result = await commands.execute({
-    chatId,
-    userId,
-    command,
-    parts: input.message.parts,
-  });
+  let result;
+
+  try {
+    result = await commands.execute({
+      chatId,
+      userId,
+      command,
+      parts: input.message.parts,
+      modelId: input.modelId,
+      ...(input.effort !== undefined && { effort: input.effort }),
+      ...(input.permissionMode !== undefined && {
+        permissionMode: input.permissionMode,
+      }),
+    });
+  } catch (error) {
+    throwModelDomainError(error);
+  }
 
   if (!result) return false;
 

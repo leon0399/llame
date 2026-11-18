@@ -38,6 +38,7 @@
         "src/chats/chat-creation.service.ts",
         "src/chats/chat-deliveries.service.ts",
         "src/chats/chat-loop.service.ts",
+        "src/chats/commands/chat-commands.service.ts",
         "src/chats/chats-repository.ts",
         "src/chats/chats.controller.ts",
         "src/chats/chats.service.ts",

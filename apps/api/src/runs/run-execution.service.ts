@@ -438,12 +438,15 @@ import {
   type TemporalAnchor,
 } from '../prompts/temporal-anchor';
 
+import { JobNoticeRunService } from './job-notice-run.service';
+
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
  * state it establishes. Applied by the terminal transaction of the attempt that
  * completes the turn: the baseline lives only in the system prompt, so no
  * history item accompanies it and a losing attempt must never freeze it.
  */
+
 export type SkillCatalogFreeze = NonNullable<SkillTurnState['freeze']> & {
   readonly told: NonNullable<Chat['skillCatalogTold']>;
 };
@@ -647,6 +650,16 @@ type DisclosureBaseline = {
   readonly startsEpoch: boolean;
 };
 
+type CompactionCompletionInput = {
+  runId: string;
+  chatId: string;
+  userId: string;
+  attemptId: string;
+  expectedQueueIdentity: NonNullable<FinishRunInput['expectedQueueIdentity']>;
+  summary: CompactionSummary | undefined;
+  abortSignal: AbortSignal;
+};
+
 type FinishRunInput = {
   userId: string;
   runId: string;
@@ -696,6 +709,29 @@ type PreparedExecutionContext = {
   toolDeclarations: Array<ModelToolDeclaration>;
   tools: Array<BoundExecutableTool>;
 };
+
+export type RunClaimInput = {
+  runId: string;
+  chatId: string;
+  userId: string;
+  abortSignal?: AbortSignal;
+  expectedQueueIdentity?: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
+};
+
+export type RunClaimResult =
+  | { settledReply: Message | undefined }
+  | { nativeRecovery: true; attemptId: string }
+  | {
+      effort?: string;
+      permissionMode: Run['permissionMode'];
+      attemptId: string;
+      messageId: string | null;
+      nativeDeliverySequence: number;
+      wakeState?: WakeState;
+    };
 
 type ExecuteRunInput = {
   runId: string;
@@ -804,7 +840,7 @@ export const NATIVE_MUTATION_ABORT_REASON = 'native-mutation-unknown';
  * rather than the status: both reasons settle as run.expired, but only a
  * configured budget may be named in the message.
  */
-function expiredRunMessage(signal: AbortSignal | undefined): string {
+export function expiredRunMessage(signal: AbortSignal | undefined): string {
   return signal?.reason === RUN_CEILING_ABORT_REASON
     ? 'Run reached the 23 h 55 m execution ceiling.'
     : 'Run timed out: exceeded its wall-clock budget.';
@@ -1159,6 +1195,12 @@ export class RunExecutionService {
     private readonly bashJobs?: BashJobRegistry,
     @Inject(RunWaitService)
     private readonly runWait?: RunWaitService,
+    @Optional()
+    @Inject(JobNoticeRunService)
+    private readonly jobNoticeRuns?: Pick<
+      JobNoticeRunService,
+      'startAfterRunCompletion'
+    >,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -1266,32 +1308,190 @@ export class RunExecutionService {
     return settlement;
   }
 
-  async executeRun(
-    request: ExecuteRunInput,
-  ): Promise<ReturnType<ModelClient['streamText']>> {
-    // Agent tracing: every model call of this Chat joins one conversation,
-    // attributed to its owner's opaque id, on the job's isolation scope.
-    Sentry.setConversationId(request.chatId);
-    Sentry.setUser({ id: request.userId });
+  async completeCompactionRun(
+    input: CompactionCompletionInput,
+  ): Promise<FinishRunResult> {
+    const digest = await this.resolveCompactionDigest(input);
 
-    const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
-      ? new AbortController()
-      : undefined;
+    if (input.abortSignal.aborted) {
+      return this.settleCompactionAbort(input);
+    }
 
-    const input = nativeAbort
-      ? {
-          ...request,
-          abortSignal: request.abortSignal
-            ? AbortSignal.any([request.abortSignal, nativeAbort.signal])
-            : nativeAbort.signal,
+    const result = await retryAbortedTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        const fenced = await new RunsRepository(tx).updateForAttempt(
+          input.runId,
+          input.userId,
+          input.attemptId,
+          { activeAttemptId: input.attemptId },
+        );
+
+        if (!fenced) return { outcome: 'lost' as const };
+
+        if (input.abortSignal.aborted) {
+          const status = classifyAbortedRun(input.abortSignal);
+          const message = this.abortedRunMessage(status, input.abortSignal);
+
+          return this.finishRunInTransaction(tx, {
+            runId: input.runId,
+            userId: input.userId,
+            status,
+            attemptId: input.attemptId,
+            expectedQueueIdentity: input.expectedQueueIdentity,
+            runPayload: { status, message },
+            error: { message },
+          });
         }
-      : request;
 
-    // Claim before any context preparation can invoke a model. Pre-step
-    // compaction is part of this run's execution budget and cancellation
-    // lifecycle, not untracked pre-work. A cancel that won the worker pickup
-    // TOCTOU is settled atomically here without spending on either model.
-    const claim = await retryRunTransaction(() =>
+        const status =
+          fenced.cancelRequestedAt === null ? 'completed' : 'cancelled';
+
+        if (status === 'completed' && input.summary !== undefined) {
+          await this.publishCompactionCheckpoint(
+            tx,
+            {
+              chatId: input.chatId,
+              userId: input.userId,
+              summary: input.summary,
+            },
+            digest,
+          );
+        }
+
+        const finish = await this.finishRunInTransaction(tx, {
+          runId: input.runId,
+          userId: input.userId,
+          status,
+          attemptId: input.attemptId,
+          expectedQueueIdentity: input.expectedQueueIdentity,
+          runPayload: { status },
+          ...(status === 'cancelled' && {
+            error: { message: 'Run was cancelled.' },
+          }),
+        });
+
+        if (
+          finish.outcome === 'won' &&
+          finish.promoted === undefined &&
+          status === 'completed'
+        ) {
+          await this.jobNoticeRuns?.startAfterRunCompletion(tx, {
+            chatId: input.chatId,
+            ownerUserId: input.userId,
+          });
+        }
+
+        return finish;
+      }),
+    );
+
+    if (result.outcome === 'won' && result.promoted && this.runDispatch) {
+      await this.dispatchPromotedRun(this.runDispatch, result.promoted);
+    }
+
+    return result;
+  }
+
+  private async settleCompactionAbort(
+    input: CompactionCompletionInput,
+  ): Promise<FinishRunResult> {
+    const status = classifyAbortedRun(input.abortSignal);
+    const message = this.abortedRunMessage(status, input.abortSignal);
+
+    return this.settleTerminalRun({
+      userId: input.userId,
+      runId: input.runId,
+      status,
+      attemptId: input.attemptId,
+      expectedQueueIdentity: input.expectedQueueIdentity,
+      runPayload: { status, message },
+      error: { message },
+    });
+  }
+
+  private async resolveCompactionDigest(input: {
+    userId: string;
+    chatId: string;
+  }): Promise<{ candidate: RecencyDigestResolution | null }> {
+    const shareRecentChats = await this.tenantDb.runAs(input.userId, (tx) =>
+      this.memory.getForOwnerForBinding(tx, input.userId),
+    );
+
+    let candidate: RecencyDigestResolution | null = null;
+
+    if (shareRecentChats.shareRecentChats) {
+      try {
+        candidate = await this.recencyDigest.resolveCandidate(
+          input.userId,
+          input.chatId,
+        );
+      } catch {
+        this.logger.error('recency_digest_resolution_failed');
+      }
+    }
+
+    return { candidate };
+  }
+
+  private async publishCompactionCheckpoint(
+    tx: Db,
+    input: {
+      chatId: string;
+      userId: string;
+      summary: CompactionSummary;
+    },
+    digest: {
+      candidate: RecencyDigestResolution | null;
+    },
+  ): Promise<void> {
+    const summary = input.summary;
+    const messages = new MessagesRepository(tx);
+    const chats = new ChatsRepository(tx);
+
+    if (
+      (await messages.findCheckpointByBoundary(
+        input.chatId,
+        input.userId,
+        summary.uptoSeq,
+      )) !== undefined
+    ) {
+      return;
+    }
+
+    const chat = await chats.touch(input.chatId, input.userId);
+
+    const shareRecentChats = await this.memory.getForOwnerForBinding(
+      tx,
+      input.userId,
+    );
+
+    const checkpoint = await messages.createCheckpoint({
+      chatId: input.chatId,
+      absorbedThroughSeq: summary.uptoSeq,
+      part: createCompactionCheckpointPart(summary.summary),
+      usage: summary.usage,
+    });
+
+    await this.rebakeCheckpointDigest({
+      tx,
+      chatId: input.chatId,
+      userId: input.userId,
+      chat,
+      checkpointId: checkpoint.id,
+      shareRecentChats,
+      candidate: digest.candidate,
+    });
+
+    await this.resetWorkspaceCheckpointEpoch({
+      tx,
+      chatId: input.chatId,
+      userId: input.userId,
+      checkpointId: checkpoint.id,
+    });
+  }
+
+  async claimRun(input: RunClaimInput): Promise<RunClaimResult> {
+    return retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
         const runs = new RunsRepository(tx);
         const events = new RunEventsRepository(tx);
@@ -1304,12 +1504,12 @@ export class RunExecutionService {
             input.runId,
             input.userId,
             status,
-            input.expectedQueueIdentity
-              ? {
-                  error: { message },
-                  expectedQueueIdentity: input.expectedQueueIdentity,
-                }
-              : { error: { message } },
+            {
+              error: { message },
+              ...(input.expectedQueueIdentity !== undefined && {
+                expectedQueueIdentity: input.expectedQueueIdentity,
+              }),
+            },
           );
 
           return {
@@ -1358,8 +1558,8 @@ export class RunExecutionService {
           };
         }
 
-        // The claim is a touch (background-jobs D9): a job of this Chat whose
-        // worker died is `lost` before any model request of this Run.
+        // A claimed turn gets one settlement opportunity for host jobs whose
+        // worker died before this claim (background-jobs D9).
         await new ChatJobsRepository(tx).settleOnDeadWorkers(
           input.chatId,
           input.userId,
@@ -1381,15 +1581,6 @@ export class RunExecutionService {
           };
         }
 
-        // The claim returns the persisted effort rather than setting an outer
-        // variable: it is read inside the transaction (the run row is the single
-        // source of truth for what this run executes at, not the queue payload)
-        // and can only be reached on the path that actually claimed the run.
-        // Deliberately never re-resolved or re-validated against current
-        // configuration — a level the operator has since withdrawn is still sent
-        // verbatim, and a run that stored none sends no provider option at all.
-        // The claim names its attempt, so the completeness check can tell the
-        // attempts of one segment from those of an earlier one by event order.
         const startedEvent = await events.append(input.runId, 'run.started', {
           attemptId: started.activeAttemptId,
         });
@@ -1418,21 +1609,51 @@ export class RunExecutionService {
             started.activeAttemptId!,
           );
 
-          if (wakeState === undefined)
+          if (wakeState === undefined) {
             throw new Error('The resumed Run has no complete wait checkpoint.');
+          }
         }
 
+        // Effort is frozen on the Run at admission; never re-read current
+        // configuration on a retry.
         return {
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
           attemptId: started.activeAttemptId!,
-          // The Run's current message: a retry resumes the segment it names.
           messageId: started.messageId,
           nativeDeliverySequence: startedEvent.sequence,
           wakeState,
         };
       }),
     );
+  }
+
+  async executeRun(
+    request: ExecuteRunInput,
+  ): Promise<ReturnType<ModelClient['streamText']>> {
+    // Agent tracing: every model call of this Chat joins one conversation,
+    // attributed to its owner's opaque id, on the job's isolation scope.
+    Sentry.setConversationId(request.chatId);
+    Sentry.setUser({ id: request.userId });
+
+    const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
+      ? new AbortController()
+      : undefined;
+
+    const input = nativeAbort
+      ? {
+          ...request,
+          abortSignal: request.abortSignal
+            ? AbortSignal.any([request.abortSignal, nativeAbort.signal])
+            : nativeAbort.signal,
+        }
+      : request;
+
+    // Claim before any context preparation can invoke a model. Pre-step
+    // compaction is part of this run's execution budget and cancellation
+    // lifecycle, not untracked pre-work. A cancel that won the worker pickup
+    // TOCTOU is settled atomically here without spending on either model.
+    const claim = await this.claimRun(input);
 
     if ('settledReply' in claim) {
       // A reply finalized in place keeps its creation time, so only the
@@ -1459,6 +1680,9 @@ export class RunExecutionService {
     const { effort, permissionMode, attemptId } = claim;
     // Every attempt, a crash retry included, reads the Run's current message
     // from the Run row, not from the job: a delivery moved it (run-steering D3).
+
+    // A delivered message resumes the same Run in a new segment; only its
+    // first segment applies follow-up handling.
     const firstSegment = claim.messageId === input.userMessage.id;
 
     const attempt = await this.executeAttempt({
@@ -6848,22 +7072,15 @@ export class RunExecutionService {
             latestCheckpointId: input.checkpointId,
           });
 
-    if (
-      input.chat?.recencyDigestBaseline != null &&
-      input.digestCandidate !== null &&
-      input.shareRecentChats.shareRecentChats
-    ) {
-      // The new epoch starts with nothing disclosed: the request this
-      // checkpoint precedes accounts for the entries its renders actually
-      // emit, and an unrendered entry stays eligible for an append.
-      await chatsRepo.setRecencyDigest({
-        chatId: input.run.chatId,
-        ownerUserId: input.run.userId,
-        baseline: input.digestCandidate.baseline,
-        told: [],
-        rebakedFrom: input.checkpointId,
-      });
-    }
+    await this.rebakeCheckpointDigest({
+      tx: input.tx,
+      chatId: input.run.chatId,
+      userId: input.run.userId,
+      chat: input.chat,
+      checkpointId: input.checkpointId,
+      shareRecentChats: input.shareRecentChats,
+      candidate: input.digestCandidate,
+    });
 
     if (skillState?.freeze !== undefined) {
       await chatsRepo.setSkillCatalogBaseline({
@@ -6883,17 +7100,54 @@ export class RunExecutionService {
     }
 
     if (input.chat !== undefined) {
-      // Advance the epoch identity and reset the told root, so the snapshot the
-      // checkpoint absorbed is re-established by the request it precedes. A
-      // pending detach reason stays: only the Run that narrates it clears it.
-      await new WorkspaceBindingRepository(input.tx).setTold({
+      await this.resetWorkspaceCheckpointEpoch({
+        tx: input.tx,
         chatId: input.run.chatId,
-        ownerUserId: input.run.userId,
-        told: null,
-        toldFrom: input.checkpointId,
-        clearDetachReason: false,
+        userId: input.run.userId,
+        checkpointId: input.checkpointId,
       });
     }
+  }
+
+  private async rebakeCheckpointDigest(input: {
+    tx: Db;
+    chatId: string;
+    userId: string;
+    chat: Chat | undefined;
+    checkpointId: string;
+    shareRecentChats: ResolvedMemorySettings;
+    candidate: RecencyDigestResolution | null;
+  }): Promise<void> {
+    if (
+      input.chat?.recencyDigestBaseline == null ||
+      input.candidate === null ||
+      !input.shareRecentChats.shareRecentChats
+    ) {
+      return;
+    }
+
+    await new ChatsRepository(input.tx).setRecencyDigest({
+      chatId: input.chatId,
+      ownerUserId: input.userId,
+      baseline: input.candidate.baseline,
+      told: [],
+      rebakedFrom: input.checkpointId,
+    });
+  }
+
+  private async resetWorkspaceCheckpointEpoch(input: {
+    tx: Db;
+    chatId: string;
+    userId: string;
+    checkpointId: string;
+  }): Promise<void> {
+    await new WorkspaceBindingRepository(input.tx).setTold({
+      chatId: input.chatId,
+      ownerUserId: input.userId,
+      told: null,
+      toldFrom: input.checkpointId,
+      clearDetachReason: false,
+    });
   }
 
   private async resolveAttemptPrompt(

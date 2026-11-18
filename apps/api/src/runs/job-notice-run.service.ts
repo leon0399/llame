@@ -29,6 +29,8 @@ import { RunsRepository } from './runs-repository';
 import { RunWaitService } from './run-wait.service';
 import { type RunUserMessage } from './run-execution.service';
 
+type ChatOwner = Pick<ChatJob, 'chatId' | 'ownerUserId'>;
+
 @Injectable()
 export class JobNoticeRunService {
   constructor(
@@ -41,6 +43,35 @@ export class JobNoticeRunService {
     @Inject(RunWaitService)
     private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
+
+  async startAfterRunCompletion(tx: Db, owner: ChatOwner): Promise<void> {
+    const chat = await new ChatsRepository(tx).lock(
+      owner.chatId,
+      owner.ownerUserId,
+    );
+
+    if (chat === undefined || chat.archivedAt !== null) return;
+
+    const deliveries = new ChatDeliveriesRepository(tx);
+
+    // Only a notice that could start a Run on settlement starts one here; a
+    // cancelled or lost job's notice waits for the owner's next turn.
+    const pending = await deliveries.listPendingViews(
+      owner.chatId,
+      owner.ownerUserId,
+    );
+
+    if (!pending.some(({ job }) => job !== null && startsNoticeRun(job))) {
+      return;
+    }
+
+    await this.startNoticeRunForIdleChat(
+      tx,
+      owner,
+      deliveries,
+      new RunsRepository(tx),
+    );
+  }
 
   async startOnSettlement(tx: Db, job: ChatJob): Promise<void> {
     const waitingRunWoken = await this.runWait.wakeForChatInTransaction(tx, {
@@ -80,25 +111,25 @@ export class JobNoticeRunService {
   /** Start the first pending notice only after the latest Run completed. */
   private async startNoticeRunForIdleChat(
     tx: Db,
-    job: ChatJob,
+    owner: ChatOwner,
     deliveries: ChatDeliveriesRepository,
     runs: RunsRepository,
   ): Promise<void> {
     const latestRun = await runs.findLatestByChatId(
-      job.chatId,
-      job.ownerUserId,
+      owner.chatId,
+      owner.ownerUserId,
     );
 
     if (latestRun?.status !== 'completed') return;
 
     const first = await deliveries.lockFirstPendingJobNotice(
-      job.chatId,
-      job.ownerUserId,
+      owner.chatId,
+      owner.ownerUserId,
     );
 
     if (first === undefined) return;
 
-    await this.startHostRun(tx, job, first, deliveries);
+    await this.startHostRun(tx, owner, first, deliveries);
   }
 
   private async attachToQueuedHostRun(
@@ -143,7 +174,7 @@ export class JobNoticeRunService {
 
   private async startHostRun(
     tx: Db,
-    job: ChatJob,
+    owner: ChatOwner,
     first: ChatDelivery,
     deliveries: ChatDeliveriesRepository,
   ): Promise<void> {
@@ -155,13 +186,13 @@ export class JobNoticeRunService {
 
     if (resolved === undefined) return;
 
-    const runJob = await this.createHostRun(tx, job, {
+    const runJob = await this.createHostRun(tx, owner, {
       ...first.settings,
       effort: resolved.effort,
       permissionMode: resolved.permissionMode,
     });
 
-    await deliveries.deliverPendingJobNotices(job.chatId, job.ownerUserId, {
+    await deliveries.deliverPendingJobNotices(owner.chatId, owner.ownerUserId, {
       messageId: runJob.userMessage.id,
       runId: runJob.runId,
     });
@@ -171,12 +202,12 @@ export class JobNoticeRunService {
 
   private async createHostRun(
     tx: Db,
-    job: ChatJob,
+    owner: ChatOwner,
     settings: ChatDeliverySettings,
   ): Promise<RunJob & { userMessage: RunUserMessage }> {
     const message = await new MessagesRepository(tx).create({
       id: randomUUID(),
-      chatId: job.chatId,
+      chatId: owner.chatId,
       role: 'user',
       senderUserId: null,
       parts: [],
@@ -185,8 +216,8 @@ export class JobNoticeRunService {
     const { run } = await createRunForMessage(
       tx,
       {
-        userId: job.ownerUserId,
-        chatId: job.chatId,
+        userId: owner.ownerUserId,
+        chatId: owner.chatId,
         modelId: settings.modelId,
         effort: settings.effort,
         permissionMode: settings.permissionMode,
@@ -197,20 +228,24 @@ export class JobNoticeRunService {
 
     return {
       runId: run.id,
-      chatId: job.chatId,
-      userId: job.ownerUserId,
+      chatId: owner.chatId,
+      userId: owner.ownerUserId,
       modelId: settings.modelId,
       userMessage: toRunUserMessage(message),
     };
   }
 }
 
-function startsNoticeRun(job: ChatJob): boolean {
-  return (
-    job.state === 'succeeded' ||
-    job.state === 'failed' ||
-    job.state === 'timed_out'
-  );
+/** A settled job whose notice may start a host Run on an idle Chat
+ *  (background-jobs: a cancelled or lost job starts no Run). */
+const RUN_STARTING_JOB_STATES: ReadonlyArray<ChatJob['state']> = [
+  'succeeded',
+  'failed',
+  'timed_out',
+];
+
+function startsNoticeRun(job: Pick<ChatJob, 'state'>): boolean {
+  return RUN_STARTING_JOB_STATES.includes(job.state);
 }
 
 function validateNoticeSettings(

@@ -22,6 +22,7 @@ import {
   mediaOverflowCompacts,
   isPositiveFinite,
   planCompactionCheckpoint,
+  renderCompactionInstruction,
   requestFitsContextWindow,
   normalizeCompactionSummary,
   resolveCompactionThreshold,
@@ -132,6 +133,17 @@ describe('target request preflight', () => {
 
     expect(base).toBeGreaterThanOrEqual(200);
     expect(withTools).toBeGreaterThan(base);
+  });
+
+  it('treats an absent prompt as the same empty prompt used for estimation', () => {
+    const shared = {
+      messages: [],
+      toolDeclarations: [],
+    };
+
+    expect(estimateModelRequestTokens(shared)).toBe(
+      estimateModelRequestTokens({ ...shared, system: '' }),
+    );
   });
 
   it('reserves configured output tokens and treats null as zero', () => {
@@ -1493,6 +1505,24 @@ describe('buildCompactionRequest', () => {
     );
     expect(COMPACTION_INSTRUCTION).toContain('Output only the summary');
   });
+  it('keeps the automatic instruction unchanged and omits only the trigger sentence for an owner Run', () => {
+    const ownerInstruction = renderCompactionInstruction('owner');
+
+    const triggerSentence =
+      'The newer triggering user message follows that prefix and is not visible to you; it is replayed verbatim after the checkpoint, so do not quote it in "Latest Request".';
+
+    expect(renderCompactionInstruction('automatic')).toBe(
+      COMPACTION_INSTRUCTION,
+    );
+    expect(COMPACTION_INSTRUCTION).toContain(triggerSentence);
+    expect(ownerInstruction).not.toContain(triggerSentence);
+    expect(ownerInstruction).toContain(
+      `Under "Latest Request", quote verbatim the owner's last unresolved ask within the summarized prefix.`,
+    );
+    expect(ownerInstruction).toContain(
+      'When the summarized prefix already contains a checkpoint, fold it by moving "Active" items to "Completed"',
+    );
+  });
 
   it('gives the compaction model semantically relevant availability history to preserve', () => {
     const affectedTurn = msg('Use the docs lookup once it recovers.');
@@ -1852,6 +1882,17 @@ describe('personalization exclusion (add-user-personalization D7)', () => {
     const last = request.messages.at(-1);
     expect(last?.role).toBe('user');
     expect(JSON.stringify(last)).toContain('<user_personalization>');
+  });
+
+  it('omits the system channel when no run prompt was supplied', () => {
+    const request = buildCompactionRequest({
+      modelId: 'test-model',
+      previous: undefined,
+      absorb: [msg('hello')],
+    });
+
+    expect(request).not.toHaveProperty('system');
+    expect(request.messages[0]?.role).toBe('user');
   });
 });
 

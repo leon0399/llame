@@ -109,6 +109,49 @@ export async function createRunForMessage(
   return { run };
 }
 
+export async function createCompactionRun(
+  tx: Db,
+  input: {
+    id: string;
+    chatId: string;
+    userId: string;
+    modelId: string;
+    effort?: string;
+    permissionMode?: PermissionMode;
+  },
+): Promise<Run> {
+  try {
+    const run = await tx.transaction((inner) =>
+      new RunsRepository(inner).create({
+        id: input.id,
+        chatId: input.chatId,
+        messageId: null,
+        userId: input.userId,
+        modelId: input.modelId,
+        kind: 'compaction',
+        effort: input.effort,
+        permissionMode: input.permissionMode,
+      }),
+    );
+
+    await new RunEventsRepository(tx).append(run.id, 'run.created', {
+      chatId: input.chatId,
+      messageId: null,
+      compaction: { focus: null },
+    });
+
+    return run;
+  } catch (error) {
+    if (isInflightUniqueViolation(error)) {
+      throw new ConflictException(
+        'Another run is already in flight for this chat',
+      );
+    }
+
+    throw error;
+  }
+}
+
 /**
  * The Run row itself, in a savepoint (nested tx) so the single-flight unique
  * violation it may raise cannot poison the outer admission transaction —

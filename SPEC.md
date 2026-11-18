@@ -40,7 +40,7 @@ No first-party CLI or Android Node, standalone personal store, Node enrollment, 
 
 ### 2.1 Compaction checkpoint
 
-Context compaction stores an RLS-scoped `checkpoint` message row with one summary `data-context` part and an `absorbed_through_seq` boundary. Source messages remain unchanged; there is no separate `compactions` table, replacement history, or lineage. Checkpoint rows are excluded from the public messages policy and public projections. Model context becomes the stored checkpoint text plus retained later user and assistant messages; no tool records cross a checkpoint. A Run attempt evaluates compaction once, before its first model step. A prepared request that does not fit the Run's model compacts through the previous completed Run's model, its prompt receipt, and its effort with no tool declarations, and fails `context_incompatible` instead of truncating when that source is unavailable or the summary still does not fit. Otherwise the request compacts once the measured size — the previous completed reply's final-request size plus the estimate of the later rows, or the whole-request estimate — reaches the Run model's threshold, summarizing through the attempt's own model, pre-re-bake prompt, schema-only declarations, and effort. The checkpoint and its re-baked digest, skill-catalog, and workspace epoch state commit in one transaction before the attempt renders its prompt and receipt, and survive a failed attempt. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
+Context compaction stores an RLS-scoped `checkpoint` message row with one summary `data-context` part and an `absorbed_through_seq` boundary. Source messages remain unchanged; there is no separate `compactions` table, replacement history, or lineage. Checkpoint rows are excluded from the public messages policy and public projections. Model context becomes the stored checkpoint text plus retained later user and assistant messages; no tool records cross a checkpoint. A Run attempt evaluates automatic compaction once, before its first model step. An owner may also request compaction on an idle Chat with `/compact`; it starts a durable compaction Run with no user message and the model settings of the command send. Admission rejects the command when no rows remain to absorb, when another Run is live, or when the send model settings are invalid. Automatic compaction still uses the previous completed Run's model, prompt receipt, and effort with no tool declarations when a prepared request does not fit the Run's model, and fails `context_incompatible` instead of truncating when that source is unavailable or the summary still does not fit. Otherwise it compacts once the measured size — the previous completed reply's final-request size plus the estimate of the later rows, or the whole-request estimate — reaches the Run model's threshold, summarizing through the attempt's own model, pre-re-bake prompt, schema-only declarations, and effort. The checkpoint and its re-baked digest, skill-catalog, and workspace epoch state commit in one transaction before the attempt renders its prompt and receipt, and survive a failed attempt. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
 ### 2.2 Owner forks
 
@@ -112,6 +112,15 @@ Chat that is archived or gone promotes nothing. A send with `delivery` to an idl
 Run like any send. See
 [`run-steering`](openspec/specs/run-steering/spec.md)
 and [`durable-runs`](openspec/specs/durable-runs/spec.md).
+
+Runs have kind `turn` or `compaction`. A compaction Run has no triggering
+message or follow-up action, holds the Chat's single-flight slot, and publishes
+its checkpoint without writing a user or assistant message. The owner starts
+one with `/compact` on an idle Chat; it uses the command's model, effort, and
+permission mode. If the Chat has nothing after its active checkpoint to absorb,
+the API refuses the command. A compaction command does not adopt held job
+notices. Queue items remain pending during the compaction Run and follow the
+ordinary queue-promotion rules when it completes.
 
 A live Run delivers the Chat's pending `steer` and `interrupt` items at two
 points: the end of a model step, after its tool results, and the transaction
