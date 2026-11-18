@@ -36,7 +36,7 @@ describe('step-boundary compaction', () => {
           : 'unknown',
     );
 
-  it('A final-answer summary is fenced to its original compact set', async () => {
+  it('A late final-answer compact is covered by its compaction', async () => {
     const seeded = await fx.seed('Keep the final answer.');
 
     const ids: Array<string> = [];
@@ -102,17 +102,17 @@ describe('step-boundary compaction', () => {
     const log = await fx.events(seeded.runId);
 
     expect(finished.status).toBe('completed');
-    expect(summarize).toHaveBeenCalledTimes(callsBefore + 2);
+    expect(summarize).toHaveBeenCalledTimes(callsBefore + 1);
     expect(
       messages.filter((message) => message.role === 'checkpoint'),
     ).toHaveLength(1);
-    expect(log.map((event) => event.eventType)).toContain('run.delivered');
+    expect(log.map((event) => event.eventType)).not.toContain('run.delivered');
     expect(
       (await Promise.all(ids.map((id) => fx.itemState(id)))).map(
         (item) => item?.state,
       ),
     ).toEqual(['withdrawn', 'delivered']);
-    expect(started.prompts()).toHaveLength(2);
+    expect(started.prompts()).toHaveLength(1);
   });
 
   it('A compact at the final answer with a pending notice', async () => {
