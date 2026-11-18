@@ -103,6 +103,12 @@ refusals, per-worktree scopes and lessons lost to the injection cap. Mnemopi and
 Hindsight are source-only. It maps the queue, frozen-snapshot, recall-scoring and
 observation ideas to llame's Knowledge and recall work.
 
+The [software-factory study](../product-vision/2026-11-18-software-factory-as-code.md)
+compares [openfabriq](./openfabriq.md), Warp Factories, GitHub Agentic Workflows and the
+Archon Dark Factory as event-to-agent pipelines defined in version-controlled files. It maps
+their applied rule snapshots, typed proposals, harness-run checks and origin-derived trust onto
+llame and lists the prerequisites before llame could run one. Nothing was run.
+
 These references cover three integration boundaries:
 [bb](./bb.md) and [Orca](./orca.md) compare peer-executor and
 worktree control; [Earendil Pi 1.0 and Pi Durable](./earendil-pi.md) compare
@@ -130,90 +136,91 @@ assessment.
 5. [bb](./bb.md) — Local-first agent IDE with server-owned threads and host-daemon provider execution
 6. [Zeron](./zeron.md) — Rust control plane for peer coding agents: ACP executor capability flags, durable command ledger and steer queue with edit leases, JSONL run journal, optional CRDT sync
 7. [Omnigent](./omnigent.md) — Python meta-harness over peer CLIs: declared harness capabilities, ALLOW/DENY/ASK policies, entry-point harness plugins, client-side queue/steer
-8. [OpenHands (Agent Canvas)](./openhands.md) — MIT self-hosted control center: Canvas UI over Agent Server, multi-backend placement, built-in OpenHands agent plus ACP peers, separate automation backend
-9. [Paseo](./paseo.md) — Local-first Node daemon ADE: WebSocket clients, ACP and direct provider adapters, closed-residency lifecycle, file-backed `$PASEO_HOME`
-10. [Orchestrator.inc](./orchestrator.md) — Go daemon and desktop board: durable session facts, derived PR/CI status, detached ACP Chat hosts
-11. [Waku](./waku.md) — GPL-3.0-only Rust/GPUI coding-agent desktop; waku-daemon owns provider sessions over a versioned WebSocket protocol with steer-or-queue (not the React framework)
-12. [Kandev](./kandev.md) — AGPL Go control plane for parallel agent tasks: agentctl + ACP peers, multi-executor runtimes, and application-level private executor ownership (not RLS)
-13. [Shipyard](./shipyard.md) — Desktop app and per-box daemon running agent CLIs in tmux worktrees on remote boxes; hook-reported state, a state-sorted agent board, and a widget home
-14. [Jean](./jean.md) — Tauri/Rust worktree ADE: peer backend capability checklist, fail-closed Plan/Build/Yolo permissions, jean-server multi-host identity, Apache-2.0
-15. [Emdash](./emdash.md) — Electron meta-harness: ACP conversation runtime, host-authoritative workspaces, user-global lifecycle hooks, Apache-2.0
-16. [MonoCode](./monocode.md) — Tauri GUI over installed agent CLIs: typed harness events, SQLite sessions, `/operator` thread CLI, experimental SSH host that outlives the desktop
-17. [Superset](./superset.md) — Bun ADE with terminal-agent definitions, worktree workspaces, host-service tRPC skew rules; ELv2 (not a hosted-service dependency)
-18. [Solo (soloterm)](./solo.md) — Closed Tauri meta-harness: shared `solo.yml` processes and MCP/HTTP/CLI agent control
-19. [Earendil Pi 1.0 and Pi Durable](./earendil-pi.md) — Pi 1.0's codemode, virtual and deferred model surfaces, cache-aware transcript mutations, and the experimental Pi Durable runtime
-20. [oh-my-openagent (OmO)](./oh-my-openagent.md) — One agent product adapted into OpenCode, Codex and a pi fork; Git-backed memory with a gated cheap-model advisor; durable child tasks with exactly-once completion; approval bypassed by default
-21. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
-22. [OpenCode V2](./opencode-v2.md) — Per-model protocol dispatch, hand-rolled wire protocols, and a construction/request header seam
-23. [Paperclip](./paperclip.md) — Company-of-agents control plane: heartbeat wakeups, atomic issue checkout with a liveness contract, ACP-default adapters with no silent fallback, budget hard stops that block on unpriced usage, ask-first approvals, and coalescing routines; tenant isolation by application checks only
-24. [DeepSeek Super-agent (dsh-superagent)](./dsh-superagent.md) — Router/Worker coding agent for one GitHub repository on DeepSeek Harness: a fail-closed admission gate, Thread subscription with pass-through, steer-batched events, and capped context with read pointers
-25. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
-26. [Qwen Code](./qwen-code.md) — Apache-2.0 peer coding agent (Gemini CLI / Codex CLI class); ACP bridge and experimental qwen serve multi-client daemon
-27. [CodeBuddy Code](./codebuddy.md) — Tencent peer coding CLI and Agent SDK: stream-json child, cwd-keyed JSONL sessions, and a WorkBuddy sidecar host
-28. [goose](./goose.md) — ACP peer integration and tool approval boundaries
-29. [Rowboat](./rowboat.md) — Per-person local agent behind a thin shared Space server, agent-authored Markdown memory, ACP peer executors, and classifier-based auto-approval
-30. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
-31. [T3 Code](./t3-code.md) — MIT Effect environment that owns peer coding agents, a v2 SQLite event log, and WebSocket Effect RPC clients
-32. [DeepSeek Harness](./deepseek-harness.md) — Local Cordis harness with browser and stdio clients, append-only session projection, and fail-closed approvals
-33. [Hermes Agent](./hermes-agent.md) — Recall framing, memory-provider lifecycle, and TUI gateway transport and workspace cwd
-34. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
-35. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
-36. [AX](./ax.md) — Desired-state task sandboxes, snapshot-backed workspaces, and fail-open control-plane gaps
-37. [OpenShell](./openshell.md) — Policy-enforced sandbox runtime: a gateway and trusted supervisor host a guest agent, and credentials stay outside the workload
-38. [CodexHost](./codex-host.md) — LGPL plugin host embedding peer harnesses inside Codex Desktop; native-first wires with ACP fallback
-39. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
-40. [OpenDots](./opendots.md) — Self-hosted single-owner agent workspace with AG-UI, durable Threads, per-Dot computers, and scheduled work
-41. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
-42. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
-43. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
-44. [Empryo (SoulForge)](./empryo.md) — Single-user BUSL-licensed coding agent; chat-surface daemon with pairing-code lockout, deny-first approval policy and capped pending approvals
-45. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
-46. [Buzz](./buzz.md) — ACP agent workspace with isolation and synchronization contracts
-47. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
-48. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
-49. [ELAI](./elai.md) — Archived architecture and measurement discipline
-50. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation
-51. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
-52. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
-53. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
-54. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
-55. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
-56. [AgentOne](./agent-one.md) — Desktop webview agent with no session workspace, transcript snapshots, and per-chat approval overlays
-57. [super.engineering](./super-engineering.md) — Closed native Rust/Metal macOS control plane for parallel CLI agents and SSH remotes
-58. [Conductor](./conductor.md) — Closed macOS worktree host with optional Conductor Cloud sandboxes
-59. [WorkBuddy](./workbuddy.md) — Closed Tencent desktop that hosts CodeBuddy Code; user-picked task directory and a client-global full-access switch
-60. [Agentastic](./agentastic.md) — Closed macOS multi-agent IDE with Manager Agents, ACP chat and iPhone steering
-61. [Traycer](./traycer.md) — Open clients/protocol for a closed Host; capability-gated agent-to-agent messaging and worktrees
-62. [Synara](./synara.md) — Task-owned provider sessions with per-task delivery journals, reconnect-from-sequence recovery, and worktree-gated peer start
-63. [Silo](./silo.md) — Multi-workspace Tauri shell: package-graph extension SDK, host-owned PTY sessions, ACP chat resurrection without a daemon
-64. [Ghostex](./ghostex.md) — GPUI workarea over gxserver and zmx/wmx session daemons; peer CLIs with chat/CLI views, Tab prompt queue, and orchestrator/thread vocabulary
-65. [Tortie](./tortie.md) — macOS Electron agent multiplexer: private tmux sessions, SQLite manifest-before-spawn, armed resume commands, and cross-project needs-input attention
-66. [OpenCodex](./opencodex.md) — Provider proxy / Responses wire translator (better as a tool); ChatGPT account-pool affinity
-67. [OpenBot](./openbot.md) — Electron desktop meta-harness: per-agent workspaces, peer CLIs, a host-owned queue, and a macOS Seatbelt workspace mode that refuses to start on Linux and Windows
-68. [PiNomad](./pinomad.md) — Self-hosted Pi Durable host: Mac, web, and iOS clients attach to one machine, and coding tools run there with no approval gate
-69. [ThinkRail](./thinkrail.md) — JetBrains agentic IDE around in-process pi: git-worktree workspaces, a project trust grant, and MCP calls that ask unless marked read-only
-70. [OpenDuet](./openduet.md) — Proactive agent on vendored CopilotKit OpenBot: per-bot computers, a deny-by-default action gateway, and credentials kept out of the transcript
-71. [GVS5H](./gvs5h.md) — Benchmark scaffold for ledger-based fresh-context orchestration; the multiagent engine runs public stdin samples, and the model has no tools
-72. [Rakazo](./rakazo.md) — TypeScript bot host: Postgres event cursors, in-process run wakeups, a sandbox-provider switch, and approval keys bound to arguments
-73. [Guilds](./guilds.md) — AGPL orchestrator whose stored tool results are cut to 64 KiB and whose provider request then stubs older ones without rewriting the stored row
-74. [Clawboo](./clawboo.md) — MIT Node team service whose orchestration log tails by seq over SSE, while peer coding CLIs start with their own approvals off and a hard budget cap stays opt-in
-75. [Tucano](./tucano.md) — Apache-2.0 Electron workspace whose peer CLIs take tools from a per-turn MCP gateway and whose approval rechecks the grant before the stored call runs
-76. [Codync](./codync.md) — Rust host for installed agent CLIs: a ratatui client, SQLite routines that coalesce, and phones that attach to the computer that runs the bot
-77. [OpenGrokBot](./opengrokbot.md) — MIT gateway whose local shell stays off until the operator enables it and a Seatbelt or bubblewrap self-check passes, while Docker computers keep a shell
-78. [Mercury Agent](./mercury-agent.md) — MIT Node agent whose second terminal attaches over SSE to a running daemon, with one Ask Me or Allow All mode shared by every surface
-79. [Touri](./touri.md) — Tauri desktop over Codex, Claude Code, and OpenCode, with group delegation enforced at depth 2 and six calls and optional container bot machines
-80. [Lorca](./lorca.md) — GPL-3.0-only Rust CLI that owns the agent loop, with desktop runners executing bots, phones that only pair, and a relay that stores ciphertext blobs
-81. [Tobs](./tobs.md) — MIT Cordis plugin on DeepSeek Harness whose bot memory is a Git repository the plugin commits, while a paired phone steers the host
-82. [OpenTeam](./openteam.md) — GPL-3.0 bot team whose SSE replays an Event sequence, with every bot sharing one Linux computer that documents passwordless sudo
-83. [AionUi](./aionui.md) — Apache-2.0 Electron shell over an external aioncore binary and detected CLIs, with team cron ids stored on conversations in this repo
-84. [Happy](./happy.md) — MIT mobile, web, and legacy CLI clients plus a relay, with encrypted session bodies and the desktop harness in a separate repository
-85. [CraftBot](./craftbot.md) — MIT self-hosted agent whose in-workspace surface is Agent App, with the theme wire still named livingui-theme
-86. [Tamekoshi](./tamekoshi.md) — Waitlist desktop companion with no public repository located, so the note records only the site and the tierroom board
-87. [ECC](./ecc.md) — MIT skill and hook catalog for peer coding CLIs, plus an alpha Rust control plane that tails SQLite session output by row id
-88. [Rerun](./rerun.md) — AGPL TypeScript coworker host: an AI SDK tool loop, an in-process SSE buffer, workspace RLS on the product database, and a local libSQL engine store
-89. [Hyra 2.0](./hyra.md) — Tencent Hunyuan research post that describes an Overall, Mission, and Worker harness; the public repository ships result artifacts, and the orchestrator source is absent
-90. [DS Bot](./ds-bot.md) — Apache-2.0 DeepSeek Harness plugin whose Bots are root Sessions, whose desktop feed is a change hint, and whose Docker image grants full access inside one container
-91. [Command Code](./command-code.md) — Closed terminal coding agent whose public GitHub tree is a mods registry; the docs describe an append-only JSONL session, a host-drawn TUI, a permission ladder, and ripgrep code search.
+8. [openfabriq](./openfabriq.md) — Apache-2.0 engine that runs Claude Code agents on one GitHub repository from an applied folder of agents and automations; agents propose typed outputs, and the engine runs the checks and writes only what each automation's `can` allows.
+9. [OpenHands (Agent Canvas)](./openhands.md) — MIT self-hosted control center: Canvas UI over Agent Server, multi-backend placement, built-in OpenHands agent plus ACP peers, separate automation backend
+10. [Paseo](./paseo.md) — Local-first Node daemon ADE: WebSocket clients, ACP and direct provider adapters, closed-residency lifecycle, file-backed `$PASEO_HOME`
+11. [Orchestrator.inc](./orchestrator.md) — Go daemon and desktop board: durable session facts, derived PR/CI status, detached ACP Chat hosts
+12. [Waku](./waku.md) — GPL-3.0-only Rust/GPUI coding-agent desktop; waku-daemon owns provider sessions over a versioned WebSocket protocol with steer-or-queue (not the React framework)
+13. [Kandev](./kandev.md) — AGPL Go control plane for parallel agent tasks: agentctl + ACP peers, multi-executor runtimes, and application-level private executor ownership (not RLS)
+14. [Shipyard](./shipyard.md) — Desktop app and per-box daemon running agent CLIs in tmux worktrees on remote boxes; hook-reported state, a state-sorted agent board, and a widget home
+15. [Jean](./jean.md) — Tauri/Rust worktree ADE: peer backend capability checklist, fail-closed Plan/Build/Yolo permissions, jean-server multi-host identity, Apache-2.0
+16. [Emdash](./emdash.md) — Electron meta-harness: ACP conversation runtime, host-authoritative workspaces, user-global lifecycle hooks, Apache-2.0
+17. [MonoCode](./monocode.md) — Tauri GUI over installed agent CLIs: typed harness events, SQLite sessions, `/operator` thread CLI, experimental SSH host that outlives the desktop
+18. [Superset](./superset.md) — Bun ADE with terminal-agent definitions, worktree workspaces, host-service tRPC skew rules; ELv2 (not a hosted-service dependency)
+19. [Solo (soloterm)](./solo.md) — Closed Tauri meta-harness: shared `solo.yml` processes and MCP/HTTP/CLI agent control
+20. [Earendil Pi 1.0 and Pi Durable](./earendil-pi.md) — Pi 1.0's codemode, virtual and deferred model surfaces, cache-aware transcript mutations, and the experimental Pi Durable runtime
+21. [oh-my-openagent (OmO)](./oh-my-openagent.md) — One agent product adapted into OpenCode, Codex and a pi fork; Git-backed memory with a gated cheap-model advisor; durable child tasks with exactly-once completion; approval bypassed by default
+22. [OpenCode](./opencode.md) — TypeScript coding harness; provider, session, and permission boundaries
+23. [OpenCode V2](./opencode-v2.md) — Per-model protocol dispatch, hand-rolled wire protocols, and a construction/request header seam
+24. [Paperclip](./paperclip.md) — Company-of-agents control plane: heartbeat wakeups, atomic issue checkout with a liveness contract, ACP-default adapters with no silent fallback, budget hard stops that block on unpriced usage, ask-first approvals, and coalescing routines; tenant isolation by application checks only
+25. [DeepSeek Super-agent (dsh-superagent)](./dsh-superagent.md) — Router/Worker coding agent for one GitHub repository on DeepSeek Harness: a fail-closed admission gate, Thread subscription with pass-through, steer-batched events, and capped context with read pointers
+26. [Codex CLI](./codex-cli.md) — Native peer lifecycle protocol and observable compaction
+27. [Qwen Code](./qwen-code.md) — Apache-2.0 peer coding agent (Gemini CLI / Codex CLI class); ACP bridge and experimental qwen serve multi-client daemon
+28. [CodeBuddy Code](./codebuddy.md) — Tencent peer coding CLI and Agent SDK: stream-json child, cwd-keyed JSONL sessions, and a WorkBuddy sidecar host
+29. [goose](./goose.md) — ACP peer integration and tool approval boundaries
+30. [Rowboat](./rowboat.md) — Per-person local agent behind a thin shared Space server, agent-authored Markdown memory, ACP peer executors, and classifier-based auto-approval
+31. [Gemini CLI](./gemini-cli.md) — Argument-aware policy and behavioral evaluation
+32. [T3 Code](./t3-code.md) — MIT Effect environment that owns peer coding agents, a v2 SQLite event log, and WebSocket Effect RPC clients
+33. [DeepSeek Harness](./deepseek-harness.md) — Local Cordis harness with browser and stdio clients, append-only session projection, and fail-closed approvals
+34. [Hermes Agent](./hermes-agent.md) — Recall framing, memory-provider lifecycle, and TUI gateway transport and workspace cwd
+35. [Seal](./seal.md) — Durable approval suspension and nested continuation streams
+36. [Baro](./baro.md) — Lease-correlated peer execution and evidence-gated result acceptance
+37. [AX](./ax.md) — Desired-state task sandboxes, snapshot-backed workspaces, and fail-open control-plane gaps
+38. [OpenShell](./openshell.md) — Policy-enforced sandbox runtime: a gateway and trusted supervisor host a guest agent, and credentials stay outside the workload
+39. [CodexHost](./codex-host.md) — LGPL plugin host embedding peer harnesses inside Codex Desktop; native-first wires with ACP fallback
+40. [Open WebUI](./open-webui.md) — Multi-user chat, tool access, and provider integration
+41. [OpenDots](./opendots.md) — Self-hosted single-owner agent workspace with AG-UI, durable Threads, per-Dot computers, and scheduled work
+42. [Vercel Chatbot (formerly ai-chatbot)](./vercel-chatbot.md) — Chat/message schema and request admission
+43. [Continue](./continue.md) — Shared CLI execution, permission rules, and agent profiles
+44. [Zeroshot](./zeroshot.md) — Bounded orchestration graphs and reconnect contracts
+45. [Empryo (SoulForge)](./empryo.md) — Single-user BUSL-licensed coding agent; chat-surface daemon with pairing-code lockout, deny-first approval policy and capped pending approvals
+46. [OpenMausBot](./openmausbot.md) — Bounded MCP control and persona imports
+47. [Buzz](./buzz.md) — ACP agent workspace with isolation and synchronization contracts
+48. [nanoclaw](./nanoclaw.md) — Containerized agent execution and host-side authority
+49. [neural-code](./neural-code.md) — Small context-pressure and child-loop comparison
+50. [ELAI](./elai.md) — Archived architecture and measurement discipline
+51. [Loki Agent](./loki.md) — Rebranded Hermes fork; managed connector gateway degradation and retry contract, per-child input-token ceilings for delegation
+52. [pi-mono](./pi-mono.md) — Lane-as-branch session tree, composable provider session headers, and a fail-open hook registry
+53. [Kilo Code](./kilocode.md) — Provider-gated header tiers, hard permission rulesets, and a fail-closed headless subagent guard
+54. [MiMo Code](./mimo-code.md) — Frozen prefix snapshots, parent-grant inheritance for subagents, and local dream/distill self-improvement
+55. [Kimi Code](./kimi-code.md) — Subagent type allowlist with inherited permission mode; cautionary env inheritance and yolo bypass
+56. [jcode](./jcode.md) — Host-detected gateway headers, per-instance session identity, and a bash-only risk gate
+57. [AgentOne](./agent-one.md) — Desktop webview agent with no session workspace, transcript snapshots, and per-chat approval overlays
+58. [super.engineering](./super-engineering.md) — Closed native Rust/Metal macOS control plane for parallel CLI agents and SSH remotes
+59. [Conductor](./conductor.md) — Closed macOS worktree host with optional Conductor Cloud sandboxes
+60. [WorkBuddy](./workbuddy.md) — Closed Tencent desktop that hosts CodeBuddy Code; user-picked task directory and a client-global full-access switch
+61. [Agentastic](./agentastic.md) — Closed macOS multi-agent IDE with Manager Agents, ACP chat and iPhone steering
+62. [Traycer](./traycer.md) — Open clients/protocol for a closed Host; capability-gated agent-to-agent messaging and worktrees
+63. [Synara](./synara.md) — Task-owned provider sessions with per-task delivery journals, reconnect-from-sequence recovery, and worktree-gated peer start
+64. [Silo](./silo.md) — Multi-workspace Tauri shell: package-graph extension SDK, host-owned PTY sessions, ACP chat resurrection without a daemon
+65. [Ghostex](./ghostex.md) — GPUI workarea over gxserver and zmx/wmx session daemons; peer CLIs with chat/CLI views, Tab prompt queue, and orchestrator/thread vocabulary
+66. [Tortie](./tortie.md) — macOS Electron agent multiplexer: private tmux sessions, SQLite manifest-before-spawn, armed resume commands, and cross-project needs-input attention
+67. [OpenCodex](./opencodex.md) — Provider proxy / Responses wire translator (better as a tool); ChatGPT account-pool affinity
+68. [OpenBot](./openbot.md) — Electron desktop meta-harness: per-agent workspaces, peer CLIs, a host-owned queue, and a macOS Seatbelt workspace mode that refuses to start on Linux and Windows
+69. [PiNomad](./pinomad.md) — Self-hosted Pi Durable host: Mac, web, and iOS clients attach to one machine, and coding tools run there with no approval gate
+70. [ThinkRail](./thinkrail.md) — JetBrains agentic IDE around in-process pi: git-worktree workspaces, a project trust grant, and MCP calls that ask unless marked read-only
+71. [OpenDuet](./openduet.md) — Proactive agent on vendored CopilotKit OpenBot: per-bot computers, a deny-by-default action gateway, and credentials kept out of the transcript
+72. [GVS5H](./gvs5h.md) — Benchmark scaffold for ledger-based fresh-context orchestration; the multiagent engine runs public stdin samples, and the model has no tools
+73. [Rakazo](./rakazo.md) — TypeScript bot host: Postgres event cursors, in-process run wakeups, a sandbox-provider switch, and approval keys bound to arguments
+74. [Guilds](./guilds.md) — AGPL orchestrator whose stored tool results are cut to 64 KiB and whose provider request then stubs older ones without rewriting the stored row
+75. [Clawboo](./clawboo.md) — MIT Node team service whose orchestration log tails by seq over SSE, while peer coding CLIs start with their own approvals off and a hard budget cap stays opt-in
+76. [Tucano](./tucano.md) — Apache-2.0 Electron workspace whose peer CLIs take tools from a per-turn MCP gateway and whose approval rechecks the grant before the stored call runs
+77. [Codync](./codync.md) — Rust host for installed agent CLIs: a ratatui client, SQLite routines that coalesce, and phones that attach to the computer that runs the bot
+78. [OpenGrokBot](./opengrokbot.md) — MIT gateway whose local shell stays off until the operator enables it and a Seatbelt or bubblewrap self-check passes, while Docker computers keep a shell
+79. [Mercury Agent](./mercury-agent.md) — MIT Node agent whose second terminal attaches over SSE to a running daemon, with one Ask Me or Allow All mode shared by every surface
+80. [Touri](./touri.md) — Tauri desktop over Codex, Claude Code, and OpenCode, with group delegation enforced at depth 2 and six calls and optional container bot machines
+81. [Lorca](./lorca.md) — GPL-3.0-only Rust CLI that owns the agent loop, with desktop runners executing bots, phones that only pair, and a relay that stores ciphertext blobs
+82. [Tobs](./tobs.md) — MIT Cordis plugin on DeepSeek Harness whose bot memory is a Git repository the plugin commits, while a paired phone steers the host
+83. [OpenTeam](./openteam.md) — GPL-3.0 bot team whose SSE replays an Event sequence, with every bot sharing one Linux computer that documents passwordless sudo
+84. [AionUi](./aionui.md) — Apache-2.0 Electron shell over an external aioncore binary and detected CLIs, with team cron ids stored on conversations in this repo
+85. [Happy](./happy.md) — MIT mobile, web, and legacy CLI clients plus a relay, with encrypted session bodies and the desktop harness in a separate repository
+86. [CraftBot](./craftbot.md) — MIT self-hosted agent whose in-workspace surface is Agent App, with the theme wire still named livingui-theme
+87. [Tamekoshi](./tamekoshi.md) — Waitlist desktop companion with no public repository located, so the note records only the site and the tierroom board
+88. [ECC](./ecc.md) — MIT skill and hook catalog for peer coding CLIs, plus an alpha Rust control plane that tails SQLite session output by row id
+89. [Rerun](./rerun.md) — AGPL TypeScript coworker host: an AI SDK tool loop, an in-process SSE buffer, workspace RLS on the product database, and a local libSQL engine store
+90. [Hyra 2.0](./hyra.md) — Tencent Hunyuan research post that describes an Overall, Mission, and Worker harness; the public repository ships result artifacts, and the orchestrator source is absent
+91. [DS Bot](./ds-bot.md) — Apache-2.0 DeepSeek Harness plugin whose Bots are root Sessions, whose desktop feed is a change hint, and whose Docker image grants full access inside one container
+92. [Command Code](./command-code.md) — Closed terminal coding agent whose public GitHub tree is a mods registry; the docs describe an append-only JSONL session, a host-drawn TUI, a permission ladder, and ripgrep code search.
 
 ## Multi-machine and container placement
 
