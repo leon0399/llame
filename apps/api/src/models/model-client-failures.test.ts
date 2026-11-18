@@ -138,6 +138,147 @@ describe('withRedactedFailures', () => {
     vi.restoreAllMocks();
   });
 
+  it('waits for asynchronous failure persistence before stream settlement', async () => {
+    const entered = Promise.withResolvers<void>();
+    const persist = Promise.withResolvers<void>();
+    const providerError = apiError('authentication failed');
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(providerError),
+        streamText: (input) =>
+          streamText({
+            model: new MockLanguageModelV3({
+              doStream: () =>
+                Promise.resolve({
+                  stream: new ReadableStream({
+                    start(controller) {
+                      controller.enqueue({
+                        type: 'error',
+                        error: providerError,
+                      });
+                      controller.close();
+                    },
+                  }),
+                }),
+            }),
+            messages: input.messages,
+            onError: input.onError,
+            maxRetries: 0,
+          }),
+      },
+      [KEY],
+    );
+
+    let persisted = false;
+    let settled = false;
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: async () => {
+        entered.resolve();
+        await persist.promise;
+        persisted = true;
+      },
+    });
+
+    const completion = rejection(result.text).then(() => {
+      settled = true;
+    });
+
+    await entered.promise;
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    persist.resolve();
+    await completion;
+    expect(persisted).toBe(true);
+  });
+
+  it('preserves an owner settlement failure after reporting a provider failure', async () => {
+    const providerError = apiError('authentication failed');
+    const ownerError = new Error('failure persistence rejected');
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(providerError),
+        streamText: (input) => {
+          void input.onError?.({ error: providerError });
+
+          return rejectingResult(ownerError);
+        },
+      },
+      [KEY],
+    );
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: () => undefined,
+    });
+
+    expect(await rejection(result.text)).toBe(ownerError);
+    expect(await rejection(result.consumeStream())).toBe(ownerError);
+  });
+
+  it('redacts a synchronous streamText failure before rethrowing it', () => {
+    const error = apiError(`echoed ${KEY}`);
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(error),
+        streamText: () => {
+          throw error;
+        },
+      },
+      [KEY],
+    );
+
+    let caught: unknown;
+
+    try {
+      client.streamText({ chat: CHAT, messages });
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBe(error);
+    expect(APICallError.isInstance(caught)).toBe(true);
+    expect(caught).toMatchObject({ message: 'echoed [REDACTED]' });
+  });
+
+  it('redacts a synchronous generateObject failure before rejecting', async () => {
+    const error = apiError(`echoed ${KEY}`);
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(error),
+        generateObject: (input) => {
+          void input;
+          throw error;
+        },
+      },
+      [KEY],
+    );
+
+    const failure = await rejection(
+      client.generateObject?.({
+        chat: CHAT,
+        messages,
+        schema: jsonSchema<{ title: string }>({
+          type: 'object',
+          properties: { title: { type: 'string' } },
+          required: ['title'],
+        }),
+      }),
+    );
+
+    expect(failure).toBe(error);
+    expect(APICallError.isInstance(failure)).toBe(true);
+    expect(failure).toMatchObject({ message: 'echoed [REDACTED]' });
+  });
+
   it('redacts the failure every promise channel and consumeStream rejects with', async () => {
     const error = apiError(`echoed ${KEY}`);
 

@@ -114,6 +114,7 @@ import type { ModelSelectionValidator } from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
@@ -5916,9 +5917,10 @@ describe('RunExecutionService executeRun — stream failure', () => {
     expect(appended.at(-1)?.payload).toStrictEqual({
       status: 'failed',
       message: 'provider exploded',
+      code: 'unknown',
     });
     expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      error: { message: 'provider exploded' },
+      error: { message: 'provider exploded', code: 'unknown' },
       attemptId: testAttemptId,
     });
     const usage = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
@@ -5957,7 +5959,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     await capturing.streamOptions().onError?.({ error: 'plain string blowup' });
 
     expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-      error: { message: 'plain string blowup' },
+      error: { message: 'plain string blowup', code: 'unknown' },
       attemptId: testAttemptId,
     });
   });
@@ -6049,11 +6051,15 @@ describe('RunExecutionService executeRun — stream failure', () => {
 
       const message: unknown = expect.stringMatching(expectedMessage);
       expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
-        error: { message },
+        error: { message, code: 'unknown' },
         attemptId: testAttemptId,
       });
       const terminal = appended.find((entry) => entry.type === 'run.failed');
-      expect(terminal?.payload).toStrictEqual({ status: 'failed', message });
+      expect(terminal?.payload).toStrictEqual({
+        status: 'failed',
+        message,
+        code: 'unknown',
+      });
 
       const surfaces = JSON.stringify({
         persisted: spies.markFinished.mock.calls,
@@ -6356,6 +6362,100 @@ describe('RunExecutionService executeRun — stream failure', () => {
       });
     },
   );
+  it('persists a provider failure class and reset time on a failed model request', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const resetsAt = Date.now() + 60_000;
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onError?.({
+      error: new ProviderFailure('model is unavailable', {
+        code: 'model_not_found',
+        resetsAt,
+      }),
+    });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: {
+          message: 'model is unavailable',
+          code: 'model_not_found',
+          resetsAt,
+        },
+      }),
+    );
+    expect(appended.at(-1)).toStrictEqual({
+      type: 'run.failed',
+      payload: {
+        status: 'failed',
+        message: 'model is unavailable',
+        code: 'model_not_found',
+        resetsAt,
+      },
+    });
+  });
+
+  it('uses unknown when a model request fails with an unclassified error', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onError?.({
+      error: new Error('unclassified failure'),
+    });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'unclassified failure', code: 'unknown' },
+      }),
+    );
+    expect(appended.at(-1)).toStrictEqual({
+      type: 'run.failed',
+      payload: {
+        status: 'failed',
+        message: 'unclassified failure',
+        code: 'unknown',
+      },
+    });
+  });
+
+  it('preserves a model context execution error code on a failed request', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    const error = new ModelContextExecutionError('context changed');
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onError?.({ error });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: error.message, code: error.code },
+      }),
+    );
+    expect(appended.at(-1)).toStrictEqual({
+      type: 'run.failed',
+      payload: {
+        status: 'failed',
+        message: error.message,
+        code: error.code,
+      },
+    });
+  });
 
   it('records a stalled model stream as a terminal failure carrying model_stream_idle', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -6397,16 +6497,21 @@ describe('RunExecutionService executeRun — stream failure', () => {
     );
   });
 
-  it('fails the run and rethrows when streamText throws before any callback', async () => {
+  it('preserves a typed code and reset time when streamText throws synchronously', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
+
+    const failure = new ProviderFailure('provider misconfigured', {
+      code: 'model_not_found',
+      resetsAt: 1_900_000_000_000,
+    });
 
     const client: ModelClient = {
       model: 'fake-model',
       provider: 'fake',
       contextWindowTokens: 128_000,
       streamText: () => {
-        throw new Error('provider misconfigured');
+        throw failure;
       },
     };
 
@@ -6414,7 +6519,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
 
     await expect(
       execution.service.executeRun(executionInput(client)),
-    ).rejects.toThrow('provider misconfigured');
+    ).rejects.toBe(failure);
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -6422,12 +6527,19 @@ describe('RunExecutionService executeRun — stream failure', () => {
       expect.objectContaining({
         error: {
           message: 'provider misconfigured',
+          code: 'model_not_found',
+          resetsAt: 1_900_000_000_000,
         },
       }),
     );
     expect(appended.at(-1)).toStrictEqual({
       type: 'run.failed',
-      payload: { status: 'failed', message: 'provider misconfigured' },
+      payload: {
+        status: 'failed',
+        message: 'provider misconfigured',
+        code: 'model_not_found',
+        resetsAt: 1_900_000_000_000,
+      },
     });
   });
 });
@@ -24042,9 +24154,9 @@ describe('RunExecutionService executeRun — run segments', () => {
       `Stream error for chat ${chatId}`,
       expect.anything(),
     );
-    // An error without a stall code adds no `code` key at all.
+    // An unclassified error is persisted with the closed fallback code.
     expect(spies.markFinished.mock.calls[0]?.[3]).toStrictEqual({
-      error: { message: 'boom' },
+      error: { message: 'boom', code: 'unknown' },
       attemptId: testAttemptId,
     });
   });

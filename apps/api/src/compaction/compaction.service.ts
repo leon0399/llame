@@ -601,6 +601,8 @@ export class CompactionService {
       };
     }
 
+    let streamFailure: { error: unknown } | undefined;
+
     const result = input.client.streamText({
       ...(input.system !== undefined && { system: input.system }),
       messages: input.messages,
@@ -611,6 +613,9 @@ export class CompactionService {
       ...(input.effort !== undefined && { effort: input.effort }),
       ...(input.toolDeclarations.length > 0 && { tools }),
       toolChoice: 'none',
+      onError: ({ error }) => {
+        streamFailure ??= { error };
+      },
     });
 
     const [text, toolCalls, usage, finishReason] = await Promise.all([
@@ -618,7 +623,13 @@ export class CompactionService {
       Promise.resolve(result.toolCalls).catch(() => []),
       Promise.resolve(result.usage).catch(() => null),
       Promise.resolve(result.finishReason).catch(() => null),
-    ]);
+    ]).catch((error: unknown) => {
+      throw streamFailure === undefined ? error : streamFailure.error;
+    });
+
+    // A trailing finish can make the SDK's text promise fulfill after an error
+    // frame. Never publish that partial summary over the original failure.
+    if (streamFailure !== undefined) throw streamFailure.error;
 
     // A provider that returns a tool call despite `toolChoice: 'none'` has no
     // executor here, so its output is rejected rather than persisted: a

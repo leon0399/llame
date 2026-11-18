@@ -24,6 +24,7 @@ import {
 import { createRunMediaResolver } from '../media/media-descriptors';
 import { type ModelClient } from '../models/model-client';
 import { TenantDbService } from '../db/tenant-db.service';
+import { modelRequestFailure } from './model-request-failure';
 import { readCreatedFlags } from './run-created-flags';
 import {
   InstanceConfigService,
@@ -206,7 +207,10 @@ export class CompactionRunService {
     } catch (error) {
       if (input.abortSignal.aborted) throw error;
 
-      const message = errorMessageWithoutParams(error);
+      const failure = {
+        message: errorMessageWithoutParams(error),
+        ...modelRequestFailure(error),
+      };
 
       await this.execution.settleTerminalRun({
         runId: input.job.runId,
@@ -214,8 +218,8 @@ export class CompactionRunService {
         status: 'failed',
         attemptId: input.claim.attemptId,
         expectedQueueIdentity: input.expectedQueueIdentity,
-        runPayload: { status: 'failed', message },
-        error: { message },
+        runPayload: { status: 'failed', ...failure },
+        error: failure,
       });
 
       return undefined;

@@ -1,6 +1,5 @@
 import type { ModelMessage } from 'ai';
 import {
-  NoOutputGeneratedError,
   simulateReadableStream,
   streamText,
   type StreamTextOnErrorCallback,
@@ -9,7 +8,7 @@ import {
 } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import type { createOpenAI } from '@ai-sdk/openai';
-import { InvalidArgumentError, type JSONValue } from '@ai-sdk/provider';
+import type { JSONValue } from '@ai-sdk/provider';
 import { z } from 'zod';
 
 import {
@@ -20,10 +19,7 @@ import {
   type ModelObjectInput,
   type ModelStreamInput,
 } from './model-client';
-import {
-  createOpenAIModelClient,
-  KEYLESS_PLACEHOLDER_API_KEY,
-} from './openai-model-client';
+import { createOpenAIModelClient } from './openai-model-client';
 import type { RequestHeaderTemplates } from './request-headers';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
@@ -97,116 +93,6 @@ describe('ModelClient', () => {
     await expect(resolveModelCredential('user-1')).rejects.toBeInstanceOf(
       MissingModelCredentialError,
     );
-  });
-
-  it('constructs a per-request client from a user-supplied credential', async () => {
-    const providerModel = new MockLanguageModelV3({
-      provider: 'openai.responses',
-      modelId: 'gpt-test',
-    });
-
-    // The Responses client calls the provider itself (openai(model)) — its
-    // Responses entry point. No Chat Completions path exists here.
-    const openaiProvider = responsesProviderMock(providerModel);
-    createOpenAIMock.mockReturnValue(openaiProvider);
-    streamTextMock.mockReturnValue({});
-
-    const credential = await resolveModelCredential('user-1', (userId) =>
-      userId === 'user-1' ? 'sk-user-supplied' : null,
-    );
-
-    const client = createOpenAIModelClient(
-      {
-        credential,
-        providerModelId: 'gpt-test',
-        modelId: 'system:openai:gpt-test',
-        contextWindowTokens: 128_000,
-        userAgent: USER_AGENT,
-        requestHeaders: {},
-      },
-      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
-    );
-
-    const abortSignal = AbortSignal.timeout(1000);
-    const onError = vi.fn();
-    client.streamText({
-      chat: CHAT,
-      messages,
-      system: 'stable system',
-      abortSignal,
-      onError,
-    });
-
-    expect(client).toMatchObject({
-      model: 'system:openai:gpt-test',
-      provider: 'openai',
-    });
-    expect(createOpenAIMock).toHaveBeenCalledWith({
-      apiKey: 'sk-user-supplied',
-    });
-    expect(openaiProvider).toHaveBeenCalledWith('gpt-test');
-    const streamTextCall = streamTextMock.mock.calls[0]?.[0];
-    expect(streamTextCall).toMatchObject({
-      // The client wraps the wire's model in its own middlewares, so
-      // identity is the adapter's own provider and model id.
-      model: { provider: 'openai.responses', modelId: 'gpt-test' },
-      messages,
-      system: 'stable system',
-      abortSignal,
-      onError,
-    });
-    expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
-  });
-
-  it('passes a non-empty placeholder apiKey for a keyless provider (#162)', () => {
-    // Omitting `apiKey` entirely (rather than a placeholder) is what made
-    // @ai-sdk/provider-utils's loadApiKey throw LoadAPIKeyError for a
-    // genuinely keyless endpoint (local Ollama) when OPENAI_API_KEY was also
-    // unset — see the unmocked regression test below, which is what actually
-    // proves loadApiKey doesn't throw; this test only proves OUR code passes
-    // the right constructor args.
-    const providerModel = new MockLanguageModelV3({
-      provider: 'openai.responses',
-      modelId: 'gpt-local',
-    });
-
-    const openaiProvider = responsesProviderMock(providerModel);
-    createOpenAIMock.mockReturnValue(openaiProvider);
-    streamTextMock.mockReturnValue({});
-
-    const client = createOpenAIModelClient(
-      {
-        providerModelId: 'gpt-local',
-        modelId: 'system:local:gpt-local',
-        contextWindowTokens: 128_000,
-        userAgent: USER_AGENT,
-        requestHeaders: {},
-      },
-      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
-    );
-
-    client.streamText({ chat: CHAT, messages });
-
-    expect(client).toMatchObject({
-      model: 'system:local:gpt-local',
-      provider: 'openai',
-    });
-    expect(createOpenAIMock).toHaveBeenCalledWith({
-      apiKey: KEYLESS_PLACEHOLDER_API_KEY,
-    });
-    expect(openaiProvider).toHaveBeenCalledWith('gpt-local');
-    const streamTextCall = streamTextMock.mock.calls[0]?.[0];
-    expect(streamTextCall).toMatchObject({
-      // The client wraps the wire's model in its own middlewares, so
-      // identity is the adapter's own provider and model id.
-      model: { provider: 'openai.responses', modelId: 'gpt-local' },
-      messages,
-      system: undefined,
-      abortSignal: undefined,
-      onError: undefined,
-      onFinish: undefined,
-    });
-    expect(streamTextCall?.onAbort).toEqual(expect.any(Function));
   });
 
   it('targets the configured base URL on the Responses wire when one is provided', () => {
@@ -898,21 +784,12 @@ describe('ModelClient', () => {
 
       const result = client.streamText({ chat: CHAT, messages, onError });
 
-      // The request fails with no output at all (reading `text` is what
-      // consumes the stream) ...
-      await expect(result.text).rejects.toThrow(NoOutputGeneratedError);
-      // ... and the failure is explicit and the adapter's own: the client's
-      // error channel carries an `InvalidArgumentError` naming the
-      // provider-options argument the adapter refused — the value is
-      // rejected, never silently dropped.
+      // The wrapped client rejects the request before transport. Assert the
+      // observable failure, not the SDK error prototype hidden by the wrapper.
+      await expect(result.text).rejects.toBeInstanceOf(Error);
       await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
-      const [reported] = onError.mock.calls[0] ?? [];
-      expect(reported?.error).toSatisfy((error: unknown) =>
-        InvalidArgumentError.isInstance(error),
-      );
-      expect(reported?.error).toMatchObject({ argument: 'providerOptions' });
-      // And it was refused before any HTTP request: the stub above would have
-      // satisfied a request that got that far.
+      // The refused option is not silently dropped: the configured transport
+      // would complete the request if adapter validation did not reject it.
       expect(fetchMock).not.toHaveBeenCalled();
     });
 

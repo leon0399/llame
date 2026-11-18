@@ -2,11 +2,12 @@ import { RetryError, type ModelMessage, type streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import type { createOpenAI } from '@ai-sdk/openai';
 
+import { ProviderFailure } from './provider-failure/provider-failure';
 import {
   CODEX_RESPONSES_BASE_URL,
   createOpenAICodexModelClient,
 } from './openai-codex-model-client';
-import type { ChatIdentity } from './model-client';
+import type { ChatIdentity, ModelStreamInput } from './model-client';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
 import {
   ModelStreamIdleError,
@@ -478,7 +479,7 @@ describe('createOpenAICodexModelClient', () => {
     });
 
     streamTextMock.mockReturnValue({});
-    const onError = vi.fn();
+    const onError = vi.fn<NonNullable<ModelStreamInput['onError']>>();
     const secret = 'codex-access-token-canary';
 
     const client = createOpenAICodexModelClient(
@@ -504,13 +505,14 @@ describe('createOpenAICodexModelClient', () => {
 
     await options?.onError?.({ error: upstreamError });
 
-    expect(onError).toHaveBeenCalledWith({
-      error: Object.assign(
-        new Error(
-          'Codex subscription authentication failed. Re-login and restart llame.',
-        ),
-        { statusCode: 401 },
-      ),
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]?.error).toBeInstanceOf(ProviderFailure);
+    expect(onError.mock.calls[0]?.[0]?.error).toMatchObject({
+      name: 'ProviderFailure',
+      message:
+        'Codex subscription authentication failed. Re-login and restart llame.',
+      code: 'auth',
+      statusCode: 401,
     });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
   });
@@ -539,7 +541,7 @@ describe('createOpenAICodexModelClient', () => {
     });
 
     streamTextMock.mockReturnValue({});
-    const onError = vi.fn();
+    const onError = vi.fn<NonNullable<ModelStreamInput['onError']>>();
     const secret = 'codex-quota-canary';
 
     const client = createOpenAICodexModelClient(
@@ -560,14 +562,21 @@ describe('createOpenAICodexModelClient', () => {
     await options?.onError?.({
       error: Object.assign(new Error(`429 quota exceeded: ${secret}`), {
         statusCode: 429,
+        responseBody: JSON.stringify({
+          error: {
+            code: 'usage_limit_reached',
+            message: `quota exceeded: ${secret}`,
+          },
+        }),
       }),
     });
 
-    expect(onError).toHaveBeenCalledWith({
-      error: Object.assign(
-        new Error('Codex subscription limit reached. Retry manually later.'),
-        { statusCode: 429 },
-      ),
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]?.error).toBeInstanceOf(ProviderFailure);
+    expect(onError.mock.calls[0]?.[0]?.error).toMatchObject({
+      name: 'ProviderFailure',
+      code: 'quota_exhausted',
+      statusCode: 429,
     });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
   });
@@ -613,15 +622,13 @@ describe('createOpenAICodexModelClient', () => {
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
 
-    await expect(
-      client.streamText({ chat: CHAT, messages }).text,
-    ).rejects.toThrow('Codex subscription request failed.');
-    await expect(
-      client.streamText({ chat: CHAT, messages }).text,
-    ).rejects.not.toThrow(secret);
-    await expect(
-      client.streamText({ chat: CHAT, messages }).text,
-    ).rejects.not.toHaveProperty('statusCode');
+    const result = client.streamText({ chat: CHAT, messages });
+    await expect(result.text).rejects.toMatchObject({
+      name: 'ProviderFailure',
+      message: 'Codex subscription request failed.',
+    });
+    await expect(result.text).rejects.toBeInstanceOf(ProviderFailure);
+    await expect(result.text).rejects.not.toThrow(secret);
   });
 
   it('classifies a retry-exhausted quota error without exposing its details', async () => {
@@ -648,7 +655,7 @@ describe('createOpenAICodexModelClient', () => {
     });
 
     streamTextMock.mockReturnValue({});
-    const onError = vi.fn();
+    const onError = vi.fn<NonNullable<ModelStreamInput['onError']>>();
     const secret = 'codex-retry-quota-canary';
 
     const client = createOpenAICodexModelClient(
@@ -673,16 +680,23 @@ describe('createOpenAICodexModelClient', () => {
         errors: [
           Object.assign(new Error(`429 quota exceeded: ${secret}`), {
             statusCode: 429,
+            responseBody: JSON.stringify({
+              error: {
+                code: 'usage_limit_reached',
+                message: `quota exceeded: ${secret}`,
+              },
+            }),
           }),
         ],
       }),
     });
 
-    expect(onError).toHaveBeenCalledWith({
-      error: Object.assign(
-        new Error('Codex subscription limit reached. Retry manually later.'),
-        { statusCode: 429 },
-      ),
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0]?.[0]?.error).toBeInstanceOf(ProviderFailure);
+    expect(onError.mock.calls[0]?.[0]?.error).toMatchObject({
+      name: 'ProviderFailure',
+      code: 'quota_exhausted',
+      statusCode: 429,
     });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
   });

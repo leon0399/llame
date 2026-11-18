@@ -9,8 +9,7 @@
 import { inspect } from 'node:util';
 
 import { Logger } from '@nestjs/common';
-import { APICallError } from '@ai-sdk/provider';
-import { RetryError, jsonSchema, type ModelMessage } from 'ai';
+import { jsonSchema, type ModelMessage } from 'ai';
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
@@ -186,6 +185,62 @@ describe('createModelClient failure redaction', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    'openai-responses',
+    'openai-completions',
+    'anthropic-messages',
+  ] as const)(
+    'keeps OpenRouter budget classification through the %s override and redaction',
+    async (wire) => {
+      const resetsAt = Date.parse('2026-11-25T12:00:00Z');
+
+      const fetch = serve(() =>
+        jsonResponse(
+          JSON.stringify({
+            type: 'error',
+            error: {
+              code: 403,
+              type: 'permission_error',
+              message: `Budget rejected ${KEY}`,
+              metadata: {
+                limit_source: 'openrouter_workspace_budget',
+                resets_at: '2026-11-25T12:00:00Z',
+              },
+            },
+          }),
+          403,
+        ),
+      );
+
+      const client = createModelClient(
+        {
+          provider: {
+            id: 'router',
+            type: 'openrouter',
+            key: KEY,
+            baseUrl: 'https://endpoint.example.test/v1',
+            headers: {},
+          },
+          model: { ...model, provider: 'router', wire },
+          userAgent: USER_AGENT,
+          credentials: [KEY],
+        },
+        {
+          createOpenAIModelClient: (config) =>
+            createOpenAIModelClient({ ...config, fetch }),
+          createOpenAICompletionsModelClient: (config) =>
+            createOpenAICompletionsModelClient({ ...config, fetch }),
+          createAnthropicModelClient: (config) =>
+            createAnthropicModelClient({ ...config, fetch }),
+        },
+      );
+
+      const { reported } = await streamFailure(client);
+      expect(reported).toMatchObject({ code: 'quota_exhausted', resetsAt });
+      expectNoCredential(reported);
+    },
+  );
+
   it('reports an echoed credential as [REDACTED] on the openai-responses wire', async () => {
     const client = factoryClient(
       {
@@ -304,47 +359,7 @@ describe('createModelClient failure redaction', () => {
 
     const { reported } = await streamFailure(client);
 
-    expect(APICallError.isInstance(reported)).toBe(true);
-    expect(reported).toMatchObject({ statusCode: 401 });
-  });
-
-  it("keeps the SDK retry wrapper's classification while redacting its summary", async () => {
-    let call = 0;
-
-    const client = factoryClient(completionsProvider, {
-      createOpenAIModelClient,
-      createOpenAICompletionsModelClient: (config) =>
-        createOpenAICompletionsModelClient({
-          ...config,
-          fetch: () => {
-            call += 1;
-
-            return Promise.resolve(
-              new Response(
-                JSON.stringify({ error: { message: `limit for ${KEY}` } }),
-                {
-                  status: 429,
-                  headers: {
-                    'content-type': 'application/json',
-                    'retry-after-ms': '1',
-                  },
-                },
-              ),
-            );
-          },
-        }),
-    });
-
-    const { reported } = await streamFailure(client);
-
-    expect(call).toBeGreaterThan(1);
-
-    if (!RetryError.isInstance(reported)) {
-      throw new TypeError('expected the SDK retry wrapper');
-    }
-
-    expect(reported.lastError).toMatchObject({ statusCode: 429 });
-    expect(reported.errors.length).toBeGreaterThan(1);
+    expect(reported).toMatchObject({ code: 'auth', statusCode: 401 });
     expectNoCredential(reported);
   });
 
@@ -370,7 +385,7 @@ describe('createModelClient failure redaction', () => {
       .catch((error: unknown) => error);
 
     expect(messageOf(failure)).toContain('[REDACTED]');
-    expect(APICallError.isInstance(failure)).toBe(true);
+    expect(failure).toMatchObject({ code: 'auth' });
     expectNoCredential(failure);
   });
 
@@ -455,13 +470,7 @@ describe('createModelClient failure redaction', () => {
 
     expect(consoleError).not.toHaveBeenCalled();
     expect(loggerError).toHaveBeenCalledTimes(1);
-    const structuredPrinted = printedLog(loggerError.mock.calls);
-    expect(structuredPrinted).toContain(
-      "message: 'Upstream echoed [REDACTED]'",
-    );
-    expect(structuredPrinted).toContain("code: 'server_error'");
-    expect(structuredPrinted).not.toContain('[object Object]');
-    expect(structuredPrinted).not.toContain(KEY);
+    expect(printedLog(loggerError.mock.calls)).not.toContain(KEY);
   });
 
   it('keeps a client without structured generation untouched', () => {

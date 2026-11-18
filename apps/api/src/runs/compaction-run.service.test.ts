@@ -271,8 +271,12 @@ describe('CompactionRunService.execute', () => {
       expect.objectContaining({
         runId: job.runId,
         status: 'failed',
-        error: { message: 'provider unavailable' },
-        runPayload: { status: 'failed', message: 'provider unavailable' },
+        error: { message: 'provider unavailable', code: 'unknown' },
+        runPayload: {
+          status: 'failed',
+          message: 'provider unavailable',
+          code: 'unknown',
+        },
       }),
     );
     expect(made.completeCompactionRun).not.toHaveBeenCalled();
@@ -300,6 +304,7 @@ describe('CompactionRunService.execute', () => {
         status: 'failed',
         error: {
           message: 'Compaction summary returned no valid text summary.',
+          code: 'unknown',
         },
       }),
     );

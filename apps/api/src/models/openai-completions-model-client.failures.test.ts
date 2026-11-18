@@ -5,9 +5,10 @@
  * the transport is stubbed, through the client's own `fetch` setting, so an
  * adapter upgrade that changes how a failure is delivered fails here.
  */
-import type { ModelMessage } from 'ai';
 
+import type { ModelMessage } from 'ai';
 import type { ChatIdentity, ModelClient } from './model-client';
+import { ProviderFailure } from './provider-failure/provider-failure';
 import { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 import {
   ModelStreamIdleError,
@@ -219,17 +220,28 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     expect(error.cause).toBeUndefined();
   });
 
-  it('passes a transport failure through unchanged', async () => {
-    const transportFailure = new TypeError('network unreachable');
+  it('classifies a transport failure without retaining its error graph', async () => {
+    const transportFailure = new TypeError('fetch failed', {
+      cause: Object.assign(new Error(`unreachable ${CANARY}`), {
+        code: 'ECONNREFUSED',
+      }),
+    });
 
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.reject(transportFailure),
     );
 
-    await expect(reportedError(buildClient(fetch))).resolves.toBe(
-      transportFailure,
-    );
-  });
+    const error = await reportedError(buildClient(fetch));
+
+    expect(error).toBeInstanceOf(ProviderFailure);
+    expect(error).toMatchObject({
+      code: 'unreachable',
+    });
+    expect(error.cause).toBeUndefined();
+    expect(error).not.toHaveProperty('responseBody');
+    expect(error).not.toHaveProperty('responseHeaders');
+    expect(error).not.toHaveProperty('requestBodyValues');
+  }, 15_000);
 
   it("keeps the stream's drain waiting on the caller's asynchronous handler", async () => {
     // The worker drains the stream and then requires the run's terminal

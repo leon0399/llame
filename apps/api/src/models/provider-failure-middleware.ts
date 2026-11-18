@@ -1,0 +1,174 @@
+import { NoOutputGeneratedError } from 'ai';
+import type {
+  ModelFailure,
+  ModelFailureSanitizer,
+  ModelStreamInput,
+} from './model-client';
+import type {
+  LanguageModelV3,
+  LanguageModelV3StreamPart,
+  LanguageModelV3StreamResult,
+} from '@ai-sdk/provider';
+import { wrapLanguageModel } from 'ai';
+
+import { ModelStreamIdleError } from './stream-idle-watchdog';
+import {
+  ProviderFailure,
+  type FailureInput,
+} from './provider-failure/provider-failure';
+
+export type ProviderFailureMiddlewareOptions = {
+  provider: string;
+  classify: (input: FailureInput) => ProviderFailure;
+  sanitize?: (failure: ModelFailure) => Error;
+  abortSignal?: AbortSignal;
+};
+
+/** Preserve the actual failed send when the SDK rejects text with no output. */
+export function captureRequestFailure(
+  request: Pick<ModelStreamInput, 'onError'>,
+  sanitize: ModelFailureSanitizer | undefined,
+): ModelFailureSanitizer {
+  let failure: { error: ModelFailure } | undefined;
+  const onError = request.onError;
+
+  request.onError = (event) => {
+    const error = sanitize?.(event.error) ?? event.error;
+    failure ??= { error };
+
+    return onError?.({ error });
+  };
+
+  return (error) =>
+    failure && NoOutputGeneratedError.isInstance(error)
+      ? failure.error
+      : (sanitize?.(error) ?? error);
+}
+
+function responseHeaders(
+  headers: NonNullable<LanguageModelV3StreamResult['response']>['headers'],
+): Readonly<Record<string, string>> | undefined {
+  if (headers === undefined) return undefined;
+
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+
+  return headers;
+}
+
+function isAbortOrIdle(
+  error: unknown,
+  abortSignal: AbortSignal | undefined,
+): boolean {
+  return (
+    error instanceof ModelStreamIdleError ||
+    (abortSignal !== undefined && error === abortSignal.reason)
+  );
+}
+
+/** Classify before sanitizing; return no provider-owned error graph. */
+export function classifiedFailure(
+  error: ModelFailure,
+  options: ProviderFailureMiddlewareOptions,
+  headers?: Readonly<Record<string, string>>,
+  now?: number,
+): ModelFailure {
+  if (
+    error instanceof ProviderFailure ||
+    isAbortOrIdle(error, options.abortSignal)
+  ) {
+    return error;
+  }
+
+  const classified = options.classify({
+    error,
+    provider: options.provider,
+    ...(headers !== undefined && { headers }),
+    ...(now !== undefined && { now }),
+  });
+
+  const bounded = options.sanitize?.(error);
+
+  if (bounded instanceof ProviderFailure) return bounded;
+
+  return new ProviderFailure(bounded?.message ?? classified.message, {
+    code: classified.code,
+    ...(classified.resetsAt !== undefined && { resetsAt: classified.resetsAt }),
+    ...(classified.hintMs !== undefined && { hintMs: classified.hintMs }),
+    ...(classified.statusCode !== undefined && {
+      statusCode: classified.statusCode,
+    }),
+  });
+}
+
+function transformedStream(
+  result: LanguageModelV3StreamResult,
+  options: ProviderFailureMiddlewareOptions,
+  receiptAt: number,
+): ReadableStream<LanguageModelV3StreamPart> {
+  const reader = result.stream.getReader();
+  const headers = responseHeaders(result.response?.headers);
+
+  return new ReadableStream<LanguageModelV3StreamPart>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+
+        if (next.done) {
+          controller.close();
+
+          return;
+        }
+
+        const part = next.value;
+
+        if (part.type === 'error') {
+          controller.enqueue({
+            ...part,
+            error: classifiedFailure(part.error, options, headers, receiptAt),
+          });
+        } else {
+          controller.enqueue(part);
+        }
+      } catch (error) {
+        controller.enqueue({
+          type: 'error',
+          error: classifiedFailure(error, options, headers, receiptAt),
+        });
+        controller.close();
+      }
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}
+
+/** Classifies stream error parts without intercepting the SDK's retryable call. */
+export function withProviderFailures(
+  model: LanguageModelV3,
+  options: ProviderFailureMiddlewareOptions,
+): LanguageModelV3 {
+  return wrapLanguageModel({
+    model,
+    middleware: {
+      specificationVersion: 'v3',
+      wrapStream: async ({ doStream, params }) => {
+        // Rejections deliberately remain raw: the SDK owns its retry loop.
+        const result = await doStream();
+        const receiptAt = Date.now();
+
+        return {
+          ...result,
+          stream: transformedStream(
+            result,
+            {
+              ...options,
+              abortSignal: params.abortSignal ?? options.abortSignal,
+            },
+            receiptAt,
+          ),
+        };
+      },
+    },
+  });
+}
