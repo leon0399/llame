@@ -622,6 +622,39 @@ describe('deliverPendingSteering', () => {
     );
   });
 
+  it('records disabled compaction when automatic compaction has no commands', async () => {
+    const spies = serve({ items: [] });
+    const liveReply = { ...live, parts: [] };
+
+    await expect(
+      deliver({
+        live: liveReply,
+        boundaryCompaction: {
+          ids: [],
+          summary: null,
+          quote: null,
+          stepBudgetUsed: 3,
+          automatic: true,
+          publishCheckpoint: vi.fn(),
+        },
+      }),
+    ).resolves.toEqual({ kind: 'nothing-pending', compactionFailed: true });
+
+    expect(liveReply.parts).toEqual([
+      { type: 'data-compaction-disabled', data: {} },
+    ]);
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.compaction_disabled',
+      {},
+    );
+    expect(spies.append).not.toHaveBeenCalledWith(
+      runId,
+      'run.compaction_failed',
+      {},
+    );
+  });
+
   it('marks every compact command delivered for a final-answer compaction', async () => {
     const compact = {
       ...first,

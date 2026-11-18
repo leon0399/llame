@@ -589,6 +589,7 @@ export type RunEventType =
   | 'native.attempt'
   | 'native.result'
   | 'run.step_cap_reached'
+  | 'run.compaction_disabled'
   | 'run.compaction_failed'
   // A background-job wait suspends and resumes the same Run.
   | 'run.suspended'

@@ -12,6 +12,7 @@
  *   same system prompt, same history rendering, instruction as the final user message
  */
 
+import { automaticBoundaryThresholdReached } from './automatic-boundary-trigger';
 import {
   COMPACTION_INSTRUCTION,
   COMPACTION_WINDOW_RATIO,
@@ -346,6 +347,45 @@ describe('planCompactionCheckpoint', () => {
     expect(plan?.absorb.map((message) => message.seq)).toStrictEqual([
       1, 2, 3, 4,
     ]);
+  });
+});
+
+describe('automaticBoundaryThresholdReached', () => {
+  it('adds tool results to the latest request receipt', () => {
+    expect(
+      automaticBoundaryThresholdReached({
+        latestRequestContextTokens: 780,
+        system: '',
+        requestMessages: [],
+        stepToolResults: [
+          {
+            role: 'tool',
+            content: [
+              {
+                type: 'tool-result',
+                toolCallId: 'call-1',
+                toolName: 'read',
+                output: { type: 'text', value: 'result' },
+              },
+            ],
+          },
+        ],
+        toolDeclarations: [],
+        thresholdTokens: 781,
+      }),
+    ).toBe(true);
+  });
+
+  it('estimates the whole next request without a countable receipt', () => {
+    expect(
+      automaticBoundaryThresholdReached({
+        system: '',
+        requestMessages: [{ role: 'user', content: 'short request' }],
+        stepToolResults: [],
+        toolDeclarations: [],
+        thresholdTokens: 800,
+      }),
+    ).toBe(false);
   });
 });
 

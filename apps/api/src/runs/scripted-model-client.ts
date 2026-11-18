@@ -113,8 +113,11 @@ export type ScriptedBehavior = {
        */
       kind: 'step-script';
       steps: ReadonlyArray<ScriptedStep>;
-      /** Usage reported by each provider request, indexed by scripted step. */
-      requestUsages?: ReadonlyArray<LanguageModelV3Usage>;
+      /**
+       * Usage reported by each provider request, indexed by scripted step.
+       * `null` reports usage without an input-token count.
+       */
+      requestUsages?: ReadonlyArray<LanguageModelV3Usage | null>;
       /**
        * Runs while the model responds to step `stepIndex` (counted across the
        * Run's segments), before that step's stream opens: a test stores a
@@ -443,6 +446,11 @@ class HarnessModelClient implements ModelClient {
           await behavior.beforeStep?.(stepIndex);
         }
 
+        const requestUsage =
+          behavior.kind === 'step-script'
+            ? behavior.requestUsages?.[stepIndex]
+            : undefined;
+
         return {
           stream: createScriptedStream({
             abortSignal,
@@ -451,9 +459,17 @@ class HarnessModelClient implements ModelClient {
             delayMs,
             scriptedStep,
             usage:
-              behavior.kind === 'step-script'
-                ? behavior.requestUsages?.[stepIndex]
-                : undefined,
+              requestUsage === null
+                ? {
+                    ...PROVIDER_ZERO_USAGE,
+                    inputTokens: {
+                      total: undefined,
+                      noCache: undefined,
+                      cacheRead: undefined,
+                      cacheWrite: undefined,
+                    },
+                  }
+                : requestUsage,
           }),
         };
       },

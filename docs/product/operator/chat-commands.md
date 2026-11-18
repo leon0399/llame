@@ -1,12 +1,20 @@
 ---
-summary: "Operating owner chat commands: the data fix a downgrade below the /compact focus release needs"
+summary: "Operating owner chat commands: automatic compaction and checkpoint rollback"
 read_when:
   - you are rolling back to a release that predates the `/compact` focus
+  - you are checking automatic mid-turn compaction behavior
 behavior:
   - ../reference/chat-commands.md
+  - "#automatic-mid-turn-compaction"
 ---
 
 # Chat commands
+
+## Automatic mid-turn compaction
+
+During a tool loop, a Run automatically compacts at a step boundary when its next request reaches the configured model threshold. The Run then continues from the checkpoint. A final answer is not compacted automatically.
+
+If an automatic compaction fails or does not reduce the request below the threshold, it is disabled for the rest of the Run. The reply records that status, and an owner `/compact` command remains available.
 
 ## Downgrading below the `/compact` focus
 

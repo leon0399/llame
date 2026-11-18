@@ -415,14 +415,17 @@ describe('run steering segment preparation', () => {
 
     it('A segment start does not compact', async () => {
       const started = await steeredRun({
-        steps: [call('a', 'read', { path: directory }), answer('done')],
+        steps: [
+          answer('The first segment ends above the threshold.'),
+          answer('The steered segment answers without pre-step compaction.'),
+        ],
         steer: 'one more thing',
         behavior: { compactionThresholdTokens: 1 },
       });
 
       expect(started.finished.status).toBe('completed');
-      // The threshold is exceeded by any history, yet the second segment sends
-      // its first request with no summary request before it.
+      // The above-threshold final answer starts a steered segment, whose first
+      // request is sent without a pre-step summary request.
       expect(started.prompts).toHaveLength(2);
       const messages = await chatMessages(started.chatId);
       expect(messages.map(({ role }) => role)).not.toContain('checkpoint');

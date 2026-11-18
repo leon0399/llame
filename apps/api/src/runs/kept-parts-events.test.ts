@@ -178,6 +178,9 @@ describe('keptPartEvents', () => {
     expect(
       keptPartEvents([{ type: 'data-compaction-failed', data: {} }]),
     ).toEqual([{ eventType: 'run.compaction_failed', payload: {} }]);
+    expect(
+      keptPartEvents([{ type: 'data-compaction-disabled', data: {} }]),
+    ).toEqual([{ eventType: 'run.compaction_disabled', payload: {} }]);
   });
 
   it('contributes nothing for a cap marker whose counts are absent', () => {

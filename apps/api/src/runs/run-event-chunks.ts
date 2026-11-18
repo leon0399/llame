@@ -42,6 +42,7 @@ export type UiChunk =
       data: { stepsUsed: number; maxSteps: number };
     }
   | { type: 'data-compaction-failed'; data: Record<string, never> }
+  | { type: 'data-compaction-disabled'; data: Record<string, never> }
   | { type: 'data-run-delivered'; data: { messageId: string } }
   | { type: 'error'; errorText: string }
   | { type: 'finish'; finishReason: 'stop' };

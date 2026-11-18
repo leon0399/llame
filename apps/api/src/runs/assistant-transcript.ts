@@ -165,6 +165,11 @@ export type CompactionFailedPart = {
   data: Record<string, never>;
 };
 
+export type CompactionDisabledPart = {
+  type: 'data-compaction-disabled';
+  data: Record<string, never>;
+};
+
 type PendingToolPart = { readonly type: 'pending-tool'; toolCallId: string };
 
 /**
@@ -394,7 +399,7 @@ class AssistantPartCollectorImpl {
     this.collected.push(part);
   }
 
-  compactionFailed(part: CompactionFailedPart): void {
+  compactionNote(part: CompactionFailedPart | CompactionDisabledPart): void {
     this.collected.push(part);
   }
 
@@ -659,10 +664,8 @@ class DurableAssistantReconstructor {
 
         return;
       case 'run.compaction_failed':
-        this.collector.compactionFailed({
-          type: 'data-compaction-failed',
-          data: {},
-        });
+      case 'run.compaction_disabled':
+        this.applyCompactionNote(event);
 
         return;
       case 'tool.requested':
@@ -680,6 +683,16 @@ class DurableAssistantReconstructor {
       default:
         return;
     }
+  }
+
+  private applyCompactionNote(event: RunEvent): void {
+    this.collector.compactionNote({
+      type:
+        event.eventType === 'run.compaction_failed'
+          ? 'data-compaction-failed'
+          : 'data-compaction-disabled',
+      data: {},
+    });
   }
 
   private applyStepCapReached(event: RunEvent): void {

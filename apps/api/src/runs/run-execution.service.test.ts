@@ -141,6 +141,7 @@ import {
 import {
   buildContext,
   userPartsToModelContent,
+  projectStoredReplyParts,
   type MessagePart,
   type StoredMessage,
 } from '../chats/context-builder';
@@ -200,7 +201,10 @@ import type {
   CompactionCapability,
   CompactionSummary,
 } from '../compaction/compaction.service';
-import { estimateContinuationTokens } from '../compaction/compaction';
+import {
+  estimateContinuationTokens,
+  estimateModelRequestTokens,
+} from '../compaction/compaction';
 import type { MediaDescriptor } from '../media/media-descriptors';
 import {
   descriptor,
@@ -11545,6 +11549,61 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       return { ...outcome, capturing, triggerId };
     }
 
+    it('does not load progress media for an attempt without compaction', async () => {
+      mockNormalExecutionRepositories();
+      const imageId = '0192f3a4-5b6c-7d8e-9f01-0000000000e2';
+      const capturing = makeCapturingClient();
+      Object.assign(capturing.client, { input: ['text', 'image'] });
+
+      const execution = makeExecutionService(
+        capturing.client,
+        makeDynamicResolver({
+          id: toolDeclaration.id,
+          description: toolDeclaration.description,
+          classification: 'unverified',
+          inputSchema: toolDeclaration.inputSchema,
+          execute: () => Promise.resolve({ status: 'success' as const }),
+        }),
+        undefined,
+        withDeclaredTool(),
+      );
+
+      const where = () => Promise.resolve([descriptorRow(descriptor(imageId))]);
+      // The descriptor query uses drizzle's private fluent-builder state.
+      // SAFETY: this double implements the exact select/from/where calls used.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      vi.spyOn(execution.db, 'select').mockReturnValue({
+        from: () => ({ where }),
+      } as never);
+
+      await execution.service.executeRun({
+        ...executionInput(capturing.client),
+        userMessage: {
+          ...userMessage,
+          seq: 3,
+          parts: [
+            {
+              type: 'file',
+              mediaType: 'image/png',
+              url: `media://${imageId}`,
+            },
+          ],
+        },
+      });
+
+      const options = capturing.streamOptions();
+
+      if (!options?.onStepStart || options.media === undefined) {
+        throw new Error('model step media callbacks were not captured');
+      }
+
+      const describe = vi.spyOn(options.media, 'describe');
+
+      await options.onStepStart({ messages: options.messages, stepNumber: 0 });
+
+      expect(describe).not.toHaveBeenCalled();
+    });
+
     it('takes the threshold variant when an earlier row holds an image', async () => {
       const { execution } = await overflowWithEarlierImage();
 
@@ -12078,6 +12137,21 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       );
 
       if (variant === 'threshold') {
+        const options = thresholdCapture.streamOptions();
+        options.onRequestUsage?.(
+          requestUsageReceipt({ inputTokens: triggerThreshold }),
+          1,
+        );
+        await options.onFinish?.({
+          text: 'answer',
+          usage: ZERO_USAGE,
+          finishReason: 'stop',
+          stepCount: 1,
+        });
+        expect(appended.map(({ type }) => type)).toContain(
+          'run.compaction_disabled',
+        );
+
         // The threshold variant summarizes with the attempt's own model, the
         // estimate pass's prompt (the chat's own anchor, not the re-baked one),
         // and the effort this run resolved.
@@ -12130,6 +12204,35 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       }
     },
   );
+
+  it('keeps compaction enabled when the first request is below threshold', async () => {
+    const capturing = triggerClient();
+
+    const { execution } = await executeTriggerCase({
+      client: capturing.client,
+      historyRows: [...committedTurn({ contextTokens: 40_000 }), triggerTurn()],
+      summary: checkpointSummary(2),
+    });
+
+    const appended = recordAppendedEvents();
+    const options = capturing.streamOptions();
+
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: triggerThreshold - 1 }),
+      1,
+    );
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledOnce();
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
 
   it.each([
     {
@@ -20790,7 +20893,11 @@ describe('RunExecutionService git state', () => {
 
     const result = await execution.service.executeRun({
       ...executionInput(client),
-      userMessage: turnMessage(3),
+      userMessage: {
+        id: messageId,
+        seq: 3,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
     });
 
     await expect(result.text).resolves.toBe('answer');
@@ -21345,6 +21452,11 @@ describe('RunExecutionService executeRun — run segments', () => {
         },
       );
 
+      const prepareBoundary = vi.spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareBoundaryCompaction',
+      );
+
       if (resumesAfterSuspend(scenario)) {
         arrangeWaitCompletion(execution, scenario, {
           ...job,
@@ -21377,9 +21489,27 @@ describe('RunExecutionService executeRun — run segments', () => {
       expect(types).toContain('tool.requested');
       expectWaitOutcome(scenario, spies, types, appended);
 
+      if (scenario.expectedContinuation) {
+        const closedParts =
+          spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts;
+
+        expect(closedParts).not.toContainEqual(
+          expect.objectContaining({ type: 'data-compaction-failed' }),
+        );
+        expect(closedParts).not.toContainEqual(
+          expect.objectContaining({ type: 'data-compaction-disabled' }),
+        );
+      }
+
       if (scenario.boundaryDelivered === true) {
         expect(types).toContain('run.delivered');
         expect(segment.calls).toHaveLength(2);
+      } else if (
+        scenario.boundaryCancelled === true ||
+        scenario.boundaryFenced === true ||
+        scenario.completeWaitLockMissing === true
+      ) {
+        expect(prepareBoundary).not.toHaveBeenCalled();
       }
     },
   );
@@ -21990,6 +22120,234 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(spies.markFinished).not.toHaveBeenCalled();
   });
 
+  it('records an automatic compaction failure when the summary cannot be produced', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 1 });
+    const execution = toolService(segment.client);
+
+    const prepareBoundary = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareBoundaryCompaction',
+    );
+
+    const input = executionInput(segment.client);
+
+    const result = await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await executeBoundTool(options, { q: 'lookup' }, 'auto-call');
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    await options?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    const continuation = segment.calls[1];
+
+    if (!continuation)
+      throw new Error('continued model stream was not captured');
+
+    await continuation.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    const persistedParts =
+      spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts;
+
+    expect(persistedParts).not.toContainEqual(
+      expect.objectContaining({ type: 'data-compaction-failed' }),
+    );
+    expect(persistedParts).toContainEqual(
+      expect.objectContaining({ type: 'data-compaction-disabled' }),
+    );
+    expect(prepareBoundary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automatic: true,
+        compactionSet: { ids: [], focus: null },
+      }),
+    );
+    expect(prepareBoundary).toHaveBeenCalledWith(
+      expect.objectContaining({ stepBudgetUsed: 2 }),
+    );
+    expect(appended.map(({ type }) => type)).toContain(
+      'run.compaction_disabled',
+    );
+  });
+
+  it('measures only the current step reply at its boundary', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 20_000 });
+    const execution = toolService(segment.client);
+    const input = executionInput(segment.client);
+
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = segment.calls[0];
+
+    if (!options?.onStepStart)
+      throw new Error('step callbacks were not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 0 }), 1);
+    await options.onStepStart({ messages: [], stepNumber: 0 });
+    options.onTextDelta?.('a'.repeat(40_000));
+    await executeBoundTool(options, { q: 'first' }, 'first-step-call');
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+
+    await options.onStepStart({ messages: [], stepNumber: 1 });
+    options.onTextDelta?.('b'.repeat(40_000));
+    await executeBoundTool(options, { q: 'second' }, 'second-step-call');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+  });
+
+  it('does not compact a tool result when no earlier turn can be absorbed', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      [],
+    );
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 1 });
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await executeBoundTool(options, { q: 'lookup' }, 'no-history-call');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+  });
+
+  it('does not round a counted context receipt up across the threshold', async () => {
+    const receiptTokens = 100;
+
+    const projected = projectStoredReplyParts(
+      [
+        toolActivityPart({
+          toolCallId: 'boundary-call',
+          toolName: toolDeclaration.id,
+          input: { q: 'lookup' },
+          result: { status: 'success', hits: 1 },
+        }),
+      ],
+      { privateParts: true, mediaKey: () => 'continued/0' },
+    );
+
+    const stepResultTokens = estimateModelRequestTokens({
+      messages: projected.messages,
+      toolDeclarations: [],
+    });
+
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, {
+      compactionThresholdTokens: receiptTokens + stepResultTokens + 1,
+    });
+    const execution = toolService(segment.client);
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        id: messageId,
+        seq: 3,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+    });
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(
+      requestUsageReceipt({ inputTokens: receiptTokens }),
+      1,
+    );
+    await executeBoundTool(options, { q: 'lookup' }, 'boundary-call');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+  });
+
+  it('waits for a completed tool result before checking the boundary threshold', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 1 });
+    const execution = toolService(segment.client);
+    const input = executionInput(segment.client);
+
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+  });
+
   it('stops the call when the step end finds a pending item and not otherwise', async () => {
     mockNormalExecutionRepositories();
 
@@ -22068,6 +22426,69 @@ describe('RunExecutionService executeRun — run segments', () => {
       continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
     ).toHaveLength(1);
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the first-epoch digest baseline through final-answer delivery', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+
+    const baseline: RecencyDigestResolution['baseline'] = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({ baseline, candidates: [] });
+
+    const setBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+      .mockResolvedValue({ ...chat, recencyDigestBaseline: baseline });
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const }),
+      }),
+      undefined,
+      {
+        ...withDeclaredTool(),
+        memory: {
+          getForOwnerForBinding: vi
+            .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+            .mockResolvedValue({ shareRecentChats: true }),
+        },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('delivery');
+    await options?.stopWhenExtra?.();
+    serveDelivery([pendingItem]);
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, baseline, []);
   });
 
   it('carries a compaction quote when the boundary input has no text', async () => {
@@ -22438,6 +22859,56 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(computeBoundarySummary).not.toHaveBeenCalled();
   });
 
+  it('does not auto-compact a normal delivery with an older compactable turn', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const historyRows = [
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ];
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      historyRows,
+    );
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const computeBoundarySummary = vi.spyOn(
+      execution.compaction,
+      'computeBoundarySummary',
+    );
+
+    await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        ...userMessage,
+        seq: 4,
+        parts: [{ type: 'text', text: 'current request' }],
+      },
+    });
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    signal.mockResolvedValueOnce('delivery');
+    await options.stopWhenExtra?.();
+    serveDelivery([pendingItem]);
+    await options.onFinish?.(finishToolCalls);
+
+    expect(computeBoundarySummary).not.toHaveBeenCalled();
+  });
+
   it.each([undefined, 'high'] as const)(
     'summarizes a compact command from the closed step reply with effort %s',
     async (effort) => {
@@ -22483,7 +22954,13 @@ describe('RunExecutionService executeRun — run segments', () => {
       );
 
       const segment = makeSegmentClient();
-      const execution = makeExecutionService(segment.client);
+      Object.assign(segment.client, { compactionThresholdTokens: 1 });
+      const execution = toolService(segment.client);
+
+      const prepareBoundary = vi.spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareBoundaryCompaction',
+      );
 
       const computeBoundarySummary = vi.spyOn(
         execution.compaction,
@@ -22499,8 +22976,13 @@ describe('RunExecutionService executeRun — run segments', () => {
         },
       });
       const options = segment.calls[0];
+
+      if (!options) throw new Error('model stream was not captured');
+
+      options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+      await executeBoundTool(options, { q: 'lookup' }, 'compact-delivery-call');
       signal.mockResolvedValueOnce('delivery');
-      await options?.stopWhenExtra?.();
+      await options.stopWhenExtra?.();
       options?.onReasoningDelta?.('private analysis', 'reasoning-1', {
         anthropic: { signature: 'private-signature' },
       });
@@ -22509,6 +22991,12 @@ describe('RunExecutionService executeRun — run segments', () => {
       await options?.onFinish?.(finishToolCalls);
 
       expect(computeBoundarySummary).toHaveBeenCalledOnce();
+      expect(prepareBoundary).toHaveBeenCalledWith(
+        expect.objectContaining({ automatic: true }),
+      );
+      expect(prepareBoundary.mock.calls[0]?.[0]).not.toHaveProperty(
+        'compactionSet',
+      );
       expect(listByRunId).toHaveBeenCalledWith(runId, userId, {
         eventTypes: ['run.delivered'],
       });
@@ -22543,6 +23031,88 @@ describe('RunExecutionService executeRun — run segments', () => {
       }
     },
   );
+
+  it('records a failed owner compaction when its command is the only delivered item', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    repositories.markStarted.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    repositories.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const prepareBoundary = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareBoundaryCompaction',
+    );
+
+    const result = await execution.service.executeRun({
+      ...executionInput(segment.client),
+      userMessage: {
+        ...userMessage,
+        seq: 4,
+        parts: [{ type: 'text', text: 'current request' }],
+      },
+    });
+
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    signal.mockResolvedValueOnce('delivery');
+    await options.stopWhenExtra?.();
+    options.onTextDelta?.('assistant answer before delivery');
+    serveDelivery([compact]);
+    await options.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+
+    const continuation = segment.calls[1];
+
+    if (!continuation)
+      throw new Error('continued model stream was not captured');
+
+    await continuation.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(
+      repositories.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
+    ).toContainEqual(
+      expect.objectContaining({ type: 'data-compaction-failed' }),
+    );
+    expect(prepareBoundary).toHaveBeenCalled();
+    expect(prepareBoundary.mock.calls[0]?.[0]).not.toHaveProperty('automatic');
+    expect(appended.map(({ type }) => type)).toContain('run.compaction_failed');
+  });
 
   it('projects only new assistant parts after a continued reply prefix', async () => {
     const repositories = mockNormalExecutionRepositories();
@@ -22963,6 +23533,40 @@ describe('RunExecutionService executeRun — run segments', () => {
     });
   });
 
+  it('skips automatic compaction checks for a recorded suspension', async () => {
+    mockNormalExecutionRepositories();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: testAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === testAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const checkAutomaticCompaction = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'automaticCompactionDueAtBoundary',
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+
+    expect(checkAutomaticCompaction).not.toHaveBeenCalled();
+  });
+
   it('settles cancelled when the step end found a recorded cancellation', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -22976,10 +23580,16 @@ describe('RunExecutionService executeRun — run segments', () => {
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
+    const checkAutomaticCompaction = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'automaticCompactionDueAtBoundary',
+    );
+
     await execution.service.executeRun(executionInput(segment.client));
     const options = segment.calls[0];
     signal.mockResolvedValueOnce('cancel');
     await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    expect(checkAutomaticCompaction).not.toHaveBeenCalled();
     await options?.onFinish?.(finishToolCalls);
 
     expect(lock).not.toHaveBeenCalled();
@@ -25519,6 +26129,37 @@ describe('RunExecutionService wake boundary preparation', () => {
     expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
   });
 
+  it('prepares an automatic boundary without owner compact commands', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    const execution = makeExecutionService();
+
+    const boundary = await execution.service['prepareBoundaryCompaction']({
+      run: executionInput(createFakeModelClient(['answer'])),
+      attemptId: testAttemptId,
+      context: boundaryContext(),
+      prepared: {
+        messages: [],
+        system: '',
+        untitled: false,
+        toolDeclarations: [],
+        tools: [],
+      },
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
+      replyParts: [{ type: 'text', text: 'answer' }],
+      keptPartCount: 0,
+      stepBudgetUsed: 1,
+      compactionSet: { ids: [], focus: null },
+      automatic: true,
+    });
+
+    expect(boundary).toMatchObject({ ids: [], automatic: true });
+  });
+
   it('captures the compact set before preparing the woken attempt', async () => {
     const compact = chatDeliveryRow({
       mode: 'steer',
@@ -25776,5 +26417,392 @@ describe('RunExecutionService wake-compaction fallback context fit', () => {
     });
 
     expect(prepareBoundary).not.toHaveBeenCalled();
+  });
+});
+
+describe('RunExecutionService automatic compaction boundary measurement', () => {
+  it('does not inspect reply parts when there is no compactable boundary', async () => {
+    const execution = makeExecutionService();
+    const { resolver } = fakeResolver([]);
+
+    await expect(
+      execution.service['automaticCompactionDueAtBoundary']({
+        hasBoundary: false,
+        replyParts: [],
+        latestRequestContextTokens: undefined,
+        requestMessages: [],
+        system: '',
+        toolDeclarations: [],
+        thresholdTokens: 1,
+        client: createFakeModelClient(['answer']),
+        media: resolver,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('counts the model reasoning kept in the boundary reply', async () => {
+    const execution = makeExecutionService();
+
+    await expect(
+      execution.service['automaticCompactionDueAtBoundary']({
+        hasBoundary: true,
+        replyParts: [{ type: 'reasoning', text: 'private reasoning' }],
+        latestRequestContextTokens: 0,
+        requestMessages: [],
+        system: '',
+        toolDeclarations: [],
+        thresholdTokens: 1,
+        client: createFakeModelClient(['answer']),
+        media: fakeResolver([]).resolver,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it('does not reload request media when a request receipt exists', async () => {
+    const execution = makeExecutionService();
+    const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+    const { resolver } = fakeResolver([descriptor(imageId)]);
+    const describe = vi.spyOn(resolver, 'describe');
+
+    const client = Object.assign(createFakeModelClient(['answer']), {
+      input: ['text', 'image'],
+    });
+
+    await execution.service['automaticCompactionDueAtBoundary']({
+      hasBoundary: true,
+      replyParts: [],
+      latestRequestContextTokens: 100,
+      requestMessages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'file',
+              data: `media://${imageId}`,
+              mediaType: 'image/png',
+            },
+          ],
+        },
+      ],
+      system: '',
+      toolDeclarations: [],
+      thresholdTokens: 1,
+      client,
+      media: resolver,
+    });
+
+    expect(describe).not.toHaveBeenCalledWith([imageId]);
+  });
+
+  it('measures request media when no request receipt exists', async () => {
+    const execution = makeExecutionService();
+    const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
+    const { resolver } = fakeResolver([descriptor(imageId)]);
+    const describe = vi.spyOn(resolver, 'describe');
+
+    const client = Object.assign(createFakeModelClient(['answer']), {
+      input: ['text', 'image'],
+    });
+
+    await expect(
+      execution.service['automaticCompactionDueAtBoundary']({
+        hasBoundary: true,
+        replyParts: [],
+        latestRequestContextTokens: undefined,
+        requestMessages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'file',
+                data: `media://${imageId}`,
+                mediaType: 'image/png',
+              },
+            ],
+          },
+        ],
+        system: '',
+        toolDeclarations: [],
+        thresholdTokens: 1,
+        client,
+        media: resolver,
+      }),
+    ).resolves.toBe(true);
+    expect(describe).toHaveBeenCalledWith([imageId]);
+  });
+});
+
+describe('RunExecutionService disabled automatic compaction state', () => {
+  it('does not retrigger boundary compaction after its disabled event', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const disabledEvent: RunEvent = {
+      ...event,
+      eventType: 'run.compaction_disabled',
+      payload: {},
+    };
+
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'compaction' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve([
+          ...(options?.eventTypes?.includes('run.compaction_disabled')
+            ? [disabledEvent]
+            : []),
+          ...(options?.eventTypes?.includes('run.delivered')
+            ? [deliveryEvent]
+            : []),
+        ]),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+
+    const execute = vi.fn(() =>
+      Promise.resolve({ status: 'success' as const, hits: 1 }),
+    );
+
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    const input = executionInput(capturing.client);
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+
+    await executeBoundTool(options, { q: 'lookup' }, 'call-1');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+    expect(
+      appended.filter(({ type }) => type === 'run.compaction_disabled'),
+    ).toHaveLength(0);
+    expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: 'a compaction cause', payload: { cause: 'compaction' } },
+    {
+      label: 'a checkpoint id',
+      payload: { checkpointId: publishedCheckpointId },
+    },
+  ])(
+    'arms the progress guard when a normal attempt starts after $label',
+    async ({ payload }) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const deliveryEvent: RunEvent = {
+        ...event,
+        eventType: 'run.delivered',
+        payload,
+      };
+
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        deliveryEvent,
+      ]);
+
+      const capturing = makeCapturingClient();
+      Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+      const execution = makeExecutionService(capturing.client);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+      options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+      await options.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+
+      expect(appended.map(({ type }) => type)).toContain(
+        'run.compaction_disabled',
+      );
+    },
+  );
+
+  it('uses only the first usage receipt for the progress guard', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'compaction' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      deliveryEvent,
+    ]);
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 0 }), 1);
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
+
+  it('does not arm the progress guard for a wake after prior compaction', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'compaction' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      deliveryEvent,
+    ]);
+
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+    const execution = makeExecutionService(capturing.client);
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareWakeAttempt',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      attemptId: testAttemptId,
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: {
+        toolCallId: 'wait-call',
+        parts: [{ type: 'text', text: 'kept context', step: 2 }],
+      },
+    });
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
+
+  it('does not apply the compaction progress guard to an ordinary attempt', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
+
+  it('does not disable boundary compaction for a delivery event', async () => {
+    mockNormalExecutionRepositories();
+
+    const deliveryEvent: RunEvent = {
+      ...event,
+      eventType: 'run.delivered',
+      payload: { cause: 'steer' },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.delivered') ? [deliveryEvent] : [],
+        ),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+
+    const execute = vi.fn(() =>
+      Promise.resolve({ status: 'success' as const, hits: 1 }),
+    );
+
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      }),
+      undefined,
+      withDeclaredTool(),
+    );
+
+    const input = executionInput(capturing.client);
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+
+    await executeBoundTool(options, { q: 'lookup' }, 'call-1');
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(true);
   });
 });
