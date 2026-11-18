@@ -191,7 +191,7 @@ follows `model-system-prompts`.
 When the model gives a final answer, the transaction that would complete the Run MUST first look
 for pending `steer` and `interrupt` items. A command item MUST first compact the Run. If it finds
 one or more message or `notice` items, the Run MUST NOT complete. It MUST deliver them and send a
-further model request. With only command items, the Run MUST complete after the compaction. A Run with no tools follows the same rule.
+further model request. With only command items, the Run MUST complete after the compaction; if that compaction fails, the Run still completes and records the failure on the reply. A Run with no tools follows the same rule.
 
 #### Scenario: A steer during the final answer
 

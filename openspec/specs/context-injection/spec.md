@@ -427,7 +427,7 @@ order. They MUST go before the user text in the user message of the turn:
 When one producer contributes more than one item, the system MUST store those
 items in emission order. A producer added later MUST extend this list
 in the rail specification. The `interrupted` producer of `run-steering` attaches its item to a
-delivered message. The `job` producer of `background-jobs` attaches its items to a delivered
+delivered message, or to the host message that continues a Run after an interrupt `/compact`. The `job` producer of `background-jobs` attaches its items to a delivered
 message, to the user message of a send, or to a host message. The `compaction` producer attaches its
 `notice` item to the host message that continues a Run after a step-boundary compaction.
 
