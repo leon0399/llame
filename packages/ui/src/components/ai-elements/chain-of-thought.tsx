@@ -12,6 +12,7 @@ import {
 import {
   CircleAlertIcon,
   CircleCheckIcon,
+  CircleStopIcon,
   LoaderCircleIcon,
 } from "lucide-react";
 
@@ -29,6 +30,8 @@ export type ChainOfThoughtProps = {
   running: boolean;
   /** Marks the summary when a step failed, so a collapsed group still says so. */
   failed?: boolean;
+  /** Keeps a cancelled step visible without presenting it as a failure. */
+  cancelled?: boolean;
   /**
    * Whether the steps fold behind the summary. A run too short to be worth a
    * summary sets this `false`: the steps then show as they are, in the same
@@ -55,6 +58,7 @@ export function ChainOfThought({
   title,
   running,
   failed = false,
+  cancelled = false,
   folds = true,
   children,
 }: ChainOfThoughtProps): ReactElement {
@@ -80,6 +84,8 @@ export function ChainOfThought({
                   <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
                 ) : failed ? (
                   <CircleAlertIcon />
+                ) : cancelled ? (
+                  <CircleStopIcon />
                 ) : (
                   <CircleCheckIcon />
                 )}

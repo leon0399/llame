@@ -2342,3 +2342,38 @@ export const FailedStepGroup: Story = {
     ).toBeVisible();
   },
 };
+
+export const CancelledStepGroup: Story = {
+  args: {
+    renderKey: "cancelled-step-group",
+    message: {
+      id: "cancelled-step-group",
+      role: "assistant",
+      parts: [
+        bashStep("status", "git status --short"),
+        bashStep("history", "git log -5"),
+        bashStep("files", "git ls-files"),
+        {
+          type: "dynamic-tool",
+          toolName: "bash",
+          toolCallId: "cancelled",
+          state: "output-error",
+          input: { command: "sleep 30" },
+          errorText: "Run cancelled",
+          resultProviderMetadata: { llame: { cancelled: true } },
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole("button", { name: /1 cancelled/u });
+
+    await expect(summary).not.toHaveAccessibleName(/failed/u);
+    await userEvent.click(summary);
+    await expect(
+      await canvas.findByRole("button", {
+        name: /sleep 30.*Cancelled/u,
+      }),
+    ).toBeVisible();
+  },
+};

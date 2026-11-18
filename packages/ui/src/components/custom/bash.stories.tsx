@@ -47,9 +47,12 @@ export const Basic: Story = {
   tags: ["ai-generated"],
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    await expect(
-      canvas.getByText(/apps\/\s+packages\/\s+README.md/u),
-    ).toBeVisible();
+
+    const output = canvas.getByLabelText("Command and standard output");
+
+    await expect(output).toHaveTextContent(/apps\/\s+packages\/\s+README.md/u);
+    output.focus();
+    await expect(output).toHaveFocus();
     // The arguments already show as the prompt.
     await expect(canvas.queryByText("Parameters")).not.toBeInTheDocument();
   },

@@ -147,22 +147,28 @@ function StepRow({
   );
 }
 
-/** The summary line of a group of steps, and whether a step in it failed. */
+/** A collapsed group keeps failed and cancelled outcomes visible. */
 function stepsHeading(steps: ReadonlyArray<StepSegment>, running: boolean) {
-  const failedCount = steps.filter(
-    (step) =>
-      step.kind === "tool" && toolHeaderState(step.part) === "output-error",
-  ).length;
+  let failedCount = 0;
+  let cancelledCount = 0;
 
-  const summary = `Worked through ${steps.length} steps`;
+  for (const step of steps) {
+    if (step.kind !== "tool") continue;
+    const state = toolHeaderState(step.part);
+
+    if (state === "output-error") failedCount += 1;
+    else if (state === "cancelled") cancelledCount += 1;
+  }
+
   const failed = failedCount > 0;
+  const cancelled = cancelledCount > 0;
+  let title = running ? "Working" : `Worked through ${steps.length} steps`;
 
-  if (running) return { title: "Working", failed };
+  if (failed) title += `, ${failedCount} failed`;
 
-  return {
-    title: failed ? `${summary}, ${failedCount} failed` : summary,
-    failed,
-  };
+  if (cancelled) title += `, ${cancelledCount} cancelled`;
+
+  return { title, failed, cancelled };
 }
 
 /** A run this long folds: up to three one-line steps say more than a summary

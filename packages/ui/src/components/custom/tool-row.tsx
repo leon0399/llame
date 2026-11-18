@@ -158,7 +158,7 @@ export function ToolText({
       <CodeBlockHeader>
         <CodeBlockTitle>{label}</CodeBlockTitle>
       </CodeBlockHeader>
-      <CodeBlockContent wrap className="max-h-64">
+      <CodeBlockContent wrap className="max-h-64" aria-label={label}>
         {text}
       </CodeBlockContent>
     </CodeBlock>

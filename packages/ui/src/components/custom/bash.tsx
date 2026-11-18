@@ -12,8 +12,6 @@ import {
 import {
   CodeBlock,
   CodeBlockContent,
-  CodeBlockHeader,
-  CodeBlockTitle,
 } from "@workspace/ui/components/code-block";
 import {
   ToolDetails,
@@ -21,6 +19,7 @@ import {
   ToolResultFallback,
   ToolRow,
   ToolSection,
+  ToolText,
 } from "@workspace/ui/components/custom/tool-row";
 
 const inputSchema = z.object({
@@ -102,7 +101,11 @@ function Terminal({
   return (
     <>
       <CodeBlock size="sm">
-        <CodeBlockContent wrap className="max-h-64">
+        <CodeBlockContent
+          wrap
+          className="max-h-64"
+          aria-label="Command and standard output"
+        >
           <span className="text-muted-foreground">
             <span aria-hidden="true" className="select-none">
               ${" "}
@@ -114,14 +117,7 @@ function Terminal({
         </CodeBlockContent>
       </CodeBlock>
       {result && result.stderr !== "" ? (
-        <CodeBlock size="sm">
-          <CodeBlockHeader>
-            <CodeBlockTitle>Standard error</CodeBlockTitle>
-          </CodeBlockHeader>
-          <CodeBlockContent wrap className="max-h-64">
-            {result.stderr}
-          </CodeBlockContent>
-        </CodeBlock>
+        <ToolText label="Standard error" text={result.stderr} />
       ) : null}
     </>
   );
