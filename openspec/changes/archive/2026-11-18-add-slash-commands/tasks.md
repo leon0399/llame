@@ -189,7 +189,7 @@ where a smaller safe merge point appears.
 ## 10. finalize
 
 - [x] 10.1 Enter `add-slash-commands/finalize` from `compact-auto` with `$gh-stack` before `$openspec-sync-specs` writes. Verify with `gh stack view --json`.
-  - Evidence: `gh stack view --json` reported `current branch "add-slash-commands/finalize" is not part of a stack`, confirming these branches were created with plain git. Before any sync write, `git log --oneline --decorate --first-parent -5` showed `2574e21b (HEAD -> add-slash-commands/finalize, origin/add-slash-commands/compact-auto, add-slash-commands/compact-auto) fix(runs): address compact-auto review`; the finalize branch points at the compact-auto tip. Later restacks moved that tip; finalize was rebased onto each, last onto `584d2dcb`.
+  - Evidence: `gh stack view --json` reported `current branch "add-slash-commands/finalize" is not part of a stack`, confirming these branches were created with plain git. Before any sync write, `git log --oneline --decorate --first-parent -5` showed `2574e21b (HEAD -> add-slash-commands/finalize, origin/add-slash-commands/compact-auto, add-slash-commands/compact-auto) fix(runs): address compact-auto review`; the finalize branch points at the compact-auto tip. Later restacks moved that tip; finalize was rebased onto each one, and the checks below ran on the tip of the day.
 - [x] 10.2 Run `$openspec-sync-specs`, keep the `chat-commands` Purpose, and verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
   - Evidence: synced all ten listed delta capabilities; created `chat-commands` with its Purpose and 14
     added requirements. `--specs --strict` passed (62 passed, 0 failed); `--all --strict` passed
@@ -197,7 +197,7 @@ where a smaller safe merge point appears.
     `pnpm lint:markdown` found 0 issues in 1,099 files; `pnpm format:check` passed across 3,970
     files; `node scripts/check-markdown-links.mjs` and `git diff --check` exited successfully.
 - [x] 10.3 Check that every task above is checked and `openspec status --change add-slash-commands --json` reports every artifact done.
-  - Evidence: on the finalize tip over compact-auto `584d2dcb`, no unchecked task remains above 10.3; `openspec status --change add-slash-commands --json` reports proposal, specs, design, and tasks `done`. No delta spec changed after the sync (last delta commit `3d899b77`).
+  - Evidence: on the finalize tip over compact-auto, rechecked after each restack, no unchecked task remains above 10.3; `openspec status --change add-slash-commands --json` reports proposal, specs, design, and tasks `done`. No delta spec changed after the sync (last delta commit `3d899b77`).
 
 ## Workflow follow-up
 
