@@ -44,6 +44,22 @@ function useChatCallbacks(
   };
 }
 
+/** Strict Mode's synchronous effect replay retains the same live engine. */
+function useChatLifetime(chat: AgUiChat): void {
+  const attached = useRef<AgUiChat | null>(null);
+
+  useEffect(() => {
+    attached.current = chat;
+
+    return () => {
+      attached.current = null;
+      queueMicrotask(() => {
+        if (attached.current !== chat) chat.stop();
+      });
+    };
+  }, [chat]);
+}
+
 /** One engine per Chat id; the transport follows that Chat's view lifetime. */
 export function useAgUiChat(options: ChatInit): AgUiChatState {
   const callbacks = useChatCallbacks(options);
@@ -56,7 +72,7 @@ export function useAgUiChat(options: ChatInit): AgUiChatState {
     setChat(chat);
   }
 
-  useEffect(() => () => chat.stop(), [chat]);
+  useChatLifetime(chat);
 
   const snapshot = useSyncExternalStore(
     chat.subscribe,
