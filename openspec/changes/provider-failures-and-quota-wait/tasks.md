@@ -171,7 +171,8 @@ before publication.
       after the reset", "A reset that does not clear", "Two limits in one long Run", "The default cap",
       "A zero cap fails startup", "A reload during a quota wait", and "A usage limit after a tool call"
       in API integration tests. Check that the quota `run.suspended` carries `attemptId` and
-      `generation`, and that `onFinish` writes nothing after the entry.
+      `generation`, and that `onFinish` writes nothing after the entry. Verify "A quota wake claim
+      dies before its request succeeds" and generation-matched `run.quota_recovered` count closure.
 - [ ] 5.3 Keep deliveries and notices pending (design D6). Verify "A steer during a quota wait", "A
       job settles during a quota wait", and that a plain send gets 409.
 - [ ] 5.4 Wake on cancellation with one fenced winner. Verify "The owner stops a quota wait", "A
@@ -205,8 +206,8 @@ before publication.
       wake path for a Run with no `messageId`, and rethrow from the `prepareBoundaryCompaction` catch
       (design D5, D6). Verify "A compaction Run waits", "A step-boundary compaction hits a usage limit",
       "A step-boundary summary beyond the cap", a final-answer summary that hits a usage limit and
-      completes after the wake, and "A successful summary starts a new allowance for the next request",
-      in API integration tests.
+      completes after the wake, "A successful summary starts a new allowance for the next request",
+      and "A compaction wait count survives replanning" in API integration tests.
 - [ ] 6.2 Keep a model-switch compaction a side call. Verify "A model-switch compaction hits a usage
       limit".
 - [ ] 6.3 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.

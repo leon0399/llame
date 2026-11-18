@@ -283,9 +283,15 @@ MUST fail as `first_token_timeout`.
 
 ### Requirement: Parts before the first content part stay unseen until it arrives
 
-llame MUST hold back each part of a send that arrives before the end of its first window. It MUST
-release them in order, before the part that ends the window. A send that fails before its first content part
-MUST store no part, and a request retry MUST drop its held parts.
+llame MUST hold back each part of a send that arrives before the end of its first window. For a
+caller with live text or reasoning deliveries, it MUST release the held parts in order before the
+part that ends the window. A send that fails before its first content part MUST store no part,
+and a request retry MUST drop its held parts.
+
+For a caller without live text or reasoning deliveries, llame MUST hold every part until the send
+succeeds. It MUST then release all parts in order. A retryable failure before a complete tool-call
+part MUST drop that buffer and retry the same request under the same retry limit, even after
+content. The first-content and stall windows MUST still apply while parts are held.
 
 #### Scenario: A redacted thinking start and then a stall
 
@@ -296,6 +302,12 @@ MUST store no part, and a request retry MUST drop its held parts.
 
 - **WHEN** a send streams response metadata and then a finish part with the reason `content-filter`
 - **THEN** the step completes with its held parts released before the finish part, and no request retry follows
+
+#### Scenario: A buffered summary breaks after content
+
+- **WHEN** a compaction summary send streams partial text without live deliveries and then breaks before a complete tool-call part
+- **THEN** llame drops that send's held parts and retries the same request
+- **AND** the summary receives only the successful send's parts, with no supersession event for the unstored buffer
 
 ### Requirement: A stall after content is stream_broken
 
@@ -348,7 +360,7 @@ NOT carry a part that the failed send streamed. When the failed send stored part
 
 #### Scenario: A stream breaks inside a thinking block
 
-- **WHEN** an Anthropic request streams half a thinking block without a signature and then breaks
+- **WHEN** an Anthropic request with live reasoning deliveries stores half a thinking block without a signature and then breaks
 - **THEN** the request retry carries no reasoning part from the broken send
 - **AND** a `model.superseded` event names the broken send
 

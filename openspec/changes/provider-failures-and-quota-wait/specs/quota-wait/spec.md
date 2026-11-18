@@ -114,6 +114,11 @@ again. One
 request MUST wait at most 3 times after its first wait. A fourth such failure MUST end the request
 with its failure class. A successful request MUST reset the count, also when it emits no Run part event.
 
+The wait count MUST remain bound to that request across a worker redelivery after a wake and
+across compaction replanning. Clearing `awaiting` MUST NOT clear the count. A quota suspension
+that is not followed by its matching `run.quota_recovered` event MUST remain the durable source
+of that request's count. A successful request MUST append that marker before another request starts.
+
 #### Scenario: A reset that does not clear
 
 - **WHEN** a request wakes after its third re-wait, and it again fails with `quota_exhausted` and a reset time
@@ -128,6 +133,16 @@ with its failure class. A successful request MUST reset the count, also when it 
 
 - **WHEN** a summary succeeds after four quota waits, and the next step request reaches a quota reset before content
 - **THEN** the step request starts its own first wait
+
+#### Scenario: A quota wake claim dies before its request succeeds
+
+- **WHEN** a worker claims a request after its fourth quota wait, clears `awaiting`, and dies before the request succeeds
+- **THEN** redelivery restores the count of four, and another quota failure ends the Run without another wait
+
+#### Scenario: A compaction wait count survives replanning
+
+- **WHEN** a compaction Run wakes after its fourth quota wait and replans its summary
+- **THEN** that summary keeps the count of four, and another quota failure ends the Run without another wait
 
 ### Requirement: A cancellation ends a quota wait
 
@@ -152,10 +167,16 @@ ceiling MUST count from each claim.
 
 ### Requirement: A quota wait and its wake are Run events
 
-The Run MUST append one `run.suspended` event when it enters `awaiting_quota`. That event MUST name
-the failure class, the reset time, and the wake time. The Run MUST append one `run.resumed` event
-when it wakes, with the cause `timeout` or `cancelled`. The event stream MUST stay open between
-them.
+The Run MUST append one `run.suspended` event when it enters `awaiting_quota`. It MUST carry
+`kind: 'quota'`, `attemptId`, `generation`, `failureClass`, `resetsAt`, `wakeAt`, `resumeAt`,
+`waitCount`, `parts`, and `steps`. Its checkpoint parts and steps MUST exclude the failed send.
+The Run MUST append one `run.resumed` event when it wakes, with `kind: 'quota'`, the waking
+`attemptId`, the same `generation`, and the cause `timeout` or `cancelled`. Event payloads without
+`kind` MUST mean a job suspension or wake. The event stream MUST stay open between suspension and wake.
+
+On successful recovery of the request, `run.quota_recovered` MUST carry the suspension's
+`generation` and `resumeAt`. It MUST end only that request's wait count. A summary MUST write it in
+the checkpoint publication transaction; a step MUST write it in ordered successful-step settlement.
 
 #### Scenario: A reload during a quota wait
 

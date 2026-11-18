@@ -242,9 +242,10 @@ suspensions; only `runs.awaiting` is backfilled.
   uses the new value, and no later migration in the same batch may.
 - **Entry.** `RunWaitService.suspendForQuota` writes the status, `awaiting`, the generation, the
   deadline job, and a `run.suspended { kind: 'quota', attemptId, generation, failureClass, resetsAt,
-  wakeAt, waitCount, parts, steps }` in one attempt-fenced transaction. `attemptId` serves
-  `suspendedByThisAttempt` (`:3615-3622`), and `generation` pairs the event with its `run.resumed`
-  (`wake-projection.ts:143-157`). The checkpoint holds the parts and steps without the failed send.
+  wakeAt, resumeAt, waitCount, parts, steps }` in one attempt-fenced transaction. `attemptId` serves
+  `suspendedByThisAttempt` (`:3615-3622`), and `generation` pairs the event with its
+  `run.resumed { kind: 'quota', attemptId, generation, cause }`. The checkpoint holds the parts and
+  steps without the failed send.
   After the commit, `onError` sets `stopCause = 'suspend'`, and `onFinish` returns at the D4 gate. A
   quota failure after released parts first appends `model.superseded`, as in D4.
 - **Compaction.** `summarizeCheckpoint` rethrows a `ProviderFailure` that needs a quota wait
@@ -283,14 +284,23 @@ Sites that change:
   result, and rebuilds with a `quotaWakeStateFromEvents` that restores the checkpoint parts and
   steps. It then resumes at `resumeAt`: `request` calls `callStream`, `preDispatch` runs preparation
   again, `boundary` runs the boundary compaction and delivery, and `finalAnswer` runs the boundary
-  summary and settles `completed` with the checkpoint. For a compaction Run, the branch returns no
-  wake state and needs no checkpoint parts; `CompactionRunService` plans again.
+  summary and settles `completed` with the checkpoint. For a compaction Run, no reply prefix is
+  needed, but the claim returns its quota request's `resumeAt`, `waitCount`, and generation;
+  `CompactionRunService` replans with that same counter.
 
 The wait count belongs to one logical request, not to an interval between Run part events. A new
 request starts with zero waits. Entry stores `waitCount + 1` in `awaiting` and `run.suspended`.
-The wake restores that counter only at its `resumeAt` point. A failure ends the request when its
-counter is already 4. A successful request ends its counter; the next summary or step starts at
-zero, also when the successful summary emitted no Run part event.
+The counter projection reads the latest quota suspension not closed by `run.quota_recovered`,
+independently of the first-wake-only reply-prefix projection. It returns `resumeAt`, `waitCount`,
+and generation both on the first wake claim and on a redelivery after `awaiting` was cleared.
+Thus a worker death or a compaction replan cannot turn that request into a new allowance.
+A failure ends the request when its counter is already 4.
+
+After that request succeeds, append `run.quota_recovered { generation, resumeAt }` before a later
+request starts. For a summary, write it with checkpoint publication; for a step, write it through
+the ordered event chain when the successful step settles. That marker ends the counter even when
+the summary emitted no part events. A crash before that durable success boundary retains the
+same counter. No new column or request identifier is needed.
 
 ### D7: The budget excludes quota waits by events
 
@@ -417,3 +427,9 @@ None. Each grilling decision is recorded in the proposal.
   sends for non-live consumers so their middleware owns post-content recovery; state the wake
   exception to the later-attempt reset and supersede quota-failed output before suspension.
   These corrections preserve the approved retry, wait, and signed-reasoning outcomes.
+- **v5 (2026-11-18):** Verified three contract gaps from published feedback. Added the non-live
+  buffering rule to the normative delta and kept signed live-send supersession explicit. Specified
+  quota suspension/wake payloads, including `resumeAt`. Separated durable counter recovery from
+  first-wake reply-prefix recovery and added a generation-matched `run.quota_recovered` success
+  marker, so worker redelivery and compaction replanning preserve the four-wait bound. No new column
+  or request identifier; no change to approved wait or retry limits.
