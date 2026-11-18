@@ -1,6 +1,7 @@
 import type { ModelMessage } from 'ai';
 import { z } from 'zod';
 
+import { loadPackagedTemplate } from '../prompts/template-engine';
 import { type JsonSchemaDocument } from './types';
 
 // Executor and MCP schemas remain unchanged, including tools with their own i.
@@ -23,6 +24,11 @@ const intent = z.string().trim().min(1).max(120);
 const argumentsSchema = z.record(z.string(), z.unknown());
 const requiredFields = z.array(z.string());
 
+const intentDescription = loadPackagedTemplate<Record<string, never>>(
+  __dirname,
+  'tool-intent',
+)({});
+
 type ToolEnvelope = { input: unknown; intent?: string };
 
 /** The model-facing envelope; never used to authorize or execute a call. */
@@ -42,8 +48,7 @@ export function withToolIntent(
         minLength: 1,
         maxLength: 120,
         pattern: '\\S',
-        description:
-          'Concise intent: what this call is for, in 2-6 words, starting with a present participle, e.g. "Checking lint errors". Shown to the owner as the title of this step.',
+        description: intentDescription,
       },
       ...properties,
     },
