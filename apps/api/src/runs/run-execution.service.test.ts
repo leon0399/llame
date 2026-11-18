@@ -22034,6 +22034,88 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(spies.markFinished).not.toHaveBeenCalled();
   });
 
+  it('records an automatic compaction failure when the summary cannot be produced', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 1 });
+    const execution = toolService(segment.client);
+
+    const prepareBoundary = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareBoundaryCompaction',
+    );
+
+    const input = executionInput(segment.client);
+
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await executeBoundTool(options, { q: 'lookup' }, 'auto-call');
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(prepareBoundary).toHaveBeenCalledWith(
+      expect.objectContaining({ automatic: true }),
+    );
+    expect(appended.map(({ type }) => type)).toContain(
+      'run.compaction_disabled',
+    );
+  });
+
+  it('waits for a completed tool result before checking the boundary threshold', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn(),
+      { ...userMessage, seq: 3 },
+    ]);
+    const segment = makeSegmentClient();
+    Object.assign(segment.client, { compactionThresholdTokens: 1 });
+    const execution = toolService(segment.client);
+    const input = executionInput(segment.client);
+
+    await execution.service.executeRun({
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    });
+    const options = segment.calls[0];
+
+    if (!options) throw new Error('model stream was not captured');
+
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+
+    await expect(options.stopWhenExtra?.()).resolves.toBe(false);
+  });
+
   it('stops the call when the step end finds a pending item and not otherwise', async () => {
     mockNormalExecutionRepositories();
 
@@ -25563,6 +25645,37 @@ describe('RunExecutionService wake boundary preparation', () => {
     expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
   });
 
+  it('prepares an automatic boundary without owner compact commands', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    const execution = makeExecutionService();
+
+    const boundary = await execution.service['prepareBoundaryCompaction']({
+      run: executionInput(createFakeModelClient(['answer'])),
+      attemptId: testAttemptId,
+      context: boundaryContext(),
+      prepared: {
+        messages: [],
+        system: '',
+        untitled: false,
+        toolDeclarations: [],
+        tools: [],
+      },
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
+      replyParts: [{ type: 'text', text: 'answer' }],
+      keptPartCount: 0,
+      stepBudgetUsed: 1,
+      compactionSet: { ids: [], focus: null },
+      automatic: true,
+    });
+
+    expect(boundary).toMatchObject({ ids: [], automatic: true });
+  });
+
   it('captures the compact set before preparing the woken attempt', async () => {
     const compact = chatDeliveryRow({
       mode: 'steer',
@@ -25843,6 +25956,24 @@ describe('RunExecutionService automatic compaction boundary measurement', () => 
     ).resolves.toBe(false);
   });
 
+  it('counts the model reasoning kept in the boundary reply', async () => {
+    const execution = makeExecutionService();
+
+    await expect(
+      execution.service['automaticCompactionDueAtBoundary']({
+        hasBoundary: true,
+        replyParts: [{ type: 'reasoning', text: 'private reasoning' }],
+        latestRequestContextTokens: 0,
+        requestMessages: [],
+        system: '',
+        toolDeclarations: [],
+        thresholdTokens: 1,
+        client: createFakeModelClient(['answer']),
+        media: fakeResolver([]).resolver,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it('does not reload request media when a request receipt exists', async () => {
     const execution = makeExecutionService();
     const imageId = '0192f3a4-5b6c-7d8e-9f01-00000000000a';
@@ -26067,6 +26198,28 @@ describe('RunExecutionService disabled automatic compaction state', () => {
         parts: [{ type: 'text', text: 'kept context', step: 2 }],
       },
     });
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+    options.onRequestUsage?.(requestUsageReceipt({ inputTokens: 1 }), 1);
+    await options.onFinish?.({
+      text: 'answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(appended.map(({ type }) => type)).not.toContain(
+      'run.compaction_disabled',
+    );
+  });
+
+  it('does not apply the compaction progress guard to an ordinary attempt', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const capturing = makeCapturingClient();
+    Object.assign(capturing.client, { compactionThresholdTokens: 1 });
+    const execution = makeExecutionService(capturing.client);
 
     await execution.service.executeRun(executionInput(capturing.client));
     const options = capturing.streamOptions();
