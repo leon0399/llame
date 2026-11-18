@@ -143,7 +143,14 @@ export const Failed: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    await expect(canvas.getByText(/exit 1, 2.4 s/u)).toBeVisible();
+    const result = canvas.getByLabelText("Error");
+
+    await expect(result).toHaveProperty(
+      "textContent",
+      "exit 1, 2.4 s\n1 failed\n[stderr]\nAssertionError",
+    );
+    result.focus();
+    await expect(result).toHaveFocus();
   },
 };
 

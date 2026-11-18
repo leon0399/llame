@@ -33,17 +33,11 @@ test("renders host bash output and a non-zero exit code", async ({ page }) => {
   await bashCard.click();
   const details = bashCard.locator("..");
 
-  const terminal = details.getByLabel("Command and standard output");
+  // A nonzero host exit is reported as an error observation whose text
+  // contains the exit and streams. Do not mistake the displayed command,
+  // which contains this same path, for the command's reported output.
+  const result = details.getByLabel("Error", { exact: true });
 
-  const stdout = await terminal.locator("code").evaluate((code) =>
-    Array.from(code.childNodes)
-      .filter((node) => node.nodeType === Node.TEXT_NODE)
-      .map((node) => node.textContent)
-      .join(""),
-  );
-
-  expect(stdout).toBe(`${BASH_OUTPUT_PATH}\n`);
-  await expect(
-    details.getByText("Exit code:", { exact: true }).locator(".."),
-  ).toHaveText(/Exit code:\s*7/u);
+  await expect(result).toContainText("exit 7");
+  await expect(result).toContainText(BASH_OUTPUT_PATH);
 });
