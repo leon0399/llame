@@ -37,7 +37,7 @@ import {
 } from "./group-assistant-parts";
 import { hasVisibleContent, isVisibleSegment } from "./message-visibility";
 import { InstructionsPart } from "./instructions-part";
-import { JobNoticePart } from "./job-notice-part";
+import { HostNoticePart } from "./job-notice-part";
 import { HostMessageRow } from "./host-message-row";
 import { InterruptedNoticePart } from "./interrupted-notice-part";
 import { MessageAttachments } from "./message-attachments";
@@ -46,6 +46,7 @@ import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { PromptImportsPart } from "./prompt-imports-part";
 import { RegenerateNoticePart } from "./regenerate-notice-part";
+import { CompactionFailedNote } from "./compaction-failed-note";
 import { parseCapNoticePart, ToolCapNoticePart } from "./tool-cap-notice-part";
 import { TurnActions } from "./turn-actions";
 import {
@@ -65,7 +66,6 @@ import {
   messageSeqFromMetadata,
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
-import { isJobNoticePart } from "@/lib/services/chat/job-notice";
 
 // Markdown/reasoning bodies come from `ChatMarkdownProvider` — never
 // next/dynamic here. Dynamic still mounts an empty shell on first paint even
@@ -178,6 +178,10 @@ function MessagePartView({
 
   if (isToolUIPart(part)) {
     return <ToolUIPartView part={part} renderers={renderers} />;
+  }
+
+  if (part.type === "data-compaction-failed") {
+    return <CompactionFailedNote />;
   }
 
   if (part.type === "data-cap-notice") {
@@ -455,9 +459,7 @@ function MessageNotice({ message }: { message: UIMessage }) {
       return <RegenerateNoticePart key={index} payload={part.data.payload} />;
     }
 
-    return isJobNoticePart(part) ? (
-      <JobNoticePart key={index} notice={part} />
-    ) : null;
+    return <HostNoticePart key={index} part={part} />;
   });
 }
 

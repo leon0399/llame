@@ -215,11 +215,10 @@ export const JobNotice: Story = {
 };
 
 /**
- * A `/compact` item is labelled Compact. During a live turn Run it offers
- * only Edit and Delete; on a paused queue it can be hurried, which starts
- * the compaction.
+ * A `/compact` item is labelled Compact and offers every owner action: Steer
+ * now and Interrupt now compact at the next step boundary of the live Run.
  *
- * @summary compact rows hurry only on a paused queue
+ * @summary compact rows offer every owner action
  */
 export const CompactRow: Story = {
   tags: ["ai-generated"],
@@ -229,23 +228,10 @@ export const CompactRow: Story = {
   play: async ({ canvas }) => {
     const row = within(canvas.getByRole("listitem"));
     await expect(row.getByText("Compact")).toBeVisible();
-    await expect(row.queryByRole("button", { name: /^Steer now/ })).toBeNull();
-    await expect(
-      row.queryByRole("button", { name: /^Interrupt now/ }),
-    ).toBeNull();
-    await expect(row.getByRole("button", { name: /^Edit/ })).toBeVisible();
-  },
-};
-
-/** @summary a paused compact row offers Steer now */
-export const PausedCompactRow: Story = {
-  tags: ["ai-generated"],
-  args: {
-    paused: true,
-    items: [{ ...item("c1", "queue", "/compact"), command: "compact" }],
-  },
-  play: async ({ canvas }) => {
-    const row = within(canvas.getByRole("listitem"));
     await expect(row.getByRole("button", { name: /^Steer now/ })).toBeVisible();
+    await expect(
+      row.getByRole("button", { name: /^Interrupt now/ }),
+    ).toBeVisible();
+    await expect(row.getByRole("button", { name: /^Edit/ })).toBeVisible();
   },
 };

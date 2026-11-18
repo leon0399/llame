@@ -28,15 +28,12 @@ import { type RunDispatcher } from '../runs/run-dispatch.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { asDouble } from '../testing/support';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { type CheckpointMessage } from './messages-repository';
 import { continueKeptParts } from './continue-kept-parts';
 import {
   FollowUpAdmissionService,
   type FollowUpRequestInput,
 } from './follow-up-admission.service';
-
-type Savepoint = {
-  transaction: <T>(callback: (inner: Db) => Promise<T>) => Promise<T>;
-};
 
 const now = new Date('2026-10-27T00:00:00.000Z');
 
@@ -156,13 +153,20 @@ function replyWith(usage: ReplyUsage | null): Message {
 }
 
 function fakeTx(): Db {
-  const savepoint: Savepoint = {
-    transaction: (callback) => callback(tx),
-  };
+  const select = () => ({
+    from: () => ({
+      innerJoin: () => ({
+        where: () => ({
+          orderBy: () => ({ limit: () => Promise.resolve([]) }),
+        }),
+      }),
+    }),
+  });
 
-  // The service only reaches the transaction for `createRunForMessage`'s
-  // savepoint; every repository method is prototype-spied.
-  const tx = asDouble<Db>(savepoint);
+  const tx = asDouble<Db>({
+    select,
+    transaction: <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
+  });
 
   return tx;
 }
@@ -962,6 +966,22 @@ describe('FollowUpAdmissionService', () => {
     });
     // The turn check runs before any Run state is read.
     expect(findLatestByChatId).not.toHaveBeenCalled();
+  });
+
+  it('refuses a follow-up whose user turn is absorbed by a checkpoint', async () => {
+    const { service, createRun } = makeService();
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findCheckpointAbsorbing',
+    ).mockResolvedValue(
+      asDouble<CheckpointMessage>({ absorbedThroughSeq: userMessage.seq }),
+    );
+
+    await expect(admit(service)).rejects.toMatchObject({
+      constructor: ConflictException,
+      message: 'A follow-up request cannot target a compacted turn',
+    });
+    expect(createRun).not.toHaveBeenCalled();
   });
 
   it('refuses a message with no Run of its own', async () => {

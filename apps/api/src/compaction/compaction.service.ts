@@ -141,6 +141,22 @@ export type CompactionSummaryRequest =
       readonly media?: RunMediaResolver;
     }
   | {
+      readonly variant: 'boundary';
+      readonly chatId: string;
+      readonly userId: string;
+      readonly plan: CompactionPlan;
+      /** The live prefix through the newly projected closing reply. */
+      readonly closedReply: ReadonlyArray<ModelMessage>;
+      readonly client: ModelClient;
+      readonly system: string;
+      readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+      readonly focus: string | null;
+      readonly effort?: string;
+      readonly reservedOutputTokens: number | null;
+      readonly abortSignal?: AbortSignal;
+      readonly media?: RunMediaResolver;
+    }
+  | {
       readonly variant: Extract<CompactionVariant, 'window'>;
       readonly chatId: string;
       readonly userId: string;
@@ -210,7 +226,12 @@ export class CompactionService {
             new MessagesRepository(tx).findActiveCheckpoint(
               input.chatId,
               input.userId,
-              { beforeSeq: input.triggeringUserSeq },
+              {
+                beforeSeq:
+                  input.variant === 'boundary'
+                    ? input.plan.uptoSeq + 1
+                    : input.triggeringUserSeq,
+              },
             ),
           );
 
@@ -224,6 +245,19 @@ export class CompactionService {
       ? this.summarizeOwner(input, previous)
       : this.summarizeWithAttemptModel(input, previous);
   }
+  /**
+   * Compute one step-boundary summary outside the delivery transaction. The
+   * closed reply is passed in because its persisted row is not current yet.
+   */
+  computeBoundarySummary(
+    input: Omit<
+      Extract<CompactionSummaryRequest, { variant: 'boundary' }>,
+      'variant'
+    >,
+  ): Promise<CompactionSummary | null> {
+    return this.summarizeCheckpoint({ ...input, variant: 'boundary' });
+  }
+
   private async summarizeOwner(
     input: Extract<CompactionSummaryRequest, { variant: 'owner' }>,
     previous: ContextCheckpoint | undefined,
@@ -304,7 +338,10 @@ export class CompactionService {
    * prefix cache for exactly the history it compresses.
    */
   private async summarizeWithAttemptModel(
-    input: Extract<CompactionSummaryRequest, { variant: 'threshold' }>,
+    input: Extract<
+      CompactionSummaryRequest,
+      { variant: 'threshold' | 'boundary' }
+    >,
     previous: ContextCheckpoint | undefined,
   ): Promise<CompactionSummary | null> {
     const request = buildCompactionRequest({
@@ -312,7 +349,14 @@ export class CompactionService {
       modelId: input.client.model,
       previous,
       absorb: input.plan.absorb,
+      ...(input.variant === 'boundary' && {
+        instruction: renderCompactionInstruction('owner', input.focus),
+      }),
     });
+
+    if (input.variant === 'boundary') {
+      request.messages = [...input.closedReply, ...request.messages.slice(-1)];
+    }
 
     // The prefix's retained bytes live in its rows: the summarizer projects
     // them from this attempt's map like any request of the epoch.
@@ -372,10 +416,7 @@ export class CompactionService {
    * the attempt as `context_incompatible`.
    */
   private async loadSourceRun(
-    input: Pick<
-      CompactionSummaryRequest,
-      'chatId' | 'userId' | 'triggeringUserSeq'
-    >,
+    input: Extract<CompactionSummaryRequest, { variant: 'window' | 'owner' }>,
   ): Promise<SourceRun | undefined> {
     return this.tenantDb.runAs(input.userId, async (tx) => {
       const found = await new RunsRepository(tx).findCompletedReplyRunBefore(
@@ -597,12 +638,8 @@ export class CompactionService {
   }
 }
 
-/**
- * The narrow capability `RunExecutionService` needs (#268) — narrower than
- * the whole service. A test double implements exactly this one method, never a
- * partial `CompactionService` cast.
- */
+/** The narrow `RunExecutionService` capability; tests implement this API directly. */
 export type CompactionCapability = Pick<
   CompactionService,
-  'summarizeCheckpoint'
+  'summarizeCheckpoint' | 'computeBoundarySummary'
 >;

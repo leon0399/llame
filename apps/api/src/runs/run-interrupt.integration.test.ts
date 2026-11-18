@@ -844,7 +844,7 @@ describe('run steering interrupts', () => {
         await release.promise;
 
         return {
-          uptoSeq: input.triggeringUserSeq - 1,
+          uptoSeq: input.plan.uptoSeq,
           summary: 'earlier turns',
           usage: {},
         };

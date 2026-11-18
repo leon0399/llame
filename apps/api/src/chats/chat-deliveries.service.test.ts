@@ -300,6 +300,30 @@ describe('ChatDeliveriesService.changeMode', () => {
     expect(changePendingMode).not.toHaveBeenCalled();
   });
 
+  it('allows steering a queued item while a turn Run holds the slot', async () => {
+    const { service, dispatcher, lockChat, findActiveRun, changePendingMode } =
+      makeService();
+
+    lockChat.mockResolvedValue(
+      asDouble<Chat>({ id: chatId, archivedAt: null }),
+    );
+    findActiveRun.mockResolvedValue(
+      asDouble<Run>({ id: 'turn-run', kind: 'turn' }),
+    );
+    changePendingMode.mockResolvedValue({ ...item, mode: 'steer' });
+
+    await service.changeMode(chatId, item.id, 'steer', userId);
+
+    // The live turn keeps the slot, so the change starts no Run of its own.
+    expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    expect(changePendingMode).toHaveBeenCalledWith(
+      chatId,
+      item.id,
+      userId,
+      'steer',
+    );
+  });
+
   it('returns the changed item and starts no Run while a live Run holds the slot', async () => {
     const {
       service,
@@ -359,7 +383,7 @@ describe('ChatDeliveriesService.changeMode', () => {
   );
 
   it.each(['steer', 'interrupt'] as const)(
-    'refuses changing a queued compact to %s during a live Run',
+    'changes a queued compact to %s during a live turn Run',
     async (mode) => {
       const {
         service,
@@ -381,11 +405,16 @@ describe('ChatDeliveriesService.changeMode', () => {
       findActiveRun.mockResolvedValue(
         asDouble<Run>({ id: 'live-run', kind: 'turn' }),
       );
+      changePendingMode.mockResolvedValue({ ...item, mode });
 
-      await expect(
-        service.changeMode(chatId, item.id, mode, userId),
-      ).rejects.toThrow('Compact waits for the current Run to finish.');
-      expect(changePendingMode).not.toHaveBeenCalled();
+      await service.changeMode(chatId, item.id, mode, userId);
+
+      expect(changePendingMode).toHaveBeenCalledWith(
+        chatId,
+        item.id,
+        userId,
+        mode,
+      );
       expect(dispatcher.dispatch).not.toHaveBeenCalled();
     },
   );

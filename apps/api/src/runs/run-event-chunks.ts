@@ -41,6 +41,7 @@ export type UiChunk =
       type: 'data-cap-notice';
       data: { stepsUsed: number; maxSteps: number };
     }
+  | { type: 'data-compaction-failed'; data: Record<string, never> }
   | { type: 'data-run-delivered'; data: { messageId: string } }
   | { type: 'error'; errorText: string }
   | { type: 'finish'; finishReason: 'stop' };

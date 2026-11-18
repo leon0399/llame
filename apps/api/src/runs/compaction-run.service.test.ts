@@ -182,12 +182,14 @@ describe('CompactionRunService.execute', () => {
     );
 
     const request = made.summarizeCheckpoint.mock.calls[0]?.[0];
-    expect(request?.variant).toBe('owner');
-    expect(request?.chatId).toBe(chatId);
-    expect(request?.userId).toBe(userId);
-    expect(request?.triggeringUserSeq).toBe(2);
-    expect(request?.plan.uptoSeq).toBe(1);
-    expect(request?.reservedOutputTokens).toBe(4096);
+    expect(request).toMatchObject({
+      variant: 'owner',
+      chatId,
+      userId,
+      triggeringUserSeq: 2,
+      plan: { uptoSeq: 1 },
+      reservedOutputTokens: 4096,
+    });
     expect(made.completeCompactionRun).toHaveBeenCalledWith(
       expect.objectContaining({ summary }),
     );

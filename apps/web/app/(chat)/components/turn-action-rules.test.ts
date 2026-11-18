@@ -204,6 +204,7 @@ describe("carriesTurnActions", () => {
         messages: [userMessage("user-1"), assistantMessage()],
         latestRun: latestRun({ status: "completed" }),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(true);
   });
@@ -219,6 +220,7 @@ describe("carriesTurnActions", () => {
         ],
         latestRun: latestRun({ messageId: "user-2", status: "completed" }),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(true);
     // The same window, but the Run names no turn in it: a `#msg-N` view of an
@@ -228,6 +230,7 @@ describe("carriesTurnActions", () => {
         messages: [userMessage("user-1"), assistantMessage()],
         latestRun: latestRun({ messageId: "user-9", status: "completed" }),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(false);
   });
@@ -238,6 +241,7 @@ describe("carriesTurnActions", () => {
         messages: [userMessage("user-1"), emptyStoredReply()],
         latestRun: latestRun(),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(false);
   });
@@ -248,6 +252,7 @@ describe("carriesTurnActions", () => {
         messages: [userMessage("user-1")],
         latestRun: latestRun({ status: "completed" }),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(false);
   });
@@ -258,8 +263,38 @@ describe("carriesTurnActions", () => {
         messages: [userMessage("user-1"), assistantMessage()],
         latestRun: latestRun({ status: "completed" }),
         status: "streaming",
+        absorbedThroughSeq: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("compacted turns", () => {
+  const compacted = [
+    userMessage("user-1", { metadata: { seq: 1 } }),
+    assistantMessage({ parts: [ANSWER] }),
+  ];
+
+  it("offers no actions on a turn a checkpoint absorbed", () => {
+    const input = {
+      messages: compacted,
+      latestRun: latestRun({ status: "completed" }),
+      status: "ready" as const,
+    };
+
+    expect(carriesTurnActions({ ...input, absorbedThroughSeq: 0 })).toBe(true);
+    expect(carriesTurnActions({ ...input, absorbedThroughSeq: 1 })).toBe(false);
+  });
+
+  it("asks for no failed-turn row once a checkpoint absorbed the turn", () => {
+    const input = {
+      messages: [userMessage("user-1", { metadata: { seq: 1 } })],
+      latestRun: latestRun(),
+      status: "ready" as const,
+    };
+
+    expect(needsFailedTurnRow({ ...input, absorbedThroughSeq: 0 })).toBe(true);
+    expect(needsFailedTurnRow({ ...input, absorbedThroughSeq: 1 })).toBe(false);
   });
 });
 
@@ -458,6 +493,7 @@ describe("needsFailedTurnRow", () => {
         messages: [userMessage("user-1")],
         latestRun: latestRun(),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(true);
   });
@@ -471,6 +507,7 @@ describe("needsFailedTurnRow", () => {
         ],
         latestRun: latestRun(),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(true);
   });
@@ -481,6 +518,7 @@ describe("needsFailedTurnRow", () => {
         messages: [userMessage("user-1"), emptyStoredReply()],
         latestRun: latestRun(),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(true);
   });
@@ -501,6 +539,7 @@ describe("needsFailedTurnRow", () => {
         ],
         latestRun: latestRun(),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(true);
   });
@@ -511,6 +550,7 @@ describe("needsFailedTurnRow", () => {
         messages: [userMessage("user-1"), assistantMessage()],
         latestRun: latestRun(),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(false);
   });
@@ -521,6 +561,7 @@ describe("needsFailedTurnRow", () => {
         messages: [userMessage("user-2")],
         latestRun: latestRun(),
         status: "ready",
+        absorbedThroughSeq: null,
       }),
     ).toBe(false);
   });
@@ -532,6 +573,7 @@ describe("needsFailedTurnRow", () => {
           messages: [userMessage("user-1")],
           latestRun: latestRun({ status: "queued" }),
           status,
+          absorbedThroughSeq: null,
         }),
       ).toBe(false);
     }

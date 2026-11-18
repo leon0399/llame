@@ -20,7 +20,8 @@ import {
 import { type SendableDeliveryMode } from '../dto/chat-deliveries.dto';
 import { planOwnerCompaction } from '../../compaction/owner-compaction-plan';
 import { RunDispatchService } from '../../runs/run-dispatch.service';
-import { claimActiveRunSlot } from '../chat-admission';
+import { notifyLiveRunSteering, claimActiveRunSlot } from '../chat-admission';
+import { RunWaitService } from '../../runs/run-wait.service';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { createCompactionRun } from '../run-creation';
 import { retryRunTransaction } from '../../runs/run-transaction';
@@ -83,11 +84,8 @@ async function queueCompactItem(
   items: ChatDeliveriesRepository,
   input: CompactCommandInput,
   settings: CompactSendSettings,
+  mode: 'queue' | 'steer' | 'interrupt',
 ): Promise<QueuedCompactResult> {
-  if (input.delivery === undefined) {
-    throw new ConflictException('Wait for the current Run to finish.');
-  }
-
   // A send never reuses the id of a stored message, as the plain send path
   // checks too.
   if (await items.messageIdTaken(input.messageId, input.userId)) {
@@ -98,7 +96,7 @@ async function queueCompactItem(
     id: input.messageId,
     chatId: input.chatId,
     ownerUserId: input.userId,
-    mode: 'queue',
+    mode,
     parts: [{ type: 'text', text: input.rawText }],
     settings: {
       modelId: input.modelId,
@@ -110,6 +108,35 @@ async function queueCompactItem(
   if (!item) throw new ConflictException('Message id already exists');
 
   return { type: 'delivery', delivery: { item, job: null } };
+}
+
+async function queueBlockedCompactItem(input: {
+  tx: Db;
+  items: ChatDeliveriesRepository;
+  command: CompactCommandInput;
+  settings: CompactSendSettings;
+  kind: 'turn' | 'compaction';
+  runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>;
+}): Promise<QueuedCompactResult> {
+  const { tx, items, command, settings, kind, runWait } = input;
+
+  if (command.delivery === undefined) {
+    throw new ConflictException('Wait for the current Run to finish.');
+  }
+
+  const mode = kind === 'compaction' ? 'queue' : command.delivery;
+  const queued = await queueCompactItem(items, command, settings, mode);
+
+  if (mode === 'steer' || mode === 'interrupt') {
+    await notifyLiveRunSteering(
+      tx,
+      { chatId: command.chatId, userId: command.userId },
+      mode,
+      runWait,
+    );
+  }
+
+  return queued;
 }
 
 async function createIdleCompactRun(
@@ -153,6 +180,8 @@ export class ChatCommandsService {
       RunDispatchService,
       'dispatch' | 'jobState'
     >,
+    @Inject(RunWaitService)
+    private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
 
   async execute(input: {
@@ -240,7 +269,14 @@ export class ChatCommandsService {
     });
 
     if (slot.state === 'blocked') {
-      return queueCompactItem(items, input, settings);
+      return queueBlockedCompactItem({
+        tx,
+        items,
+        command: input,
+        settings,
+        kind: slot.kind,
+        runWait: this.runWait,
+      });
     }
 
     return createIdleCompactRun(tx, input, settings, focus);

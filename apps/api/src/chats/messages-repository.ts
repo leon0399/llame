@@ -9,6 +9,8 @@
  * The `db` parameter accepts a PostgresJsDatabase from drizzle-orm/postgres-js.
  * It is typed loosely here so it can be injected by NestJS DI or mocked in tests.
  */
+import { findCheckpoint as findCheckpointQuery } from './checkpoint-message-query';
+
 import {
   and,
   asc,
@@ -17,9 +19,10 @@ import {
   eq,
   gt,
   inArray,
-  isNotNull,
+  gte,
   lt,
   lte,
+  isNotNull,
   ne,
   sql,
   type SQL,
@@ -41,10 +44,6 @@ import { messageInsertChunks } from './message-insert-chunks';
 
 /** A checkpoint row; the repository guarantees its boundary is present. */
 export type CheckpointMessage = Message & { absorbedThroughSeq: number };
-
-function isCheckpointMessage(row: Message): row is CheckpointMessage {
-  return row.absorbedThroughSeq !== null;
-}
 
 /**
  * At least one text part with a non-whitespace character. Parts are `json`
@@ -143,6 +142,19 @@ export class MessagesRepository {
     );
   }
 
+  /** The owner-scoped checkpoint that absorbs the given turn sequence. */
+  findCheckpointAbsorbing(
+    chatId: string,
+    ownerUserId: string,
+    seq: number,
+  ): Promise<CheckpointMessage | undefined> {
+    return this.findCheckpoint(
+      chatId,
+      ownerUserId,
+      gte(messages.absorbedThroughSeq, seq),
+    );
+  }
+
   /** The owner-scoped checkpoint exactly at an absorbed-history boundary. */
   findCheckpointByBoundary(
     chatId: string,
@@ -156,27 +168,12 @@ export class MessagesRepository {
     );
   }
 
-  private async findCheckpoint(
+  private findCheckpoint(
     chatId: string,
     ownerUserId: string,
     boundary: SQL,
   ): Promise<CheckpointMessage | undefined> {
-    const rows = await this.db
-      .select()
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(messages.chatId, chatId),
-          eq(chats.ownerUserId, ownerUserId),
-          eq(messages.role, 'checkpoint'),
-          boundary,
-        ),
-      )
-      .orderBy(desc(messages.absorbedThroughSeq))
-      .limit(1);
-
-    return rows.map((r) => r.messages).find(isCheckpointMessage);
+    return findCheckpointQuery(this.db, chatId, ownerUserId, boundary);
   }
 
   /**

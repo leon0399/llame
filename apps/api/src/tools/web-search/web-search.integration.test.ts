@@ -729,6 +729,7 @@ function service(options: ServiceOptions): RunExecutionService {
 
   const compaction: CompactionCapability = {
     summarizeCheckpoint: () => Promise.resolve(null),
+    computeBoundarySummary: () => Promise.resolve(null),
   };
 
   return new RunExecutionService(

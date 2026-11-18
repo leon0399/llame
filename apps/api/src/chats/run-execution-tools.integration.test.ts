@@ -747,6 +747,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
               new Error('tools window summarization is not exercised'),
             )
           : Promise.resolve(null),
+      computeBoundarySummary: () => Promise.resolve(null),
     };
 
     const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };

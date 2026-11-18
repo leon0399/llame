@@ -273,6 +273,27 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     });
   });
 
+  it('loads the checkpoint active at the boundary reply sequence', async () => {
+    const { client } = recordingClient();
+    const setup = makeService(client);
+    const { findActive } = mockReads({ previous: previousCheckpoint });
+
+    await setup.service.summarizeCheckpoint({
+      variant: 'boundary',
+      chatId,
+      userId: ownerId,
+      plan: plan(),
+      closedReply: [{ role: 'assistant', content: 'The closing reply.' }],
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      focus: null,
+      reservedOutputTokens: null,
+    });
+
+    expect(findActive).toHaveBeenCalledWith(chatId, ownerId, { beforeSeq: 3 });
+  });
+
   it('omits effort and media from the request and the recorded usage when the turn had none', async () => {
     const { client, calls } = recordingClient();
     const setup = makeService(client);
@@ -1193,5 +1214,136 @@ describe('CompactionService.summarizeCheckpoint (owner attachments)', () => {
         `[pdf media://${pdfId} paper.pdf 15 pages, omitted: this model has no PDF input]`,
       );
     });
+  });
+});
+
+describe('CompactionService.computeBoundarySummary', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('The summary request reuses the live prefix and adds one instruction', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    mockReads({ previous: previousCheckpoint });
+
+    const livePrefixMessages = [
+      { role: 'user' as const, content: 'live dispatch message' },
+    ];
+
+    const closedReply = [
+      ...livePrefixMessages,
+      { role: 'assistant' as const, content: 'closed reply' },
+    ];
+
+    const summary = await setup.service.computeBoundarySummary({
+      chatId,
+      userId: ownerId,
+      plan: { ...plan(), uptoSeq: 4 },
+      closedReply,
+      client,
+      system: 'live system prompt',
+      toolDeclarations: [validTool],
+      focus: null,
+      effort: 'high',
+      reservedOutputTokens: 10,
+    });
+
+    expect(summary).toMatchObject({ uptoSeq: 4, summary: 'summary text' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      system: 'live system prompt',
+      effort: 'high',
+      toolChoice: 'none',
+    });
+
+    expect(calls[0]?.tools?.['search']).toBeDefined();
+    const messages = calls[0]?.messages ?? [];
+    expect(messages).toHaveLength(closedReply.length + 1);
+    expect(messages.slice(0, livePrefixMessages.length)).toEqual(
+      livePrefixMessages,
+    );
+    expect(messages.at(-2)).toEqual(closedReply.at(-1));
+    expect(messages.at(-1)).toEqual({
+      role: 'user',
+      content: renderCompactionInstruction('owner'),
+    });
+  });
+
+  it('A compact steer with another model uses the live attempt client', async () => {
+    const { client: liveClient, calls: liveCalls } = recordingClient();
+
+    const { client: configuredClient, calls: configuredCalls } =
+      recordingClient();
+
+    const setup = makeService(configuredClient);
+    mockReads({ previous: previousCheckpoint });
+
+    await setup.service.computeBoundarySummary({
+      chatId,
+      userId: ownerId,
+      plan: { ...plan(), uptoSeq: 4 },
+      closedReply: [{ role: 'assistant', content: 'closed reply' }],
+      client: liveClient,
+      system: 'attempt prompt',
+      toolDeclarations: [],
+      focus: null,
+      reservedOutputTokens: 10,
+    });
+
+    expect(liveCalls).toHaveLength(1);
+    expect(configuredCalls).toHaveLength(0);
+    expect(liveCalls[0]?.system).toBe('attempt prompt');
+  });
+
+  it('adds the first command focus paragraph to the owner instruction', async () => {
+    const { client, calls } = recordingClient();
+    const setup = makeService(client);
+    mockReads();
+
+    await setup.service.computeBoundarySummary({
+      chatId,
+      userId: ownerId,
+      plan: { ...plan(), uptoSeq: 4 },
+      closedReply: [{ role: 'assistant', content: 'closed reply' }],
+      client,
+      system: 'live system prompt',
+      toolDeclarations: [],
+      focus: 'Keep the migration detail.',
+      reservedOutputTokens: 10,
+    });
+
+    expect(calls[0]?.messages.at(-1)).toEqual({
+      role: 'user',
+      content: renderCompactionInstruction(
+        'owner',
+        'Keep the migration detail.',
+      ),
+    });
+
+    expect(JSON.stringify(calls[0]?.messages.at(-1))).toContain(
+      'Keep the migration detail.',
+    );
+  });
+
+  it('returns null when the boundary summary is empty', async () => {
+    const { client, calls } = recordingClient({ responses: [''] });
+    const setup = makeService(client);
+    mockReads();
+
+    await expect(
+      setup.service.computeBoundarySummary({
+        chatId,
+        userId: ownerId,
+        plan: { ...plan(), uptoSeq: 4 },
+        closedReply: [{ role: 'assistant', content: 'closed reply' }],
+        client,
+        system: 'live system prompt',
+        toolDeclarations: [],
+        focus: null,
+        reservedOutputTokens: 10,
+      }),
+    ).resolves.toBeNull();
+    expect(calls).toHaveLength(1);
   });
 });

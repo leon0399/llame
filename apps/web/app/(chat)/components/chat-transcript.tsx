@@ -164,6 +164,7 @@ export function ChatTranscriptMessageList({
     messages: displayMessages,
     latestRun,
     status,
+    absorbedThroughSeq: compaction?.absorbedThroughSeq ?? null,
   });
 
   return displayMessages.map((message, index) => (
@@ -228,22 +229,16 @@ function useForkedChatNavigation(): (forkedChatId: string) => void {
  *  nothing — the one a Run persists when its provider call fails. This row
  *  carries the action and names the turn's cause without hover. Render-nothing
  *  for every other transcript. */
-function ChatTranscriptFailedTurn({
-  chatId,
-  displayMessages,
-  status,
-  latestRun,
-  onFollowUp,
-}: ChatTranscriptMessagesProps) {
+function ChatTranscriptFailedTurn(props: ChatTranscriptMessagesProps) {
+  const { chatId, status, latestRun, onFollowUp } = props;
+
   if (latestRun === null) return null;
 
   if (latestRun.kind === "compaction") {
     return <CompactionRunRow latestRun={latestRun} />;
   }
 
-  if (!needsFailedTurnRow({ messages: displayMessages, latestRun, status })) {
-    return null;
-  }
+  if (!showsFailedTurnRow(props)) return null;
 
   const title =
     latestRun.status === "cancelled"
@@ -271,6 +266,21 @@ function ChatTranscriptFailedTurn({
       </Alert>
     </div>
   );
+}
+
+/** Whether the transcript ends on the failed-turn row of its latest turn. */
+function showsFailedTurnRow(
+  props: Pick<
+    ChatTranscriptMessagesProps,
+    "displayMessages" | "latestRun" | "status" | "compaction"
+  >,
+): boolean {
+  return needsFailedTurnRow({
+    messages: props.displayMessages,
+    latestRun: props.latestRun,
+    status: props.status,
+    absorbedThroughSeq: props.compaction?.absorbedThroughSeq ?? null,
+  });
 }
 
 /** A compaction Run that ended without a checkpoint and shows an error row. */
@@ -358,7 +368,6 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
     onLoadOlderMessages,
     displayedError,
     latestRun,
-    status,
   } = props;
 
   // The failed-turn or compaction error row already names this message once
@@ -366,8 +375,7 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
   const shownByFailedTurn =
     latestRun !== null &&
     latestRun.error === displayedError?.message &&
-    (isFailedCompaction(latestRun) ||
-      needsFailedTurnRow({ messages: displayMessages, latestRun, status }));
+    (isFailedCompaction(latestRun) || showsFailedTurnRow(props));
 
   return (
     <>

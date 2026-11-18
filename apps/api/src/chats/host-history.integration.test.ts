@@ -33,6 +33,8 @@ import { toMessageParts, toRunUserMessage } from './chat-message-parts';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 
+import { createCompactionContinueItem } from './compaction-continue-item';
+
 const databaseUrl = process.env['TEST_DATABASE_URL'];
 
 if (!databaseUrl)
@@ -54,6 +56,10 @@ const noticeParts = [
       text: '<system-reminder>PRIVATE_JOB_OUTPUT_TOKEN</system-reminder>',
     },
   },
+  createCompactionContinueItem({
+    runId: randomUUID(),
+    quote: 'CONTINUE_SEARCH_EVIDENCE_TOKEN',
+  }),
 ];
 
 describe('seeded host history boundaries', () => {
@@ -283,8 +289,22 @@ describe('seeded host history boundaries', () => {
     };
   }
 
-  it('marks owner history, preserves assistant identity, and denies foreign owner history', async () => {
+  it('A host message in the history', async () => {
     const { chat, question, host, answer } = await seedHistory();
+
+    const continueHost = await tenantDb.runAs(owner, (tx) =>
+      new MessagesRepository(tx).create({
+        chatId: chat.id,
+        role: 'user',
+        parts: [
+          createCompactionContinueItem({
+            runId: randomUUID(),
+            quote: 'CONTINUE_SEARCH_EVIDENCE_TOKEN',
+          }),
+        ],
+      }),
+    );
+
     const url = `/api/v1/chats/${chat.id}/messages`;
     const response = await request(http).get(url).set('Cookie', ownerCookie);
     expect(response.status).toBe(200);
@@ -293,6 +313,7 @@ describe('seeded host history boundaries', () => {
     for (const row of [
       { id: question.id, host: false },
       { id: host.id, host: true },
+      { id: continueHost.id, host: true },
       { id: answer.id, host: false },
     ]) {
       expect(body).toHaveProperty(
@@ -302,6 +323,7 @@ describe('seeded host history boundaries', () => {
     }
 
     expect(JSON.stringify(body)).toContain('PRIVATE_JOB_OUTPUT_TOKEN');
+    expect(JSON.stringify(body)).toContain('CONTINUE_SEARCH_EVIDENCE_TOKEN');
 
     const delivered = await worker.tenantDb.runAs(owner, (tx) =>
       new ChatDeliveriesRepository(tx).listDeliveredJobNotices(
@@ -398,7 +420,7 @@ describe('seeded host history boundaries', () => {
     ).toEqual([]);
   });
 
-  it('uses owner text for recency and previews and never indexes host context as evidence', async () => {
+  it('A host message is not search evidence', async () => {
     const { chat, question, reply } = await seedHistory();
 
     const first = await tenantDb.runAs(owner, async (tx) => {
@@ -445,6 +467,23 @@ describe('seeded host history boundaries', () => {
     expect(
       previews.find((row) => row.chat.id === chat.id)?.lastMessage?.id,
     ).toBe(reply.id);
+
+    const continuation = await tenantDb.runAs(owner, (tx) =>
+      new MessagesRepository(tx).create({
+        chatId: chat.id,
+        role: 'user',
+        parts: [
+          createCompactionContinueItem({
+            runId: randomUUID(),
+            quote: 'CONTINUE_SEARCH_EVIDENCE_TOKEN',
+          }),
+        ],
+      }),
+    );
+
+    expect(JSON.stringify(continuation.parts)).toContain(
+      'CONTINUE_SEARCH_EVIDENCE_TOKEN',
+    );
     await new SearchIndexService(tenantDb).reindexChat(chat.id, owner);
 
     const evidence = await tenantDb.runAs(owner, (tx) =>
@@ -459,6 +498,9 @@ describe('seeded host history boundaries', () => {
     );
     expect(evidence.map((row) => row.content).join('\n')).not.toContain(
       'PRIVATE_JOB_OUTPUT_TOKEN',
+    );
+    expect(evidence.map((row) => row.content).join('\n')).not.toContain(
+      'CONTINUE_SEARCH_EVIDENCE_TOKEN',
     );
   });
 

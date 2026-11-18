@@ -42,6 +42,13 @@ No first-party CLI or Android Node, standalone personal store, Node enrollment, 
 
 Context compaction stores an RLS-scoped `checkpoint` message row with one summary `data-context` part and an `absorbed_through_seq` boundary. Source messages remain unchanged; there is no separate `compactions` table, replacement history, or lineage. Checkpoint rows are excluded from the public messages policy and public projections. Model context becomes the stored checkpoint text plus retained later user and assistant messages; no tool records cross a checkpoint. A Run attempt evaluates automatic compaction once, before its first model step. An owner may also request compaction on an idle Chat with `/compact`; it starts a durable compaction Run with no user message and the model settings of the command send. Admission rejects the command when no rows remain to absorb, when another Run is live, or when the send model settings are invalid. Automatic compaction still uses the previous completed Run's model, prompt receipt, and effort with no tool declarations when a prepared request does not fit the Run's model, and fails `context_incompatible` instead of truncating when that source is unavailable or the summary still does not fit. Otherwise it compacts once the measured size — the previous completed reply's final-request size plus the estimate of the later rows, or the whole-request estimate — reaches the Run model's threshold, summarizing through the attempt's own model, pre-re-bake prompt, schema-only declarations, and effort. The checkpoint and its re-baked digest, skill-catalog, and workspace epoch state commit in one transaction before the attempt renders its prompt and receipt, and survive a failed attempt. See [`apps/api/src/compaction`](apps/api/src/compaction), [`chats.ts`](apps/api/src/db/schema/chats.ts), and [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md).
 
+During a live Run, `/compact` may be steered to the next step boundary or
+delivered as an interrupt that stops the in-flight step before compaction.
+Mid-turn compaction closes the current reply, absorbs it through the checkpoint,
+and continues the Run from that checkpoint with a host-message notice carrying
+the owner's current request. A failed summary leaves the checkpoint unpublished
+and the Run continues without compaction.
+
 ### 2.2 Owner forks
 
 An owner fork is a literal same-owner copy of a selected durable prefix: every user and assistant message in the prefix with its original timestamp and usage, and every checkpoint whose `absorbed_through_seq` boundary is in the prefix, with copied boundaries and re-bake markers remapped onto copied checkpoint rows. The copy renders the same model-facing context its source would, creates no Run, and mutates no source, while the shared fork path stays a text-only public projection carrying no checkpoint, baseline, usage, timestamp, or copied creation time. See [`chats.service.ts`](apps/api/src/chats/chats.service.ts) and [`owner-chat-forks`](openspec/specs/owner-chat-forks/spec.md).
@@ -122,17 +129,31 @@ the API refuses the command. A compaction command does not adopt held job
 notices. Queue items remain pending during the compaction Run and follow the
 ordinary queue-promotion rules when it completes.
 
+During a live turn Run, `/compact` delivered as `steer` compacts at the next
+step boundary; `interrupt` stops the in-flight step and compacts at that
+boundary. The summary absorbs the closed reply through that boundary. The Run
+continues from the checkpoint with a continue notice and the owner's current
+request, without replaying absorbed history. If summary generation fails, the
+command is settled and the Run continues without a checkpoint; the failure is
+recorded on the reply. When a compaction absorbs the final answer and no other
+deliverable item is pending, the Run completes without a continue notice. If a
+message or notice item is also pending, the Run delivers it and stays live,
+without a continue notice.
+
 A live Run delivers the Chat's pending `steer` and `interrupt` items at two
 points: the end of a model step, after its tool results, and the transaction
 that would complete the Run, which finds them first and keeps the Run live
-instead. The part of a Run that answers one user message is a segment. One
-delivery transaction, in the Run-then-Chat lock order, locks the Run row behind
-the current attempt and `cancel_requested_at IS NULL` (a superseded or
-cancelled Run delivers nothing), locks the Chat row, reads the pending items in
-`position` order, closes the segment's reply as `completed`, publishes its
-usage as `model.completed`, stores one user message holding the items' parts in
-order, marks the items `delivered`, moves `runs.message_id` to the new message
-under a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
+instead. The final-answer rule has one exception: when only `/compact` commands
+are pending, the Run publishes its checkpoint and completes without a delivery
+message or `run.delivered` event. The part of a Run that answers one user
+message is a segment. One delivery transaction, in the Run-then-Chat lock
+order, locks the Run row behind the current attempt and
+`cancel_requested_at IS NULL` (a superseded or cancelled Run delivers
+nothing), locks the Chat row, reads the pending items in `position` order,
+closes the segment's reply as `completed`, publishes its usage as
+`model.completed`, stores one user message holding the items' parts in order,
+marks the items `delivered`, moves `runs.message_id` to the new message under
+a fresh `active_attempt_id`, and appends `run.delivered`. It appends no
 `run.started`. A crash before the commit leaves the items `pending`; a crash
 after it leaves the delivered message as the Run's message. The API admits
 `queue`, `steer`, and `interrupt`.

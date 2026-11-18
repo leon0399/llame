@@ -322,6 +322,7 @@ function executionService(
             new Error('mcp-operator window summarization is not exercised'),
           )
         : Promise.resolve(null),
+    computeBoundarySummary: () => Promise.resolve(null),
   };
 
   return new RunExecutionService(

@@ -144,17 +144,19 @@ export function makeRunExecutionService(input: {
   tenantDb: TenantDbService;
   instanceConfig: InstanceConfigReader;
   models: ModelSelectionValidator;
+  compaction?: CompactionCapability;
 }): RunExecutionService {
   const noopCompaction: CompactionCapability = {
     summarizeCheckpoint: (request) =>
       request.variant === 'window'
         ? Promise.reject(new Error('window summarization is not exercised'))
         : Promise.resolve(null),
+    computeBoundarySummary: () => Promise.resolve(null),
   };
 
   return new RunExecutionService(
     input.tenantDb,
-    noopCompaction,
+    input.compaction ?? noopCompaction,
     { maybeGenerateTitle: async () => {} },
     input.instanceConfig,
     { reindexChat: () => Promise.resolve() },

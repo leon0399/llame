@@ -211,6 +211,7 @@ describeIfDb('reasoning tokens end-to-end (master, no tool loop)', () => {
               new Error('reasoning-loop window summary is not exercised'),
             )
           : Promise.resolve(null),
+      computeBoundarySummary: () => Promise.resolve(null),
     };
 
     const noopTitles: TitleCapability = { maybeGenerateTitle: async () => {} };

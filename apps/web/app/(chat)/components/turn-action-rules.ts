@@ -131,6 +131,24 @@ function turnUserIndex(
 }
 
 /**
+ * Whether a checkpoint absorbed the turn whose user message sits at
+ * `userIndex`: the api refuses every follow-up of such a turn with 409, so it
+ * offers neither action. A user row without a durable seq is not yet stored,
+ * so no checkpoint can hold it.
+ */
+function isCompactedTurn(
+  messages: ReadonlyArray<UIMessage>,
+  userIndex: number,
+  absorbedThroughSeq: number | null,
+): boolean {
+  if (absorbedThroughSeq === null) return false;
+
+  const seq = messageSeqFromMetadata(messages[userIndex]?.metadata);
+
+  return seq !== null && seq <= absorbedThroughSeq;
+}
+
+/**
  * Whether the transcript's last row is the latest turn's reply, so it may
  * carry that turn's actions. The Run must name the row's own user message:
  * a `#msg-N` view of an older turn ends on an older reply, and an older turn
@@ -140,8 +158,9 @@ export function carriesTurnActions(input: {
   messages: ReadonlyArray<UIMessage>;
   latestRun: ChatLatestRunResponse | null;
   status: ChatStatus;
+  absorbedThroughSeq: number | null;
 }): boolean {
-  const { messages, latestRun, status } = input;
+  const { messages, latestRun, status, absorbedThroughSeq } = input;
 
   if (
     !isActionableStatus(status) ||
@@ -158,7 +177,12 @@ export function carriesTurnActions(input: {
 
   if (!hasVisibleContent(reply.parts)) return false;
 
-  return turnUserIndex(messages, latestRun) === messages.length - 2;
+  const userIndex = turnUserIndex(messages, latestRun);
+
+  return (
+    userIndex === messages.length - 2 &&
+    !isCompactedTurn(messages, userIndex, absorbedThroughSeq)
+  );
 }
 
 /**
@@ -173,8 +197,9 @@ export function needsFailedTurnRow(input: {
   messages: ReadonlyArray<UIMessage>;
   latestRun: ChatLatestRunResponse | null;
   status: ChatStatus;
+  absorbedThroughSeq: number | null;
 }): boolean {
-  const { messages, latestRun, status } = input;
+  const { messages, latestRun, status, absorbedThroughSeq } = input;
 
   if (
     !isActionableStatus(status) ||
@@ -187,7 +212,12 @@ export function needsFailedTurnRow(input: {
 
   const userIndex = turnUserIndex(messages, latestRun);
 
-  if (userIndex === -1) return false;
+  if (
+    userIndex === -1 ||
+    isCompactedTurn(messages, userIndex, absorbedThroughSeq)
+  ) {
+    return false;
+  }
 
   return messages
     .slice(userIndex + 1)

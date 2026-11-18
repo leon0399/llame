@@ -929,6 +929,18 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('streams a compaction failure as a persisted live-reply part', () => {
+    const t = createRunEventTranslator('run-15');
+    t.translate({ eventType: 'model.delta', payload: { text: 'answer' } });
+
+    expect(
+      t.translate({ eventType: 'run.compaction_failed', payload: {} }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      { type: 'data-compaction-failed', data: {} },
+    ]);
+  });
+
   it('drops a step-cap event missing its numeric fields', () => {
     const t = createRunEventTranslator('run-14');
     expect(

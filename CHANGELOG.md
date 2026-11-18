@@ -52,6 +52,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Support an optional `/compact <focus>` and return checkpoint focus in history.
 - Queue `/compact` during a live Run and start queued compact commands as
   compaction Runs when the queue advances.
+- Compact during a live Run at the next step boundary and continue from the checkpoint.
 
 # 2026-11-14
 

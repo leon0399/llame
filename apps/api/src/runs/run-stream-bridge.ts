@@ -161,6 +161,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         return this.onToolCompleted(event);
       case 'run.step_cap_reached':
         return this.onStepCapReached(event);
+      case 'run.compaction_failed':
+        return this.onCompactionFailed();
       case 'run.continued':
         return this.onRunContinued(event);
       case 'run.completed':
@@ -373,6 +375,15 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         }),
         dynamic: true,
       },
+    ];
+  }
+
+  private onCompactionFailed(): Array<UiChunk> {
+    return [
+      ...this.prelude(),
+      ...this.closeReasoning(),
+      ...this.closeText(),
+      { type: 'data-compaction-failed', data: {} },
     ];
   }
 

@@ -106,6 +106,23 @@ type ValidatedFollowUp =
  */
 type AdmissionOutcome = AcceptedRun | { refusal: Error };
 
+async function assertTurnNotCompacted(
+  tx: Db,
+  input: { chatId: string; userId: string; userSeq: number },
+): Promise<void> {
+  if (
+    (await new MessagesRepository(tx).findCheckpointAbsorbing(
+      input.chatId,
+      input.userId,
+      input.userSeq,
+    )) !== undefined
+  ) {
+    throw new ConflictException(
+      'A follow-up request cannot target a compacted turn',
+    );
+  }
+}
+
 /** What the Continue check settles before the Run row exists. */
 type ContinueDecision =
   | { latestRun: Run; source: Message; effort: string | undefined }
@@ -167,6 +184,12 @@ export class FollowUpAdmissionService {
           new MessagesRepository(tx),
           input,
         );
+
+        await assertTurnNotCompacted(tx, {
+          chatId: input.chatId,
+          userId: input.userId,
+          userSeq: userMessage.seq,
+        });
 
         // A chat send's own single-flight admission: a live Run answers 409, and
         // a stuck Run is expired here so the action check reads its outcome.

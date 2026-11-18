@@ -99,3 +99,39 @@ export const SignalTerminated: Story = {
     await expect(canvas.getByText("job://bash-7 failed")).toBeVisible();
   },
 };
+
+/**
+ * The host message that resumes a Run after a step-boundary compaction shows
+ * its settled jobs, then one muted continue notice; the quoted request is
+ * model context and stays hidden.
+ *
+ * @summary a continue message after a compaction
+ */
+export const ContinueAfterCompaction: Story = {
+  args: {
+    message: {
+      ...message,
+      parts: [
+        message.parts[1]!,
+        {
+          type: "data-context",
+          data: {
+            v: 1,
+            producer: "compaction",
+            form: "notice",
+            runId: "11111111-1111-4111-8111-111111111111",
+            payload: { quote: "Refactor the billing module" },
+            text: "The conversation was compacted.",
+          },
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("job://bash-8 failed")).toBeVisible();
+    await expect(
+      canvas.getByText("Context compacted. Continuing."),
+    ).toBeVisible();
+    await expect(canvas.queryByText(/Refactor the billing module/)).toBeNull();
+  },
+};

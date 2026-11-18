@@ -8,8 +8,9 @@ import type {
   RunEvent,
 } from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
-import { ChatsRepository, MessagesRepository } from '../chats-repository';
+import { RunWaitService } from '../../runs/run-wait.service';
 import { ChatDeliveriesRepository } from '../chat-deliveries.repository';
+import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { TitleService } from '../../titles/title.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { ModelsService } from '../../models/models.service';
@@ -19,6 +20,7 @@ import {
   RunsRepository,
 } from '../../runs/runs-repository';
 import { ChatCommandsService } from './chat-commands.service';
+import * as runControl from '../../runs/run-control';
 
 function makeService() {
   const db: Db = drizzle.mock();
@@ -75,6 +77,21 @@ function makeService() {
     .spyOn(RunsRepository.prototype, 'findActiveByChatId')
     .mockResolvedValue(undefined);
 
+  const findActive = activeRunLookup;
+
+  const findDeliveryById = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'findById')
+    .mockResolvedValue(undefined);
+
+  const insertPending = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'insertPending')
+    .mockResolvedValue(
+      asDouble<ChatDelivery>({ mode: 'steer', state: 'pending' }),
+    );
+
+  const wakeForChatInTransaction =
+    vi.fn<RunWaitService['wakeForChatInTransaction']>();
+
   const createdRun = asDouble<Run>({
     id: 'run-1',
     modelId: 'model-1',
@@ -121,6 +138,7 @@ function makeService() {
     models,
     instanceConfig,
     dispatch,
+    { wakeForChatInTransaction },
   );
 
   return {
@@ -136,6 +154,10 @@ function makeService() {
     append,
     activeRunLookup,
     dispatch,
+    findDeliveryById,
+    findActive,
+    insertPending,
+    wakeForChatInTransaction,
     validateModelSelection,
     resolveEffortSelection,
     runAs,
@@ -304,6 +326,128 @@ describe('ChatCommandsService', () => {
     );
     expect(validateModelSelection).toHaveBeenCalledWith('model-1');
     expect(runAs).toHaveBeenCalledOnce();
+  });
+  it('admits a /compact steer and signals a Run waiting on jobs', async () => {
+    const {
+      service,
+      dispatch,
+      findActive,
+      insertPending,
+      wakeForChatInTransaction,
+    } = makeService();
+
+    const waitingRun = asDouble<Run>({
+      id: 'run-1',
+      chatId: 'chat-1',
+      userId: 'user-1',
+      status: 'awaiting_jobs',
+      kind: 'turn',
+      currentJobId: 'wake-job',
+    });
+
+    findActive.mockResolvedValue(waitingRun);
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+        messageId: 'compact-message',
+        rawText: '/compact',
+        delivery: 'steer',
+      }),
+    ).resolves.toMatchObject({ type: 'delivery' });
+
+    expect(insertPending).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'compact-message', mode: 'steer' }),
+    );
+    expect(wakeForChatInTransaction).toHaveBeenCalledWith(expect.anything(), {
+      chatId: 'chat-1',
+      userId: 'user-1',
+      kind: 'steer',
+    });
+  });
+  it('notifies a running turn when a compact interrupt is queued', async () => {
+    const { service, activeRunLookup, dispatch, insertPending } = makeService();
+
+    const notify = vi
+      .spyOn(runControl, 'notifyRunControl')
+      .mockResolvedValue(undefined);
+
+    activeRunLookup.mockResolvedValue(
+      asDouble<Run>({
+        id: 'turn-run',
+        chatId: 'chat-1',
+        userId: 'user-1',
+        status: 'running_model',
+        kind: 'turn',
+        currentJobId: 'turn-job',
+      }),
+    );
+    dispatch.jobState.mockResolvedValue('active');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: 'preserve this' },
+        messageId: 'compact-interrupt',
+        rawText: '/compact preserve this',
+        delivery: 'interrupt',
+      }),
+    ).resolves.toMatchObject({ type: 'delivery' });
+
+    expect(insertPending).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'compact-interrupt', mode: 'interrupt' }),
+    );
+    expect(notify).toHaveBeenCalledWith(expect.anything(), {
+      runId: 'turn-run',
+      kind: 'interrupt',
+    });
+  });
+
+  it('queues a compact command behind a live compaction Run', async () => {
+    const {
+      service,
+      findActive,
+      insertPending,
+      wakeForChatInTransaction,
+      dispatch,
+    } = makeService();
+
+    findActive.mockResolvedValue(
+      asDouble<Run>({
+        id: 'run-1',
+        chatId: 'chat-1',
+        userId: 'user-1',
+        status: 'awaiting_jobs',
+        kind: 'compaction',
+        currentJobId: 'job-1',
+      }),
+    );
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+        messageId: 'compact-message',
+        rawText: '/compact',
+        delivery: 'steer',
+      }),
+    ).resolves.toMatchObject({
+      type: 'delivery',
+      delivery: { job: null },
+    });
+
+    expect(insertPending).toHaveBeenCalledWith({
+      chatId: 'chat-1',
+      ownerUserId: 'user-1',
+      id: 'compact-message',
+      mode: 'queue',
+      parts: [{ type: 'text', text: '/compact' }],
+      settings: { modelId: 'model-1', permissionMode: 'default' },
+    });
+    expect(wakeForChatInTransaction).not.toHaveBeenCalled();
   });
 
   it('refuses an empty Chat without creating or dispatching a Run', async () => {

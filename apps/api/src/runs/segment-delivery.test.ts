@@ -21,6 +21,7 @@ import {
   type DeliveredBoundary,
   type DeliveryCause,
 } from './segment-delivery';
+import { deliveryCause } from './boundary-compaction-delivery';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 
 const runId = '11111111-1111-4111-8111-111111111111';
@@ -195,6 +196,10 @@ describe('deliverPendingSteering', () => {
       .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
       .mockResolvedValue(has('stored') ? overrides.stored : deliveredMessage);
 
+    const createHost = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(deliveredMessage);
+
     const updateForAttempt = vi
       .spyOn(RunsRepository.prototype, 'updateForAttempt')
       .mockResolvedValue(has('moved') ? overrides.moved : run);
@@ -253,6 +258,7 @@ describe('deliverPendingSteering', () => {
       lockPending,
       markDelivered,
       createUser,
+      createHost,
       updateForAttempt,
       append,
       updateReply,
@@ -278,6 +284,518 @@ describe('deliverPendingSteering', () => {
       ...extra,
     });
   }
+
+  it('omits checkpoint metadata from an ordinary delivery event', async () => {
+    const spies = serve({ items: [first] });
+
+    await deliver();
+
+    const event = spies.append.mock.calls.find(
+      ([, type]) => type === 'run.delivered',
+    );
+
+    expect(event?.[2]).not.toHaveProperty('checkpointId');
+    expect(event?.[2]).not.toHaveProperty('stepBudgetUsed');
+  });
+
+  it('completes after final compaction when a new compact arrives during summarization', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const initialCompactId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const spies = serve({ items: [compact] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-9');
+
+    const result = await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: [initialCompactId],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: null,
+        stepBudgetUsed: 3,
+        finalAnswer: true,
+        publishCheckpoint,
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: 'final-compacted',
+      commandItems: [compact],
+    });
+    expect(spies.markDelivered).not.toHaveBeenCalled();
+    expect(spies.createHost).not.toHaveBeenCalled();
+    expect(spies.updateForAttempt).not.toHaveBeenCalled();
+    expect(spies.append).not.toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.anything(),
+    );
+  });
+
+  it('defers a final-answer compact when no boundary compaction was prepared', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact] });
+
+    const result = await deliver({ finalAnswer: true, stepBudgetUsed: 3 });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'compaction' });
+    expect(spies.markDelivered).not.toHaveBeenCalled();
+    expect(spies.createHost).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [] }),
+    );
+    expect(spies.updateForAttempt).toHaveBeenCalledWith(
+      runId,
+      userId,
+      attemptId,
+      expect.objectContaining({ messageId: deliveredMessage.id }),
+    );
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ stepBudgetUsed: 3 }),
+    );
+  });
+
+  it('delivers a late final-answer compact with its pending message after the checkpoint', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const ownerMessage = {
+      ...second,
+      parts: [{ type: 'text', text: 'continue with this' }],
+    };
+
+    const spies = serve({ items: [compact, ownerMessage] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-9');
+
+    const result = await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: ['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: null,
+        stepBudgetUsed: 3,
+        finalAnswer: true,
+        publishCheckpoint,
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(publishCheckpoint).toHaveBeenCalledOnce();
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: ownerMessage.parts }),
+    );
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+    expect(spies.markDelivered).toHaveBeenCalledWith(ownerMessage.id, userId, {
+      messageId: deliveredMessage.id,
+      runId,
+    });
+  });
+
+  it('defers a final compact before other pending items when no compaction was prepared', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, second] });
+
+    const result = await deliver({ finalAnswer: true });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'compaction' });
+    expect(spies.createHost).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [] }),
+    );
+    expect(spies.markDelivered).not.toHaveBeenCalled();
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'compaction' }),
+    );
+  });
+
+  it('delivers message items normally when a compact is not at the final answer', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, second] });
+
+    const result = await deliver();
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: second.parts }),
+    );
+    expect(spies.markDelivered).toHaveBeenCalledWith(second.id, userId, {
+      messageId: deliveredMessage.id,
+      runId,
+    });
+    expect(spies.markDelivered).not.toHaveBeenCalledWith(
+      compact.id,
+      userId,
+      expect.anything(),
+    );
+  });
+
+  it('does not publish a checkpoint when no compact command was selected', async () => {
+    const spies = serve({ items: [first] });
+    const publishCheckpoint = vi.fn();
+
+    const result = await deliver({
+      boundaryCompaction: {
+        ids: [],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint,
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(publishCheckpoint).not.toHaveBeenCalled();
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [{ type: 'text', text: 'first' }] }),
+    );
+  });
+
+  it('marks only selected compact commands delivered after failed compaction', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const unselected = {
+      ...second,
+      parts: [{ type: 'text', text: '/compact Keep this pending' }],
+    };
+
+    const spies = serve({ items: [compact, unselected, first] });
+
+    const result = await deliver({
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+    expect(spies.markDelivered).not.toHaveBeenCalledWith(
+      unselected.id,
+      userId,
+      {
+        runId,
+      },
+    );
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'first' }],
+      }),
+    );
+  });
+
+  it('records a failed-compaction marker on the live reply', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, first] });
+
+    const liveReply = {
+      ...live,
+      parts: [{ type: 'text' as const, text: 'so far' }],
+    };
+
+    await deliver({
+      live: liveReply,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(liveReply.parts).toEqual([
+      { type: 'text', text: 'so far' },
+      { type: 'data-compaction-failed', data: {} },
+    ]);
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.compaction_failed',
+      {},
+    );
+  });
+
+  it('does not duplicate an existing failed-compaction marker', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, first] });
+
+    const failedMarker = { type: 'data-compaction-failed', data: {} };
+
+    const liveReply = {
+      ...live,
+      parts: [failedMarker, { type: 'text' as const, text: 'so far' }],
+    };
+
+    await deliver({
+      live: liveReply,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(liveReply.parts).toEqual([
+      failedMarker,
+      { type: 'text', text: 'so far' },
+    ]);
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.compaction_failed',
+      {},
+    );
+  });
+
+  it('reports a failed compaction with no other pending item', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact] });
+
+    await expect(
+      deliver({
+        boundaryCompaction: {
+          ids: [compact.id],
+          summary: null,
+          quote: null,
+          stepBudgetUsed: 3,
+          publishCheckpoint: vi.fn(),
+        },
+      }),
+    ).resolves.toEqual({ kind: 'nothing-pending', compactionFailed: true });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.compaction_failed',
+      {},
+    );
+  });
+
+  it('marks every compact command delivered for a final-answer compaction', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const otherCompact = {
+      ...second,
+      parts: [{ type: 'text', text: '/compact Keep this pending' }],
+    };
+
+    const spies = serve({ items: [compact, otherCompact, first] });
+
+    await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: null,
+        quote: null,
+        stepBudgetUsed: 3,
+        finalAnswer: true,
+        publishCheckpoint: vi.fn(),
+      },
+    });
+
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+    expect(spies.markDelivered).toHaveBeenCalledWith(otherCompact.id, userId, {
+      runId,
+    });
+  });
+
+  it('rejects a boundary compaction without a closed reply', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const publishCheckpoint = vi.fn();
+
+    serve({ items: [compact] });
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue(
+      {},
+    );
+
+    await expect(
+      deliver({
+        boundaryCompaction: {
+          ids: [compact.id],
+          summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+          quote: null,
+          stepBudgetUsed: 3,
+          publishCheckpoint,
+        },
+      }),
+    ).rejects.toThrow(`Run ${runId} has no closed reply.`);
+    expect(publishCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it('publishes a checkpoint and quotes the newest owner message on continuation', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const newestOwnerMessage = {
+      ...second,
+      parts: [{ type: 'text', text: 'Finish the report.' }],
+    };
+
+    const spies = serve({ items: [compact, first, newestOwnerMessage] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-7');
+
+    const result = await deliver({
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: 'fallback quote',
+        stepBudgetUsed: 3,
+        publishCheckpoint,
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(publishCheckpoint).toHaveBeenCalledOnce();
+    const stored = spies.createUser.mock.calls[0]?.[0];
+
+    expect(stored?.parts).toHaveLength(3);
+    expect(stored?.parts.at(-1)).toMatchObject({
+      data: {
+        producer: 'compaction',
+        payload: { quote: 'Finish the report.' },
+      },
+    });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({
+        deliveryIds: [first.id, newestOwnerMessage.id, compact.id],
+        cause: 'steer',
+        checkpointId: 'checkpoint-7',
+        stepBudgetUsed: 3,
+      }),
+    );
+  });
+
+  it('uses the compaction quote when no owner message is delivered', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, jobNotice] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-8');
+
+    await deliver({
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: 'original owner request',
+        stepBudgetUsed: 2,
+        publishCheckpoint,
+      },
+    });
+
+    const stored = spies.createHost.mock.calls[0]?.[0];
+
+    expect(stored?.parts[0]).toMatchObject({
+      data: { payload: { quote: 'original owner request' } },
+    });
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'notice' }),
+    );
+  });
+
+  it('does not add a continuation item to a completed final answer', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const ownerMessage = {
+      ...second,
+      parts: [{ type: 'text', text: 'The final request.' }],
+    };
+
+    const spies = serve({ items: [compact, ownerMessage] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-9');
+
+    await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: [compact.id],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: 'The final request.',
+        stepBudgetUsed: 2,
+        finalAnswer: true,
+        publishCheckpoint,
+      },
+    });
+
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [{ type: 'text', text: 'The final request.' }],
+      }),
+    );
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+  });
 
   it('is fenced when the attempt no longer owns the Run', async () => {
     const spies = serve({ locked: undefined });
@@ -821,6 +1339,56 @@ describe('the usage an interrupt closes a reply with', () => {
     expect(closedTelemetry(steer, telemetry)).toBe(telemetry);
     expect(closedTelemetry(interrupt, telemetry)).toEqual(
       abortedByInterrupt(telemetry),
+    );
+  });
+});
+
+describe('boundary compaction delivery cause', () => {
+  const input = {
+    run: { runId, userId },
+    attemptId,
+    models,
+    deadWorkerAfterSeconds: 60,
+  };
+
+  const compact = {
+    ...pending('dddddddd-dddd-4ddd-8ddd-dddddddddddd', '/compact'),
+    parts: [{ type: 'text', text: '/compact' }],
+  };
+
+  it('uses compaction only when every pending item is a compact command', () => {
+    expect(deliveryCause(input, [compact])).toBe('compaction');
+    expect(deliveryCause(input, [])).toBe('compaction');
+    expect(deliveryCause(input, [compact, first])).toBe('steer');
+  });
+
+  it('distinguishes ordinary owner steer, notice, interrupt, and stopped calls', () => {
+    expect(deliveryCause(input, [first])).toBe('steer');
+    expect(deliveryCause(input, [jobNotice])).toBe('notice');
+    expect(deliveryCause(input, [{ ...first, mode: 'interrupt' }])).toBe(
+      'interrupt',
+    );
+    expect(deliveryCause({ ...input, stoppedCalls: [] }, [jobNotice])).toBe(
+      'interrupt',
+    );
+  });
+
+  it('does not treat another producer command as a compact command', () => {
+    expect(
+      deliveryCause(input, [{ ...compact, producer: 'job', mode: 'notice' }]),
+    ).toBe('notice');
+  });
+
+  it('does not treat a queued owner message as a steer or interrupt', () => {
+    expect(deliveryCause(input, [{ ...first, mode: 'queue' }])).toBe('notice');
+  });
+
+  it('does not let a job delivery signal owner steering or interruption', () => {
+    expect(deliveryCause(input, [{ ...jobNotice, mode: 'steer' }])).toBe(
+      'notice',
+    );
+    expect(deliveryCause(input, [{ ...jobNotice, mode: 'interrupt' }])).toBe(
+      'notice',
     );
   });
 });
