@@ -44,6 +44,14 @@ OpenSpec, architecture in `SPEC.md`, owner-visible tool and locator behavior in
 `docs/product/reference/`, operator procedures in `docs/product/operator/`, and
 contributor process in `docs/development/`. The spec wins any disagreement.
 
+## Glossary
+
+Use these terms, and their capitalization, in code, specs, docs, and issues.
+Name a new concept only after checking it does not collide with one here;
+add it to the glossary when it ships.
+
+@docs/product/glossary.md
+
 ## Repository
 
 pnpm 12 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins
