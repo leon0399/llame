@@ -197,7 +197,7 @@ where a smaller safe merge point appears.
     `pnpm lint:markdown` found 0 issues in 1,099 files; `pnpm format:check` passed across 3,970
     files; `node scripts/check-markdown-links.mjs` and `git diff --check` exited successfully.
 - [x] 10.3 Check that every task above is checked and `openspec status --change add-slash-commands --json` reports every artifact done.
-  - Evidence: on the finalize tip over compact-auto, rechecked after each restack, no unchecked task remains above 10.3; `openspec status --change add-slash-commands --json` reports proposal, specs, design, and tasks `done`. No delta spec changed after the sync (last delta commit `3d899b77`).
+  - Evidence: on the finalize tip over compact-auto, rechecked after each restack, no unchecked task remains above 10.3; `openspec status --change add-slash-commands --json` reports proposal, specs, design, and tasks `done`. Every delta edit after the sync (the GitHub review clarifications to `context-injection` and `run-steering`) was made in the same commit as its canonical counterpart, so the two stay identical.
 
 ## Workflow follow-up
 
