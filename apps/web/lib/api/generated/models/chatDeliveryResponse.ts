@@ -5,6 +5,7 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { ChatDeliveryResponseCommand } from "./chatDeliveryResponseCommand";
 import type { ChatDeliveryResponseJobState } from "./chatDeliveryResponseJobState";
 import type { ChatDeliveryResponseMode } from "./chatDeliveryResponseMode";
 import type { ChatDeliveryResponsePartsItem } from "./chatDeliveryResponsePartsItem";
@@ -22,6 +23,11 @@ export interface ChatDeliveryResponse {
   jobState?: ChatDeliveryResponseJobState;
   mode: ChatDeliveryResponseMode;
   state: ChatDeliveryResponseState;
+  /**
+   * The parsed command, or null for a message item.
+   * @nullable
+   */
+  command: ChatDeliveryResponseCommand;
   parts: ChatDeliveryResponsePartsItem[];
   modelId: string;
   effort?: string;

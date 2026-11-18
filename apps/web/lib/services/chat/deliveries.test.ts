@@ -42,6 +42,7 @@ function item(
     chatId: CHAT_ID,
     producer: "owner",
     mode,
+    command: null,
     state: "pending",
     parts,
     modelId: "system:openai:model-one",

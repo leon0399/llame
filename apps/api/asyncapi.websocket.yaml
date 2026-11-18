@@ -293,6 +293,7 @@ components:
                 chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
                 producer: owner
                 mode: queue
+                command: null
                 state: pending
                 parts:
                   - type: text
@@ -310,6 +311,7 @@ components:
                 chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
                 producer: job
                 mode: notice
+                command: null
                 state: pending
                 job: job://bash-7
                 jobState: failed

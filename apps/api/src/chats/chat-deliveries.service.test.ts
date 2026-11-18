@@ -262,7 +262,9 @@ describe('ChatDeliveriesService.changeMode', () => {
 
       await expect(
         service.changeMode(chatId, item.id, mode, userId),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      ).rejects.toThrow(
+        'Pending items cannot be steered or interrupted during compaction',
+      );
       expect(changePendingMode).not.toHaveBeenCalled();
       expect(dispatcher.dispatch).not.toHaveBeenCalled();
     },
@@ -353,6 +355,38 @@ describe('ChatDeliveriesService.changeMode', () => {
       );
 
       expect(sent).toHaveLength(pointers);
+    },
+  );
+
+  it.each(['steer', 'interrupt'] as const)(
+    'refuses changing a queued compact to %s during a live Run',
+    async (mode) => {
+      const {
+        service,
+        lockChat,
+        findItem,
+        findActiveRun,
+        changePendingMode,
+        dispatcher,
+      } = makeService();
+
+      lockChat.mockResolvedValue(
+        asDouble<Chat>({ id: chatId, archivedAt: null }),
+      );
+      findItem.mockResolvedValue({
+        ...item,
+        mode: 'queue',
+        parts: [{ type: 'text', text: '/compact focus' }],
+      });
+      findActiveRun.mockResolvedValue(
+        asDouble<Run>({ id: 'live-run', kind: 'turn' }),
+      );
+
+      await expect(
+        service.changeMode(chatId, item.id, mode, userId),
+      ).rejects.toThrow('Compact waits for the current Run to finish.');
+      expect(changePendingMode).not.toHaveBeenCalled();
+      expect(dispatcher.dispatch).not.toHaveBeenCalled();
     },
   );
 

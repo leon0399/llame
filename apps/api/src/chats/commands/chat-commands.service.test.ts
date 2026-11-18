@@ -1,9 +1,15 @@
-import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { asDouble } from '../../testing/support';
-import type { Chat, Message, Run, RunEvent } from '../../db/schema';
+import type {
+  Chat,
+  ChatDelivery,
+  Message,
+  Run,
+  RunEvent,
+} from '../../db/schema';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
+import { ChatDeliveriesRepository } from '../chat-deliveries.repository';
 import { TitleService } from '../../titles/title.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { ModelsService } from '../../models/models.service';
@@ -33,6 +39,14 @@ function makeService() {
     );
 
   const chat = asDouble<Chat>({ id: 'chat-1', archivedAt: null });
+
+  vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
+    undefined,
+  );
+
+  const messageIdTaken = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'messageIdTaken')
+    .mockResolvedValue(false);
 
   const findById = vi
     .spyOn(ChatsRepository.prototype, 'findById')
@@ -110,6 +124,7 @@ function makeService() {
   );
 
   return {
+    messageIdTaken,
     service,
     findById,
     lock,
@@ -122,6 +137,7 @@ function makeService() {
     activeRunLookup,
     dispatch,
     validateModelSelection,
+    resolveEffortSelection,
     runAs,
   };
 }
@@ -130,7 +146,9 @@ const request = {
   chatId: 'chat-1',
   userId: 'user-1',
   command: { name: 'rename' as const, argument: 'New name' },
-  parts: [{ type: 'text' as const }],
+  parts: [{ type: 'text' as const, text: '/rename New name' }],
+  messageId: 'message-1',
+  rawText: '/rename New name',
   modelId: 'model-1',
 };
 
@@ -297,7 +315,7 @@ describe('ChatCommandsService', () => {
         ...request,
         command: { name: 'compact', argument: '' },
       }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toThrow('Nothing to compact.');
     expect(createRun).not.toHaveBeenCalled();
     expect(dispatch.dispatch).not.toHaveBeenCalled();
   });
@@ -381,5 +399,233 @@ describe('ChatCommandsService', () => {
       }),
     ).rejects.toThrow('Selected model is unavailable.');
     expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('refuses a queued compact whose id names a stored message', async () => {
+    const { service, activeRunLookup, messageIdTaken, dispatch } =
+      makeService();
+
+    const insertPending = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'insertPending',
+    );
+
+    activeRunLookup.mockResolvedValue(
+      asDouble<Run>({ id: 'active-run', kind: 'turn', currentJobId: 'job-1' }),
+    );
+    dispatch.jobState.mockResolvedValue('queued');
+    messageIdTaken.mockResolvedValue(true);
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+        rawText: '/compact',
+        delivery: 'queue',
+      }),
+    ).rejects.toMatchObject({ message: 'Message id already exists' });
+    expect(insertPending).not.toHaveBeenCalled();
+  });
+
+  it('queues a compact with its selected settings while a Run holds the Chat slot', async () => {
+    const {
+      service,
+      activeRunLookup,
+      dispatch,
+      createRun,
+      resolveEffortSelection,
+    } = makeService();
+
+    resolveEffortSelection.mockReturnValue('high');
+
+    const insertPending = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'insertPending')
+      .mockResolvedValue(
+        asDouble<ChatDelivery>({
+          id: request.messageId,
+          chatId: request.chatId,
+          producer: 'owner',
+          state: 'pending',
+          mode: 'queue',
+          parts: [{ type: 'text', text: '/compact retain context' }],
+          settings: {
+            modelId: 'model-1',
+            effort: 'high',
+            permissionMode: 'default',
+          },
+        }),
+      );
+
+    activeRunLookup.mockResolvedValue(
+      asDouble<Run>({ id: 'active-run', kind: 'turn', currentJobId: 'job-1' }),
+    );
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: 'retain context' },
+        parts: [{ type: 'text' }],
+        rawText: '/compact retain context',
+        delivery: 'queue',
+        effort: 'high',
+      }),
+    ).resolves.toMatchObject({
+      type: 'delivery',
+      delivery: {
+        item: { id: request.messageId, mode: 'queue' },
+        job: null,
+      },
+    });
+
+    expect(insertPending).toHaveBeenCalledWith({
+      id: request.messageId,
+      chatId: request.chatId,
+      ownerUserId: request.userId,
+      mode: 'queue',
+      parts: [{ type: 'text', text: '/compact retain context' }],
+      settings: {
+        modelId: 'model-1',
+        effort: 'high',
+        permissionMode: 'default',
+      },
+    });
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('omits unselected effort from a queued compact', async () => {
+    const { service, activeRunLookup, dispatch } = makeService();
+
+    const insertPending = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'insertPending')
+      .mockResolvedValue(
+        asDouble<ChatDelivery>({
+          id: request.messageId,
+          chatId: request.chatId,
+          producer: 'owner',
+          state: 'pending',
+          mode: 'queue',
+          parts: [{ type: 'text', text: '/compact' }],
+          settings: { modelId: 'model-1', permissionMode: 'default' },
+        }),
+      );
+
+    activeRunLookup.mockResolvedValue(
+      asDouble<Run>({ id: 'active-run', kind: 'turn', currentJobId: 'job-1' }),
+    );
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await service.execute({
+      ...request,
+      command: { name: 'compact', argument: '' },
+      parts: [{ type: 'text' }],
+      rawText: '/compact',
+      delivery: 'queue',
+    });
+
+    expect(insertPending.mock.calls[0]?.[0].settings).not.toHaveProperty(
+      'effort',
+    );
+  });
+
+  it('rejects a queued compact when its id already exists', async () => {
+    const { service, activeRunLookup, dispatch } = makeService();
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'insertPending',
+    ).mockResolvedValue(undefined);
+    activeRunLookup.mockResolvedValue(
+      asDouble<Run>({ id: 'active-run', kind: 'turn', currentJobId: 'job-1' }),
+    );
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+        parts: [{ type: 'text' }],
+        rawText: '/compact',
+        delivery: 'queue',
+      }),
+    ).rejects.toThrow('Message id already exists');
+  });
+
+  it.each([
+    ['another Chat', { chatId: 'chat-2' }],
+    ['another producer', { producer: 'job' }],
+    ['a delivered item', { state: 'delivered' }],
+    ['a non-compact command', { parts: [{ type: 'text', text: '/rename x' }] }],
+  ] as const)(
+    'rejects a compact retry for %s',
+    async (_description, override) => {
+      const { service } = makeService();
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'findById',
+      ).mockResolvedValue(
+        asDouble<ChatDelivery>({
+          id: request.messageId,
+          chatId: request.chatId,
+          producer: 'owner',
+          state: 'pending',
+          parts: [{ type: 'text', text: '/compact retain context' }],
+          ...override,
+        }),
+      );
+
+      await expect(
+        service.execute({
+          ...request,
+          command: { name: 'compact', argument: '' },
+        }),
+      ).rejects.toThrow('Message id already exists');
+    },
+  );
+
+  it('returns the existing pending compact for an idempotent retry', async () => {
+    const { service } = makeService();
+
+    const existing = asDouble<ChatDelivery>({
+      id: request.messageId,
+      chatId: request.chatId,
+      producer: 'owner',
+      state: 'pending',
+      mode: 'queue',
+      parts: [{ type: 'text', text: '/compact retain context' }],
+    });
+
+    vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
+      existing,
+    );
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).resolves.toEqual({
+      type: 'delivery',
+      delivery: { item: existing, job: null },
+    });
+  });
+
+  it('rejects a compact retry when the stored pending item is not a compact', async () => {
+    const { service } = makeService();
+    vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
+      asDouble<ChatDelivery>({
+        id: request.messageId,
+        chatId: request.chatId,
+        producer: 'owner',
+        state: 'pending',
+        parts: [{ type: 'text', text: 'ordinary queued message' }],
+      }),
+    );
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).rejects.toThrow('Message id already exists');
   });
 });

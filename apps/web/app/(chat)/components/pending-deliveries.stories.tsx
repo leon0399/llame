@@ -14,6 +14,7 @@ function item(
     chatId: "chat-1",
     producer: "owner",
     mode,
+    command: null,
     state: "pending",
     parts: [{ type: "text", text }],
     modelId: "system:openai:model-one",
@@ -210,5 +211,41 @@ export const JobNotice: Story = {
     await expect(canvas.queryByText(/^Paused/)).toBeNull();
     await userEvent.click(row.getByRole("button", { name: /^Delete/ }));
     await expect(args.onDelete).toHaveBeenCalledWith(args.items[0]);
+  },
+};
+
+/**
+ * A `/compact` item is labelled Compact. During a live turn Run it offers
+ * only Edit and Delete; on a paused queue it can be hurried, which starts
+ * the compaction.
+ *
+ * @summary compact rows hurry only on a paused queue
+ */
+export const CompactRow: Story = {
+  tags: ["ai-generated"],
+  args: {
+    items: [{ ...item("c1", "queue", "/compact"), command: "compact" }],
+  },
+  play: async ({ canvas }) => {
+    const row = within(canvas.getByRole("listitem"));
+    await expect(row.getByText("Compact")).toBeVisible();
+    await expect(row.queryByRole("button", { name: /^Steer now/ })).toBeNull();
+    await expect(
+      row.queryByRole("button", { name: /^Interrupt now/ }),
+    ).toBeNull();
+    await expect(row.getByRole("button", { name: /^Edit/ })).toBeVisible();
+  },
+};
+
+/** @summary a paused compact row offers Steer now */
+export const PausedCompactRow: Story = {
+  tags: ["ai-generated"],
+  args: {
+    paused: true,
+    items: [{ ...item("c1", "queue", "/compact"), command: "compact" }],
+  },
+  play: async ({ canvas }) => {
+    const row = within(canvas.getByRole("listitem"));
+    await expect(row.getByRole("button", { name: /^Steer now/ })).toBeVisible();
   },
 };

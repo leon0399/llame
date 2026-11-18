@@ -39,6 +39,24 @@ describe('toChatDeliveryResponse', () => {
 
     expect(withoutEffort).not.toHaveProperty('effort');
   });
+  it('computes the compact command from pending owner text', () => {
+    const compact = toChatDeliveryResponse({
+      item: chatDeliveryRow({
+        parts: [{ type: 'text', text: '/compact keep the plan' }],
+      }),
+      job: null,
+    });
+
+    const message = toChatDeliveryResponse({
+      item: chatDeliveryRow({
+        parts: [{ type: 'text', text: 'keep the plan' }],
+      }),
+      job: null,
+    });
+
+    expect(compact.command).toBe('compact');
+    expect(message.command).toBeNull();
+  });
 });
 
 describe('UpdateChatDto', () => {

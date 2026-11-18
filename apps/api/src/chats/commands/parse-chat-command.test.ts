@@ -1,4 +1,4 @@
-import { parseChatCommand } from './parse-chat-command';
+import { parseChatCommand, validateCompactCommand } from './parse-chat-command';
 
 describe('parseChatCommand', () => {
   it('recognizes rename and trims its argument', () => {
@@ -60,5 +60,38 @@ describe('parseChatCommand', () => {
       ]),
     ).toEqual({ name: 'rename', argument: 'Foo' });
     expect(parseChatCommand([{ type: 'file' }])).toBeNull();
+  });
+
+  it('ignores a text part whose text value is not a string', () => {
+    expect(parseChatCommand([{ type: 'text', text: 42 }])).toBeNull();
+  });
+});
+
+describe('validateCompactCommand', () => {
+  it('rejects any file part without validating text content', () => {
+    expect(() =>
+      validateCompactCommand(
+        [{ type: 'text', text: '/compact' }, { type: 'file' }],
+        '',
+      ),
+    ).toThrow('A command cannot include an attachment.');
+  });
+
+  it('accepts text-only parts and returns the focus or null when empty', () => {
+    expect(
+      validateCompactCommand([{ type: 'text', text: '/compact' }], ''),
+    ).toBeNull();
+    expect(
+      validateCompactCommand([{ type: 'text', text: '/compact plan' }], 'plan'),
+    ).toBe('plan');
+  });
+
+  it('counts focus in code points and rejects more than 1,000', () => {
+    expect(validateCompactCommand([], '😀'.repeat(1000))).toBe(
+      '😀'.repeat(1000),
+    );
+    expect(() => validateCompactCommand([], '😀'.repeat(1001))).toThrow(
+      'Compact focus must be 1,000 characters or fewer.',
+    );
   });
 });

@@ -78,6 +78,21 @@ function dropItem(ctx: DeliveryContext, deliveryId: string) {
   );
 }
 
+/** The delivered `item` started a Run: wait for its message's stream. A
+ *  `/compact` item starts a compaction Run, which has no message and no
+ *  stream, so history is read again to show its row instead. */
+function handOffDelivered(ctx: DeliveryContext, item: ChatDeliveryResponse) {
+  if (item.command === "compact") {
+    void ctx.queryClient.invalidateQueries({
+      queryKey: chatQueryKeys.messages(ctx.chatId),
+    });
+
+    return;
+  }
+
+  ctx.begin(item.id);
+}
+
 /** The outcome of a failed action on `item`: 409 means it was delivered, and
  *  404 that it is gone. Any other failure leaves the item pending on the
  *  server, so it stays and the list is read again. */
@@ -88,7 +103,7 @@ function settleFailure(
 ) {
   if (isAlreadyDelivered(error)) {
     dropItem(ctx, item.id);
-    ctx.begin(item.id);
+    handOffDelivered(ctx, item);
   } else if (getApiErrorStatus(error) === 404) {
     dropItem(ctx, item.id);
   } else {
@@ -118,7 +133,7 @@ async function changeItem(
     // The Chat had no live Run: the change stored the message and started
     // one for it.
     dropItem(ctx, next.id);
-    ctx.begin(next.id);
+    handOffDelivered(ctx, next);
   } catch (error) {
     settleFailure(ctx, item, error);
   }
@@ -139,20 +154,41 @@ async function withdrawItem(ctx: DeliveryContext, item: ChatDeliveryResponse) {
 }
 
 /** Withdraws `item` and puts its text and files in the composer, ahead of the
- *  owner's draft, which stays. */
+ *  owner's draft, which stays. A slash item needs an empty composer: joined
+ *  to a draft, one command would become the other's argument. */
 async function editItem(
   ctx: DeliveryContext,
-  draft: DraftState,
+  draft: DraftState & { latestInput: () => string },
   item: ChatDeliveryResponse,
 ) {
+  if (isCommandText(deliveryText(item)) && draft.input.trim() !== "") {
+    toast.info("Clear the composer to edit this command.");
+
+    return;
+  }
+
   const withdrawn = await withdrawItem(ctx, item);
 
   if (withdrawn === null) return;
   const text = deliveryText(withdrawn);
-  // The owner may have typed during the round trip: their draft stays.
-  draft.setInput((current) =>
-    current.trim() === "" ? text : `${text}\n\n${current}`,
-  );
+
+  // The owner may have typed during the round trip: their draft stays. Slash
+  // text goes after a plain draft, so the draft never becomes the command's
+  // argument. Two slash texts cannot share the composer: the newer one stays
+  // and the withdrawn one is shown so it can be copied back.
+  if (isCommandText(text) && isCommandText(draft.latestInput())) {
+    toast.info(`Kept your newer command. The withdrawn one was: ${text}`);
+
+    return;
+  }
+
+  draft.setInput((latest) => {
+    if (latest.trim() === "") return text;
+
+    return isCommandText(text)
+      ? `${latest}\n\n${text}`
+      : `${text}\n\n${latest}`;
+  });
   await draft.attachments.restoreFiles(deliveryFiles(withdrawn));
 }
 
@@ -307,20 +343,21 @@ function restoreFailedSend(input: {
 
 /** An item that leaves the list without the owner withdrawing it was
  *  delivered: as a steer of the live Run, or as the message of the Run it
- *  started. Either way history holds its message now. */
+ *  started. Either way history holds its message now. A `/compact` item
+ *  starts a compaction Run, which has no message and no stream to attach. */
 function useDeliveredItems(
   items: ReadonlyArray<ChatDeliveryResponse>,
   begin: (messageId: string) => void,
 ) {
-  const seenIds = useRef<ReadonlyArray<string>>([]);
+  const seen = useRef<ReadonlyArray<ChatDeliveryResponse>>([]);
   useEffect(() => {
     const present = new Set(items.map((item) => item.id));
 
-    for (const id of seenIds.current) {
-      if (!present.has(id)) begin(id);
+    for (const item of seen.current) {
+      if (!present.has(item.id) && item.command !== "compact") begin(item.id);
     }
 
-    seenIds.current = items.map((item) => item.id);
+    seen.current = items;
   }, [items, begin]);
 }
 
@@ -393,6 +430,17 @@ type UseChatDeliveryArgs = DraftState & {
   handoff: Pick<RunHandoff, "begin" | "skip">;
 };
 
+/** Edit resolves after a round trip: it reads the composer as it is then. */
+function useLatestInput(input: string): () => string {
+  const ref = useRef(input);
+
+  useEffect(() => {
+    ref.current = input;
+  }, [input]);
+
+  return () => ref.current;
+}
+
 /**
  * Sends slash-prefixed text on an existing Chat through the direct message
  * path, idle or not. While a Run is active, other sends use it too so Enter
@@ -403,6 +451,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
   const { chatId, exists, status, latestRun, attachments } = args;
   const [notice, setNotice] = useState<DeliveryNotice | null>(null);
   const ctx = { queryClient: useQueryClient(), chatId, ...args.handoff };
+  const latestInput = useLatestInput(args.input);
   const { selectedModel, selectedEffort, getPermissionMode } = useChatContext();
   const items = useChatDeliveries(chatId, exists);
   const runActive = isRunActive({ status, latestRun });
@@ -440,6 +489,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
       void changeItem(ctx, item, "steer"),
     interruptNow: interrupt,
     remove: (item: ChatDeliveryResponse) => void withdrawItem(ctx, item),
-    edit: (item: ChatDeliveryResponse) => void editItem(ctx, args, item),
+    edit: (item: ChatDeliveryResponse) =>
+      void editItem(ctx, { ...args, latestInput }, item),
   };
 }

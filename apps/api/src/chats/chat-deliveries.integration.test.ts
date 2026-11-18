@@ -28,6 +28,7 @@ import {
   ModelNotAvailableError,
   ModelsService,
 } from '../models/models.service';
+import { RunDispatchService } from '../runs/run-dispatch.service';
 import { RunExecutionService } from '../runs/run-execution.service';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { JobNoticeRunService } from '../runs/job-notice-run.service';
@@ -1497,6 +1498,57 @@ describe('chat deliveries — the queue mode', () => {
         'delivered',
         'delivered',
       ]);
+    });
+    it('A queued compact starts a compaction Run', async () => {
+      const { chatId, runId } = await chatWithLiveRun();
+      const id = crypto.randomUUID();
+
+      const response = await queue(chatId, {
+        id,
+        text: '/compact keep the plan',
+        modelId: SECOND_MODEL,
+        effort: 'high',
+      });
+
+      expect(response.status).toBe(202);
+      expect(response.body).toMatchObject({
+        id,
+        mode: 'queue',
+        command: 'compact',
+      });
+      vi.spyOn(app.get(RunDispatchService), 'dispatch').mockResolvedValue();
+
+      await settle(runId, 'completed');
+
+      const runs = await runsOf(chatId);
+      const compactRun = runs.find((run) => run.kind === 'compaction');
+
+      const item = (await itemsOf(chatId)).find(
+        (candidate) => candidate.id === id,
+      );
+
+      const messages = await messagesOf(chatId);
+
+      expect(compactRun).toMatchObject({
+        modelId: SECOND_MODEL,
+        effort: 'high',
+        messageId: null,
+      });
+      expect(item).toMatchObject({
+        state: 'delivered',
+        deliveredMessageId: null,
+        runId: compactRun?.id,
+      });
+      expect(messages.map((message) => message.id)).not.toContain(id);
+
+      const events = await tenantDb.runAs(userAId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(compactRun!.id, userAId),
+      );
+
+      expect(events[0]).toMatchObject({
+        eventType: 'run.created',
+        payload: { compaction: { focus: 'keep the plan' } },
+      });
     });
 
     it('A promoted item keeps its id', async () => {

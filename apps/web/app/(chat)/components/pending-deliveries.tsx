@@ -54,8 +54,18 @@ function actionName(action: string, item: ChatDeliveryResponse) {
 
 type RowActionsProps = { item: ChatDeliveryResponse } & Omit<
   PendingDeliveriesProps,
-  "items" | "paused"
+  "items"
 >;
+
+/** A `/compact` item waits for the live turn Run to end: it cannot steer or
+ *  interrupt one. With no live Run, hurrying it starts the compaction. */
+function canHurry({
+  item,
+  hurryable,
+  paused,
+}: Pick<RowActionsProps, "item" | "hurryable" | "paused">): boolean {
+  return hurryable && (item.command !== "compact" || paused);
+}
 
 /** The two ways to hurry an item: absent where the item's mode already has
  *  them. */
@@ -93,13 +103,13 @@ function HurryActions({
 /** The actions a row can take: an absent action is one the item's mode cannot
  *  use. */
 function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
-  const { item, hurryable } = hurry;
+  const { item } = hurry;
 
   return (
     <div className="flex shrink-0 items-center">
       {item.producer === "owner" && (
         <>
-          {hurryable && <HurryActions {...hurry} />}
+          {canHurry(hurry) && <HurryActions {...hurry} />}
           <IconButtonTooltip
             label="Edit"
             aria-label={actionName("Edit", item)}
@@ -126,7 +136,9 @@ function PendingRow(props: RowActionsProps) {
   return (
     <li className="flex items-center gap-2 rounded-md border bg-background py-1 pr-1 pl-2.5">
       <span className="shrink-0 text-xs text-muted-foreground">
-        {MODE_LABEL[props.item.mode]}
+        {props.item.command === "compact"
+          ? "Compact"
+          : MODE_LABEL[props.item.mode]}
       </span>
       <span className="line-clamp-2 min-w-0 flex-1 text-sm break-words">
         {previewText(props.item)}
@@ -160,7 +172,7 @@ export function PendingDeliveries({
       )}
       <ol className="flex flex-col gap-1">
         {items.map((item) => (
-          <PendingRow key={item.id} item={item} {...actions} />
+          <PendingRow key={item.id} item={item} paused={paused} {...actions} />
         ))}
       </ol>
     </section>

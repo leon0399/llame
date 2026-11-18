@@ -6,12 +6,20 @@
  * after the commit.
  */
 
+import { BadRequestException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
-import { createRunForMessage } from '../chats/run-creation';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { toRunUserMessage } from '../chats/chat-message-parts';
+import {
+  parseChatCommand,
+  validateCompactCommand,
+} from '../chats/commands/parse-chat-command';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import {
+  createCompactionRun,
+  createRunForMessage,
+} from '../chats/run-creation';
+import { toRunUserMessage } from '../chats/chat-message-parts';
 import {
   type ChatDelivery,
   type ChatDeliverySettings,
@@ -73,6 +81,9 @@ export async function promoteNextQueueItem(
     return started?.job;
   } catch (error) {
     if (error instanceof ItemNoLongerPending) return undefined;
+
+    if (error instanceof BadRequestException) return undefined;
+
     throw error;
   }
 }
@@ -98,12 +109,53 @@ function settingsStillValid(
 }
 
 /**
- * Store one pending item as the user message of a new Run and mark it
- * delivered. The completion path and a mode change on a paused item share it,
- * so both start the Run the same way. Returns the Run's job and the item as
- * delivered; undefined when the item's id is already a message.
+ * Start one pending item either as a message Run or, for `/compact`, as a
+ * message-less compaction Run.
  */
 export async function startItemRun(
+  tx: Db,
+  item: ChatDelivery,
+): Promise<{ job: RunJob; delivered: ChatDelivery } | undefined> {
+  const command = parseChatCommand(item.parts);
+
+  if (command?.name === 'compact') {
+    return startCompactItemRun(tx, item, command.argument);
+  }
+
+  return startMessageItemRun(tx, item);
+}
+
+async function startCompactItemRun(
+  tx: Db,
+  item: ChatDelivery,
+  argument: string,
+): Promise<{ job: RunJob; delivered: ChatDelivery }> {
+  const focus = validateCompactCommand(item.parts, argument);
+
+  const run = await createCompactionRun(tx, {
+    id: randomUUID(),
+    chatId: item.chatId,
+    userId: item.ownerUserId,
+    modelId: item.settings.modelId,
+    effort: item.settings.effort,
+    permissionMode: item.settings.permissionMode,
+    focus,
+  });
+
+  const delivered = await deliverPromotedItem(tx, item, { runId: run.id });
+
+  return {
+    delivered,
+    job: {
+      runId: run.id,
+      chatId: item.chatId,
+      userId: item.ownerUserId,
+      modelId: item.settings.modelId,
+    },
+  };
+}
+
+async function startMessageItemRun(
   tx: Db,
   item: ChatDelivery,
 ): Promise<{ job: RunJob; delivered: ChatDelivery } | undefined> {
@@ -114,7 +166,6 @@ export async function startItemRun(
     parts: item.parts,
   });
 
-  // The id is already a message: nothing to promote safely, so the item waits.
   if (!message) return undefined;
 
   const { run } = await createRunForMessage(
@@ -129,6 +180,8 @@ export async function startItemRun(
     },
     message,
   );
+
+  await deliverPendingJobNotices(tx, item, message.id, run.id);
 
   const delivered = await deliverPromotedItem(tx, item, {
     messageId: message.id,
@@ -147,18 +200,26 @@ export async function startItemRun(
   };
 }
 
+async function deliverPendingJobNotices(
+  tx: Db,
+  item: ChatDelivery,
+  messageId: string,
+  runId: string,
+): Promise<void> {
+  await new ChatDeliveriesRepository(tx).deliverPendingJobNotices(
+    item.chatId,
+    item.ownerUserId,
+    { messageId, runId },
+  );
+}
+
 /** Commit the promoted owner item and its held results to the same trigger. */
 async function deliverPromotedItem(
   tx: Db,
   item: ChatDelivery,
-  target: { messageId: string; runId: string },
+  target: { messageId?: string; runId: string },
 ): Promise<ChatDelivery> {
   const deliveries = new ChatDeliveriesRepository(tx);
-  await deliveries.deliverPendingJobNotices(
-    item.chatId,
-    item.ownerUserId,
-    target,
-  );
 
   const delivered = await deliveries.markDelivered(
     item.id,

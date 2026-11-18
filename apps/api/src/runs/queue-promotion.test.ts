@@ -64,10 +64,9 @@ function makeSetup(
     .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
     .mockResolvedValue(item);
 
-  vi.spyOn(
-    ChatDeliveriesRepository.prototype,
-    'deliverPendingJobNotices',
-  ).mockResolvedValue(undefined);
+  const deliverPendingJobNotices = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'deliverPendingJobNotices')
+    .mockResolvedValue(undefined);
 
   const createUserMessageIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
@@ -103,6 +102,7 @@ function makeSetup(
     markDelivered,
     createUserMessageIfAbsent,
     createRun,
+    deliverPendingJobNotices,
   };
 }
 
@@ -118,6 +118,7 @@ describe('promoteNextQueueItem', () => {
       createUserMessageIfAbsent,
       createRun,
       markDelivered,
+      deliverPendingJobNotices,
     } = makeSetup();
 
     const job = await promote();
@@ -145,6 +146,11 @@ describe('promoteNextQueueItem', () => {
       messageId: item.id,
       runId,
     });
+    expect(deliverPendingJobNotices).toHaveBeenCalledWith(
+      item.chatId,
+      item.ownerUserId,
+      { messageId: item.id, runId },
+    );
     expect(job).toMatchObject({
       runId,
       chatId: item.chatId,
@@ -152,6 +158,72 @@ describe('promoteNextQueueItem', () => {
       modelId: 'model-1',
     });
     expect(job?.userMessage).toMatchObject({ id: item.id, seq: 4 });
+  });
+
+  it('starts a queued compact as a message-less compaction Run', async () => {
+    const commandItem = chatDeliveryRow({
+      parts: [{ type: 'text', text: '/compact keep the plan' }],
+      settings: {
+        modelId: 'model-1',
+        effort: 'high',
+        permissionMode: 'bypass',
+      },
+    });
+
+    const { promote, createUserMessageIfAbsent, markDelivered, createRun } =
+      makeSetup();
+
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      [],
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'firstPendingQueueItem',
+    ).mockResolvedValue(commandItem);
+
+    const job = await promote();
+
+    expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatId: commandItem.chatId,
+        messageId: null,
+        kind: 'compaction',
+        modelId: 'model-1',
+        effort: 'high',
+        permissionMode: 'bypass',
+      }),
+    );
+    expect(markDelivered).toHaveBeenCalledWith(
+      commandItem.id,
+      commandItem.ownerUserId,
+      { runId: createRun.mock.calls[0]?.[0].id },
+    );
+    expect(job?.userMessage).toBeUndefined();
+  });
+
+  it('leaves an invalid queued compact pending', async () => {
+    const commandItem = chatDeliveryRow({
+      parts: [{ type: 'text', text: `/compact ${'x'.repeat(1001)}` }],
+    });
+
+    const { promote, createUserMessageIfAbsent, markDelivered, createRun } =
+      makeSetup();
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'firstPendingQueueItem',
+    ).mockResolvedValue(commandItem);
+
+    await expect(promote()).resolves.toBeUndefined();
+
+    expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+    expect(markDelivered).not.toHaveBeenCalled();
   });
 
   it('promotes nothing for a Chat that is gone', async () => {

@@ -50,6 +50,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Add idle `/compact` as a durable Run that publishes a conversation checkpoint.
 
 - Support an optional `/compact <focus>` and return checkpoint focus in history.
+- Queue `/compact` during a live Run and start queued compact commands as
+  compaction Runs when the queue advances.
 
 # 2026-11-14
 

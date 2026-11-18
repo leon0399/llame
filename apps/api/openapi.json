@@ -5600,6 +5600,12 @@
             "type": "string",
             "enum": ["pending", "delivered", "withdrawn"]
           },
+          "command": {
+            "type": "string",
+            "enum": ["compact"],
+            "nullable": true,
+            "description": "The parsed command, or null for a message item."
+          },
           "parts": {
             "type": "array",
             "items": {
@@ -5628,6 +5634,7 @@
           "producer",
           "mode",
           "state",
+          "command",
           "parts",
           "modelId",
           "permissionMode",

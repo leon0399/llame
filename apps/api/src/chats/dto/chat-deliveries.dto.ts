@@ -18,6 +18,7 @@ import {
 } from '../../tools/permissions/permission-mode';
 import { withoutProviderMetadata } from '../provider-metadata-egress';
 import { withoutRetainedMedia } from '../retained-media-egress';
+import { parseChatCommand } from '../commands/parse-chat-command';
 
 /**
  * The delivery modes a send may name.
@@ -67,6 +68,12 @@ export class ChatDeliveryResponse {
 
   @ApiProperty({ enum: chatDeliveryStates })
   state!: ChatDeliveryState;
+  @ApiProperty({
+    enum: ['compact'],
+    nullable: true,
+    description: 'The parsed command, or null for a message item.',
+  })
+  command!: 'compact' | null;
 
   @ApiProperty({
     type: 'array',
@@ -109,6 +116,8 @@ export function toChatDeliveryResponse({
     }),
     mode: item.mode,
     state: item.state,
+    command:
+      parseChatCommand(item.parts)?.name === 'compact' ? 'compact' : null,
     // The same egress as the history response: retained bytes and provider
     // metadata stay on the server.
     parts: withoutProviderMetadata(withoutRetainedMedia(item.parts)),

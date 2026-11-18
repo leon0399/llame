@@ -134,11 +134,16 @@ where a smaller safe merge point appears.
 
 ## 6. compact-queue
 
-- [ ] 6.1 Store `/compact` during a live turn Run as a `queue` item for every delivery mode, add `command` to `ChatDeliveryResponse`, and promote or start a command item as a compaction Run (design D10). Verify "A queued compact starts a compaction Run", "Steer now on a paused compact item", "Two queued compacts in a row", "Three queue items run in order", "A queue item that a send cannot use stays pending", "Steer now on a paused item", "A failed Run pauses the queue", "A queue send to an idle Chat starts at once", and "A send to a paused queue goes first". Regenerate the live AsyncAPI modules.
-- [ ] 6.2 Label a command row "Compact" and keep its actions. Verify "Edit puts the text back" and "A delivered item leaves the stack" in the pending-deliveries story with a `/compact` item.
-- [ ] 6.3 Extend the command reference and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 6.4 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
-- [ ] 6.5 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+- [x] 6.1 Store `/compact` during a live turn Run as a `queue` item for every delivery mode, add `command` to `ChatDeliveryResponse`, and promote or start a command item as a compaction Run (design D10). Until `compact-boundary`, answer a steer or interrupt mode change on a command item during a live turn Run with 400. Verify "A queued compact starts a compaction Run", "Steer now on a paused compact item", "Two queued compacts in a row", "Three queue items run in order", "A queue item that a send cannot use stays pending", "Steer now on a paused item", "A failed Run pauses the queue", "A queue send to an idle Chat starts at once", and "A send to a paused queue goes first". Regenerate the live AsyncAPI modules.
+  - Evidence: Added API unit and integration coverage for delivery modes/idempotency, promotion without message adoption, focused compaction runs, invalid-focus pending behavior, and mode-change refusal/paused-start. Generated OpenAPI, web client, and live AsyncAPI modules. API/web typechecks, focused API unit/integration suites, and lint passed.
+- [x] 6.2 Label a command row "Compact". During a live turn Run, hide "Steer now" and "Interrupt now" on it and keep its other actions; keep "Steer now" on a paused queue. Verify "Edit puts the text back" and "A delivered item leaves the stack" in the pending-deliveries story with a `/compact` item.
+  - Evidence: a command row is labelled "Compact", keeps Edit and Delete, and hides Steer now and Interrupt now during a live turn Run (shown on a paused queue); a delivered command item starts no stream hand-off; Edit puts slash text after a newer draft. Stories `CompactItemEditPutsTheTextBack`, `DeliveredCompactItemLeavesTheStack`, `CompactRow`, `PausedCompactRow` pass with the other chat-page and pending-deliveries stories (88).
+- [x] 6.3 Extend the command reference and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+  - Evidence: Updated `docs/product/reference/chat-commands.md` for queued `/compact` and the live-turn mode-change response; added dated changelog entry. `pnpm lint:markdown` passed.
+- [x] 6.4 Verify the layer: the API and web lint and typecheck, the focused tests above, `pnpm format:check`, `git diff --check`.
+  - Evidence: API/web lint and typecheck, API unit suite, deliveries/steering/compact integration files, chat-page and pending-deliveries stories, `pnpm format:check`, `git diff --check` pass; CI green on #1738.
+- [x] 6.5 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+  - Evidence: four-lens local review fixed before ready; #1738 GitHub review loop: 6 threads resolved (2 rejected per design D10 with reasons); CI green.
 
 ## 7. compact-boundary
 

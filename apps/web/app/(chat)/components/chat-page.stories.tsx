@@ -2880,6 +2880,7 @@ function pendingItem(
     chatId: CHAT_ID,
     producer: "owner",
     mode,
+    command: null,
     state: "pending",
     parts: [{ type: "text", text }],
     modelId: GPT_5_4_MINI.id,
@@ -3581,6 +3582,208 @@ export const DeliveredItemLeavesTheStack: Story = {
       expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
     );
     await transcriptShows(canvasElement, "use the other table");
+  },
+};
+
+const COMPACT_ITEM: ChatDeliveryResponse = {
+  ...pendingItem("c1", "queue", "/compact the migration plan"),
+  command: "compact",
+};
+
+/**
+ * A queued `/compact` waits for the live turn Run: its row is labelled
+ * Compact, offers no Steer now or Interrupt now, and Edit puts the command
+ * back in the composer.
+ *
+ * @summary a compact row edits back into the composer
+ */
+export const CompactItemEditPutsTheTextBack: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [`DELETE ${DELIVERY_ROUTE("c1")}`]: () =>
+        Promise.resolve(jsonResponse({ ...COMPACT_ITEM, state: "withdrawn" })),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedLiveRun(canvasElement);
+    const stack = within(await canvas.findByRole("region", PENDING_REGION));
+    await expect(stack.getByText("Compact")).toBeVisible();
+    await expect(
+      stack.queryByRole("button", { name: /^Steer now/ }),
+    ).toBeNull();
+    await expect(
+      stack.queryByRole("button", { name: /^Interrupt now/ }),
+    ).toBeNull();
+    await userEvent.click(stack.getByRole("button", { name: /^Edit/ }));
+
+    await waitFor(() =>
+      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+    );
+    await expect(composer(canvasElement)).toHaveValue(
+      "/compact the migration plan",
+    );
+  },
+};
+
+/**
+ * A slash command typed while a `/compact` edit is withdrawing stays alone:
+ * joined, one command would become the other's argument.
+ *
+ * @summary a newer slash draft survives a compact edit
+ */
+export const CompactEditKeepsANewerSlashDraft: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    typingDone = new Promise<void>((resolve) => {
+      releaseTyping = resolve;
+    });
+    routeAlso({
+      [`DELETE ${DELIVERY_ROUTE("c1")}`]: async () => {
+        await typingDone;
+
+        return jsonResponse({ ...COMPACT_ITEM, state: "withdrawn" });
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await openedLiveRun(canvasElement);
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+    await userEvent.type(input, "/rename Release");
+    releaseTyping();
+
+    await waitFor(() =>
+      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+    );
+    await expect(composer(canvasElement)).toHaveValue("/rename Release");
+  },
+};
+
+/**
+ * Edit on a `/compact` row with a draft in the composer withdraws nothing:
+ * joined to the draft, one command would become the other's argument.
+ *
+ * @summary editing a compact row needs an empty composer
+ */
+export const CompactItemEditNeedsAnEmptyComposer: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await openedLiveRun(canvasElement);
+    await userEvent.type(input, "/rename Release");
+
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+
+    await expect(composer(canvasElement)).toHaveValue("/rename Release");
+    await expect(within(stack).getByText("Compact")).toBeVisible();
+    await expect(sentRoutes().some((route) => route.startsWith("DELETE"))).toBe(
+      false,
+    );
+  },
+};
+
+/**
+ * Steer now on a paused `/compact` item starts its compaction Run: the row
+ * leaves the stack and the compaction row shows once history names the Run.
+ *
+ * @summary a paused compact item starts the compaction
+ */
+export const PausedCompactItemStartsTheCompaction: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: latestTurnRun({ status: "completed" }),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    let started = false;
+    routeAlso({
+      [`PATCH ${DELIVERY_ROUTE("c1")}`]: () => {
+        started = true;
+
+        return Promise.resolve(
+          jsonResponse({ ...COMPACT_ITEM, state: "delivered" }),
+        );
+      },
+      [HISTORY_ROUTE]: () =>
+        Promise.resolve(
+          jsonResponse({
+            messages: [TURN_USER_ROW, TURN_REPLY_ROW],
+            latestRun: started
+              ? compactionRun({ status: "running_model" })
+              : latestTurnRun({ status: "completed" }),
+          }),
+        ),
+      [RESUME_ROUTE]: () => Promise.resolve(emptyResponse()),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "I found the budget notes.",
+    );
+
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(
+      within(stack).getByRole("button", { name: /^Steer now/ }),
+    );
+
+    await expect(await canvas.findByText("Compacting context…")).toBeVisible();
+    await expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull();
+  },
+};
+
+/**
+ * A `/compact` item the Run delivered meanwhile leaves the stack; it started
+ * a compaction Run, which has no message, so no stream hand-off waits for it.
+ *
+ * @summary a delivered compact item leaves the stack without a hand-off
+ */
+export const DeliveredCompactItemLeavesTheStack: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: liveRun(),
+    pending: [COMPACT_ITEM],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [`DELETE ${DELIVERY_ROUTE("c1")}`]: () =>
+        Promise.resolve(
+          jsonResponse({ statusCode: 409, message: "Already delivered" }, 409),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedLiveRun(canvasElement);
+    const resumes = sentRoutes().filter((r) => r === RESUME_ROUTE).length;
+    const stack = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.click(within(stack).getByRole("button", { name: /^Edit/ }));
+
+    await waitFor(() =>
+      expect(canvas.queryByRole("region", PENDING_REGION)).toBeNull(),
+    );
+    await expect(composer(canvasElement)).toHaveValue("");
+    await expect(sentRoutes().filter((r) => r === RESUME_ROUTE).length).toBe(
+      resumes,
+    );
   },
 };
 

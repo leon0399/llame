@@ -177,6 +177,10 @@ export const chatDeliveryResponseSchema = z.object({
     .optional(),
   mode: z.enum(['steer', 'interrupt', 'queue', 'notice']),
   state: z.enum(['pending', 'delivered', 'withdrawn']),
+  command: z
+    .literal('compact')
+    .nullable()
+    .describe('The parsed command, or null for a message item.'),
   parts: z.array(z.record(z.string(), z.any())),
   modelId: z.string(),
   effort: z.string().optional(),
