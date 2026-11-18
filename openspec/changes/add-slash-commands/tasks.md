@@ -196,7 +196,8 @@ where a smaller safe merge point appears.
     (64 passed, 0 failed). All 24 MODIFIED requirements match their delta wording and scenarios.
     `pnpm lint:markdown` found 0 issues in 1,099 files; `pnpm format:check` passed across 3,970
     files; `node scripts/check-markdown-links.mjs` and `git diff --check` exited successfully.
-- [ ] 10.3 Check that every task above is checked and `openspec status --change add-slash-commands --json` reports every artifact done.
+- [x] 10.3 Check that every task above is checked and `openspec status --change add-slash-commands --json` reports every artifact done.
+  - Evidence: on the finalize tip over compact-auto `584d2dcb`, no unchecked task remains above 10.3; `openspec status --change add-slash-commands --json` reports proposal, specs, design, and tasks `done`. No delta spec changed after the sync (last delta commit `3d899b77`).
 
 ## Workflow follow-up
 
