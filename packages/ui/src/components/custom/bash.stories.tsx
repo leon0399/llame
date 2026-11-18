@@ -143,7 +143,7 @@ export const Failed: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /bash/iu }));
-    const result = canvas.getByLabelText("Error");
+    const result = canvas.getByRole("group", { name: "Error" });
 
     await expect(result).toHaveProperty(
       "textContent",

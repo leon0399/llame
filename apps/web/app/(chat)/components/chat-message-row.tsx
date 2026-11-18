@@ -12,6 +12,7 @@ import { MessageActionButton } from "./message-action-button";
 import {
   groupAssistantParts,
   groupReplyBlocks,
+  type GroupedAssistantPart,
   type PlainPart,
 } from "./group-assistant-parts";
 import { StepsBlock } from "./message-steps";
@@ -308,6 +309,16 @@ type ChatMessageRowProps = ChatMessageActionProps & {
   isLast: boolean;
 };
 
+/** Empty answer starts do not move a streaming reply past its steps. */
+function isVisibleReplySegment(segment: GroupedAssistantPart) {
+  return (
+    isVisibleSegment(segment) &&
+    (segment.kind === "reasoning" ||
+      segment.part.type !== "text" ||
+      segment.part.text.trim() !== "")
+  );
+}
+
 /** Walks the stored parts as blocks: each run of steps (thinking and tool
  *  calls) is one trace, and everything else renders in stored order. Only the
  *  last block of a reply that is still streaming can be running. */
@@ -323,7 +334,7 @@ function MessageSegments({
   streaming: boolean;
 }) {
   const blocks = groupReplyBlocks(
-    groupAssistantParts(parts).filter(isVisibleSegment),
+    groupAssistantParts(parts).filter(isVisibleReplySegment),
   );
 
   return blocks.map((block, at) => {

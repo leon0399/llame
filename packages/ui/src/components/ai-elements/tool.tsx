@@ -347,7 +347,11 @@ export const ToolHeader = ({
             (name.startsWith("mcp__") ? <PlugIcon /> : <WrenchIcon />)}
         </TraceIcon>
         <TraceTitle>{intent ?? action}</TraceTitle>
-        {intent ? <TraceDescription>{action}</TraceDescription> : null}
+        {intent ? (
+          <TraceDescription className="min-w-0 flex-1 truncate">
+            {action}
+          </TraceDescription>
+        ) : null}
         {/* The tool and its state by name, for assistive technology. */}
         <span className="sr-only">
           , {named ? "" : `${title ?? name}, `}
@@ -390,7 +394,7 @@ export const ToolInput = ({ input, ...props }: ToolInputProps) => {
       <CodeBlockHeader>
         <CodeBlockTitle>Parameters</CodeBlockTitle>
       </CodeBlockHeader>
-      <CodeBlockContent wrap className="max-h-64">
+      <CodeBlockContent wrap className="max-h-64" aria-label="Parameters">
         {safeStringify(input)}
       </CodeBlockContent>
     </CodeBlock>

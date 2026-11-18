@@ -201,7 +201,7 @@ export const ReasoningTrigger = memo(
               )}
             </TraceIcon>
             <TraceTitle>
-              {title ?? getThinkingMessage(isStreaming, duration)}
+              {title || getThinkingMessage(isStreaming, duration)}
             </TraceTitle>
             {title ? (
               <span className="sr-only">

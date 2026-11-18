@@ -9,6 +9,7 @@ import {
   within,
 } from "storybook/test";
 import type { UIMessage } from "ai";
+import { useState, type ComponentProps } from "react";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
@@ -2324,7 +2325,11 @@ export const FoldedSteps: Story = {
   },
 };
 
-/** A command's nonzero exit remains visible in the folded group's outcome. */
+/**
+ * A command's nonzero exit remains visible in the folded group's outcome.
+ *
+ * @summary a folded trace retains its failed-command count
+ */
 export const FailedStepGroup: Story = {
   args: {
     renderKey: "failed-step-group",
@@ -2365,6 +2370,11 @@ export const FailedStepGroup: Story = {
   },
 };
 
+/**
+ * A cancelled step stays visible in the folded summary without becoming a failure.
+ *
+ * @summary a folded trace distinguishes cancellation from failure
+ */
 export const CancelledStepGroup: Story = {
   args: {
     renderKey: "cancelled-step-group",
@@ -2397,5 +2407,72 @@ export const CancelledStepGroup: Story = {
         name: /sleep 30.*Cancelled/u,
       }),
     ).toBeVisible();
+  },
+};
+
+/** A live reply receives whitespace before its first visible answer delta. */
+function StreamedAnswerAfterSteps(
+  props: ComponentProps<typeof ChatMessageRow>,
+) {
+  const [text, setText] = useState("");
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setText(text === "" ? "\n  " : "All checks pass.")}
+      >
+        Next delta
+      </button>
+      <ChatMessageRow
+        {...props}
+        message={{
+          ...props.message,
+          parts: [
+            ...props.message.parts,
+            { type: "text", text, state: "streaming" },
+          ],
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * Settled steps remain open while the model has emitted only empty or whitespace
+ * answer text, then fold once the answer becomes visible, before the Run finishes.
+ *
+ * @summary step activity follows visible answer text rather than text-start events
+ */
+export const StepsRunUntilVisibleAnswer: Story = {
+  args: {
+    status: "streaming",
+    isLast: true,
+    message: {
+      id: "live-step-boundary",
+      role: "assistant",
+      parts: [
+        { type: "reasoning", text: "Check the workspace.", state: "done" },
+        bashStep("live-1", "pnpm lint"),
+        bashStep("live-2", "pnpm typecheck"),
+        bashStep("live-3", "pnpm test"),
+      ],
+    },
+  },
+  render: (args) => <StreamedAnswerAfterSteps {...args} />,
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole("button", { name: "Working" });
+
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+    await expect(canvas.getByText("pnpm typecheck")).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Next delta" }));
+    await expect(summary).toHaveAccessibleName("Working");
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(canvas.getByRole("button", { name: "Next delta" }));
+    await waitFor(() =>
+      expect(summary).toHaveAccessibleName("Worked through 4 steps"),
+    );
+    await expect(summary).toHaveAttribute("aria-expanded", "false");
+    await expect(canvas.getByText("All checks pass.")).toBeVisible();
   },
 };

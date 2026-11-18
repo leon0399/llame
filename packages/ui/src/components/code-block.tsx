@@ -70,11 +70,11 @@ function CodeBlockContent({
   children,
   wrap = false,
   ...props
-}: React.ComponentProps<"pre"> & {
+}: React.ComponentProps<"fieldset"> & {
   wrap?: boolean;
 }) {
   return (
-    <pre
+    <fieldset
       data-slot="code-block-content"
       data-wrap={wrap || undefined}
       dir="ltr"
@@ -83,7 +83,7 @@ function CodeBlockContent({
       // oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={0}
       className={cn(
-        "min-h-0 min-w-0 scroll-fade-x scrollbar-thin overflow-auto px-3 py-3 text-start font-mono leading-relaxed outline-none group-has-data-[slot=code-block-footer]/code-block:pb-2 group-has-data-[slot=code-block-header]/code-block:pt-2 group-data-[size=sm]/code-block:px-2.5 group-data-[size=sm]/code-block:py-2.5 group-data-[size=sm]/code-block:group-has-data-[slot=code-block-header]/code-block:pt-1.5 data-wrap:scroll-fade-y data-wrap:wrap-break-word data-wrap:whitespace-pre-wrap",
+        "min-h-0 min-w-0 scroll-fade-x scrollbar-thin overflow-auto px-3 py-3 text-start font-mono leading-relaxed whitespace-pre outline-none group-has-data-[slot=code-block-footer]/code-block:pb-2 group-has-data-[slot=code-block-header]/code-block:pt-2 group-data-[size=sm]/code-block:px-2.5 group-data-[size=sm]/code-block:py-2.5 group-data-[size=sm]/code-block:group-has-data-[slot=code-block-header]/code-block:pt-1.5 data-wrap:scroll-fade-y data-wrap:wrap-break-word data-wrap:whitespace-pre-wrap",
         className,
       )}
       {...props}
@@ -94,7 +94,7 @@ function CodeBlockContent({
       >
         {children}
       </code>
-    </pre>
+    </fieldset>
   );
 }
 

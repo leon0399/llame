@@ -23,7 +23,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   into one "Worked through N steps" line once the answer moves on, open while
   it is still running. Bash output uses a terminal trace with exact command,
   standard output, standard error, and exit status. Failed calls stay visible
-  in folded summaries. Message rows use the same 10px gap as their action rows.
+  in folded summaries. Empty answer-start events do not prematurely fold live
+  steps. Named, keyboard-focusable groups expose tool inputs and results;
+  compact intent lines constrain long command previews without hiding their
+  expanded input. Message rows use the same 10px gap as their action rows.
 
 # 2026-11-17
 

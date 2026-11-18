@@ -117,6 +117,21 @@ export const Collapsed: Story = {
 };
 
 /**
+ * An absent summary title, including an empty one, leaves the disclosure named.
+ *
+ * @summary an empty title falls back to the completed thinking label
+ */
+export const EmptyTitle: Story = {
+  args: { title: "", isStreaming: false, duration: 4, defaultOpen: false },
+  play: async ({ canvas, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: /Thought/u });
+
+    await userEvent.click(trigger);
+    await expect(canvas.getByText(/capital of France/i)).toBeVisible();
+  },
+};
+
+/**
  * Reasoning summaries arrive as discrete headed blocks, and a wire that drops
  * the summary index concatenates them into a `****` run that markdown cannot
  * read as bold. The panel separates the glued pair at render, so each title is
