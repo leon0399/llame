@@ -23,7 +23,7 @@ export type FollowUpRunRequest =
  *  composer holds when it is prepared. */
 export type ChatTransportRequestOptions = {
   messages: Array<Pick<UIMessage, "id" | "parts">>;
-  /** The Chat the messages belong to — the SDK's own `id`. */
+  /** The Chat the messages belong to. */
   chatId: string;
   /** `regenerate-message` is a follow-up Run; anything else is a chat send. */
   trigger?: "submit-message" | "regenerate-message";
@@ -62,15 +62,6 @@ export function buildFollowUpRunUrl(
   userMessageId: string,
 ): string {
   return buildApiUrl(`/api/v1/chats/${chatId}/messages/${userMessageId}/runs`);
-}
-
-/**
- * Resume-on-refresh (#49): points the transport's reconnectToStream at the
- * api's stream-resume endpoint, which replays the chat's active run as a
- * UI-message stream (or 204 → the SDK resolves null and the chat stays idle).
- */
-export function prepareReconnectToStreamRequest({ id }: { id: string }) {
-  return { api: buildChatStreamUrl(id) };
 }
 
 function isNonBlankString(value: unknown): value is string {
@@ -128,8 +119,8 @@ export type PreparedChatRequest = {
   body: ChatSendBody | FollowUpRunRequest;
 };
 
-/** The follow-up request: the same UI-message stream a chat send answers, keyed
- *  on the turn's LAST user message rather than the reply, because the SDK
+/** The follow-up request: the same AG-UI stream a chat send answers, keyed on
+ *  the turn's LAST user message rather than the reply, because the engine
  *  slices the log to that message whether or not a reply exists (D13). */
 function prepareFollowUpRun(
   options: Pick<ChatTransportRequestOptions, "chatId" | "followUp">,

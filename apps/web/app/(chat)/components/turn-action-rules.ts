@@ -43,7 +43,7 @@ export function isSettledToolPart(
 }
 
 /** A request is only prepared from a settled chat: a follow-up started while
- *  another request streams would race it (the SDK has no in-flight guard). */
+ *  another request streams would race it (a send has no in-flight guard). */
 function isActionableStatus(status: ChatStatus): boolean {
   return status === "ready" || status === "error";
 }
@@ -233,7 +233,7 @@ export function needsFailedTurnRow(input: {
  * dispatches, so a reload before that dispatch would show the old answer
  * beside the resumed stream (D13). The reply is found by its turn, not by
  * position, because the resumed stream attaches as a new trailing message
- * (its id is the Run's, so the SDK pushes rather than replaces). A live
+ * (its id is the Run's, so the engine appends rather than replaces). A live
  * placeholder carries no durable seq, and the follow-up Run's own pending
  * reply names that Run, so neither is hidden.
  */

@@ -18,7 +18,7 @@
     "typecheck": "next typegen && tsgo --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/react": "3.0.259",
+    "@ag-ui/core": "catalog:",
     "@hookform/resolvers": "catalog:",
     "@sentry/nextjs": "^10.76.2",
     "@tanstack/react-query": "catalog:",
@@ -26,6 +26,7 @@
     "@workspace/ui": "workspace:*",
     "ai": "catalog:",
     "date-fns": "^4.1.0",
+    "eventsource-parser": "3.1.0",
     "framer-motion": "^12.23.6",
     "js-cookie": "^3.0.7",
     "lucide-react": "catalog:",

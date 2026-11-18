@@ -138,13 +138,13 @@ export function parseSseEvents(body: string): Array<unknown> {
 /**
  * Extracts streamed text content from an SSE payload.
  *
- * @returns The concatenated `delta` values from `text-delta` events.
+ * @returns The concatenated `delta` values from `TEXT_MESSAGE_CONTENT` events.
  */
 export function streamedText(body: string): string {
   return parseSseEvents(body)
     .filter(
-      (event): event is { type: 'text-delta'; delta: string } =>
-        isRecord(event) && event.type === 'text-delta',
+      (event): event is { type: 'TEXT_MESSAGE_CONTENT'; delta: string } =>
+        isRecord(event) && event.type === 'TEXT_MESSAGE_CONTENT',
     )
     .map((event) => event.delta)
     .join('');
@@ -175,10 +175,10 @@ export async function waitFor<T>(
   }
 }
 
-/** The UI message stream fields an incremental reader's callers assert on. */
+/** The AG-UI event fields an incremental reader's callers assert on. */
 const uiStreamFrame = z.object({
   type: z.string(),
-  messageId: z.string().optional(),
+  runId: z.string().optional(),
 });
 
 export type UiStreamFrame = z.infer<typeof uiStreamFrame>;
@@ -186,8 +186,8 @@ export type UiStreamFrame = z.infer<typeof uiStreamFrame>;
 /**
  * A live SSE response read one frame at a time. supertest resolves only on the
  * complete body, so it cannot observe a stream whose first frame arrives while
- * the Run feeding it is still queued — exactly what the acceptance `start`
- * frame claims.
+ * the Run feeding it is still queued — exactly what the acceptance
+ * `RUN_STARTED` event claims.
  */
 export type IncrementalSseResponse = {
   status: number;

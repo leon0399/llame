@@ -1,13 +1,15 @@
 /**
- * The UI-message stream vocabulary the run-event bridge emits (AI SDK v1
- * protocol), and the payload readers every translator shares. Split from the
- * bridge so the kept-part replay can name the same chunks without importing
- * the bridge's service.
+ * The part chunks the run-event translator emits — the ordered parts of a
+ * reply, in the AI SDK UI-message chunk vocabulary the stored transcript's
+ * parts come from — and the payload readers every translator shares. The
+ * chunks are internal: `ag-ui-events.ts` writes them to the client as AG-UI
+ * events. Split from the bridge so the kept-part replay can name the same
+ * chunks without importing the bridge's service.
  */
 
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 
-/** UI-message stream chunk subset the bridge emits (AI SDK v1 protocol). */
+/** The part chunks of a reply (a subset of the AI SDK UI-message chunks). */
 export type UiChunk =
   | { type: 'start'; messageId: string }
   | { type: 'text-start'; id: string }
@@ -45,7 +47,7 @@ export type UiChunk =
   | { type: 'data-compaction-disabled'; data: Record<string, never> }
   | { type: 'data-run-delivered'; data: { messageId: string } }
   | { type: 'error'; errorText: string }
-  | { type: 'finish'; finishReason: 'stop' };
+  | { type: 'finish'; finishReason: 'stop'; cancelled?: true };
 
 export interface RunEventLike {
   eventType: string;

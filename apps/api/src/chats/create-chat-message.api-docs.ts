@@ -41,7 +41,7 @@ const createChatMessageDocs: Array<MethodDecorator> = [
     ModelDomainErrorResponse,
   ),
   ApiOkResponse({
-    description: 'AI SDK v5 UI-message stream (SSE) or chat command result',
+    description: 'AG-UI event stream (SSE) or chat command result',
     content: {
       'text/event-stream': {
         schema: { type: 'string' },

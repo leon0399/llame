@@ -135,15 +135,3 @@ export function setChatMarkdownLoadForTests(
   cachedRenderers = null;
   loadPromise = null;
 }
-
-/**
- * Test-only: start from a warm cache holding `renderers`, as a tab that has
- * already loaded the chunks would, without importing them. `null` clears it.
- */
-export function setChatMarkdownRenderersForTests(
-  renderers: ChatMarkdownRenderers | null,
-): void {
-  loadOverride = null;
-  cachedRenderers = renderers;
-  loadPromise = null;
-}

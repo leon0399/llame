@@ -50,6 +50,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@ag-ui/core": "catalog:",
     "@ai-sdk/anthropic": "3.0.118",
     "@ai-sdk/cohere": "3.0.55",
     "@ai-sdk/mcp": "catalog:",

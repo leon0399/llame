@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 
-import { useChat } from "@ai-sdk/react";
 import type { ChatStatus, FileUIPart, UIMessage } from "ai";
+
+import type { AgUiChatState } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatContext } from "@/contexts/chat-context";
@@ -42,8 +43,8 @@ import {
 } from "./use-composer-attachments";
 
 type ChatSubmitHandlersArgs = {
-  sendMessage: ReturnType<typeof useChat>["sendMessage"];
-  status: ReturnType<typeof useChat>["status"];
+  sendMessage: AgUiChatState["sendMessage"];
+  status: ChatStatus;
   modelReadyForSend: boolean;
   onSendStarted: () => void;
   onSendFailed: () => void;
@@ -120,9 +121,9 @@ function createHandleSubmit(args: ChatSubmitHandlersArgs) {
 
 type UseChatActionsArgs = {
   messages: Array<UIMessage>;
-  stop: ReturnType<typeof useChat>["stop"];
-  sendMessage: ReturnType<typeof useChat>["sendMessage"];
-  status: ReturnType<typeof useChat>["status"];
+  stop: AgUiChatState["stop"];
+  sendMessage: AgUiChatState["sendMessage"];
+  status: ChatStatus;
   modelReadyForSend: boolean;
   onSendStarted: () => void;
   onSendFailed: () => void;
@@ -171,7 +172,7 @@ function useChatActions({
 }
 
 /** Every piece of state `useChatConversation` needs that isn't specific to
- *  one `chatId`'s live `useChat` engine: chat-context/active-runs reads,
+ *  one `chatId`'s live chat engine: chat-context/active-runs reads,
  *  model-selection readiness, the send transport, and the cache-refresh
  *  callbacks. Composed here so `useChatConversation` stays a thin owner. */
 function useChatSetup(chatId: string) {
@@ -194,12 +195,12 @@ function useChatSetup(chatId: string) {
 
 type UseChatSideEffectsArgs = {
   resume: boolean;
-  resumeStream: ReturnType<typeof useChat>["resumeStream"];
+  resumeStream: AgUiChatState["resumeStream"];
   refreshChatMessages: () => void;
   chatMessages: Array<UIMessage>;
   messages: Array<UIMessage>;
-  status: ReturnType<typeof useChat>["status"];
-  setMessages: ReturnType<typeof useChat>["setMessages"];
+  status: ChatStatus;
+  setMessages: AgUiChatState["setMessages"];
   chatId: string;
   trackRun: (runId: string, chatId: string, label: string) => void;
   markChatSeen: (chatId: string) => void;
@@ -325,7 +326,7 @@ type UseChatEngineStateArgs = {
   setup: ReturnType<typeof useChatSetup>;
 };
 
-/** The `useChat` engine itself, plus everything derived from its live
+/** The chat engine itself, plus everything derived from its live
  *  messages: the displayed transcript, the compaction boundary, and every
  *  effect that reacts to them. Split out so `useChatConversation` composes
  *  only a handful of top-level calls. */
@@ -435,7 +436,7 @@ function buildTranscriptState(
  *  send like the composer does, so a follow-up in a target view still clears
  *  its tracking and refreshes history when it finishes. */
 export function useFollowUpRun(
-  regenerate: ReturnType<typeof useChat>["regenerate"],
+  regenerate: AgUiChatState["regenerate"],
   onSendStarted: () => void,
 ) {
   return useCallback(
@@ -498,7 +499,7 @@ function useConversationDelivery(
 
 /**
  * Owns every piece of state `ChatSessionContent` needs: the model
- * selection, the send transport, the `useChat` engine itself, history
+ * selection, the send transport, the chat engine itself, history
  * resume/adoption, run presence, and the composer's submit handlers. Split
  * out so `ChatSessionContent` composes only markup — this hook must stay a
  * direct call from that component's own render (see `useChatEngine`'s

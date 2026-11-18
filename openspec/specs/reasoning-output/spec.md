@@ -246,7 +246,7 @@ reasoning text elsewhere.
 
 ### Requirement: Existing UI support receives durable reasoning parts
 
-The backend SHALL use the existing AI SDK reasoning stream protocol and persisted reasoning part shape, extended only by the optional opaque provider metadata this capability defines. The web chat SHALL render reasoning parts in persisted order. Consecutive reasoning parts with no intervening tool or visible text part SHALL share one Thinking panel. A tool or visible text part SHALL split panels so occurrence order is preserved. A panel whose grouped parts carry no reasoning text SHALL NOT be rendered: a provider that withholds thinking text still returns thinking blocks whose text is empty and whose metadata is needed for replay, so such parts persist and replay exactly as any other reasoning part while the chat shows nothing for them.
+The backend SHALL preserve the persisted AI SDK reasoning-part shape, extended only by the optional opaque provider metadata this capability defines. The owner stream SHALL carry displayable reasoning through AG-UI 1.0 `REASONING_*` events without exposing that opaque metadata. The web chat SHALL render reasoning parts in persisted order. Consecutive reasoning parts with no intervening tool or visible text part SHALL share one reasoning panel. A tool or visible text part SHALL split panels so occurrence order is preserved. A panel whose grouped parts carry no reasoning text SHALL NOT be rendered: a provider that withholds thinking text still returns thinking blocks whose text is empty and whose metadata is needed for replay, so such parts persist and replay exactly as any other reasoning part while the chat shows nothing for them.
 
 #### Scenario: Existing renderer receives historical reasoning
 
