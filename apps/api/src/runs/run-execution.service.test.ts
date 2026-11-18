@@ -11549,6 +11549,61 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       return { ...outcome, capturing, triggerId };
     }
 
+    it('does not load progress media for an attempt without compaction', async () => {
+      mockNormalExecutionRepositories();
+      const imageId = '0192f3a4-5b6c-7d8e-9f01-0000000000e2';
+      const capturing = makeCapturingClient();
+      Object.assign(capturing.client, { input: ['text', 'image'] });
+
+      const execution = makeExecutionService(
+        capturing.client,
+        makeDynamicResolver({
+          id: toolDeclaration.id,
+          description: toolDeclaration.description,
+          classification: 'unverified',
+          inputSchema: toolDeclaration.inputSchema,
+          execute: () => Promise.resolve({ status: 'success' as const }),
+        }),
+        undefined,
+        withDeclaredTool(),
+      );
+
+      const where = () => Promise.resolve([descriptorRow(descriptor(imageId))]);
+      // The descriptor query uses drizzle's private fluent-builder state.
+      // SAFETY: this double implements the exact select/from/where calls used.
+      // eslint-disable-next-line typescript/no-unsafe-type-assertion
+      vi.spyOn(execution.db, 'select').mockReturnValue({
+        from: () => ({ where }),
+      } as never);
+
+      await execution.service.executeRun({
+        ...executionInput(capturing.client),
+        userMessage: {
+          ...userMessage,
+          seq: 3,
+          parts: [
+            {
+              type: 'file',
+              mediaType: 'image/png',
+              url: `media://${imageId}`,
+            },
+          ],
+        },
+      });
+
+      const options = capturing.streamOptions();
+
+      if (!options?.onStepStart || options.media === undefined) {
+        throw new Error('model step media callbacks were not captured');
+      }
+
+      const describe = vi.spyOn(options.media, 'describe');
+
+      await options.onStepStart({ messages: options.messages, stepNumber: 0 });
+
+      expect(describe).not.toHaveBeenCalled();
+    });
+
     it('takes the threshold variant when an earlier row holds an image', async () => {
       const { execution } = await overflowWithEarlierImage();
 
@@ -21434,6 +21489,18 @@ describe('RunExecutionService executeRun — run segments', () => {
       expect(types).toContain('tool.requested');
       expectWaitOutcome(scenario, spies, types, appended);
 
+      if (scenario.expectedContinuation) {
+        const closedParts =
+          spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts;
+
+        expect(closedParts).not.toContainEqual(
+          expect.objectContaining({ type: 'data-compaction-failed' }),
+        );
+        expect(closedParts).not.toContainEqual(
+          expect.objectContaining({ type: 'data-compaction-disabled' }),
+        );
+      }
+
       if (scenario.boundaryDelivered === true) {
         expect(types).toContain('run.delivered');
         expect(segment.calls).toHaveLength(2);
@@ -22359,6 +22426,69 @@ describe('RunExecutionService executeRun — run segments', () => {
       continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
     ).toHaveLength(1);
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the first-epoch digest baseline through final-answer delivery', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+
+    const baseline: RecencyDigestResolution['baseline'] = {
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue({ baseline, candidates: [] });
+
+    const setBaseline = vi
+      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+      .mockResolvedValue({ ...chat, recencyDigestBaseline: baseline });
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+
+    const execution = makeExecutionService(
+      segment.client,
+      makeDynamicResolver({
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => Promise.resolve({ status: 'success' as const }),
+      }),
+      undefined,
+      {
+        ...withDeclaredTool(),
+        memory: {
+          getForOwnerForBinding: vi
+            .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+            .mockResolvedValue({ shareRecentChats: true }),
+        },
+        recencyDigest: { resolveCandidate },
+      },
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    signal.mockResolvedValueOnce('delivery');
+    await options?.stopWhenExtra?.();
+    serveDelivery([pendingItem]);
+    await options?.onFinish?.(finishToolCalls);
+
+    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, baseline, []);
   });
 
   it('carries a compaction quote when the boundary input has no text', async () => {
@@ -23416,10 +23546,16 @@ describe('RunExecutionService executeRun — run segments', () => {
     const segment = makeSegmentClient();
     const execution = toolService(segment.client);
 
+    const checkAutomaticCompaction = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'automaticCompactionDueAtBoundary',
+    );
+
     await execution.service.executeRun(executionInput(segment.client));
     const options = segment.calls[0];
     signal.mockResolvedValueOnce('cancel');
     await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+    expect(checkAutomaticCompaction).not.toHaveBeenCalled();
     await options?.onFinish?.(finishToolCalls);
 
     expect(lock).not.toHaveBeenCalled();
