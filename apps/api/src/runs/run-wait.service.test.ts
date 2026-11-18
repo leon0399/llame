@@ -183,7 +183,7 @@ describe('RunWaitService.suspend', () => {
     expect(enqueueCall?.[1].runId).toBe(input.runId);
     expect(enqueueCall?.[1].wake?.generation).toBe(5);
     expect(enqueueCall?.[1].wake?.jobId).toBe(update?.currentJobId);
-    expect(enqueueCall?.[1].userMessage.id).toBe('message-1');
+    expect(enqueueCall?.[1].userMessage).toMatchObject({ id: 'message-1' });
     expect(enqueueCall?.[2]?.id).toBe(update?.currentJobId);
     expect(enqueueCall?.[2]?.startAfter).toEqual(new Date(input.deadline));
   });

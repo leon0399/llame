@@ -377,6 +377,7 @@ const userMessage: Message = {
 
 const run: Run = {
   id: runId,
+  kind: 'turn',
   chatId,
   messageId,
   userId,
@@ -13152,6 +13153,52 @@ describe('RunExecutionService settleTerminalRun', () => {
     expect(createAssistantReplyIfAbsent).not.toHaveBeenCalled();
     expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
     expect(execution.searchIndex.reindexChat).not.toHaveBeenCalled();
+  });
+
+  it('skips steering delivery and notice adoption for a compaction Run', async () => {
+    mockNormalExecutionRepositories();
+
+    const compactionRun = {
+      ...run,
+      kind: 'compaction' as const,
+      messageId: null,
+    };
+
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(
+      compactionRun,
+    );
+
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({ ...compactionRun, activeAttemptId: testAttemptId });
+    vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
+      ...compactionRun,
+      status: 'completed',
+    });
+
+    const lockPendingBoundary = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'lockPendingBoundary',
+    );
+
+    const deliverPendingJobNotices = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'deliverPendingJobNotices',
+    );
+
+    const execution = makeExecutionService();
+
+    await execution.service.settleTerminalRun({
+      userId,
+      runId,
+      status: 'completed',
+      attemptId: testAttemptId,
+      runPayload: { status: 'completed' },
+    });
+
+    expect(lockPendingBoundary).not.toHaveBeenCalled();
+    expect(deliverPendingJobNotices).not.toHaveBeenCalled();
   });
 });
 

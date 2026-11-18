@@ -42,6 +42,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Upgrading Go/Zen models to Messages changes the output default for non-Claude
   model ids to 4,096 tokens, including thinking. Set `maxOutputTokens` explicitly
   for a larger provider-supported limit.
+- Include Run kind in API run responses and history reads.
+
 - Add `/rename` to set a Chat title or regenerate it from recent conversation
   history with the configured title model.
 

@@ -5287,6 +5287,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "kind": {
+            "type": "string",
+            "enum": ["turn", "compaction"]
+          },
           "messageId": {
             "type": "string",
             "format": "uuid",
@@ -5339,6 +5343,7 @@
         },
         "required": [
           "id",
+          "kind",
           "messageId",
           "status",
           "followUpAction",
@@ -7109,6 +7114,10 @@
             "format": "uuid",
             "nullable": true
           },
+          "kind": {
+            "type": "string",
+            "enum": ["turn", "compaction"]
+          },
           "modelId": {
             "type": "string"
           },
@@ -7164,6 +7173,7 @@
           "id",
           "chatId",
           "messageId",
+          "kind",
           "modelId",
           "permissionMode",
           "status",

@@ -280,6 +280,44 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
       },
     });
   });
+  it('expires a dead-lettered turn job that has no user message', async () => {
+    const settleTerminalRun = vi
+      .fn<RunExecutor['settleTerminalRun']>()
+      .mockResolvedValue({ outcome: 'won' });
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      runExecution: {
+        executeRun: unstubbed('executeRun'),
+        settleTerminalRun,
+      },
+    });
+
+    await service.onApplicationBootstrap();
+
+    const deadLetterCall = consumeSpy.mock.calls.find(
+      ([definition]) => definition.name === 'runs.dead',
+    );
+
+    if (!deadLetterCall) {
+      throw new Error('runs.dead consumer was never registered');
+    }
+
+    await deadLetterCall[1]({
+      runId: 'run-without-message',
+      chatId: 'chat-1',
+      userId: 'owner-1',
+      modelId: 'system:openai:gpt-5.4-mini',
+    });
+
+    expect(settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-without-message',
+        userId: 'owner-1',
+        status: 'expired',
+        expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
+      }),
+    );
+  });
 
   it('removes a Chat artifact directory no attempt reconciled for seven days', async () => {
     hostTmpdir();
@@ -396,7 +434,7 @@ describe('RunsWorkerService — canonical search coverage admission', () => {
 });
 
 describe('RunsWorkerService — pickup cancellation and post-drain liveness', () => {
-  const job: RunJob = {
+  const job: RunJob & { userMessage: RunUserMessage } = {
     runId: 'run-worker-liveness',
     chatId: 'chat-1',
     userId: 'owner-xyz',
@@ -410,8 +448,9 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 
   const queuedRun = {
     id: job.runId,
-    chatId: job.chatId,
+    kind: 'turn' as const,
     messageId: job.userMessage.id,
+    chatId: job.chatId,
     userId: job.userId,
     modelId: job.modelId,
     activeAttemptId: null,
@@ -439,6 +478,31 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('rejects a turn job without a user message so the queue dead-letters it', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(queuedRun);
+    const executeRun = vi.fn();
+    const tx = makeFakeTx();
+
+    const { service, consumeSpy } = makeService(tx, {
+      runExecution: {
+        executeRun,
+        settleTerminalRun: unstubbed('settleTerminalRun'),
+      },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await expect(
+      handler({
+        runId: job.runId,
+        chatId: job.chatId,
+        userId: job.userId,
+        modelId: job.modelId,
+      }),
+    ).rejects.toThrow(`Turn Run ${job.runId} has no user message.`);
+    expect(executeRun).not.toHaveBeenCalled();
   });
 
   it('rejects a resolved stream drain when the owner-scoped run is still nonterminal so the queue retries', async () => {
@@ -1306,7 +1370,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
 const ONE_SECOND_MS = 1000;
 
 describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limits D2)', () => {
-  const job: RunJob = {
+  const job: RunJob & { userMessage: RunUserMessage } = {
     runId: 'run-execution-limit',
     chatId: 'chat-1',
     userId: 'owner-xyz',
@@ -1320,8 +1384,9 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
 
   const queuedRun = {
     id: job.runId,
-    chatId: job.chatId,
+    kind: 'turn' as const,
     messageId: job.userMessage.id,
+    chatId: job.chatId,
     userId: job.userId,
     modelId: job.modelId,
     activeAttemptId: null,
@@ -1401,7 +1466,7 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
 });
 
 describe('RunsWorkerService — durable run-level failures', () => {
-  const job: RunJob = {
+  const job: RunJob & { userMessage: RunUserMessage } = {
     runId: 'run-context-incompatible',
     chatId: 'chat-1',
     userId: 'owner-xyz',
@@ -1420,8 +1485,9 @@ describe('RunsWorkerService — durable run-level failures', () => {
   it('settles a durably recorded model-context incompatibility without asking the queue to retry', async () => {
     const run = {
       id: job.runId,
-      chatId: job.chatId,
+      kind: 'turn' as const,
       messageId: job.userMessage.id,
+      chatId: job.chatId,
       userId: job.userId,
       modelId: job.modelId,
       activeAttemptId: null,
@@ -1483,6 +1549,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
   it('rejects the queue job when model-context failure did not reach a durable terminal state', async () => {
     const run = {
       id: job.runId,
+      kind: 'turn' as const,
       chatId: job.chatId,
       messageId: job.userMessage.id,
       userId: job.userId,

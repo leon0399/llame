@@ -269,6 +269,7 @@ describe('ChatsController', () => {
   it('reports the latest Run beside the messages, field by field', async () => {
     const latestRun: Run = {
       id: '11111111-1111-4111-8111-111111111111',
+      kind: 'turn',
       chatId: chat.id,
       messageId: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
       userId: 'verified-user',
@@ -303,6 +304,7 @@ describe('ChatsController', () => {
     });
 
     expect(result.latestRun).toEqual({
+      kind: 'turn',
       id: '11111111-1111-4111-8111-111111111111',
       messageId: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
       status: 'failed',

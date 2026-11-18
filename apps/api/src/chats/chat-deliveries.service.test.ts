@@ -240,6 +240,34 @@ describe('ChatDeliveriesService.changeMode', () => {
     },
   );
 
+  it.each(['steer', 'interrupt'] as const)(
+    'refuses changing a queued item to %s during a compaction Run without changing it',
+    async (mode) => {
+      const {
+        service,
+        lockChat,
+        findItem,
+        findActiveRun,
+        changePendingMode,
+        dispatcher,
+      } = makeService();
+
+      lockChat.mockResolvedValue(
+        asDouble<Chat>({ id: chatId, archivedAt: null }),
+      );
+      findItem.mockResolvedValue({ ...item, mode: 'queue' });
+      findActiveRun.mockResolvedValue(
+        asDouble<Run>({ id: 'compaction-run', kind: 'compaction' }),
+      );
+
+      await expect(
+        service.changeMode(chatId, item.id, mode, userId),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(changePendingMode).not.toHaveBeenCalled();
+      expect(dispatcher.dispatch).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([undefined, { ...item, chatId: otherChatId }])(
     'refuses an absent or foreign-Chat item before admission',
     async (existing) => {

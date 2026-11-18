@@ -12,7 +12,7 @@
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { Mock } from 'vitest';
 
 import {
@@ -683,6 +683,44 @@ describeIfDb('follow-up admission', () => {
 
       expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
       expect(await replyOf(fixture)).toEqual(replyBefore);
+    });
+
+    it('refuses a follow-up after a compaction Run', async () => {
+      const fixture = await seedTurn({ status: 'completed' });
+      const laterAt = new Date(Date.now() + 1000);
+
+      await api.tenantDb.runAs(api.userId, (tx) =>
+        tx.execute(sql`
+          INSERT INTO runs (
+            chat_id,
+            message_id,
+            user_id,
+            model_id,
+            status,
+            kind,
+            created_at,
+            finished_at
+          )
+          VALUES (
+            ${fixture.chatId},
+            NULL,
+            ${api.userId},
+            ${MODEL_ID},
+            'completed',
+            'compaction',
+            ${laterAt},
+            ${laterAt}
+          )
+        `),
+      );
+
+      await expect(
+        admit(fixture, { action: 'continue' }),
+      ).rejects.toMatchObject({
+        constructor: ConflictException,
+        message: 'The message has no Run to follow up',
+      });
+      expect(await runsOfChat(fixture.chatId)).toHaveLength(2);
     });
 
     it('refuses an older turn before it reads any job state', async () => {

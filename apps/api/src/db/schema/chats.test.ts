@@ -33,6 +33,25 @@ describe('runs follow-up schema', () => {
     expect(sql).toContain("'regenerate'");
   });
 
+  it('enforces the run kind domain under its named CHECK', () => {
+    const check = getTableConfig(runs).checks.find(
+      (entry) => entry.name === 'runs_kind_check',
+    );
+
+    if (check === undefined) {
+      throw new Error('runs_kind_check is missing');
+    }
+
+    const sql = dialect
+      .sqlToQuery(check.value)
+      .sql.replaceAll(/\s+/gu, ' ')
+      .toLowerCase();
+
+    expect(sql).toContain('"runs"."kind" in (');
+    expect(sql).toContain("'turn'");
+    expect(sql).toContain("'compaction'");
+  });
+
   it('admits every permission mode of a Run under its named CHECK', () => {
     const check = getTableConfig(runs).checks.find(
       (entry) => entry.name === 'runs_permission_mode_check',

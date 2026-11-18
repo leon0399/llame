@@ -6,11 +6,13 @@
  * OpenAPI spec version: 0.1
  */
 import type { ChatLatestRunResponseFollowUpAction } from "./chatLatestRunResponseFollowUpAction";
+import type { ChatLatestRunResponseKind } from "./chatLatestRunResponseKind";
 import type { ChatLatestRunResponsePermissionMode } from "./chatLatestRunResponsePermissionMode";
 import type { ChatLatestRunResponseStatus } from "./chatLatestRunResponseStatus";
 
 export interface ChatLatestRunResponse {
   id: string;
+  kind: ChatLatestRunResponseKind;
   /**
    * The user message this Run executes.
    * @nullable

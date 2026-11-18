@@ -23,6 +23,8 @@ export type PendingDeliveriesProps = {
   items: ReadonlyArray<ChatDeliveryResponse>;
   /** The Chat has no live Run, so nothing delivers until the owner acts. */
   paused: boolean;
+  /** Steer now and Interrupt now apply: no compaction Run holds the Chat. */
+  hurryable: boolean;
   onSteerNow: (item: ChatDeliveryResponse) => void;
   onInterruptNow: (item: ChatDeliveryResponse) => void;
   onDelete: (item: ChatDeliveryResponse) => void;
@@ -91,13 +93,13 @@ function HurryActions({
 /** The actions a row can take: an absent action is one the item's mode cannot
  *  use. */
 function RowActions({ onDelete, onEdit, ...hurry }: RowActionsProps) {
-  const { item } = hurry;
+  const { item, hurryable } = hurry;
 
   return (
     <div className="flex shrink-0 items-center">
       {item.producer === "owner" && (
         <>
-          <HurryActions {...hurry} />
+          {hurryable && <HurryActions {...hurry} />}
           <IconButtonTooltip
             label="Edit"
             aria-label={actionName("Edit", item)}

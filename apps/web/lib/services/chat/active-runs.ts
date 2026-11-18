@@ -15,7 +15,7 @@ export const activeRunsQueryKeys = {
   run: (runId: string) => [...activeRunsQueryKeys.all, "run", runId] as const,
 };
 
-export type Run = Pick<RunResponse, "id" | "status">;
+export type Run = Pick<RunResponse, "id" | "status" | "kind">;
 
 /**
  * Poll a run's status (owner-scoped server-side). Returns null on 404 — the run

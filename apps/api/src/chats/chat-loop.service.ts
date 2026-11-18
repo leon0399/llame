@@ -466,18 +466,22 @@ export class ChatLoopService {
       return undefined;
     }
 
-    if ((await claimActiveRunSlot(slot)) === 'free') return undefined;
+    const slotState = await claimActiveRunSlot(slot);
+
+    if (slotState.state === 'free') return undefined;
     const deliveries = new ChatDeliveriesRepository(tx);
 
-    if (await deliveries.messageIdTaken(input.message.id, input.userId)) {
+    if (await deliveries.messageIdTaken(input.message.id, input.userId))
       throw new ConflictException('Message id already exists');
-    }
+
+    const storedMode =
+      slotState.kind === 'compaction' ? 'queue' : input.delivery;
 
     const created = await deliveries.insertPending({
       id: input.message.id,
       chatId: input.chatId,
       ownerUserId: input.userId,
-      mode: input.delivery,
+      mode: storedMode,
       parts: input.parts,
       settings: {
         modelId: input.modelId,
@@ -488,8 +492,8 @@ export class ChatLoopService {
 
     if (!created) throw new ConflictException('Message id already exists');
 
-    if (input.delivery === 'interrupt' || input.delivery === 'steer') {
-      await notifyLiveRunSteering(tx, input, input.delivery, this.runWait);
+    if (storedMode === 'interrupt' || storedMode === 'steer') {
+      await notifyLiveRunSteering(tx, input, storedMode, this.runWait);
     }
 
     return { delivery: created };

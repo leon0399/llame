@@ -329,6 +329,7 @@ components:
             type: run.updated
             run:
               id: 9c3a7e14-2b6d-4f80-a5c9-1e7d3b8f2a06
+              kind: turn
               chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
               messageId: 3e8b1f6c-9a24-4d7e-b05a-7c2f9d1e4b83
               modelId: gpt-5.5

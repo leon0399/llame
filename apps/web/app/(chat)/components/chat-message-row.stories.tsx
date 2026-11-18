@@ -1561,6 +1561,7 @@ function turnRun(
   overrides: Partial<ChatLatestRunResponse> = {},
 ): ChatLatestRunResponse {
   return {
+    kind: "turn",
     id: TURN_RUN_ID,
     messageId: "user-turn",
     status: "failed",

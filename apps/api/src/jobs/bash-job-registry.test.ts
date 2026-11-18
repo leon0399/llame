@@ -303,6 +303,7 @@ describe('BashJobRegistry', () => {
       'lockHostPromotion',
     ).mockResolvedValue({
       id: 'run-1',
+      kind: 'turn',
       chatId: CHAT,
       messageId: 'message-1',
       userId: OWNER,

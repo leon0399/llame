@@ -1,0 +1,58 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ff461971-d320-4423-8b16-634441b7ad06",
+  "prevIds": ["568dfcb4-c722-4f6f-8552-b418f72ffca5"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "kind"],
+      "writes": [
+        "s|col|public.runs.kind",
+        "n|col|public.runs.kind",
+        "e|col|public.runs.kind"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "add_check",
+      "statementTarget": ["table", "public", "runs"],
+      "writes": [
+        "s|ck|public.runs.runs_kind_check",
+        "n|ck|public.runs.runs_kind_check",
+        "e|ck|public.runs.runs_kind_check",
+        "n|con|public.runs.runs_kind_check"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public", "n|col|public.runs.kind"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "kind",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'turn'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "runs_kind_check",
+        "value": "\"kind\" IN ('turn', 'compaction')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

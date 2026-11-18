@@ -157,6 +157,7 @@ const runUpdated = (
     id: runId,
     chatId,
     messageId: null,
+    kind: "turn",
     modelId: "m",
     permissionMode: "default",
     status,

@@ -26,8 +26,9 @@ import {
   firstPendingSteer,
   isAlreadyDelivered,
   isCommandText,
-  sendableText,
+  isCompactionLive,
   isRunActive,
+  sendableText,
   sendDelivery,
   updateDeliveries,
   useChatDeliveries,
@@ -421,6 +422,8 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
     runActive,
     /** No live Run, so nothing delivers until the owner acts. */
     paused: !runActive && items.length > 0,
+    /** Steer now and Interrupt now wait while a compaction Run is live. */
+    hurryable: !isCompactionLive(latestRun),
     exists,
     notice,
     deliver: (mode?: DeliveryMode) =>

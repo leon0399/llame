@@ -131,7 +131,7 @@ describe('Run wait durable wake publication', () => {
       }),
     );
 
-    expect(result).toBe('free');
+    expect(result).toEqual({ state: 'free' });
     expect(await fx.run(seeded.runId)).toMatchObject({ status: 'expired' });
     expect(await fx.types(seeded.runId)).toContain('run.expired');
   });

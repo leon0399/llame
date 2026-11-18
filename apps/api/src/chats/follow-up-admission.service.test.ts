@@ -94,6 +94,7 @@ const userMessage: Message = {
 
 const sourceRun: Run = {
   id: 'run-source',
+  kind: 'turn',
   chatId: chat.id,
   messageId: userMessage.id,
   userId: chat.ownerUserId,

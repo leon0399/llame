@@ -882,6 +882,7 @@ describe('ChatsService message windows, updates and forks', () => {
   describe('deleteChat', () => {
     const activeRun: Run = {
       id: 'run-1',
+      kind: 'turn',
       chatId: chat.id,
       messageId: null,
       userId: ownerUserId,

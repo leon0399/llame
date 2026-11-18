@@ -40,9 +40,11 @@ vi.mock("next/navigation", () => ({
 import { ActiveRunsProvider, useActiveRuns } from "./active-runs-context";
 
 function runResponseFixture(
-  overrides: Pick<RunResponse, "id" | "status"> & Partial<RunResponse>,
+  overrides: Pick<RunResponse, "id" | "status"> &
+    Partial<Omit<RunResponse, "id" | "status">>,
 ): RunResponse {
   return {
+    kind: "turn",
     chatId: "chat-fixture",
     messageId: null,
     modelId: "system:openai:gpt-5.4-mini",
@@ -187,6 +189,10 @@ afterEach(() => {
   routerPushMock.mockReset();
   vi.unstubAllGlobals();
   cleanup();
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    value: false,
+  });
 });
 
 describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)", () => {
@@ -338,6 +344,7 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     // would land.
     queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
       id: "run-track",
+      kind: "turn",
       status: "completed",
     });
 
@@ -386,6 +393,7 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
 
     queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
       id: "run-track",
+      kind: "turn",
       status: "completed",
     });
 
@@ -431,6 +439,7 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     rerenderProbe("chat-other", "chat-other");
     queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
       id: "run-track",
+      kind: "turn",
       status: "completed",
     });
 
@@ -456,6 +465,7 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
 
     queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
       id: "run-track",
+      kind: "turn",
       status: "completed",
     });
     await waitFor(() =>
@@ -466,10 +476,48 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     // fire a second toast.
     queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
       id: "run-track",
+      kind: "turn",
       status: "completed",
     });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(screen.getAllByText("Reply ready — Tracked chat")).toHaveLength(1);
+  });
+
+  it("does not notify or mark unseen for a compaction Run in a hidden tab", async () => {
+    stubActiveRunsNetwork();
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: true,
+    });
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({
+            id: runId,
+            kind: "compaction",
+            status: "running_model",
+          }),
+        ),
+      );
+
+    const { queryClient } = renderProbe("chat-compaction");
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("true"),
+    );
+
+    queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
+      id: "run-track",
+      kind: "compaction",
+      status: "completed",
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("false"),
+    );
+    expect(screen.getByTestId("unread").textContent).toBe("false");
+    expect(screen.queryByText(/Reply ready/)).toBeNull();
+    expect(screen.queryByText(/Run failed/)).toBeNull();
   });
 });
 
@@ -491,6 +539,7 @@ describe("ActiveRunsProvider — failed/expired runs", () => {
 
     queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
       id: "run-track",
+      kind: "turn",
       status: "failed",
     });
 
@@ -540,6 +589,7 @@ describe("ActiveRunsProvider — untrackChat / markChatSeen", () => {
     );
     queryClient.setQueryData(activeRunsQueryKeys.run("run-track"), {
       id: "run-track",
+      kind: "turn",
       status: "completed",
     });
     await waitFor(() =>

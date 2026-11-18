@@ -124,6 +124,12 @@ export class ChatDeliveriesService {
         // `queue`.
         const slot = await this.claimSlot(tx, chatId, userId);
 
+        if (slot.state === 'blocked' && slot.kind === 'compaction') {
+          throw new BadRequestException(
+            'Pending items cannot be steered or interrupted during compaction',
+          );
+        }
+
         const changed = await items.changePendingMode(
           chatId,
           deliveryId,
@@ -134,18 +140,11 @@ export class ChatDeliveriesService {
         if (!changed)
           throw await this.missOf(items, chatId, deliveryId, userId);
 
-        if (slot === 'blocked') {
-          await notifyLiveRunSteering(
-            tx,
-            { chatId, userId },
-            mode,
-            this.runWait,
-          );
+        if (slot.state !== 'blocked') return this.startChangedItem(tx, changed);
 
-          return { item: changed, job: undefined };
-        }
+        await notifyLiveRunSteering(tx, { chatId, userId }, mode, this.runWait);
 
-        return this.startChangedItem(tx, changed);
+        return { item: changed, job: undefined };
       }),
     );
 

@@ -31,7 +31,7 @@ export const runJobSchema = z.object({
     .min(1)
     .describe('The chat owner; the worker acts under this identity.'),
   modelId: z.string().min(1),
-  userMessage: runUserMessageSchema,
+  userMessage: runUserMessageSchema.optional(),
   wake: runWakeSchema.optional(),
 });
 export type RunJob = z.infer<typeof runJobSchema>;

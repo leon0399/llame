@@ -35,6 +35,7 @@ export function replacementContext(input: {
 
   const pending =
     latestRun !== null &&
+    latestRun.kind === "turn" &&
     latestRun.followUpAction !== null &&
     !isTerminalRunStatus(latestRun.status)
       ? latestRun.messageId

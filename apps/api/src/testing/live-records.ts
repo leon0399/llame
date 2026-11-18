@@ -62,6 +62,7 @@ export function liveRunRecord(
 ): RunResponse {
   return {
     id: LIVE_RUN_ID,
+    kind: 'turn',
     chatId: LIVE_CHAT_ID,
     messageId: null,
     modelId: 'system:openai:gpt-5.4-mini',

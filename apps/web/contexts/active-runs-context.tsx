@@ -350,7 +350,10 @@ function handleTerminalRun(
   void queryClient.invalidateQueries({
     queryKey: chatQueryKeys.messages(meta.chatId),
   });
-  notifyTerminalRun(outcome, meta, setOutcomes, routerRef);
+
+  if (run.kind === "turn") {
+    notifyTerminalRun(outcome, meta, setOutcomes, routerRef);
+  }
 }
 
 function notifyTerminalRun(
