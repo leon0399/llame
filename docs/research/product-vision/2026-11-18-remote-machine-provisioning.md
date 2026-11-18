@@ -65,12 +65,12 @@ Terraform is not inherently safer: templates/modules are executable infrastructu
 
 ## Decision comparison
 
-| | Operator-supplied Terraform module | Direct cloud API (for example EC2 `RunInstances`) |
-| --- | --- | --- |
-| Contract | Operator provides a pinned module/template and input contract; Terraform plans/applies/destroys declared infrastructure using stored state. [^terraform-lifecycle] | llame defines provider-specific create, inspect, stop, and terminate operations itself. EC2's API accepts a `ClientToken` for idempotency, tags at launch, and reports ready when the instance reaches `running`. [^ec2-runinstances] |
-| Control and extensibility | Operators can encode their VPC, IAM, storage, and policy choices, but can also supply powerful executable configuration. External build workers can isolate credentials and cloud APIs from the control plane. [^coder-provisioners] | Narrower llame-owned input schema can enforce defaults, resource bounds, and provider APIs directly; this is an architectural inference. Every provider still needs its own lifecycle and drift/recovery handling. |
-| State / uncertain create | Terraform state maps declared resources to real infrastructure and is required to plan and destroy managed objects. If remote state is lost or apply is interrupted, a state-less destroy cannot be assumed to find every created object. [^terraform-lifecycle] | Durable operation ID plus provider idempotency token can safely repeat a supported create request; on EC2, `ClientToken` ensures request idempotency. [^ec2-runinstances] |
-| Prior art | Coder workspace templates are Terraform builds; Coder recommends credentials in the authenticated provisioner environment, not in templates. [^coder-auth][^coder-provisioners] | DevPod's provider interface is command-oriented (`create`, `delete`, `start`, `stop`, `status`); its AWS VM provider uses local user credentials and corresponding CLI. This supports a provider adapter pattern, but not a central multi-cloud API design. [^devpod-provider][^devpod-machines] |
+|                           | Operator-supplied Terraform module                                                                                                                                                                                                                               | Direct cloud API (for example EC2 `RunInstances`)                                                                                                                                                                                                                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Contract                  | Operator provides a pinned module/template and input contract; Terraform plans/applies/destroys declared infrastructure using stored state. [^terraform-lifecycle]                                                                                               | llame defines provider-specific create, inspect, stop, and terminate operations itself. EC2's API accepts a `ClientToken` for idempotency, tags at launch, and reports ready when the instance reaches `running`. [^ec2-runinstances]                                                            |
+| Control and extensibility | Operators can encode their VPC, IAM, storage, and policy choices, but can also supply powerful executable configuration. External build workers can isolate credentials and cloud APIs from the control plane. [^coder-provisioners]                             | Narrower llame-owned input schema can enforce defaults, resource bounds, and provider APIs directly; this is an architectural inference. Every provider still needs its own lifecycle and drift/recovery handling.                                                                               |
+| State / uncertain create  | Terraform state maps declared resources to real infrastructure and is required to plan and destroy managed objects. If remote state is lost or apply is interrupted, a state-less destroy cannot be assumed to find every created object. [^terraform-lifecycle] | Durable operation ID plus provider idempotency token can safely repeat a supported create request; on EC2, `ClientToken` ensures request idempotency. [^ec2-runinstances]                                                                                                                        |
+| Prior art                 | Coder workspace templates are Terraform builds; Coder recommends credentials in the authenticated provisioner environment, not in templates. [^coder-auth][^coder-provisioners]                                                                                  | DevPod's provider interface is command-oriented (`create`, `delete`, `start`, `stop`, `status`); its AWS VM provider uses local user credentials and corresponding CLI. This supports a provider adapter pattern, but not a central multi-cloud API design. [^devpod-provider][^devpod-machines] |
 
 These options are not mutually exclusive at the whole product level: a Terraform provider may call direct cloud APIs, and a built-in direct-API provisioner can coexist with an operator module for custom topologies. Prefer one owner for a particular provision operation and avoid falling back between mechanisms after an ambiguous create. [Inference]
 
@@ -110,16 +110,29 @@ llame should therefore preserve a durable provision-operation record and enter a
 This is a comparison of public vendor documentation, not a benchmark or a review of cloud bills. No live AWS account was provisioned, so no actual quota values, regional availability, per-instance cost, or end-to-end startup percentile is asserted. Quotas are account-specific; budgets and cost allocation also have reporting delays and are not immediate hard spend ceilings. The report follows the prior llame findings for sandbox placement and does not re-argue them.
 
 [^devpod-machines]: [DevPod: How it works using VMs](https://devpod.sh/docs/how-it-works/deploy-machines).
+
 [^devpod-provider]: [DevPod provider quickstart](https://devpod.sh/docs/developing-providers/quickstart).
+
 [^devpod-delete]: [DevPod: Delete a Workspace](https://devpod.sh/docs/developing-in-workspaces/delete-a-workspace).
+
 [^devpod-inactivity]: [DevPod: Auto-Inactivity Timeout](https://devpod.sh/docs/developing-in-workspaces/inactivity-timeout).
+
 [^coder-auth]: [Coder: Provider authentication](https://coder.com/docs/admin/templates/extending-templates/provider-authentication).
+
 [^coder-provisioners]: [Coder: External provisioners](https://coder.com/docs/install/operate/provisioners).
+
 [^coder-schedule]: [Coder: Workspace scheduling](https://coder.com/docs/admin/templates/managing-templates/schedule).
+
 [^terraform-lifecycle]: [Terraform workflow for provisioning infrastructure](https://developer.hashicorp.com/terraform/cli/run).
+
 [^ec2-runinstances]: [Amazon EC2 API: RunInstances](https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_RunInstances.html).
+
 [^ec2-throttling]: [Amazon EC2 API throttling](https://docs.aws.amazon.com/ec2/latest/devguide/ec2-api-throttling.html).
+
 [^ec2-quotas]: [Amazon EC2 instance type quotas](https://docs.aws.amazon.com/ec2/latest/instancetypes/ec2-instance-quotas.html).
+
 [^ec2-tags]: [Tag your Amazon EC2 resources](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/Using_Tags.html).
+
 [^aws-budget-actions]: [Configuring AWS Budgets actions](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-controls.html).
+
 [^ec2-faq]: [Amazon EC2 FAQs](https://aws.amazon.com/ec2/faqs/).
