@@ -159,8 +159,10 @@ where a smaller safe merge point appears.
   - Evidence: the host row and owner rows render the `compaction` continue item as a muted "Context compacted. Continuing." notice after job notices (story `ContinueAfterCompaction`, with `SettledJobs` for "A host message in the transcript"); a command row offers Steer now and Interrupt now again (`CompactRow`, `CompactItemEditPutsTheTextBack`); the persisted `data-compaction-failed` part renders a muted note from stored history, so it survives a reload (`CompactionFailedNote`); deleting a pending notice stays covered by the pending-deliveries `JobNotice` story and the API withdrawal tests ("The owner drops a result").
 - [x] 7.6 Update `SPEC.md` §2.1 and §9 for step-boundary compaction, extend the command reference, and add a dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
   - Evidence: Updated SPEC.md §2.1 and §9.3, command reference delivery-mode/failure behavior, and the 2026-11-16 changelog. `pnpm lint:markdown` passed.
-- [ ] 7.7 Verify the layer: the API and web lint and typecheck, the focused tests above, Storybook tests for the changed stories, `pnpm format:check`, `git diff --check`.
-- [ ] 7.8 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+- [x] 7.7 Verify the layer: the API and web lint and typecheck, the focused tests above, Storybook tests for the changed stories, `pnpm format:check`, `git diff --check`.
+  - Evidence: API and web lint and typecheck, the API unit suite, the boundary-compaction integration files on a fresh database, the chat-page and pending-deliveries stories, `pnpm format:check`, `git diff --check` pass; CI green on #1742 at `1e2fab88`, mutation 92.39%.
+- [x] 7.8 Self-review the draft PR diff against its parent (SR), mark it ready, and run the GitHub review loop (GR).
+  - Evidence: four-lens local review fixed before ready; #1742 GitHub review loop: abort classification at both boundaries, the interrupt abort, and the late final-answer delivery fixed (`7b919950`, `51b7171c`); tautological tests rewritten; late-command focus findings rejected per design D11; all threads resolved; CI green.
 
 ## 8. compact-wake
 
