@@ -335,6 +335,125 @@ describe('deliverPendingSteering', () => {
     );
   });
 
+  it('defers a final-answer compact when no boundary compaction was prepared', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact] });
+
+    const result = await deliver({ finalAnswer: true, stepBudgetUsed: 3 });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'compaction' });
+    expect(spies.markDelivered).not.toHaveBeenCalled();
+    expect(spies.createHost).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [] }),
+    );
+    expect(spies.updateForAttempt).toHaveBeenCalledWith(
+      runId,
+      userId,
+      attemptId,
+      expect.objectContaining({ messageId: deliveredMessage.id }),
+    );
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ stepBudgetUsed: 3 }),
+    );
+  });
+
+  it('delivers a late final-answer compact with its pending message after the checkpoint', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const ownerMessage = {
+      ...second,
+      parts: [{ type: 'text', text: 'continue with this' }],
+    };
+
+    const spies = serve({ items: [compact, ownerMessage] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-9');
+
+    const result = await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: ['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: null,
+        stepBudgetUsed: 3,
+        finalAnswer: true,
+        publishCheckpoint,
+      },
+    });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(publishCheckpoint).toHaveBeenCalledOnce();
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: ownerMessage.parts }),
+    );
+    expect(spies.markDelivered).toHaveBeenCalledWith(compact.id, userId, {
+      runId,
+    });
+    expect(spies.markDelivered).toHaveBeenCalledWith(ownerMessage.id, userId, {
+      messageId: deliveredMessage.id,
+      runId,
+    });
+  });
+
+  it('defers a final compact before other pending items when no compaction was prepared', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, second] });
+
+    const result = await deliver({ finalAnswer: true });
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'compaction' });
+    expect(spies.createHost).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: [] }),
+    );
+    expect(spies.markDelivered).not.toHaveBeenCalled();
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'compaction' }),
+    );
+  });
+
+  it('delivers message items normally when a compact is not at the final answer', async () => {
+    const compact = {
+      ...first,
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      parts: [{ type: 'text', text: '/compact' }],
+    };
+
+    const spies = serve({ items: [compact, second] });
+
+    const result = await deliver();
+
+    expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(spies.createUser).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: second.parts }),
+    );
+    expect(spies.markDelivered).toHaveBeenCalledWith(second.id, userId, {
+      messageId: deliveredMessage.id,
+      runId,
+    });
+    expect(spies.markDelivered).not.toHaveBeenCalledWith(
+      compact.id,
+      userId,
+      expect.anything(),
+    );
+  });
+
   it('does not publish a checkpoint when no compact command was selected', async () => {
     const spies = serve({ items: [first] });
     const publishCheckpoint = vi.fn();

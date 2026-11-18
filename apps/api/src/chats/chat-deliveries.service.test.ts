@@ -300,6 +300,29 @@ describe('ChatDeliveriesService.changeMode', () => {
     expect(changePendingMode).not.toHaveBeenCalled();
   });
 
+  it('allows steering a queued item while a turn Run holds the slot', async () => {
+    const { service, lockChat, findActiveRun, changePendingMode } =
+      makeService();
+
+    lockChat.mockResolvedValue(
+      asDouble<Chat>({ id: chatId, archivedAt: null }),
+    );
+    findActiveRun.mockResolvedValue(
+      asDouble<Run>({ id: 'turn-run', kind: 'turn' }),
+    );
+    changePendingMode.mockResolvedValue({ ...item, mode: 'steer' });
+
+    await expect(
+      service.changeMode(chatId, item.id, 'steer', userId),
+    ).resolves.toMatchObject({ item: { mode: 'steer' } });
+    expect(changePendingMode).toHaveBeenCalledWith(
+      chatId,
+      item.id,
+      userId,
+      'steer',
+    );
+  });
+
   it('returns the changed item and starts no Run while a live Run holds the slot', async () => {
     const {
       service,
