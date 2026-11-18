@@ -1,3 +1,4 @@
+import { EventType } from "@ag-ui/core";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 import { ReasoningContent } from "@workspace/ui/components/ai-elements/reasoning-content";
@@ -4401,5 +4402,154 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
       releaseFirstDelivery();
       releaseDeliveredHistory();
     }
+  },
+};
+
+let releaseBrokenSend = () => {};
+let finishRecoveredSend = () => {};
+
+function supersededReply(retry: Promise<void>, finished: Promise<void>) {
+  const run = new AgUiRunEvents(LIVE_RUN_ID);
+  const earlierMessageId = `${LIVE_RUN_ID}:earlier`;
+  const discardedReasoningId = `${LIVE_RUN_ID}:reasoning`;
+  const discardedTextId = `${LIVE_RUN_ID}:discarded`;
+  const recoveredMessageId = `${LIVE_RUN_ID}:recovered`;
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: earlierMessageId,
+        role: "assistant",
+      },
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: earlierMessageId,
+        delta: "Completed earlier step.",
+      },
+      { type: EventType.TEXT_MESSAGE_END, messageId: earlierMessageId },
+      { type: EventType.REASONING_START, messageId: discardedReasoningId },
+      {
+        type: EventType.REASONING_MESSAGE_START,
+        messageId: discardedReasoningId,
+        role: "reasoning",
+      },
+      {
+        type: EventType.REASONING_MESSAGE_CONTENT,
+        messageId: discardedReasoningId,
+        delta: "Discarded unfinished reasoning",
+      },
+      {
+        type: EventType.REASONING_MESSAGE_END,
+        messageId: discardedReasoningId,
+      },
+      { type: EventType.REASONING_END, messageId: discardedReasoningId },
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: discardedTextId,
+        role: "assistant",
+      },
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: discardedTextId,
+        delta: "Discarded partial answer",
+      },
+    ]);
+    await retry;
+    writer.write([
+      { type: EventType.TEXT_MESSAGE_END, messageId: discardedTextId },
+      {
+        type: EventType.CUSTOM,
+        name: "llame.model-superseded",
+        value: { messageIds: [discardedReasoningId, discardedTextId] },
+      },
+      {
+        type: EventType.CUSTOM,
+        name: "llame.model-retrying",
+        value: { code: "stream_broken", retry: 1, delayMs: 0 },
+      },
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: recoveredMessageId,
+        role: "assistant",
+      },
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: recoveredMessageId,
+        delta: "Recovered complete answer.",
+      },
+    ]);
+    await finished;
+    writer.write([
+      { type: EventType.TEXT_MESSAGE_END, messageId: recoveredMessageId },
+      run.finished(),
+    ]);
+  });
+}
+
+export const SupersededSendLeavesLiveReply: Story = {
+  tags: ["ai-generated"],
+  parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
+  beforeEach: () => {
+    setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
+
+    const retry = new Promise<void>((resolve) => {
+      releaseBrokenSend = resolve;
+    });
+
+    const finished = new Promise<void>((resolve) => {
+      finishRecoveredSend = resolve;
+    });
+
+    routeAlso({
+      [RESUME_ROUTE]: () => Promise.resolve(supersededReply(retry, finished)),
+    });
+
+    return () => {
+      releaseBrokenSend();
+      finishRecoveredSend();
+    };
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    await transcriptShows(canvasElement, "Discarded partial answer");
+    releaseBrokenSend();
+    await transcriptShows(canvasElement, "Recovered complete answer.");
+    const transcript = within(within(canvasElement).getByRole("log"));
+    await expect(transcript.getByText("Completed earlier step.")).toBeVisible();
+    await expect(transcript.queryByText("Discarded partial answer")).toBeNull();
+    await expect(
+      transcript.queryByText("Discarded unfinished reasoning"),
+    ).toBeNull();
+  },
+};
+
+export const SupersededSendStaysAbsentOnReplay: Story = {
+  tags: ["ai-generated"],
+  parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
+  beforeEach: () => {
+    setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
+
+    const finished = new Promise<void>((resolve) => {
+      finishRecoveredSend = resolve;
+    });
+
+    routeAlso({
+      [RESUME_ROUTE]: () =>
+        Promise.resolve(supersededReply(Promise.resolve(), finished)),
+    });
+
+    return () => finishRecoveredSend();
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    await transcriptShows(canvasElement, "Recovered complete answer.");
+    const transcript = within(within(canvasElement).getByRole("log"));
+    await expect(transcript.getByText("Completed earlier step.")).toBeVisible();
+    await expect(transcript.queryByText("Discarded partial answer")).toBeNull();
+    await expect(
+      transcript.queryByText("Discarded unfinished reasoning"),
+    ).toBeNull();
   },
 };

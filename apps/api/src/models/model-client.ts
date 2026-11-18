@@ -93,6 +93,8 @@ export interface ModelStepStart {
 }
 
 export interface ModelStreamInput {
+  /** Prior provider sends for this logical request, carried across a live restart. */
+  requestRetriesUsed?: number;
   messages: Array<ModelMessage>;
   /**
    * The Chat this request belongs to (required: every call site supplies it,

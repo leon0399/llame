@@ -45,6 +45,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   shares. SDK refusal diagnostics retain their original text and can quote the
   original model arguments. Reasoning rows use a complete standalone bold heading
   outside code fences when present and retain accessible lifecycle state.
+- Restart a step after a transient provider stream failure before a complete
+  tool call, sharing the same bounded retry allowance as failures before content.
+  Superseded text and unsigned reasoning leave the live view, Reply, and model
+  input while remaining in the event log. Earlier completed steps and committed
+  context stay in order; usage remains an incomplete lower bound.
+
 - Retry eligible model requests with bounded same-model sends instead of the
   SDK's hidden retries. The initial send can be followed by up to 10 retries
   with full jitter and provider delay/reset hints up to 60 seconds. Completed

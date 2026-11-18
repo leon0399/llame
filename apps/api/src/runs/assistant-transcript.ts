@@ -1,3 +1,4 @@
+import { supersededWindows, type SupersededWindow } from './superseded-output';
 /**
  * Assistant transcript building (#48/#49/#50, design D5/D6) — turns the live
  * stream of model/tool events into the exact `MessagePart[]` llame persists
@@ -601,6 +602,8 @@ class DurableAssistantReconstructor {
   readonly openToolCalls = new Map<string, OpenToolCall>();
   private readonly seenToolCallIds = new Set<string>();
   private readonly completedToolCallIds = new Set<string>();
+  private readonly superseded: Array<SupersededWindow>;
+  private supersededIndex = 0;
   /**
    * The event log records the SDK's own step number, which restarts at 0 in
    * every request, while the stored parts of a Continue Run continue after the
@@ -621,8 +624,9 @@ class DurableAssistantReconstructor {
     ToolClassification
   >();
 
-  constructor(stepOffset: number) {
+  constructor(stepOffset: number, events: ReadonlyArray<RunEvent>) {
     this.stepOffset = stepOffset;
+    this.superseded = supersededWindows(events);
   }
 
   /**
@@ -641,6 +645,25 @@ class DurableAssistantReconstructor {
 
   apply(events: Array<RunEvent>): void {
     for (const event of events) {
+      while (
+        this.supersededIndex < this.superseded.length &&
+        this.superseded[this.supersededIndex].to <= event.sequence
+      ) {
+        this.supersededIndex += 1;
+      }
+
+      const window = this.superseded[this.supersededIndex];
+
+      if (
+        (event.eventType === 'model.delta' ||
+          event.eventType === 'reasoning.delta') &&
+        window !== undefined &&
+        event.sequence >= window.from &&
+        event.sequence < window.to
+      ) {
+        continue;
+      }
+
       this.applyEvent(event);
     }
   }
@@ -833,7 +856,7 @@ export function reconstructDurableAssistant(
   events: Array<RunEvent>,
   stepOffset = 0,
 ) {
-  const reconstructor = new DurableAssistantReconstructor(stepOffset);
+  const reconstructor = new DurableAssistantReconstructor(stepOffset, events);
   reconstructor.apply(events);
 
   return {

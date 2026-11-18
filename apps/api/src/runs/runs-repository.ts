@@ -569,6 +569,7 @@ export type RunEventType =
   | 'run.started'
   | 'model.requested'
   | 'model.retrying'
+  | 'model.superseded'
   | 'model.delta'
   | 'model.completed'
   | 'run.completed'
@@ -619,6 +620,18 @@ export class RunEventsRepository {
       .returning();
 
     return created;
+  }
+
+  async latestSequence(runId: string, userId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ sequence: runEvents.sequence })
+      .from(runEvents)
+      .innerJoin(runs, eq(runEvents.runId, runs.id))
+      .where(and(eq(runEvents.runId, runId), eq(runs.userId, userId)))
+      .orderBy(desc(runEvents.sequence))
+      .limit(1);
+
+    return row?.sequence ?? 0;
   }
 
   /**

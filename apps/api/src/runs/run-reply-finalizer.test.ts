@@ -909,6 +909,53 @@ describe('finalizeRunReply', () => {
     );
   });
 
+  it('projects superseded output and lowers usage completeness', async () => {
+    const item = contextItem('kept context');
+
+    const { update } = serve({
+      log: [
+        requested(1, 'a'),
+        event(2, 'model.delta', { text: 'stale attempt output' }),
+        event(3, 'run.started', null),
+        requested(4, 'b'),
+        event(5, 'model.delta', { text: 'broken current output' }),
+        event(6, 'model.superseded', { fromSequence: 5, step: 0 }),
+        event(7, 'model.delta', { text: 'current replacement' }),
+      ],
+      reply: reply({
+        usage: runningReplyUsage({
+          runId,
+          attemptId: 'b',
+          modelId: 'fake-model',
+          effort: undefined,
+          permissionMode: 'default',
+        }),
+        parts: [item],
+      }),
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'completed',
+      attemptId: 'b',
+      telemetry: {
+        ...telemetry('b'),
+        status: 'completed',
+        complete: true,
+      },
+      models,
+    });
+
+    expect(update.mock.lastCall?.[0]).toMatchObject({
+      parts: [item, { type: 'text', text: 'current replacement' }],
+      usage: {
+        status: 'completed',
+        complete: false,
+        attemptId: 'b',
+      },
+    });
+  });
+
   it("settles a call the attempt left open and keeps an earlier attempt's output out", async () => {
     const { append, update } = serve({
       log: [

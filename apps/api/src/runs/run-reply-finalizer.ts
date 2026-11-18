@@ -21,6 +21,7 @@ import {
 import { type BillingMode } from '../models/model-client';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { reconstructDurableAssistant } from './assistant-transcript';
+import { hasSupersededOutput } from './superseded-output';
 import {
   continueStateFromEvents,
   continueStepOffset,
@@ -377,22 +378,26 @@ function dispatchedReplyWrite(
     return undefined;
   }
 
+  const parts = reconstructDurableAssistant(
+    [...log, ...settled],
+    stepOffset,
+  ).collector.parts();
+
+  const usage =
+    input.telemetry ??
+    tokenlessUsage(
+      {
+        runId: input.run.id,
+        modelId: input.run.modelId,
+        ...(input.run.effort !== null && { effort: input.run.effort }),
+      },
+      input.status,
+      input.models,
+    );
+
   return {
-    parts: reconstructDurableAssistant(
-      [...log, ...settled],
-      stepOffset,
-    ).collector.parts(),
-    usage:
-      input.telemetry ??
-      tokenlessUsage(
-        {
-          runId: input.run.id,
-          modelId: input.run.modelId,
-          ...(input.run.effort !== null && { effort: input.run.effort }),
-        },
-        input.status,
-        input.models,
-      ),
+    parts,
+    usage: hasSupersededOutput(log) ? { ...usage, complete: false } : usage,
   };
 }
 
@@ -435,7 +440,9 @@ function rebuiltReplyWrite(
 
   return {
     parts: replyParts(input.run, rebuilt, reply.parts, recovery.prefix),
-    usage: telemetry,
+    usage: hasSupersededOutput(recovery.attemptEvents)
+      ? { ...telemetry, complete: false }
+      : telemetry,
   };
 }
 
@@ -583,11 +590,18 @@ export async function finalizeRunReply(
   if (live !== undefined) {
     if (!ownsLiveReply(reply, input.attemptId, true)) return undefined;
 
+    const attemptEvents = attemptWindow(
+      log,
+      input.attemptId ?? live.telemetry.attemptId,
+    );
+
     return persistReply(messagesRepo, turn, {
       chatId,
       inReplyTo,
       parts: live.parts,
-      usage: live.telemetry,
+      usage: hasSupersededOutput(attemptEvents)
+        ? { ...live.telemetry, complete: false }
+        : live.telemetry,
     });
   }
 

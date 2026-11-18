@@ -185,6 +185,14 @@ failure class, retry number, and delay, and the owner sees a retry line.
 Failed first-token windows use `first_token_timeout`; broken streams use
 `stream_broken`. The removed `model_stream_idle` code is not emitted.
 
+A transient failure after live output restarts that step on the same model when
+no complete tool call has streamed. Its `model.superseded` event removes the
+broken send's text and reasoning from the live transcript, stored Reply, and
+later model input; the append-only event log retains them. Completed earlier
+steps and committed context items remain in order. Hidden retries and step
+restarts share the same ten-retry allowance, and discarded sends make usage
+incomplete while retaining known token and cost totals as lower bounds.
+
 Admission judges a blocking Run by its current queue job: queued, retrying, or
 active blocks with 409. An absent recorded wake job is stuck immediately; the
 first job retains its one-heartbeat enqueue grace. Owner-started first enqueue

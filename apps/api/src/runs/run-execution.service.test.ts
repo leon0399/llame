@@ -825,6 +825,9 @@ function mockNormalExecutionRepositories() {
     undefined,
   );
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
+  vi.spyOn(RunEventsRepository.prototype, 'latestSequence').mockResolvedValue(
+    0,
+  );
   vi.spyOn(jobNoticeRecovery, 'discardedJobNoticeIds').mockResolvedValue([]);
   vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
   vi.spyOn(
@@ -2596,6 +2599,240 @@ describe('RunExecutionService executeRun', () => {
         'content.2.input.i',
         'Inspecting the directory',
       );
+    });
+
+    async function runScriptedRestart(stepToBreak: 0 | 1, broken: boolean) {
+      const spies = mockNormalExecutionRepositories();
+      vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      const appended = recordAppendedEvents();
+      const item = workspaceNotice(runId);
+
+      const failure = new ProviderFailure('scripted stream break', {
+        code: 'stream_broken',
+      });
+
+      const brokenResponse = providerResponse(
+        [
+          { type: 'reasoning-start', id: 'unsigned-reasoning' },
+          {
+            type: 'reasoning-delta',
+            id: 'unsigned-reasoning',
+            delta: 'UNSIGNED REASONING MUST NOT REPLAY',
+          },
+          { type: 'text-start', id: 'broken-answer' },
+          {
+            type: 'text-delta',
+            id: 'broken-answer',
+            delta: 'BROKEN TEXT MUST NOT REPLAY',
+          },
+          { type: 'error', error: failure },
+        ],
+        'stop',
+      );
+
+      const firstToolCall = providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'spike-tool-1',
+            toolName: toolDeclaration.id,
+            input: JSON.stringify({ q: 'first' }),
+          },
+        ],
+        'tool-calls',
+      );
+
+      const secondToolCall = providerResponse(
+        [
+          {
+            type: 'tool-call',
+            toolCallId: 'spike-tool-2',
+            toolName: toolDeclaration.id,
+            input: JSON.stringify({ q: 'second' }),
+          },
+        ],
+        'tool-calls',
+      );
+
+      const responses = broken
+        ? stepToBreak === 1
+          ? [
+              firstToolCall,
+              brokenResponse,
+              secondToolCall,
+              providerText('final answer'),
+            ]
+          : [brokenResponse, firstToolCall, providerText('final answer')]
+        : stepToBreak === 1
+          ? [firstToolCall, secondToolCall, providerText('final answer')]
+          : [firstToolCall, providerText('final answer')];
+
+      const { client, model, requests } = createToolLoopClient(responses);
+
+      const executor: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => ({ status: 'success' as const }),
+      };
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver(executor),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          maxStepsPerRun: 2,
+          inRunProducer: stepProducer((step) => {
+            if (step.stepNumber === 0) step.stage(item);
+          }),
+        },
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('final answer');
+
+      const reply = spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0];
+
+      const snapshot = spies.updateRunningReplyParts.mock.calls
+        .map(([input]) => input.parts)
+        .find((parts) => parts.some((part) => isContextItemPart(part)));
+
+      if (reply === undefined || snapshot === undefined)
+        throw new Error(
+          'Expected the scripted run to persist its context item.',
+        );
+
+      return {
+        appended,
+        model,
+        requests,
+        reply,
+        snapshot,
+      };
+    }
+
+    it.each([0, 1] as const)(
+      'restarts a broken step %i like a clean scripted run',
+      async (stepToBreak) => {
+        const clean = await runScriptedRestart(stepToBreak, false);
+        vi.restoreAllMocks();
+        const restarted = await runScriptedRestart(stepToBreak, true);
+
+        expect(restarted.requests).toHaveLength(clean.requests.length + 1);
+        expect(restarted.reply.parts).toEqual(clean.reply.parts);
+        expect(restarted.snapshot).toEqual(clean.snapshot);
+
+        const finalDeltaSteps = (entries: typeof clean.appended) =>
+          entries.flatMap(({ type, payload }) =>
+            type === 'model.delta' &&
+            isRecord(payload) &&
+            payload['text'] === 'final answer' &&
+            isNumber(payload['stepNumber'])
+              ? [payload['stepNumber']]
+              : [],
+          );
+
+        expect(finalDeltaSteps(restarted.appended)).toEqual(
+          finalDeltaSteps(clean.appended),
+        );
+        expect(
+          restarted.reply.parts
+            .map((part, index) =>
+              isContextItemPart(part) ? [index, part] : undefined,
+            )
+            .filter((position) => position !== undefined),
+        ).toEqual(
+          clean.reply.parts
+            .map((part, index) =>
+              isContextItemPart(part) ? [index, part] : undefined,
+            )
+            .filter((position) => position !== undefined),
+        );
+
+        const restartedPrompt = JSON.stringify(
+          restarted.requests[stepToBreak + 1],
+        );
+
+        expect(restartedPrompt).not.toContain('BROKEN TEXT MUST NOT REPLAY');
+        expect(restartedPrompt).not.toContain(
+          'UNSIGNED REASONING MUST NOT REPLAY',
+        );
+        expect(
+          restarted.appended.filter(({ type }) => type === 'tool.completed'),
+        ).toHaveLength(stepToBreak + 1);
+        expect(
+          restarted.appended.filter(
+            ({ type }) => type === 'run.step_cap_reached',
+          ),
+        ).toEqual(
+          clean.appended.filter(({ type }) => type === 'run.step_cap_reached'),
+        );
+        expect(
+          restarted.reply.parts.filter(
+            (part) => isRecord(part) && part['type'] === 'data-cap-notice',
+          ),
+        ).toEqual(
+          clean.reply.parts.filter(
+            (part) => isRecord(part) && part['type'] === 'data-cap-notice',
+          ),
+        );
+        expect(
+          restarted.appended.filter(({ type }) => type === 'model.superseded'),
+        ).toHaveLength(1);
+      },
+    );
+
+    it('restarts an answer-only send with its own event window', async () => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      const appended = recordAppendedEvents();
+
+      const { client, requests } = createToolLoopClient([
+        providerResponse(
+          [
+            { type: 'text-start', id: 'broken' },
+            { type: 'text-delta', id: 'broken', delta: 'discarded draft' },
+            {
+              type: 'error',
+              error: new ProviderFailure('broken', { code: 'stream_broken' }),
+            },
+          ],
+          'stop',
+        ),
+        providerText('complete answer'),
+      ]);
+
+      const execution = makeExecutionService(client);
+      const result = await execution.service.executeRun(executionInput(client));
+      await expect(result.text).resolves.toBe('complete answer');
+      expect(requests).toHaveLength(2);
+      expect(JSON.stringify(requests[1])).not.toContain('discarded draft');
+
+      const firstDelta = appended.findIndex(
+        ({ type }) => type === 'model.delta',
+      );
+
+      expect(
+        appended.find(({ type }) => type === 'model.superseded')?.payload,
+      ).toMatchObject({ fromSequence: firstDelta + 1, step: 0 });
+      const reply = spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0];
+      expect(
+        reply?.parts
+          .flatMap((part) =>
+            isRecord(part) && part['type'] === 'text' && isString(part['text'])
+              ? [part['text']]
+              : [],
+          )
+          .join(''),
+      ).toBe('complete answer');
     });
 
     it('publishes a staged in-Run item after the step tool part on completion', async () => {
@@ -4488,6 +4725,9 @@ function makeWideningClient() {
 /** Replaces the `append` stub with one that records the durable event order. */
 function recordAppendedEvents() {
   const appended: Array<{ type: RunEventType; payload: unknown }> = [];
+  vi.spyOn(RunEventsRepository.prototype, 'latestSequence').mockImplementation(
+    () => Promise.resolve(appended.length),
+  );
   vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
     (_runId, eventType, payload) => {
       appended.push({ type: eventType, payload });
@@ -6224,6 +6464,95 @@ describe('RunExecutionService executeRun — stream failure', () => {
     );
   });
 
+  it('fails a lost request boundary without dispatching a provider request', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    vi.spyOn(RunEventsRepository.prototype, 'latestSequence').mockRejectedValue(
+      new Error('event log unavailable'),
+    );
+    const capturing = makeCapturingClient();
+    const dispatch = vi.spyOn(capturing.client, 'streamText');
+    const execution = makeExecutionService(capturing.client);
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toThrow('Failed to record the model request boundary.');
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).toContain('run.failed');
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'Run progress could not be persisted.' },
+      }),
+    );
+  });
+
+  it.each(['cancel', 'interrupt'] as const)(
+    'settles cancellation during the first broken-send retry delay (%s)',
+    async (mode) => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      const retrying = Promise.withResolvers<void>();
+      spies.appendEvent.mockImplementation((_id, type, payload) => {
+        if (type === 'model.retrying') retrying.resolve();
+
+        return Promise.resolve({
+          ...event,
+          eventType: type,
+          payload: payload ?? null,
+        });
+      });
+      const controller = new AbortController();
+      const capturing = makeCapturingClient();
+      const aborts = new RunAbortRegistry();
+      aborts.register(runId, userId);
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        undefined,
+        {
+          segmentAborts: aborts,
+        },
+      );
+
+      await execution.service.executeRun(
+        executionInput(capturing.client, controller.signal),
+      );
+      const options = capturing.streamOptions();
+      options.onTextDelta?.('discarded draft');
+
+      const handling = options.onError?.({
+        error: new ProviderFailure('broken', {
+          code: 'stream_broken',
+          superseded: { retry: 1, delayMs: 60_000 },
+        }),
+      });
+
+      await retrying.promise;
+
+      try {
+        if (mode === 'interrupt')
+          expect(interruptCurrent(aborts, runId)).toBe(true);
+      } finally {
+        controller.abort();
+        await handling;
+      }
+
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'cancelled',
+        expect.anything(),
+      );
+    },
+  );
+
   it('settles the run as failed when a progress write is lost, discarding the streamed turn', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended: Array<string> = [];
@@ -6780,11 +7109,13 @@ function createToolLoopClient(
   input?: ReadonlyArray<ModelInput>,
 ) {
   let responseIndex = 0;
+  const requests: Array<ReadonlyArray<LanguageModelV3Message>> = [];
 
   const model = new MockLanguageModelV3({
     provider: 'openai-compatible.test',
     modelId: 'test-model',
-    doStream: () => {
+    doStream: (options) => {
+      requests.push(options.prompt);
       const response = responses[responseIndex++];
 
       if (response === undefined) throw new Error('Missing scripted response.');
@@ -6816,7 +7147,7 @@ function createToolLoopClient(
     },
   );
 
-  return { client, model };
+  return { client, model, requests };
 }
 
 const SLOW_TOOL_ID = 'tool_loop_slow_tool';

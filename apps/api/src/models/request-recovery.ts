@@ -31,6 +31,7 @@ export type RequestRecoveryOptions = ProviderFailureMiddlewareOptions & {
   firstTokenTimeoutSeconds?: number;
   onRetry?: ModelStreamInput['onRetry'];
   bufferWholeSend?: boolean;
+  requestRetriesUsed?: number;
 };
 
 type RecoveryTiming = Partial<RecoveryClock>;
@@ -217,6 +218,10 @@ class StreamRecovery {
       : this.cancelled.signal;
   }
 
+  restoreRetries(retries: number): void {
+    this.sends = retries;
+  }
+
   cancel(reason: unknown): void {
     this.cancelled.abort(reason);
   }
@@ -321,6 +326,40 @@ class StreamRecovery {
       ? new ProviderFailure(failure.message, { code: 'stream_broken' })
       : failure;
   }
+  private supersededFailure(failure: ProviderFailure): ProviderFailure {
+    return new ProviderFailure(failure.message, {
+      code: failure.code,
+      ...(failure.resetsAt !== undefined && { resetsAt: failure.resetsAt }),
+      ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
+      ...(failure.statusCode !== undefined && {
+        statusCode: failure.statusCode,
+      }),
+      superseded: {
+        retry: this.sends,
+        delayMs: retryDelay(failure, this.sends, this.clock),
+      },
+    });
+  }
+
+  private failedSend(
+    error: unknown,
+    send: Send,
+    output: SendOutput,
+  ): FailedSend {
+    const failure = this.streamFailure(error, send, output.content);
+
+    const liveRetry =
+      output.content &&
+      !output.wholeSend &&
+      !output.completeTool &&
+      this.sends < MAX_SENDS &&
+      retryable(failure, this.clock.now());
+
+    return {
+      failure: liveRetry ? this.supersededFailure(failure) : failure,
+      canRetry: !output.completeTool && (!output.content || output.wholeSend),
+    };
+  }
 
   private async *read(
     send: Send,
@@ -356,10 +395,7 @@ class StreamRecovery {
 
       return undefined;
     } catch (error) {
-      return {
-        failure: this.streamFailure(error, send, output.content),
-        canRetry: !output.completeTool && (!output.content || output.wholeSend),
-      };
+      return this.failedSend(error, send, output);
     } finally {
       send.window.abort();
       void reader.cancel().catch(() => undefined);
@@ -475,12 +511,16 @@ export function withRequestRecovery(
       ((milliseconds, signal) => delay(milliseconds, undefined, { signal })),
   };
 
+  let requestRetriesUsed = options.requestRetriesUsed ?? 0;
+
   return wrapLanguageModel({
     model,
     middleware: {
       specificationVersion: 'v3',
       wrapStream: async ({ model: raw, params }) => {
         const recovery = new StreamRecovery(raw, params, options, clock);
+        recovery.restoreRetries(requestRetriesUsed);
+        requestRetriesUsed = 0;
         const initial = await recovery.open();
 
         return {
@@ -503,6 +543,7 @@ export function applyRequestRecovery(
     ...options,
     abortSignal: input.abortSignal,
     onRetry: input.onRetry,
+    requestRetriesUsed: input.requestRetriesUsed,
     bufferWholeSend:
       options.bufferWholeSend ??
       (!input.onTextDelta && !input.onReasoningDelta),
