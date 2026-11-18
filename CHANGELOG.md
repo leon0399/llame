@@ -30,6 +30,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   The scroll-to-latest icon has an accessible name when the reader moves away
   from the bottom.
 
+- Show a concise model-authored intent beside tool calls while keeping their
+  exact arguments visible. The required `i` envelope is separate from executor
+  arguments and cannot authorize a call. Persist it for owner history and
+  reconnects without adding the presentation field to model history or public
+  shares. SDK refusal diagnostics retain their original text and can quote the
+  original model arguments. Reasoning rows use a complete standalone bold heading
+  outside code fences when present and retain accessible lifecycle state.
+
 # 2026-11-17
 
 - Size decision-model requests by the model. A `decisionModels[]` entry can

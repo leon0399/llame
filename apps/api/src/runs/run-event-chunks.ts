@@ -24,6 +24,7 @@ export type UiChunk =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      intent?: string;
       dynamic: true;
     }
   | {

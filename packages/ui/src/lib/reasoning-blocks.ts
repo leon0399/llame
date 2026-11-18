@@ -27,3 +27,39 @@ export function separateGluedReasoningBlocks(text: string): string {
     .replace(GLUED_HEADING_RUN, "**\n\n**")
     .replace(GLUED_AFTER_PROSE, "\n\n$1");
 }
+
+// A summary heading: a line that is one bold run and nothing else. Bold text
+// inside a sentence, or two runs on a line, is the model's own emphasis.
+const HEADING_LINE = /^\s*\*\*([^*\n]+)\*\*\s*$/;
+
+/**
+ * The latest summary heading in reasoning text: what the model is thinking
+ * about now. Only a line that is a single `**bold**` run counts, so a
+ * provider that emphasizes words inside its reasoning yields no heading.
+ */
+export function latestReasoningHeading(text: string): string | undefined {
+  let title: string | undefined;
+  let fence: string | undefined;
+
+  for (const line of text.split("\n")) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+
+    if (fence !== undefined) {
+      if (
+        marker?.[0] === fence[0] &&
+        marker.length >= fence.length &&
+        line.trim() === marker
+      ) {
+        fence = undefined;
+      }
+    } else if (marker !== undefined) {
+      fence = marker;
+    } else {
+      const heading = HEADING_LINE.exec(line)?.[1]?.trim();
+
+      if (heading) title = heading;
+    }
+  }
+
+  return title;
+}

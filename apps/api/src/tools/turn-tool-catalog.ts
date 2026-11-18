@@ -14,6 +14,7 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { admitToolInputSchema } from './schema-utils';
+import { withToolIntent } from './tool-intent';
 import {
   asciiCaseFoldToolId,
   isToolId,
@@ -383,7 +384,7 @@ async function admitTurnToolCandidate(
   const canonicalized = canonicalize({
     id,
     description: candidate.tool.description,
-    inputSchema: admission.inputSchema,
+    inputSchema: withToolIntent(id, admission.inputSchema),
   });
 
   assertModelToolDeclaration(canonicalized);

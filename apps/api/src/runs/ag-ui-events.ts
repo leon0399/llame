@@ -142,6 +142,9 @@ function encodeToolCall(
   // events arrive together with the arguments in one delta.
   return [
     {
+      ...(chunk.intent !== undefined && {
+        metadata: { llame: { intent: chunk.intent } },
+      }),
       type: EventType.TOOL_CALL_START,
       toolCallId,
       toolCallName: chunk.toolName,

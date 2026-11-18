@@ -324,6 +324,9 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         toolCallId,
         toolName,
         input,
+        ...(payloadString(event.payload, 'intent') !== undefined && {
+          intent: payloadString(event.payload, 'intent'),
+        }),
         dynamic: true,
       },
     ];

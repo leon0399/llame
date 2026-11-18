@@ -243,6 +243,7 @@ import {
   runTool,
 } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
+import { splitToolIntent } from '../tools/tool-intent';
 import {
   AttemptToolAdditions,
   type AttemptToolBinding,
@@ -978,6 +979,7 @@ type ToolRequestedEventPayload = {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  intent?: string;
   /**
    * The AI SDK step that requested this call. A Continue Run groups the kept
    * parts by it, so two sequential steps with no text between them stay two
@@ -2586,6 +2588,7 @@ export class RunExecutionService {
       {
         toolName: string;
         toolInput: unknown;
+        intent?: string;
         /** The step of the reply that requested the call (design D5). */
         step: number;
         /**
@@ -2640,11 +2643,17 @@ export class RunExecutionService {
       {
         origin,
         sdkRefusal,
-      }: { origin?: ToolActivityOrigin; sdkRefusal?: SdkRefusal } = {},
+        intent,
+      }: {
+        origin?: ToolActivityOrigin;
+        sdkRefusal?: SdkRefusal;
+        intent?: string;
+      } = {},
     ) => {
       openToolCalls.set(toolCallId, {
         toolName,
         toolInput,
+        ...(intent !== undefined && { intent }),
         step: stepOffset + currentStepNumber,
         ...(origin !== undefined && { origin }),
         ...(sdkRefusal !== undefined && { sdkRefusal }),
@@ -2669,6 +2678,9 @@ export class RunExecutionService {
         toolCallId,
         toolName,
         input: toolInput,
+        ...(openToolCalls.get(toolCallId)?.intent !== undefined && {
+          intent: openToolCalls.get(toolCallId)?.intent,
+        }),
         // The step the call was requested in, stamped by `onStepStart` in the
         // SDK's own numbering (it restarts at 0 in every request). A call
         // outside any step (the step cap's forced answer) keeps the last one.
@@ -2729,8 +2741,7 @@ export class RunExecutionService {
       settledToolCallIds.add(toolCallId);
       stepToolsCompleted += 1;
       const open = openToolCalls.get(toolCallId);
-      const permission = open?.permission;
-      const derivedDecisions = open?.derivedDecisions;
+      const { permission, derivedDecisions, intent } = open ?? {};
       // Stored once, on the call (design A7): the request event already
       // carries it, and every settlement path copies it from here.
       const providerMetadata = pendingToolMetadata.get(toolCallId);
@@ -2775,7 +2786,7 @@ export class RunExecutionService {
 
       if (permission !== undefined) payload.permission = permission;
 
-      if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
+      if (derivedDecisions?.length) {
         payload.derivedDecisions = derivedDecisions;
       }
 
@@ -2866,6 +2877,7 @@ export class RunExecutionService {
           toolCallId,
           toolName,
           input: toolInput,
+          intent,
           result,
           step: open?.step ?? stepOffset + currentStepNumber,
           sdkRefusal: open?.sdkRefusal,
@@ -2911,6 +2923,7 @@ export class RunExecutionService {
           toolCallId: request.toolCallId,
           toolName: 'wait',
           input: open?.toolInput ?? request.toolInput,
+          intent: open?.intent,
           result,
           step: open?.step ?? stepOffset + currentStepNumber,
           providerMetadata,
@@ -3375,10 +3388,16 @@ export class RunExecutionService {
     const executeDeclaredTool = (
       declaration: ModelToolDeclaration,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- both SDK execution and the observed-call path have passed the declaration schema.
-      args: unknown,
+      submitted: unknown,
       toolCallId: string,
     ): Promise<ToolResult> => {
-      reserveToolRequest(toolCallId, declaration.id, args);
+      const { input: args, intent } = splitToolIntent(
+        declaration.id,
+        submitted,
+      );
+
+      reserveToolRequest(toolCallId, declaration.id, args, { intent });
+
       const completion = Promise.withResolvers<void>();
       const open = openToolCalls.get(toolCallId);
 
@@ -4124,6 +4143,11 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
 
+              const { input: args, intent } = splitToolIntent(
+                toolName,
+                callInput,
+              );
+
               const result =
                 reason === 'not_available'
                   ? refusalResult(toolName)
@@ -4133,11 +4157,15 @@ export class RunExecutionService {
               // is distinguished downstream by requested+completed with no
               // started in between). No permission decision: an unavailable or
               // invalid call is not a permission rejection.
-              reserveToolRequest(toolCallId, toolName, callInput, {
-                sdkRefusal,
+              reserveToolRequest(toolCallId, toolName, args, {
+                sdkRefusal: {
+                  ...sdkRefusal,
+                  input: splitToolIntent(toolName, sdkRefusal.input).input,
+                },
+                intent,
               });
-              emitToolRequested(toolCallId, toolName, callInput, undefined);
-              recordToolCompleted(toolCallId, toolName, callInput, result);
+              emitToolRequested(toolCallId, toolName, args, undefined);
+              recordToolCompleted(toolCallId, toolName, args, result);
             },
           }),
           // The call's opaque metadata, held before the call can execute or be

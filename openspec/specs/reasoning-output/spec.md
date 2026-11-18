@@ -265,6 +265,33 @@ The backend SHALL preserve the persisted AI SDK reasoning-part shape, extended o
 - **THEN** the chat renders no Thinking panel for that segment
 - **AND** the parts persist with their provider metadata and are replayed to the provider unchanged
 
+### Requirement: A reasoning summary heading can title its panel
+
+The reasoning panel SHOULD use the latest complete heading in its original text
+as its title. A heading MUST be a line containing exactly one `**...**` bold run
+and no other non-whitespace content, outside fenced code blocks. A partial
+heading, inline emphasis, or several bold runs on one line MUST NOT replace the
+title. Display repair of glued markdown MUST NOT turn inline text into a title.
+With no qualifying heading, the panel MUST retain its Thinking or Thought label.
+Its running or completed state MUST remain accessible when a heading replaces
+that label. Title extraction MUST NOT modify persisted text or provider replay.
+
+#### Scenario: The latest complete summary titles the line
+
+- **WHEN** reasoning contains `**Inspecting input**`, followed on a later line by `**Checking output**`
+- **THEN** its panel title is `Checking output`
+- **AND** the full reasoning remains available in the panel
+
+#### Scenario: Inline markdown does not become a title
+
+- **WHEN** reasoning contains only `Check **one** and **two**` or `**One****Two**`
+- **THEN** its panel uses the ordinary Thinking or Thought label
+
+#### Scenario: A code example cannot title reasoning
+
+- **WHEN** a fenced code block contains a line `**Example heading**`
+- **THEN** that line is ignored when selecting the panel title
+
 ### Requirement: Reasoning summaries render as distinct markdown blocks
 
 When reasoning text is rendered in the Thinking panel or exported as markdown, a heading glued onto the text before it — a `****` run with non-whitespace on both sides, or prose butting directly onto a `**Heading**` whose closing `**` is followed by a newline or end of text — SHALL be separated by a paragraph break, so each headed summary reads as its own block. Markdown export SHALL separate consecutive reasoning parts with a blank line. This SHALL apply to reasoning persisted before per-part identity was recorded. Emphasis that occurs mid-sentence after whitespace or punctuation SHALL be left inline. The repair SHALL NOT modify persisted reasoning text.

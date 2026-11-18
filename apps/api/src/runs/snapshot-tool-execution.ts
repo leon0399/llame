@@ -3,6 +3,7 @@ import { type ModelToolDeclaration } from '../db/schema';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { TOOL_REGISTRY } from '../tools/registry';
 import { resolveJsonSchema, toFlexibleSchema } from '../tools/schema-utils';
+import { withToolIntent } from '../tools/tool-intent';
 import {
   hashToolDeclaration,
   type TurnToolSource,
@@ -144,7 +145,10 @@ async function resolveCodeOwnedTool(
   // MCP declarations use the separate opaque declaration path below.
   const liveDeclaration = {
     id: executor.id,
-    inputSchema: await resolveJsonSchema(executor.inputSchema),
+    inputSchema: withToolIntent(
+      executor.id,
+      await resolveJsonSchema(executor.inputSchema),
+    ),
   };
 
   const snapshottedDeclaration = {

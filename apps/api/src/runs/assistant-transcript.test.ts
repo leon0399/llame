@@ -763,6 +763,37 @@ describe('reconstructDurableAssistant', () => {
     expect(result.openToolCalls).toEqual(new Map());
   });
 
+  it('retains display intent after recovery without adding it to model replay input', () => {
+    const recovered = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'intent-call',
+        toolName: 'bash',
+        input: { command: 'pwd' },
+        intent: 'Inspecting the working directory',
+      }),
+      event('tool.completed', {
+        toolCallId: 'intent-call',
+        output: { status: 'success', exitCode: 0, stdout: '/work', stderr: '' },
+      }),
+    ]).collector.parts();
+
+    expect(recovered).toEqual([
+      expect.objectContaining({
+        intent: 'Inspecting the working directory',
+        input: { command: 'pwd' },
+      }),
+    ]);
+
+    const replay = project(recovered)[0]?.pair.toolCallPart;
+
+    expect(replay).toEqual({
+      type: 'tool-call',
+      toolCallId: 'intent-call',
+      toolName: 'bash',
+      input: { command: 'pwd' },
+    });
+  });
+
   it('rebuilds an error part with its artifact locator', () => {
     const result = reconstructDurableAssistant([
       event('tool.requested', {

@@ -67,6 +67,8 @@ export type ToolActivityPart = {
   toolCallId: string;
   state: 'output-available' | 'output-error';
   input: unknown;
+  /** Model-authored presentation only; absent from executor input and permissions. */
+  intent?: string;
   output?: unknown;
   errorText?: string;
   /** Provider-portable structured outcome: success or the ToolResult error type. */
@@ -450,6 +452,7 @@ export type ToolActivityPartInput = {
   readonly toolCallId: string;
   readonly toolName: string;
   readonly input: unknown;
+  readonly intent?: string;
   readonly result: ToolResult;
   /** The model step that produced this call (design D5). */
   readonly step?: number;
@@ -490,6 +493,8 @@ export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
   const part = toolPartBody(call);
+
+  if (call.intent !== undefined) part.intent = call.intent;
 
   if (call.step !== undefined) part.step = call.step;
 
@@ -578,6 +583,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
 type OpenToolCall = {
   readonly toolName: string;
   readonly toolInput: unknown;
+  readonly intent?: string;
   /** The model step the `tool.requested` event recorded (design D5). */
   readonly step?: number;
   readonly permission?: PermissionDecision;
@@ -731,6 +737,7 @@ class DurableAssistantReconstructor {
     this.openToolCalls.set(toolCallId, {
       toolName,
       toolInput,
+      intent: eventPayloadString(event.payload, 'intent'),
       step: this.stepFrom(event.payload),
       permission,
       providerMetadata: eventProviderMetadata(event.payload),
@@ -796,6 +803,7 @@ class DurableAssistantReconstructor {
         toolCallId,
         toolName: request.toolName,
         input: request.toolInput,
+        intent: request.intent,
         result,
         step: request.step,
         sdkRefusal: sdkRefusalFromPayload(event.payload),

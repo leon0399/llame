@@ -21,6 +21,7 @@ import {
 import { toolActivityPart } from './assistant-transcript';
 import {
   eventProviderMetadata,
+  eventPayloadString,
   permissionFromPayload,
   toolResultFromPayload,
 } from './run-event-payload';
@@ -306,6 +307,7 @@ function wakeActivityMetadata(
   const permission = permissionFromPayload(requestPayload);
 
   return {
+    intent: eventPayloadString(requestPayload, 'intent'),
     ...(providerMetadata !== undefined && { providerMetadata }),
     ...(permission !== undefined && { permission }),
     ...(classification !== undefined && { classification }),

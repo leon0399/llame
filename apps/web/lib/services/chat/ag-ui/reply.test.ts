@@ -146,6 +146,42 @@ describe("ReplyReducer", () => {
     expect(reply.parts[0]).not.toHaveProperty("resultProviderMetadata");
   });
 
+  it.each([false, true])(
+    "keeps the intent across argument and result transitions (failed=%s)",
+    (failed) => {
+      const reducer = new ReplyReducer();
+
+      for (const event of toolCall("c1", { command: "pwd" })) {
+        reducer.apply(
+          event.type === EventType.TOOL_CALL_START
+            ? {
+                ...event,
+                metadata: { llame: { intent: "Checking the directory" } },
+              }
+            : event,
+        );
+      }
+
+      expect(reducer.reply().parts[0]).toMatchObject({
+        intent: "Checking the directory",
+        input: { command: "pwd" },
+        state: "input-available",
+      });
+      reducer.apply({
+        type: EventType.TOOL_CALL_RESULT,
+        messageId: "c1:result",
+        toolCallId: "c1",
+        role: "tool",
+        content: failed ? "Stopped" : '{"stdout":"/work"}',
+        ...(failed && { metadata: { llame: { error: true } } }),
+      });
+      expect(reducer.reply().parts[0]).toMatchObject({
+        intent: "Checking the directory",
+        state: failed ? "output-error" : "output-available",
+      });
+    },
+  );
+
   it("places a notice among the parts where the stream carried it", () => {
     const reply = replyOf([
       ...text("run-1:text-1", "Working."),
