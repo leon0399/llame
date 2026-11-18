@@ -8,10 +8,9 @@ read_when:
 # llame glossary
 
 The domain language of llame. Terms here are definitions, not behavior:
-OpenSpec owns what each one does and wins any disagreement. Terms that are
-only planned are left out until they ship.
+OpenSpec owns what each one does and wins any disagreement.
 
-Chat, Run, Project, Workspace, Machine, Knowledge Space, Continue, and
+Chat, Run, Project, Workspace, Machine, Sandbox, Knowledge Space, Continue, and
 Regenerate are llame's proper names: write them capitalized. Write every other
 term in lowercase in running text, as the definitions here do.
 
@@ -359,6 +358,15 @@ authority.
 **SSH host**:
 A remote computer reached directly through an `ssh://` locator. It is not a
 Machine.
+
+**Sandbox**:
+The confinement boundary llame enforces around an executor's processes: which
+files, network destinations, and system calls they can reach. Its strength
+ranges from confinement on the host's own kernel to a container, a microVM, or
+a separate computer. It names isolation only; how long the executor lives and
+which tools are installed in it are separate concerns. Without a Sandbox, a
+tool has the full authority of the executor's OS user.
+_Avoid_: jail, container (for the boundary itself)
 
 **Workspace**:
 The binding of a Chat to one directory tree on one executor, where relative
