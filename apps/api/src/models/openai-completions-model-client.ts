@@ -524,6 +524,7 @@ function runOpenAICompatibleStream(
   };
 
   applyRequestRecovery(streamOptions, input, failureOptions);
+
   const terminals = prepareOpenAICompatibleStream(
     streamOptions,
     input,
