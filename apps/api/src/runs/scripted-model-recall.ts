@@ -11,6 +11,7 @@ import type {
   LanguageModelV3ToolResultOutput,
 } from '@ai-sdk/provider';
 import { z } from 'zod';
+import { scriptedToolInput } from './scripted-model-step';
 
 /**
  * The recall fields the script reads. Structural rather than the client's own
@@ -200,7 +201,7 @@ export function conversationRecallParts(
         type: 'tool-call',
         toolCallId: 'conversation-search',
         toolName: 'search_conversations',
-        input: JSON.stringify({
+        input: scriptedToolInput('search_conversations', {
           mode: 'content',
           query: script.query,
           limit: 5,
@@ -215,7 +216,7 @@ export function conversationRecallParts(
         type: 'tool-call',
         toolCallId: step.toolCallId,
         toolName: 'conversation_read',
-        input: JSON.stringify(step.input),
+        input: scriptedToolInput('conversation_read', step.input),
       },
     ];
   }

@@ -1907,3 +1907,47 @@ the field. Model replay, public shares, exports, and search MUST NOT carry it.
 
 - **WHEN** an allowlisted MCP tool call starts
 - **THEN** its stored tool part records `classification: "unverified"`
+
+### Requirement: Model-authored tool intent is presentation metadata
+
+The model-facing declarations for `bash`, `read`, `edit`, `write`, `grep`, `wait`,
+`stop`, `enter_workspace`, `search_conversations`, `conversation_read`,
+`knowledge_search`, and `web_search` MUST require a nonblank string `i` of at most
+120 characters. This envelope MUST be part of the canonical model declaration.
+The executor schemas MUST remain unchanged. Before ordinary argument validation,
+permission admission, or execution, the harness MUST remove `i` and retain it as
+the call's display-only `intent`. It MUST NOT alter eligibility, permission
+decisions, native-attempt identity, or the arguments sent to an MCP server.
+
+Owner history, live streaming, kept-part replay, and event-based reconstruction
+MUST preserve that intent separately from the executable input. Model history,
+public shares, exports, and search MUST NOT receive this separate display field.
+Normalized model-history tool-call arguments, including refused calls, MUST omit
+the envelope. SDK refusal diagnostics MUST retain their original text, which can
+quote the model's original rejected arguments, including its intent text; this
+separation is not a text-redaction guarantee.
+Trusted system-origin calls MUST NOT require or fabricate an intent. MCP tools
+MUST retain their original schemas, including any server-owned argument named `i`.
+
+#### Scenario: A described command still receives ordinary admission
+
+- **WHEN** a model requests `bash` with `i: "Checking files"` and a command rejected by its permission group
+- **THEN** the command is rejected regardless of the intent
+- **AND** the recorded executable input contains the command and no `i`
+- **AND** the owner-facing tool part carries `intent: "Checking files"`
+
+#### Scenario: An internal read does not need model presentation data
+
+- **WHEN** instruction loading or skill activation requests an authorized `read` with only a path
+- **THEN** the read is validated and executed under its unchanged executor schema
+- **AND** no synthetic intent is added
+
+#### Scenario: Reconnection preserves the intent beside the real arguments
+
+- **WHEN** a tool part with an intent is rebuilt from events or replayed by a Continue Run
+- **THEN** its intent and executable input remain separate and agree with owner history
+
+#### Scenario: An MCP argument named i keeps its server-defined meaning
+
+- **WHEN** an MCP tool declares and receives its own argument `i`
+- **THEN** the harness does not replace or strip that argument

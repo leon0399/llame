@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { separateGluedReasoningBlocks } from "./reasoning-blocks.js";
+import {
+  latestReasoningHeading,
+  separateGluedReasoningBlocks,
+} from "./reasoning-blocks.js";
 
 describe("separateGluedReasoningBlocks", () => {
   it("splits heading-onto-heading parts (the `****` run)", () => {
@@ -82,4 +85,37 @@ describe("separateGluedReasoningBlocks", () => {
       "**Only one part**",
     );
   });
+});
+
+describe("latestReasoningHeading", () => {
+  it("uses the latest complete heading while a later heading is still streaming", () => {
+    expect(
+      latestReasoningHeading("**Inspecting input**\nbody\n**Testing"),
+    ).toBe("Inspecting input");
+    expect(
+      latestReasoningHeading("**Inspecting input**\nbody\n**Testing**"),
+    ).toBe("Testing");
+  });
+
+  it.each([
+    "The **field** matters",
+    "**One** and **Two**",
+    "prose!**Emphasis**",
+    "**One****Two**",
+    "plain reasoning",
+  ])("does not mistake arbitrary emphasis for a heading: %s", (text) => {
+    expect(latestReasoningHeading(text)).toBeUndefined();
+  });
+
+  it.each(["```", "~~~~"])(
+    "ignores headings inside %s code fences",
+    (fence) => {
+      expect(
+        latestReasoningHeading(
+          `**Real heading**\n${fence}\n**Example**\n${fence}`,
+        ),
+      ).toBe("Real heading");
+      expect(latestReasoningHeading(`${fence}\n**Example**`)).toBeUndefined();
+    },
+  );
 });

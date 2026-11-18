@@ -132,6 +132,35 @@ describe('createRunEventTranslator', () => {
     ).not.toContainEqual({ type: 'start', messageId: 'run-1' });
   });
 
+  it.each([undefined, 'Reading the source file'])(
+    'keeps the live step title separate from arguments: %s',
+    (intent) => {
+      const translator = createRunEventTranslator('intent-run');
+      translator.prelude();
+
+      expect(
+        translator.translate({
+          eventType: 'tool.requested',
+          payload: {
+            toolCallId: 'intent-call',
+            toolName: 'read',
+            input: { path: '/work/a.txt' },
+            ...(intent !== undefined && { intent }),
+          },
+        }),
+      ).toEqual([
+        {
+          type: 'tool-input-available',
+          toolCallId: 'intent-call',
+          toolName: 'read',
+          input: { path: '/work/a.txt' },
+          dynamic: true,
+          ...(intent !== undefined && { intent }),
+        },
+      ]);
+    },
+  );
+
   it('emits no UI chunk for system-origin skill activation', () => {
     const t = createRunEventTranslator('run-activation');
 

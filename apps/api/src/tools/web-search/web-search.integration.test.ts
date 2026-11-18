@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { getErrorMessage } from '@ai-sdk/provider-utils';
 import { NoSuchToolError, stepCountIs, streamText } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { scriptedToolInput } from '../../testing/run-execution-integration-fixture';
 import type {
   LanguageModelV3,
   LanguageModelV3FinishReason,
@@ -199,7 +200,7 @@ function toolResponse(
       type: 'tool-call',
       toolCallId: id,
       toolName: name,
-      input: JSON.stringify(input),
+      input: scriptedToolInput(name, input),
     },
     { type: 'finish', finishReason: TOOL_FINISH, usage },
   ];

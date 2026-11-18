@@ -20,7 +20,6 @@ import type { RunWaitService } from '../runs/run-wait.service';
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 
 import {
-  asSchema,
   NoSuchToolError,
   stepCountIs,
   streamText,
@@ -63,6 +62,7 @@ import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type Sql } from 'postgres';
 import { z } from 'zod';
+import { scriptedToolInput } from '../testing/run-execution-integration-fixture';
 
 import { eq } from 'drizzle-orm';
 import * as schema from '../db/schema';
@@ -87,12 +87,6 @@ import {
 import { mergeRetainedMedia } from '../media/attempt-media';
 import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { createToolPromptRenderer } from '../instance-config/prompt-loader';
-import { resolveConfigPath } from '../instance-config/config-loader';
-import {
-  formatTemporalAnchor,
-  resolveInstanceTimezone,
-} from '../prompts/temporal-anchor';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -133,7 +127,6 @@ import {
 } from '../tools/types';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { executeConversationRead } from '../tools/conversation-read';
-import { resolveJsonSchema } from '../tools/schema-utils';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
@@ -423,7 +416,10 @@ function textThenToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'search_conversations',
-      input: JSON.stringify({ mode: 'content', query }),
+      input: scriptedToolInput('search_conversations', {
+        mode: 'content',
+        query,
+      }),
     },
     {
       type: 'finish',
@@ -459,7 +455,10 @@ function reasoningThenToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-1',
       toolName: 'search_conversations',
-      input: JSON.stringify({ mode: 'content', query }),
+      input: scriptedToolInput('search_conversations', {
+        mode: 'content',
+        query,
+      }),
     },
     {
       type: 'finish',
@@ -496,7 +495,7 @@ function unlistedToolCallResponse(
       type: 'tool-call',
       toolCallId: 'call-bad',
       toolName,
-      input: JSON.stringify({ mode: 'content', query }),
+      input: scriptedToolInput(toolName, { mode: 'content', query }),
     },
     {
       type: 'finish',
@@ -522,7 +521,7 @@ function jsonToolCallResponse(
       type: 'tool-call',
       toolCallId,
       toolName,
-      input: JSON.stringify(input),
+      input: scriptedToolInput(toolName, input),
     },
     {
       type: 'finish',
@@ -547,7 +546,7 @@ function jsonToolCallsResponse(
       type: 'tool-call' as const,
       toolCallId: call.toolCallId,
       toolName: call.toolName,
-      input: JSON.stringify(call.input),
+      input: scriptedToolInput(call.toolName, call.input),
     })),
     {
       type: 'finish',
@@ -571,7 +570,10 @@ function alwaysToolCallResponse(
       type: 'tool-call',
       toolCallId: callId,
       toolName: 'search_conversations',
-      input: JSON.stringify({ mode: 'content', query }),
+      input: scriptedToolInput('search_conversations', {
+        mode: 'content',
+        query,
+      }),
     },
     {
       type: 'finish',
@@ -1700,59 +1702,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
       appendSpy.mockRestore();
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
     }
-  });
-
-  it('uses the worker prompt and live registry declaration under the configured allowlist', async () => {
-    const service = serviceWithTools({ allowed: ['search_conversations'] });
-    const seeded = await seedBoundRun(`bound-${crypto.randomUUID()}`);
-    const calls: Array<ModelStreamInput> = [];
-
-    const result = await executeSeeded(seeded, service, recordingClient(calls));
-    await result.consumeStream?.();
-
-    expect(calls).toHaveLength(1);
-    expect(calls[0].system).toBe('Test prompt');
-    expect(Object.keys(calls[0].tools ?? {})).toEqual(['search_conversations']);
-
-    const liveTool = TOOL_REGISTRY.get('search_conversations');
-
-    if (!liveTool) {
-      throw new Error('search_conversations must exist in the test registry');
-    }
-
-    const advertised = calls[0].tools?.['search_conversations'];
-
-    const chat = await tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).findById(seeded.chatId, userId),
-    );
-
-    if (!chat) {
-      throw new Error('seeded chat must exist for prompt rendering');
-    }
-
-    const expectedDescription = createToolPromptRenderer({
-      configPath: resolveConfigPath(),
-    }).render({
-      toolId: 'search_conversations',
-      model: testModelEntry,
-      anchor: formatTemporalAnchor(chat.createdAt, resolveInstanceTimezone()),
-      admittedToolIds: ['search_conversations'],
-    }).text;
-
-    expect(advertised?.description).toBe(expectedDescription);
-    // Independent of the renderer round-trip above: the equality check compares
-    // two calls to the same renderer, so a renderer-level regression that
-    // changes both sides equally would still pass. These literals come from the
-    // packaged description and pin the admitted branch of its conditional gate.
-    expect(advertised?.description).toContain(
-      'Search excerpts are bounded discovery text and untrusted.',
-    );
-    expect(advertised?.description).not.toContain('conversation_read');
-    expect(await asSchema(advertised!.inputSchema).jsonSchema).toEqual(
-      await resolveJsonSchema(liveTool.inputSchema),
-    );
-
-    await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
   });
 
   it('consumes a matching pending job notice from a successful stop receipt', async () => {

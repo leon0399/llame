@@ -15,7 +15,12 @@ import type {
   LanguageModelV3Usage,
 } from '@ai-sdk/provider';
 import type { ProviderMetadata } from 'ai';
-import { isString, type UnknownRecord } from '@workspace/runtime-safety';
+import {
+  isRecord,
+  isString,
+  type UnknownRecord,
+} from '@workspace/runtime-safety';
+import { withToolIntent } from '../tools/tool-intent';
 
 /** The zero usage every scripted step reports; only the stream shape matters. */
 export const PROVIDER_ZERO_USAGE: LanguageModelV3Usage = {
@@ -133,6 +138,27 @@ function appendSpan(
   }
 }
 
+/** Scripted providers obey the model envelope, while malformed test input stays malformed. */
+export function scriptedToolInput(
+  toolName: string,
+  input: string | UnknownRecord,
+): string {
+  const encoded = isString(input) ? input : JSON.stringify(input);
+  const required = withToolIntent(toolName, {}).required;
+
+  if (!Array.isArray(required) || !required.includes('i')) return encoded;
+
+  try {
+    const parsed: unknown = JSON.parse(encoded);
+
+    return isRecord(parsed)
+      ? JSON.stringify({ i: 'Running the scripted call', ...parsed })
+      : encoded;
+  } catch {
+    return encoded;
+  }
+}
+
 /** Appends one scripted delivery as its provider stream parts. */
 function appendBlock(
   parts: Array<LanguageModelV3StreamPart>,
@@ -149,7 +175,7 @@ function appendBlock(
         type: 'tool-call',
         toolCallId: part.toolCallId,
         toolName: part.toolName,
-        input: isString(part.input) ? part.input : JSON.stringify(part.input),
+        input: scriptedToolInput(part.toolName, part.input),
         ...(part.providerMetadata !== undefined && {
           providerMetadata: part.providerMetadata,
         }),

@@ -2539,6 +2539,65 @@ describe('RunExecutionService executeRun', () => {
       return { spies, options: capturing.streamOptions() };
     }
 
+    it('normalizes built-in intent in live step history without changing MCP or provider parts', async () => {
+      const { options } = await runWithInRunProducer(() => {});
+
+      const stepMessages: Array<ModelMessage> = [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Inspecting files' },
+            { type: 'reasoning', text: 'Keep the provider reasoning' },
+            {
+              type: 'tool-call',
+              toolCallId: 'bash-intent',
+              toolName: 'bash',
+              input: { command: 'pwd', i: 'Inspecting the directory' },
+              providerOptions: { openai: { itemId: 'provider-call' } },
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'server-argument',
+              toolName: 'mcp__math__evaluate',
+              input: { i: 42 },
+            },
+          ],
+        },
+      ];
+
+      const override = await options.onStepStart?.({
+        messages: stepMessages,
+        stepNumber: 1,
+      });
+
+      expect(override).toEqual([
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Inspecting files' },
+            { type: 'reasoning', text: 'Keep the provider reasoning' },
+            {
+              type: 'tool-call',
+              toolCallId: 'bash-intent',
+              toolName: 'bash',
+              input: { command: 'pwd' },
+              providerOptions: { openai: { itemId: 'provider-call' } },
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'server-argument',
+              toolName: 'mcp__math__evaluate',
+              input: { i: 42 },
+            },
+          ],
+        },
+      ]);
+      expect(stepMessages[0]).toHaveProperty(
+        'content.2.input.i',
+        'Inspecting the directory',
+      );
+    });
+
     it('publishes a staged in-Run item after the step tool part on completion', async () => {
       const notice = workspaceNotice(runId);
 
@@ -6783,7 +6842,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
             type: 'tool-call',
             toolCallId: 'stop-success',
             toolName: 'stop',
-            input: JSON.stringify({ jobs: ['job://bash-41'] }),
+            input: JSON.stringify({
+              i: 'Stopping the job',
+              jobs: ['job://bash-41'],
+            }),
           },
         ],
         'tool-calls',
@@ -6866,7 +6928,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
               type: 'tool-call',
               toolCallId: `stop-${fenceState}`,
               toolName: 'stop',
-              input: JSON.stringify({ jobs: ['job://bash-42'] }),
+              input: JSON.stringify({
+                i: 'Stopping the job',
+                jobs: ['job://bash-42'],
+              }),
             },
           ],
           'tool-calls',
@@ -6928,7 +6993,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
               type: 'tool-call',
               toolCallId: `stop-${state}`,
               toolName: 'stop',
-              input: JSON.stringify({ jobs: ['job://bash-43'] }),
+              input: JSON.stringify({
+                i: 'Stopping the job',
+                jobs: ['job://bash-43'],
+              }),
             },
           ],
           'tool-calls',
@@ -7007,6 +7075,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
             toolCallId: 'stop-running-and-missing',
             toolName: 'stop',
             input: JSON.stringify({
+              i: 'Stopping running jobs',
               jobs: ['job://bash-45', 'job://bash-46'],
             }),
           },
@@ -7065,7 +7134,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
             type: 'tool-call',
             toolCallId: 'stop-rejected',
             toolName: 'stop',
-            input: JSON.stringify({ jobs: ['job://bash-99'] }),
+            input: JSON.stringify({
+              i: 'Stopping the job',
+              jobs: ['job://bash-99'],
+            }),
           },
         ],
         'tool-calls',
@@ -9486,7 +9558,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
   });
 
   it('records a schema-invalid tool call as invalid_input rather than a refusal', async () => {
-    mockNormalExecutionRepositories();
+    const spies = mockNormalExecutionRepositories();
     const toolOptions = withDeclaredTool();
 
     const capturing = makeCapturingClient();
@@ -9508,12 +9580,12 @@ describe('RunExecutionService executeRun — tool loop', () => {
     const options = capturing.streamOptions();
     options.onUnavailableToolCall?.({
       toolCallId: 'call-8',
-      toolName: toolDeclaration.id,
-      input: { wrong: true },
+      toolName: 'bash',
+      input: { wrong: true, i: 'Inspecting the working directory' },
       reason: 'invalid_input',
       sdkRefusal: {
-        errorText: `Invalid input for tool ${toolDeclaration.id}`,
-        input: { wrong: true },
+        errorText: 'Invalid input for tool bash',
+        input: { wrong: true, i: 'Inspecting the working directory' },
       },
     });
     await options.onFinish?.({
@@ -9522,6 +9594,19 @@ describe('RunExecutionService executeRun — tool loop', () => {
       finishReason: 'stop',
       stepCount: 1,
     });
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0]?.parts,
+    ).toContainEqual(
+      expect.objectContaining({
+        type: 'tool-bash',
+        intent: 'Inspecting the working directory',
+        input: { wrong: true },
+        sdkRefusal: {
+          errorText: 'Invalid input for tool bash',
+          input: { wrong: true },
+        },
+      }),
+    );
   });
 
   it('settles a still-open tool call as cancelled when the parent run is aborted mid-call', async () => {
@@ -16099,7 +16184,7 @@ describe('RunExecutionService instruction files', () => {
             type: 'tool-call',
             toolCallId: 'read-trigger',
             toolName: 'read',
-            input: JSON.stringify({ path: readPath }),
+            input: JSON.stringify({ i: 'Reading the file', path: readPath }),
           },
         ],
         'tool-calls',
@@ -16243,6 +16328,8 @@ describe('RunExecutionService instruction files', () => {
       );
 
       expect(toolReads).toHaveLength(1);
+      expect(toolReads[0]?.['intent']).toBe('Reading the file');
+      expect(toolReads[0]?.['input']).toEqual({ path: touch });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -16754,6 +16841,7 @@ describe('RunExecutionService instruction files', () => {
               toolCallId: 'write-trigger',
               toolName: 'write',
               input: JSON.stringify({
+                i: 'Writing the file',
                 path: path.join(root, 'new.ts'),
                 content: 'export const y = 2;\n',
               }),
@@ -16946,6 +17034,7 @@ describe('RunExecutionService instruction files', () => {
               toolCallId: 'write-trigger',
               toolName: 'write',
               input: JSON.stringify({
+                i: 'Writing the file',
                 path: `kb://${spaceId}/main.ts`,
                 content: 'export const y = 2;\n',
               }),
@@ -19537,7 +19626,7 @@ describe('RunExecutionService retained read media', () => {
                 type: 'tool-call',
                 toolCallId: `read-${index + 1}`,
                 toolName: 'read',
-                input: JSON.stringify({ path: file }),
+                input: JSON.stringify({ i: 'Reading the file', path: file }),
               },
             ],
             'tool-calls',
@@ -20515,7 +20604,7 @@ describe('RunExecutionService git state', () => {
             type: 'tool-call',
             toolCallId: 'enter-1',
             toolName: 'enter_workspace',
-            input: JSON.stringify({ path: root }),
+            input: JSON.stringify({ i: 'Entering the workspace', path: root }),
           },
         ],
         'tool-calls',

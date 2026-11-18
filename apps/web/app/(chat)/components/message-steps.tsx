@@ -13,6 +13,7 @@ import {
   toolIntent,
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
+import { latestReasoningHeading } from "@workspace/ui/lib/reasoning-blocks";
 import {
   getToolName,
   isToolUIPart,
@@ -95,7 +96,7 @@ function ReasoningPanel({
   const ReasoningContent = renderers.ReasoningContent;
 
   return (
-    <Reasoning isStreaming={isStreaming}>
+    <Reasoning isStreaming={isStreaming} title={latestReasoningHeading(text)}>
       <ReasoningTrigger />
       <ReasoningContent>{text}</ReasoningContent>
     </Reasoning>

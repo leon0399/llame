@@ -34,6 +34,9 @@ const toolFailureSchema = z.object({
   }),
 });
 
+const toolIntentSchema = z.object({ llame: z.object({ intent: z.string() }) });
+const storedIntentSchema = z.object({ intent: z.string().optional() });
+
 /** Reply metadata is the api's own object; today it holds the turn's usage. */
 const replyMetadataSchema = z.looseObject({});
 
@@ -88,6 +91,7 @@ function failedToolPart(
     type: "dynamic-tool",
     toolCallId: held.toolCallId,
     toolName: held.toolName,
+    ...storedIntentSchema.parse(held),
     state: "output-error",
     input: held.input,
     errorText,
@@ -249,6 +253,7 @@ export class ReplyReducer {
       type: "dynamic-tool",
       toolCallId,
       toolName: held.part.toolName,
+      ...storedIntentSchema.parse(held.part),
       state: "input-available",
       input: jsonOrText(written),
     });
@@ -259,6 +264,9 @@ export class ReplyReducer {
   ): true {
     const { toolCallId, toolCallName: toolName } = event;
 
+    const intent = toolIntentSchema.safeParse(event.metadata).data?.llame
+      .intent;
+
     this.toolArguments.set(toolCallId, "");
     this.toolIndex.set(
       toolCallId,
@@ -268,6 +276,7 @@ export class ReplyReducer {
         toolName,
         state: "input-streaming",
         input: undefined,
+        ...(intent !== undefined && { intent }),
       }),
     );
 
@@ -295,6 +304,7 @@ export class ReplyReducer {
       type: "dynamic-tool",
       toolCallId: held.part.toolCallId,
       toolName: held.part.toolName,
+      ...storedIntentSchema.parse(held.part),
       state: "output-available",
       input: held.part.input,
       output: jsonOrText(content),
