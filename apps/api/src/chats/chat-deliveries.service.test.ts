@@ -301,7 +301,7 @@ describe('ChatDeliveriesService.changeMode', () => {
   });
 
   it('allows steering a queued item while a turn Run holds the slot', async () => {
-    const { service, lockChat, findActiveRun, changePendingMode } =
+    const { service, dispatcher, lockChat, findActiveRun, changePendingMode } =
       makeService();
 
     lockChat.mockResolvedValue(
@@ -312,9 +312,10 @@ describe('ChatDeliveriesService.changeMode', () => {
     );
     changePendingMode.mockResolvedValue({ ...item, mode: 'steer' });
 
-    await expect(
-      service.changeMode(chatId, item.id, 'steer', userId),
-    ).resolves.toMatchObject({ item: { mode: 'steer' } });
+    await service.changeMode(chatId, item.id, 'steer', userId);
+
+    // The live turn keeps the slot, so the change starts no Run of its own.
+    expect(dispatcher.dispatch).not.toHaveBeenCalled();
     expect(changePendingMode).toHaveBeenCalledWith(
       chatId,
       item.id,
