@@ -1,7 +1,7 @@
 Track [#1675](https://github.com/leon0399/llame/issues/1675),
 [#1676](https://github.com/leon0399/llame/issues/1676), and
 [#1068](https://github.com/leon0399/llame/issues/1068) and their PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
 approval of the published proposal revision. Keep live status in the Project.
 
 ## Delivery stack
@@ -70,7 +70,7 @@ where a smaller safe merge point appears.
   - Evidence: on `1625012c`, OpenSpec 1.13.1 (`node_modules/.bin/openspec`) reports the change valid under `--strict`; markdownlint reports no issue in the change; the link check, `oxfmt --check`, and `git diff --check` are clean. The commit hooks could not run in the authoring shell (its `pnpm` is broken), so these ran directly.
 - [x] 1.2 Run two review rounds with at least two independent reviewers each, verify every finding against code or primary sources, and commit each round separately. Record each round in the design revision history.
   - Evidence: before the rebase, rounds 1 (`ab29d11c`) and 2 (`258fb067`). After the rebase and redesign (`0079d3ab`), round 3 (spec 4 P1, 13 P2; feasibility 5 P1, 6 P2; fixes in `9a4c8967`) and round 4 (spec 1 P1, 9 P2; feasibility 1 P1, 6 P2; fixes in `1625012c`). design.md "Revision history" records each round. Round 4 still changed substance, so the review has not converged; the GitHub review loop is the next round.
-- [x] 1.3 Self-review the published proposal PR diff (SR), mark it ready, and run the GitHub review loop (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
+- [x] 1.3 Self-review the published proposal PR diff (SR), mark it ready, and run the GitHub review loop (GR) per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#pr-contract).
   - Evidence: PR #1732 marked ready; all 9 bot review threads answered and resolved (8 accepted as clarifications in e969d5f7/b0689db6, 1 rejected with reasons); CI green.
 - [x] 1.4 Obtain Leo's approval of the published revision, including the decisions that the proposal lists as made in review.
   - Evidence: Leo, in chat on 2026-11-16: "Spec is approved." This approves revision `d2531bd3`, including the review-made decisions D18-D23. After the rebase onto `69aa40e8` that revision is `e2411c01`. The later proposal commits `3d899b77` and `59b4ce59` answer the GitHub review: they clarify wording, correct the focus rollback statement, and align task text with behavior the approved specs already require; they change no approved behavior. Leo confirms that reading before any merge.
@@ -188,9 +188,16 @@ where a smaller safe merge point appears.
 
 ## 10. finalize
 
-- [ ] 10.1 Enter `add-slash-commands/finalize` from `compact-auto` with `$gh-stack` before `$openspec-sync-specs` writes. Verify with `gh stack view --json`.
-- [ ] 10.2 Run `$openspec-sync-specs`, keep the `chat-commands` Purpose, and verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
-- [ ] 10.3 Check that every task above is checked and `openspec status --change add-slash-commands --json` reports every artifact done.
+- [x] 10.1 Enter `add-slash-commands/finalize` from `compact-auto` with `$gh-stack` before `$openspec-sync-specs` writes. Verify with `gh stack view --json`.
+  - Evidence: `gh stack view --json` reported `current branch "add-slash-commands/finalize" is not part of a stack`, confirming these branches were created with plain git. Before any sync write, `git log --oneline --decorate --first-parent -5` showed `2574e21b (HEAD -> add-slash-commands/finalize, origin/add-slash-commands/compact-auto, add-slash-commands/compact-auto) fix(runs): address compact-auto review`; the finalize branch points at the compact-auto tip. Later restacks moved that tip; finalize was rebased onto each one, and the checks below ran on the tip of the day.
+- [x] 10.2 Run `$openspec-sync-specs`, keep the `chat-commands` Purpose, and verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+  - Evidence: synced all ten listed delta capabilities; created `chat-commands` with its Purpose and 14
+    added requirements. `--specs --strict` passed (62 passed, 0 failed); `--all --strict` passed
+    (64 passed, 0 failed). All 24 MODIFIED requirements match their delta wording and scenarios.
+    `pnpm lint:markdown` found 0 issues in 1,099 files; `pnpm format:check` passed across 3,970
+    files; `node scripts/check-markdown-links.mjs` and `git diff --check` exited successfully.
+- [x] 10.3 Check that every task above is checked and `openspec status --change add-slash-commands --json` reports every artifact done.
+  - Evidence: on the finalize tip over compact-auto, rechecked after each restack, no unchecked task remains above 10.3; `openspec status --change add-slash-commands --json` reports proposal, specs, design, and tasks `done`. Every delta edit after the sync (the GitHub review clarifications to `context-injection` and `run-steering`) was made in the same commit as its canonical counterpart, so the two stay identical.
 
 ## Workflow follow-up
 

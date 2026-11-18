@@ -645,12 +645,12 @@ nothing. An archived project MUST answer 409 and store nothing.
 
 ### Requirement: The first-message creation path is unchanged
 
-`POST /api/v1/chats/:id/messages` MUST keep its current behavior, with two exceptions. The first
-is the refusal while a create request holds the chat's creation lock. The second is a send with a
-`delivery` mode during a live Run, which `run-steering` defines. A first message
-to an unknown chat id MUST create a chat with no project and no bound root. A
-message to a stored chat MUST NOT change its project or its bound root.
-`PATCH /api/v1/chats/:id` MUST continue to file a chat.
+`POST /api/v1/chats/:id/messages` MUST keep its current behavior, with three exceptions. One is a
+refusal while a create request holds the lock. The others are a `delivery` send during a live
+Run and a command to a stored chat, as `run-steering` and `chat-commands` define. A first message to
+an unknown chat id MUST create a chat with no project and no bound root. A message to a stored chat
+MUST NOT change its project or its bound root. `PATCH /api/v1/chats/:id` MUST continue to file a
+chat.
 
 #### Scenario: A first message creates an unfiled chat
 
@@ -666,3 +666,8 @@ message to a stored chat MUST NOT change its project or its bound root.
 
 - **WHEN** a client posts a message with `delivery: "queue"` to a stored chat with a live Run
 - **THEN** the route answers as `run-steering` requires, and the chat keeps its project and bound root
+
+#### Scenario: A command to a stored chat is the third exception
+
+- **WHEN** a client posts `/rename Foo` to a stored chat of the owner
+- **THEN** the route answers as `chat-commands` requires, and the chat keeps its project and bound root
