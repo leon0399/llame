@@ -1,4 +1,5 @@
 import {
+  getToolName,
   isToolUIPart,
   type DynamicToolUIPart,
   type ToolUIPart,
@@ -107,22 +108,38 @@ export type PlainPart = Exclude<
 
 export type GroupedPlainPart = { kind: "part"; part: PlainPart; index: number };
 
-/** What a reply paints, in order: a run of steps, or one other part. */
-export type ReplyBlock = GroupedSteps | GroupedPlainPart;
+/** The tool whose call is a surface the reply shows, not a step it took. */
+export const RENDER_UI_TOOL = "render_ui";
 
-/** The step a segment is, or null for text and notices. */
-function workOf(segment: GroupedAssistantPart): StepSegment | null {
+/** A `render_ui` call: part of the answer, painted where it occurred. */
+export type GroupedSurface = {
+  kind: "surface";
+  part: ToolUIPart | DynamicToolUIPart;
+  index: number;
+};
+
+/** What a reply paints, in order: a run of steps, a surface, or one other
+ *  part. */
+export type ReplyBlock = GroupedSteps | GroupedSurface | GroupedPlainPart;
+
+/** The step or surface a segment is, or null for text and notices. */
+function workOf(
+  segment: GroupedAssistantPart,
+): StepSegment | GroupedSurface | null {
   if (segment.kind === "reasoning") return segment;
 
   if (!isToolUIPart(segment.part)) return null;
+  const { part, index } = segment;
 
-  return { kind: "tool", part: segment.part, index: segment.index };
+  return getToolName(part) === RENDER_UI_TOOL
+    ? { kind: "surface", part, index }
+    : { kind: "tool", part, index };
 }
 
 /**
  * Fold each run of consecutive steps into one block, so the work between two
  * pieces of the answer reads as one trace instead of a stack of separate rows.
- * Text and notices still split runs, and occurrence order stays
+ * Text, notices, and surfaces still split runs, and occurrence order stays
  * intact. Pass only the segments that paint: a part that shows nothing must not
  * split a run.
  */
@@ -140,6 +157,8 @@ export function groupReplyBlocks(
       if (segment.kind === "part" && !isToolUIPart(segment.part)) {
         blocks.push({ kind: "part", part: segment.part, index: segment.index });
       }
+    } else if (work.kind === "surface") {
+      blocks.push(work);
     } else if (last?.kind === "steps") {
       last.steps.push(work);
     } else {

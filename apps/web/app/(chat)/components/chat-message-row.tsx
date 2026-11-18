@@ -15,7 +15,7 @@ import {
   type GroupedAssistantPart,
   type PlainPart,
 } from "./group-assistant-parts";
-import { StepsBlock } from "./message-steps";
+import { StepsBlock, SurfaceBlock } from "./message-steps";
 import { hasVisibleContent, isVisibleSegment } from "./message-visibility";
 import { InstructionsPart } from "./instructions-part";
 import { HostNoticePart } from "./job-notice-part";
@@ -350,12 +350,12 @@ function MessageSegments({
       );
     }
 
-    return (
-      <MessagePartView
-        key={`message-part-${renderKey}-${block.index}`}
-        part={block.part}
-        renderers={renderers}
-      />
+    const key = `message-part-${renderKey}-${block.index}`;
+
+    return block.kind === "surface" ? (
+      <SurfaceBlock key={key} part={block.part} renderers={renderers} />
+    ) : (
+      <MessagePartView key={key} part={block.part} renderers={renderers} />
     );
   });
 }

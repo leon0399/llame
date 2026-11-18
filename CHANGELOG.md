@@ -39,6 +39,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   original model arguments. Reasoning rows use a complete standalone bold heading
   outside code fences when present and retain accessible lifecycle state.
 
+- Prototype: add the `render_ui` tool, which shows the owner a display-only
+  [A2UI](docs/research/standards/a2ui.md) v0.9 surface in the reply. It is
+  offered only when allowlisted. See
+  [render_ui](docs/product/reference/tools/render-ui.md).
+
 # 2026-11-17
 
 - Size decision-model requests by the model. A `decisionModels[]` entry can

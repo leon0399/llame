@@ -13,6 +13,11 @@ import {
   toolIntent,
   type ToolHeaderState,
 } from "@workspace/ui/components/ai-elements/tool";
+import {
+  A2uiSurface,
+  a2uiSurfaceSchema,
+} from "@workspace/ui/components/custom/a2ui-surface";
+import { Trace } from "@workspace/ui/components/trace";
 import { latestReasoningHeading } from "@workspace/ui/lib/reasoning-blocks";
 import {
   getToolName,
@@ -22,6 +27,8 @@ import {
   type UIMessage,
 } from "ai";
 import { z } from "zod";
+
+import { useMemo } from "react";
 
 import { dedicatedToolRow } from "./dedicated-tool-row";
 import type { GroupedSteps, StepSegment } from "./group-assistant-parts";
@@ -213,5 +220,36 @@ export function StepsBlock({
     >
       {rows}
     </ChainOfThought>
+  );
+}
+
+/**
+ * A `render_ui` call: the surface the agent authored, in the answer's flow. A
+ * call that has not succeeded, or whose input is not a surface this build
+ * knows, is shown as the tool call it is, so a refusal stays readable.
+ */
+export function SurfaceBlock({
+  part,
+  renderers,
+}: {
+  part: ToolUIPart | DynamicToolUIPart;
+  renderers: ChatMarkdownRenderers;
+}) {
+  // Parsed once per input, not once per streamed token of the reply. A data
+  // model too deep to walk is not a surface this build can show.
+  const surface = useMemo(() => {
+    try {
+      return a2uiSurfaceSchema.safeParse(part.input).data ?? null;
+    } catch {
+      return null;
+    }
+  }, [part.input]);
+
+  return part.state === "output-available" && surface !== null ? (
+    <A2uiSurface surface={surface} />
+  ) : (
+    <Trace>
+      <ToolUIPartView part={part} renderers={renderers} />
+    </Trace>
   );
 }

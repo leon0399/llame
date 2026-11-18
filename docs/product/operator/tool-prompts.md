@@ -17,7 +17,8 @@ file, instance-wide or for a single model. The same template subset that renders
 
 The llame-owned tool ids are `bash`, `conversation_read`, `edit`,
 `enter_workspace`, `exit_workspace`, `grep`, `knowledge_search`, `read`,
-`search_conversations`, `stop`, `wait`, `web_search`, and `write`. MCP tool
+`render_ui`, `search_conversations`, `stop`, `wait`, `web_search`, and `write`.
+MCP tool
 descriptions come from their server and are never templated.
 
 ## Configure overrides

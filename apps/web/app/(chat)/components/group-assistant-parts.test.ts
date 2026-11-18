@@ -207,4 +207,21 @@ describe("groupReplyBlocks", () => {
       block?.kind === "steps" ? block.steps.map((s) => s.kind) : [],
     ).toEqual(["tool", "reasoning", "tool"]);
   });
+
+  it("treats a render_ui call as part of the answer, not as a step", () => {
+    const surface: UIMessage["parts"][number] = {
+      type: "dynamic-tool",
+      toolCallId: "ui-1",
+      toolName: "render_ui",
+      state: "output-available",
+      input: { components: [] },
+      output: { status: "success" },
+    };
+
+    expect(replyOutline([tool("c1"), surface, tool("c2")])).toEqual([
+      "steps:1",
+      "surface",
+      "steps:1",
+    ]);
+  });
 });

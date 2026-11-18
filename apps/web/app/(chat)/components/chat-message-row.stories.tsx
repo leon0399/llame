@@ -2254,6 +2254,76 @@ export const MixedOwnerJobNotice: Story = {
   },
 };
 
+const SURFACE_INPUT = {
+  components: [
+    { id: "root", component: "Card", child: "body" },
+    { id: "body", component: "Column", children: ["title", "rows"] },
+    { id: "title", component: "Text", text: { path: "/title" }, variant: "h4" },
+    {
+      id: "rows",
+      component: "List",
+      children: { componentId: "row", path: "/checks" },
+    },
+    { id: "row", component: "Text", text: { path: "name" } },
+  ],
+  data: {
+    title: "Checks on this branch",
+    checks: [{ name: "lint passed" }, { name: "typecheck passed" }],
+  },
+};
+
+/**
+ * A reply that called `render_ui`: the surface is part of the answer, painted
+ * where the call occurred, while the steps around it stay folded. A call the
+ * api refused shows as the tool call it is, with its error.
+ *
+ * @summary a render_ui surface renders in the reply; a refused one stays a tool row
+ */
+export const RenderedSurface: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-surface",
+    message: {
+      id: "assistant-surface",
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-bash",
+          toolCallId: "checks-1",
+          state: "output-available",
+          input: { command: "pnpm lint" },
+          output: { status: "success", exitCode: 0, output: "" },
+        },
+        {
+          type: "tool-render_ui",
+          toolCallId: "surface-1",
+          state: "output-available",
+          input: SURFACE_INPUT,
+          output: { status: "success", rendered: true },
+        },
+        {
+          type: "tool-render_ui",
+          toolCallId: "surface-2",
+          state: "output-error",
+          input: { components: [{ id: "a", component: "Text", text: "x" }] },
+          errorText: 'One component must have the id "root".',
+        },
+        { type: "text", text: "Both checks pass." },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    await expect(
+      await canvas.findByText("Checks on this branch", {}, { timeout: 15_000 }),
+    ).toBeVisible();
+    await expect(canvas.getByText("typecheck passed")).toBeVisible();
+    // The refused call is a tool line the reader can open, not a surface.
+    await expect(
+      canvas.getByRole("button", { name: /render_ui.*Error/ }),
+    ).toBeVisible();
+  },
+};
+
 const bashStep = (id: string, command: string) =>
   ({
     type: "tool-bash",
