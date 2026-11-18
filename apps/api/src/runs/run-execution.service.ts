@@ -4343,7 +4343,7 @@ export class RunExecutionService {
                 | DeliveryInput['boundaryCompaction']
                 | undefined;
 
-              if (settling === 'completed' && !wakeCompaction) {
+              if (completesBoundaryCompaction(settling, wakeCompaction)) {
                 boundaryCompaction = await this.prepareBoundaryCompaction({
                   run: input,
                   attemptId,
@@ -4412,7 +4412,6 @@ export class RunExecutionService {
                 settling === 'cancelled' && !input.abortSignal?.aborted
                   ? { message: 'Run was cancelled.' }
                   : undefined;
-
 
               const finish = await this.finishRun({
                 userId: input.userId,
