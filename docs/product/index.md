@@ -16,6 +16,8 @@ Two subtrees, split by who acts on them.
 - [Operator](operator/index.md): how an operator enables, restricts, deploys,
   and troubleshoots those capabilities in the instance configuration.
 
+[Glossary](glossary.md) defines the terms both subtrees use.
+
 A reference page names the operator page that configures it, and an operator
 page names the reference pages it configures. The OpenSpec capability named on
 each reference page wins any disagreement.
