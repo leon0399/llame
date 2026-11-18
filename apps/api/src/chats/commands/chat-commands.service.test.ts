@@ -20,6 +20,7 @@ import {
   RunsRepository,
 } from '../../runs/runs-repository';
 import { ChatCommandsService } from './chat-commands.service';
+import * as runControl from '../../runs/run-control';
 
 function makeService() {
   const db: Db = drizzle.mock();
@@ -366,6 +367,44 @@ describe('ChatCommandsService', () => {
       kind: 'steer',
     });
   });
+  it('notifies a running turn when a compact interrupt is queued', async () => {
+    const { service, activeRunLookup, dispatch, insertPending } = makeService();
+
+    const notify = vi
+      .spyOn(runControl, 'notifyRunControl')
+      .mockResolvedValue(undefined);
+
+    activeRunLookup.mockResolvedValue(
+      asDouble<Run>({
+        id: 'turn-run',
+        chatId: 'chat-1',
+        userId: 'user-1',
+        status: 'running_model',
+        kind: 'turn',
+        currentJobId: 'turn-job',
+      }),
+    );
+    dispatch.jobState.mockResolvedValue('active');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: 'preserve this' },
+        messageId: 'compact-interrupt',
+        rawText: '/compact preserve this',
+        delivery: 'interrupt',
+      }),
+    ).resolves.toMatchObject({ type: 'delivery' });
+
+    expect(insertPending).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'compact-interrupt', mode: 'interrupt' }),
+    );
+    expect(notify).toHaveBeenCalledWith(expect.anything(), {
+      runId: 'turn-run',
+      kind: 'interrupt',
+    });
+  });
+
   it('queues a compact command behind a live compaction Run', async () => {
     const {
       service,
