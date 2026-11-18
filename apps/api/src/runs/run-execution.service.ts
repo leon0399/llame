@@ -1927,9 +1927,7 @@ export class RunExecutionService {
       }),
     );
 
-    const deliveryEvents = attemptEvents.filter(
-      (event) => event.eventType === 'run.delivered',
-    );
+    const deliveryEvents = attemptEvents;
 
     const stepBudgetOffset = readCompactionStepBudget(deliveryEvents);
 
