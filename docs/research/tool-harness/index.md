@@ -15,6 +15,7 @@ and extraction models.
 - [System One extraction models](./2026-10-27-system-one-extraction.md) - Cloudflare's Clairic: typed spans, values, estimates and forecasts in one input-priced pass, composition with decision models, decision-gated RAG, and llame applications U32-U39 including a future bundled mail client.
 - [The decision-model landscape](./2026-11-05-decision-model-landscape.md) - Decision models as one model class with many hosted members, open-weight releases, wrappers and local serving options, their licences and measured limits, and the provider-neutral decision lane llame would need to use any of them.
 - [Objective-ranked results with offloaded artifacts](./2026-11-02-objective-rerank-engine.md) - Whether every search tool should rank its whole result by a model-supplied objective, show the most suitable findings inline, and offload the rest to an `artifact://` snapshot instead of a cursor: prior art, costs, and a shared engine design.
+- [Per-call overhead of Machine daemon tools](./2026-11-18-daemon-call-overhead.md) - Measures today's Node daemon process boundary and JSON serialization cost for `fs.read` and `fs.grep`, without predicting Rust/gRPC performance.
 
 ## Research bundles
 
