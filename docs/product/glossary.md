@@ -347,9 +347,14 @@ The Machine on which a file or shell tool runs.
 _Avoid_: runner, node
 
 **Machine**:
-A computer or execution environment running the llame machine daemon and
-reached by the installation, including the host and recipe instances.
+A computer or execution environment running the Machine daemon and reached by
+the installation, including the host and recipe instances.
 _Avoid_: node, server
+
+**Machine daemon**:
+The llame program that runs on a Machine and serves its native tools. Each
+Machine runs one.
+_Avoid_: agent, server, runner
 
 **Configured Machine**:
 A Machine declared by the operator rather than created by llame. The host
