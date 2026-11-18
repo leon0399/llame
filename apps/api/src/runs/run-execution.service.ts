@@ -3590,24 +3590,15 @@ export class RunExecutionService {
           throw new Error('Cannot publish an empty boundary summary.');
         }
 
-        const checkpointId = await this.publishCheckpointInTransaction(
-          input.tx,
-          {
-            run: runInput,
-            attemptId,
-            summary: { ...input.summary, uptoSeq: input.reply.seq },
-            focus: input.focus,
-            model: attemptContext.model,
-            workspaceRoot: workspaceRoot.current(),
-            digestCandidate: input.digestCandidate,
-          },
-        );
-
-        if (checkpointId === undefined) {
-          throw new Error('Boundary checkpoint was not published.');
-        }
-
-        return checkpointId;
+        return this.publishCheckpointInTransaction(input.tx, {
+          run: runInput,
+          attemptId,
+          summary: { ...input.summary, uptoSeq: input.reply.seq },
+          focus: input.focus,
+          model: attemptContext.model,
+          workspaceRoot: workspaceRoot.current(),
+          digestCandidate: input.digestCandidate,
+        });
       };
 
       const buildBoundaryCompaction = (input: {
@@ -7315,7 +7306,7 @@ export class RunExecutionService {
       workspaceRoot: string | undefined;
       digestCandidate: RecencyDigestResolution | null;
     },
-  ): Promise<string | undefined> {
+  ): Promise<string> {
     // Keep the write fence first: delivery takes the Run lock before the Chat
     // lock, so reversing this order can deadlock against a concurrent delivery.
     const fenced = await new RunsRepository(tx).updateForAttempt(
