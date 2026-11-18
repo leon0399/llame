@@ -223,10 +223,10 @@ export function parseRetryAfter(
   if (value === undefined || value.trim() === '') return undefined;
   const seconds = finiteNumber(value);
 
-  if (seconds !== undefined && seconds >= 0) {
+  if (seconds !== undefined) {
     const delay = seconds * 1000;
 
-    return Number.isFinite(delay) ? delay : undefined;
+    return seconds >= 0 && Number.isFinite(delay) ? delay : undefined;
   }
 
   const date = Date.parse(value);

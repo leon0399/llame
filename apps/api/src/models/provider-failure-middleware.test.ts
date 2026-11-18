@@ -177,4 +177,96 @@ describe('withProviderFailures', () => {
     expect(classified).toBeInstanceOf(ProviderFailure);
     expect(classified).toMatchObject({ message: 'bounded provider failure' });
   });
+  it('classifies rejected stream reads as an error frame at the consumer boundary', async () => {
+    const raw = new Error('reader rejected');
+    const middlewareOptions = options();
+
+    const wrapped = withProviderFailures(
+      new MockLanguageModelV3({
+        doStream: () =>
+          Promise.resolve({
+            stream: new ReadableStream({
+              start(controller) {
+                controller.error(raw);
+              },
+            }),
+          }),
+      }),
+      middlewareOptions,
+    );
+
+    const result = await wrapped.doStream({ prompt: [] });
+    const frame = await result.stream.getReader().read();
+
+    expect(frame.value?.type).toBe('error');
+
+    if (frame.value?.type !== 'error') throw new Error('expected error frame');
+    expect(frame.value.error).toMatchObject({
+      message: 'bounded provider failure',
+    });
+    expect(middlewareOptions.classify).toHaveBeenCalledWith(
+      expect.objectContaining({ error: raw }),
+    );
+  });
+
+  it('forwards cancellation to the provider stream reader', async () => {
+    const reason = new Error('consumer stopped');
+    const canceled = Promise.withResolvers<unknown>();
+    const middlewareOptions = options();
+
+    const wrapped = withProviderFailures(
+      new MockLanguageModelV3({
+        doStream: () =>
+          Promise.resolve({
+            stream: new ReadableStream({
+              cancel(cancelReason) {
+                canceled.resolve(cancelReason);
+              },
+            }),
+          }),
+      }),
+      middlewareOptions,
+    );
+
+    const result = await wrapped.doStream({ prompt: [] });
+
+    await result.stream.cancel(reason);
+    expect(await canceled.promise).toBe(reason);
+    expect(middlewareOptions.classify).not.toHaveBeenCalled();
+  });
+
+  it('uses the per-send abort signal instead of the configured fallback signal', async () => {
+    const configuredReason = new Error('configured abort');
+    const sendReason = new Error('send abort');
+    const configured = new AbortController();
+    const perSend = new AbortController();
+    configured.abort(configuredReason);
+    perSend.abort(sendReason);
+    const middlewareOptions = options(configured.signal);
+
+    const wrapped = withProviderFailures(
+      new MockLanguageModelV3({
+        doStream: () =>
+          Promise.resolve({
+            stream: new ReadableStream({
+              start(controller) {
+                controller.enqueue({ type: 'error', error: sendReason });
+                controller.close();
+              },
+            }),
+          }),
+      }),
+      middlewareOptions,
+    );
+
+    const result = await wrapped.doStream({
+      prompt: [],
+      abortSignal: perSend.signal,
+    });
+
+    const frame = await result.stream.getReader().read();
+
+    expect(frame.value).toEqual({ type: 'error', error: sendReason });
+    expect(middlewareOptions.classify).not.toHaveBeenCalled();
+  });
 });

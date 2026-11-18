@@ -67,19 +67,21 @@ function failingModel(error: unknown): MockLanguageModelV3 {
  * substitutes its own rejections on exactly the channels the wrapper reads.
  */
 function rejectingResult(error: unknown): ModelStreamResult {
+  const reject = async () => {
+    throw await error;
+  };
+
   const channels: Array<[string, ChannelOverride]> = [
     ...STREAM_PROMISE_CHANNELS.map((channel): [string, ChannelOverride] => [
       channel,
       () => ({
-        // eslint-disable-next-line typescript/prefer-promise-reject-errors -- the SDK rejects with the request's failure, the abort reason string included.
-        value: Promise.reject(error),
+        value: reject(),
       }),
     ]),
     [
       'consumeStream',
       () => ({
-        // eslint-disable-next-line typescript/prefer-promise-reject-errors -- the SDK rejects with the request's failure, the abort reason string included.
-        value: () => Promise.reject(error),
+        value: reject,
       }),
     ],
   ];
@@ -220,6 +222,38 @@ describe('withRedactedFailures', () => {
 
     expect(await rejection(result.text)).toBe(ownerError);
     expect(await rejection(result.consumeStream())).toBe(ownerError);
+  });
+  it('settles channel failures with the owner callback rejection', async () => {
+    const providerError = apiError(`provider failure ${KEY}`);
+    const callbackError = new Error('owner callback rejected');
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(providerError),
+        streamText: (input) => {
+          const callback = input.onError?.({ error: providerError });
+
+          const failure = callback
+            ? Promise.resolve(callback).then(
+                () => providerError,
+                (error: unknown) => error,
+              )
+            : Promise.resolve(providerError);
+
+          return rejectingResult(failure);
+        },
+      },
+      [KEY],
+    );
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: () => Promise.reject(callbackError),
+    });
+
+    expect(await rejection(result.text)).toBe(callbackError);
+    expect(await rejection(result.consumeStream())).toBe(callbackError);
   });
 
   it('redacts a synchronous streamText failure before rethrowing it', () => {
@@ -395,6 +429,121 @@ describe('withRedactedFailures', () => {
     );
 
     expect(reported).toEqual(['aborted for [REDACTED]']);
+  });
+  it('redacts fullStream error frames and rejected reads at consumption', async () => {
+    const error = apiError(`stream failed ${KEY}`);
+    const rawReadError = apiError(`read failed ${KEY}`);
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(error, false),
+        streamText: () => {
+          const result = rejectingResult(error);
+
+          const fullStream = new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: 'error', error });
+              controller.close();
+            },
+          });
+
+          const textStream = new ReadableStream({
+            start(controller) {
+              controller.error(rawReadError);
+            },
+          });
+
+          return wrapStreamTextResult(result, {
+            fullStream: () => ({ value: fullStream }),
+            textStream: () => ({ value: textStream }),
+          });
+        },
+      },
+      [KEY],
+    );
+
+    const result = client.streamText({ chat: CHAT, messages });
+
+    const frame = await result.fullStream.getReader().read();
+    expect(frame.value).toMatchObject({
+      type: 'error',
+      error: { message: 'stream failed [REDACTED]' },
+    });
+    const readFailure = await rejection(result.textStream.getReader().read());
+    expect(readFailure).toBe(rawReadError);
+    expect(readFailure).toMatchObject({ message: 'read failed [REDACTED]' });
+  });
+
+  it('forwards actual fullStream cancellation to its source reader', async () => {
+    const cancelReason = new Error('stop reading');
+    const canceled = Promise.withResolvers<unknown>();
+
+    const source = new ReadableStream({
+      cancel(reason) {
+        canceled.resolve(reason);
+      },
+    });
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(new Error('unused'), false),
+        streamText: () =>
+          wrapStreamTextResult(rejectingResult(new Error('unused')), {
+            fullStream: () => ({ value: source }),
+          }),
+      },
+      [KEY],
+    );
+
+    await client
+      .streamText({ chat: CHAT, messages })
+      .fullStream.cancel(cancelReason);
+    expect(await canceled.promise).toBe(cancelReason);
+  });
+
+  it('does not replace an unrelated owner channel error with captured SDK failure', async () => {
+    const captured = apiError(`provider failed ${KEY}`);
+    const ownerError = new Error('owner channel failed');
+
+    const client = withRedactedFailures(
+      {
+        ...failingClient(captured),
+        streamText: (input) => {
+          void input.onError?.({ error: captured });
+          const result = rejectingResult(captured);
+
+          return wrapStreamTextResult(result, {
+            text: () => ({ value: Promise.reject(ownerError) }),
+          });
+        },
+      },
+      [KEY],
+    );
+
+    const result = client.streamText({ chat: CHAT, messages });
+    expect(await rejection(result.text)).toBe(ownerError);
+  });
+
+  it('does not eagerly access promise channels when wrapping a result', () => {
+    const error = apiError(`lazy ${KEY}`);
+    const result = rejectingResult(error);
+    let accessed = 0;
+
+    const lazy = wrapStreamTextResult(result, {
+      text: (target) => {
+        accessed += 1;
+
+        return { value: target.text };
+      },
+    });
+
+    const client = withRedactedFailures(
+      { ...failingClient(error, false), streamText: () => lazy },
+      [KEY],
+    );
+
+    client.streamText({ chat: CHAT, messages });
+    expect(accessed).toBe(0);
   });
 
   it('leaves every failure untouched when no credential is configured', async () => {

@@ -5,6 +5,7 @@
  * shared test fixture).
  */
 import { jsonSchema } from 'ai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { InvalidArgumentError } from '@ai-sdk/provider';
 import { ProviderFailure } from './provider-failure/provider-failure';
 
@@ -26,7 +27,10 @@ import {
   unreachableEndpointFailure,
   type RecordedRequest,
 } from '../testing/anthropic-model-client-fixtures';
-import type { AnthropicModelClientConfig } from './anthropic-model-client';
+import {
+  createAnthropicModelClient,
+  type AnthropicModelClientConfig,
+} from './anthropic-model-client';
 import type { ChatIdentity, ModelObjectInput } from './model-client';
 import type { ClientHarness } from '../testing/anthropic-model-client-fixtures';
 
@@ -555,6 +559,52 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
       code: 'unknown',
     });
     expect(delivered(errors)).not.toContain(MESSAGES_CANARIES.prompt);
+  });
+
+  it('cancels a stalled structured request when its caller aborts', async () => {
+    const requested = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const reason = new DOMException('Title deadline reached', 'AbortError');
+    const harness = buildHarness();
+
+    const client = createAnthropicModelClient(
+      {
+        credential: 'test',
+        providerModelId: 'claude-sonnet-4-6',
+        modelId: 'cancellation-test',
+        contextWindowTokens: 100_000,
+        userAgent: 'llame/test',
+        requestHeaders: {},
+        baseUrl: 'https://api.anthropic.com/v1',
+        reasoningDeclared: false,
+      },
+      {
+        ...harness.dependencies,
+        createAnthropic: (settings) =>
+          createAnthropic({
+            ...settings,
+            fetch: (_url: RequestInfo | URL, init?: RequestInit) =>
+              new Promise<Response>((_resolve, reject) => {
+                const signal = init?.signal;
+                signal?.addEventListener('abort', () => reject(reason), {
+                  once: true,
+                });
+                requested.resolve();
+              }),
+          }),
+      },
+    );
+
+    const result = client.generateObject!({
+      ...titleInput,
+      abortSignal: controller.signal,
+    });
+
+    const settled = result.catch((error: unknown) => error);
+
+    await requested.promise;
+    controller.abort(reason);
+    expect(await settled).toMatchObject({ name: 'AbortError' });
   });
 
   it('keeps an aborted request abort-shaped instead of masking it', async () => {

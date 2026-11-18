@@ -42,7 +42,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   and any stated reset instant on failed Runs and their events. Compaction Runs
   retain the same diagnostic fields. Hosted web search maps usage limits to its
   existing rate-limit failure so configured engine chains and aggregates keep
-  their fallback behavior. See
+  their fallback behavior. Structured Messages calls retain caller cancellation,
+  stream cancellation does not manufacture a second provider failure, and
+  negative numeric Retry-After values do not become reset dates. See
   [provider diagnostics](docs/product/operator/providers/routing.md#diagnosing-failed-model-requests).
 
 # 2026-11-17

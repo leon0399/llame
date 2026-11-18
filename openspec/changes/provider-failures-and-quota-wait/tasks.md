@@ -89,7 +89,7 @@ before publication.
       through `sanitizeCodexError`, `sanitizeAnthropicError`, the Chat Completions bounds, and
       `redactModelFailure`. Verify "The Codex client classifies before it sanitizes" and the
       `provider-api-selection` scenario "Classification survives redaction" in client tests.
-- [ ] 2.4 Record the class as `error.code` and in `run.failed` for every provider failure, and keep
+- [x] 2.4 Record the class as `error.code` and in `run.failed` for every provider failure, and keep
       the `ModelContextExecutionError` codes, in `RunExecutionService` and in the compaction Run
       settlement. Verify "A Run fails on a removed model" and "A compaction Run fails on auth" in API
       integration tests.
@@ -97,14 +97,16 @@ before publication.
       out of quota".
 - [x] 2.6 Add "Failure class" to `docs/product/glossary.md`, add the classes to the provider
       runbooks under `docs/product/operator/providers/`, and add a dated `CHANGELOG.md` entry.
-- [ ] 2.7 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed test
+- [x] 2.7 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed test
       files, `pnpm format:check`, `git diff --check`.
 - [ ] 2.8 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 Local evidence: focused classifier, real-wire, redaction, hosted-search, and Run-settlement tests;
 API lint/typecheck; Markdown/link lint; repository format check; strict change validation.
 A real local HTTP endpoint proved class/reset preservation across three wires and no raw error graph
-on callback/fullStream surfaces. Integration execution and final CI remain pending for 2.4/2.7.
+on callback/fullStream surfaces. Published head `61d481ea` passed all ordinary CI checks, including
+the API test shards and their integration cases for 2.4. Mutation testing remains separate and is
+being strengthened without gating development of the next layer.
 SR used independent correctness/security reviewers plus reuse, quality, efficiency, and ponytail
 reviews. Accepted findings were verified and fixed; GR remains non-gating under Leo's override.
 

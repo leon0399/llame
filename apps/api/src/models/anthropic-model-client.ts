@@ -508,6 +508,7 @@ async function runAnthropicObject<OBJECT>(
       schema: input.schema,
       messages: input.messages,
       system: input.system,
+      abortSignal: input.abortSignal,
       maxRetries: NO_AUTOMATIC_RETRY,
       // llame's identity rides every request (design D6), per call: this
       // path's request would otherwise present as the bare adapter's token.

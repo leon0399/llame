@@ -108,10 +108,17 @@ function transformedStream(
   const reader = result.stream.getReader();
   const headers = responseHeaders(result.response?.headers);
 
+  const classify = (error: unknown) =>
+    classifiedFailure(error, options, headers, receiptAt);
+
+  let cancelled = false;
+
   return new ReadableStream<LanguageModelV3StreamPart>({
     async pull(controller) {
       try {
         const next = await reader.read();
+
+        if (cancelled) return;
 
         if (next.done) {
           controller.close();
@@ -121,23 +128,23 @@ function transformedStream(
 
         const part = next.value;
 
-        if (part.type === 'error') {
-          controller.enqueue({
-            ...part,
-            error: classifiedFailure(part.error, options, headers, receiptAt),
-          });
-        } else {
-          controller.enqueue(part);
-        }
+        controller.enqueue(
+          part.type === 'error'
+            ? { ...part, error: classify(part.error) }
+            : part,
+        );
       } catch (error) {
+        if (cancelled) return;
         controller.enqueue({
           type: 'error',
-          error: classifiedFailure(error, options, headers, receiptAt),
+          error: classify(error),
         });
         controller.close();
       }
     },
     cancel(reason) {
+      cancelled = true;
+
       return reader.cancel(reason);
     },
   });
