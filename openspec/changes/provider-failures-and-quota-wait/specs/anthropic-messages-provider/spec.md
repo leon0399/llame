@@ -5,8 +5,9 @@
 The client MUST assign each failure a failure class of `provider-failures` before it sanitizes the
 diagnostic. Authentication failures, unknown or invalid model identifiers, and rejected request
 options MUST fail the affected request under the run failure contract with sanitized diagnostics.
-A rate limit or an overload MUST get the request retries and the quota wait of
-`provider-failures`. It MUST fail the request with a sanitized diagnostic only after they end. The
+A rate limit or an overload MUST get the request retries of `provider-failures`. A rate limit with
+a reset time can also enter the quota wait of `quota-wait`. The client MUST fail the request with a
+sanitized diagnostic only after they end. The
 client MUST NOT retry with a different credential, or fall back to another provider or provider
 type. It MUST NOT represent a failure as a successful run. Already-recorded parts and tool effects
 MUST stay under the durability rules. `provider-api-selection` defines how rejected and unrecognized

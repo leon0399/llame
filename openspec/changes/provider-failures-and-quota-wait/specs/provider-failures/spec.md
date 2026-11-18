@@ -2,11 +2,11 @@
 
 ### Requirement: Every failed model request has one failure class
 
-Every model request on a language-model wire that fails MUST have exactly one failure class. The
-set is closed: `quota_exhausted`, `billing`, `rate_limited`, `overloaded`, `server_error`,
-`unreachable`, `first_token_timeout`, `stream_broken`, `model_not_found`, `auth`,
+Every send of a model request on a language-model wire that fails MUST have exactly one failure
+class. The set is closed: `quota_exhausted`, `billing`, `rate_limited`, `overloaded`,
+`server_error`, `unreachable`, `first_token_timeout`, `stream_broken`, `model_not_found`, `auth`,
 `context_overflow`, `invalid_request`, `content_policy`, and `unknown`. A failure that matches no
-other class MUST be `unknown`.
+other class MUST be `unknown`. Decision, rerank, and embedding requests are not in this scope.
 
 #### Scenario: An unknown failure has a class
 
@@ -20,10 +20,10 @@ other class MUST be `unknown`.
 
 ### Requirement: The wire client assigns the failure class
 
-The client of each wire MUST assign the failure class from the HTTP status, the error code in the
-body, and the response headers. It MUST assign the class before it sanitizes or bounds the error.
-The class MUST NOT depend on the failure message text when the status or the body code decides it.
-Credential redaction MUST NOT change the class.
+The client of each wire MUST assign the failure class before it sanitizes or bounds the error. The
+order MUST be: the body error code, the in-stream error type, the HTTP status, and the transport
+failure. The class MUST NOT depend on the message text when one of these
+decides it. Credential redaction MUST NOT change the class.
 
 #### Scenario: The Codex client classifies before it sanitizes
 
@@ -36,17 +36,27 @@ Credential redaction MUST NOT change the class.
 - **WHEN** an Anthropic endpoint answers with HTTP 529 and the error type `overloaded_error`
 - **THEN** the failure class is `overloaded`
 
+#### Scenario: A body code wins over a synthetic status
+
+- **WHEN** a Codex stream sends an error frame with the code `usage_not_included` before any output, and the adapter reports it as status 500
+- **THEN** the failure class is `billing`, and the request is not sent again
+
 ### Requirement: A usage limit that resets is quota_exhausted
 
 A limit that resets on a time window MUST be `quota_exhausted`, also when it is a spend limit.
-Examples are a Codex usage window, an OpenCode Go `GoUsageLimitError`, an OpenRouter budget, and an
-Anthropic spend limit. A limit that a wait cannot clear MUST be `billing`. Examples are exhausted
-prepaid credits, a plan without the model, and an OpenRouter 402 for credits.
+Examples are a Codex usage window, an OpenCode Go `GoUsageLimitError`, an OpenRouter budget with a
+reset, and an Anthropic spend limit. A limit that a wait cannot clear MUST be `billing`. Examples
+are exhausted credits, a plan without the model, and an OpenRouter lifetime budget.
 
 #### Scenario: An OpenRouter budget block
 
 - **WHEN** OpenRouter answers with HTTP 403, a budget `limit_source`, and a non-null `error.metadata.resets_at`
 - **THEN** the failure class is `quota_exhausted`
+
+#### Scenario: An OpenRouter lifetime budget
+
+- **WHEN** OpenRouter answers with HTTP 403, a budget `limit_source`, and `error.metadata.resets_at` set to `null`
+- **THEN** the failure class is `billing`
 
 #### Scenario: Exhausted prepaid credits
 
@@ -67,7 +77,8 @@ no body code that names a usage limit MUST be `rate_limited`.
 
 A `quota_exhausted` or `rate_limited` failure MUST carry a reset time only when the provider states
 one for the limit that failed. llame MUST NOT infer a reset time from a message or a calendar rule.
-A `Retry-After` without a classified usage limit MUST be a hint and MUST NOT be a reset time.
+A `Retry-After` or `retry-after-ms` without a classified usage limit MUST be a hint, not a reset
+time.
 
 #### Scenario: An Anthropic spend limit has no reset time
 
@@ -99,10 +110,10 @@ window below 100 percent MUST NOT give a reset time.
 
 ### Requirement: Anthropic, OpenRouter, and OpenAI state their resets in fields
 
-For Anthropic, the reset time MUST be the `anthropic-ratelimit-*-reset` instant of a bucket with no
-remaining capacity. For OpenRouter, it MUST be a non-null `error.metadata.resets_at`. For the OpenAI
-API, a `rate_limited` reset time MUST be the receipt time plus the `x-ratelimit-reset-*` duration
-of the exhausted bucket.
+For Anthropic, the reset time MUST be the latest `anthropic-ratelimit-*-reset` instant of the
+buckets with no remaining capacity, and `retry-after` is then a hint only. For OpenRouter, it MUST
+be a non-null `error.metadata.resets_at`. For the OpenAI API, it MUST be the receipt time plus the
+`x-ratelimit-reset-*` duration of the exhausted bucket.
 
 #### Scenario: An exhausted Anthropic bucket
 
@@ -123,9 +134,9 @@ For OpenCode Go, a 429 with the error type `GoUsageLimitError` and a `metadata.l
 ### Requirement: A failed Run records the failure class as its code
 
 When a model request ends a Run `failed`, the error of the Run MUST carry the failure class as
-`code`. Its `run.failed` event MUST carry the same `code`. The failure message MUST stay the message
-that the wire contract defines. A `quota_exhausted` failure with a reset time MUST also carry
-`resetsAt` as an ISO 8601 instant.
+`code`. Its `run.failed` event MUST carry the same `code`. A caller that defines its own Run
+code, such as `context_incompatible`, MUST keep that code. The failure message MUST stay the message
+of the wire contract. A failure with a reset time MUST also carry `resetsAt`.
 
 #### Scenario: A Run fails on a removed model
 
@@ -140,15 +151,16 @@ MUST NOT send a request again after a failure.
 
 #### Scenario: One request on a 503
 
-- **WHEN** an `openai-responses` endpoint answers one request with HTTP 503
-- **THEN** the endpoint receives the next request only after the delay of a request retry
+- **WHEN** an `openai-responses` endpoint answers one request with HTTP 503 and then streams a reply
+- **THEN** the endpoint receives exactly 2 sends
+- **AND** a `model.retrying` event with retry number 1 comes before the second send
 
 ### Requirement: Transient failures get request retries
 
-A request that fails as `overloaded`, `server_error`, `unreachable`, `rate_limited`,
+A send that fails as `overloaded`, `server_error`, `unreachable`, `rate_limited`,
 `first_token_timeout`, or `stream_broken` MUST get a request retry on the same model. Before retry
 `n`, from 1, llame MUST wait a random delay from 0 to `min(8000, 500 * 2^(n-1))` milliseconds. A
-request MUST get at most 10 request retries.
+request MUST get at most 10 request retries, also across a restart of its step.
 
 #### Scenario: Ten overloaded answers fail the request
 
@@ -160,11 +172,16 @@ request MUST get at most 10 request retries.
 - **WHEN** an endpoint answers a request with HTTP 502 and then streams a reply
 - **THEN** the Run continues on the same model, and the Reply holds that streamed output
 
+#### Scenario: Restarts share one retry budget
+
+- **WHEN** a request breaks after its first text delta on each of 11 sends
+- **THEN** the request fails with the failure class `stream_broken` after 11 sends
+
 ### Requirement: A request that a wait cannot help fails at once
 
-A request that fails as `billing`, `model_not_found`, `auth`, `context_overflow`,
-`invalid_request`, `content_policy`, or `unknown` MUST NOT get a request retry. A `quota_exhausted`
-failure without a reset time MUST NOT get one either.
+A send that fails as `billing`, `model_not_found`, `auth`, `context_overflow`, `invalid_request`,
+`content_policy`, or `unknown` MUST NOT get a request retry. A `quota_exhausted` failure without a
+reset time MUST NOT get one either.
 
 #### Scenario: An authentication failure is not sent again
 
@@ -173,36 +190,47 @@ failure without a reset time MUST NOT get one either.
 
 ### Requirement: A stated wait of up to 60 seconds is honored in process
 
-A reset time or a hint can be at most 60 seconds away. The delay of the next request retry MUST then
-be at least that wait. It MUST NOT be shorter than the random delay. That delay counts as
-one of the 10 request retries.
+A `quota_exhausted` or `rate_limited` failure with a reset time at most 60 seconds away MUST get a
+request retry. A reset time or a hint can be at most 60 seconds away. The delay of the next request
+retry MUST then be at least that wait, and that retry counts as one of the 10.
 
 #### Scenario: A 20-second bucket reset
 
 - **WHEN** Anthropic answers with HTTP 429 and an exhausted bucket that resets 20 seconds later
 - **THEN** llame sends the request again after at least 20 seconds, on the same worker
 
+#### Scenario: A short Go usage limit
+
+- **WHEN** the gateway answers with `GoUsageLimitError` and `Retry-After: 30`
+- **THEN** llame sends the request again after at least 30 seconds, and the Run does not wait in `awaiting_quota`
+
 ### Requirement: A longer stated wait parks the request or ends it
 
 A failure with a reset time more than 60 seconds away MUST NOT get a request retry. A request of a
-Run to its own model MUST then enter the quota wait of `quota-wait`. Any other request MUST fail. A
-hint more than 60 seconds away MUST fail the request at once.
+Run to its own model MUST then enter the quota wait of `quota-wait`, and any other request MUST fail.
+A `rate_limited` hint more than 60 seconds away MUST fail the request at once. For another class,
+such a hint MUST NOT change the random delay.
 
 #### Scenario: An unclassified long hint
 
 - **WHEN** an endpoint answers with HTTP 429, `Retry-After: 300`, and no classified usage limit
 - **THEN** the request fails at once with the failure class `rate_limited`
 
+#### Scenario: An overload with a long hint
+
+- **WHEN** an endpoint answers with HTTP 503 and `Retry-After: 120`
+- **THEN** the request gets request retries with the random delay
+
 #### Scenario: A title request hits a usage limit
 
 - **WHEN** the title model answers with a Codex `usage_limit_reached` and a reset in two days
 - **THEN** the title request fails, and no Run waits for it
 
-### Requirement: A model request fails only after its retries and its quota wait
+### Requirement: A caller sees a failure only after the retries and the quota wait
 
-A model request MUST count as failed only after its request retries end, or a quota wait cannot
-apply or ends without success. A failure rule of a caller MUST apply only to a request that failed
-in this sense.
+A caller failure rule MUST apply only when a request ends without success. That is when its request
+retries end, or its quota wait cannot apply or ends without success. The quota wait of a request
+MUST NOT count as a failure of that request.
 
 #### Scenario: A step-boundary compaction hits a usage limit
 
@@ -211,71 +239,88 @@ in this sense.
 
 ### Requirement: The first-token timeout ends at the first content part
 
-The first window of a request MUST end at its first text delta, reasoning delta, or tool-call part.
-Other parts, such as response metadata, MUST NOT end it. The window MUST be the
-`firstTokenTimeoutSeconds` of the model entry, or 300 seconds without it. When it expires, the
-request MUST fail as `first_token_timeout`.
+The first window of a request MUST end at its first text delta, reasoning delta, tool-input start,
+or tool-call part. Other parts, such as response metadata, MUST NOT end it. The window MUST be the
+`firstTokenTimeoutSeconds` of the model entry, or 300 seconds without it. When it expires, the send
+MUST fail as `first_token_timeout`.
 
 #### Scenario: Metadata alone does not end the window
 
 - **WHEN** an endpoint sends response metadata at once and then no content part for 300 seconds
-- **THEN** the request fails with the failure class `first_token_timeout`
+- **THEN** the send fails with the failure class `first_token_timeout`
 
 #### Scenario: A per-model timeout
 
 - **WHEN** a model entry sets `firstTokenTimeoutSeconds` to 900, and its first content part arrives after 600 seconds
 - **THEN** the request continues
 
+### Requirement: Parts before the first content part stay unseen until it arrives
+
+llame MUST hold back each part of a send that arrives before its first content part. It MUST
+release them in order with the first content part. A send that fails before its first content part
+MUST store no part, and a request retry MUST drop its held parts.
+
+#### Scenario: A redacted thinking start and then a stall
+
+- **WHEN** a send streams the start of a redacted thinking block and then no content part for 300 seconds
+- **THEN** the request is sent again, and no reasoning part of the first send is stored
+
 ### Requirement: A stall after content is stream_broken
 
-After the first content part, a request that gives no part for 300 seconds MUST fail as
-`stream_broken`. A stream that ends with an error, or without a finish part, after the first
-content part MUST also be `stream_broken`. The time of tool execution MUST NOT count toward a
-window.
+After the first content part, a send that gives no part for 300 seconds MUST fail as
+`stream_broken`. An error after the first content part MUST keep the class of its body code or its
+in-stream error type. Without one, it MUST be `stream_broken`, as for a stream that ends without a
+finish part. Tool execution time MUST NOT count toward a window.
 
 #### Scenario: A stream ends without a finish part
 
 - **WHEN** an endpoint streams text and then closes the connection without a finish part
-- **THEN** the request fails with the failure class `stream_broken`
+- **THEN** the send fails with the failure class `stream_broken`
 
 #### Scenario: A long tool call does not count
 
 - **WHEN** a tool call executes for longer than 300 seconds between two requests
 - **THEN** no window expires, and the next request starts its own first window
 
-### Requirement: A broken stream with a started tool call fails the Run
+### Requirement: A request with a started tool call is not sent again
 
-A `stream_broken` request MUST NOT get a request retry when one of its tool calls started. The Run
-MUST then fail with the failure class `stream_broken`. A tool call MUST count as started when the
-request has streamed its tool-call part.
+A send whose tool call started MUST NOT get a request retry or a quota wait, for any failure class.
+The Run MUST then fail with that failure class. A tool call MUST count as started when the send has
+streamed its complete tool-call part.
 
 #### Scenario: The stream breaks after a tool call
 
-- **WHEN** a request streams a `read` tool call and then breaks
+- **WHEN** a request streams a complete `read` tool-call part and then breaks
 - **THEN** the Run fails with `error.code` `stream_broken`, and the request is not sent again
+
+#### Scenario: An overload after a tool call
+
+- **WHEN** a request streams a complete `read` tool-call part and then an `overloaded_error` event
+- **THEN** the Run fails with `error.code` `overloaded`, and the `read` call does not execute twice
 
 ### Requirement: A request retry sends the same request
 
-A request retry MUST send the same messages, tools, and options as the request that failed. It MUST
-NOT carry a part of the request that failed. When the failed request streamed parts, a Run event
-MUST mark that request superseded before the retry starts. That event is `model.superseded`.
+A request retry MUST send the same messages, tools, and options as the send that failed. It MUST
+NOT carry a part that the failed send streamed. When the failed send stored parts, a
+`model.superseded` event MUST mark them superseded before the retry starts.
 
 #### Scenario: A stream breaks inside a thinking block
 
 - **WHEN** an Anthropic request streams half a thinking block without a signature and then breaks
-- **THEN** the request retry carries no reasoning part from the broken request
-- **AND** the `model.superseded` event names the broken request
+- **THEN** the request retry carries no reasoning part from the broken send
+- **AND** a `model.superseded` event names the broken send
 
 #### Scenario: A stream breaks mid-text
 
 - **WHEN** a request streams two sentences of text and then breaks before any tool call
-- **THEN** the request is sent again, and the Reply holds only the output of the new request
+- **THEN** the request is sent again, and the Reply holds only the output of the new send
 
-### Requirement: Each request retry is a Run event
+### Requirement: Each request retry of a Run is a Run event
 
-Before each request retry, the Run MUST append one `model.retrying` event. It MUST carry the
-failure class, the retry number from 1 to 10, and the delay in milliseconds. It MUST NOT carry a
-provider message, header, or body.
+Before each request retry of a request of the Run to its own model, the Run MUST append one
+`model.retrying` event. It MUST carry the failure class, the retry number from 1 to 10, and the
+delay in milliseconds. It MUST NOT carry a provider message, header, or body. A side call MUST NOT
+append it.
 
 #### Scenario: A reload during a retry delay
 
@@ -285,8 +330,8 @@ provider message, header, or body.
 ### Requirement: The web shows a request retry
 
 While a Run waits on a request retry, the web MUST show a line in the place of "Thinking…". The line
-MUST show "Retrying after", a label of the failure class, and the retry number out of 10. The line MUST go away when the
-next part streams or the Run ends.
+MUST show "Retrying after", a label of the failure class, and the retry number out of 10. The line
+MUST go away when the next part streams or the Run ends.
 
 #### Scenario: An overloaded provider
 

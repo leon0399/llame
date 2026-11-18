@@ -201,7 +201,7 @@ The prospective cutover boundary in `context-injection` MUST govern these public
 system MUST NOT filter or rebuild the current conversation state retrospectively.
 
 Operational and UI replay MUST keep the observed part order of a failed attempt, and that persisted
-record MUST become model history. A failed, cancelled, expired, or superseded attempt keeps the
+record MUST become model history. A failed, cancelled, expired, or replaced attempt keeps the
 partial assistant turn that the user saw. It also keeps the rail context items that its dispatched
 requests carried. These enter later model context, model-facing recall, and compaction like any
 other committed turn. Their reasoning parts and provider metadata follow the model rule of `reasoning-output`. A later attempt of the same Run MUST instead reset that assistant message to
@@ -327,6 +327,35 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 
 #### Scenario: A superseded request leaves the reply
 
-- **WHEN** a request streams text, breaks, and its request retry streams a full answer
+- **WHEN** a request streams text, breaks, and its request retry streams a full reply
 - **THEN** the final assistant message holds only the parts of the request retry
 - **AND** a rebuild from the event log of that attempt gives the same parts
+
+### Requirement: Received reasoning is durable before browser delivery
+
+Each normalized reasoning delta that llame receives MUST be durably recorded before llame forwards
+it to a browser stream. The event log of the Run MUST keep the deltas received before a worker
+failure or an upstream provider failure. The transcript MUST project them on successful and failed
+terminal Runs. It MUST NOT project the deltas of a send that a `model.superseded` event of
+`provider-failures` names.
+
+#### Scenario: Successful run retains streamed reasoning
+
+- **WHEN** llame receives reasoning deltas and the run subsequently succeeds
+- **THEN** the final assistant message contains the received reasoning in durable event order
+
+#### Scenario: Provider failure retains received reasoning
+
+- **WHEN** llame receives reasoning deltas and the upstream provider subsequently fails
+- **THEN** the terminal failed run retains every reasoning delta durably recorded before that failure
+
+#### Scenario: Worker failure never contradicts prior browser output
+
+- **WHEN** llame has forwarded a reasoning delta to the browser and the worker subsequently fails
+- **THEN** reconnect replay includes that delta
+
+#### Scenario: A superseded send keeps its reasoning in the log only
+
+- **WHEN** a send streams reasoning deltas, breaks, and its request retry completes the Run
+- **THEN** the event log holds the reasoning deltas of the broken send
+- **AND** the final assistant message holds only the reasoning of the request retry

@@ -13,10 +13,10 @@ defines. A delivery MUST NOT restart either of them.
 
 ### Requirement: Stop interrupts when steers are pending
 
-The Stop control and the Esc key MUST interrupt the Run when one or more `steer` message items are
-pending. A pending command item MUST NOT make them interrupt. For a Run in `awaiting_quota`, they
-MUST always request cancellation of the Run. Otherwise they MUST request cancellation of the Run. A
-draft in the composer MUST NOT change.
+For a Run that is not in `awaiting_quota`, the Stop control and the Esc key MUST interrupt it when
+`steer` message items are pending. A pending command item MUST NOT make them interrupt. In every
+other case, they MUST request cancellation of the Run. A draft in the composer MUST NOT
+change.
 
 #### Scenario: Esc twice stops everything
 

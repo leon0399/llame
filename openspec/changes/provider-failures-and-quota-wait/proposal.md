@@ -32,23 +32,26 @@ art and the code facts.
   that failed as `overloaded`, `server_error`, `unreachable`, `rate_limited`,
   `first_token_timeout`, or `stream_broken` on the same model. It waits a random delay from 0 to
   `min(8 s, 500 ms * 2^n)` and stops after 10 request retries. A stated wait of 60 s or less is
-  honored in process.
-- **First-token timeout.** The first window of a request ends at its first text, reasoning, or
-  tool-call part; metadata does not count. A model entry can set `firstTokenTimeoutSeconds`, and
-  300 s applies otherwise. Expiry is `first_token_timeout`. A stall after the first content part is
-  `stream_broken`. **BREAKING**: the error code `model_stream_idle` is removed.
-- **Broken streams.** A `stream_broken` request is re-sent unless one of its tool calls started; in
-  that case the Run fails. The re-sent request is the same request. A Run event supersedes the
-  parts of the broken request, so they leave the Reply, the live view, and model history.
-- **Retry visibility.** Each request retry is a Run event. The web shows "Retrying after
-  _class_ (n/10)" where it shows "Thinking…" today.
+  honored in process. A `rate_limited` hint longer than 60 s fails the request at once.
+- **First-token timeout.** The first window of a request ends at its first text, reasoning,
+  tool-input, or tool-call part; metadata does not count, and llame holds back earlier parts until
+  then. A model entry can set `firstTokenTimeoutSeconds`, and 300 s applies otherwise. Expiry is
+  `first_token_timeout`. A stall after the first content part is `stream_broken`. **BREAKING**: the
+  error code `model_stream_idle` is removed.
+- **Broken streams.** A transient failure after the first content part is re-sent unless a complete
+  tool-call part of that send streamed; in that case the Run fails with the class. The re-sent
+  request is the same request. A `model.superseded` Run event marks the parts of the broken send,
+  so they leave the Reply, the live view, and model history, and the event log keeps them. The
+  attempt's usage is then marked incomplete.
+- **Retry visibility.** Each request retry of a Run's own request is a Run event. The web shows
+  "Retrying after _class_ (n/10)" where it shows "Thinking…" today.
 - **Quota wait.** A request that a Run sends to its own model can fail as `quota_exhausted` or
   `rate_limited` with a reset more than 60 s away. The Run then enters the new non-terminal status
   **`awaiting_quota`**. It holds no worker, and a delayed queue job wakes it at the reset plus 60 s
-  plus up to 18 s of jitter. It then re-sends the same request on the same model. A Run that is
-  still exhausted waits again, at most 3 times. A reset beyond `runs.quotaWaitMaxSeconds` (default
-  691,200 s, 8 days) fails the Run as `quota_exhausted` with its reset time. This covers turn Runs,
-  their in-Run compactions, and compaction Runs.
+  plus up to 18 s of jitter. It then re-sends the same request on the same model. One request waits
+  again at most 3 times. A reset beyond `runs.quotaWaitMaxSeconds` (default 691,200 s, 8 days) ends
+  the request with its class and reset time, and the caller's failure rule applies. This covers step
+  requests and compaction summaries on the model of the Run, compaction Runs included.
 - **The waiting Chat.** Steers, interrupts, queue items, and job notices stay pending and do not
   wake the Run. A plain send still gets 409. Stop always cancels the wait. The time in
   `awaiting_quota` does not count toward `runs.timeoutSeconds`. A floating box above the prompt
@@ -122,7 +125,12 @@ this replaces the ticket's wording.
 - `durable-runs`: "A run never stays stuck, enforced without a cross-tenant reaper" (the budget
   excludes quota wait time, and the idle watchdog becomes the first-token timeout and the
   `stream_broken` stall); "Final assistant-message projection preserves replay order" (the parts of
-  a superseded request leave the projection).
+  a superseded send leave the projection); "Received reasoning is durable before browser delivery"
+  (the log keeps superseded reasoning, and the transcript omits it).
+- `tool-calling`: "No mid-run tool-state checkpointing (read-only slice; write-tool landmine)" (a
+  wake from `awaiting_quota` is not a retry and continues from the stored steps).
+- `run-usage-accounting`: "Usage records whether it is complete" (a superseded send makes the
+  attempt's usage incomplete).
 - `provider-api-selection`: "Chat Completions failures reach the run as bounded messages" (no SDK
   retry summary; llame's request retries apply).
 - `opencode-go-provider`: "Upstream failures are mirrored under the existing contract" (classes, a
@@ -154,7 +162,15 @@ Deliberately unchanged, with the reading under which each holds:
   `quota-wait` adds the same rule for `awaiting_quota`.
 - `model-system-prompts` "A failed compaction Run fails" and "A failed step-boundary compaction
   continues the Run": a summary request fails only after its retries and quota wait end, as
-  `provider-failures` defines.
+  `provider-failures` defines. A reset beyond the cap or a fourth wait ends the request, and these
+  rules then apply.
+- `model-system-prompts` "A model switch replaces the top-level prompt and preserves portable
+  history": its source-model compaction is on another
+  model, so it is a side call and keeps `context_incompatible` on failure.
+- `run-cancellation` "A recorded cancellation settles the Run as cancelled": "the output observed
+  before the cancellation" is the projection, which already omits superseded sends.
+- `turn-actions`: its list of `latestRun` fields does not state that it is exhaustive, so
+  `quotaWait`, `errorCode`, and `errorResetsAt` can join it.
 - `provider-api-selection` "Provider failures never carry a configured credential": classes are
   assigned before redaction, and redaction keeps `code`, as its "Classification survives
   redaction" scenario requires.
@@ -164,7 +180,6 @@ Deliberately unchanged, with the reading under which each holds:
   model-hosted engine still fails with one engine class.
 - `instance-config` "Model catalog configuration": its list of optional entry fields does not
   state that it is exhaustive, and the published schema adds the new key.
-- `tool-calling`: a woken Run is not a queue retry, and a request retry stays inside one attempt.
 
 ## Impact
 
@@ -172,8 +187,8 @@ Deliberately unchanged, with the reading under which each holds:
   module, the stream watchdog replaced by request recovery, `run-execution.service.ts`,
   `run-wait.service.ts`, `runs-worker.service.ts`, `chat-admission.ts`, `runs.controller.ts`, the
   config loader and schema, the Run DTOs, OpenAPI, and the live protocol.
-- **Database:** one migration adds `awaiting_quota` to `run_status` and tags existing `awaiting`
-  rows as job waits. No new table and no RLS change.
+- **Database:** a generated migration adds `awaiting_quota` to `run_status`, and a custom migration
+  tags existing `awaiting` rows as job waits under a lifted forced RLS. No new table.
 - **Web:** the quota wait box, the retry line, the failed-turn reset time, and the sidebar state.
 - **Docs:** provider runbooks, `docs/product/operator/scaling.md`, the glossary, `SPEC.md`, and
   `CHANGELOG.md`, each in the layer that ships the behavior.

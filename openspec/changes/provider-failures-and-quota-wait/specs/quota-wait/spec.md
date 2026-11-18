@@ -3,10 +3,9 @@
 ### Requirement: A Run that waits for a quota reset holds no worker
 
 `awaiting_quota` MUST be a non-terminal Run status. A Run MUST enter it when a request to its own
-model fails with a reset time more than 60 seconds away. The failure class of that request MUST be
-`quota_exhausted` or `rate_limited`. The
-queue job of the Run MUST then end, and no worker MUST execute the Run while it waits. The Run MUST
-stay the in-flight Run of its Chat.
+model fails with a reset time more than 60 seconds away. That reset time MUST also be at most
+`runs.quotaWaitMaxSeconds` away. The failure class MUST be `quota_exhausted` or `rate_limited`. The queue job MUST then end,
+and no worker MUST execute the Run while it waits. The Run MUST stay the in-flight Run of its Chat.
 
 #### Scenario: A weekly limit frees the worker
 
@@ -20,9 +19,9 @@ stay the in-flight Run of its Chat.
 
 ### Requirement: The quota wait covers every request of a Run to its model
 
-A step request, the summary request of an in-Run compaction, and the summary request of a
-compaction Run MUST each enter the quota wait. A side call, such as title generation or hosted web
-search, MUST NOT make a Run wait.
+A step request MUST enter the quota wait. A summary request of a compaction on the model of the Run
+MUST also enter it. This applies before dispatch, at a step boundary, and in a compaction Run. A summary on another
+model, such as a model-switch compaction, is a side call. A side call MUST NOT make a Run wait.
 
 #### Scenario: A compaction Run waits
 
@@ -43,23 +42,29 @@ the deadline job as the next queue job of the Run, with a new wake generation.
 ### Requirement: The wake time follows the reset time
 
 The wake time MUST be the reset time plus 60 seconds plus a random part from 0 to 18 seconds. The
-deadline job MUST start at the wake time. A restart of a worker or a process MUST NOT change the
-wake time.
+deadline job MUST start at the wake time, not before it. A restart of a worker or a process MUST NOT
+change the wake time.
 
 #### Scenario: A wake after a restart
 
 - **WHEN** a Run waits for a reset at 10:00:00, and every worker restarts at 09:00
-- **THEN** a worker claims the Run between 10:01:00 and 10:01:18
+- **THEN** the deadline job has a start time from 10:01:00 to 10:01:18, and no worker claims the Run before 10:01:00
 
-### Requirement: A reset beyond the cap fails the Run
+### Requirement: A reset beyond the cap ends the request
 
-A reset time more than `runs.quotaWaitMaxSeconds` after receipt MUST NOT start a quota wait. The Run
-MUST fail with the failure class `quota_exhausted` and its `resetsAt`.
+A reset time more than `runs.quotaWaitMaxSeconds` after receipt MUST NOT start a quota wait. The
+request MUST then fail with its failure class and its `resetsAt`. The failure rule of its caller
+then applies.
 
 #### Scenario: A monthly budget beyond the default cap
 
 - **WHEN** an OpenRouter budget block states a reset 20 days away, and the cap is the default 691,200 seconds
 - **THEN** the Run fails with `error.code` `quota_exhausted` and `error.resetsAt` 20 days away
+
+#### Scenario: A step-boundary summary beyond the cap
+
+- **WHEN** the summary request of a step-boundary compaction gets a reset 20 days away
+- **THEN** the Run records a compaction failure and continues, as `model-system-prompts` defines
 
 ### Requirement: Only the deadline job and a cancellation wake a quota wait
 
@@ -77,27 +82,44 @@ without a delivery mode MUST get 409, as for any live Run.
 - **WHEN** a background job of the Chat settles while its Run is in `awaiting_quota`
 - **THEN** the job notice is pending, and the Run stays in `awaiting_quota`
 
+### Requirement: One waker resumes a quota wait
+
+One conditional update of the wake generation MUST move the Run from `awaiting_quota` to `queued`.
+Only its winner MUST insert and record the next queue job in that transaction, unless the winner is
+the deadline job. When that insert fails, the transaction MUST roll back, and the Run MUST stay in
+`awaiting_quota`.
+
+#### Scenario: A cancellation and the deadline job arrive together
+
+- **WHEN** the owner cancels a Run at the same moment as its deadline job starts
+- **THEN** one queue job resumes the Run, and the Run settles `cancelled` without a model request
+
 ### Requirement: A woken Run sends the same request again
 
 When the deadline job wakes the Run, the next claim MUST rebuild the stored steps. It MUST then send
-the request that failed again, on the same model and effort. It MUST NOT send a part of the failed request.
-Pending steers and interrupts MUST then reach the Run at its first step boundary.
+the request that failed again, on the same model and effort. It MUST NOT send a part that the failed
+send streamed. Pending steers and interrupts MUST then reach the Run at its first step boundary.
 
 #### Scenario: A steer after the reset
 
 - **WHEN** the owner sent a steer during a quota wait, and the deadline job wakes the Run
 - **THEN** the Run sends the failed request again, and the steer is delivered at the next step boundary
 
-### Requirement: A Run waits at most three more times
+### Requirement: One request waits at most four times
 
-A woken Run whose request again fails with a reset time more than 60 seconds away MUST wait again.
-It MUST wait at most 3 times after the first wait. After the third one, such a failure MUST fail the
-Run with the failure class of that request.
+A woken request that again fails with a reset time more than 60 seconds away MUST wait again. One
+request MUST wait at most 3 times after its first wait. A fourth such failure MUST end the request
+with its failure class. A request that the model answers MUST reset the count for the next request.
 
 #### Scenario: A reset that does not clear
 
-- **WHEN** a Run wakes after its third re-wait, and its request again fails with `quota_exhausted` and a reset time
+- **WHEN** a request wakes after its third re-wait, and it again fails with `quota_exhausted` and a reset time
 - **THEN** the Run fails with `error.code` `quota_exhausted`
+
+#### Scenario: Two limits in one long Run
+
+- **WHEN** a Run waits for one reset, continues for ten steps, and later hits a second usage limit
+- **THEN** the second limit starts a new first wait, and the count of the first does not apply
 
 ### Requirement: A cancellation ends a quota wait
 
@@ -135,8 +157,8 @@ them.
 ### Requirement: The Run response shows the quota wait
 
 A Run read, the latest Run of a Chat, and the active Runs MUST carry `quotaWait` while the Run is in
-`awaiting_quota`. It MUST hold the failure class, `resetsAt`, and `wakeAt`. It MUST be `null` for
-every other status. It MUST NOT name a provider entry or a base URL.
+`awaiting_quota`. It MUST hold `failureClass`, `resetsAt`, and `wakeAt`. It MUST be `null` for every
+other status. It MUST NOT name a provider entry or a base URL.
 
 #### Scenario: Another owner cannot read the wait
 
@@ -146,19 +168,21 @@ every other status. It MUST NOT name a provider entry or a base URL.
 ### Requirement: The web shows a quota wait above the composer
 
 While the latest Run of a Chat is in `awaiting_quota`, the web MUST show a box above the prompt
-composer, over the transcript. It MUST show the model name, the local reset time, a live countdown to the wake
-time, and a Stop control. After the wake time, it MUST show that the Run resumes.
+composer, over the transcript. The box MUST show the model name, the local reset time, a live
+countdown to the wake time, and a Stop control. After the wake time, the box MUST show that the Run
+sends its request again.
 
 #### Scenario: A Codex weekly limit
 
 - **WHEN** the Run of a Chat waits for a reset in 2 days and 3 hours
 - **THEN** the box names the model, shows the local reset time, and counts down from about 2 days and 3 hours
 
-### Requirement: The web shows the reset time of a failed quota Run
+### Requirement: The web shows the reset time of a failed Run
 
-A Run can fail with `quota_exhausted` and a `resetsAt`. When it is the latest Run of its Chat, the
-failed turn MUST show the local reset time with the failure message. The latest Run of a Chat MUST carry
-`errorCode` and `errorResetsAt` for this.
+The latest Run of a Chat MUST carry `errorCode`, equal to `error.code`, and `errorResetsAt`, equal
+to `error.resetsAt`. For a failed Run with an `errorResetsAt`, the web MUST show the local reset
+time with the failure message. It shows them on the failed turn, or on the error row of a
+compaction Run.
 
 #### Scenario: A reset beyond the cap
 
