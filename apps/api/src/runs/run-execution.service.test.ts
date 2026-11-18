@@ -23850,6 +23850,53 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     });
   });
 
+  it('classifies an abort during interrupt compaction by its abort reason', async () => {
+    const controller = new AbortController();
+
+    const compact = {
+      ...interruptItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    const { appended, aborts, start, spies, execution } = interruptRig({
+      execute: () => ({ status: 'success' as const }),
+    });
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockImplementation(
+      () => {
+        controller.abort(RUN_TIMEOUT_ABORT_REASON);
+
+        return Promise.reject(new Error('summary request aborted'));
+      },
+    );
+
+    const { options } = await start(controller.signal);
+    expect(interruptCurrent(aborts, runId)).toBe(true);
+    serveInterrupt([compact]);
+    await options.onError?.({ error: new Error('interrupted') });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'expired',
+      expect.objectContaining({
+        error: { message: 'Run timed out: exceeded its wall-clock budget.' },
+      }),
+    );
+    expect(appended.map(({ type }) => type)).toContain('run.expired');
+  });
+
   it('settles a dispatched MCP call as unknown, records its result, and names it in the delivery', async () => {
     const { appended, aborts, start } = interruptRig({
       execute: async (context) => {

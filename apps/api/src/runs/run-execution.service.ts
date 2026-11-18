@@ -3832,8 +3832,14 @@ export class RunExecutionService {
             );
           };
         } else if (boundaryKind === 'cancelled') {
-          // The items stay pending and the Run settles cancelled.
-          const message = 'Run was cancelled.';
+          // The items stay pending; preserve explicit cancellation, and classify aborts.
+          const status = input.abortSignal?.aborted
+            ? classifyAbortedRun(input.abortSignal)
+            : 'cancelled';
+
+          const message = input.abortSignal?.aborted
+            ? this.abortedRunMessage(status, input.abortSignal)
+            : 'Run was cancelled.';
 
           const telemetry = buildAssistantTelemetry(
             null,
@@ -3844,7 +3850,7 @@ export class RunExecutionService {
           await this.settleTerminalRun({
             userId: input.userId,
             runId: input.runId,
-            status: 'cancelled',
+            status,
             attemptId,
             telemetry,
             assistantTurn: {
@@ -3853,7 +3859,7 @@ export class RunExecutionService {
               parts: assistantPartCollector.parts(),
               telemetry,
             },
-            runPayload: { status: 'cancelled', message },
+            runPayload: { status, message },
             error: { message },
           });
         }

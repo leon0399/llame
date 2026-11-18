@@ -413,12 +413,7 @@ function needsDeferredFinalCompaction(
   return (
     input.finalAnswer === true &&
     items.some(isCompactCommand) &&
-    (input.boundaryCompaction === undefined ||
-      !items.some(
-        (item) =>
-          isCompactCommand(item) &&
-          input.boundaryCompaction?.ids.includes(item.id),
-      ))
+    input.boundaryCompaction === undefined
   );
 }
 

@@ -298,32 +298,40 @@ describe('deliverPendingSteering', () => {
     expect(event?.[2]).not.toHaveProperty('stepBudgetUsed');
   });
 
-  it('delivers a late final-answer compact command to the next boundary', async () => {
+  it('completes after final compaction when a new compact arrives during summarization', async () => {
     const compact = {
       ...first,
       id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
       parts: [{ type: 'text', text: '/compact' }],
     };
 
+    const initialCompactId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
     const spies = serve({ items: [compact] });
+    const publishCheckpoint = vi.fn().mockResolvedValue('checkpoint-9');
 
-    const result = await deliver({ finalAnswer: true, stepBudgetUsed: 3 });
+    const result = await deliver({
+      finalAnswer: true,
+      boundaryCompaction: {
+        ids: [initialCompactId],
+        summary: { uptoSeq: 2, summary: 'Checkpoint', usage: {} },
+        quote: null,
+        stepBudgetUsed: 3,
+        finalAnswer: true,
+        publishCheckpoint,
+      },
+    });
 
-    expect(result).toMatchObject({ kind: 'delivered', cause: 'compaction' });
+    expect(result).toMatchObject({
+      kind: 'final-compacted',
+      commandItems: [compact],
+    });
     expect(spies.markDelivered).not.toHaveBeenCalled();
-    expect(spies.createHost).toHaveBeenCalledWith(
-      expect.objectContaining({ parts: [] }),
-    );
-    expect(spies.updateForAttempt).toHaveBeenCalledWith(
-      runId,
-      userId,
-      attemptId,
-      expect.objectContaining({ messageId: deliveredMessage.id }),
-    );
-    expect(spies.append).toHaveBeenCalledWith(
+    expect(spies.createHost).not.toHaveBeenCalled();
+    expect(spies.updateForAttempt).not.toHaveBeenCalled();
+    expect(spies.append).not.toHaveBeenCalledWith(
       runId,
       'run.delivered',
-      expect.objectContaining({ stepBudgetUsed: 3 }),
+      expect.anything(),
     );
   });
 
