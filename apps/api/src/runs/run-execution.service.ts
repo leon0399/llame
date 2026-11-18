@@ -243,7 +243,7 @@ import {
   runTool,
 } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
-import { splitToolIntent } from '../tools/tool-intent';
+import { splitToolIntent, withoutToolIntents } from '../tools/tool-intent';
 import {
   AttemptToolAdditions,
   type AttemptToolBinding,
@@ -4100,7 +4100,9 @@ export class RunExecutionService {
               // Recomputed from the step's own messages on every step, so a
               // retained override is replaced rather than accumulated (D1).
               const preparedMessages = inRunItems.applyToStep(messages);
-              boundaryCallMessages = preparedMessages ?? messages;
+              boundaryCallMessages = withoutToolIntents(
+                preparedMessages ?? messages,
+              );
 
               if (
                 compactionStartedThisAttempt &&
@@ -4113,7 +4115,9 @@ export class RunExecutionService {
                 );
               }
 
-              return preparedMessages;
+              return boundaryCallMessages === messages
+                ? preparedMessages
+                : boundaryCallMessages;
             },
             // Fires once, the moment the model client disables tools for
             // the next step because maxStepsPerRun tool-requesting steps

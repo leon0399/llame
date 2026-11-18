@@ -2539,6 +2539,65 @@ describe('RunExecutionService executeRun', () => {
       return { spies, options: capturing.streamOptions() };
     }
 
+    it('normalizes built-in intent in live step history without changing MCP or provider parts', async () => {
+      const { options } = await runWithInRunProducer(() => {});
+
+      const stepMessages: Array<ModelMessage> = [
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Inspecting files' },
+            { type: 'reasoning', text: 'Keep the provider reasoning' },
+            {
+              type: 'tool-call',
+              toolCallId: 'bash-intent',
+              toolName: 'bash',
+              input: { command: 'pwd', i: 'Inspecting the directory' },
+              providerOptions: { openai: { itemId: 'provider-call' } },
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'server-argument',
+              toolName: 'mcp__math__evaluate',
+              input: { i: 42 },
+            },
+          ],
+        },
+      ];
+
+      const override = await options.onStepStart?.({
+        messages: stepMessages,
+        stepNumber: 1,
+      });
+
+      expect(override).toEqual([
+        {
+          role: 'assistant',
+          content: [
+            { type: 'text', text: 'Inspecting files' },
+            { type: 'reasoning', text: 'Keep the provider reasoning' },
+            {
+              type: 'tool-call',
+              toolCallId: 'bash-intent',
+              toolName: 'bash',
+              input: { command: 'pwd' },
+              providerOptions: { openai: { itemId: 'provider-call' } },
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'server-argument',
+              toolName: 'mcp__math__evaluate',
+              input: { i: 42 },
+            },
+          ],
+        },
+      ]);
+      expect(stepMessages[0]).toHaveProperty(
+        'content.2.input.i',
+        'Inspecting the directory',
+      );
+    });
+
     it('publishes a staged in-Run item after the step tool part on completion', async () => {
       const notice = workspaceNotice(runId);
 
