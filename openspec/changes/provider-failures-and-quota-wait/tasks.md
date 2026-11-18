@@ -118,7 +118,10 @@ before publication.
       reset", "A short Go usage limit", "An unclassified long hint", "An overload with a long hint", "A
       title request hits a usage limit", "An unreadable event after text", and the
       `anthropic-messages-provider` scenarios, with an injected clock and random source. Verify that a
-      Responses 503 frame followed by a success gives one usage receipt.
+      Responses 503 frame followed by a success gives one usage receipt. Verify
+      "A hidden failed send makes usage incomplete". For callers without live deliveries, hold the
+      complete send and verify a compaction summary and a Codex title that break after text and then
+      succeed, plus a hosted-search failure after a complete tool call that is not retried.
 - [ ] 3.5 Add the `wrapGenerate` variant to the structured builders (design D3, D9). Verify a title
       request that gets HTTP 529 once and then succeeds: "A title request is retried".
 - [ ] 3.6 Fail the Run with the class of the failure once a complete tool-call part streamed. Verify
@@ -201,8 +204,9 @@ before publication.
 - [ ] 6.1 Rethrow a quota `ProviderFailure` from `summarizeCheckpoint`, add `resumeAt`, and add the
       wake path for a Run with no `messageId`, and rethrow from the `prepareBoundaryCompaction` catch
       (design D5, D6). Verify "A compaction Run waits", "A step-boundary compaction hits a usage limit",
-      "A step-boundary summary beyond the cap", and a final-answer summary that hits a usage limit and
-      completes after the wake, in API integration tests.
+      "A step-boundary summary beyond the cap", a final-answer summary that hits a usage limit and
+      completes after the wake, and "A successful summary starts a new allowance for the next request",
+      in API integration tests.
 - [ ] 6.2 Keep a model-switch compaction a side call. Verify "A model-switch compaction hits a usage
       limit".
 - [ ] 6.3 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.

@@ -34,6 +34,7 @@ model, such as a model-switch compaction, is a side call. A side call MUST NOT m
 The move to `awaiting_quota` MUST be one attempt-fenced transaction. It MUST store the completed
 steps and parts of the attempt, the failure class, the reset time, and the wake time. It MUST record
 the deadline job as the next queue job of the Run, with a new wake generation.
+Before this move, a `model.superseded` event MUST name each stored output part of the failed send.
 
 #### Scenario: A worker crash after the entry
 
@@ -111,7 +112,7 @@ send streamed. Pending steers and interrupts MUST then reach the Run at its firs
 A woken request that again fails with a reset time in the range of the first requirement MUST wait
 again. One
 request MUST wait at most 3 times after its first wait. A fourth such failure MUST end the request
-with its failure class. A send that streams a content part that no `model.superseded` event names MUST reset the count.
+with its failure class. A successful request MUST reset the count, also when it emits no Run part event.
 
 #### Scenario: A reset that does not clear
 
@@ -122,6 +123,11 @@ with its failure class. A send that streams a content part that no `model.supers
 
 - **WHEN** a Run waits for one reset, continues for ten steps, and later hits a second usage limit
 - **THEN** the second limit starts a new first wait, and the count of the first does not apply
+
+#### Scenario: A successful summary starts a new allowance for the next request
+
+- **WHEN** a summary succeeds after four quota waits, and the next step request reaches a quota reset before content
+- **THEN** the step request starts its own first wait
 
 ### Requirement: A cancellation ends a quota wait
 

@@ -167,18 +167,19 @@ holds back every part until the first non-empty `text-delta` or `reasoning-delta
 `tool-input-start`, `tool-call`, `file`, `source`, or `finish` part. It then releases them in order
 and arms the 300 s stall window on every later part. An empty `reasoning-delta` that carries only a
 signature is metadata.
-Before that release, a retry is invisible: the middleware drops its held parts, sleeps the jittered
-or stated delay, reports `model.retrying` through a callback on `ModelStreamInput` (only the Run's
-own requests pass one), and calls `doStream` again. The SDK never sees the failure, and
-`onStepStart` does not run twice. The middleware tracks the complete `tool-call` parts of its own
+Before that release, a retry is invisible: the middleware drops its held parts, reports
+`model.retrying` through a callback on `ModelStreamInput` (only the Run's own requests pass one),
+then sleeps the jittered or stated delay and calls `doStream` again. The SDK never sees the failure,
+and `onStepStart` does not run twice. The middleware tracks the complete `tool-call` parts of its own
 send, because `ToolCallGate` spans several sends.
 
 Request recovery is installed before `applyRequestUsageCallback`, so it is the inner wrapper and
 the usage wrapper sees one combined stream per request. The Responses and openai-compatible
 adapters emit `finish` in `flush` even after an error (`openai` `dist/index.js:6878-6893`,
 `openai-compatible` `:894-957`); recovery drops the `finish` of each failed send and forwards only
-the final send's. A failed send therefore reports no usage on every wire, and the
-`run-usage-accounting` delta marks an attempt with a superseded send incomplete.
+the final send's. A failed send therefore reports no usage on every wire. The
+`run-usage-accounting` delta marks an attempt incomplete after any failed send whose usage it
+discards, including a failure before content. Known request receipts remain a lower bound.
 
 ### D4: A failure after released parts restarts the step
 
@@ -186,6 +187,14 @@ The middleware cannot take back released parts: the SDK adds them to the step co
 messages of the next step. A transient failure after released parts, with no complete `tool-call`
 part, therefore ends the stream with the `ProviderFailure`, a `superseded` flag, and the retry number
 `n` so far.
+
+Callers without live text or reasoning deliveries, including compaction, Codex titles, and hosted
+search, do not need partial output delivered to the SDK. Their middleware holds the entire send
+until it finishes successfully. It tracks content for the first window and complete tool calls
+while it holds those parts. A transient failure with no complete tool call drops the buffer and
+retries the same request inside the middleware, under the same retry budget. A complete tool call
+still forbids a retry or a quota wait. Thus these callers have a recovery owner without the
+Chat loop's `callStream` restart, and no incomplete signed reasoning enters a later request.
 
 - **Anchor.** The middleware has no event access, and sequences are assigned at insert through the
   serialized `enqueueEvent` chain (`run-execution.service.ts:2331-2375`). A send that writes events
@@ -221,7 +230,7 @@ model client, with a break at step 0 and at a step k of 1 or more, before the ev
 ### D5: The quota wait reuses `awaiting` as a tagged union
 
 `runs.awaiting` becomes `{ kind: 'jobs', … } | { kind: 'quota', failureClass, resetsAt, wakeAt,
-resumeAt }`. `resumeAt` is `request`, `preDispatch`, `boundary`, `finalAnswer`, or
+resumeAt, waitCount }`. `resumeAt` is `request`, `preDispatch`, `boundary`, `finalAnswer`, or
 `compactionRun`: the point where the woken attempt picks up. Event payloads without `kind` are job
 suspensions; only `runs.awaiting` is backfilled.
 
@@ -233,7 +242,7 @@ suspensions; only `runs.awaiting` is backfilled.
   uses the new value, and no later migration in the same batch may.
 - **Entry.** `RunWaitService.suspendForQuota` writes the status, `awaiting`, the generation, the
   deadline job, and a `run.suspended { kind: 'quota', attemptId, generation, failureClass, resetsAt,
-  wakeAt, parts, steps }` in one attempt-fenced transaction. `attemptId` serves
+  wakeAt, waitCount, parts, steps }` in one attempt-fenced transaction. `attemptId` serves
   `suspendedByThisAttempt` (`:3615-3622`), and `generation` pairs the event with its `run.resumed`
   (`wake-projection.ts:143-157`). The checkpoint holds the parts and steps without the failed send.
   After the commit, `onError` sets `stopCause = 'suspend'`, and `onFinish` returns at the D4 gate. A
@@ -277,9 +286,11 @@ Sites that change:
   summary and settles `completed` with the checkpoint. For a compaction Run, the branch returns no
   wake state and needs no checkpoint parts; `CompactionRunService` plans again.
 
-The wait count is the number of quota `run.suspended` events after the latest part event
-(`model.delta`, `reasoning.delta`, or `tool.requested`) that no `model.superseded` event names. A
-failure ends the request when 4 such events already exist.
+The wait count belongs to one logical request, not to an interval between Run part events. A new
+request starts with zero waits. Entry stores `waitCount + 1` in `awaiting` and `run.suspended`.
+The wake restores that counter only at its `resumeAt` point. A failure ends the request when its
+counter is already 4. A successful request ends its counter; the next summary or step starts at
+zero, also when the successful summary emitted no Run part event.
 
 ### D7: The budget excludes quota waits by events
 
@@ -400,3 +411,9 @@ None. Each grilling decision is recorded in the proposal.
   deltas say "can make the Run wait"; new scenarios for the live drop, a title retry, a switch
   compaction, a compaction Run on `auth`, and a usage limit after a tool call. Not converged: this
   was the last round Leo asked for before the draft PR, and it still changed substance.
+- **v4 (2026-11-18):** Verified published-review corrections, without another iterative review
+  round: record the retry event before its delay; mark hidden failed sends incomplete; scope the
+  wait counter to the logical request and restore it through the quota checkpoint; hold complete
+  sends for non-live consumers so their middleware owns post-content recovery; state the wake
+  exception to the later-attempt reset and supersede quota-failed output before suspension.
+  These corrections preserve the approved retry, wait, and signed-reasoning outcomes.

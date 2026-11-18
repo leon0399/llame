@@ -18,6 +18,7 @@ or more of these conditions are true, and `true` otherwise:
 
 - a model request of the attempt completed without an input or an output token count;
 - a `model.superseded` event of `provider-failures` names a send of the attempt;
+- a send of the attempt failed and its usage is unknown, also before its first content part;
 - the attempt ended failed, cancelled, or expired, with or without a model request in flight;
 - the recorded terminal status of the Run is not `completed` when the usage is written, and no
   steer delivery of `run-steering` closed the reply;
@@ -105,5 +106,11 @@ mark usage incomplete.
 #### Scenario: A superseded send makes usage incomplete
 
 - **WHEN** a send streams text and breaks, and its request retry and every other request of the attempt report counts
+- **THEN** the persisted usage sums the reported counts
+- **AND** records `complete: false`
+
+#### Scenario: A hidden failed send makes usage incomplete
+
+- **WHEN** a send fails before content, and its request retry and all other requests report counts
 - **THEN** the persisted usage sums the reported counts
 - **AND** records `complete: false`
