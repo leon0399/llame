@@ -222,11 +222,8 @@ export function hasStreamChannel(input: ModelStreamInput): boolean {
  */
 export function deferTerminalCallbacks(
   streamOptions: TerminalCallbackOptions,
-  input: ModelStreamInput,
 ): DeferredTerminals {
   const terminals = createDeferredTerminals();
-
-  if (!hasStreamChannel(input)) return terminals;
 
   const onFinish = streamOptions.onFinish;
 
@@ -412,7 +409,7 @@ export function runStreamChannel(run: {
   // SDK callbacks return immediately so the `fullStream` stream branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D15/D18).
-  const terminals = deferTerminalCallbacks(streamOptions, input);
+  const terminals = deferTerminalCallbacks(streamOptions);
   const requestSanitizer = captureRequestFailure(streamOptions, sanitizeError);
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;

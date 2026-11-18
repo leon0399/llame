@@ -38,6 +38,7 @@ import {
 import {
   applyToolCallingOptions,
   awaitSettlementAfter,
+  deferTerminalCallbacks,
   hasStreamChannel,
   KEYLESS_PLACEHOLDER_API_KEY,
   productUserAgentHeaders,
@@ -472,7 +473,7 @@ function prepareOpenAICompatibleStream(
   input: ModelStreamInput,
   config: OpenAICompletionsModelClientConfig,
   gate: ToolCallGate,
-): void {
+) {
   applyToolCallingOptions(streamOptions, input, gate);
   // The adapter serializes tool content as text, so tool-result images move
   // into a user message here and on opencode-go (vision-media D6).
@@ -483,6 +484,8 @@ function prepareOpenAICompatibleStream(
   applyRequestUsageCallback(streamOptions, input);
   applyStreamIdleWatchdog(streamOptions, input);
   applyChunkDelivery(streamOptions, input, gate);
+
+  return deferTerminalCallbacks(streamOptions);
 }
 
 function completionsFailureOptions(
@@ -527,7 +530,7 @@ function runOpenAICompatibleStream(
     maxOutputTokens: config.maxOutputTokens,
   };
 
-  prepareOpenAICompatibleStream(
+  const terminals = prepareOpenAICompatibleStream(
     streamOptions,
     input,
     config,
@@ -542,6 +545,7 @@ function runOpenAICompatibleStream(
     dependencies.streamText(streamOptions),
     settlement,
     sanitize,
+    terminals,
   );
 }
 

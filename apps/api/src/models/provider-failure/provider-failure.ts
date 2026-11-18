@@ -46,7 +46,8 @@ export class ProviderFailure extends Error {
     if (
       details.resetsAt !== undefined &&
       Number.isFinite(details.resetsAt) &&
-      details.resetsAt >= 0
+      details.resetsAt >= 0 &&
+      details.resetsAt <= 8_640_000_000_000_000
     ) {
       this.resetsAt = details.resetsAt;
     }

@@ -144,6 +144,38 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
   });
 
   it.each(['text', 'consumeStream'] as const)(
+    'preserves a rejected owner error callback through %s',
+    async (channel) => {
+      const ownerError = new Error('Owner persistence failed');
+
+      const client = buildClient(
+        serve(
+          () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  message: 'Authentication failed',
+                  code: 'invalid_api_key',
+                },
+              }),
+              { status: 401, headers: { 'content-type': 'application/json' } },
+            ),
+        ),
+      );
+
+      const result = client.streamText({
+        chat: CHAT,
+        messages,
+        onError: () => Promise.reject(ownerError),
+      });
+
+      await expect(
+        channel === 'text' ? result.text : result.consumeStream(),
+      ).rejects.toBe(ownerError);
+    },
+  );
+
+  it.each(['text', 'consumeStream'] as const)(
     'preserves abort-persistence failure identity through %s',
     async (channel) => {
       const requested = Promise.withResolvers<void>();

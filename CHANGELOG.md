@@ -46,7 +46,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   stream cancellation does not manufacture a second provider failure, and
   negative numeric Retry-After values do not become reset dates. Promise channels
   retain their class when read before text, and an invalid OpenRouter reset field
-  does not turn a Retry-After hint into an authoritative reset. See
+  does not turn a Retry-After hint into an authoritative reset. Out-of-range reset
+  instants are rejected, and owner error-callback failures retain their identity on
+  the text and stream-consumption paths. See
   [provider diagnostics](docs/product/operator/providers/routing.md#diagnosing-failed-model-requests).
 
 # 2026-11-17

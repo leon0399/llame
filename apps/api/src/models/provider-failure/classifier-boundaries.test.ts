@@ -59,6 +59,169 @@ describe('provider classifier input boundaries', () => {
       expect(failure.resetsAt).toBe(expected.resetsAt);
     },
   );
+  it.each([
+    {
+      error: {
+        response: {
+          status: 429,
+          body: { error: { code: 'rate_limit_exceeded' } },
+          headers: {
+            'X-RateLimit-Remaining-Requests': '0',
+            'X-RateLimit-Reset-Requests': '2s',
+          },
+        },
+      },
+      expectedReset: now + 2000,
+    },
+    {
+      error: sdkError({
+        statusCode: 429,
+        responseBody: { error: { code: 'rate_limit_exceeded' } },
+        responseHeaders: {
+          'x-ratelimit-remaining-requests': '0',
+          'x-ratelimit-reset-requests': '3s',
+        },
+        response: {
+          headers: {
+            'x-ratelimit-remaining-requests': '0',
+            'x-ratelimit-reset-requests': '2s',
+          },
+        },
+      }),
+      expectedReset: now + 3000,
+    },
+    {
+      error: {
+        response: {
+          status: 429,
+          body: { error: { code: 'rate_limit_exceeded' } },
+          headers: {
+            'x-ratelimit-remaining-requests': '0',
+            'x-ratelimit-reset-requests': '6m',
+          },
+        },
+      },
+      expectedReset: now + 6 * 60_000,
+    },
+    {
+      error: {
+        response: {
+          status: 429,
+          body: { error: { code: 'rate_limit_exceeded' } },
+          headers: {
+            'x-ratelimit-remaining-requests': '0',
+            'x-ratelimit-reset-requests': '2',
+          },
+        },
+      },
+      expectedReset: now + 2000,
+    },
+  ])(
+    'uses reset headers from a usable SDK envelope',
+    ({ error, expectedReset }) => {
+      const failure = classifyResponses({ provider: 'openai', error, now });
+
+      expect(failure.code).toBe('rate_limited');
+      expect(failure.resetsAt).toBe(expectedReset);
+    },
+  );
+
+  it('uses response headers when top-level header entries are not usable', () => {
+    const failure = classifyResponses({
+      provider: 'openai',
+      now,
+      error: sdkError({
+        statusCode: 429,
+        responseBody: { error: { code: 'rate_limit_exceeded' } },
+        responseHeaders: { 'x-ratelimit-remaining-requests': true },
+        response: {
+          headers: {
+            'x-ratelimit-remaining-requests': '0',
+            'x-ratelimit-reset-requests': '2s',
+          },
+        },
+      }),
+    });
+
+    expect(failure.resetsAt).toBe(now + 2000);
+  });
+
+  it.each([
+    sdkError({
+      statusCode: 418,
+      responseBody: { error: { code: 17, type: false } },
+    }),
+    sdkError({
+      statusCode: 418,
+      responseBody: '{"error":{"code":"unrecognized_provider_code"}}',
+    }),
+    sdkError({ statusCode: 418, responseBody: '{"error":' }),
+  ])(
+    'keeps unsupported or unknown body signals in the exact unknown fallback',
+    (error) => {
+      expect(classifyResponses({ provider: 'openai', error, now }).code).toBe(
+        'unknown',
+      );
+    },
+  );
+
+  it('does not reinterpret a string-number provider code or a numeric code', () => {
+    for (const code of [17, '429']) {
+      const failure = classifyResponses({
+        provider: 'openai',
+        now,
+        error: sdkError({ statusCode: 418, responseBody: { error: { code } } }),
+      });
+
+      expect(failure.code).toBe('unknown');
+    }
+  });
+
+  it('does not promote an abort signal when it conflicts with transport metadata', () => {
+    const abortOnly = classifyResponses({
+      provider: 'openai',
+      now,
+      error: Object.assign(new Error('aborted'), { name: 'AbortError' }),
+    });
+
+    const abortWithTransportCause = classifyResponses({
+      provider: 'openai',
+      now,
+      error: Object.assign(new Error('aborted'), {
+        code: 'ABORT_ERR',
+        cause: { code: 'ECONNRESET' },
+      }),
+    });
+
+    const networkCodeWithAbortCause = classifyResponses({
+      provider: 'openai',
+      now,
+      error: Object.assign(new Error('socket aborted'), {
+        code: 'ECONNRESET',
+        cause: { name: 'AbortError' },
+      }),
+    });
+
+    expect(abortOnly.code).toBe('unknown');
+    expect(abortWithTransportCause.code).toBe('unknown');
+    expect(networkCodeWithAbortCause.code).toBe('unreachable');
+  });
+
+  it('selects a nested response.failed error ahead of a conflicting body error', () => {
+    const failure = classifyResponses({
+      provider: 'openai',
+      now,
+      error: sdkError({
+        responseBody: {
+          error: { code: 'usage_not_included' },
+          type: 'response.failed',
+          response: { error: { code: 'rate_limit_exceeded' } },
+        },
+      }),
+    });
+
+    expect(failure.code).toBe('rate_limited');
+  });
 
   it.each([
     {
