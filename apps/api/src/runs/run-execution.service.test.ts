@@ -21397,6 +21397,11 @@ describe('RunExecutionService executeRun — run segments', () => {
         },
       );
 
+      const prepareBoundary = vi.spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareBoundaryCompaction',
+      );
+
       if (resumesAfterSuspend(scenario)) {
         arrangeWaitCompletion(execution, scenario, {
           ...job,
@@ -21432,6 +21437,12 @@ describe('RunExecutionService executeRun — run segments', () => {
       if (scenario.boundaryDelivered === true) {
         expect(types).toContain('run.delivered');
         expect(segment.calls).toHaveLength(2);
+      } else if (
+        scenario.boundaryCancelled === true ||
+        scenario.boundaryFenced === true ||
+        scenario.completeWaitLockMissing === true
+      ) {
+        expect(prepareBoundary).not.toHaveBeenCalled();
       }
     },
   );
