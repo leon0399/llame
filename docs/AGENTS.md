@@ -8,13 +8,14 @@ and `development/`.
 
 ## Placement
 
-| Content                                                                                       | Location                     |
-| --------------------------------------------------------------------------------------------- | ---------------------------- |
-| What a tool, locator scheme, or selector does, as the chat owner and the assistant observe it | `product/reference/`         |
-| How an operator enables, restricts, deploys, migrates, or troubleshoots a capability          | `product/operator/`          |
-| Testing, quality gates, runtime choices, design records that outlive their change             | `development/`               |
-| Noncanonical prior art and studies                                                            | `research/`                  |
-| A plan in progress                                                                            | its GitHub issue, not a page |
+| Content                                                                                       | Location                                         |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| What a tool, locator scheme, or selector does, as the chat owner and the assistant observe it | `product/reference/`                             |
+| How an operator enables, restricts, deploys, migrates, or troubleshoots a capability          | `product/operator/`                              |
+| Testing, quality gates, runtime choices, design records that outlive their change             | `development/`                                   |
+| Why a hard-to-reverse, surprising architecture decision was made                              | `adr/` (rules in [adr/AGENTS.md](adr/AGENTS.md)) |
+| Noncanonical prior art and studies                                                            | `research/`                                      |
+| A plan in progress                                                                            | its GitHub issue, not a page                     |
 
 ## Rules
 
