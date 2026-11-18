@@ -21128,6 +21128,61 @@ describe('RunExecutionService executeRun — run segments', () => {
     else expect(types).not.toContain('tool.completed');
   }
 
+  it('marks compaction failure when delivery disappears at the boundary', async () => {
+    const spies = mockNormalExecutionRepositories();
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+      { ...userMessage, id: deliveredId, seq: 3 },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const signal = vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+    const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
+    summarize.mockRejectedValue(new Error('summary unavailable'));
+
+    const result = await execution.service.executeRun(
+      executionInput(segment.client),
+    );
+
+    signal.mockResolvedValueOnce('delivery');
+    await expect(segment.calls[0]?.stopWhenExtra?.()).resolves.toBe(true);
+    serveDelivery([compact]);
+    await segment.calls[0]?.onFinish?.(finishToolCalls);
+    await result.consumeStream();
+    await segment.calls[1]?.onFinish?.({
+      text: 'continued answer',
+      usage: ZERO_USAGE,
+      finishReason: 'stop',
+      stepCount: 1,
+    });
+
+    expect(summarize).toHaveBeenCalledTimes(2);
+    expect(segment.calls).toHaveLength(2);
+    expect(
+      JSON.stringify(spies.createAssistantReplyIfAbsent.mock.calls),
+    ).toContain('data-compaction-failed');
+  });
+
   it('summarizes a compact command delivered at a wait boundary', async () => {
     registerTestOnlyTool(waitTool);
     mockNormalExecutionRepositories();
