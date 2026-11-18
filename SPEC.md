@@ -24,9 +24,9 @@ When prose conflicts with code or a capability spec, treat the prose as stale an
 
 ## 1. Product boundary
 
-llame currently provides authenticated multi-user chat, durable agentic Runs, operator-configured models, owner-only Projects, hybrid chat search, owner-scoped personal Markdown Knowledge reads, and a bounded tool loop over conversation, Knowledge, configured native file, and operator-configured remote MCP tools.
+llame currently provides authenticated multi-user Chats, durable agentic Runs, operator-configured models, owner-only Projects, hybrid Chat search, owner-scoped personal Markdown Knowledge reads, and a bounded tool loop over Chats, Knowledge, configured native file, and operator-configured remote MCP tools.
 
-A Project currently groups one owner's Chats. It does not grant shared membership, own knowledge, attach tools, or provide a filesystem workspace. See [`openspec/specs/projects`](openspec/specs/projects/spec.md).
+A Project currently groups one owner's Chats. It does not grant shared membership, own knowledge, attach tools, or provide a filesystem Workspace. See [`openspec/specs/projects`](openspec/specs/projects/spec.md).
 
 Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap and specified through an OpenSpec change.
 
@@ -44,7 +44,7 @@ Context compaction stores an RLS-scoped `checkpoint` message row with one summar
 
 ### 2.2 Owner forks
 
-An owner fork is a literal same-owner copy of a selected durable prefix: every user and assistant message in the prefix with its original timestamp and usage, and every checkpoint whose `absorbed_through_seq` boundary is in the prefix, with copied boundaries and re-bake markers remapped onto copied checkpoint rows. The copy renders the same model-facing context its source would, creates no Run, and mutates no source, while the shared/public fork path stays a text-only public projection carrying no checkpoint, baseline, usage, timestamp, or copied creation time. See [`chats.service.ts`](apps/api/src/chats/chats.service.ts) and [`owner-chat-forks`](openspec/specs/owner-chat-forks/spec.md).
+An owner fork is a literal same-owner copy of a selected durable prefix: every user and assistant message in the prefix with its original timestamp and usage, and every checkpoint whose `absorbed_through_seq` boundary is in the prefix, with copied boundaries and re-bake markers remapped onto copied checkpoint rows. The copy renders the same model-facing context its source would, creates no Run, and mutates no source, while the shared fork path stays a text-only public projection carrying no checkpoint, baseline, usage, timestamp, or copied creation time. See [`chats.service.ts`](apps/api/src/chats/chats.service.ts) and [`owner-chat-forks`](openspec/specs/owner-chat-forks/spec.md).
 
 ## 6. Identity and ownership
 
@@ -89,7 +89,7 @@ request. Every newly written assistant and published checkpoint usage record
 stamps its resolved `billing` mode at write time. See
 [`run-usage-accounting`](openspec/specs/run-usage-accounting/spec.md).
 
-A chat send may name `delivery` (`queue` today). During a live Run the message
+A Chat send may name `delivery` (`queue` today). During a live Run the message
 waits in the Chat's pending items instead of getting 409: the owner lists them
 at `GET /api/v1/chats/:chatId/deliveries`, withdraws one at `DELETE` on the
 item and gets its text back, and every connected device sees the list change
@@ -117,9 +117,9 @@ A live Run delivers the Chat's pending `steer` and `interrupt` items at two
 points: the end of a model step, after its tool results, and the transaction
 that would complete the Run, which finds them first and keeps the Run live
 instead. The part of a Run that answers one user message is a segment. One
-delivery transaction, in the Run-then-chat lock order, locks the Run row behind
+delivery transaction, in the Run-then-Chat lock order, locks the Run row behind
 the current attempt and `cancel_requested_at IS NULL` (a superseded or
-cancelled Run delivers nothing), locks the chat row, reads the pending items in
+cancelled Run delivers nothing), locks the Chat row, reads the pending items in
 `position` order, closes the segment's reply as `completed`, publishes its
 usage as `model.completed`, stores one user message holding the items' parts in
 order, marks the items `delivered`, moves `runs.message_id` to the new message
@@ -168,7 +168,7 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 ### 9.5 Execution boundary
 
-Every chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/product/operator/scaling.md](docs/product/operator/scaling.md).
+Every Chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/product/operator/scaling.md](docs/product/operator/scaling.md).
 
 All current workers coordinate through the same installation's queue and database authority. The experimental remote Machine path is a tool-execution transport: a worker starts the box's `llame-machine` daemon over SSH and keeps execution authority for the Run. No Node Protocol, Node enrollment, tunneled or dial-out executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
 
@@ -192,7 +192,7 @@ The `prompt-imports` producer follows `skill-activation` in that order and carri
 
 **Residency** decides whether a change re-renders the prompt or appends an item: an account of something that happened is rail-resident; a complete statement of state that changes less often than compaction is prefix-resident; one that changes more often is a frozen prefix baseline plus rail deltas, re-baked at compaction. A prefix change is silent to the model unless history was conditioned on the old value — assertional changes are announced, behavioral ones are not. Compaction is the single re-baseline boundary for the whole rail.
 
-Reserved delimiters are neutralized on the user and tool rails so untrusted content cannot forge an item; assistant output deliberately is not, because a model does not treat its own prior turns as authoritative. Content copied from outside the chat is not erasable through its source once written into a persisted message part. See [`context-injection`](openspec/specs/context-injection/spec.md), [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md), [`tool-calling`](openspec/specs/tool-calling/spec.md), and [`chat-recency-digest`](openspec/specs/chat-recency-digest/spec.md).
+Reserved delimiters are neutralized on the user and tool rails so untrusted content cannot forge an item; assistant output deliberately is not, because a model does not treat its own prior turns as authoritative. Content copied from outside the Chat is not erasable through its source once written into a persisted message part. See [`context-injection`](openspec/specs/context-injection/spec.md), [`model-system-prompts`](openspec/specs/model-system-prompts/spec.md), [`tool-calling`](openspec/specs/tool-calling/spec.md), and [`chat-recency-digest`](openspec/specs/chat-recency-digest/spec.md).
 
 ## 13. Tools and integrations
 
@@ -357,7 +357,7 @@ them into absolute tool arguments. Those paths are deliberately published to
 authenticated owners; Knowledge backing paths and process credentials are not.
 
 The advertised set enters the prompt through the `skills` projection namespace
-and is frozen per compaction epoch on the chat row, so package edits and model
+and is frozen per compaction epoch on the Chat row, so package edits and model
 switches never re-render a bound prompt. Later turns announce added and removed
 skills against the told state. Explicit `$skill` mentions in a user message load
 before the first model request through the same permission admission a

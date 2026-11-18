@@ -19,8 +19,8 @@ as one `instructions` context item. The map of every document surface is
 
 ## Injection
 
-A trigger that loads at least one file produces one rail item with form
-`notice`. The item is stored in the conversation and replayed until a
+A trigger that loads at least one file produces one context item with form
+`notice`. The item is stored in the Chat and replayed until a
 compaction absorbs it. A file whose canonical path is already named by an
 `instructions` item in effective history is omitted until that item is
 absorbed.

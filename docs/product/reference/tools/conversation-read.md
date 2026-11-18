@@ -12,7 +12,7 @@ configured_by: ../../operator/conversation-recall.md
 ## Purpose
 
 `conversation_read` returns exact numbered source lines from one message of the
-owner's own chats. [search_conversations](search-conversations.md) supplies
+owner's own Chats. [search_conversations](search-conversations.md) supplies
 the coordinates; this tool opens the passage.
 
 ## Arguments

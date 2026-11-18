@@ -1,9 +1,9 @@
 ---
-summary: "Registering the git repositories and checkouts a Chat can start from, linking them to projects, and the host paths registration may inspect"
+summary: "Registering the git repositories and checkouts a Chat can start from, linking them to Projects, and the host paths registration may inspect"
 read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
-  - you are linking a project to a repository or setting its isolation policy
+  - you are linking a Project to a repository or setting its isolation policy
   - you are deciding which host paths a checkout registration may inspect
 behavior:
   - ../reference/tools/enter-workspace.md
@@ -239,33 +239,33 @@ branch is unchanged. Refusals answer `409` `worktree_not_clean`.
 
 ## Project links
 
-A project links zero or more of its owner's repositories. A link is a row of its
-own: an alias the project shows, a primary flag, and an isolation policy. The
+A Project links zero or more of its owner's repositories. A link is a row of its
+own: an alias the Project shows, a primary flag, and an isolation policy. The
 alias defaults to the repository's display name and is stored, so renaming the
-catalog entry later leaves the project's label alone. A project holds at most
-one primary link, and a project with no link is still usable — its chats start
+catalog entry later leaves the Project's label alone. A Project holds at most
+one primary link, and a Project with no link is still usable — its Chats start
 with no location.
 
-An isolation policy is the default isolation the composer shows for a chat that
+An isolation policy is the default isolation the composer shows for a Chat that
 starts on that link, and the request's `worktree` field still decides the
 outcome:
 
 - `inherit` reuses the source checkout, and turns a worktree start on when
-  another open chat already binds that checkout.
-- `always_worktree` starts a worktree, so two chats never share one tree.
+  another open Chat already binds that checkout.
+- `always_worktree` starts a worktree, so two Chats never share one tree.
 - `never` reuses the checkout.
 
 ### Defaults per executor
 
-For each link and each executor, the project remembers one default checkout: the
-one the last successful chat start used. A worktree start records the `main`
+For each link and each executor, the Project remembers one default checkout: the
+one the last successful Chat start used. A worktree start records the `main`
 checkout it was cut from, and a worktree checkout is never a default target. The
 row is replaced in place on every write, so `updated_at` is the time of the last
 choice and the newest row wins when a link holds defaults on several executors.
 Chat creation reads that row, then `projects.default_executor_id`, then the
 executor that holds the repository's only `main` checkout.
 
-Deleting a project removes its links and their defaults, and so does unlinking,
+Deleting a Project removes its links and their defaults, and so does unlinking,
 deleting the repository, and deleting the checkout a default names. No route
 deletes a repository, a checkout, a directory, or a file because of a link.
 
@@ -307,33 +307,33 @@ resolves them in its order, and answers the repository, executor, checkout, and
 isolation default with its reason (`project_policy`, `clone_in_use`, or
 `no_link`). It writes nothing and starts no git call.
 
-A project or repository of another owner, and an id that no longer exists, both
+A Project or repository of another owner, and an id that no longer exists, both
 answer `404`, so a foreign row is indistinguishable from a missing one. A
-repository the caller owns but the project does not link answers `422`, as does
+repository the caller owns but the Project does not link answers `422`, as does
 a named checkout that disagrees with the named repository or executor. Every
-link write on an archived project answers `409` and changes nothing, including
-a change to its default executor. Linking a repository the project already
+link write on an archived Project answers `409` and changes nothing, including
+a change to its default executor. Linking a repository the Project already
 links answers `409`, and so does a concurrent change that collides on the
 one-primary rule; a sequential primary change clears the previous one and
 answers `200`.
 
 ### The project page's Repositories section
 
-The project page is the edit surface for links. The section sits in the
-project's side panel, below Instructions and Context, with one row per link:
-the project's alias, a Primary badge when the project links more than one
+The Project page is the edit surface for links. The section sits in the
+Project's side panel, below Instructions and Context, with one row per link:
+the Project's alias, a Primary badge when the Project links more than one
 repository, and a line with the catalog remote and how many checkouts and
-worktrees the repository holds — or "No checkout" when a chat cannot start in
+worktrees the repository holds — or "No checkout" when a Chat cannot start in
 it yet.
 
 The section's `+` adds a draft row that searches the owner's catalog, minus the
-links the project already holds, and takes a pasted path:
+links the Project already holds, and takes a pasted path:
 
 - Picking a catalog repository links it under its display name.
 - An absolute path or a `machine://<name>/…` locator
   registers that clone (`POST /api/v1/checkouts`) and then links the
-  repository it resolves to, unless the project already links it.
-- The first link a project takes is its primary. Escape, or leaving the empty
+  repository it resolves to, unless the Project already links it.
+- The first link a Project takes is its primary. Escape, or leaving the empty
   field, discards the draft.
 
 A row opens the repository's sheet:
@@ -345,14 +345,14 @@ A row opens the repository's sheet:
   Machine — with where it lives, its Machine's reachability, and the branch it
   was registered on. The section's `+` registers another clone of this
   repository by path.
-- **Worktrees**: each worktree by branch, the chat whose lease records it as a
-  link to that chat, and how many other chats are bound to it. **Remove** asks
+- **Worktrees**: each worktree by branch, the Chat whose lease records it as a
+  link to that Chat, and how many other Chats are bound to it. **Remove** asks
   once, then calls `DELETE /api/v1/checkouts/:id/worktree`; a `409`
   `worktree_not_clean` refusal leaves the row listed with the route's own
   sentence.
 - The header links to the repository's page on GitHub, GitLab, Bitbucket,
   Codeberg, or sourcehut when the remote is on one of them, and its menu holds
-  **Unlink from project**, which confirms once and removes only the link.
+  **Unlink from Project**, which confirms once and removes only the link.
 
 A checkout or worktree row copies its location: a local path at once, a
 Machine one as the path on that Machine or as its `machine://` locator. The
@@ -360,7 +360,7 @@ branch shown is the one recorded when the checkout was registered or the
 worktree created; a later rename or switch is not read back
 ([#1417](https://github.com/leon0399/llame/issues/1417)).
 
-Every write on an archived project answers `409`, and the section shows that
+Every write on an archived Project answers `409`, and the section shows that
 sentence where the write was made. Registration's typed failures — an invalid
 path, a directory that is not a repository, `origin_mismatch`, `path_taken`, or
 a Machine that is offline or needs an update — appear under the draft, where

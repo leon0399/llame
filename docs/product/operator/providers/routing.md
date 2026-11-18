@@ -174,4 +174,4 @@ wire; the public model catalogue does not expose account routing metadata.
 Credentials keep their existing interpolation and redaction rules. Static
 account headers also reach embeddings and ranking requests. Headers containing
 `{session:id}` are omitted for those calls because they have no Chat identity;
-chat, title generation, and compaction retain their existing identity rules.
+Chat, title generation, and compaction retain their existing identity rules.

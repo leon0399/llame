@@ -79,7 +79,7 @@ does not promise that the subscription includes the model.
 
 Do not point an `openai-completions` entry at the Go endpoint as a substitute.
 That client requests `stream_options.include_usage`, which Go answers with a
-broken stream, so runs fail. Use `type: "opencode-go"` for this endpoint.
+broken stream, so Runs fail. Use `type: "opencode-go"` for this endpoint.
 
 ## Requests llame sends
 
@@ -116,10 +116,10 @@ reuse.
 Failures surface under the selected wire's existing failure contract. On the
 Chat Completions route, the gateway's parsed error message, whether it arrives
 on a failure response or inside the stream,
-becomes the run's failure, shown to the owner whose run failed and recorded on
-the run, after the SDK's own retry rules for retryable statuses. The failure
+becomes the Run's failure, shown to the owner whose Run failed and recorded on
+the Run, after the SDK's own retry rules for retryable statuses. The failure
 response's body and headers, the request body, and the credential reach no
-owner output, persisted run, log, or telemetry; a non-redirect failure body
+owner output, persisted Run, log, or telemetry; a non-redirect failure body
 that is not the gateway's envelope surfaces as the HTTP status text. Two
 failures surface as fixed texts that quote nothing from the response: a
 redirect, which is never followed, names only its status code, and a stream
@@ -127,7 +127,7 @@ event the adapter cannot read is reported as unreadable without its content.
 The parsed message may echo request values the gateway chose to name, except a
 configured credential: a value llame knows to be a credential, such as the
 entry's `key` or a resolved header substitution, is replaced with `[REDACTED]`
-before the failure reaches the run's stored error, its terminal event, or its
+before the failure reaches the Run's stored error, its terminal event, or its
 log line, and a caller that supplies no error handler logs only the redacted
 failure. llame adds no Go-specific error type or sanitizer, keeps no quota
 ledger, and never retries against or falls back to another provider, wire, or
@@ -148,7 +148,7 @@ gateway on 2026-09-22, except where noted:
   documents for it (for example `openai-responses` for `/responses`).
 - **An invalid credential.** HTTP 401 with the gateway's envelope
   (`{"type":"error","error":{"type":"AuthError","message":"Invalid API key."}}`);
-  the run's failure is exactly `Invalid API key.`, and nothing else — no
+  the Run's failure is exactly `Invalid API key.`, and nothing else — no
   response body, response header, request body, or credential accompanies it.
 - **An undeclared model id.** HTTP 400 with the message
   `Upstream request failed: Model is unavailable.`, surfaced the same way, as
@@ -157,7 +157,7 @@ gateway on 2026-09-22, except where noted:
   in llame's live proof).** Quota exhaustion is documented as HTTP 429 with
   `retry-after` and body type `GoUsageLimitError`, and a 429 is retryable, so
   such a request is attempted up to the SDK's retry limit with backoff before
-  the last gateway message would surface as the affected run's failure; llame
+  the last gateway message would surface as the affected Run's failure; llame
   reports no quota state of its own and claims no cost, and no paid fallback
   is attempted. No usage-limit rejection occurred during llame's live proof on
   2026-09-22, so this remains the gateway's documented behavior rather than
@@ -202,7 +202,7 @@ for the cap you are planning against rather than any published table.
 ## Cost accounting
 
 `pricingUsdPer1M` is optional here, and the shipped example declares none, so
-completed runs record provider-reported usage and latency with `costUsd: null`.
+completed Runs record provider-reported usage and latency with `costUsd: null`.
 When declared, llame calculates cost from provider-reported usage at those
 rates. Each usage record stamps its resolved `billing` value at write time; a
 record stamped `billing: "subscription"` marks the calculated cost as notional,
@@ -217,6 +217,6 @@ then provider, then provider-type default.
 The console's "Use balance" toggle is what decides upstream overage — whether
 the gateway keeps serving past the subscription's windows. llame can neither
 observe its state nor set it: the gateway exposes the toggle nowhere in a
-request or response llame reads, llame sends no field for it, and a run's
+request or response llame reads, llame sends no field for it, and a Run's
 failure surface carries only the gateway's message. Read and change it in the
 console if you need to.

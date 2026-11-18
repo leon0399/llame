@@ -212,7 +212,7 @@ local rejects in Machine form:
 
 ## Status
 
-`GET /api/v1/machines`, the settings page, and a chat's session details
+`GET /api/v1/machines`, the settings page, and a Chat's session details
 sidebar list each Machine's state, last seen time, last failure reason
 (`unreachable`, `host_key_mismatch`, `auth_failed`, `incompatible_version`,
 `session_lost`), versions, and roots. A probe runs every minute on a `runs`

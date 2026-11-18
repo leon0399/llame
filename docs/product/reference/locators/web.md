@@ -132,7 +132,7 @@ image and creates no media object, so it gets no `media://` id. The read returns
 the [image result](../tools/read.md#image-result), with its display-only
 `thumbnail` and no `media` field, plus `path`, `finalUrl`, `method: "image"`,
 and `notes` only when non-empty, and no content or range fields. The decoded
-image stays in the chat row beside the result, and later requests of the epoch
+image stays in the Chat row beside the result, and later requests of the epoch
 replay it under the media window. The bytes decide the format, so a JPEG
 declared as `image/png` reports `image/jpeg`, and bytes that are no PNG, JPEG,
 GIF, or WebP image fail with `unsupported_media_type`. Any selector on an image,
@@ -143,7 +143,7 @@ type, never an image.
 A page response declaring `application/pdf` and starting with `%PDF-` returns
 the [PDF result](../tools/read.md#pdf-result), with `path`, `finalUrl`,
 `method: "pdf"`, and `notes` only when non-empty. It has no content, range fields,
-thumbnail, embedded data, or `media` locator. The original stays in the chat row
+thumbnail, embedded data, or `media` locator. The original stays in the Chat row
 beside the result, and models with PDF input receive it under the media window.
 Any selector is refused. Adapter responses and alternate, suffix, and `llms.txt`
 probes remain text-only; a PDF response disqualifies their candidate.

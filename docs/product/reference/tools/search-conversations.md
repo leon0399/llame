@@ -1,7 +1,7 @@
 ---
 summary: "search_conversations returns bounded recall hits and the coordinates conversation_read opens"
 read_when:
-  - you are looking for something a previous chat in this owner's history said
+  - you are looking for something a previous Chat in this owner's history said
   - you need message coordinates for an exact source read
 spec: chat-search
 configured_by: ../../operator/conversation-recall.md
@@ -12,7 +12,7 @@ configured_by: ../../operator/conversation-recall.md
 ## Purpose
 
 `search_conversations` is owner-scoped, read-only recall over the owner's own
-chats. It returns bounded discovery text and the coordinates that open exact
+Chats. It returns bounded discovery text and the coordinates that open exact
 source lines with [conversation_read](conversation-read.md).
 
 ## Arguments
@@ -62,7 +62,7 @@ fewer than `limit` may return.
 ## Behavior
 
 Content mode returns bounded discovery excerpts or title metadata. Timeline mode
-returns activity pointers per chat without excerpts.
+returns activity pointers per Chat without excerpts.
 
 A recap walks each timeline region from `firstSeq` by `nextMessageSeq` and
 stops at `lastSeq`. `conversation_read` is unaware of the range, so a message

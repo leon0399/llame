@@ -23,7 +23,7 @@ read_when:
   model as a `git` item, when it is told again, and its bounds and absence lines.
 - [Prompt imports](prompt-imports.md): which markers in a prompt import a
   `read` locator before the first model request, and the bounds that apply.
-- [Chat location](chat-location.md): how the composer sets a new chat's project
+- [Chat location](chat-location.md): how the composer sets a new Chat's Project
   and working directory, what each chip cell changes, and which entry points
   pre-fill them.
 - [Continue or regenerate a turn](continue-a-turn.md): when a failed turn can be

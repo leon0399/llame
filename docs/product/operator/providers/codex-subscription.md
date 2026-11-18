@@ -73,7 +73,7 @@ same credential file atomically, then start every process again. A running
 process retains its startup snapshot after logout or revocation. Authentication
 and quota failures end the affected Run; llame does not refresh credentials,
 select a paid fallback, or retry the Run. The failure names only its class: the
-response's text, headers, and body stay out of the run, its event, and the log,
+response's text, headers, and body stay out of the Run, its event, and the log,
 and a configured credential the endpoint echoes is replaced with `[REDACTED]`.
 Retry manually after re-login and restart.
 

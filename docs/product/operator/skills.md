@@ -183,11 +183,11 @@ code-point name order, and states how many entries the size bound left out.
 Model-specific prompt overrides opt out by not referencing the `skills`
 namespace; explicit `$skill` invocation still works on those models.
 
-The advertised set is frozen per checkpoint epoch: it is resolved at an
-accepted turn and stored on the chat, so editing a package, switching models,
+The advertised set is frozen per compaction epoch: it is resolved at an
+accepted turn and stored on the Chat, so editing a package, switching models,
 or any other prompt change does NOT re-render the prompt or re-mint the
 effective-context snapshot. A compaction writes a checkpoint and starts a new
-epoch, and the next accepted turn resolves the catalog again. A chat with no
+epoch, and the next accepted turn resolves the catalog again. A Chat with no
 configured source stores nothing and renders no skill section.
 
 The bound admits whole entries in code-point name order: at most 256 entries

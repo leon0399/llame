@@ -235,7 +235,7 @@ None is justified inside the current self-hosted envelope.
 
 Each worker process that consumes runs records a heartbeat every
 `runs.heartbeatSeconds`. A worker with no heartbeat for four intervals is dead,
-and its running jobs settle as `lost` at their next touch. The chat list and
+and its running jobs settle as `lost` at their next touch. The Chat list and
 the live Chat record count only the jobs on a worker that is not dead.
 
 Job-row changes push the owner's full Chat record after commit. While an owner
