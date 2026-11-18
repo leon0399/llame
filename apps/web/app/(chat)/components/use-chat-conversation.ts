@@ -31,6 +31,7 @@ import {
   supersededReplyIndexes,
 } from "@/lib/services/chat/history-adoption";
 import { usePendingStop } from "./use-pending-stop";
+import { isCommandText, sendableText } from "@/lib/services/chat/deliveries";
 import { useChatDelivery } from "./use-chat-delivery";
 import { useRunHandoff } from "./use-run-handoff";
 import {
@@ -100,7 +101,7 @@ function createHandleSubmit(args: ChatSubmitHandlersArgs) {
 
   return async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const text = input.trim();
+    const text = sendableText(input);
     const files = attachmentFileParts(attachments.items);
 
     if (
@@ -377,18 +378,27 @@ function buildComposerState(
   return {
     input: actions.input,
     setInput: actions.setInput,
-    // While a Run is active a send is a delivery (Enter steers); otherwise it
-    // is a plain chat send.
-    handleSubmit: delivery.runActive
-      ? (event: React.FormEvent<HTMLFormElement>) => {
-          event.preventDefault();
+    // Only an existing Chat can recognize slash commands. On the draft page
+    // even slash-prefixed text stays on the normal create-and-stream path.
+    handleSubmit: (event: React.FormEvent<HTMLFormElement>) => {
+      if (delivery.runActive) {
+        event.preventDefault();
 
-          return delivery.deliver("steer");
-        }
-      : actions.handleSubmit,
+        return delivery.deliver("steer");
+      }
+
+      if (delivery.exists && isCommandText(actions.input)) {
+        event.preventDefault();
+
+        return delivery.deliver();
+      }
+
+      return actions.handleSubmit(event);
+    },
     handleStop: delivery.handleStop,
     runActive: delivery.runActive,
     onDeliver: delivery.deliver,
+    notice: delivery.notice,
     pendingStop: actions.pendingStop,
     attachments: actions.attachments,
     modelReadyForSend: setup.modelReadyForSend,

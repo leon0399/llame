@@ -25,6 +25,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { countAbsorbedMessages } from './absorbed-message-count';
+import { notRunningReply, titleMessageRoles } from './title-message-query';
 import { type Message, type MessageRole, chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -44,15 +45,6 @@ export type CheckpointMessage = Message & { absorbedThroughSeq: number };
 function isCheckpointMessage(row: Message): row is CheckpointMessage {
   return row.absorbedThroughSeq !== null;
 }
-
-/**
- * Hides an assistant reply whose Run is still in flight. The row exists from
- * the first model request so its in-Run context items survive a failed Run,
- * but owner-facing reads (history, forks, shares, previews) never show it
- * until a terminal writer finalizes it. Only assistant rows carry `running`,
- * so the predicate applies to every role.
- */
-const notRunningReply = sql`(${messages.usage} ->> 'status') is distinct from 'running'`;
 
 /**
  * At least one text part with a non-whitespace character. Parts are `json`
@@ -467,7 +459,7 @@ export class MessagesRepository {
       // row. Enforced at the query too (not just the DTO), matching the
       // search path's guard, so a later tool-parts-persistence change can't
       // silently leak internals into a shared link.
-      sql`(${messages.role} = 'assistant' or (${messages.role} = 'user' and ${messages.senderUserId} is not null))`,
+      titleMessageRoles,
     ];
 
     if (options?.maxSeq !== undefined) {

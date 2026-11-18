@@ -1,4 +1,8 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 import type { ChatResponse } from "../../api/generated/models";
 
@@ -33,6 +37,18 @@ export async function renameChat(id: string, title: string): Promise<void> {
   );
 }
 
+export function invalidateRenamedChat(
+  queryClient: QueryClient,
+  id: string,
+): void {
+  queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
+  queryClient.invalidateQueries({
+    queryKey: chatQueryKeys.detail(id),
+    exact: true,
+  });
+  queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+}
+
 export function useRenameChat() {
   const queryClient = useQueryClient();
 
@@ -41,15 +57,7 @@ export function useRenameChat() {
       renameChat(id, title),
     // lists() is a prefix of infinite() (the grouped list), so this
     // invalidates the sidebar history too.
-    onSuccess: (_data, { id }) => {
-      queryClient.invalidateQueries({ queryKey: chatQueryKeys.lists() });
-      // exact: detail is the parent key of …/messages — do not wipe history.
-      queryClient.invalidateQueries({
-        queryKey: chatQueryKeys.detail(id),
-        exact: true,
-      });
-      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
-    },
+    onSuccess: (_data, { id }) => invalidateRenamedChat(queryClient, id),
     onError: () => toast.error("Couldn't rename the chat."),
   });
 }

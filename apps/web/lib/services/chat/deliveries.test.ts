@@ -23,6 +23,8 @@ import {
   deliveryText,
   firstPendingSteer,
   isAlreadyDelivered,
+  isCommandText,
+  sendableText,
   isRunActive,
   sendDelivery,
   withdrawDelivery,
@@ -80,6 +82,22 @@ const REQUEST = {
   permissionMode: "default" as const,
 };
 
+describe("sendableText", () => {
+  it("trims ordinary text and keeps whitespace before a slash", () => {
+    expect(sendableText("  hello \n")).toBe("hello");
+    expect(sendableText("/rename Foo \n")).toBe("/rename Foo");
+    expect(sendableText(" /rename Foo ")).toBe(" /rename Foo");
+  });
+});
+
+describe("isCommandText", () => {
+  it("needs the slash as the first character", () => {
+    expect(isCommandText("/rename Foo")).toBe(true);
+    expect(isCommandText(" /rename Foo")).toBe(false);
+    expect(isCommandText("ordinary text")).toBe(false);
+  });
+});
+
 describe("sendDelivery", () => {
   it("sends the message with its mode and reports the pending item of a 202", async () => {
     const pending = item("m2", "steer");
@@ -111,6 +129,55 @@ describe("sendDelivery", () => {
 
     await expect(sendDelivery(REQUEST)).resolves.toEqual({ kind: "started" });
     expect(cancelled).toHaveBeenCalledOnce();
+  });
+
+  it("parses a JSON rename result without expecting a stream", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ type: "command", command: "rename", title: "Foo" }),
+    );
+
+    await expect(
+      sendDelivery({ ...REQUEST, delivery: undefined }),
+    ).resolves.toEqual({ kind: "command", command: "rename", title: "Foo" });
+
+    const request = requestFromCall(fetchMock);
+    const body = await request.json();
+    expect(body).toMatchObject({ message: { id: "m2" } });
+    expect(body).not.toHaveProperty("delivery");
+  });
+
+  it("treats an unknown JSON command as a generic success", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ type: "command", command: "compact", runId: "run-1" }),
+    );
+
+    await expect(sendDelivery(REQUEST)).resolves.toEqual({ kind: "success" });
+  });
+
+  it("surfaces the server message from a JSON error response", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { statusCode: 422, message: "Title generation is not configured." },
+        422,
+      ),
+    );
+
+    await expect(sendDelivery(REQUEST)).rejects.toThrow(
+      "Title generation is not configured.",
+    );
+  });
+
+  it("joins validation messages from an array", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { statusCode: 400, message: ["modelId must not be blank", "bad id"] },
+        400,
+      ),
+    );
+
+    await expect(sendDelivery(REQUEST)).rejects.toThrow(
+      "modelId must not be blank; bad id",
+    );
   });
 
   it("rejects a send the API refused", async () => {

@@ -15,9 +15,10 @@ import { sql as dsql } from 'drizzle-orm';
 import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
-import { type Message } from '../db/schema';
+import { projects, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { ModelsService } from '../models/models.service';
 import { turnTelemetryLogger } from '../chats/turn-telemetry';
@@ -34,6 +35,7 @@ import {
 
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
+const chatTitleResponse = z.object({ title: z.string().nullable() });
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -1816,5 +1818,422 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(bGet.status).toBe(200);
     expect(bGet.body).toMatchObject({ id: sharedId, ownerUserId: userBId });
+  });
+  it('renames an existing Chat as JSON without validating the Chat model or storing a message', async () => {
+    const before = await listMessages(chatA);
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'not-a-chat-model',
+        delivery: 'queue',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/rename Release plan' }],
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.body).toEqual({
+      type: 'command',
+      command: 'rename',
+      title: 'Release plan',
+    });
+    expect(models.client.turns).toHaveLength(0);
+    await expect(listMessages(chatA)).resolves.toEqual(before);
+
+    const stored = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(stored.body).toHaveProperty('title', 'Release plan');
+  });
+
+  it('A command to a stored chat is the third exception', async () => {
+    const projectId = crypto.randomUUID();
+
+    const storedChatId = await tenantDb.runAs(userAId, async (tx) => {
+      await tx.insert(projects).values({
+        id: projectId,
+        ownerUserId: userAId,
+        name: 'Command project',
+      });
+
+      const repository = new ChatsRepository(tx);
+
+      const chat = await repository.create({
+        ownerUserId: userAId,
+        title: 'Before command',
+        workspaceRoot: '/srv/command-root',
+        workspaceExecutorId: 'command-executor',
+        workspaceGeneration: 1,
+      });
+
+      await repository.update(chat.id, userAId, { projectId });
+
+      return chat.id;
+    });
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${storedChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'not-a-chat-model',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/rename Filed command' }],
+        },
+      });
+
+    const stored = await tenantDb.runAs(userAId, (tx) =>
+      new ChatsRepository(tx).findById(storedChatId, userAId),
+    );
+
+    expect(response.status).toBe(200);
+    expect(stored).toMatchObject({
+      title: 'Filed command',
+      projectId,
+      workspaceRoot: '/srv/command-root',
+    });
+  });
+
+  it('rejects a rename title longer than 200 characters', async () => {
+    const before = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: `/rename ${'x'.repeat(201)}` }],
+        },
+      });
+
+    expect(response.status).toBe(400);
+    expect(models.client.turns).toHaveLength(0);
+
+    const after = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(chatTitleResponse.parse(after.body).title).toBe(
+      chatTitleResponse.parse(before.body).title,
+    );
+  });
+
+  it('regenerates a title from recent owner and assistant messages', async () => {
+    const titleChatId = await createChat(userAId, 'Old title');
+    await tenantDb.runAs(userAId, async (tx) => {
+      const repository = new MessagesRepository(tx);
+      await repository.create({
+        id: crypto.randomUUID(),
+        chatId: titleChatId,
+        role: 'user',
+        senderUserId: userAId,
+        parts: [{ type: 'text', text: 'Plan the database migration' }],
+      });
+      await repository.create({
+        id: crypto.randomUUID(),
+        chatId: titleChatId,
+        role: 'assistant',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'Start with a staging rehearsal.' }],
+      });
+    });
+
+    models.client.titleResponse = 'Database migration';
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${titleChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/rename' }],
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      type: 'command',
+      command: 'rename',
+      title: 'Database migration',
+    });
+    expect(JSON.stringify(models.client.titleTurns)).toContain(
+      'Plan the database migration',
+    );
+    expect(JSON.stringify(models.client.titleTurns)).toContain(
+      'Start with a staging rehearsal.',
+    );
+    expect(models.client.turns).toHaveLength(0);
+
+    const stored = await request(http)
+      .get(`/api/v1/chats/${titleChatId}`)
+      .set('Cookie', cookieA);
+
+    expect(stored.body).toHaveProperty('title', 'Database migration');
+  });
+
+  it('treats a first-message command as ordinary Chat text', async () => {
+    const newChatId = crypto.randomUUID();
+    const userMessageId = crypto.randomUUID();
+    models.client.responses = ['ordinary response'];
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${newChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: '/rename First message' }],
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(streamedText(response.text)).toBe('ordinary response');
+    expect(models.client.turns).toHaveLength(1);
+
+    const messages = await tenantDb.runAs(userAId, (tx) =>
+      new MessagesRepository(tx).findByChatId(newChatId, userAId),
+    );
+
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: userMessageId,
+          parts: expect.arrayContaining([
+            expect.objectContaining({ text: '/rename First message' }),
+          ]),
+        }),
+      ]),
+    );
+  });
+
+  it('keeps an unknown slash-prefixed path as an ordinary message', async () => {
+    models.client.responses = ['path response'];
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/etc/hosts is broken' }],
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(streamedText(response.text)).toBe('path response');
+    expect(models.client.turns).toHaveLength(1);
+  });
+
+  it('does not reveal another owner Chat through a command', async () => {
+    const before = await listMessages(chatA);
+
+    const beforeChat = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    for (const text of ['/rename Private title', '/rename']) {
+      const response = await request(http)
+        .post(`/api/v1/chats/${chatA}/messages`)
+        .set('Cookie', cookieB)
+        .send({
+          modelId: 'system:openai:gpt-5.4-mini',
+          message: {
+            id: crypto.randomUUID(),
+            parts: [{ type: 'text', text }],
+          },
+        });
+
+      expect(response.status).toBe(404);
+    }
+
+    expect(models.client.turns).toHaveLength(0);
+    await expect(listMessages(chatA)).resolves.toEqual(before);
+
+    const afterChat = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(chatTitleResponse.parse(afterChat.body).title).toBe(
+      chatTitleResponse.parse(beforeChat.body).title,
+    );
+  });
+
+  it('rejects attachments on commands for an owned Chat', async () => {
+    const before = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [
+            { type: 'text', text: '/rename Has attachment' },
+            {
+              type: 'file',
+              mediaType: 'image/png',
+              url: 'media://11111111-1111-4111-8111-111111111111',
+            },
+          ],
+        },
+      });
+
+    expect(response.status).toBe(400);
+    expect(models.client.turns).toHaveLength(0);
+
+    const after = await request(http)
+      .get(`/api/v1/chats/${chatA}`)
+      .set('Cookie', cookieA);
+
+    expect(chatTitleResponse.parse(after.body).title).toBe(
+      chatTitleResponse.parse(before.body).title,
+    );
+  });
+  it('refuses to rename an archived Chat before changing its title', async () => {
+    const archivedChatId = await createChat(userAId, 'Archived title');
+    await tenantDb.runAs(userAId, (tx) =>
+      new ChatsRepository(tx).update(archivedChatId, userAId, {
+        archived: true,
+      }),
+    );
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${archivedChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/rename New title' }],
+        },
+      });
+
+    expect(response.status).toBe(409);
+
+    const stored = await request(http)
+      .get(`/api/v1/chats/${archivedChatId}`)
+      .set('Cookie', cookieA);
+
+    expect(stored.body).toHaveProperty('title', 'Archived title');
+    expect(models.client.titleTurns).toHaveLength(0);
+  });
+
+  it('rejects a bare rename on an archived Chat before title generation', async () => {
+    const archivedChatId = await createChat(userAId, 'Archived title');
+    await tenantDb.runAs(userAId, (tx) =>
+      new ChatsRepository(tx).update(archivedChatId, userAId, {
+        archived: true,
+      }),
+    );
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${archivedChatId}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/rename' }],
+        },
+      });
+
+    expect(response.status).toBe(409);
+    expect(models.client.titleTurns).toHaveLength(0);
+
+    const stored = await request(http)
+      .get(`/api/v1/chats/${archivedChatId}`)
+      .set('Cookie', cookieA);
+
+    expect(stored.body).toHaveProperty('title', 'Archived title');
+  });
+
+  it('applies a rename with delivery while a Run remains live', async () => {
+    const held = holdNextTurn();
+    models.client.responses = ['held answer'];
+    const userMessageId = crypto.randomUUID();
+
+    const runResponse = request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: userMessageId,
+          parts: [{ type: 'text', text: 'Hold this Run' }],
+        },
+      })
+      .then((response) => response);
+
+    await held.started;
+
+    const rename = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'not-a-chat-model',
+        delivery: 'steer',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: '/rename While running' }],
+        },
+      });
+
+    expect(rename.status).toBe(200);
+    expect(rename.body).toEqual({
+      type: 'command',
+      command: 'rename',
+      title: 'While running',
+    });
+    expect(models.client.turns).toHaveLength(1);
+
+    const pending = await tenantDb.runAs(userAId, (tx) =>
+      new ChatDeliveriesRepository(tx).listPending(chatA, userAId),
+    );
+
+    expect(pending).toEqual([]);
+    releaseHeldTurn?.();
+    const completed = await runResponse;
+    expect(completed.status).toBe(200);
+    expect(streamedText(completed.text)).toBe('held answer');
+  });
+  it.each([
+    ['text with space before slash', ' /rename Foo'],
+    ['unknown command name', '/summarize the chat'],
+    ['longer command name', '/renamed files are missing'],
+  ])('stores %s as ordinary message text', async (_label, text) => {
+    models.client.responses = ['ordinary text response'];
+
+    const response = await request(http)
+      .post(`/api/v1/chats/${chatA}/messages`)
+      .set('Cookie', cookieA)
+      .send({
+        modelId: 'system:openai:gpt-5.4-mini',
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text }],
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain('text/event-stream');
+    expect(streamedText(response.text)).toBe('ordinary text response');
+    expect(models.client.turns).toHaveLength(1);
   });
 });

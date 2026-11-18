@@ -3039,7 +3039,7 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
                   chatId: CHAT_ID,
                   role: "user",
                   seq: 2,
-                  parts: [{ type: "text", text: "next question" }],
+                  parts: [{ type: "text", text: "/etc/hosts" }],
                 }),
               ],
           sentId ?? "m1",
@@ -3055,13 +3055,266 @@ export const DeliveryAfterTheRunEndedAttaches: Story = {
   },
   play: async ({ canvasElement }) => {
     const input = await openedLiveRun(canvasElement);
-    await userEvent.type(input, "next question{Enter}");
+    await userEvent.type(input, "/etc/hosts{Enter}");
 
-    await transcriptShows(canvasElement, "next question");
+    await transcriptShows(canvasElement, "/etc/hosts");
     await transcriptShows(canvasElement, "new run reply");
+    await expect((await deliverySent()).delivery).toBe("steer");
     await expect(
       sentRoutes().filter((route) => route === RESUME_ROUTE),
     ).toHaveLength(2);
+  },
+};
+
+/**
+ * An idle existing Chat sends an unknown slash-prefixed path through the
+ * direct send path, then attaches to the Run started by its stream response.
+ *
+ * @summary an idle slash path attaches to its new Run
+ */
+export const IdleSlashPathAttachesToNewRun: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    let sentId: string | null = null;
+    let resumes = 0;
+    routeAlso({
+      [SEND_ROUTE]: async (input) => {
+        sentId = (await requestOf(input).clone().json()).message.id;
+
+        return new Response(null, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+      [HISTORY_ROUTE]: () =>
+        sentId === null
+          ? Promise.resolve(
+              jsonResponse({ messages: HISTORY, latestRun: null }),
+            )
+          : liveHistory(
+              [
+                ...HISTORY,
+                rawChatMessage({
+                  id: sentId,
+                  chatId: CHAT_ID,
+                  role: "user",
+                  seq: 2,
+                  parts: [{ type: "text", text: "/etc/hosts is broken" }],
+                }),
+              ],
+              sentId,
+            ),
+      [RESUME_ROUTE]: () => {
+        resumes += 1;
+
+        return Promise.resolve(
+          resumes === 1 ? emptyResponse() : segmentStream("new run reply"),
+        );
+      },
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/etc/hosts is broken{Enter}");
+
+    await transcriptShows(canvasElement, "/etc/hosts is broken");
+    await transcriptShows(canvasElement, "new run reply");
+    await expect(await sentBody(SEND_ROUTE)).not.toHaveProperty("delivery");
+    await expect(
+      sentRoutes().filter((route) => route === RESUME_ROUTE),
+    ).toHaveLength(2);
+  },
+};
+
+/**
+ * A space before the slash keeps the text a message: the composer sends it
+ * with the space, so the API stores it instead of renaming the Chat.
+ *
+ * @summary a space before the slash sends a message
+ */
+export const SpaceBeforeSlashSendsAMessage: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, " /rename Foo{Enter}");
+
+    await waitFor(() => expect(sentRoutes()).toContain(SEND_ROUTE));
+    await expect(await sentBody(SEND_ROUTE)).toMatchObject({
+      message: { parts: [{ type: "text", text: " /rename Foo" }] },
+    });
+  },
+};
+
+/**
+ * An existing Chat sends a recognized command over the direct path; the
+ * command result appears beside the composer without a transcript message.
+ *
+ * @summary a rename command shows its result and adds no message
+ */
+export const RenameCommandShowsInline: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(
+          jsonResponse({ type: "command", command: "rename", title: "Foo" }),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename Foo{Enter}");
+
+    const status = await canvas.findByText("Renamed to “Foo”");
+    await expect(status).toBeVisible();
+    await expect(
+      within(canvas.getByRole("log")).queryByText("/rename Foo"),
+    ).toBeNull();
+    await expect(canvas.getByText("Hello from history")).toBeVisible();
+    await waitFor(() =>
+      expect(
+        sentRoutes().filter((route) => route === HISTORY_ROUTE).length,
+      ).toBeGreaterThan(1),
+    );
+  },
+};
+
+/**
+ * A failed slash-prefixed send restores its draft and shows the server's
+ * message inline rather than the generic delivery toast.
+ *
+ * @summary a failed command restores the draft and shows the server error
+ */
+export const FailedCommandShowsServerMessage: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(
+          jsonResponse(
+            { statusCode: 422, message: "Title generation is not configured." },
+            422,
+          ),
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename{Enter}");
+
+    const alert = await canvas.findByRole("alert");
+    await expect(alert).toHaveTextContent(
+      "Title generation is not configured.",
+    );
+    await expect(composer(canvasElement)).toHaveValue("/rename");
+  },
+};
+
+let failCommand: (() => void) | null = null;
+
+/**
+ * A command typed while another command is in flight stays alone when the
+ * first one fails: joined to it, the failed text would become its argument.
+ *
+ * @summary a failed command leaves a newer command alone
+ */
+export const FailedCommandLeavesNewerCommandAlone: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    failCommand = null;
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        new Promise<Response>((resolve) => {
+          failCommand = () =>
+            resolve(
+              jsonResponse(
+                { statusCode: 502, message: "Title generation failed." },
+                502,
+              ),
+            );
+        }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename{Enter}");
+    await waitFor(() => expect(failCommand).not.toBeNull());
+    await userEvent.type(input, "/rename Foo");
+    failCommand?.();
+
+    await expect(await canvas.findByRole("alert")).toHaveTextContent(
+      "Title generation failed.",
+    );
+    await expect(composer(canvasElement)).toHaveValue("/rename Foo");
+  },
+};
+
+/**
+ * Text typed while a command is in flight stays first in the composer when
+ * the command fails, and the command follows it: placed after the command it
+ * would become its argument.
+ *
+ * @summary a failed command keeps a newer draft apart
+ */
+export const FailedCommandKeepsNewerDraftApart: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    failCommand = null;
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        new Promise<Response>((resolve) => {
+          failCommand = () =>
+            resolve(
+              jsonResponse(
+                { statusCode: 502, message: "Title generation failed." },
+                502,
+              ),
+            );
+        }),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/rename{Enter}");
+    await waitFor(() => expect(failCommand).not.toBeNull());
+    await userEvent.type(input, "Explain the failure");
+    failCommand?.();
+
+    const alert = await canvas.findByRole("alert");
+    await expect(alert).toHaveTextContent("Title generation failed.");
+    await expect(composer(canvasElement)).toHaveValue(
+      "Explain the failure\n\n/rename",
+    );
+  },
+};
+
+/**
+ * A slash-prefixed first message on the new-Chat page still uses the
+ * optimistic create-and-stream path instead of command dispatch.
+ *
+ * @summary a first slash-prefixed message follows chat creation
+ */
+export const FirstSlashMessageCreatesChat: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "/etc/hosts");
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: "Send message" }),
+    );
+
+    await transcriptShows(canvasElement, "/etc/hosts");
+    await waitFor(() => expect(sentRoutes()).toEqual([SEND_ROUTE]));
+    const body = await sentBody(SEND_ROUTE);
+    await expect(body).toMatchObject({
+      message: { parts: [{ type: "text", text: "/etc/hosts" }] },
+    });
+    await expect(body).not.toHaveProperty("delivery");
   },
 };
 

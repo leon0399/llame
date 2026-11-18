@@ -29,6 +29,20 @@ import { prepareSendMessagesRequest } from "./transport";
 /** The modes a send may name while a Run of the Chat is live. */
 export type DeliveryMode = "steer" | "interrupt" | "queue";
 
+/** The text a send carries: trimmed, except that whitespace before a `/`
+ *  stays, so the API stores ` /rename Foo` as a message, not a command. */
+export function sendableText(input: string): string {
+  const text = input.trim();
+
+  return text.startsWith("/") ? input.trimEnd() : text;
+}
+
+/** True when the composer text is a slash-command candidate: its first
+ *  character is `/`. */
+export function isCommandText(input: string): boolean {
+  return input.startsWith("/");
+}
+
 /** The modes a pending item can change to. */
 export type ChangeableDeliveryMode = "steer" | "interrupt";
 
@@ -84,7 +98,8 @@ export function updateDeliveries(
 
 export type DeliverySendRequest = {
   chatId: string;
-  delivery: DeliveryMode;
+  /** Only present when a Run is live. */
+  delivery?: DeliveryMode;
   /** A new client message id for every send, so an edit never reuses one. */
   message: { id: string; parts: UIMessage["parts"] };
   modelId: string | undefined;
@@ -92,18 +107,30 @@ export type DeliverySendRequest = {
   permissionMode: PermissionModeResponseValue;
 };
 
-/** `pending`: the Run was live and the item waits (202). `started`: the Run
- *  had ended, so the send stored the message and started a Run, and the
- *  answer is that Run's UI message stream, which this client does not read. */
+/** `pending`: a live Run holds the item (202). `started`: the Run ended and
+ *  the body is released before attaching through resume. `command`: the
+ *  server handled the send without storing a message. */
 export type DeliverySendResult =
   | { kind: "pending"; item: ChatDeliveryResponse }
-  | { kind: "started" };
+  | { kind: "started" }
+  | { kind: "success" }
+  | { kind: "command"; command: "rename"; title: string };
+
+const commandResultSchema = z.object({
+  type: z.literal("command"),
+  command: z.literal("rename"),
+  title: z.string(),
+});
+
+const sendFailureSchema = z
+  .object({ message: z.union([z.string(), z.array(z.string())]) })
+  .transform(({ message }) => ({
+    message: Array.isArray(message) ? message.join("; ") : message,
+  }));
 
 /**
- * A send with a `delivery` mode. It bypasses the `useChat` transport because
- * its answer while a Run is live is 202 JSON, not a stream. A success that is
- * not 202 means the Run ended before the send arrived: the body is released
- * and the caller attaches to the new Run through the resume path.
+ * Directly sends an existing Chat's message. A live Run may answer with a
+ * pending delivery; otherwise its stream is released before resume attaches.
  */
 export async function sendDelivery(
   request: DeliverySendRequest,
@@ -123,26 +150,55 @@ export async function sendDelivery(
     body: JSON.stringify({ ...body, delivery: request.delivery }),
   });
 
+  return interpretSendResponse(response);
+}
+
+async function interpretSendResponse(
+  response: Response,
+): Promise<DeliverySendResult> {
   if (!response.ok) {
     throw new Error(await sendFailureText(response));
   }
 
-  if (response.status !== 202) {
-    await response.body?.cancel();
-
-    return { kind: "started" };
+  if (response.status === 202) {
+    // SAFETY: a 202 from this route is a `ChatDeliveryResponse`, as the OpenAPI
+    // document says; the generated client skips this route (tag `streaming`).
+    return {
+      kind: "pending",
+      item: (await response.json()) as ChatDeliveryResponse,
+    };
   }
 
-  // SAFETY: a 202 from this route is a `ChatDeliveryResponse`, as the OpenAPI
-  // document says; the generated client skips this route (tag `streaming`).
-  return {
-    kind: "pending",
-    item: (await response.json()) as ChatDeliveryResponse,
-  };
+  if (
+    response.status === 200 &&
+    response.headers.get("content-type")?.includes("application/json")
+  ) {
+    const result: unknown = await response.json();
+    const command = commandResultSchema.safeParse(result);
+
+    return command.success
+      ? { kind: "command", command: "rename", title: command.data.title }
+      : { kind: "success" };
+  }
+
+  await response.body?.cancel();
+
+  return { kind: "started" };
 }
 
 async function sendFailureText(response: Response): Promise<string> {
   const text = await response.text();
+
+  if (response.headers.get("content-type")?.includes("application/json")) {
+    try {
+      const body: unknown = JSON.parse(text);
+      const parsed = sendFailureSchema.safeParse(body);
+
+      if (parsed.success) return parsed.data.message;
+    } catch {
+      // A malformed error body falls back to its raw response text.
+    }
+  }
 
   return text === "" ? `Send failed (${response.status})` : text;
 }
