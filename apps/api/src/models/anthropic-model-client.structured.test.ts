@@ -1,3 +1,4 @@
+import type * as TimerPromises from 'node:timers/promises';
 /**
  * `createAnthropicModelClient` — structured generation, reasoning delivery, and
  * the failure boundaries (anthropic-provider 3.4, 3.8, 3.10). Every fixture
@@ -33,6 +34,11 @@ import {
 } from './anthropic-model-client';
 import type { ChatIdentity, ModelObjectInput } from './model-client';
 import type { ClientHarness } from '../testing/anthropic-model-client-fixtures';
+
+vi.mock('node:timers/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof TimerPromises>()),
+  setTimeout: () => Promise.resolve(),
+}));
 
 const titleSchema = jsonSchema<{ title: string }>({
   type: 'object',
@@ -431,7 +437,7 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     });
   });
 
-  it('reports a rate limit once, with no fallback destination', async () => {
+  it('reports an exhausted rate limit without a fallback destination', async () => {
     const harness = failedHarness(429, `slow down: ${secret}`);
     const client = buildClient(harness, { credential: secret });
     const { errors, onError } = captureErrors();
@@ -444,12 +450,11 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
       code: 'rate_limited',
       statusCode: 429,
     });
-    // maxRetries 0: the rate limit is not re-attempted, no other provider or
-    // type is contacted, and the upstream body never reaches diagnostics.
-    expect(harness.requests).toHaveLength(1);
-    expect(firstRequest(harness).url).toBe(
-      'https://api.anthropic.com/v1/messages',
-    );
+    expect(
+      harness.requests.every(
+        (request) => request.url === 'https://api.anthropic.com/v1/messages',
+      ),
+    ).toBe(true);
     expect(delivered(errors)).not.toContain(secret);
   });
 
@@ -492,11 +497,12 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     // The SDK's status-less transport error also carries the values of the
     // request llame sent; the delivered diagnostic must not hold them.
     expect(JSON.stringify(errors)).not.toContain(MESSAGES_CANARIES.credential);
-    // The one request still went to the configured endpoint, unchanged.
-    expect(harness.requests).toHaveLength(1);
-    expect(firstRequest(harness).url).toBe(
-      `https://${MESSAGES_CANARIES.endpoint}/messages`,
-    );
+    expect(
+      harness.requests.every(
+        (request) =>
+          request.url === `https://${MESSAGES_CANARIES.endpoint}/messages`,
+      ),
+    ).toBe(true);
   });
 
   it('bounds a late malformed event that reflects the request back', async () => {

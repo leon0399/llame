@@ -139,7 +139,7 @@ reviews. Accepted findings were verified and fixed; GR remains non-gating under 
 - [x] 3.6 Fail the Run with the class of the failure once a complete tool-call part streamed. Verify
       "The stream breaks after a tool call", "An overload after a tool call", and "A hosted search
       breaks after its search tool call".
-- [ ] 3.7 Append `model.retrying` for the Run's own requests and show the retry line. Verify "A
+- [x] 3.7 Append `model.retrying` for the Run's own requests and show the retry line. Verify "A
       reload during a retry delay" in an API test and "An overloaded provider" in a story test.
 - [x] 3.8 Add "Request retry" to the glossary, with "send" defined in it as one provider call of a
       request, update `docs/product/operator/scaling.md` and the
@@ -155,8 +155,9 @@ buffered output discard, tool-call cutoff, real Responses/Codex and Completions 
 structured 529/503 recovery with preserved request settings, and hidden-send usage lower bounds.
 The live retry writer is attempt-fenced in its serialized transaction; summary retries use the same
 owner fence. Both retry feedback stories passed Storybook MCP tests and actual browser inspection.
-The owner-scoped replay and fence integration cases await CI; SR used reuse, quality, efficiency,
-ponytail, and an independent security pass. GR remains non-gating for the next layer.
+CI run 44398288441 passed all nine usage integration cases, including owner-scoped retry replay
+and stale-attempt fencing. SR used reuse, quality, efficiency, ponytail, and an independent security
+pass. GR remains non-gating for the next layer.
 
 ## 4. broken-streams
 
