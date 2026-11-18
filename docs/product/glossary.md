@@ -343,13 +343,35 @@ as the worker's user.
 _Avoid_: local, server
 
 **Executor**:
-The place a file or shell tool runs: the host or one Machine.
+The Machine on which a file or shell tool runs.
 _Avoid_: runner, node
 
 **Machine**:
-An operator-configured remote computer running the llame machine daemon,
-reached from the installation.
+A computer or execution environment running the llame machine daemon and
+reached by the installation, including the host and recipe instances.
 _Avoid_: node, server
+
+**Configured Machine**:
+A Machine declared by the operator rather than created by llame. The host
+Machine is a configured Machine on the serving process's own computer.
+
+**Provisioned Machine**:
+A Machine llame creates and destroys. A recipe instance is a provisioned
+Machine placed on another Machine, with its own daemon.
+
+**Machine class**:
+The operator's named configuration for provisioning computers, combining a
+Machine driver with its settings and limits.
+_Avoid_: provisioner, provider, pool, backend
+
+**Machine driver**:
+The mechanism a Machine class uses to create and destroy computers.
+_Avoid_: provider, backend
+
+**Recipe**:
+A definition of the toolchain for an optional Workspace execution environment,
+independent of where that environment runs or how it is confined.
+_Avoid_: image, template
 
 **Machine root**:
 A directory a Machine declares addressable. It bounds addressing, not
