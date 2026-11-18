@@ -13,6 +13,7 @@ and `development/`.
 | What a tool, locator scheme, or selector does, as the chat owner and the assistant observe it | `product/reference/`                             |
 | How an operator enables, restricts, deploys, migrates, or troubleshoots a capability          | `product/operator/`                              |
 | Testing, quality gates, runtime choices, design records that outlive their change             | `development/`                                   |
+| What a domain term means, and the words to avoid for it                                       | `product/glossary.md`                            |
 | Why a hard-to-reverse, surprising architecture decision was made                              | `adr/` (rules in [adr/AGENTS.md](adr/AGENTS.md)) |
 | Noncanonical prior art and studies                                                            | `research/`                                      |
 | A plan in progress                                                                            | its GitHub issue, not a page                     |
@@ -23,6 +24,9 @@ and `development/`.
   to it from everywhere else. Reference pages own behavior; operator pages own
   configuration and procedure. Before adding a sentence, search for the rule
   and link it if it already exists.
+- **Terms come from the glossary.** Use the term and casing that
+  [product/glossary.md](product/glossary.md) defines. Define a new or renamed
+  concept there, in the PR that ships it, and never on another page.
 - **Reference pages carry nothing an operator does.** No configuration
   procedures, no config keys beyond a tool id, a locator form, or a permission
   group name, no `apps/api` or `dist/` paths, no table names, no pnpm commands,
