@@ -1239,9 +1239,6 @@ importers:
       '@hookform/resolvers':
         specifier: 'catalog:'
         version: 5.1.1(react-hook-form@7.59.0(react@19.2.7))
-      '@radix-ui/react-use-controllable-state':
-        specifier: 'catalog:'
-        version: 1.2.3(@types/react@19.0.10)(react@19.2.7)
       '@streamdown/code':
         specifier: 1.1.1
         version: 1.1.1(react@19.2.7)

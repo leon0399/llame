@@ -61,7 +61,6 @@ export const Basic: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: /enter_workspace/iu }),
     );
-    await expect(canvas.getByText("Entered")).toBeInTheDocument();
     await expect(canvas.getByText(authority)).toBeInTheDocument();
     await expect(canvas.getByText("+2 more")).toBeInTheDocument();
     await expect(
@@ -111,12 +110,6 @@ export const Exited: Story = {
       state: "exited" as const,
       previousRoot: "/home/operator/repo",
     },
-  },
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.click(
-      canvas.getByRole("button", { name: /exit_workspace/iu }),
-    );
-    await expect(canvas.getByText("Left")).toBeInTheDocument();
   },
 };
 

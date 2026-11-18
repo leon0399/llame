@@ -1,6 +1,6 @@
 "use client";
 
-import { CollapsibleContent } from "@workspace/ui/components/collapsible";
+import { TraceCollapsibleContent } from "@workspace/ui/components/trace";
 import type { ComponentProps } from "react";
 import { memo } from "react";
 
@@ -9,7 +9,7 @@ import { separateGluedReasoningBlocks } from "@workspace/ui/lib/reasoning-blocks
 import { cn } from "@workspace/ui/lib/utils";
 
 export type ReasoningContentProps = ComponentProps<
-  typeof CollapsibleContent
+  typeof TraceCollapsibleContent
 > & {
   /** The reasoning text, rendered as markdown via Streamdown. */
   children: string;
@@ -29,18 +29,11 @@ export type ReasoningContentProps = ComponentProps<
  */
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
-    <CollapsibleContent
-      className={cn(
-        "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
-        className,
-      )}
-      {...props}
-    >
+    <TraceCollapsibleContent className={cn("text-sm", className)} {...props}>
       <ModelOutputStreamdown>
         {separateGluedReasoningBlocks(children)}
       </ModelOutputStreamdown>
-    </CollapsibleContent>
+    </TraceCollapsibleContent>
   ),
 );
 

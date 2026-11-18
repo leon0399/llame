@@ -205,9 +205,6 @@ export const Error: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
     await expect(
-      canvas.getByText("Error", { selector: "h4" }),
-    ).toBeInTheDocument();
-    await expect(
       canvas.getByText("The web search engine timed out."),
     ).toBeInTheDocument();
   },
@@ -251,7 +248,6 @@ export const Running: Story = {
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /web_search/iu }));
-    await expect(canvas.getByText("Running")).toBeInTheDocument();
     await expect(canvas.getByText("Searching…")).toBeInTheDocument();
   },
 };

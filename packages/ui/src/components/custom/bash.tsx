@@ -4,12 +4,23 @@ import type { ReactElement } from "react";
 import { z } from "zod";
 
 import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolOutput,
+} from "@workspace/ui/components/ai-elements/tool";
+import {
+  CodeBlock,
+  CodeBlockContent,
+  CodeBlockHeader,
+  CodeBlockTitle,
+} from "@workspace/ui/components/code-block";
+import {
   ToolDetails,
   type ToolPartProps,
   ToolResultFallback,
   ToolRow,
   ToolSection,
-  ToolText,
 } from "@workspace/ui/components/custom/tool-row";
 
 const inputSchema = z.object({
@@ -75,82 +86,126 @@ type BashInput = z.infer<typeof inputSchema>;
 /** Props for the dedicated `bash` tool row. */
 export type BashToolProps = ToolPartProps;
 
-/** The submitted command as a shell prompt, with its working directory and
- *  added environment beneath it. */
-function BashCommand({ input }: { input: BashInput }) {
-  const env = Object.entries(input.env ?? {});
-
-  return (
-    <ToolSection label="Command">
-      <div className="space-y-1 rounded-md bg-muted/50 p-3 font-mono text-xs">
-        <p className="whitespace-pre-wrap break-words">
-          <span
-            aria-hidden="true"
-            className="select-none text-muted-foreground"
-          >
-            ${" "}
-          </span>
-          {input.command}
-        </p>
-        {input.cwd ? (
-          <p className="break-all text-muted-foreground">in {input.cwd}</p>
-        ) : null}
-        {env.map(([name, value]) => (
-          <p className="break-all text-muted-foreground" key={name}>
-            env {name}={value}
-          </p>
-        ))}
-      </div>
-    </ToolSection>
-  );
-}
-
 const MILLISECONDS_PER_SECOND = 1000;
 
-function BashResult({ output }: { output: NormalBashOutput }) {
-  const wallTime =
-    output.wallTimeMs === undefined
-      ? undefined
-      : `${(output.wallTimeMs / MILLISECONDS_PER_SECOND).toFixed(1)} s`;
-
+/**
+ * The terminal: the submitted command as a shell prompt with its standard
+ * output beneath it, then standard error in a block of its own.
+ */
+function Terminal({
+  input,
+  result,
+}: {
+  input: BashInput;
+  result: NormalBashOutput | undefined;
+}) {
   return (
     <>
-      <ToolSection label="Output" aside={`exit ${output.exitCode}`}>
-        {output.stdout === "" && output.stderr === "" ? (
-          <p className="text-muted-foreground text-sm">No output.</p>
-        ) : null}
-        {output.stdout === "" ? null : (
-          <ToolText label="Standard output" text={output.stdout} />
-        )}
-        {output.stderr === "" ? null : (
-          <div className="space-y-1">
-            <p className="text-muted-foreground text-xs">stderr</p>
-            <ToolText label="Standard error" text={output.stderr} />
-          </div>
-        )}
-      </ToolSection>
-      <ToolDetails
-        rows={[
-          ["Time", wallTime],
-          [
-            "Truncated",
-            output.cut === true || output.truncated === true
-              ? "yes"
-              : undefined,
-          ],
-          ["Note", output.truncationNotice],
-        ]}
-      />
+      <CodeBlock size="sm">
+        <CodeBlockContent wrap className="max-h-64">
+          <span className="text-muted-foreground">
+            <span aria-hidden="true" className="select-none">
+              ${" "}
+            </span>
+            {input.command}
+          </span>
+          {/* The code is a grid: the output starts its own row. */}
+          {result && result.stdout !== "" ? result.stdout : null}
+        </CodeBlockContent>
+      </CodeBlock>
+      {result && result.stderr !== "" ? (
+        <CodeBlock size="sm">
+          <CodeBlockHeader>
+            <CodeBlockTitle>Standard error</CodeBlockTitle>
+          </CodeBlockHeader>
+          <CodeBlockContent wrap className="max-h-64">
+            {result.stderr}
+          </CodeBlockContent>
+        </CodeBlock>
+      ) : null}
     </>
   );
 }
 
+/** The facts of a run the terminal does not show: where, with what, how long. */
+function RunDetails({
+  input,
+  result,
+}: {
+  input: BashInput;
+  result: NormalBashOutput | undefined;
+}) {
+  const env = Object.entries(input.env ?? {})
+    .map(([name, value]) => `${name}=${value}`)
+    .join(" ");
+
+  return (
+    <ToolDetails
+      rows={[
+        ["Directory", input.cwd],
+        ["Environment", env === "" ? undefined : env],
+        ["Exit code", result ? String(result.exitCode) : undefined],
+        [
+          "Time",
+          result?.wallTimeMs === undefined
+            ? undefined
+            : `${(result.wallTimeMs / MILLISECONDS_PER_SECOND).toFixed(1)} s`,
+        ],
+        [
+          "Truncated",
+          result?.cut === true || result?.truncated === true
+            ? "yes"
+            : undefined,
+        ],
+        ["Note", result?.truncationNotice],
+      ]}
+    />
+  );
+}
+
+/** What a settled command came to, where the call's state does not say. */
+function commandOutcome(
+  backgrounded: boolean,
+  result: NormalBashOutput | undefined,
+) {
+  if (backgrounded) return { verb: "Backgrounded" };
+
+  return result !== undefined && result.exitCode !== 0
+    ? {
+        verb: "",
+        trailing: `exited with code ${result.exitCode}`,
+        failed: true,
+      }
+    : undefined;
+}
+
+/** A call with no result this build reads: its error, unless the reader
+ *  stopped it, or its output as it arrived. */
+function UnreadOutcome({
+  output,
+  errorText,
+  state,
+}: Pick<BashToolProps, "output" | "errorText" | "state">) {
+  if (state === "cancelled") return null;
+
+  return errorText ? (
+    <ToolOutput errorText={errorText} output={undefined} state="output-error" />
+  ) : (
+    <ToolOutput output={output} errorText={undefined} />
+  );
+}
+
 /**
- * Renders a host `bash` invocation as a shell prompt (command, working
- * directory, and added environment) followed by either its normal output or
+ * Renders a host `bash` invocation as a terminal line: "Running pnpm build",
+ * "Ran pnpm build", or "pnpm lint exited with code 1". It opens into the
+ * command as a shell prompt with its output, its standard error, and the
+ * working directory, added environment, exit code and time of the run, or
  * its background job locator.
  *
- * @summary displays a shell command and its output inside a collapsible tool row
+ * Follows the shadcn/ui [Terminal](https://ui.shadcn.com/docs/ai-elements/base/terminal)
+ * pattern.
+ *
+ * @summary displays a shell command and its output as a terminal trace line
  */
 export function BashTool({
   input,
@@ -159,26 +214,34 @@ export function BashTool({
   state,
 }: BashToolProps): ReactElement {
   const command = inputSchema.safeParse(input).data;
-  const backgroundedResult = backgroundedOutputSchema.safeParse(output).data;
+  const backgrounded = backgroundedOutputSchema.safeParse(output).data;
   const result = normalOutputSchema.safeParse(output).data;
 
-  return (
-    <ToolRow
-      name="bash"
-      summary={command?.command.split("\n")[0]}
-      input={input}
-      errorText={errorText}
-      state={state}
-      showInput={command === undefined}
-      preview={command ? <BashCommand input={command} /> : null}
-    >
-      {backgroundedResult ? (
-        <BackgroundedResult output={backgroundedResult} />
-      ) : result ? (
-        <BashResult output={result} />
-      ) : (
+  // A call whose arguments are not a command is shown as the generic row.
+  if (command === undefined) {
+    return (
+      <ToolRow name="bash" input={input} errorText={errorText} state={state}>
         <ToolResultFallback output={output} />
-      )}
-    </ToolRow>
+      </ToolRow>
+    );
+  }
+
+  return (
+    <Tool>
+      <ToolHeader
+        type="tool-bash"
+        summary={command.command.split("\n")[0]}
+        state={state}
+        outcome={commandOutcome(backgrounded !== undefined, result)}
+      />
+      <ToolContent>
+        <Terminal input={command} result={result} />
+        {backgrounded ? <BackgroundedResult output={backgrounded} /> : null}
+        {backgrounded || result ? null : (
+          <UnreadOutcome output={output} errorText={errorText} state={state} />
+        )}
+        <RunDetails input={command} result={result} />
+      </ToolContent>
+    </Tool>
   );
 }

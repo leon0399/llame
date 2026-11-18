@@ -55,9 +55,7 @@ export const Basic: Story = {
       canvas.getByRole("button", { name: /docs · find_docs/iu }),
     );
     await expect(canvas.getByText("tool parts")).toBeInTheDocument();
-    await expect(
-      canvas.getByRole("group", { name: "Text content" }),
-    ).toHaveTextContent("<b>docs/guide.md</b>");
+    await expect(canvas.getByText(/<b>docs\/guide\.md<\/b>/u)).toBeVisible();
   },
 };
 

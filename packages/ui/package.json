@@ -15,7 +15,6 @@
   "dependencies": {
     "@base-ui/react": "catalog:",
     "@hookform/resolvers": "catalog:",
-    "@radix-ui/react-use-controllable-state": "catalog:",
     "@streamdown/code": "1.1.1",
     "@streamdown/math": "1.0.2",
     "@streamdown/mermaid": "1.0.2",

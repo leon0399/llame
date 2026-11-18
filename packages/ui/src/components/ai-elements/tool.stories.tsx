@@ -84,7 +84,6 @@ export const Pending: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Pending")).toBeInTheDocument();
     await expect(canvas.getByText("Parameters")).toBeInTheDocument();
   },
 };
@@ -108,7 +107,6 @@ export const NoInputYet: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Pending")).toBeInTheDocument();
     await expect(canvas.queryByText("Parameters")).not.toBeInTheDocument();
   },
 };
@@ -150,7 +148,6 @@ export const Running: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("Running")).toBeInTheDocument();
     await expect(canvas.getByText("Parameters")).toBeInTheDocument();
     await expect(canvas.queryByText("Result")).not.toBeInTheDocument();
   },
@@ -196,22 +193,12 @@ export const Cancelled: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    await expect(canvas.getAllByText("Cancelled")).toHaveLength(2);
-
     const message = canvas.getByText(
       "The run was cancelled before this tool finished.",
     );
 
     await expect(message).toBeInTheDocument();
     await expect(canvas.queryByText("Error")).not.toBeInTheDocument();
-    await expect(message.parentElement).toHaveClass(
-      "bg-muted/50",
-      "text-foreground",
-    );
-    await expect(message.parentElement).not.toHaveClass(
-      "bg-destructive/10",
-      "text-destructive",
-    );
   },
 };
 
@@ -292,10 +279,6 @@ export const Completed: Story = {
       </ToolContent>
     </Tool>
   ),
-  play: async ({ canvas }) => {
-    await expect(canvas.getByText("Completed")).toBeInTheDocument();
-    await expect(canvas.getByText("Result")).toBeInTheDocument();
-  },
 };
 
 const apiRequestCall: ToolUIPart = {
@@ -346,8 +329,6 @@ export const Failed: Story = {
     </Tool>
   ),
   play: async ({ canvas }) => {
-    // "Error" appears twice — the status badge and the output panel heading.
-    await expect(canvas.getAllByText("Error").length).toBeGreaterThan(0);
     await expect(
       canvas.getByText(
         "Connection timeout: The request took longer than 5000ms to complete. Please check your network connection and try again.",

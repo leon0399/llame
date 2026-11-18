@@ -207,8 +207,8 @@ type PlayContext = Parameters<NonNullable<Story["play"]>>[0];
  *  renders `**bold**` as a tagged span, not a `strong` element. */
 function renderedTitlesIn(trigger: HTMLElement): Array<string | null> {
   const panel = trigger
-    .closest('[data-slot="collapsible"]')
-    ?.querySelector('[data-slot="collapsible-content"]');
+    .closest('[data-slot="trace-collapsible"]')
+    ?.querySelector('[data-slot="trace-collapsible-content"]');
 
   if (!panel) return [];
 
@@ -218,8 +218,8 @@ function renderedTitlesIn(trigger: HTMLElement): Array<string | null> {
   );
 }
 
-/** The panel boundaries every conversation state must show: one Thinking
- *  panel per uninterrupted summary run, the tool between them, and the answer
+/** The step boundaries every conversation state must show: one Thinking line
+ *  per uninterrupted summary run, the tool between them, and the answer
  *  after — persisted order intact, reasoning never hoisted above the tool. */
 async function expectGroupedSummaryRun({ canvas }: PlayContext): Promise<void> {
   const triggers = await waitFor(
@@ -232,8 +232,6 @@ async function expectGroupedSummaryRun({ canvas }: PlayContext): Promise<void> {
 
       return found;
     },
-    // The row withholds the transcript until the Streamdown-backed markdown
-    // renderers load, so the first query waits on that chunk.
     { timeout: 15_000 },
   );
 
@@ -389,6 +387,8 @@ async function expandWebSearchRows(
 
       return found;
     },
+    // The row withholds the transcript until the Streamdown-backed markdown
+    // renderers load, so the first query waits on that chunk.
     { timeout: 15_000 },
   );
 
@@ -777,14 +777,14 @@ export const ImageOnlyMessage: Story = {
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
     const list = canvas.getByRole("list", { name: "Attachments" });
 
-    // The thumbnails are the row's first child and the action row its second:
-    // no bubble sits between them.
-    const row = canvasElement.querySelector(
-      '[data-message-key="user-image-only"]',
+    // The thumbnails are the first child of the row's content and the action
+    // row its second: no bubble sits between them.
+    const content = canvasElement.querySelector(
+      '[data-message-key="user-image-only"] > [data-slot="message-content"]',
     );
 
-    await expect(row?.children[0]).toBe(list);
-    await expect(row?.children[1]).toContainElement(fork);
+    await expect(content?.children[0]).toBe(list);
+    await expect(content?.children[1]).toContainElement(fork);
   },
 };
 
@@ -2250,5 +2250,95 @@ export const MixedOwnerJobNotice: Story = {
     );
 
     await expect(fork).toBeInTheDocument();
+  },
+};
+
+const bashStep = (id: string, command: string) =>
+  ({
+    type: "tool-bash",
+    toolCallId: id,
+    state: "output-available",
+    input: { command },
+    output: { status: "success", exitCode: 0, stdout: "", stderr: "" },
+  }) as const;
+
+/**
+ * A reply that took four or more steps before its answer: the run folds into
+ * one summary line, keeping each step's open state while the group is closed.
+ *
+ * @summary a long run of steps folds behind one summary line
+ */
+export const FoldedSteps: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-folded",
+    message: {
+      id: "assistant-folded",
+      role: "assistant",
+      parts: [
+        {
+          type: "reasoning",
+          text: "Check the workspace first.",
+          state: "done",
+        },
+        bashStep("fold-1", "pnpm lint"),
+        bashStep("fold-2", "pnpm typecheck"),
+        bashStep("fold-3", "pnpm test"),
+        { type: "text", text: "All three checks pass." },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole(
+      "button",
+      { name: "Worked through 4 steps" },
+      { timeout: 15_000 },
+    );
+
+    await expect(canvas.getByText("pnpm typecheck")).not.toBeVisible();
+    await userEvent.click(summary);
+    await expect(await canvas.findByText("pnpm typecheck")).toBeVisible();
+    await expect(canvas.getByText("All three checks pass.")).toBeVisible();
+  },
+};
+
+/** A command's nonzero exit remains visible in the folded group's outcome. */
+export const FailedStepGroup: Story = {
+  args: {
+    renderKey: "failed-step-group",
+    message: {
+      id: "failed-step-group",
+      role: "assistant",
+      parts: [
+        bashStep("status", "git status --short"),
+        bashStep("history", "git log -5"),
+        bashStep("files", "git ls-files"),
+        {
+          ...bashStep("failed", "ls /missing"),
+          output: {
+            status: "success",
+            exitCode: 2,
+            stdout: "",
+            stderr: "No such file or directory",
+          },
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole("button", { name: /1 failed/u });
+
+    await expect(summary).toBeVisible();
+    await userEvent.click(summary);
+
+    const command = await canvas.findByRole("button", {
+      name: /exited with code 2/u,
+    });
+
+    await expect(command).not.toHaveAccessibleName(/Completed/u);
+    await userEvent.click(command);
+    await expect(
+      await canvas.findByText("No such file or directory"),
+    ).toBeVisible();
   },
 };

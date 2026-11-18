@@ -1,4 +1,9 @@
-import type { UIMessage } from "ai";
+import {
+  isToolUIPart,
+  type DynamicToolUIPart,
+  type ToolUIPart,
+  type UIMessage,
+} from "ai";
 
 /** A part the walk renders on its own — every part that is not reasoning. */
 export type NonReasoningPart = Exclude<
@@ -79,4 +84,72 @@ export function groupAssistantParts(
   }
 
   return grouped;
+}
+
+/** One step of the agent's work: a thought, or a tool call. */
+export type StepSegment =
+  | GroupedReasoning
+  | { kind: "tool"; part: ToolUIPart | DynamicToolUIPart; index: number };
+
+/** A run of consecutive steps, rendered as one trace. */
+export type GroupedSteps = {
+  kind: "steps";
+  steps: Array<StepSegment>;
+  /** Index of the run's first part in the message's parts array. */
+  startIndex: number;
+};
+
+/** A part that is neither reasoning nor a tool call: text, or a notice. */
+export type PlainPart = Exclude<
+  NonReasoningPart,
+  ToolUIPart | DynamicToolUIPart
+>;
+
+export type GroupedPlainPart = { kind: "part"; part: PlainPart; index: number };
+
+/** What a reply paints, in order: a run of steps, or one other part. */
+export type ReplyBlock = GroupedSteps | GroupedPlainPart;
+
+/** The step a segment is, or null for text and notices. */
+function workOf(segment: GroupedAssistantPart): StepSegment | null {
+  if (segment.kind === "reasoning") return segment;
+
+  if (!isToolUIPart(segment.part)) return null;
+
+  return { kind: "tool", part: segment.part, index: segment.index };
+}
+
+/**
+ * Fold each run of consecutive steps into one block, so the work between two
+ * pieces of the answer reads as one trace instead of a stack of separate rows.
+ * Text and notices still split runs, and occurrence order stays
+ * intact. Pass only the segments that paint: a part that shows nothing must not
+ * split a run.
+ */
+export function groupReplyBlocks(
+  segments: ReadonlyArray<GroupedAssistantPart>,
+): Array<ReplyBlock> {
+  const blocks: Array<ReplyBlock> = [];
+
+  for (const segment of segments) {
+    const work = workOf(segment);
+    const last = blocks.at(-1);
+
+    if (work === null) {
+      // `workOf` returned null, so this is a part, and not a tool call.
+      if (segment.kind === "part" && !isToolUIPart(segment.part)) {
+        blocks.push({ kind: "part", part: segment.part, index: segment.index });
+      }
+    } else if (last?.kind === "steps") {
+      last.steps.push(work);
+    } else {
+      blocks.push({
+        kind: "steps",
+        steps: [work],
+        startIndex: work.kind === "reasoning" ? work.startIndex : work.index,
+      });
+    }
+  }
+
+  return blocks;
 }

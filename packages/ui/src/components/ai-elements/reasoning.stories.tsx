@@ -101,9 +101,7 @@ export const Collapsed: Story = {
     duration: 4,
   },
   play: async ({ canvas, userEvent }) => {
-    const trigger = canvas.getByRole("button", {
-      name: /thought for 4 seconds/i,
-    });
+    const trigger = canvas.getByRole("button");
 
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await expect(

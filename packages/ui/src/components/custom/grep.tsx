@@ -233,7 +233,7 @@ function GrepResult({ output }: { output: GrepOutput }) {
   return (
     <>
       {record ? (
-        <div className="px-4 pt-3">
+        <div>
           <ToolRankBadge record={record} />
         </div>
       ) : null}

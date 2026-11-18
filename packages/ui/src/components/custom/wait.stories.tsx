@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, waitFor } from "storybook/test";
+import { expect } from "storybook/test";
 
 import { WaitTool } from "./wait.js";
 
@@ -89,11 +89,7 @@ export const UnknownOutput: Story = {
   args: { output: { status: "success", ended: "later", jobs: [] } },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: /wait/iu }));
-    await waitFor(() =>
-      expect(canvas.getByRole("group", { name: "Result" })).toHaveTextContent(
-        /later/u,
-      ),
-    );
+    await expect(canvas.getByText(/"ended": "later"/u)).toBeVisible();
   },
 };
 
