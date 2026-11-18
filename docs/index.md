@@ -9,6 +9,7 @@ projection, and the spec wins any disagreement.
 | [product/reference](product/reference/index.md) | chat owner and the assistant | what each tool, locator, and selector does               |
 | [product/operator](product/operator/index.md)   | operator                     | configuration, deployment, threat model, troubleshooting |
 | [development](development/index.md)             | contributor                  | testing, quality gates, design records                   |
+| [adr](adr/AGENTS.md)                            | contributor                  | why hard-to-reverse architecture decisions were made     |
 | [research](research/index.md)                   | contributor                  | noncanonical prior art and studies                       |
 
 `product/` is written to be served to the assistant through a `llame://docs/`
