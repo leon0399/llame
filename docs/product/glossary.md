@@ -398,9 +398,15 @@ Chat and replayed until a compaction checkpoint absorbs it.
 _Avoid_: injection
 
 **Context rail**:
-The single channel that carries context items, each in its own
-`system-reminder` block.
+The single channel that carries context items, each in its own system
+reminder.
 _Avoid_: rail (unqualified; the web UI has a navigation rail)
+
+**System reminder**:
+The `<system-reminder>` envelope that holds exactly one context item inside a
+user-role message of the model input. It is how the model tells llame's own
+context apart from what the owner wrote.
+_Avoid_: system message, injection
 
 **Producer**:
 The part of llame that authored a context item, such as compaction, jobs, or
