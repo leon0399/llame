@@ -219,23 +219,26 @@ describe('deliverPendingSteering', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
-    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
-      userMessage: storedMessage({}),
-      assistantMessage: storedMessage({
-        id: '44444444-4444-4444-8444-444444444444',
-        seq: 2,
-        role: 'assistant',
-        senderUserId: null,
-        inReplyTo: messageId,
-        usage: runningReplyUsage({
-          runId,
-          attemptId,
-          modelId: 'fake-model',
-          effort: undefined,
-          permissionMode: 'default',
+
+    const findTurnState = vi
+      .spyOn(MessagesRepository.prototype, 'findTurnState')
+      .mockResolvedValue({
+        userMessage: storedMessage({}),
+        assistantMessage: storedMessage({
+          id: '44444444-4444-4444-8444-444444444444',
+          seq: 2,
+          role: 'assistant',
+          senderUserId: null,
+          inReplyTo: messageId,
+          usage: runningReplyUsage({
+            runId,
+            attemptId,
+            modelId: 'fake-model',
+            effort: undefined,
+            permissionMode: 'default',
+          }),
         }),
-      }),
-    });
+      });
 
     const updateReply = vi
       .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
@@ -262,6 +265,7 @@ describe('deliverPendingSteering', () => {
       updateForAttempt,
       append,
       updateReply,
+      findTurnState,
     };
   }
 
@@ -706,6 +710,7 @@ describe('deliverPendingSteering', () => {
     });
 
     expect(result).toMatchObject({ kind: 'delivered', cause: 'steer' });
+    expect(spies.findTurnState).toHaveBeenCalledTimes(1);
     expect(publishCheckpoint).toHaveBeenCalledOnce();
     const stored = spies.createUser.mock.calls[0]?.[0];
 
@@ -859,6 +864,7 @@ describe('deliverPendingSteering', () => {
     expect(outcome.message).toBe(deliveredMessage);
     expect(outcome.closedReply?.parts).toEqual(live.parts);
     expect(outcome.closedReply?.usage).toBe(closingTelemetry);
+    expect(spies.findTurnState).toHaveBeenCalledTimes(2);
 
     expect(spies.createUser).toHaveBeenCalledTimes(1);
     const stored = spies.createUser.mock.calls[0]?.[0];

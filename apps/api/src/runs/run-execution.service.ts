@@ -712,6 +712,27 @@ type FinishRunResult =
       delivery: DeliveredBoundary;
     };
 
+function hasNoCommittedAssistantTurn(finish: FinishRunResult): boolean {
+  return (
+    (finish.outcome === 'errored' && !finish.assistantMessage) ||
+    (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
+  );
+}
+
+function startsAutomaticCompaction(
+  firstSegment: boolean,
+  wakeCompaction: boolean,
+): boolean {
+  return firstSegment && !wakeCompaction;
+}
+
+function completesBoundaryCompaction(
+  status: TerminalRunStatus,
+  wakeCompaction: boolean,
+): boolean {
+  return status === 'completed' && !wakeCompaction;
+}
+
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
   system: string;
@@ -1829,9 +1850,7 @@ export class RunExecutionService {
     const effectivePermissionMode =
       this.resolveEffectivePermissionMode(permissionMode);
 
-    if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input, attemptId);
-    }
+    await this.settleIfAborted(input, attemptId);
 
     // The segment of a delivered message: a new attempt of this Run, in this
     // worker, with no new claim.
@@ -1849,40 +1868,24 @@ export class RunExecutionService {
         createdMessage,
       });
 
-    if (attempt.wakeState !== undefined) {
-      const boundary = await retryRunTransaction(() =>
-        this.tenantDb.runAs(input.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.runId, userId: input.userId },
-            attemptId,
-            models: this.instanceConfig.config.models,
-            deadWorkerAfterSeconds: workerDeadAfterSeconds(
-              this.instanceConfig.config,
-            ),
-          }),
-        ),
-      );
+    let wakeCompactionSet:
+      | Awaited<ReturnType<typeof readCompactionSet>>
+      | undefined;
 
-      if (boundary.kind === 'delivered') {
-        await this.afterAssistantTurn(boundary.closedReply, input.userId);
+    const wakeAttempt = await this.prepareWakeAttempt({
+      run: input,
+      attemptId,
+      wakeState: attempt.wakeState,
+      startDelivered,
+      onCompactionSet: (set) => {
+        wakeCompactionSet = set;
+      },
+    });
 
-        return startDelivered(boundary);
-      }
+    const wakeCompaction = wakeAttempt === 'compact';
+    const deliveredWakeAttempt = this.deliveredWakeAttempt(wakeAttempt);
 
-      if (boundary.kind !== 'nothing-pending') {
-        if (boundary.kind === 'cancelled') {
-          await this.settleTerminalRun({
-            userId: input.userId,
-            runId: input.runId,
-            status: 'cancelled',
-            attemptId,
-            runPayload: { status: 'cancelled' },
-          });
-        }
-
-        throw new RunNotRunnableError(input.runId);
-      }
-    }
+    if (deliveredWakeAttempt !== undefined) return deliveredWakeAttempt;
 
     // Workspace validation is the first accepted-turn preparation step. Load
     // the owner-scoped Chat row once here and derive the binding from it; pass
@@ -1985,7 +1988,8 @@ export class RunExecutionService {
         media,
         continued,
         gitObservation,
-        firstSegment,
+        firstSegment: startsAutomaticCompaction(firstSegment, wakeCompaction),
+        wakeCompaction,
       });
 
       prepared = firstStep.request;
@@ -1993,9 +1997,7 @@ export class RunExecutionService {
       turnInstructions = firstStep.turnInstructions;
       turnGit = firstStep.turnGit;
     } catch (error) {
-      if (input.abortSignal?.aborted) {
-        await this.settleAbortedRun(input, attemptId);
-      }
+      await this.settleIfAborted(input, attemptId);
 
       if (error instanceof ModelContextExecutionError) {
         const message = error.message;
@@ -2029,9 +2031,7 @@ export class RunExecutionService {
       ]),
     );
 
-    if (input.abortSignal?.aborted) {
-      await this.settleAbortedRun(input, attemptId);
-    }
+    await this.settleIfAborted(input, attemptId);
 
     const streamStartedAt = Date.now();
     const requestUsageReceipts: Array<LanguageModelUsage> = [];
@@ -2080,12 +2080,56 @@ export class RunExecutionService {
       attemptId,
     });
 
+    const assistantPartCollector = createAssistantPartCollector();
+
+    // The kept parts are the transcript's prefix, so every terminal writer of
+    // this attempt persists them once, ahead of its own parts (D5). The kept
+    // boundary ends on a settled tool part or an in-Run item, which is why no
+    // live delta can merge into a kept part.
+    if (continued !== undefined) assistantPartCollector.seed(continued.parts);
+
+    const wakeBoundary = await this.deliverWakeCompaction({
+      run: input,
+      attemptId,
+      prepared,
+      context: attemptContext,
+      effort,
+      media,
+      workspaceRoot,
+      compactionSet: wakeCompactionSet,
+      keptPartCount: continued?.parts.length ?? 0,
+      wakeCompaction,
+      stepBudgetUsed: stepBudgetOffset + continueStepOffset(continued),
+    });
+
+    if (wakeCompaction) {
+      const resumedWake = await this.finishWakeCompactionBoundary({
+        boundary: wakeBoundary,
+        userId: input.userId,
+        runId: input.runId,
+        attemptId,
+        startDelivered,
+      });
+
+      if (resumedWake !== undefined) return resumedWake;
+    }
+
+    if (
+      wakeBoundary?.kind === 'nothing-pending' &&
+      wakeBoundary.compactionFailed
+    ) {
+      assistantPartCollector.compactionFailed({
+        type: 'data-compaction-failed',
+        data: {},
+      });
+    }
     // One fenced transaction stores the accepted-turn items this request
     // carries, with the told and baseline state they account for, creates or
     // resets the reply as `running`, and records `model.requested` immediately
     // before the target call (design D1). The request already carries the
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
+
     try {
       await retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, (tx) =>
@@ -2147,17 +2191,11 @@ export class RunExecutionService {
     // turn persists the partial text instead of a blank reply (honest and
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
-    const assistantPartCollector = createAssistantPartCollector();
-
-    // The kept parts are the transcript's prefix, so every terminal writer of
-    // this attempt persists them once, ahead of its own parts (D5). The kept
-    // boundary ends on a settled tool part or an in-Run item, which is why no
-    // live delta can merge into a kept part.
-    if (continued !== undefined) assistantPartCollector.seed(continued.parts);
     // The step numbers this Run's own parts use. A Continue Run's parts
     // continue after the steps it kept (design D5), so the kept steps and the
     // new ones stay separate in the reply it stores.
     const stepOffset = continueStepOffset(continued);
+    const wakeStepOffset = attempt.wakeState === undefined ? 0 : stepOffset;
     // The retained base64 this reply's message already holds: the kept parts
     // of a Continue Run, which the settled reads below add to. A read past the
     // rest of the bound keeps no bytes and records that instead (D5).
@@ -3532,152 +3570,6 @@ export class RunExecutionService {
       // reply, from what the stopped call left in the transcript.
       // One fenced delivery of the pending items; a delivery moves the next
       // call onto the delivered message. Other outcomes go back to the caller.
-      const runInput = input;
-
-      const boundaryPlan = (): CompactionPlan | null => {
-        const rows = attemptContext.historyRows;
-
-        const plan = planCompactionCheckpoint({
-          rows: toStoredMessages(rows),
-          boundarySeq: attemptContext.latestCheckpoint?.absorbedThroughSeq ?? 0,
-          triggeringUserSeq: input.userMessage.seq + 1,
-        });
-
-        return plan === null
-          ? null
-          : {
-              ...plan,
-              uptoSeq: Math.max(0, ...rows.map((row) => row.seq)) + 1,
-            };
-      };
-
-      const summarizeBoundary = async (input: {
-        plan: CompactionPlan | null;
-        projected: Pick<ModelRequestContext, 'messages' | 'retainedMedia'>;
-        focus: string | null;
-      }): Promise<CompactionSummary | null> => {
-        if (input.plan === null) return null;
-
-        try {
-          return await this.compaction.computeBoundarySummary({
-            chatId: runInput.chatId,
-            userId: runInput.userId,
-            plan: input.plan,
-            closedReply: [...prepared.messages, ...input.projected.messages],
-            client: runInput.client,
-            system: prepared.system,
-            toolDeclarations: prepared.toolDeclarations,
-            focus: input.focus,
-            ...(effort !== undefined && { effort }),
-            reservedOutputTokens:
-              this.instanceConfig.config.runs.maxOutputTokens,
-            abortSignal: runInput.abortSignal,
-            media,
-          });
-        } catch {
-          return null;
-        }
-      };
-
-      const publishBoundaryCheckpoint = async (input: {
-        tx: Db;
-        reply: Message;
-        summary: CompactionSummary | null;
-        focus: string | null;
-        digestCandidate: RecencyDigestResolution | null;
-      }): Promise<string> => {
-        if (input.summary === null) {
-          throw new Error('Cannot publish an empty boundary summary.');
-        }
-
-        return this.publishCheckpointInTransaction(input.tx, {
-          run: runInput,
-          attemptId,
-          summary: { ...input.summary, uptoSeq: input.reply.seq },
-          focus: input.focus,
-          model: attemptContext.model,
-          workspaceRoot: workspaceRoot.current(),
-          digestCandidate: input.digestCandidate,
-        });
-      };
-
-      const buildBoundaryCompaction = (input: {
-        ids: ReadonlyArray<string>;
-        summary: CompactionSummary | null;
-        quote: string | null;
-        focus: string | null;
-        digestCandidate: RecencyDigestResolution | null;
-        finalAnswer?: true;
-      }) => ({
-        ids: input.ids,
-        summary: input.summary,
-        quote: input.quote,
-        stepBudgetUsed: boundaryStepBudgetUsed({
-          stepBudgetOffset,
-          stepBase,
-          stepsStarted,
-          wakeStepOffset: attempt.wakeState === undefined ? 0 : stepOffset,
-        }),
-        ...(input.finalAnswer === true && { finalAnswer: true as const }),
-        publishCheckpoint: (tx: Db, reply: Message) =>
-          publishBoundaryCheckpoint({
-            tx,
-            reply,
-            summary: input.summary,
-            focus: input.focus,
-            digestCandidate: input.digestCandidate,
-          }),
-      });
-
-      const prepareBoundaryCompaction = async (extra: {
-        finalAnswer?: true;
-      }): Promise<DeliveryInput['boundaryCompaction']> => {
-        const compactionSet = await readCompactionSet({
-          tenantDb: this.tenantDb,
-          chatId: input.chatId,
-          userId: input.userId,
-        });
-
-        if (compactionSet.ids.length === 0) return undefined;
-
-        const keptPartCount = continued?.parts.length ?? 0;
-
-        const projected = projectStoredReplyParts(
-          assistantPartCollector.parts().slice(keptPartCount),
-          {
-            privateParts: true,
-            mediaKey: (index) => continuedMediaKey(keptPartCount + index),
-          },
-        );
-
-        mergeRetainedMedia(media.retainedMedia, projected.retainedMedia);
-
-        const rows = attemptContext.historyRows;
-
-        const summary = await summarizeBoundary({
-          plan: boundaryPlan(),
-          projected,
-          focus: compactionSet.focus,
-        });
-
-        const { candidate: digestCandidate } =
-          await this.resolveCompactionDigest({
-            userId: input.userId,
-            chatId: input.chatId,
-          });
-
-        const quote = await this.newestOwnerQuote(input, rows);
-
-        return buildBoundaryCompaction({
-          ids: compactionSet.ids,
-          summary,
-          quote,
-          focus: compactionSet.focus,
-          digestCandidate,
-          ...extra,
-        });
-      };
-
       const deliverAtBoundary = async (
         modelCompleted: {
           usage?: unknown;
@@ -3694,7 +3586,26 @@ export class RunExecutionService {
 
         const boundaryCompaction =
           stopCause === 'delivery' || extra.stoppedCalls !== undefined
-            ? await prepareBoundaryCompaction(extra)
+            ? await this.prepareBoundaryCompaction({
+                run: input,
+                attemptId,
+                context: attemptContext,
+                prepared,
+                effort,
+                media,
+                workspaceRoot,
+                replyParts: assistantPartCollector
+                  .parts()
+                  .slice(continued?.parts.length ?? 0),
+                keptPartCount: continued?.parts.length ?? 0,
+                stepBudgetUsed: boundaryStepBudgetUsed({
+                  stepBudgetOffset,
+                  stepBase,
+                  stepsStarted,
+                  wakeStepOffset,
+                }),
+                ...extra,
+              })
             : undefined;
 
         if (input.abortSignal?.aborted) return 'cancelled';
@@ -3909,7 +3820,7 @@ export class RunExecutionService {
                     maxStepsPerRun -
                       stepBase -
                       stepBudgetOffset -
-                      (attempt.wakeState === undefined ? 0 : stepOffset),
+                      wakeStepOffset,
                   ),
             stopWhenExtra,
             onStepStart: async ({ messages, stepNumber }) => {
@@ -4432,8 +4343,25 @@ export class RunExecutionService {
                 | DeliveryInput['boundaryCompaction']
                 | undefined;
 
-              if (settling === 'completed') {
-                boundaryCompaction = await prepareBoundaryCompaction({
+              if (completesBoundaryCompaction(settling, wakeCompaction)) {
+                boundaryCompaction = await this.prepareBoundaryCompaction({
+                  run: input,
+                  attemptId,
+                  context: attemptContext,
+                  prepared,
+                  effort,
+                  media,
+                  workspaceRoot,
+                  replyParts: assistantPartCollector
+                    .parts()
+                    .slice(continued?.parts.length ?? 0),
+                  keptPartCount: continued?.parts.length ?? 0,
+                  stepBudgetUsed: boundaryStepBudgetUsed({
+                    stepBudgetOffset,
+                    stepBase,
+                    stepsStarted,
+                    wakeStepOffset,
+                  }),
                   finalAnswer: true,
                 });
 
@@ -4493,8 +4421,7 @@ export class RunExecutionService {
                   stepBudgetOffset,
                   stepBase,
                   stepsStarted,
-                  wakeStepOffset:
-                    attempt.wakeState === undefined ? 0 : stepOffset,
+                  wakeStepOffset,
                 }),
                 ...(boundaryCompaction !== undefined && { boundaryCompaction }),
                 attemptId,
@@ -4550,10 +4477,7 @@ export class RunExecutionService {
               // outcome, because 'errored' no longer implies nothing committed —
               // the catch salvages the answer in its own transaction, and a chat
               // whose first turn landed that way still needs a title.
-              if (
-                (finish.outcome === 'errored' && !finish.assistantMessage) ||
-                (finish.outcome === 'lost' && finish.finalStatus !== 'expired')
-              ) {
+              if (hasNoCommittedAssistantTurn(finish)) {
                 return;
               }
 
@@ -4615,9 +4539,7 @@ export class RunExecutionService {
         // A synchronous throw from streamText (provider/config validation before
         // any callback can fire) would otherwise strand the claimed run at
         // 'running_model' until the deadman sweep expires it — fail it now.
-        if (input.abortSignal?.aborted) {
-          await this.settleAbortedRun(input, attemptId);
-        }
+        await this.settleIfAborted(input, attemptId);
 
         const message = errorMessageWithoutParams(error);
         // This attempt holds the claim; a reclaim during the synchronous throw
@@ -6028,6 +5950,19 @@ export class RunExecutionService {
    * after the terminal state + matching event are durably visible. Fenced by
    * `attemptId`: only the attempt that observed the abort may settle it, so a
    * reclaimed attempt's late abort cannot cancel the live attempt's run. */
+  private async settleIfAborted(
+    input: {
+      userId: string;
+      runId: string;
+      abortSignal?: AbortSignal;
+    },
+    attemptId: string,
+  ): Promise<void> {
+    if (!input.abortSignal?.aborted) return;
+
+    await this.settleAbortedRun(input, attemptId);
+  }
+
   private async settleAbortedRun(
     input: {
       userId: string;
@@ -7028,6 +6963,259 @@ export class RunExecutionService {
     };
   }
 
+  private async prepareBoundaryCompaction(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    context: PreparedAttemptContext;
+    prepared: PreparedExecutionContext;
+    effort: string | undefined;
+    media: RunMediaResolver;
+    workspaceRoot: WorkspaceRootCell;
+    replyParts: ReadonlyArray<MessagePart>;
+    keptPartCount: number;
+    stepBudgetUsed: number;
+    compactionSet?: Awaited<ReturnType<typeof readCompactionSet>>;
+    finalAnswer?: true;
+  }): Promise<DeliveryInput['boundaryCompaction']> {
+    const activeRun = await this.tenantDb.runAs(input.run.userId, (tx) =>
+      new RunsRepository(tx).findById(input.run.runId, input.run.userId),
+    );
+
+    if (activeRun?.activeAttemptId !== input.attemptId) return undefined;
+
+    const compactionSet =
+      input.compactionSet ??
+      (await readCompactionSet({
+        tenantDb: this.tenantDb,
+        chatId: input.run.chatId,
+        userId: input.run.userId,
+      }));
+
+    if (compactionSet.ids.length === 0) return undefined;
+
+    const rows = input.context.historyRows;
+
+    const plan = planCompactionCheckpoint({
+      rows: toStoredMessages(rows),
+      boundarySeq: input.context.latestCheckpoint?.absorbedThroughSeq ?? 0,
+      triggeringUserSeq: input.run.userMessage.seq + 1,
+    });
+
+    const boundaryPlan =
+      plan === null
+        ? null
+        : {
+            ...plan,
+            uptoSeq: Math.max(0, ...rows.map((row) => row.seq)) + 1,
+          };
+
+    const projected = projectStoredReplyParts(input.replyParts, {
+      privateParts: true,
+      mediaKey: (index) => continuedMediaKey(input.keptPartCount + index),
+    });
+
+    mergeRetainedMedia(input.media.retainedMedia, projected.retainedMedia);
+
+    let summary: CompactionSummary | null = null;
+
+    if (boundaryPlan !== null) {
+      try {
+        summary = await this.compaction.computeBoundarySummary({
+          chatId: input.run.chatId,
+          userId: input.run.userId,
+          plan: boundaryPlan,
+          closedReply: [...input.prepared.messages, ...projected.messages],
+          client: input.run.client,
+          system: input.prepared.system,
+          toolDeclarations: input.prepared.toolDeclarations,
+          focus: compactionSet.focus,
+          ...(input.effort !== undefined && { effort: input.effort }),
+          reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
+          abortSignal: input.run.abortSignal,
+          media: input.media,
+        });
+      } catch {
+        summary = null;
+      }
+    }
+
+    const { candidate: digestCandidate } = await this.resolveCompactionDigest({
+      userId: input.run.userId,
+      chatId: input.run.chatId,
+    });
+
+    const quote = await this.newestOwnerQuote(input.run, rows);
+
+    return {
+      ids: compactionSet.ids,
+      summary,
+      quote,
+      stepBudgetUsed: input.stepBudgetUsed,
+      ...(input.finalAnswer === true && { finalAnswer: true as const }),
+      publishCheckpoint: async (tx, reply) => {
+        if (summary === null) {
+          throw new Error('Cannot publish an empty boundary summary.');
+        }
+
+        return this.publishCheckpointInTransaction(tx, {
+          run: input.run,
+          attemptId: input.attemptId,
+          summary: { ...summary, uptoSeq: reply.seq },
+          focus: compactionSet.focus,
+          model: input.context.model,
+          workspaceRoot: input.workspaceRoot.current(),
+          digestCandidate,
+        });
+      },
+    };
+  }
+
+  private async finishWakeCompactionBoundary(input: {
+    boundary: BoundaryDelivery | undefined;
+    userId: string;
+    runId: string;
+    attemptId: string;
+    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+  }): Promise<AttemptRun | undefined> {
+    if (input.boundary?.kind === 'delivered') {
+      await this.afterAssistantTurn(input.boundary.closedReply, input.userId);
+
+      return input.startDelivered(input.boundary);
+    }
+
+    if (
+      input.boundary !== undefined &&
+      input.boundary.kind !== 'nothing-pending'
+    ) {
+      if (input.boundary.kind === 'cancelled') {
+        await this.settleTerminalRun({
+          userId: input.userId,
+          runId: input.runId,
+          status: 'cancelled',
+          attemptId: input.attemptId,
+          runPayload: { status: 'cancelled' },
+        });
+      }
+
+      throw new RunNotRunnableError(input.runId);
+    }
+
+    return undefined;
+  }
+
+  private deliveredWakeAttempt(
+    wakeAttempt: AttemptRun | 'compact' | undefined,
+  ): AttemptRun | undefined {
+    if (wakeAttempt === undefined || wakeAttempt === 'compact')
+      return undefined;
+
+    return wakeAttempt;
+  }
+
+  private async prepareWakeAttempt(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    wakeState: WakeState | undefined;
+    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+    onCompactionSet: (
+      set: Awaited<ReturnType<typeof readCompactionSet>>,
+    ) => void;
+  }): Promise<AttemptRun | 'compact' | undefined> {
+    if (input.wakeState === undefined) return undefined;
+
+    const compactionSet = await readCompactionSet({
+      tenantDb: this.tenantDb,
+      chatId: input.run.chatId,
+      userId: input.run.userId,
+    });
+
+    input.onCompactionSet(compactionSet);
+
+    if (compactionSet.ids.length > 0) return 'compact';
+
+    const boundary = await retryRunTransaction(() =>
+      this.tenantDb.runAs(input.run.userId, (tx) =>
+        deliverPendingSteering(tx, {
+          run: { runId: input.run.runId, userId: input.run.userId },
+          attemptId: input.attemptId,
+          models: this.instanceConfig.config.models,
+          deadWorkerAfterSeconds: workerDeadAfterSeconds(
+            this.instanceConfig.config,
+          ),
+        }),
+      ),
+    );
+
+    return this.finishWakeCompactionBoundary({
+      boundary,
+      userId: input.run.userId,
+      runId: input.run.runId,
+      attemptId: input.attemptId,
+      startDelivered: input.startDelivered,
+    });
+  }
+
+  private async deliverWakeCompaction(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    prepared: PreparedExecutionContext;
+    context: PreparedAttemptContext;
+    effort: string | undefined;
+    media: RunMediaResolver;
+    workspaceRoot: WorkspaceRootCell;
+    compactionSet: Awaited<ReturnType<typeof readCompactionSet>> | undefined;
+    keptPartCount: number;
+    wakeCompaction: boolean;
+    stepBudgetUsed: number;
+  }): Promise<BoundaryDelivery | undefined> {
+    if (!input.wakeCompaction) return undefined;
+
+    const compactionSet = input.compactionSet;
+
+    if (compactionSet === undefined || compactionSet.ids.length === 0) {
+      return retryRunTransaction(() =>
+        this.tenantDb.runAs(input.run.userId, (tx) =>
+          deliverPendingSteering(tx, {
+            run: { runId: input.run.runId, userId: input.run.userId },
+            attemptId: input.attemptId,
+            models: this.instanceConfig.config.models,
+            deadWorkerAfterSeconds: workerDeadAfterSeconds(
+              this.instanceConfig.config,
+            ),
+          }),
+        ),
+      );
+    }
+
+    const boundaryCompaction = await this.prepareBoundaryCompaction({
+      run: input.run,
+      attemptId: input.attemptId,
+      context: input.context,
+      prepared: input.prepared,
+      effort: input.effort,
+      media: input.media,
+      workspaceRoot: input.workspaceRoot,
+      replyParts: [],
+      keptPartCount: input.keptPartCount,
+      stepBudgetUsed: input.stepBudgetUsed,
+      compactionSet,
+    });
+
+    return retryRunTransaction(() =>
+      this.tenantDb.runAs(input.run.userId, (tx) =>
+        deliverPendingSteering(tx, {
+          run: { runId: input.run.runId, userId: input.run.userId },
+          attemptId: input.attemptId,
+          models: this.instanceConfig.config.models,
+          deadWorkerAfterSeconds: workerDeadAfterSeconds(
+            this.instanceConfig.config,
+          ),
+          boundaryCompaction,
+        }),
+      ),
+    );
+  }
+
   /** Re-bake after publication so the receipt binds the request actually sent. */
   private async prepareAttemptForFirstStep(input: {
     run: ExecuteRunInput;
@@ -7047,6 +7235,8 @@ export class RunExecutionService {
     gitObservation: Promise<GitObservation> | undefined;
     /** False for a segment a delivery started. */
     firstSegment: boolean;
+    /** A requested wake compaction gets to attempt before window admission. */
+    wakeCompaction: boolean;
   }): Promise<PreparedFirstStep> {
     // One projection for the whole attempt: both passes and the compaction
     // trigger measure and send the same kept messages. The kept parts are the

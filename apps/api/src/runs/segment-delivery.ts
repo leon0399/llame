@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
  * delivered message, and moves the Run onto it.
  */
 
-import { ChatsRepository } from '../chats/chats-repository';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createCompactionContinueItem } from '../chats/compaction-continue-item';
 import { partsToText, type MessagePart } from '../chats/context-builder';
 import { isRecord } from '@workspace/runtime-safety';
@@ -224,6 +224,34 @@ async function settleFailedCompactionDelivery(input: {
     : ordinary;
 }
 
+async function findClosedReply(input: {
+  tx: Db;
+  closing: DeliveryInput;
+  locked: Run;
+  cause: DeliveryCause;
+}): Promise<Message | undefined> {
+  const closed = await closeReply(
+    input.tx,
+    input.closing,
+    input.locked,
+    input.cause,
+  );
+
+  if (closed !== undefined) return closed;
+
+  const inReplyTo = input.closing.live?.inReplyTo ?? input.locked.messageId;
+
+  if (inReplyTo === null) return undefined;
+
+  return (
+    await new MessagesRepository(input.tx).findTurnState(
+      input.locked.chatId,
+      input.locked.userId,
+      inReplyTo,
+    )
+  ).assistantMessage;
+}
+
 async function closeAndPublishBoundaryCheckpoint(input: {
   tx: Db;
   delivery: DeliveryInput;
@@ -231,12 +259,14 @@ async function closeAndPublishBoundaryCheckpoint(input: {
   compaction: NonNullable<DeliveryInput['boundaryCompaction']>;
   cause: DeliveryCause;
 }): Promise<{ closedReply: Message; checkpointId: string }> {
-  const closedReply = await closeReply(
-    input.tx,
-    closingAs(input.delivery, input.cause),
-    input.locked,
-    input.cause,
-  );
+  const closing = closingAs(input.delivery, input.cause);
+
+  const closedReply = await findClosedReply({
+    tx: input.tx,
+    closing,
+    locked: input.locked,
+    cause: input.cause,
+  });
 
   if (!closedReply) {
     throw new Error(`Run ${input.locked.id} has no closed reply.`);
