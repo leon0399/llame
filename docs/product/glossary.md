@@ -119,8 +119,8 @@ The rule that a Chat has at most one Run that is not terminal.
 _Avoid_: lock
 
 **Stuck Run**:
-A Run that is not terminal although nothing is executing it any more. The next
-message to its Chat expires it.
+A Run that is not terminal although the queue cannot execute it any more. The
+next message or follow-up request to its Chat expires it.
 _Avoid_: zombie, orphan
 
 **Execution ceiling**:
@@ -128,8 +128,8 @@ The hard limit on how long one Run may execute, after which it expires.
 
 **Segment**:
 The part of a Run that produces one reply, served by one model. A segment
-starts when the Run starts or at a segment boundary: a steer or interrupt
-delivery or, once model failover ships, a model switch.
+starts when the Run starts or at a segment boundary: a steer, interrupt, or
+notice delivery or, once model failover ships, a model switch.
 _Avoid_: step, turn
 
 **Attempt**:
@@ -163,12 +163,12 @@ The delivery mode that cuts the live Run's current work and hands it the
 message at once.
 
 **Queue**:
-The delivery mode that holds the message until the live Run ends, then starts
-a new Run for it.
+The delivery mode that holds the message until the live Run completes, then
+starts a new Run for it. A Run that does not complete pauses the queue instead.
 
 **Pending item**:
 A delivery or job notice stored for a Chat that has not yet reached a Run. The
-owner can withdraw it or change its mode.
+owner can withdraw it, or change the mode of a delivery.
 _Avoid_: queued message
 
 **Follow-up Run**:
@@ -199,7 +199,8 @@ Where a background job is: `running`, or settled as `succeeded`, `failed`,
 
 **Job notice**:
 The record a background job's settlement creates for its Chat, delivered to
-the live Run or to a new one.
+the live Run or, for a `succeeded`, `failed`, or `timed_out` job on an idle
+Chat, to a new one.
 
 **Backgrounding**:
 Moving a running host `bash` command into a background job, on request or
@@ -212,8 +213,9 @@ settled after it, so the change never runs twice.
 _Avoid_: lock, transaction
 
 **Outcome unknown**:
-The failure of a Run redelivered after a native attempt or MCP call whose
-result was never recorded. llame never repeats that call.
+The result when llame cannot prove the outcome of a native attempt or MCP
+call. A live one is a tool observation the Run continues past; recovery from
+an unrecorded result fails the Run. llame never repeats the call.
 
 ## Tools
 
@@ -271,8 +273,8 @@ One target of a content search: a path, a glob, a Knowledge Space, or a
 skill.
 
 **Objective**:
-The optional statement in a search call of what the search is for, used only
-to order its results.
+The optional statement in a search call of what the search is for, forwarded
+to an engine that accepts one and used to order its results.
 _Avoid_: intent
 
 **Passage**:
@@ -368,7 +370,8 @@ The counter that changes each time a Chat enters, switches, or leaves a
 Workspace.
 
 **Repository**:
-An owner's record of one git repository, identified by its remote.
+An owner's record of one git repository, identified by its canonical remote
+when it has one, otherwise by its first checkout.
 _Avoid_: repo, project
 
 **Checkout**:
@@ -548,8 +551,8 @@ The stored record of a model's reasoning in a reply.
 _Avoid_: thoughts
 
 **Usage**:
-The provider-reported tokens and cost of one reply, with its billing mode and
-whether it is complete.
+The provider-reported tokens of one reply and the cost computed from the
+configured pricing, with its billing mode and whether it is complete.
 
 **Billing mode**:
 Whether a model's usage is billed per token or covered by a subscription.
