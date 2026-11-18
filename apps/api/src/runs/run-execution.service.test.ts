@@ -23893,6 +23893,11 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       execute: () => ({ status: 'success' as const }),
     });
 
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
       { ...userMessage, seq: 1 },
       { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
