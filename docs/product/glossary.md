@@ -8,18 +8,21 @@ read_when:
 # llame glossary
 
 The domain language of llame. Terms here are definitions, not behavior:
-OpenSpec owns what each one does and wins any disagreement. Capitalized terms
-are llame concepts; write them capitalized. Terms that are only planned are
-left out until they ship.
+OpenSpec owns what each one does and wins any disagreement. Terms that are
+only planned are left out until they ship.
+
+Chat, Run, Project, Workspace, Machine, Knowledge Space, Continue, and
+Regenerate are llame's proper names: write them capitalized. Write every other
+term in lowercase in running text, as the definitions here do.
 
 ## People and organization
 
 **Owner**:
-The user who owns a Chat, Project, Knowledge Space, Repository, or other item.
+The user who owns a Chat, Project, Knowledge Space, repository, or other item.
 _Avoid_: user (when ownership is meant), account
 
 **Operator**:
-The party who installs and configures a llame Installation: its providers,
+The party who installs and configures a llame installation: its providers,
 models, tools, permissions, and Machines.
 _Avoid_: admin
 
@@ -28,8 +31,8 @@ A node of the nested organization tree: an organization, group, team, or
 department. Membership in one grants no access to Chats or Projects.
 
 **Membership**:
-A user's role on one Org unit, inherited down the tree. Its `owner` role is an
-organization role, not the Owner of an item.
+A user's role on one org unit, inherited down the tree. Its `owner` role is an
+organization role, not the owner of an item.
 
 **External identity**:
 The link from one account on an outside identity provider to exactly one llame
@@ -38,17 +41,17 @@ user.
 ## Conversation
 
 **Chat**:
-An Owner's durable conversation: its messages, its Context items, and its
+An owner's durable conversation: its messages, its context items, and its
 Workspace binding. The unit that is shared, forked, pinned, and archived.
 _Avoid_: conversation, thread, session
 
 **Turn**:
-One user message, or one Host trigger, together with the assistant output that
+One user message, or one host trigger, together with the assistant output that
 answers it.
 _Avoid_: exchange, round
 
 **Reply**:
-The assistant message that one Segment produces.
+The assistant message that one segment produces.
 _Avoid_: response, answer
 
 **Message sequence**:
@@ -56,16 +59,16 @@ A message's immutable position number within its Chat, used to address it.
 _Avoid_: message index
 
 **Host message**:
-A message in a Chat authored by llame itself rather than by the Owner or the
+A message in a Chat authored by llame itself rather than by the owner or the
 assistant.
 _Avoid_: system message
 
 **Host trigger**:
-The Host message that starts a Run with no Owner message, such as one for a
-Background job's result.
+The host message that starts a Run with no owner message, such as one for a
+background job's result.
 
 **Project**:
-An Owner's named group of Chats, which may link Repositories. It is not a
+An owner's named group of Chats, which may link Repositories. It is not a
 Workspace, a Knowledge Space, or a security boundary.
 _Avoid_: folder
 
@@ -73,31 +76,31 @@ _Avoid_: folder
 A user's ranked marker that keeps a Chat or Project at the head of their list.
 
 **Archive**:
-The reversible, Owner-set state that removes a Chat or Project from the working
+The reversible, owner-set state that removes a Chat or Project from the working
 list and blocks changes to it. It is neither deletion nor unsharing.
 
 **Public share**:
-The public, read-only view of a Chat. It shows text only and omits the Owner's
+The public, read-only view of a Chat. It shows text only and omits the owner's
 private parts.
 _Avoid_: shared Chat, share link, public chat
 
 **Owner fork**:
-A new Chat made by the Owner from a prefix of their own Chat, keeping its
+A new Chat made by the owner from a prefix of their own Chat, keeping its
 context and Workspace binding.
 
 **Shared fork**:
-A new Chat made by another user from a Public share. It receives only what the
-Public share shows.
+A new Chat made by another user from a public share. It receives only what the
+public share shows.
 _Avoid_: public fork
 
 ## Execution
 
 **Installation**:
-One deployed llame: its web, API, and Worker processes over one database.
+One deployed llame: its web, API, and worker processes over one database.
 _Avoid_: instance, node
 
 **Worker**:
-A process of the Installation that claims and executes Runs.
+A process of the installation that claims and executes Runs.
 _Avoid_: node, runner
 
 **Run**:
@@ -124,82 +127,82 @@ _Avoid_: zombie, orphan
 The hard limit on how long one Run may execute, after which it expires.
 
 **Segment**:
-The part of a Run that produces one Reply, served by one model. A Segment
-starts when the Run starts or at a Segment boundary: a steer or interrupt
-Delivery or, once model failover ships, a model switch.
+The part of a Run that produces one reply, served by one model. A segment
+starts when the Run starts or at a segment boundary: a steer or interrupt
+delivery or, once model failover ships, a model switch.
 _Avoid_: step, turn
 
 **Attempt**:
-One try at executing a Run: a Worker's claim of it, or a Segment started
-within that claim. A retried Run, or one with several Segments, has several.
+One try at executing a Run: a worker's claim of it, or a segment started
+within that claim. A retried Run, or one with several segments, has several.
 _Avoid_: retry (for the try itself)
 
 **Step**:
 One model request together with the tool calls it made and their results.
-Steps are counted per Segment.
+Steps are counted per segment.
 _Avoid_: turn, iteration
 
 **Step boundary**:
-The point after a Step's tool results and before the next model request.
+The point after a step's tool results and before the next model request.
 
 **Run event**:
 One entry in a Run's append-only event stream, which clients replay to follow
 or reconnect to the Run.
 
 **Delivery**:
-An Owner message sent to a Chat whose Run is live, in one of three modes:
+An owner message sent to a Chat whose Run is live, in one of three modes:
 steer, interrupt, or queue.
 _Avoid_: injection, follow-up
 
 **Steer**:
-The Delivery mode that hands the message to the live Run at its next Step
+The delivery mode that hands the message to the live Run at its next step
 boundary.
 
 **Interrupt**:
-The Delivery mode that cuts the live Run's current work and hands it the
+The delivery mode that cuts the live Run's current work and hands it the
 message at once.
 
 **Queue**:
-The Delivery mode that holds the message until the live Run ends, then starts
+The delivery mode that holds the message until the live Run ends, then starts
 a new Run for it.
 
 **Pending item**:
-A Delivery or job notice stored for a Chat that has not yet reached a Run. The
-Owner can withdraw it or change its mode.
+A delivery or job notice stored for a Chat that has not yet reached a Run. The
+owner can withdraw it or change its mode.
 _Avoid_: queued message
 
 **Follow-up Run**:
 A Continue or a Regenerate.
 
 **Continue**:
-A Follow-up Run that resumes the latest Turn's unfinished Reply from its
+A follow-up Run that resumes the latest turn's unfinished reply from its
 completed parts.
 _Avoid_: resume, retry
 
 **Regenerate**:
-A Follow-up Run that replaces the latest Turn's Reply with a new one from the
+A follow-up Run that replaces the latest turn's reply with a new one from the
 same message.
 _Avoid_: retry, reroll
 
 **Cancellation**:
-The Owner's recorded request to stop a Run.
+The owner's recorded request to stop a Run.
 _Avoid_: abort
 
 **Background job**:
 Work started by a tool call that outlives that call, owned by its Chat and
-addressed by a `job://` Locator.
+addressed by a `job://` locator.
 _Avoid_: job (unqualified, where a queue job could be meant), task, process
 
 **Job state**:
-Where a Background job is: `running`, or settled as `succeeded`, `failed`,
+Where a background job is: `running`, or settled as `succeeded`, `failed`,
 `cancelled`, `timed_out`, or `lost`. A settled job never changes.
 
 **Job notice**:
-The record a Background job's settlement creates for its Chat, delivered to
+The record a background job's settlement creates for its Chat, delivered to
 the live Run or to a new one.
 
 **Backgrounding**:
-Moving a running host `bash` command into a Background job, on request or
+Moving a running host `bash` command into a background job, on request or
 automatically.
 _Avoid_: detaching
 
@@ -209,17 +212,17 @@ settled after it, so the change never runs twice.
 _Avoid_: lock, transaction
 
 **Outcome unknown**:
-The failure of a Run redelivered after a Native attempt or MCP call whose
+The failure of a Run redelivered after a native attempt or MCP call whose
 result was never recorded. llame never repeats that call.
 
 ## Tools
 
 **Tool catalog**:
-The tools one Attempt offers the model, each with its declaration.
+The tools one attempt offers the model, each with its declaration.
 _Avoid_: tool list, registry
 
 **Tool allowlist**:
-The Operator's list of tools an Installation offers at all.
+The operator's list of tools an installation offers at all.
 _Avoid_: whitelist, enabled tools
 
 **Tool classification**:
@@ -238,13 +241,13 @@ such as `machine://`, `ssh://`, `kb://`, `skill://`, `media://`, `job://`,
 _Avoid_: address
 
 **Selector**:
-The suffix on a `read` Locator that picks which lines of the result are
+The suffix on a `read` locator that picks which lines of the result are
 returned, such as `:N-M`, or which representation, such as `:raw` or
 `:outline`.
 _Avoid_: range argument, offset
 
 **Listing**:
-What `read` returns for a Locator that names a collection rather than one
+What `read` returns for a locator that names a collection rather than one
 file, such as a directory or a Knowledge Space root.
 
 **Outline**:
@@ -259,13 +262,13 @@ The last line of a bounded tool result that names how to read the rest.
 _Avoid_: truncation message
 
 **Tool artifact**:
-The complete result of a tool call that exceeded its Result bound, read
+The complete result of a tool call that exceeded its result bound, read
 through `artifact://`.
 _Avoid_: spill file
 
 **Scope**:
 One target of a content search: a path, a glob, a Knowledge Space, or a
-Skill.
+skill.
 
 **Objective**:
 The optional statement in a search call of what the search is for, used only
@@ -274,27 +277,27 @@ _Avoid_: intent
 
 **Passage**:
 One result of a Knowledge or conversation search: an excerpt with its source
-and a Locator that `read` accepts.
+and a locator that `read` accepts.
 _Avoid_: snippet, hit
 
 **Recall**:
-The assistant's search and reading of the Owner's own earlier Chats.
+The assistant's search and reading of the owner's own earlier Chats.
 _Avoid_: memory
 
 **MCP server**:
-An external tool server, configured by the Operator or declared by a
-Workspace, whose tools join the Tool catalog under the server's name.
+An external tool server, configured by the operator or declared by a
+Workspace, whose tools join the tool catalog under the server's name.
 _Avoid_: plugin, connector
 
 **Workspace MCP server**:
 An MCP server a Workspace declares, owned by the Chat bound to that Workspace.
 
 **Web adapter**:
-An Operator-configured reader that renders a known site through that site's
+An operator-configured reader that renders a known site through that site's
 own interface instead of its web page.
 
 **Derived locator**:
-A Locator a web read reaches without the model naming it, such as a redirect
+A locator a web read reaches without the model naming it, such as a redirect
 or an announced alternate. Each one is admitted on its own.
 
 **Web search engine**:
@@ -302,20 +305,20 @@ One configured search backend that `web_search` can query.
 _Avoid_: provider
 
 **Engine chain**:
-The ordered list of Web search engines tried until one returns results.
+The ordered list of web search engines tried until one returns results.
 
 **Aggregate engine**:
-A Web search engine that queries several others and merges their results.
+A web search engine that queries several others and merges their results.
 
 ## Permissions
 
 **Permission mode**:
-The mode the Owner picks per send for one Run: `default`, `read-only`, or
+The mode the owner picks per send for one Run: `default`, `read-only`, or
 `bypass`. It is never shown to the model.
 _Avoid_: access mode
 
 **Permission group**:
-The Operator's allow and reject rules for one exact tool id, applied to each
+The operator's allow and reject rules for one exact tool id, applied to each
 call.
 _Avoid_: policy group
 
@@ -324,27 +327,27 @@ One literal or pattern match on one argument of a call, inside a Permission
 group. A reject clause outranks every allow clause.
 
 **Permission decision**:
-The recorded allow or reject for one call or Derived locator, with its reason.
+The recorded allow or reject for one call or derived locator, with its reason.
 _Avoid_: audit event
 
 **Eligibility**:
-Whether a tool is offered to the model at all, set by the Tool allowlist.
-Distinct from authorization, which a Permission group decides per call.
+Whether a tool is offered to the model at all, set by the tool allowlist.
+Distinct from authorization, which a permission group decides per call.
 
 ## Location
 
 **Host**:
-The llame Installation's own machine and filesystem, where native tools run
-as the Worker's user.
+The llame installation's own machine and filesystem, where native tools run
+as the worker's user.
 _Avoid_: local, server
 
 **Executor**:
-The place a file or shell tool runs: the Host or one Machine.
+The place a file or shell tool runs: the host or one Machine.
 _Avoid_: runner, node
 
 **Machine**:
-An Operator-configured remote computer running the llame machine daemon,
-reached from the Installation.
+An operator-configured remote computer running the llame machine daemon,
+reached from the installation.
 _Avoid_: node, server
 
 **Machine root**:
@@ -352,11 +355,11 @@ A directory a Machine declares addressable. It bounds addressing, not
 authority.
 
 **SSH host**:
-A remote computer reached directly through an `ssh://` Locator. It is not a
+A remote computer reached directly through an `ssh://` locator. It is not a
 Machine.
 
 **Workspace**:
-The binding of a Chat to one directory tree on one Executor, where relative
+The binding of a Chat to one directory tree on one executor, where relative
 paths resolve and file and shell tools work by default. It is not confinement.
 _Avoid_: project, folder
 
@@ -365,46 +368,46 @@ The counter that changes each time a Chat enters, switches, or leaves a
 Workspace.
 
 **Repository**:
-An Owner's record of one git repository, identified by its remote.
+An owner's record of one git repository, identified by its remote.
 _Avoid_: repo, project
 
 **Checkout**:
-One place a Repository exists on one Executor: a main clone or a Worktree.
+One place a repository exists on one executor: a main clone or a worktree.
 _Avoid_: clone, copy
 
 **Worktree**:
-A git worktree Checkout made for one Chat on its own branch. Only the Owner
+A git worktree checkout made for one Chat on its own branch. Only the owner
 removes it.
 _Avoid_: branch checkout
 
 **Worktree lease**:
-The record of which Chat created a Worktree. It locks nothing.
+The record of which Chat created a worktree. It locks nothing.
 
 **Isolation policy**:
-A Project's choice, per linked Repository, of whether new Chats get their own
-Worktree.
+A Project's choice, per linked repository, of whether new Chats get their own
+worktree.
 
 **Start location**:
-The Project, Repository, Checkout, and Executor a new Chat begins in.
+The Project, repository, checkout, and executor a new Chat begins in.
 
 ## Context
 
 **Context item**:
 A piece of context llame itself adds to a Chat's model input, stored with the
-Chat and replayed until a Compaction checkpoint absorbs it.
+Chat and replayed until a compaction checkpoint absorbs it.
 _Avoid_: injection
 
 **Context rail**:
-The single channel that carries Context items, each in its own
+The single channel that carries context items, each in its own
 `system-reminder` block.
 _Avoid_: rail (unqualified; the web UI has a navigation rail)
 
 **Producer**:
-The part of llame that authored a Context item, such as compaction, jobs, or
+The part of llame that authored a context item, such as compaction, jobs, or
 the Workspace.
 
 **Form**:
-The kind of a Context item: a notice of one event, a snapshot that replaces
+The kind of a context item: a notice of one event, a snapshot that replaces
 the previous one, or a checkpoint that replaces earlier history.
 
 **Frozen baseline**:
@@ -417,11 +420,11 @@ its model.
 _Avoid_: truncation
 
 **Compaction checkpoint**:
-The Context item that holds a Compaction's summary.
+The context item that holds a compaction's summary.
 _Avoid_: summary message
 
 **Compaction epoch**:
-The stretch of a Chat after its latest Compaction checkpoint. Several limits
+The stretch of a Chat after its latest compaction checkpoint. Several limits
 and baselines reset at each one.
 _Avoid_: context epoch, session
 
@@ -430,24 +433,24 @@ The fixed date and time from which a Chat's current context is read, refreshed
 only at compaction.
 
 **Prompt receipt**:
-The Owner-visible record of the system prompt one Attempt sent.
+The owner-visible record of the system prompt one attempt sent.
 _Avoid_: prompt log
 
 **Model switch**:
-A change of the serving model, between Turns or within a Run, after which
+A change of the serving model, between turns or within a Run, after which
 reasoning from the previous model is not replayed.
 
 **Recency digest**:
-The bounded list of an Owner's other Chats' titles and opening excerpts,
-frozen into a Chat's system prompt when the Owner opts in.
+The bounded list of an owner's other Chats' titles and opening excerpts,
+frozen into a Chat's system prompt when the owner opts in.
 
 **Personalization**:
-The profile the Owner writes for the assistant: name, about text, and response
+The profile the owner writes for the assistant: name, about text, and response
 preferences. It is never inferred.
 _Avoid_: memory
 
 **Episodic memory**:
-The durable record of an Owner's Chats, Runs, and messages that Recall
+The durable record of an owner's Chats, Runs, and messages that recall
 searches.
 
 **Instruction file**:
@@ -456,7 +459,7 @@ override and local variants, whose content llame adds to the model's context.
 _Avoid_: project instructions
 
 **Instruction chain**:
-The Instruction files loaded from a root down to the directory being worked
+The instruction files loaded from a root down to the directory being worked
 in.
 
 **Import marker**:
@@ -464,20 +467,20 @@ A reference in Markdown, such as `@path`, that pulls another file's content
 into context beside the text that names it.
 
 **Prompt import**:
-The content an Import marker in an Owner's message brings in before the first
+The content an import marker in an owner's message brings in before the first
 model request.
 _Avoid_: attachment, mention
 
 **Skill**:
-A package of instructions, provided by the Operator or a Workspace, that the
+A package of instructions, provided by the operator or a Workspace, that the
 assistant loads by name or on its own judgment.
 
 **Skill catalog**:
-The names and descriptions of the Skills the model may load on its own,
+The names and descriptions of the skills the model may load on its own,
 frozen into the system prompt.
 
 **Skill activation**:
-Loading a Skill because a message names it as `$name`.
+Loading a skill because a message names it as `$name`.
 _Avoid_: invoke, mention
 
 **Untrusted-content notice**:
@@ -485,24 +488,24 @@ The fixed framing that marks Knowledge, recalled, web, or file content as data
 that cannot instruct the assistant.
 
 **Git state**:
-The Context item that reports the bound Workspace repository's branch,
+The context item that reports the bound Workspace repository's branch,
 changes, recent commits, and remotes.
 
 ## Media
 
 **Media object**:
-An Owner-uploaded image or PDF, stored once and addressed by `media://`.
+An owner-uploaded image or PDF, stored once and addressed by `media://`.
 _Avoid_: attachment, upload
 
 **Model variant**:
 The resized form of an image that a model receives.
 
 **Retained media**:
-Image or PDF content returned by a read or Prompt import, kept with the
-message instead of as a Media object.
+Image or PDF content returned by a read or prompt import, kept with the
+message instead of as a media object.
 
 **Media window**:
-The limit on how many images and PDFs one request carries within a Compaction
+The limit on how many images and PDFs one request carries within a compaction
 epoch.
 
 ## Models and usage
@@ -513,16 +516,16 @@ destination, and headers.
 _Avoid_: provider (for the entry)
 
 **Model entry**:
-One configured model: the Provider entry it uses, the Wire it speaks, and its
+One configured model: the provider entry it uses, the wire it speaks, and its
 declared capabilities.
 _Avoid_: catalog model
 
 **Model id**:
-llame's own opaque name for a Model entry, distinct from the provider's model
+llame's own opaque name for a model entry, distinct from the provider's model
 name.
 
 **Wire**:
-The protocol a Model entry is called through, such as Responses, Chat
+The protocol a model entry is called through, such as Responses, Chat
 Completions, or Anthropic Messages.
 _Avoid_: API, transport
 
@@ -532,14 +535,14 @@ declares.
 _Avoid_: thinking level
 
 **Input modalities**:
-The kinds of input a Model entry accepts: text, images, PDFs.
+The kinds of input a model entry accepts: text, images, PDFs.
 
 **Reasoning part**:
-The stored record of a model's reasoning in a Reply.
+The stored record of a model's reasoning in a reply.
 _Avoid_: thoughts
 
 **Usage**:
-The provider-reported tokens and cost of one Reply, with its Billing mode and
+The provider-reported tokens and cost of one reply, with its billing mode and
 whether it is complete.
 
 **Billing mode**:
@@ -547,10 +550,10 @@ Whether a model's usage is billed per token or covered by a subscription.
 
 **Side call**:
 A model request made for housekeeping or a tool, such as a title or a ranking,
-rather than as a Step. Its usage is kept apart from the Run's.
+rather than as a step. Its usage is kept apart from the Run's.
 
 **Rank model**:
-A Decision model or a Rerank model used to order a tool's results.
+A decision model or a rerank model used to order a tool's results.
 
 **Decision model**:
 A model that answers yes-or-no questions about candidate results with
@@ -562,7 +565,7 @@ A model that orders candidate results by relevance to a query.
 _Avoid_: reranker (for the configured entry)
 
 **Card**:
-One bounded candidate result sent to a Rank model.
+One bounded candidate result sent to a rank model.
 
 **Embedding model**:
 A model that turns Chat text into vectors for optional semantic search.
