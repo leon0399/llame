@@ -6,7 +6,7 @@ The system MUST use the operator-authored catalog without discovery or automatic
 substitution. When `pricingUsdPer1M` is omitted, it MUST record available token usage and latency.
 The dollar cost then stays unknown under the `costUsd: null` contract. A subscription quota failure
 MUST have the failure class `quota_exhausted` or `billing`, and an authentication failure MUST have
-the class `auth`. A usage limit with a reset time MUST make the Run wait as `quota-wait` defines. A
+the class `auth`. A usage limit with a reset time can make the Run wait, as `quota-wait` defines. A
 quota failure MUST NOT trigger a paid fallback.
 
 #### Scenario: Unpriced subscription model

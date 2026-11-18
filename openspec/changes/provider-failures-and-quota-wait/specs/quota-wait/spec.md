@@ -4,7 +4,8 @@
 
 `awaiting_quota` MUST be a non-terminal Run status. A Run MUST enter it when a request to its own
 model fails with a reset time more than 60 seconds away. That reset time MUST also be at most
-`runs.quotaWaitMaxSeconds` away. The failure class MUST be `quota_exhausted` or `rate_limited`. The queue job MUST then end,
+`runs.quotaWaitMaxSeconds` away. The failure class MUST be `quota_exhausted` or `rate_limited`. No tool call of the failed send MUST
+have started, as `provider-failures` defines. The queue job MUST then end,
 and no worker MUST execute the Run while it waits. The Run MUST stay the in-flight Run of its Chat.
 
 #### Scenario: A weekly limit frees the worker
@@ -19,7 +20,7 @@ and no worker MUST execute the Run while it waits. The Run MUST stay the in-flig
 
 ### Requirement: The quota wait covers every request of a Run to its model
 
-A step request MUST enter the quota wait. A summary request of a compaction on the model of the Run
+The quota wait MUST apply to a step request. A summary request of a compaction on the model of the Run
 MUST also enter it. This applies before dispatch, at a step boundary, and in a compaction Run. A summary on another
 model, such as a model-switch compaction, is a side call. A side call MUST NOT make a Run wait.
 
@@ -107,9 +108,10 @@ send streamed. Pending steers and interrupts MUST then reach the Run at its firs
 
 ### Requirement: One request waits at most four times
 
-A woken request that again fails with a reset time more than 60 seconds away MUST wait again. One
+A woken request that again fails with a reset time in the range of the first requirement MUST wait
+again. One
 request MUST wait at most 3 times after its first wait. A fourth such failure MUST end the request
-with its failure class. A request that the model answers MUST reset the count for the next request.
+with its failure class. A send that streams a content part that no `model.superseded` event names MUST reset the count.
 
 #### Scenario: A reset that does not clear
 
@@ -181,8 +183,8 @@ sends its request again.
 
 The latest Run of a Chat MUST carry `errorCode`, equal to `error.code`, and `errorResetsAt`, equal
 to `error.resetsAt`. For a failed Run with an `errorResetsAt`, the web MUST show the local reset
-time with the failure message. It shows them on the failed turn, or on the error row of a
-compaction Run.
+time with the failure message. The web MUST show them on the failed turn, or on the error
+row of a compaction Run.
 
 #### Scenario: A reset beyond the cap
 

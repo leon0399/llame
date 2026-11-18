@@ -17,8 +17,7 @@ Every finalizer of the reply MUST replace the `running` usage with a terminal st
 or more of these conditions are true, and `true` otherwise:
 
 - a model request of the attempt completed without an input or an output token count;
-- a send of a model request of the attempt failed after it streamed a part, and a request retry
-  of `provider-failures` followed it;
+- a `model.superseded` event of `provider-failures` names a send of the attempt;
 - the attempt ended failed, cancelled, or expired, with or without a model request in flight;
 - the recorded terminal status of the Run is not `completed` when the usage is written, and no
   steer delivery of `run-steering` closed the reply;

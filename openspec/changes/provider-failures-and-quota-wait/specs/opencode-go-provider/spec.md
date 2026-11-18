@@ -38,7 +38,7 @@ model.
 The operator runbook MUST record the accepted upstream shapes. A model that
 the gateway's format gate rejects fails with the gateway's "not supported for
 format" message, and the runbook MUST name the remedy. A `GoUsageLimitError`
-with a `Retry-After` makes the Run wait as `quota-wait` defines. The runbook
+with a `Retry-After` can make the Run wait, as `quota-wait` defines. The runbook
 MUST state this, and it MUST state that llame tracks no quota of its own.
 
 #### Scenario: A rejected model surfaces at request time

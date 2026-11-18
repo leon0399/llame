@@ -34,12 +34,15 @@ art and the code facts.
   `min(8 s, 500 ms * 2^n)` and stops after 10 request retries. A stated wait of 60 s or less is
   honored in process. A `rate_limited` hint longer than 60 s fails the request at once.
 - **First-token timeout.** The first window of a request ends at its first text, reasoning,
-  tool-input, or tool-call part; metadata does not count, and llame holds back earlier parts until
-  then. A model entry can set `firstTokenTimeoutSeconds`, and 300 s applies otherwise. Expiry is
-  `first_token_timeout`. A stall after the first content part is `stream_broken`. **BREAKING**: the
-  error code `model_stream_idle` is removed.
+  tool-input, or tool-call part, or at a file, source, or finish part so that an empty reply cannot
+  hang; metadata does not count, and llame holds back earlier parts until then. A model entry can
+  set `firstTokenTimeoutSeconds`, and 300 s applies otherwise. Expiry is `first_token_timeout`. A
+  stall after the first content part is `stream_broken`. llame's own fixed unreadable-event and
+  redirect errors are `unknown` and fail at once. **BREAKING**: the error code `model_stream_idle` is
+  removed.
 - **Broken streams.** A transient failure after the first content part is re-sent unless a complete
-  tool-call part of that send streamed; in that case the Run fails with the class. The re-sent
+  tool-call part of that send streamed; in that case the request fails with its class, and the
+  caller's failure rule applies (a step request fails the Run). The re-sent
   request is the same request. A `model.superseded` Run event marks the parts of the broken send,
   so they leave the Reply, the live view, and model history, and the event log keeps them. The
   attempt's usage is then marked incomplete.
@@ -81,7 +84,7 @@ Decisions from the grilling session of 2026-11-18 (cited as grilling Q):
   accepted this on the condition that no incomplete or unsigned provider data reaches a request. The
   re-sent request carries no part of the broken one, so the condition holds by construction.
 - **grilling Q2 (A).** `rate_limited` gets the transient backoff, and a stated hint is the floor of
-  that retry's delay. A hint that is not authoritative and above 60 s fails the Run at once.
+  that retry's delay. A hint that is not authoritative and above 60 s fails the request at once.
 - **grilling Q3 (A).** One budget of 10 request retries for every transient class. Leo prefers a
   longer hang that gives a provider time to recover: a provider that hangs keeps a Run for about
   11 × 300 s before it fails.
@@ -110,6 +113,11 @@ Assumptions that follow and that Leo did not object to:
 owner-facing field names a provider: `available-models` forbids provider execution ids, and a
 `providers[]` entry has no display name. grilling Q6 resolved this to the model name. Confirm that
 this replaces the ticket's wording.
+
+[#1756](https://github.com/leon0399/llame/issues/1756) Q3 ends the first window at the first text,
+reasoning, or tool-call part. Review round 2 found that a send with only a finish part, such as a
+content-filter stop, would then hold its parts and hang for 11 × 300 s. A file, source, or finish
+part also ends the window. It is not a failure, so no retry follows. Confirm this addition.
 
 ## Capabilities
 
@@ -158,6 +166,9 @@ Deliberately unchanged, with the reading under which each holds:
   status only. `quota-wait` states the rules of `awaiting_quota`.
 - `durable-runs` "One in-flight run per chat (single-flight)": liveness reads the recorded queue
   job, and `quota-wait` records the wake job as that job.
+- `durable-runs` "A redelivered deadline job recovers its Run": it names no status, and a
+  redelivered quota deadline job recovers its Run the same way; `tool-calling` makes that wake a
+  continuation, not a retry.
 - `run-cancellation` "A cancellation ends a Run that waits": it names `awaiting_jobs`;
   `quota-wait` adds the same rule for `awaiting_quota`.
 - `model-system-prompts` "A failed compaction Run fails" and "A failed step-boundary compaction

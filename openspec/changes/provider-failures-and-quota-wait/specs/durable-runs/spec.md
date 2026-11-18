@@ -28,9 +28,9 @@ the mechanisms below. These mechanisms cover the failure modes:
   part, a request can give no streamed part for 300 seconds. The worker MUST then abort it as
   `stream_broken`. The watchdog MUST measure only the time that the worker waits on the response
   of the model. The time of tool execution MUST never count. The request retries of
-  `provider-failures` then apply. When they end without success, the worker MUST record the Run as
-  terminally failed. The failure class MUST be the error code of the Run and of its `run.failed`
-  event.
+  `provider-failures` then apply. When they end without success, the failure rule of the caller applies. A failed step request
+  MUST make the worker record the Run as terminally failed. The failure class MUST then be the
+  error code of the Run and of its `run.failed` event.
 - **Worker-death recovery**: the worker of the Run can die or hang and stop its liveness signal.
   The `job-queue` substrate MUST then detect the job of the Run as stalled (see its native
   worker-liveness requirement) and retry it. Thus a healthy worker executes the Run again, and the
@@ -124,7 +124,7 @@ is not a deadman job either.
 
 The final assistant message of a Run MUST be an ordered projection of the reasoning, text, and tool
 activity that the durable run-event log holds. It MUST NOT put all reasoning before the tools or
-all text after the tools. It MUST NOT hold a part of a request that a `model.superseded`
+all text after the tools. It MUST NOT hold a part of a send that a `model.superseded`
 event of `provider-failures` names. A partial message persisted after a model error MUST keep the same order
 for each part observed before the failure.
 
@@ -153,7 +153,7 @@ pickup failure, and expiry by a new message are also such settlers. A later atte
 its own dispatch is also such a settler. Such a settler MUST rebuild the reasoning, text, and tool
 parts only from the events of the attempt that the usage of the message names. That window starts
 at the `model.requested` of that attempt and ends at the `run.started` of the next attempt. The rebuild MUST skip the
-parts of each request that a `model.superseded` event names. Thus a
+parts of each send that a `model.superseded` event names. Thus a
 settler that never dispatched finalizes the message of the attempt that did. For a Continue Run
 from `turn-actions`, the rebuild MUST start with the kept parts of its `run.continued` event, then
 add the parts of the window. Such a rebuild MUST place each stored in-Run item of the Run itself
@@ -325,7 +325,7 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 - **WHEN** the worker dies in the second segment after one tool step, and a settler without the collector finalizes the Run
 - **THEN** the reply of the second segment holds only the parts of the events after the latest `run.delivered`
 
-#### Scenario: A superseded request leaves the reply
+#### Scenario: A superseded send leaves the reply
 
 - **WHEN** a request streams text, breaks, and its request retry streams a full reply
 - **THEN** the final assistant message holds only the parts of the request retry

@@ -103,7 +103,8 @@ Each wire client builds a `ProviderFailure` (an `Error` with `code` = failure cl
 sanitizer runs. The sanitizer keeps these fields and replaces only the message. `code` survives
 redaction (`CLASSIFICATION_KEYS`), and numeric fields are never rewritten. A failure that reaches
 `RunExecutionService` without a `ProviderFailure` is `unknown`. A caller with its own code
-(`ModelContextExecutionError`) keeps it.
+(`ModelContextExecutionError`) keeps it. The compaction Run settlement
+(`compaction-run.service.ts:207-216`) writes `code` and `resetsAt` like `RunExecutionService`.
 
 Rejected: classifying in `RunExecutionService` from the message (Codex and Anthropic drop the body
 first) and a second error channel beside the thrown error (two sources of truth).
@@ -115,16 +116,26 @@ OpenRouter on Responses), `classify-completions.ts` (OpenAI-compatible, OpenRout
 `classify-anthropic.ts`, and a shared `reset-signals.ts`. Each is a pure function from status,
 parsed body, headers, and in-stream error to a `ProviderFailure`.
 
-Precedence: body code, then in-stream error type, then HTTP status, then transport. The body code
-wins because the Responses adapter reports an unrecognized pre-output error frame as status 500
-(`@ai-sdk/openai` 3.0.97, near `createOpenAIStreamError`), so a Codex `usage_limit_reached` frame
-would otherwise be retried as `server_error`. A numeric OpenRouter in-stream `error.code` is read as
-the status.
+Precedence: body code, then in-stream error type, then HTTP status, then transport. The body code is
+`code`, `type`, and `details.error_code`, parsed from the raw `responseBody` or the error part. It
+wins because both adapters invent a status: the Responses adapter's `getStatusCode` is a substring
+heuristic that defaults to 500 (`@ai-sdk/openai` 3.0.97 `dist/index.js:176-205`), and the Anthropic
+adapter throws a first-chunk SSE error as status 500 for every type but `overloaded_error`
+(`@ai-sdk/anthropic` 3.0.118 `dist/index.js:5376-5392`). For an in-stream error, headers come from
+the send's `doStream` `response.headers`, which the middleware keeps per send. On a Responses
+pre-output frame the schema strips `resets_at` and `metadata` (`openai` `:3731-3799`), so an in-stream
+Codex reset comes only from the `x-codex-*-reset-at` headers. A numeric OpenRouter in-stream
+`error.code` reaches the classifier only on Chat Completions, which maps the number itself.
+
+Provider-keyed rules (Codex, OpenCode Go, OpenRouter) live in `reset-signals.ts` and a shared
+`provider-rules.ts`. Every wire classifier applies them for the client's `provider`, because a Go
+model also runs on the Responses and Messages wires (`opencode-go-model-client.ts:86-103`). Each
+rule gets a fixture per wire it can run on.
 
 | Signal (first match in precedence order)                                                                                                                                                                                     | Class              |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | Codex `usage_limit_reached`; `GoUsageLimitError`; OpenRouter budget `limit_source` with non-null `resets_at`; Anthropic `enforced_spend_limit_reached`; OpenAI `*_spend_limit_exceeded`, `organization_usage_limit_exceeded` | `quota_exhausted`  |
-| `insufficient_quota`, `credit_balance_exhausted`, `usage_not_included`; OpenRouter `openrouter_credits`, `openrouter_key_limit`, a budget with `resets_at: null`                                                             | `billing`          |
+| `insufficient_quota`, `credit_balance_exhausted`, `usage_not_included`; OpenRouter `openrouter_credits`, `openrouter_key_limit`, a budget with `resets_at: null`; a bare 402                                                 | `billing`          |
 | OpenRouter `openrouter_in_flight_budget` (wins over 402); Anthropic `rate_limit_error`; `rate_limit_exceeded`, `slow_down`; other 429                                                                                        | `rate_limited`     |
 | `overloaded_error`; 503, 529                                                                                                                                                                                                 | `overloaded`       |
 | Anthropic `api_error`; 408, 500, 502, 504                                                                                                                                                                                    | `server_error`     |
@@ -132,10 +143,14 @@ the status.
 | a context-length code; Anthropic 400 `invalid_request_error` whose message starts with "prompt is too long"; 413 `request_too_large`                                                                                         | `context_overflow` |
 | a content-policy code                                                                                                                                                                                                        | `content_policy`   |
 | other 400, 422                                                                                                                                                                                                               | `invalid_request`  |
-| 401, 403 without a budget or plan code                                                                                                                                                                                       | `auth`             |
+| 401, 403 without a budget or plan code; Go `MonthlyLimitError` (401, unverified)                                                                                                                                             | `auth`             |
+| the fixed unreadable-event and redirect errors of `provider-api-selection`                                                                                                                                                   | `unknown`          |
 | transport failure with no response, or a socket error after the headers and before content                                                                                                                                   | `unreachable`      |
 
-The Anthropic overflow row reads the message, because neither the status nor the type decides
+Matching of the Go codes ignores case, as OpenCode does (`gousagelimiterror`). OpenAI
+`*_spend_limit_exceeded` and `organization_usage_limit_exceeded` state no reset field, so as
+`quota_exhausted` without `resetsAt` they fail at once; no inferred reset is added. The Anthropic
+overflow row reads the message, because neither the status nor the type decides
 between `invalid_request` and `context_overflow`. The research note on `research/provider-reset-signals`
 holds the field sources; implementation re-reads them and copies no file from that branch.
 
@@ -148,16 +163,22 @@ the model in the structured builders (`generateToolBoundObject` at `openai-model
 `anthropic-model-client.ts:466`), so titles and structured generation get the same rules.
 
 Per send, the stream middleware arms the first window (`firstTokenTimeoutSeconds` or 300 s). It
-holds back every part until the first `text-delta`, `reasoning-delta`, `tool-input-start`, or
-`tool-call` part, then releases them in order and arms the 300 s stall window on every later part.
+holds back every part until the first non-empty `text-delta` or `reasoning-delta`, or a
+`tool-input-start`, `tool-call`, `file`, `source`, or `finish` part. It then releases them in order
+and arms the 300 s stall window on every later part. An empty `reasoning-delta` that carries only a
+signature is metadata.
 Before that release, a retry is invisible: the middleware drops its held parts, sleeps the jittered
 or stated delay, reports `model.retrying` through a callback on `ModelStreamInput` (only the Run's
 own requests pass one), and calls `doStream` again. The SDK never sees the failure, and
 `onStepStart` does not run twice. The middleware tracks the complete `tool-call` parts of its own
 send, because `ToolCallGate` spans several sends.
 
-A failed send reports no usage, because `onRequestUsage` fires only on a `finish` part
-(`request-usage.ts:87-96`). The `run-usage-accounting` delta marks such an attempt incomplete.
+Request recovery is installed before `applyRequestUsageCallback`, so it is the inner wrapper and
+the usage wrapper sees one combined stream per request. The Responses and openai-compatible
+adapters emit `finish` in `flush` even after an error (`openai` `dist/index.js:6878-6893`,
+`openai-compatible` `:894-957`); recovery drops the `finish` of each failed send and forwards only
+the final send's. A failed send therefore reports no usage on every wire, and the
+`run-usage-accounting` delta marks an attempt with a superseded send incomplete.
 
 ### D4: A failure after released parts restarts the step
 
@@ -166,16 +187,26 @@ messages of the next step. A transient failure after released parts, with no com
 part, therefore ends the stream with the `ProviderFailure`, a `superseded` flag, and the retry number
 `n` so far.
 
-- **Anchor.** At each send start the middleware records the next event sequence of the Run.
-  `model.superseded { fromSequence }` names that sequence. The finalizer, the rebuild, and the live
-  client drop each part event from `fromSequence` to the `model.superseded` event.
+- **Anchor.** The middleware has no event access, and sequences are assigned at insert through the
+  serialized `enqueueEvent` chain (`run-execution.service.ts:2331-2375`). A send that writes events
+  is always the last send of its step, because held parts write none and a failure after release
+  ends the step. So `onStepStart`, after its flushes, enqueues a chain step that stores
+  `sendStartSequence = max(sequence) + 1`. `model.superseded { fromSequence, step }` carries that
+  value and is appended through the same chain after the `onError` flushes. The window holds only
+  the part events (`model.delta`, `reasoning.delta`) of that step.
+- **Live view.** `run-stream-bridge.ts` maps each part event to the UI part id it opened. On
+  `model.superseded` it closes the open text and reasoning parts and emits one
+  `data-superseded { partIds }` chunk for the UI parts opened at or after `fromSequence`. The web
+  `useChat` `onData` handler removes those parts. Reload replay emits the same chunk in order.
 - **Settlement gate.** `onError` sets `stopCause = 'superseded'` and `nextCall`. `onFinish` returns
-  before any terminal write, as it does for `stopCause === 'suspend'`
-  (`run-execution.service.ts:4489-4504`).
+  right after `closeSegment()` (`run-execution.service.ts:4446`), before the text append at `:4463`,
+  which would otherwise add the broken text back.
 - **Restart.** `nextCall` is
   `callStream([...callMessages, ...projectStoredReplyParts(collector.slice(partsBefore)).messages],
   stepBase + brokenStepNumber)` with the retry number carried in, the pattern of the interrupt and
-  withdrawal restarts. `partsBefore` is the collector length at the broken step start.
+  withdrawal restarts. `partsBefore` keeps its meaning, the collector length at the `callStream`
+  start (`:3697`), so steps 0 to k-1 of the call stay in the request. The broken output is removed
+  from the collector from `stepResultStart` (`:4050`) first.
 - **What is dropped.** Only the model output parts of the broken send: reasoning, text, and tool
   input. The in-Run context items that its `onStepStart` committed stay in the collector, and the
   restart does not stage them again. `streamedText`, `firstOutputDeltaMs`, `outputDeltaCount`, and
@@ -185,13 +216,14 @@ Rejected: buffering parts in the middleware until the send ends (it removes live
 keeping the partial parts (grilling Q1 B).
 
 The first task of the `broken-streams` layer is a spike that proves the restart against the scripted
-model client before the event and web work.
+model client, with a break at step 0 and at a step k of 1 or more, before the event and web work.
 
 ### D5: The quota wait reuses `awaiting` as a tagged union
 
 `runs.awaiting` becomes `{ kind: 'jobs', … } | { kind: 'quota', failureClass, resetsAt, wakeAt,
-resumeAt }`. `resumeAt` is `request`, `preDispatch`, `boundary`, or `compactionRun`: the point where
-the woken attempt picks up.
+resumeAt }`. `resumeAt` is `request`, `preDispatch`, `boundary`, `finalAnswer`, or
+`compactionRun`: the point where the woken attempt picks up. Event payloads without `kind` are job
+suspensions; only `runs.awaiting` is backfilled.
 
 - **Migrations.** One generated migration adds the value with
   `ALTER TYPE "public"."run_status" ADD VALUE 'awaiting_quota' BEFORE 'completed'`. A second,
@@ -200,15 +232,23 @@ the woken attempt picks up.
   `apps/api/src/db/AGENTS.md` requires. Both run in one transaction (`migrate.ts:28-43`); neither
   uses the new value, and no later migration in the same batch may.
 - **Entry.** `RunWaitService.suspendForQuota` writes the status, `awaiting`, the generation, the
-  deadline job, and a `run.suspended { kind: 'quota', failureClass, resetsAt, wakeAt, parts, steps }`
-  in one attempt-fenced transaction. The checkpoint holds the parts and steps without the failed
-  send. A quota failure after released parts first appends `model.superseded`, as in D4.
+  deadline job, and a `run.suspended { kind: 'quota', attemptId, generation, failureClass, resetsAt,
+  wakeAt, parts, steps }` in one attempt-fenced transaction. `attemptId` serves
+  `suspendedByThisAttempt` (`:3615-3622`), and `generation` pairs the event with its `run.resumed`
+  (`wake-projection.ts:143-157`). The checkpoint holds the parts and steps without the failed send.
+  After the commit, `onError` sets `stopCause = 'suspend'`, and `onFinish` returns at the D4 gate. A
+  quota failure after released parts first appends `model.superseded`, as in D4.
 - **Compaction.** `summarizeCheckpoint` rethrows a `ProviderFailure` that needs a quota wait
-  instead of returning `null`. Each caller suspends with its `resumeAt`. `enqueueRun` gets a path
-  for a Run with no `messageId`, which a compaction Run needs.
+  instead of returning `null`, and so does the catch in `prepareBoundaryCompaction`
+  (`run-execution.service.ts:7248-7264`). The callers map to `resumeAt`: `deliverAtBoundary`
+  (`:3770`) to `boundary`, the final-answer compaction in `settleRun` (`:4573-4592`) to
+  `finalAnswer`, and `deliverWakeCompaction` (`:7417`) and the pre-dispatch trigger (`:7552`) to
+  `preDispatch`. `enqueueRun` gets a path for a Run with no `messageId`, which a compaction Run
+  needs.
 - **Consumers that branch on `kind`.** `run-wait-completion.ts:17-48,104-121`,
-  `wake-projection.ts:29,143,156-195`, `run-execution.service.ts:1661-1682,3615`, and the D7 budget
-  sum.
+  `wake-projection.ts:29,143,156-195`, `run-execution.service.ts:1661-1682,3615`,
+  `run-reply-finalizer.ts:452-475` (`wakeReplyRecovery`, which must use the quota projection so a
+  settler without the collector keeps the pre-wait parts), and the D7 budget sum.
 
 Rejected: a new column (#1776 Q5 settled reuse) and a generic waiting status with a cause (#1776
 Q5).
@@ -226,15 +266,20 @@ Sites that change:
 - `pickupJob` (`runs-worker.service.ts:226`) wakes both statuses on the deadline job; the drain
   check (`:505-513`) accepts both; `claimableRunPredicate` (`run-status.ts:89`) excludes both.
 - `runs.controller.ts:157` wakes both on cancellation.
-- `chat-admission.ts:177`, `job-notices.ts:19`, and `wakeForChatInTransaction` skip
-  `awaiting_quota`, so a steer, an interrupt, or a notice stays pending.
+- `notifyLiveRunSteering` (`chat-admission.ts:177-187`) returns early for `awaiting_quota`, and
+  the inverted check in `job-notices.ts:19` sends no steer signal to it. `wakeForChatInTransaction`
+  skips it because `lockChatAwaitingRun` (`run-wait.service.ts:497-513`) stays `awaiting_jobs`-only;
+  do not widen that query. A steer, an interrupt, or a notice therefore stays pending.
 - `claimRun` gets a quota branch: it clears `awaiting` under the attempt fence, appends no tool
   result, and rebuilds with a `quotaWakeStateFromEvents` that restores the checkpoint parts and
   steps. It then resumes at `resumeAt`: `request` calls `callStream`, `preDispatch` runs preparation
-  again, `boundary` runs the boundary compaction and delivery, and `compactionRun` sends the summary.
+  again, `boundary` runs the boundary compaction and delivery, and `finalAnswer` runs the boundary
+  summary and settles `completed` with the checkpoint. For a compaction Run, the branch returns no
+  wake state and needs no checkpoint parts; `CompactionRunService` plans again.
 
-The wait count is the number of quota `run.suspended` events since the last request of the Run that
-the model answered. The first wait is 0; a failure that would make it 4 ends the request.
+The wait count is the number of quota `run.suspended` events after the latest part event
+(`model.delta`, `reasoning.delta`, or `tool.requested`) that no `model.superseded` event names. A
+failure ends the request when 4 such events already exist.
 
 ### D7: The budget excludes quota waits by events
 
@@ -248,16 +293,17 @@ deadline for its abort timer.
 The `quota-wait` layer adds `awaiting_quota` to the DTO enums and regenerates OpenAPI, the orval
 models, and both `live-protocol.ts` copies, because the web parses `run.updated` with a strict
 `z.enum`. The same layer adds `awaiting_quota` to the status reducer (`active-run-queries.ts:62`)
-and both sidebar checks, and makes Stop cancel a quota wait.
+and both sidebar checks. `stopOrInterrupt` (`use-chat-delivery.ts:403-419`) calls
+`cancelRun(latestRun.id)` when `latestRun.status === 'awaiting_quota'`, before its steer branch.
 
 The `quota-wait-web` layer adds `quotaWait: { failureClass, resetsAt, wakeAt } | null` to
 `RunResponse`, `ChatLatestRunResponse`, and `ActiveRunResponse`. It adds `errorCode` and
 `errorResetsAt` to `ChatLatestRunResponse`; they mirror `error.code` and `error.resetsAt` and are
 null unless the Run failed. The `run.failed` SSE chunk keeps `errorText`.
 
-The web adds a `QuotaWaitNotice` in the `pending` slot of `ChatComposer` where `PendingDeliveries`
-renders (`chat-page.tsx:415`, `chat-composer.tsx:451-459`). It reads "_Model name_ usage limit
-reached", then "Sends again at _local time_ · in _countdown_", and has a Stop button bound to
+The web adds a `QuotaWaitNotice` in the `pending` slot of `ChatComposer`, above `PendingDeliveries`
+(`chat-page.tsx:415`, `chat-composer.tsx:451-459`). It reads "_Model name_ usage limit reached" for
+`quota_exhausted` or "_Model name_ rate limit reached" for `rate_limited`, then "Sends again at _local time_ · in _countdown_", and has a Stop button bound to
 `cancelRun`. The countdown ticks each second under one hour and each minute above it. After `wakeAt`
 it reads "Sending again…". The retry line replaces the "Thinking…" shimmer with "Retrying after
 _label_ (n/10)", where the label maps each class to plain words, such as `overloaded` to "provider
@@ -266,8 +312,10 @@ when `errorResetsAt` is set.
 
 ### D9: Side calls
 
-Title generation and structured generation run through the `wrapGenerate` variant, and hosted web
-search through the stream middleware. None passes a `model.retrying` callback. A reset time above
+Title generation and structured generation run through the `wrapGenerate` variant, except on
+Codex, whose client has no structured builder (`generateObject: false`), so its titles use
+`streamText` (`title.service.ts:191`) and the stream middleware. Hosted web search also uses the
+stream middleware. None passes a `model.retrying` callback. A reset time above
 60 s fails them. `model-hosted.ts` maps the class to an engine class in place of its status switch.
 A model-switch compaction on the earlier model is a side call, and its failure keeps the canonical
 code `context_incompatible`.
@@ -293,6 +341,10 @@ and `worker-harness.ts`. `firstTokenTimeoutSeconds` reaches the client config th
 - [The removal of `model_stream_idle` breaks a consumer that matches it] → no web or live code reads
   it; the changelog names the removal.
 - [A superseded send was billed] → its usage is unknown, and the attempt usage is marked incomplete.
+- [An attached tab polls the Run row for up to 8 days, two queries per `POLL_MS`] → the bridge backs
+  its poll off to a keepalive while the Run is `awaiting_quota`.
+- [A content-filter or empty finish ends the first window] → it is not a failure, so no retry runs;
+  #1756 Q3 names only content parts, and the finish part is added so such a send cannot hang.
 
 ## Threats
 
@@ -333,3 +385,18 @@ None. Each grilling decision is recorded in the proposal.
   `model.retrying` scope, and a long hint failing only `rate_limited` were tightened. The `quota-wait`
   layer now regenerates the enums and ships the sidebar and Stop; compaction waits move to their own
   layer. Rejected: none.
+- **v3 (2026-11-18):** Review round 2. Spec review: 0 P0, 7 P1, 14 P2. Feasibility review: 1 P0,
+  9 P1, 10 P2. Fixes: the D4 restart keeps `partsBefore` at the `callStream` start and removes the
+  broken output from `stepResultStart`; the `onFinish` gate moves before the text append; the anchor
+  moves into the `onStepStart` event chain; a `data-superseded` bridge chunk drops live parts;
+  recovery sits inside the usage wrapper and drops the `finish` of failed sends; the quota
+  `run.suspended` payload carries `attemptId` and `generation`; `finalAnswer` joins `resumeAt`, and
+  the `prepareBoundaryCompaction` catch rethrows; web Stop cancels a quota wait before its steer
+  branch; provider-keyed rules apply on every wire; D2 names where the body code and headers come
+  from and adds rows; `wakeReplyRecovery` uses the quota projection; the wait count reads part
+  events. Spec: the projection says "send"; a started tool call blocks the quota wait; a finish,
+  file, or source part ends the first window; the tool-call rule and the watchdog defer to the
+  caller rule; llame's bounded errors are `unknown`; the compaction Run writes its class; the wire
+  deltas say "can make the Run wait"; new scenarios for the live drop, a title retry, a switch
+  compaction, a compaction Run on `auth`, and a usage limit after a tool call. Not converged: this
+  was the last round Leo asked for before the draft PR, and it still changed substance.
