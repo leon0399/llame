@@ -209,7 +209,7 @@ grounded answer is then attached to the aggregate's output (see
 [Aggregate](#aggregate)). Each call is a separate bounded sub-request carrying
 only packaged search instructions, the query, a recency phrase when `recency`
 is set, a `Goal:` line when `objective` is set, and the provider's search
-tool—never chat history or other Run context. A configured `{session:id}` header (by default
+tool—never Chat history or other Run context. A configured `{session:id}` header (by default
 `X-Session-Id`, except on Codex, which has no default) renders as
 `search:<chatId>`.
 
@@ -524,8 +524,8 @@ The only query-exfiltration control is a `query` or `objective` reject clause in
 
 ## Storage and provider terms
 
-A completed call stores normalized results/answer in the chat's `web_search` tool part as conversation context, not raw vendor payload or request metadata. The part replays as the live loop sent it and is omitted from public chat shares like other protected parts.
-Provider terms constrain this storage. Brave Search API terms prohibit storing/caching results beyond transient operational use. Exa's terms prohibit copying/archiving results except a temporary cache; normalized chat storage may exceed that allowance.
+A completed call stores normalized results/answer in the Chat's `web_search` tool part as conversation context, not raw vendor payload or request metadata. The part replays as the live loop sent it and is omitted from public shares like other protected parts.
+Provider terms constrain this storage. Brave Search API terms prohibit storing/caching results beyond transient operational use. Exa's terms prohibit copying/archiving results except a temporary cache; normalized Chat storage may exceed that allowance.
 Perplexity grants display rights without an archive grant, so retaining normalized results is not automatically permitted. SearXNG is self-hosted, but the upstream engines' terms still apply.
 DeepSeek documents no retention period for search queries or results, and its
 privacy policy stores personal data in the People's Republic of China.

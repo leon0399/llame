@@ -75,7 +75,7 @@ the store, and its routes are described in [Media](../../operator/media.md).
 The web chat shows each stored image as a thumbnail of its
 [model variant](../../operator/media.md#model-variant): an image attached to
 your message above its bubble, a `media://` `read` result in its tool card,
-and a `media://` [prompt import](../prompt-imports.md). A fork of your chat
+and a `media://` [prompt import](../prompt-imports.md). A fork of your Chat
 references the same images, so its thumbnails show them too.
 
 An image `read` or imported from any other locator is not stored. Its tool

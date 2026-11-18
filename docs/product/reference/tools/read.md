@@ -168,7 +168,7 @@ the requested URL. The bytes still decide the format, `:raw` is refused like any
 selector, and `image/svg+xml` stays text; see
 [web](../locators/web.md#behavior).
 
-The decoded model variant stays in the chat row beside the result. A model that
+The decoded model variant stays in the Chat row beside the result. A model that
 declares image input receives the image with the result in that attempt's later
 steps, and in every later request of the epoch — a later turn, a retry or
 resume, a Continue, a compaction, or an owner fork — as the epoch image window
@@ -197,7 +197,7 @@ An [`http(s)://`](../locators/web.md#behavior) page declaring
 20 MiB; it is also unstored and takes no selector.
 
 The worker validates the original without storing it. The original stays in the
-chat row beside the result, so a model that declares PDF input receives its
+Chat row beside the result, so a model that declares PDF input receives its
 bytes in the reading attempt's later steps, and in every later request of the
 epoch — a later turn, a retry or resume, a Continue, a compaction, or an owner
 fork — under the shared [media window](../../operator/media.md#media-window).

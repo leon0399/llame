@@ -37,7 +37,7 @@ The map of every context surface is [context documents](context-documents.md).
   the root, the next model step carries a `git` item after the tool result. After
   a same-root re-entry it carries one only when the text changed. The tool
   result itself holds no git state.
-- A compaction starts a new context epoch with no `git` item, so the next request
+- A compaction starts a new compaction epoch with no `git` item, so the next request
   tells the state again. The compaction summary does not carry the item's
   content.
 - A fork keeps what its history told. A retry that replaces a reply compares

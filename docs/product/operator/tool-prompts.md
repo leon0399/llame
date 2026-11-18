@@ -53,7 +53,7 @@ Keys must name a registered llame-owned tool id. An MCP id, a wildcard, or a
 typo fails startup of the process that reads the files.
 
 Paths are literal host paths — `{env:...}` and `{path:...}` interpolation does
-not apply, because the resolved description is visible to chat owners. A
+not apply, because the resolved description is visible to Chat owners. A
 relative path resolves against the directory of the active config file;
 an absolute path stays absolute. Line endings are normalized and trailing
 whitespace is trimmed, so an override that reduces to nothing is an error rather
@@ -75,7 +75,7 @@ sanitized before projection.
 | `{{context.systemTime}}`, `{{context.systemTimezone}}`                                                                     | Temporal anchor — always present    |
 
 These paths render empty when a value is absent (no digest baseline for this
-chat, nothing configured on the owner), so `{{#if user.name}}…{{/if}}` is
+Chat, nothing configured on the owner), so `{{#if user.name}}…{{/if}}` is
 expressible. Any other path fails validation instead of rendering empty.
 
 ### Conditionals
@@ -87,7 +87,7 @@ never be emitted as a value:
 - `user.personalization` — true when any authored field would render.
 - `chats`, `chats.pinned`, `chats.recent` — true when that digest content is
   present.
-- `skills` — true when the chat's frozen skill catalog admits at least one
+- `skills` — true when the Chat's frozen skill catalog admits at least one
   skill. System-prompt templates only: a tool description never receives the
   catalog, so `{{#if skills}}` is always false there.
 - `webSearch` — true when the instance configures a `webSearch` section.
@@ -108,7 +108,7 @@ Predicates are conditional-only and exact: `{{tools.read}}`, `{{#if tools}}`,
 `tools.constructor`.
 
 Owner and digest values resolve per attempt; nothing rendered is shared between
-attempts, owners, or chats.
+attempts, owners, or Chats.
 
 ### Iteration
 
@@ -118,7 +118,7 @@ and nothing else. A loop's `{{else}}` arm renders when the collection is absent.
 Iteration does not nest.
 
 A system-prompt template can also iterate `{{#each skills.entries}}`: the
-chat's frozen skill catalog, in catalog order, where an entry exposes `{{name}}`
+Chat's frozen skill catalog, in catalog order, where an entry exposes `{{name}}`
 and `{{description}}` and nothing else, and `{{#if skills.omitted}}` gates an
 overflow count. Tool descriptions never receive that collection.
 

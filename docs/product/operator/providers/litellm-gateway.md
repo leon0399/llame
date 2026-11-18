@@ -38,7 +38,7 @@ the proxy did not relay it; compare the server's own response to tell which.
 
 ## Reasoning effort
 
-The run's effort is sent as the top-level `reasoning_effort` field. vLLM passes
+The Run's effort is sent as the top-level `reasoning_effort` field. vLLM passes
 it to the model's chat template, so the accepted values are whatever that
 template accepts rather than a fixed list, and two models behind the same
 gateway can accept different values. Declare them in the model entry's
@@ -83,8 +83,8 @@ separate model entry.
 ## Failures
 
 A failed request follows the Chat Completions failure contract: the gateway's
-parsed error message is the run's failure, the response body and headers stay
+parsed error message is the Run's failure, the response body and headers stay
 out of every surface, and a configured credential the gateway echoes is
-replaced with `[REDACTED]` before it reaches the run's stored error, its
+replaced with `[REDACTED]` before it reaches the Run's stored error, its
 terminal event, or the log line. A caller that supplies no error handler, such
 as compaction, logs only that redacted failure.

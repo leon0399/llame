@@ -22,7 +22,7 @@ a new one from the user message alone.
 An owner starts a follow-up Run with `POST
 /api/v1/chats/:chatId/messages/:userMessageId/runs` and
 `{"action": "continue"}` or `{"action": "regenerate"}`. The answer is the same
-UI-message stream a chat send returns, and its first frame names the new Run's
+UI-message stream a Chat send returns, and its first frame names the new Run's
 id.
 
 The route accepts only the latest user message of a Chat that is not archived.
@@ -36,8 +36,8 @@ still expires a stuck Run of the Chat, exactly as a chat send does.
 - A malformed body answers 400. Continue refuses `modelId` and `effort`,
   because it takes both from the Run it continues. Regenerate requires
   `modelId` and accepts `effort`.
-- A model, an effort, or a permission mode that a chat send cannot use answers
-  with the error that chat send gets. An absent mode means `default`.
+- A model, an effort, or a permission mode that a Chat send cannot use answers
+  with the error that Chat send gets. An absent mode means `default`.
 
 ## When Continue applies
 
@@ -47,7 +47,7 @@ usage status is not `completed`. Any other state answers 409. A turn whose Run
 never dispatched left no reply, so it cannot be continued either.
 
 The new Run keeps the model and the effort of the Run it continues. Both pass the
-chat-send checks again, so a model that the operator has since removed is
+Chat-send checks again, so a model that the operator has since removed is
 reported before any write.
 
 ## What is kept
@@ -139,7 +139,7 @@ no second one is authored.
 Regenerate starts when the message's latest Run is terminal, whatever its
 status, and whether or not it left a reply. A Run that failed at pickup leaves
 no reply, and that turn needs Regenerate most. The new Run uses the model, the
-effort, and the permission mode the request names, and each passes the chat-send
+effort, and the permission mode the request names, and each passes the Chat-send
 checks before anything is written.
 
 The first request starts from the history through the triggering user message,

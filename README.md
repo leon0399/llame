@@ -10,7 +10,7 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 
 - Multi-user with opaque sessions, RLS-enforced tenant isolation, and
   organizational identity.
-- Durable chat Runs via pg-boss. Progress persists and replays after refresh or
+- Durable Chat Runs via pg-boss. Progress persists and replays after refresh or
   reconnect.
 - Operator-managed providers, models, and per-model system prompts in
   `llame.config.jsonc`. Provider accounts share credentials and endpoints;
@@ -18,14 +18,14 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   override. OpenRouter can serve chat, embeddings, decisions, and reranking
   through one account. Codex and OpenCode Go retain fixed subscription
   destinations.
-- Owner-only Projects for organizing chats, with pinning and reversible archive.
+- Owner-only Projects for organizing Chats, with pinning and reversible archive.
 - Bounded tool loop: `search_conversations`, optional line-ranged
   `conversation_read`, and operator-configured MCP tools authorized by the
   instance permission policy.
 - Owners select a per-Run `default`, `read-only`, or `bypass` permission mode
   from a control beside the prompt input when the operator exposes more than one
   through ordered `tools.permissionModes` (default `["default"]`); the choice
-  applies to the sending chat only and is never persisted. `read-only` admits
+  applies to the sending Chat only and is never persisted. `read-only` admits
   only reads and plain Workspace entry or exit, and leaves egress under the
   operator policy. A bypassed Run's usage badge carries a `Bypass` segment.
 - Optional native host file tools: selector-based `read`, exact `edit`, and
@@ -48,8 +48,8 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
 - Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
   (including uncommitted changes), plus `kb://` reads, edits, and writes
   through the native file tools, operator-configured and allowlisted.
-- Optional owner-scoped chat recency digests: an owner opts in to send a bounded
-  list of their other chats' titles and opening excerpts to the configured
+- Optional owner-scoped Chat recency digests: an owner opts in to send a bounded
+  list of their other Chats' titles and opening excerpts to the configured
   provider.
 
 Not yet shipped: llame-owned Git history for Knowledge (commits run through
@@ -148,7 +148,7 @@ upgrading, or the extension migration fails.
 tool descriptions are replaceable through `tools.promptFiles` and
 `models[].toolPromptFiles`; omitting either uses the packaged default. Relative
 paths resolve from the active config file, invalid overrides fail startup
-without fallback, and prompt contents must be safe for the chat owner to
+without fallback, and prompt contents must be safe for the Chat owner to
 inspect. Each attempt that reaches prompt preparation binds an immutable
 system-prompt-only receipt; tool declarations and rendered descriptions stay in
 worker memory, so a receipt is not a record of the descriptions the model was
@@ -172,7 +172,7 @@ first: client invariants (the `openai-responses` wire always sends
 `forceReasoning: true`; the Codex client always sends
 `reasoningSummary: 'auto'`; the Messages client always sends
 `sendReasoning: true` and, on every request that carries adaptive thinking,
-the drop-on-prefix-mismatch instruction), the run's resolved effort when the
+the drop-on-prefix-mismatch instruction), the Run's resolved effort when the
 model declares `reasoning`, the entry's object, then per-request defaults (the
 Responses client defaults `reasoningSummary: 'auto'` on streaming and
 compaction and sends none on structured generation; the Messages client
@@ -228,7 +228,7 @@ thinking tokens counted against it, and it warns when an unrecognized
 manual thinking budget to it silently. An adapter may adjust the value as it
 documents — for example lowering one above a ceiling it knows for a recognized
 model, warned only when the entry declared the limit —
-and the warnings it emits surface in the run. This field caps provider output;
+and the warnings it emits surface in the Run. This field caps provider output;
 the top-level `runs.maxOutputTokens` remains an admission reserve and does not.
 Like `providerOptions`, it is server-only and never returned by
 `GET /api/v1/models`.
@@ -260,7 +260,7 @@ gateway whose vocabulary is not Anthropic's cannot be driven through this
 option — while an operator `effort` on an entry that declares no `reasoning`
 is forwarded as written. The adapter may also lower `xhigh`/`max` to `high`
 with a warning when thinking is disabled on a model it knows rejects that
-combination; the run surfaces the warning and nothing is retried or rewritten.
+combination; the Run surfaces the warning and nothing is retried or rewritten.
 Prompt caching is the other default: every request carries the top-level
 ephemeral cache control with the provider's 5-minute lifetime, the provider
 places and moves the breakpoint itself, and llame authors no block-level
@@ -281,12 +281,12 @@ The web usage panel shows the count as an `of which cache write` row beneath
 Input, the way cached input is shown.
 
 `shareRecentChats` defaults off. Enabling sends a frozen, capped digest of the
-owner's other chats' titles and opening excerpts to the configured provider;
-retroactive over existing eligible chats. Disabling stops new baselines,
+owner's other Chats' titles and opening excerpts to the configured provider;
+retroactive over existing eligible Chats. Disabling stops new baselines,
 re-bakes, and updates, but does
-not remove a digest already bound to another chat; deleting a source chat is not
+not remove a digest already bound to another Chat; deleting a source Chat is not
 erasure from those existing prompts or receipts. The digest is framed as
-untrusted data and has no chat identifiers. Compaction excludes the digest from
+untrusted data and has no Chat identifiers. Compaction excludes the digest from
 checkpoints by instruction, not structural enforcement.
 
 MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in

@@ -24,7 +24,7 @@ tool's `kb://<knowledgeSpaceId>/<path>[:selector]` locator instead. See
 
 An allowlisted `knowledge_read` entry now fails boot; remove it from
 `tools.allowed` before upgrading. Historical `knowledge_read` observations and
-stored results in existing chats keep their original shape and attribution,
+stored results in existing Chats keep their original shape and attribution,
 and no attempt admits the deleted tool.
 
 ## Configuration and ownership

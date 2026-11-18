@@ -51,6 +51,13 @@ rules:
       requirement below 500 characters, or divide it into two requirements.
       Do not divide a modified requirement, because a division changes its
       identity.
+    - >-
+      Use the terms in docs/product/glossary.md, with its capitalization, in
+      each requirement and scenario that you add or modify. Do not use a word
+      that the glossary lists after "Avoid" for its term. If you modify a
+      requirement, also align its other terms with the glossary, and keep its
+      behavior. Do not change a requirement only to align terms. If a change
+      adds a new term, add it to the glossary in the layer that ships it.
   design:
     - >-
       Reuse repository, platform, and installed dependency capabilities first.

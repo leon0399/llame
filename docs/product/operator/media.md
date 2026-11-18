@@ -5,19 +5,19 @@ read_when:
   - you are sizing the database or backups for stored images or retained reads
   - you are declaring which models accept images or PDFs
   - you are troubleshooting an image or PDF upload or fetch
-  - you are sending images or PDFs in a chat message through the API
-  - you are rolling back a release whose reads retained their bytes in chat rows
+  - you are sending images or PDFs in a Chat message through the API
+  - you are rolling back a release whose reads retained their bytes in Chat rows
 ---
 
 # Media store
 
-The media store keeps images and PDFs that chat owners upload. Each upload is
+The media store keeps images and PDFs that Chat owners upload. Each upload is
 one media object owned by exactly one owner, addressed as `media://<id>`, and
 kept in the same Postgres database as the rest of the application state. This
 release ships the store, its upload and fetch routes, image and PDF
 attachments on owner messages, the per-model input declaration, and image and
 PDF reads through `read`: local, `kb://`, `skill://`, and web files are prepared
-without creating a media object, and their bytes stay in the chat row under
+without creating a media object, and their bytes stay in the Chat row under
 [retained read media](#retained-read-media). `media://<id>` reads an uploaded
 image or PDF across turns; see [media://](../reference/locators/media.md).
 
@@ -112,7 +112,7 @@ refused as well. So is a PDF whose parse exceeds a bound in
 Ingest stores only a PDF's original and builds no model variant: an attached
 PDF reaches a model as its original (see [PDF attachments](#pdf-attachments)).
 `read` also returns a stored PDF from its `media://` locator; an unstored PDF
-read keeps its original in the chat row. See
+read keeps its original in the Chat row. See
 [PDF reads](../reference/tools/read.md#pdf-result).
 
 ### Model variant
@@ -291,7 +291,7 @@ Every model request is composed from the stored `media://` references:
 - Any other model receives
   `[image media://<id> <name> <width>×<height>, omitted: this model has no image input]`
   in the image's place, with the original's dimensions.
-- A reference the chat owner's store cannot resolve, because the id is unknown
+- A reference the Chat owner's store cannot resolve, because the id is unknown
   or belongs to another owner, becomes `[image media://<id> unavailable]`, or
   `[pdf media://<id> unavailable]` for a PDF file part, and never fails the
   request.
@@ -368,11 +368,11 @@ PDFs alone never make a request too large for its model.
 ### Retained read media
 
 An image or PDF that `read` returns, and an image or PDF that a `@` import
-brings in, keeps its bytes in the chat: the model variant of an image and the
+brings in, keeps its bytes in the Chat: the model variant of an image and the
 original of a PDF, base64-encoded in the `retainedMedia` field beside the
 result of the stored part, the stored import entry, and the Run's server-side
-`tool.completed` and `run.continued` events. The chat owns them as it owns any
-other part: deleting the chat deletes them, an owner fork copies them with the
+`tool.completed` and `run.continued` events. The Chat owns them as it owns any
+other part: deleting the Chat deletes them, an owner fork copies them with the
 rows it copies, and no media object is created, so the media list and the media
 tables do not grow.
 
@@ -450,10 +450,10 @@ start `node` directly and get only the time bound and the concurrency cap.
 
 ## Known gap: nothing deletes media
 
-Media belongs to its owner, not to a chat or message, and this release ships
+Media belongs to its owner, not to a Chat or message, and this release ships
 no way to delete it:
 
-- deleting a chat deletes none of the media its messages reference, and an
+- deleting a Chat deletes none of the media its messages reference, and an
   owner fork references the same objects instead of copying them;
 - there is no delete route;
 - an upload that no sent message references is kept.

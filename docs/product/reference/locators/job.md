@@ -105,7 +105,7 @@ See the [operator runtime boundary](../../operator/background-jobs.md#runtime-bo
 A host-authored user turn has no owner sender and contains job context items,
 not owner text. Owner history retains that turn and identifies it as host
 authored. It supplies no title, list preview, recency excerpt or search
-evidence. A shared Chat and a shared fork omit the whole host turn; a visible
+evidence. A public share and a shared fork omit the whole host turn; a visible
 reply to an omitted turn has no copied reply target. An owner's fork retains
 the literal context items and remaps the reply target to the copied host turn.
 
