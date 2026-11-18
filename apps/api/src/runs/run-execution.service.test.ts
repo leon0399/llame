@@ -23533,6 +23533,40 @@ describe('RunExecutionService executeRun — run segments', () => {
     });
   });
 
+  it('skips automatic compaction checks for a recorded suspension', async () => {
+    mockNormalExecutionRepositories();
+
+    const suspensionEvent = {
+      ...event,
+      eventType: 'run.suspended' as const,
+      payload: { attemptId: testAttemptId },
+    };
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) =>
+        Promise.resolve(
+          options?.eventTypes?.includes('run.suspended') &&
+            options.attemptId === testAttemptId
+            ? [suspensionEvent]
+            : [],
+        ),
+    );
+
+    const segment = makeSegmentClient();
+    const execution = toolService(segment.client);
+
+    const checkAutomaticCompaction = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'automaticCompactionDueAtBoundary',
+    );
+
+    await execution.service.executeRun(executionInput(segment.client));
+    const options = segment.calls[0];
+    await expect(options?.stopWhenExtra?.()).resolves.toBe(true);
+
+    expect(checkAutomaticCompaction).not.toHaveBeenCalled();
+  });
+
   it('settles cancelled when the step end found a recorded cancellation', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
