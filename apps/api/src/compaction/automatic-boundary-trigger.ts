@@ -19,9 +19,7 @@ export function automaticBoundaryThresholdReached(input: {
         estimateModelRequestTokens({
           messages: input.stepToolResults,
           toolDeclarations: [],
-          ...(input.stepToolResultMedia !== undefined && {
-            media: input.stepToolResultMedia,
-          }),
+          media: input.stepToolResultMedia,
         }) >=
       input.thresholdTokens
     );
@@ -32,9 +30,7 @@ export function automaticBoundaryThresholdReached(input: {
       system: input.system,
       messages: [...input.requestMessages, ...input.stepToolResults],
       toolDeclarations: input.toolDeclarations,
-      ...(input.nextRequestMedia !== undefined && {
-        media: input.nextRequestMedia,
-      }),
+      media: input.nextRequestMedia,
     }) >= input.thresholdTokens
   );
 }
