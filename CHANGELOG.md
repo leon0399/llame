@@ -1,5 +1,22 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-18
+
+- Stream Runs to the client as [AG-UI](docs/research/standards/ag-ui.md)
+  events. `POST /api/v1/chats/:id/messages`, the follow-up Run route, and
+  `GET /api/v1/chats/:id/stream` now answer with AG-UI 1.0 events over SSE in
+  place of the AI SDK UI-message stream: the Chat is the thread, the Run is the
+  run, each text and reasoning part is a message of its own, and llame's
+  notices, reply metadata, and deliveries are `llame.*` `CUSTOM` events.
+  **Breaking** for any client of those three routes. The request bodies are
+  unchanged: these routes are llame's authenticated binding rather than the
+  standard AG-UI `RunAgentInput` endpoint. The web client uses an incremental,
+  bounded SSE parser and no longer depends on `@ai-sdk/react`. Cancellation
+  carries an explicit outcome; incomplete streams enter bounded reconnect
+  repair, and a terminal Run found by repair returns to durable history.
+  Refused HTTP sends restore the owner's draft text and images; late callbacks
+  from a departed engine cannot affect a replacement for the same Chat.
+
 # 2026-11-17
 
 - Size decision-model requests by the model. A `decisionModels[]` entry can

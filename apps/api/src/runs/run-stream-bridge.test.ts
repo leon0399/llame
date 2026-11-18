@@ -26,6 +26,20 @@ afterEach(() => {
 });
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const CHAT_ID = '00000000-0000-4000-8000-000000000002';
+const STREAM_INPUT = { chatId: CHAT_ID, runId: RUN_ID, userId: 'user-1' };
+
+const RUN_STARTED_FRAME = `data: ${JSON.stringify({
+  type: 'RUN_STARTED',
+  threadId: CHAT_ID,
+  runId: RUN_ID,
+})}\n\n`;
+
+const RUN_FINISHED_FRAME = `data: ${JSON.stringify({
+  type: 'RUN_FINISHED',
+  threadId: CHAT_ID,
+  runId: RUN_ID,
+})}\n\n`;
 
 function runEvent(
   sequence: number,
@@ -230,7 +244,7 @@ describe('createRunEventTranslator', () => {
     t.translate({ eventType: 'model.delta', payload: { text: 'partial' } });
     expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
       { type: 'text-end', id: 'text-1' },
-      { type: 'finish', finishReason: 'stop' },
+      { type: 'finish', finishReason: 'stop', cancelled: true },
     ]);
   });
 
@@ -261,7 +275,7 @@ describe('createRunEventTranslator', () => {
         providerMetadata: { llame: { cancelled: true } },
         dynamic: true,
       },
-      { type: 'finish', finishReason: 'stop' },
+      { type: 'finish', finishReason: 'stop', cancelled: true },
     ]);
   });
 
@@ -421,7 +435,7 @@ describe('createRunEventTranslator', () => {
 
     // Already settled — the terminal event must not emit a second outcome.
     expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
-      { type: 'finish', finishReason: 'stop' },
+      { type: 'finish', finishReason: 'stop', cancelled: true },
     ]);
   });
 
@@ -962,7 +976,7 @@ describe('createRunEventTranslator', () => {
 });
 
 describe('RunStreamBridgeService', () => {
-  it('replays terminal run events as a complete UI-message stream', async () => {
+  it('replays terminal run events as a complete AG-UI stream', async () => {
     const events = [
       runEvent(1, 'model.delta', { text: 'answer' }),
       runEvent(2, 'run.completed', null),
@@ -974,20 +988,15 @@ describe('RunStreamBridgeService', () => {
 
     const { bridge } = bridgeFixture();
 
-    const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
-    });
+    const response = bridge.createUiMessageStreamResponse(STREAM_INPUT);
 
     const body = await response.text();
 
     expect(response.headers.get('content-type')).toBe('text/event-stream');
-    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
-    expect(body).toContain('"type":"start"');
-    expect(body).toContain('"type":"text-delta"');
+    expect(body.startsWith(RUN_STARTED_FRAME)).toBe(true);
+    expect(body).toContain('"type":"TEXT_MESSAGE_CONTENT"');
     expect(body).toContain('"delta":"answer"');
-    expect(body).toContain('"type":"finish"');
-    expect(body).toContain('data: [DONE]\n\n');
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
     expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
       afterSequence: 0,
     });
@@ -1004,19 +1013,25 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    const frames = [
-      { type: 'start', messageId: RUN_ID },
-      { type: 'text-start', id: 'text-1' },
-      { type: 'text-delta', id: 'text-1', delta: 'first' },
-      { type: 'text-end', id: 'text-1' },
-      { type: 'data-run-delivered', data: { messageId: 'delivered-message' } },
-      { type: 'finish', finishReason: 'stop' },
-    ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`);
+    const messageId = `${RUN_ID}:text-1`;
 
-    expect(body).toBe(`${frames.join('')}data: [DONE]\n\n`);
+    const frames = [
+      { type: 'TEXT_MESSAGE_START', messageId, role: 'assistant' },
+      { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: 'first' },
+      { type: 'TEXT_MESSAGE_END', messageId },
+      {
+        type: 'CUSTOM',
+        name: 'llame.run-delivered',
+        value: { messageId: 'delivered-message' },
+      },
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`);
+
+    expect(body).toBe(
+      `${RUN_STARTED_FRAME}${frames.join('')}${RUN_FINISHED_FRAME}`,
+    );
   });
 
   it('A resume after a delivery replays only the current segment', async () => {
@@ -1030,20 +1045,14 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({
-        runId: RUN_ID,
-        userId: 'user-1',
-        afterSequence: 2,
-      })
+      .createUiMessageStreamResponse({ ...STREAM_INPUT, afterSequence: 2 })
       .text();
 
     // The Run id leads the stream, as on any resume, and the replay starts
     // after the latest delivery.
-    expect(
-      body.startsWith(`data: {"type":"start","messageId":"${RUN_ID}"}`),
-    ).toBe(true);
+    expect(body.startsWith(RUN_STARTED_FRAME)).toBe(true);
     expect(body).toContain('"delta":"second"');
-    expect(body).not.toContain('data-run-delivered');
+    expect(body).not.toContain('llame.run-delivered');
     expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
       afterSequence: 2,
     });
@@ -1068,14 +1077,13 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    const startPayload = JSON.stringify({ type: 'start', messageId: RUN_ID });
-    expect(body.startsWith(`data: ${startPayload}\n\n`)).toBe(true);
-    expect(body.match(/"type":"start"/g)).toHaveLength(1);
+    expect(body.startsWith(RUN_STARTED_FRAME)).toBe(true);
+    expect(body.match(/"type":"RUN_STARTED"/g)).toHaveLength(1);
     expect(body).toContain('"delta":"Hi"');
-    expect(body).toContain('"type":"finish"');
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
   });
 
   it('stops when the run is terminal but has no terminal event', async () => {
@@ -1113,14 +1121,9 @@ describe('RunStreamBridgeService', () => {
 
     const { bridge } = bridgeFixture();
 
-    const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
-    });
+    const response = bridge.createUiMessageStreamResponse(STREAM_INPUT);
 
-    await expect(response.text()).resolves.toBe(
-      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-    );
+    await expect(response.text()).resolves.toBe(RUN_STARTED_FRAME);
     // The pass that saw no events, then the re-drain after the terminal row.
     expect(listByRunId).toHaveBeenCalledTimes(2);
     expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
@@ -1160,11 +1163,15 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    expect(body).toContain('"type":"finish"');
-    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+    const terminal = body.trim().split('\n\n').at(-1)?.slice('data: '.length);
+
+    expect(JSON.parse(terminal ?? '')).toMatchObject({
+      type: 'RUN_FINISHED',
+      outcome: { type: 'cancelled' },
+    });
   });
 
   it('keeps a quiet, still-executing run open instead of ending its stream', async () => {
@@ -1213,15 +1220,14 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
     // One comment across the quiet stretch, not one per poll, and everything
     // the run produced still reaches the client before its own terminal chunk.
     expect(body.match(/: keepalive\n\n/g)).toHaveLength(1);
     expect(body).not.toContain('Stream window elapsed');
-    expect(body).toContain('"type":"finish"');
-    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
     expect(listByRunId).toHaveBeenCalledTimes(4);
   });
 
@@ -1235,14 +1241,11 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
+      ...STREAM_INPUT,
       abortSignal: controller.signal,
     });
 
-    await expect(response.text()).resolves.toBe(
-      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-    );
+    await expect(response.text()).resolves.toBe(RUN_STARTED_FRAME);
     expect(listByRunId).not.toHaveBeenCalled();
   });
 });
@@ -1552,24 +1555,20 @@ describe('createRunEventTranslator part identity and error text', () => {
 });
 
 describe('RunStreamBridgeService response contract', () => {
-  it('sets the AI SDK UI-message-stream headers on the response', () => {
+  it('sets the SSE headers on the response', () => {
     const { bridge } = bridgeFixture();
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
       runEvent(1, 'run.completed', null),
     ]);
 
-    const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
-    });
+    const response = bridge.createUiMessageStreamResponse(STREAM_INPUT);
 
     expect(response.headers.get('content-type')).toBe('text/event-stream');
     expect(response.headers.get('cache-control')).toBe('no-cache');
     expect(response.headers.get('connection')).toBe('keep-alive');
-    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
   });
 
-  it('marks the terminal chunk so a client can tell a finished turn from a dropped stream', async () => {
+  it('ends at a terminal event so a client can tell a finished turn from a dropped stream', async () => {
     const { bridge } = bridgeFixture();
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
       runEvent(1, 'run.started', null),
@@ -1578,11 +1577,30 @@ describe('RunStreamBridgeService response contract', () => {
     ]);
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    expect(body).toContain('{"type":"finish","finishReason":"stop"}');
-    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+    // Nothing follows the terminal event: a stream that stops anywhere else
+    // is a dropped connection, not a finished turn.
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
+  });
+
+  it('ends a failed run with RUN_ERROR and no RUN_FINISHED', async () => {
+    const { bridge } = bridgeFixture();
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      runEvent(1, 'run.failed', { message: 'provider refused' }),
+    ]);
+
+    const body = await bridge
+      .createUiMessageStreamResponse(STREAM_INPUT)
+      .text();
+
+    expect(
+      body.endsWith(
+        `data: ${JSON.stringify({ type: 'RUN_ERROR', message: 'provider refused' })}\n\n`,
+      ),
+    ).toBe(true);
+    expect(body).not.toContain('RUN_FINISHED');
   });
 
   it('surfaces a polling failure as a stream error rather than a silent close', async () => {
@@ -1592,9 +1610,7 @@ describe('RunStreamBridgeService response contract', () => {
     );
 
     await expect(
-      bridge
-        .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
-        .text(),
+      bridge.createUiMessageStreamResponse(STREAM_INPUT).text(),
     ).rejects.toThrow('event log unavailable');
   });
 });
@@ -1640,12 +1656,8 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
       const { bridge } = bridgeFixture();
 
       await expect(
-        bridge
-          .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
-          .text(),
-      ).resolves.toBe(
-        `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-      );
+        bridge.createUiMessageStreamResponse(STREAM_INPUT).text(),
+      ).resolves.toBe(RUN_STARTED_FRAME);
       expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
     }
   });

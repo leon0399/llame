@@ -34,6 +34,7 @@ import {
   FakeStreamingModelClient,
   openSseStream,
   parseSseEvents,
+  streamedText,
 } from './testing/support';
 import { z } from 'zod';
 
@@ -217,27 +218,20 @@ d('queue-executed runs behind the stream bridge', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/event-stream');
-    expect(res.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
 
     const chunks = z
       .array(z.object({ type: z.string(), delta: z.string().optional() }))
       .parse(parseSseEvents(res.text));
 
     expect(chunks.map((c) => c.type)).toEqual([
-      'start',
-      'text-start',
-      'text-delta',
-      'text-end',
-      'message-metadata',
-      'finish',
+      'RUN_STARTED',
+      'TEXT_MESSAGE_START',
+      'TEXT_MESSAGE_CONTENT',
+      'TEXT_MESSAGE_END',
+      'CUSTOM',
+      'RUN_FINISHED',
     ]);
-    expect(
-      chunks
-        .filter((c) => c.type === 'text-delta')
-        .map((c) => c.delta)
-        .join(''),
-    ).toBe('worker answer');
-    expect(res.text).toContain('data: [DONE]');
+    expect(streamedText(res.text)).toBe('worker answer');
 
     // The turn persisted end-to-end through the queue.
     const run = await latestRun(chatId);
@@ -494,7 +488,7 @@ d('queue-executed runs behind the stream bridge', () => {
 
     expect(pending.status).toBe(200);
     const start = await pending.nextFrame('acceptance start');
-    expect(start.type).toBe('start');
+    expect(start.type).toBe('RUN_STARTED');
     // Drop the bridge; the worker keeps executing.
     pending.close();
 
@@ -505,26 +499,20 @@ d('queue-executed runs behind the stream bridge', () => {
       .set('Cookie', cookie);
 
     expect(resumed.status).toBe(200);
-    expect(resumed.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
 
     const chunks = z
       .array(z.object({ type: z.string(), delta: z.string().optional() }))
       .parse(parseSseEvents(resumed.text));
 
     expect(chunks.map((c) => c.type)).toEqual([
-      'start',
-      'text-start',
-      'text-delta',
-      'text-end',
-      'message-metadata',
-      'finish',
+      'RUN_STARTED',
+      'TEXT_MESSAGE_START',
+      'TEXT_MESSAGE_CONTENT',
+      'TEXT_MESSAGE_END',
+      'CUSTOM',
+      'RUN_FINISHED',
     ]);
-    expect(
-      chunks
-        .filter((c) => c.type === 'text-delta')
-        .map((c) => c.delta)
-        .join(''),
-    ).toBe('worker answer');
+    expect(streamedText(resumed.text)).toBe('worker answer');
 
     // The run is terminal now — nothing to resume.
     const idle = await request(http)

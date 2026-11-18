@@ -242,7 +242,7 @@ function holdsRevisedReply(
 
 /**
  * The healed message list a freshly fetched server history justifies, or
- * null when the live list should stand. `useChat` freezes its messages at
+ * null when the live list should stand. The chat engine freezes its messages at
  * creation, so a refetch is the ONLY thing that can heal a log the durable
  * run has moved past (#261) — and it can only heal it through `setMessages`.
  *

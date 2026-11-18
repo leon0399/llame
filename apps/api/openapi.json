@@ -338,7 +338,7 @@
         ],
         "responses": {
           "200": {
-            "description": "AI SDK v5 UI-message stream (SSE) replaying the active run",
+            "description": "AG-UI event stream (SSE) replaying the active run",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -817,7 +817,7 @@
         },
         "responses": {
           "200": {
-            "description": "AI SDK v5 UI-message stream (SSE) or chat command result",
+            "description": "AG-UI event stream (SSE) or chat command result",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -962,7 +962,7 @@
         },
         "responses": {
           "200": {
-            "description": "AI SDK v5 UI-message stream (SSE)",
+            "description": "AG-UI event stream (SSE)",
             "content": {
               "text/event-stream": {
                 "schema": {

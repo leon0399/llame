@@ -81,11 +81,13 @@ const preBundledStoryDeps = [
   "@hookform/resolvers/zod",
   // apps/web stories render components whose data hooks pull in React Query.
   "@tanstack/react-query",
-  // The chat transcript row imports the AI SDK, and the chat page's useChat
-  // engine its React hooks; both pinned to apps/web's copies by
-  // `configurePreBundledStoryDeps` below.
+  // The chat transcript row and the chat page's AG-UI engine import the AI
+  // SDK's message types and guards, and the AG-UI event types and schemas;
+  // pinned to apps/web's copies by `configurePreBundledStoryDeps` below.
   "ai",
-  "@ai-sdk/react",
+  "@ag-ui/core",
+  "@ag-ui/core/schemas",
+  "eventsource-parser/stream",
   // The settings page's AppearanceProvider keeps the chosen fonts in cookies;
   // pinned to apps/web's copy below.
   "js-cookie",
@@ -140,7 +142,7 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
   ];
 
   // The chat transcript row and chat page (apps/web components) import `ai`
-  // and `@ai-sdk/react`, and the settings page's AppearanceProvider imports
+  // and `@ag-ui/core`, and the settings page's AppearanceProvider imports
   // `js-cookie`, which are installed for the app, not for this package. Pin
   // the bare specifiers to the app's copies so the pre-bundle entries resolve
   // here; otherwise Vite discovers them mid-run, re-optimizes, and the reload
@@ -154,8 +156,16 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
         )),
     { find: /^ai$/, replacement: resolveFromWeb.resolve("ai") },
     {
-      find: /^@ai-sdk\/react$/,
-      replacement: resolveFromWeb.resolve("@ai-sdk/react"),
+      find: /^@ag-ui\/core$/,
+      replacement: resolveFromWeb.resolve("@ag-ui/core"),
+    },
+    {
+      find: /^@ag-ui\/core\/schemas$/,
+      replacement: resolveFromWeb.resolve("@ag-ui/core/schemas"),
+    },
+    {
+      find: /^eventsource-parser\/stream$/,
+      replacement: resolveFromWeb.resolve("eventsource-parser/stream"),
     },
     { find: /^js-cookie$/, replacement: resolveFromWeb.resolve("js-cookie") },
   ];

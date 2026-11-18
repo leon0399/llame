@@ -337,18 +337,20 @@ function numericUsageField(usage: unknown, field: string): number {
   return value;
 }
 
+/** The usage each reply-metadata event of an AG-UI stream carries. */
 function metadataUsages(stream: string): Array<unknown> {
   return parseSseEvents(stream)
     .filter(
-      (chunk): chunk is { type: string; messageMetadata: unknown } =>
-        isRecord(chunk) &&
-        chunk.type === 'message-metadata' &&
-        'messageMetadata' in chunk,
+      (event): event is { type: string; name: string; value: unknown } =>
+        isRecord(event) &&
+        event.type === 'CUSTOM' &&
+        event.name === 'llame.message-metadata' &&
+        'value' in event,
     )
-    .map((chunk) => {
-      if (!isRecord(chunk.messageMetadata)) return undefined;
+    .map((event) => {
+      if (!isRecord(event.value)) return undefined;
 
-      return chunk.messageMetadata['usage'];
+      return event.value['usage'];
     });
 }
 
@@ -990,7 +992,11 @@ describe('Run usage accounting through the worker and Postgres', () => {
     });
 
     const liveStream = bridge
-      .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+      .createUiMessageStreamResponse({
+        chatId: seed.chatId,
+        runId: seed.runId,
+        userId: ownerId,
+      })
       .text();
 
     await enqueue(seed, modelId);
@@ -1032,7 +1038,11 @@ describe('Run usage accounting through the worker and Postgres', () => {
 
     const replayUsages = metadataUsages(
       await bridge
-        .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+        .createUiMessageStreamResponse({
+          chatId: seed.chatId,
+          runId: seed.runId,
+          userId: ownerId,
+        })
         .text(),
     );
 
@@ -1072,7 +1082,11 @@ describe('Run usage accounting through the worker and Postgres', () => {
     });
 
     const liveStream = bridge
-      .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+      .createUiMessageStreamResponse({
+        chatId: seed.chatId,
+        runId: seed.runId,
+        userId: ownerId,
+      })
       .text();
 
     const liveUsagesPromise = liveStream.then(metadataUsages);
@@ -1117,7 +1131,11 @@ describe('Run usage accounting through the worker and Postgres', () => {
 
       const replayUsages = metadataUsages(
         await bridge
-          .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+          .createUiMessageStreamResponse({
+            chatId: seed.chatId,
+            runId: seed.runId,
+            userId: ownerId,
+          })
           .text(),
       );
 

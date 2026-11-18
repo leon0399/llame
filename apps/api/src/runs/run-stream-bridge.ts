@@ -1,19 +1,21 @@
 import { keptPartEvents } from './kept-parts-events';
 import { toolTerminationMessage } from './tool-settlement';
 /**
- * Run-event → AI SDK UI-message stream bridge (#50, SPEC §9.4/§9.5).
+ * Run-event → AG-UI stream bridge (#50, SPEC §9.4/§9.5).
  *
  * In worker mode the API request thread no longer holds the model stream — the
  * worker executes the run and persists run_events; this bridge replays those
- * events to the HTTP client in the AI SDK UI-message SSE protocol (v1), so the
- * existing apps/web chat transport works unchanged. A client disconnect stops
- * only the bridge; the run keeps executing — that is the durability win.
+ * events to the HTTP client as AG-UI events over SSE. The translator below
+ * decides the ordered parts of the reply as `UiChunk`s, and `ag-ui-events.ts`
+ * writes each one in the wire format. A client disconnect stops only the
+ * bridge; the run keeps executing — that is the durability win.
  */
 
 import { Injectable } from '@nestjs/common';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { isRecord, isString } from '@workspace/runtime-safety';
+import { createAgUiEncoder } from './ag-ui-events';
 import {
   payloadField,
   payloadNumber,
@@ -424,10 +426,13 @@ class RunEventTranslatorImpl implements RunEventTranslator {
           event.eventType === 'run.cancelled' ? 'cancelled' : 'failed',
         ),
       ),
-      // The only chunk that says the run reached its terminal state. A client
-      // reads its presence — not its value — as "this turn ended here", so a
-      // connection that drops mid-run cannot look like a finished answer.
-      { type: 'finish', finishReason: 'stop' },
+      {
+        type: 'finish',
+        finishReason: 'stop',
+        ...(event.eventType === 'run.cancelled' && {
+          cancelled: true as const,
+        }),
+      },
     ];
   }
 
@@ -489,6 +494,8 @@ const POLL_MS = 200;
 const KEEPALIVE_MS = 15 * 1000;
 
 type UiMessageStreamInput = {
+  /** The Chat the Run belongs to: the AG-UI thread of the stream. */
+  chatId: string;
   runId: string;
   userId: string;
   /**
@@ -505,9 +512,9 @@ export class RunStreamBridgeService {
 
   /**
    * Build the SSE Response for a freshly enqueued run. Polls run_events by
-   * cursor until the run is terminal, translating to UI-message chunks. The
-   * `messageId` in the start chunk is the run id — a client-side surrogate;
-   * reloads read real message ids from history.
+   * cursor until the run is terminal, translating to AG-UI events. The reply's
+   * message id is the run id — a client-side surrogate; reloads read real
+   * message ids from history.
    *
    * The stream has no wall-clock bound: it ends when the run reaches a terminal
    * event, when the client goes away, or when the run row is already terminal.
@@ -537,7 +544,6 @@ export class RunStreamBridgeService {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
         connection: 'keep-alive',
-        'x-vercel-ai-ui-message-stream': 'v1',
       },
     });
   }
@@ -589,9 +595,17 @@ export class RunStreamBridgeService {
     let cursor = input.afterSequence ?? 0;
     let lastWriteAt = Date.now();
 
+    const encoder = createAgUiEncoder({
+      threadId: input.chatId,
+      runId: input.runId,
+    });
+
     const emit = (chunk: UiChunk) => {
       lastWriteAt = Date.now();
-      controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`);
+
+      for (const event of encoder.encode(chunk)) {
+        controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+      }
     };
 
     // Acknowledge acceptance before any poll so the client has the Run id
@@ -668,10 +682,6 @@ export class RunStreamBridgeService {
 
         return;
       }
-    }
-
-    if (translator.finished()) {
-      controller.enqueue('data: [DONE]\n\n');
     }
 
     controller.close();

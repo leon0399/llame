@@ -10,8 +10,10 @@ Before changing Next behavior, read the relevant installed guide under
 ## Stack and structure
 
 - React 19, TanStack Query, Tailwind, shadcn via `@workspace/ui`, Sentry.
-- Non-streaming HTTP uses generated Orval Fetch bindings. AI SDK
-  `DefaultChatTransport` owns chat streams.
+- Non-streaming HTTP uses generated Orval Fetch bindings. The AG-UI chat engine
+  in `lib/services/chat/ag-ui/` owns chat streams: `transport.ts` requests
+  them, `event-stream.ts` validates each event, `reply.ts` folds the events of
+  a Run into the reply's stored-shape parts, and `chat.ts` holds the live log.
 - `app/(auth)/`: login/register; `app/(chat)/`: chat UI.
 - `lib/`: API policies, feature services, hooks, appearance, and model display.
 - `proxy.ts`: cookie-presence UX gate; API guards remain authoritative.
@@ -47,14 +49,14 @@ to the API's `WEB_ORIGIN`, and run the API with `NODE_ENV=development`.
 - Chat send, reconnect, and run-event streams bypass generated bindings and use
   `authAwareFetch`; generated calls must not buffer them.
 - A send with a `delivery` mode (steer, interrupt, queue) also bypasses the
-  generated bindings and `useChat`: while a Run is live its answer is 202 JSON,
+  generated bindings and the chat engine: while a Run is live its answer is 202 JSON,
   and any other success is the stream of the Run it started, which the client
   releases before it attaches through the resume path
   (`lib/services/chat/deliveries.ts`). A delivered message ends its segment's
   stream; `use-run-handoff.ts` waits for history to hold that message, then
   attaches the next segment.
 - Chat history is TanStack Query state. Seed SSR data through hydration or
-  `initialData`; do not pass it directly into `useChat` state. Disable draft
+  `initialData`; do not pass it directly into the chat engine's state. Disable draft
   message queries until the Chat exists.
 - Query keys are serializable arrays from general to specific and live in
   feature factories. Query functions read variables from

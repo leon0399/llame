@@ -960,7 +960,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/event-stream');
-    expect(res.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
     expect(streamedText(res.text)).toBe('hello from model');
     expect(models.client.turns).toHaveLength(1);
 

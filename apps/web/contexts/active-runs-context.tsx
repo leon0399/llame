@@ -55,7 +55,7 @@ type ToastOptions = NonNullable<Parameters<typeof toast>[1]>;
 
 type ActiveRunsContextValue = {
   trackRun: (runId: string, chatId: string, title: string) => void;
-  /** Drop this chat's tracked run(s) when the user WATCHED it finish (useChat
+  /** Drop this chat's tracked run(s) when the user WATCHED it finish (the engine's
    *  onFinish/onError), so the poll can't later fire a stale "reply ready" for
    *  something they already saw after they navigate away. */
   untrackChat: (chatId: string) => void;

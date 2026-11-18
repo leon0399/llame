@@ -37,7 +37,7 @@ export function getApiUrl(): string {
   return apiUrl.replace(/\/+$/, "");
 }
 
-/** Resolve an API-relative path for the explicit AI SDK streaming transports. */
+/** Resolve an API-relative path for the explicit stream transports. */
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
 
@@ -120,7 +120,7 @@ export function createAuthenticatedBrowserFetch(
   };
 }
 
-/** Fetch entrypoint retained for the explicit AI SDK streaming transports. */
+/** Fetch entrypoint retained for the explicit stream transports. */
 export function authAwareFetch(
   input: RequestInfo | URL,
   init?: RequestInit,

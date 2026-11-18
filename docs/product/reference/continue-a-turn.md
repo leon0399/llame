@@ -22,8 +22,8 @@ a new one from the user message alone.
 An owner starts a follow-up Run with `POST
 /api/v1/chats/:chatId/messages/:userMessageId/runs` and
 `{"action": "continue"}` or `{"action": "regenerate"}`. The answer is the same
-UI-message stream a Chat send returns, and its first frame names the new Run's
-id.
+AG-UI event stream a Chat send returns, and its first event (`RUN_STARTED`)
+names the new Run's id.
 
 The route accepts only the latest user message of a Chat that is not archived.
 Every refusal below answers before it writes anything, except that admission

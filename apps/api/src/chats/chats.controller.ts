@@ -128,7 +128,7 @@ export class ChatsController {
   ) {}
 
   /**
-   * Resume the chat's active run as a UI-message stream (#49, SPEC §9.4).
+   * Resume the chat's active run as an AG-UI event stream (#49, SPEC §9.4).
    *
    * The AI SDK transport contract for reconnectToStream: GET returns the live
    * stream when a run is in flight, 204 when there is nothing to resume. The
@@ -144,7 +144,7 @@ export class ChatsController {
   @ApiTags('streaming')
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({
-    description: 'AI SDK v5 UI-message stream (SSE) replaying the active run',
+    description: 'AG-UI event stream (SSE) replaying the active run',
     content: { 'text/event-stream': { schema: { type: 'string' } } },
   })
   @ApiResponse({ status: 204, description: 'No active run to resume' })
@@ -177,6 +177,7 @@ export class ChatsController {
       }
 
       const streamResponse = this.bridge.createUiMessageStreamResponse({
+        chatId: id,
         runId: run.id,
         userId,
         afterSequence,
@@ -370,7 +371,7 @@ export class ChatsController {
 
   // A follow-up Run acts on a turn that already has a Run (turn-actions D1):
   // Continue resumes the completed steps of a failed, cancelled, or expired
-  // Run, and the answer is the same UI-message stream a chat send returns, so
+  // Run, and the answer is the same AG-UI event stream a chat send returns, so
   // the client renders the kept parts and the new parts in one assistant
   // message.
   @Post(':id/messages/:userMessageId/runs')
@@ -382,7 +383,7 @@ export class ChatsController {
   @ApiExtraModels(ContinueFollowUpRunDto, RegenerateFollowUpRunDto)
   @ApiBody({ schema: followUpRunBodySchema() })
   @ApiOkResponse({
-    description: 'AI SDK v5 UI-message stream (SSE)',
+    description: 'AG-UI event stream (SSE)',
     content: {
       'text/event-stream': {
         schema: { type: 'string' },
@@ -454,7 +455,7 @@ export class ChatsController {
   }
 
   /**
-   * Write one accepted Run's UI-message stream, logging a model failure the
+   * Write one accepted Run's AG-UI event stream, logging a model failure the
    * client cannot read. Shared by a chat send and a follow-up request so both
    * answer the same protocol.
    */

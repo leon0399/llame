@@ -554,7 +554,7 @@ function samePartList(
 }
 
 /**
- * useChat freezes its initial history, while the authoritative message query
+ * The chat engine freezes its initial history, while the authoritative message query
  * refreshes after a completed turn. Overlay only server-fetched control parts
  * by message id; client/stream-authored copies are removed unconditionally.
  *

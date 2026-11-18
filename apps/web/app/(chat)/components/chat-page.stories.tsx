@@ -21,7 +21,10 @@ import {
   waitFor,
   within,
 } from "storybook/test";
-import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
+import {
+  AgUiRunEvents,
+  agUiStreamResponse,
+} from "@/lib/test-support/ag-ui-stream";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
@@ -674,6 +677,71 @@ export const SendsImageOnlyMessage: Story = {
   },
 };
 
+/** An HTTP refusal restores both parts of the draft for an owner's retry. */
+export const RefusedSendRestoresTextAndImage: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  parameters: contrastKnownIssue232,
+  beforeEach: () => {
+    useModelsQuery.mockReturnValue({
+      data: { defaultModelId: VISION.id, models: [VISION] },
+      isError: false,
+      isPending: false,
+      isSuccess: true,
+    });
+    uploadAttachment.mockImplementation((file: File) =>
+      Promise.resolve(
+        uploaded("0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01", file.name),
+      ),
+    );
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(jsonResponse({ message: "Send was refused" }, 422)),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    const files = new DataTransfer();
+
+    const png = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+      ),
+      (character) => character.charCodeAt(0),
+    );
+
+    files.items.add(new File([png], "draft.png", { type: "image/png" }));
+    await userEvent.click(input);
+    await userEvent.type(input, "Inspect this draft");
+    await userEvent.paste(files);
+    const form = input.closest("form");
+
+    if (form === null) throw new Error("expected the composer form");
+    const list = await within(form).findByRole("list", { name: "Attachments" });
+    await waitFor(() =>
+      expect(within(list).queryAllByRole("status")).toEqual([]),
+    );
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(input).toHaveValue("Inspect this draft"));
+
+    const restoredImage = within(
+      await within(form).findByRole("list", { name: "Attachments" }),
+    ).getByRole("img", { name: "draft.png" });
+
+    await expect(restoredImage).toBeVisible();
+    await waitFor(() =>
+      expect(restoredImage).toHaveProperty("naturalWidth", 1),
+    );
+    await expect(
+      canvas.getByRole("button", { name: "Send message" }),
+    ).toBeEnabled();
+    await expect(
+      within(canvas.getByRole("log")).queryByText("Inspect this draft"),
+    ).not.toBeInTheDocument();
+  },
+};
+
 /** Serves a two-model catalog whose default is GPT-5.4 mini. */
 function serveTwoModelCatalog(gpt54: AvailableModel = GPT_5_4) {
   useModelsQuery.mockReturnValue({
@@ -1251,29 +1319,24 @@ async function sendFollowUp(canvasElement: HTMLElement) {
   await userEvent.click(send);
 }
 
-/** A reply streamed the way the api streams it, encoded by the SDK's own
- *  UI-message stream; the stream ends once `ended` settles. */
+/** A reply streamed the way the api streams it, as AG-UI events; the stream
+ *  ends once `ended` settles. */
 function streamedReply(
   ended: Promise<void> = Promise.resolve(),
   messageId = "reply-1",
 ) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({
-          type: "text-delta",
-          id: "text-1",
-          delta: "streamed reply",
-        });
-        await ended;
-        writer.write({ type: "text-end", id: "text-1" });
-        // The api's terminal chunk carries the run's completion marker; the
-        // client reads it to tell a finished turn from a cut stream (#1284).
-        writer.write({ type: "finish", finishReason: "stop" });
-      },
-    }),
+  const run = new AgUiRunEvents(messageId);
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      run.textStart(),
+      run.textDelta("streamed reply"),
+    ]);
+    await ended;
+    // The api's terminal event is the run's completion marker; the client
+    // reads it to tell a finished turn from a cut stream (#1284).
+    writer.write([run.textEnd(), run.finished()]);
   });
 }
 
@@ -1513,15 +1576,15 @@ export const TargetSendFinishOpensLatest: Story = {
     await transcriptShows(canvasElement, "latest durable answer");
     await expect(canvas.queryByText("older target context")).toBeNull();
     await expect(pageUrl()).toBe(`/chat/${CHAT_ID}`);
-    // The finish re-reads the target window; the newest page then opens: read,
-    // probed for a run to resume (204: none), and re-read.
+    // The finish re-reads the target window; the newest page then opens:
+    // probed for a run to resume (204: none), read, and re-read.
     await waitFor(() =>
       expect(sentRoutes()).toEqual([
         HISTORY_ROUTE,
         SEND_ROUTE,
         HISTORY_ROUTE,
-        HISTORY_ROUTE,
         RESUME_ROUTE,
+        HISTORY_ROUTE,
         HISTORY_ROUTE,
       ]),
     );
@@ -1623,7 +1686,7 @@ const AFTER_INTERRUPTION = replies(
 
 /** After an interrupted target send, the page opens the newest page on the
  *  hashless sent-draft route and probes for the run to resume. Each of the
- *  SDK's `reports` of the failure first re-reads the target window. */
+ *  engine's `reports` of the failure first re-reads the target window. */
 async function recoveredFromInterruption(
   canvasElement: HTMLElement,
   reports: number,
@@ -1639,8 +1702,8 @@ async function recoveredFromInterruption(
       HISTORY_ROUTE,
       SEND_ROUTE,
       ...rereads,
-      HISTORY_ROUTE,
       RESUME_ROUTE,
+      HISTORY_ROUTE,
       HISTORY_ROUTE,
     ]),
   );
@@ -1681,7 +1744,7 @@ export const TargetSendErrorRecovers: Story = {
   play: async ({ canvasElement }) => {
     await openedTarget(canvasElement);
     await sendFollowUp(canvasElement);
-    // The SDK reports the failure twice: as an error, then an errored finish.
+    // The engine reports the failure twice: as an error, then an errored finish.
     await recoveredFromInterruption(canvasElement, 2);
   },
 };
@@ -1736,7 +1799,7 @@ export const TargetSendStopRecovers: Story = {
       within(canvasElement).getByRole("button", { name: "Stop generation" }),
     );
 
-    // A stop is no error: the SDK reports only the aborted finish.
+    // A stop is no error: the engine reports only the aborted finish.
     await recoveredFromInterruption(canvasElement, 1);
   },
 };
@@ -2413,31 +2476,20 @@ export const WorkspaceRefreshesEachRun: Story = {
  *  successful result once `entered` settles, then a line of text; the reply
  *  never finishes. */
 function workspaceEntryReply(root: string, entered: Promise<void>) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId: "reply-1" });
-        writer.write({
-          type: "tool-input-available",
-          toolCallId: "enter-1",
-          toolName: "enter_workspace",
-          input: { path: root },
-        });
-        await entered;
-        writer.write({
-          type: "tool-output-available",
-          toolCallId: "enter-1",
-          output: { status: "success", root },
-        });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({
-          type: "text-delta",
-          id: "text-1",
-          delta: "Workspace is ready.",
-        });
-        await new Promise<void>(() => {});
-      },
-    }),
+  const run = new AgUiRunEvents("reply-1");
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      ...run.toolCall("enter-1", "enter_workspace", { path: root }),
+    ]);
+    await entered;
+    writer.write([
+      run.toolResult("enter-1", { status: "success", root }),
+      run.textStart(),
+      run.textDelta("Workspace is ready."),
+    ]);
+    await new Promise<void>(() => {});
   });
 }
 
@@ -2713,19 +2765,15 @@ export const FailedTurnWithEmptyReply: Story = {
 /** The resumed stream of a queued follow-up Run: it starts under the Run's own
  *  id, streams one token, and never finishes, so the reply stays live. */
 function resumedFollowUpStream(messageId = NEXT_TURN_RUN_ID) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({
-          type: "text-delta",
-          id: "text-1",
-          delta: "resumed stream",
-        });
-        await new Promise<void>(() => {});
-      },
-    }),
+  const run = new AgUiRunEvents(messageId);
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      run.textStart(),
+      run.textDelta("resumed stream"),
+    ]);
+    await new Promise<void>(() => {});
   });
 }
 
@@ -3010,28 +3058,24 @@ function segmentStream(
   text: string,
   delivered?: { messageId: string; before?: () => Promise<void> | void },
 ) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId: LIVE_RUN_ID });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({ type: "text-delta", id: "text-1", delta: text });
-        writer.write({ type: "text-end", id: "text-1" });
+  const run = new AgUiRunEvents(LIVE_RUN_ID);
 
-        if (delivered === undefined) {
-          await new Promise<void>(() => {});
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      run.textStart(),
+      run.textDelta(text),
+      run.textEnd(),
+    ]);
 
-          return;
-        }
+    if (delivered === undefined) {
+      await new Promise<void>(() => {});
 
-        await delivered.before?.();
-        writer.write({
-          type: "data-run-delivered",
-          data: { messageId: delivered.messageId },
-        });
-        writer.write({ type: "finish", finishReason: "stop" });
-      },
-    }),
+      return;
+    }
+
+    await delivered.before?.();
+    writer.write([run.delivered(delivered.messageId), run.finished()]);
   });
 }
 
