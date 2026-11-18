@@ -29,6 +29,8 @@ depend on it.
   archives.
 - [CHANGELOG.md](CHANGELOG.md): shipped chronology.
 - [DESIGN.md](DESIGN.md): UI language.
+- [docs/product/glossary.md](docs/product/glossary.md) (also at the root as
+  `GLOSSARY.md`): domain terms; OpenSpec owns their behavior.
 - [docs/index.md](docs/index.md) and [docs/AGENTS.md](docs/AGENTS.md): documentation tree and authoring rules;
   [docs/development/testing.md](docs/development/testing.md) and
   [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
@@ -41,6 +43,14 @@ Put commands and traps in the closest `AGENTS.md`, capability behavior in
 OpenSpec, architecture in `SPEC.md`, owner-visible tool and locator behavior in
 `docs/product/reference/`, operator procedures in `docs/product/operator/`, and
 contributor process in `docs/development/`. The spec wins any disagreement.
+
+## Glossary
+
+Use these terms, and their capitalization, in code, specs, docs, and issues.
+Name a new concept only after checking it does not collide with one here;
+add it to the glossary when it ships.
+
+@docs/product/glossary.md
 
 ## Repository
 
