@@ -57,9 +57,9 @@ function makeService() {
     .spyOn(MessagesRepository.prototype, 'findActiveCheckpoint')
     .mockResolvedValue(undefined);
 
-  vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
-    undefined,
-  );
+  const activeRunLookup = vi
+    .spyOn(RunsRepository.prototype, 'findActiveByChatId')
+    .mockResolvedValue(undefined);
 
   const createdRun = asDouble<Run>({
     id: 'run-1',
@@ -119,6 +119,7 @@ function makeService() {
     checkpoint,
     createRun,
     append,
+    activeRunLookup,
     dispatch,
     validateModelSelection,
     runAs,
@@ -301,25 +302,81 @@ describe('ChatCommandsService', () => {
     expect(dispatch.dispatch).not.toHaveBeenCalled();
   });
 
-  it('rejects an unsupported focus and an unknown model before Run creation', async () => {
-    const { service, createRun, validateModelSelection } = makeService();
+  it('refuses compaction while another live Run holds the Chat slot', async () => {
+    const { service, createRun, dispatch, activeRunLookup } = makeService();
 
-    const compact = {
+    const blocker = asDouble<Run>({
+      id: 'active-run',
+      kind: 'turn',
+      currentJobId: 'active-job',
+    });
+
+    activeRunLookup.mockResolvedValue(blocker);
+
+    dispatch.jobState.mockResolvedValue('queued');
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: '' },
+      }),
+    ).rejects.toMatchObject({
+      message: 'Wait for the current Run to finish.',
+    });
+    expect(activeRunLookup).toHaveBeenCalledTimes(2);
+    expect(createRun).not.toHaveBeenCalled();
+    expect(dispatch.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('A focus is accepted up to 1,000 characters', async () => {
+    const { service, append, createRun, dispatch } = makeService();
+    const focus = 'x'.repeat(1000);
+
+    await service.execute({
       ...request,
-      command: { name: 'compact' as const, argument: 'keep the plan' },
-    };
+      command: { name: 'compact', argument: focus },
+    });
 
-    await expect(service.execute(compact)).rejects.toMatchObject({
-      message: 'Compact focus is not supported yet.',
+    const unicodeFocus = '😀'.repeat(600);
+
+    await service.execute({
+      ...request,
+      command: { name: 'compact', argument: unicodeFocus },
+    });
+
+    expect(append).toHaveBeenLastCalledWith('run-1', 'run.created', {
+      chatId: 'chat-1',
+      messageId: null,
+      compaction: { focus: unicodeFocus },
+    });
+    expect(createRun).toHaveBeenCalledTimes(2);
+    expect(dispatch.dispatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a focus over 1,000 characters before Run creation', async () => {
+    const { service, createRun, dispatch } = makeService();
+
+    await expect(
+      service.execute({
+        ...request,
+        command: { name: 'compact', argument: 'x'.repeat(1001) },
+      }),
+    ).rejects.toMatchObject({
+      message: 'Compact focus must be 1,000 characters or fewer.',
     });
     expect(createRun).not.toHaveBeenCalled();
+    expect(dispatch.dispatch).not.toHaveBeenCalled();
+  });
 
+  it('rejects an unknown model before Run creation', async () => {
+    const { service, createRun, validateModelSelection } = makeService();
     validateModelSelection.mockImplementation(() => {
       throw new Error('Selected model is unavailable.');
     });
+
     await expect(
       service.execute({
-        ...compact,
+        ...request,
         command: { name: 'compact', argument: '' },
       }),
     ).rejects.toThrow('Selected model is unavailable.');

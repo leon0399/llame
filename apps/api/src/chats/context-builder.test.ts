@@ -7,7 +7,7 @@
  * - stored user parts replay without synthesized sender attribution
  */
 
-import { contentText } from '../testing/support';
+import { asDouble, contentText } from '../testing/support';
 import { createOpenAI } from '@ai-sdk/openai';
 import {
   buildContext,
@@ -18,12 +18,15 @@ import {
   type ModelRequestContext,
   type StoredMessage,
 } from './context-builder';
+import type { CheckpointMessage } from './messages-repository';
 import { projectStoredToolPart } from './tool-observation-part';
 import {
+  createCompactionCheckpointPart,
   createModelChangeItem,
   createRecencyDigestDeltaItem,
   createRecencyDigestSupersessionItem,
   createToolAvailabilityItem,
+  toContextCheckpoint,
 } from './context-item-producers';
 import {
   createPromptImportsItem,
@@ -1591,6 +1594,37 @@ describe('buildContext', () => {
         },
         { role: 'user', content: [{ type: 'text', text: 'How are you?' }] },
       ]);
+    });
+
+    it('A later request does not replay the focus', () => {
+      const focus = 'keep the migration plan';
+
+      const checkpointRow = asDouble<CheckpointMessage>({
+        id: 'focus-checkpoint',
+        chatId: 'chat-1',
+        seq: assistantMsg1.seq + 1,
+        role: 'checkpoint',
+        senderUserId: null,
+        parts: [createCompactionCheckpointPart('Historical summary.', focus)],
+        attachments: [],
+        usage: null,
+        absorbedThroughSeq: assistantMsg1.seq,
+        inReplyTo: null,
+        createdAt: new Date('2024-01-01T00:00:00Z'),
+        revisedAt: null,
+      });
+
+      const result = buildContext([userMsg2], {
+        systemPrompt,
+        modelId: 'test-model',
+        checkpoint: toContextCheckpoint(checkpointRow),
+      });
+
+      expect(JSON.stringify(checkpointRow.parts)).toContain(
+        `"focus":"${focus}"`,
+      );
+      expect(JSON.stringify(result)).toContain('Historical summary.');
+      expect(JSON.stringify(result)).not.toContain(focus);
     });
 
     it('never replays checkpoint rows as ordinary assistant content', () => {

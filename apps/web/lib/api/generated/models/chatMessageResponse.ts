@@ -33,6 +33,11 @@ export interface ChatMessageResponse {
   absorbedMessageCount?: number;
   /** The checkpoint summary from its persisted payload. */
   summary?: string;
+  /**
+   * The focus recorded for this compaction checkpoint, or null.
+   * @nullable
+   */
+  focus?: string | null;
   /** Token telemetry for this checkpoint. */
   stats?: CheckpointStatsResponse;
 }

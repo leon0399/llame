@@ -669,6 +669,7 @@ const CHECKPOINT_PART_RUN_ID = '00000000-0000-4000-8000-000000000000';
 
 export function createCompactionCheckpointPart(
   summary: string,
+  focus: string | null = null,
 ): ContextItemPart {
   if (summary.trim().length === 0) {
     throw new TypeError('Invalid compaction checkpoint summary');
@@ -678,7 +679,10 @@ export function createCompactionCheckpointPart(
     producer: 'compaction',
     form: COMPACTION_CHECKPOINT_FORM,
     runId: CHECKPOINT_PART_RUN_ID,
-    payload: { v: 1, summary },
+    payload:
+      focus === null || focus.trim().length === 0
+        ? { v: 1, summary }
+        : { v: 2, summary, focus },
     body: renderCompactionCheckpoint(summary),
   });
 }
@@ -723,25 +727,40 @@ export function toContextCheckpoint(row: CheckpointMessage): ContextCheckpoint {
   };
 }
 
-export function checkpointSummary(row: Message): string {
-  const { part } = checkpointPartOrThrow(row);
-  const payload = part.data.payload;
+export function checkpointPayload(row: Message) {
+  const payload = checkpointPartOrThrow(row).part.data.payload;
 
-  if (
-    !isExactRecord(payload, ['summary', 'v']) ||
-    payload['v'] !== 1 ||
-    !isString(payload['summary']) ||
-    payload['summary'].trim().length === 0
-  ) {
-    throw new ModelContextExecutionError(
-      `Checkpoint ${row.id} has invalid summary metadata.`,
-    );
+  const metadataError = new ModelContextExecutionError(
+    `Checkpoint ${row.id} has invalid summary metadata.`,
+  );
+
+  if (!isRecord(payload)) throw metadataError;
+
+  const summary = payload['summary'];
+
+  if (!isString(summary) || summary.trim().length === 0) throw metadataError;
+
+  if (isExactRecord(payload, ['summary', 'v']) && payload['v'] === 1) {
+    return { summary, focus: null };
   }
 
-  return payload['summary'];
+  const focus = payload['focus'];
+
+  if (
+    isExactRecord(payload, ['focus', 'summary', 'v']) &&
+    payload['v'] === 2 &&
+    isString(focus) &&
+    focus.trim().length > 0
+  ) {
+    return { summary, focus };
+  }
+
+  throw metadataError;
 }
 
-/** Does this part carry a recency-digest delta or supersession? */
+export const checkpointSummary = (row: Message): string =>
+  checkpointPayload(row).summary;
+
 export function isRecencyDigestItem(value: unknown): value is ContextItemPart {
   if (!isContextItemPart(value) || value.data.producer !== 'recency-digest') {
     return false;

@@ -170,3 +170,47 @@ export const TimestampFallback: Story = {
     await expect(canvas.getByText(/2 hours ago/i)).toBeVisible();
   },
 };
+
+/**
+ * A `/compact` with focus text keeps that text on its checkpoint: the
+ * expanded card shows it under the summary, as plain text.
+ *
+ * @summary the result card shows the compaction focus
+ */
+export const WithFocus: Story = {
+  tags: ["ai-generated"],
+  args: {
+    compaction: {
+      ...COMPACTION,
+      summary: "Compacted: discussed the roadmap.",
+      focus: "the database migration plan",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /context compacted/i }),
+    );
+    await expect(canvas.getByText("Focus:")).toBeVisible();
+    await expect(canvas.getByText("the database migration plan")).toBeVisible();
+  },
+};
+
+/**
+ * A checkpoint without a focus — every automatic compaction and a bare
+ * `/compact` — shows no focus line.
+ *
+ * @summary no focus line without a focus
+ */
+export const WithoutFocus: Story = {
+  tags: ["ai-generated"],
+  args: { compaction: { ...COMPACTION, focus: null } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByRole("button", { name: /context compacted/i }),
+    );
+    await expect(canvas.getByText("Compaction result")).toBeVisible();
+    await expect(canvas.queryByText("Focus:")).toBeNull();
+  },
+};

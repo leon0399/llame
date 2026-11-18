@@ -35,6 +35,8 @@ export type ChatMessageResponse = {
   absorbedThroughSeq?: number;
   absorbedMessageCount?: number;
   summary?: string;
+  /** The owner's `/compact` focus of a checkpoint row; null without one. */
+  focus?: string | null;
   stats?: CheckpointStatsResponse;
 };
 
@@ -48,7 +50,7 @@ export type Compaction = Required<
     "absorbedThroughSeq" | "absorbedMessageCount" | "summary" | "stats"
   >
 > &
-  Pick<ChatMessageResponse, "createdAt">;
+  Pick<ChatMessageResponse, "createdAt" | "focus">;
 
 export type ChatMessagesResponse = {
   messages: Array<ChatMessageResponse>;

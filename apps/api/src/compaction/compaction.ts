@@ -22,6 +22,7 @@ import {
   type ModelMessage,
   type StoredMessage,
 } from '../chats/context-builder';
+import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import type { Message, ModelToolDeclaration } from '../db/schema';
@@ -88,12 +89,21 @@ export type CompactionVariant = 'threshold' | 'window' | 'owner';
  */
 const renderCompactionInstructionTemplate = loadPackagedTemplate<{
   readonly owner: boolean;
+  readonly focus?: string;
 }>(__dirname, 'instruction');
 
 export function renderCompactionInstruction(
   variant: 'automatic' | 'owner',
+  focus?: string | null,
 ): string {
-  return renderCompactionInstructionTemplate({ owner: variant === 'owner' });
+  return renderCompactionInstructionTemplate({
+    owner: variant === 'owner',
+    ...(focus != null && {
+      focus: sanitizeAuthoredText(
+        focus.replaceAll(/[\p{Cc}\u2028\u2029]+/gu, ' '),
+      ),
+    }),
+  });
 }
 
 export const COMPACTION_INSTRUCTION = renderCompactionInstruction('automatic');

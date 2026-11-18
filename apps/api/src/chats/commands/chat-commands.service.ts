@@ -19,9 +19,9 @@ import {
 } from '../../models/models.service';
 import { planOwnerCompaction } from '../../compaction/owner-compaction-plan';
 import { RunDispatchService } from '../../runs/run-dispatch.service';
-import { createCompactionRun } from '../run-creation';
 import { claimActiveRunSlot } from '../chat-admission';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
+import { createCompactionRun } from '../run-creation';
 import { retryRunTransaction } from '../../runs/run-transaction';
 import { TitleService } from '../../titles/title.service';
 import type { PermissionMode } from '../../tools/permissions/permission-mode';
@@ -38,14 +38,22 @@ type CompactCommandInput = {
   permissionMode?: PermissionMode;
 };
 
-function assertCompactCommandSupported(input: CompactCommandInput): void {
+function parseCompactFocus(argument: string): string | null {
+  if (Array.from(argument).length > 1000) {
+    throw new BadRequestException(
+      'Compact focus must be 1,000 characters or fewer.',
+    );
+  }
+
+  return argument.length === 0 ? null : argument;
+}
+
+function validateCompactCommand(input: CompactCommandInput): string | null {
   if (input.parts.some((part) => part.type === 'file')) {
     throw new BadRequestException('A command cannot include an attachment.');
   }
 
-  if (input.command.argument.length > 0) {
-    throw new BadRequestException('Compact focus is not supported yet.');
-  }
+  return parseCompactFocus(input.command.argument);
 }
 
 @Injectable()
@@ -126,7 +134,7 @@ export class ChatCommandsService {
     if (!chat) return undefined;
     assertNotArchived(chat);
 
-    assertCompactCommandSupported(input);
+    const focus = validateCompactCommand(input);
 
     const { effort, permissionMode } = resolveSendSettings(
       this.models,
@@ -134,17 +142,7 @@ export class ChatCommandsService {
       input,
     );
 
-    const slot = await claimActiveRunSlot({
-      tx,
-      chatId: input.chatId,
-      userId: input.userId,
-      dispatch: this.dispatch,
-      instanceConfig: this.instanceConfig,
-    });
-
-    if (slot.state === 'blocked') {
-      throw new ConflictException('Wait for the current Run to finish.');
-    }
+    await this.claimCompactSlot(tx, input);
 
     const { plan } = await planOwnerCompaction(
       new MessagesRepository(tx),
@@ -163,7 +161,25 @@ export class ChatCommandsService {
       modelId: input.modelId,
       effort,
       permissionMode,
+      focus,
     });
+  }
+
+  private async claimCompactSlot(
+    tx: Db,
+    input: CompactCommandInput,
+  ): Promise<void> {
+    const slot = await claimActiveRunSlot({
+      tx,
+      chatId: input.chatId,
+      userId: input.userId,
+      dispatch: this.dispatch,
+      instanceConfig: this.instanceConfig,
+    });
+
+    if (slot.state === 'blocked') {
+      throw new ConflictException('Wait for the current Run to finish.');
+    }
   }
 
   private async findChat(chatId: string, userId: string): Promise<boolean> {
