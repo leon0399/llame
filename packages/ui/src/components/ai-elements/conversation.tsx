@@ -122,12 +122,13 @@ export const ConversationScrollButton = ({
           className,
         )}
         onClick={handleScrollToBottom}
+        aria-label="Scroll to latest message"
         size="icon"
         type="button"
         variant="outline"
         {...props}
       >
-        <ArrowDownIcon className="size-4" />
+        <ArrowDownIcon aria-hidden="true" className="size-4" />
       </Button>
     )
   );

@@ -27,6 +27,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   steps. Named, keyboard-focusable groups expose tool inputs and results;
   compact intent lines constrain long command previews without hiding their
   expanded input. Message rows use the same 10px gap as their action rows.
+  The scroll-to-latest icon has an accessible name when the reader moves away
+  from the bottom.
 
 # 2026-11-17
 
