@@ -599,6 +599,29 @@ describe('wire provider failure classifiers', () => {
     expect(failure.resetsAt).toBeUndefined();
   });
 
+  it('does not infer an OpenRouter budget reset from Retry-After', () => {
+    const failure = classifyResponses({
+      provider: 'openrouter',
+      error: apiError(
+        403,
+        {
+          error: {
+            metadata: {
+              limit_source: 'openrouter_workspace_budget',
+              resets_at: 'not-a-valid-reset',
+            },
+          },
+        },
+        { 'retry-after': '60' },
+      ),
+      now: Date.UTC(2026, 0, 1),
+    });
+
+    expect(failure.code).toBe('quota_exhausted');
+    expect(failure.resetsAt).toBeUndefined();
+    expect(failure.hintMs).toBe(60_000);
+  });
+
   it('classifies direct SDK error envelopes on every wire', () => {
     for (const [, classifier] of wires) {
       const go = classify(classifier, {

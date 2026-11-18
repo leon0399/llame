@@ -3,6 +3,7 @@ import type {
   ModelFailure,
   ModelFailureSanitizer,
   ModelStreamInput,
+  ModelStreamResult,
 } from './model-client';
 import type {
   LanguageModelV3,
@@ -10,6 +11,7 @@ import type {
   LanguageModelV3StreamResult,
 } from '@ai-sdk/provider';
 import { wrapLanguageModel } from 'ai';
+import { STREAM_PROMISE_CHANNELS } from './model-client-failures';
 
 import { ModelStreamIdleError } from './stream-idle-watchdog';
 import {
@@ -23,6 +25,26 @@ export type ProviderFailureMiddlewareOptions = {
   sanitize?: (failure: ModelFailure) => Error;
   abortSignal?: AbortSignal;
 };
+
+/** Promise channels may reject before the SDK delivers its terminal callback. */
+export function promiseFailureOverrides(
+  sanitize: ModelFailureSanitizer | undefined,
+) {
+  return Object.fromEntries(
+    STREAM_PROMISE_CHANNELS.filter((channel) => channel !== 'text').map(
+      (channel) => [
+        channel,
+        (target: ModelStreamResult) => ({
+          value: Promise.resolve<unknown>(target[channel]).catch(
+            (error: unknown) => {
+              throw sanitize?.(error) ?? error;
+            },
+          ),
+        }),
+      ],
+    ),
+  );
+}
 
 /** Preserve the actual failed send when the SDK rejects text with no output. */
 export function captureRequestFailure(

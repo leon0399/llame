@@ -22,6 +22,11 @@ import {
   withRedactedFailures,
 } from './model-client-failures';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
+import { createToolCallGate } from './tool-call-gate';
+import { ProviderFailure } from './provider-failure/provider-failure';
+import { runStreamChannel } from './openai-model-client';
+import { classifiedFailure } from './provider-failure-middleware';
+import { classifyResponses } from './provider-failure/classify-responses';
 
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 
@@ -140,6 +145,42 @@ describe('withRedactedFailures', () => {
     vi.restoreAllMocks();
   });
 
+  it('classifies usage rejection before deferred onError persistence', async () => {
+    const raw = apiError('Authentication failed');
+    let reported = false;
+    const gate = createToolCallGate();
+
+    const result = runStreamChannel({
+      streamOptions: {
+        model: failingModel(raw),
+        messages,
+        maxRetries: 0,
+        onError: () => {
+          reported = true;
+        },
+      },
+      input: {
+        chat: CHAT,
+        messages,
+        onReasoningDelta: () => undefined,
+      },
+      gate,
+      runStreamText: (options) => streamText(options),
+      sanitizeError: (error) =>
+        classifiedFailure(error, {
+          provider: 'openai',
+          classify: classifyResponses,
+        }),
+    });
+
+    const usageFailure = await rejection(result.usage);
+
+    expect(usageFailure).toBeInstanceOf(ProviderFailure);
+    expect(usageFailure).toMatchObject({ code: 'auth', statusCode: 401 });
+    expect(usageFailure).not.toHaveProperty('requestBodyValues');
+    expect(usageFailure).not.toHaveProperty('cause');
+    expect(reported).toBe(false);
+  });
   it('waits for asynchronous failure persistence before stream settlement', async () => {
     const entered = Promise.withResolvers<void>();
     const persist = Promise.withResolvers<void>();

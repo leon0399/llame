@@ -7,6 +7,7 @@ import {
 import { createOpenAICodexModelClient } from './openai-codex-model-client';
 import { createOpenAIModelClient } from './openai-model-client';
 import { ProviderFailure } from './provider-failure/provider-failure';
+import { createAnthropicModelClient } from './anthropic-model-client';
 
 const CHAT = { id: 'failure-test', lane: 'main' } as const;
 
@@ -32,6 +33,71 @@ function fixtureFetch(respond: () => Response): typeof globalThis.fetch {
 }
 
 describe('OpenAI Responses provider failures', () => {
+  it.each(['responses', 'codex', 'anthropic'] as const)(
+    'keeps usage-first failures typed while %s error persistence is deferred',
+    async (wire) => {
+      const previousFetch = globalThis.fetch;
+      const persistence = Promise.withResolvers<void>();
+      globalThis.fetch = fixtureFetch(
+        () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: 'Authentication failed',
+                code: 'invalid_api_key',
+                type: 'authentication_error',
+              },
+            }),
+            { status: 401, headers: { 'content-type': 'application/json' } },
+          ),
+      );
+
+      const common = {
+        credential: 'credential-canary',
+        providerModelId: 'gpt-test',
+        modelId: 'usage-first-test',
+        contextWindowTokens: 32_000,
+        userAgent: 'llame/test',
+        requestHeaders: {},
+      };
+
+      const clients = {
+        responses: () => createOpenAIModelClient(common),
+        codex: () =>
+          createOpenAICodexModelClient({ ...common, accountId: 'account-id' }),
+        anthropic: () =>
+          createAnthropicModelClient({
+            ...common,
+            baseUrl: 'https://api.anthropic.com/v1',
+            reasoningDeclared: false,
+          }),
+      };
+
+      try {
+        const result = clients[wire]().streamText({
+          chat: CHAT,
+          messages,
+          onReasoningDelta: () => undefined,
+          onError: async () => {
+            await persistence.promise;
+          },
+        });
+
+        const failure = await rejectionOf(result.usage);
+
+        expect(failure).toBeInstanceOf(ProviderFailure);
+        expect(failure).toMatchObject({ code: 'auth', statusCode: 401 });
+        expect(failure).not.toHaveProperty('responseBody');
+        expect(failure).not.toHaveProperty('requestBodyValues');
+        persistence.resolve();
+        await result.consumeStream();
+      } finally {
+        persistence.resolve();
+        globalThis.fetch = previousFetch;
+      }
+    },
+  );
+
   it('classifies a Responses body code ahead of an HTTP 500 status', async () => {
     const fetchMock = vi.fn(
       fixtureFetch(

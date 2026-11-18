@@ -57,6 +57,7 @@ import { ProviderFailure } from './provider-failure/provider-failure';
 import { classifyCompletions } from './provider-failure/classify-completions';
 import {
   classifiedFailure,
+  captureRequestFailure,
   withProviderFailures,
 } from './provider-failure-middleware';
 
@@ -484,6 +485,19 @@ function prepareOpenAICompatibleStream(
   applyChunkDelivery(streamOptions, input, gate);
 }
 
+function completionsFailureOptions(
+  config: OpenAICompletionsModelClientConfig,
+  abortSignal?: AbortSignal,
+) {
+  return {
+    provider:
+      config.providerType ?? config.provider ?? COMPATIBLE_PROVIDER_NAME,
+    classify: classifyCompletions,
+    sanitize: boundCompletionsFailure,
+    abortSignal,
+  };
+}
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -491,15 +505,8 @@ function runOpenAICompatibleStream(
   input: ModelStreamInput,
 ) {
   const settlement = trackAbortSettlement(input);
-  const providerOptions = composeCompletionsOptions(config, input);
 
-  const failureOptions = {
-    provider:
-      config.providerType ?? config.provider ?? COMPATIBLE_PROVIDER_NAME,
-    classify: classifyCompletions,
-    sanitize: boundCompletionsFailure,
-    abortSignal: input.abortSignal,
-  };
+  const failureOptions = completionsFailureOptions(config, input.abortSignal);
 
   const streamOptions: StreamOptions = {
     // The entry's declared wire, at its required base URL (design D1).
@@ -516,18 +523,25 @@ function runOpenAICompatibleStream(
     // llame's identity, per call (design D6).
     headers: perCallHeaders(config, input.chat),
     experimental_telemetry: agentTelemetry(input.chat),
-    ...providerOptions,
-    ...(config.maxOutputTokens !== undefined && {
-      maxOutputTokens: config.maxOutputTokens,
-    }),
+    ...composeCompletionsOptions(config, input),
+    maxOutputTokens: config.maxOutputTokens,
   };
 
-  const gate = createToolCallGate();
-  prepareOpenAICompatibleStream(streamOptions, input, config, gate);
+  prepareOpenAICompatibleStream(
+    streamOptions,
+    input,
+    config,
+    createToolCallGate(),
+  );
+
+  const sanitize = captureRequestFailure(streamOptions, (error) =>
+    classifiedFailure(error, failureOptions),
+  );
 
   return awaitSettlementAfter(
     dependencies.streamText(streamOptions),
     settlement,
+    sanitize,
   );
 }
 
@@ -555,13 +569,7 @@ function createCompletionsObjectGenerator(
   config: OpenAICompletionsModelClientConfig,
 ) {
   return <OBJECT>(input: ModelObjectInput<OBJECT>) => {
-    const failureOptions = {
-      provider:
-        config.providerType ?? config.provider ?? COMPATIBLE_PROVIDER_NAME,
-      classify: classifyCompletions,
-      sanitize: boundCompletionsFailure,
-      abortSignal: input.abortSignal,
-    };
+    const failureOptions = completionsFailureOptions(config, input.abortSignal);
 
     return generateToolBoundObject(provider(config.providerModelId), input, {
       headers: perCallHeaders(config, input.chat),

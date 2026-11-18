@@ -44,7 +44,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   existing rate-limit failure so configured engine chains and aggregates keep
   their fallback behavior. Structured Messages calls retain caller cancellation,
   stream cancellation does not manufacture a second provider failure, and
-  negative numeric Retry-After values do not become reset dates. See
+  negative numeric Retry-After values do not become reset dates. Promise channels
+  retain their class when read before text, and an invalid OpenRouter reset field
+  does not turn a Retry-After hint into an authoritative reset. See
   [provider diagnostics](docs/product/operator/providers/routing.md#diagnosing-failed-model-requests).
 
 # 2026-11-17

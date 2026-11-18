@@ -6,6 +6,7 @@ import {
   captureRequestFailure,
   classifiedFailure,
   withProviderFailures,
+  promiseFailureOverrides,
   type ProviderFailureMiddlewareOptions,
 } from './provider-failure-middleware';
 
@@ -310,44 +311,27 @@ async function throwAfterTerminalCompletion(
   throw sanitizeError?.(error) ?? error;
 }
 
-async function awaitTextAndAbortSettlement(
-  text: PromiseLike<string>,
-  settlement: AbortSettlement,
-  terminals: DeferredTerminals,
-  sanitizeError?: ModelFailureSanitizer,
-): Promise<string> {
-  try {
-    const value = await text;
-    await settlement.wait();
-
-    return value;
-  } catch (error) {
-    try {
-      await settlement.wait();
-    } catch (settlementError) {
-      await throwAfterTerminalCompletion(
-        terminals,
-        settlementError,
-        sanitizeError,
-      );
-    }
-
-    return throwAfterTerminalCompletion(terminals, error, sanitizeError);
-  }
-}
-
 async function awaitTextAfterSettlement(
   text: PromiseLike<string>,
   settlement: AbortSettlement,
   terminals: DeferredTerminals,
   sanitizeError?: ModelFailureSanitizer,
 ): Promise<string> {
-  const value = await awaitTextAndAbortSettlement(
-    text,
-    settlement,
-    terminals,
-    sanitizeError,
-  );
+  let value: string;
+
+  try {
+    value = await text;
+    await settlement.wait();
+  } catch (error) {
+    try {
+      await settlement.wait();
+    } catch (settlementError) {
+      await terminals.wait();
+      throw settlementError;
+    }
+
+    return throwAfterTerminalCompletion(terminals, error, sanitizeError);
+  }
 
   await terminals.wait();
 
@@ -379,16 +363,21 @@ export function awaitSettlementAfter(
   sanitizeError?: ModelFailureSanitizer,
   terminals: DeferredTerminals = createDeferredTerminals(),
 ): ModelStreamResult {
+  // These channels can reject before deferred onError capture runs. Normalize
+  // at their rejection boundary; awaiting terminals here can deadlock the
+  // stream consumer that releases those callbacks.
   return wrapStreamTextResult(result, {
+    ...promiseFailureOverrides(sanitizeError),
     consumeStream: (target) => ({
       value: async (...args: Parameters<typeof target.consumeStream>) => {
         try {
           await target.consumeStream(...args);
-          await settlement.wait();
         } catch (error) {
+          await settlement.wait();
           await throwAfterTerminalCompletion(terminals, error, sanitizeError);
         }
 
+        await settlement.wait();
         await terminals.wait();
       },
     }),
@@ -420,11 +409,11 @@ export function runStreamChannel(run: {
   sanitizeError?: ModelFailureSanitizer;
 }): ModelStreamResult {
   const { streamOptions, input, gate, runStreamText, sanitizeError } = run;
-  const requestSanitizer = captureRequestFailure(streamOptions, sanitizeError);
   // SDK callbacks return immediately so the `fullStream` stream branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D15/D18).
   const terminals = deferTerminalCallbacks(streamOptions, input);
+  const requestSanitizer = captureRequestFailure(streamOptions, sanitizeError);
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;
   const result = runStreamText(streamOptions);

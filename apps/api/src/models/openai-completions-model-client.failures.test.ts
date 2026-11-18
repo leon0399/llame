@@ -115,6 +115,75 @@ function surfaces(error: Error): string {
 }
 
 describe('createOpenAICompletionsModelClient — bounded stream failures', () => {
+  it('classifies an authentication failure when usage is consumed before text', async () => {
+    const client = buildClient(
+      serve(
+        () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: 'Authentication failed',
+                code: 'invalid_api_key',
+              },
+            }),
+            { status: 401, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    );
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: () => undefined,
+    });
+
+    await expect(result.usage).rejects.toMatchObject({
+      code: 'auth',
+      statusCode: 401,
+    });
+  });
+
+  it.each(['text', 'consumeStream'] as const)(
+    'preserves abort-persistence failure identity through %s',
+    async (channel) => {
+      const requested = Promise.withResolvers<void>();
+      const controller = new AbortController();
+      const abortReason = new DOMException('Stopped', 'AbortError');
+      const ownerError = new Error('Owner persistence failed');
+
+      const client = buildClient(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(abortReason), {
+              once: true,
+            });
+            requested.resolve();
+          }),
+      );
+
+      const result = client.streamText({
+        chat: CHAT,
+        messages,
+        abortSignal: controller.signal,
+        onError: () => {
+          throw ownerError;
+        },
+      });
+
+      const pending = channel === 'text' ? result.text : result.consumeStream();
+
+      const failure = pending.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      await requested.promise;
+      controller.abort(abortReason);
+
+      expect(await failure).toBe(ownerError);
+    },
+  );
+
   it('reports an unparseable and a schema-mismatched event with one fixed text and none of either event', async () => {
     const notJson = await reportedError(
       buildClient(
