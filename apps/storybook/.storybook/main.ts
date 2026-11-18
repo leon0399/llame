@@ -87,6 +87,7 @@ const preBundledStoryDeps = [
   "ai",
   "@ag-ui/core",
   "@ag-ui/core/schemas",
+  "eventsource-parser/stream",
   // The settings page's AppearanceProvider keeps the chosen fonts in cookies;
   // pinned to apps/web's copy below.
   "js-cookie",
@@ -161,6 +162,10 @@ function configurePreBundledStoryDeps(config: ViteFinalConfig): void {
     {
       find: /^@ag-ui\/core\/schemas$/,
       replacement: resolveFromWeb.resolve("@ag-ui/core/schemas"),
+    },
+    {
+      find: /^eventsource-parser\/stream$/,
+      replacement: resolveFromWeb.resolve("eventsource-parser/stream"),
     },
     { find: /^js-cookie$/, replacement: resolveFromWeb.resolve("js-cookie") },
   ];
