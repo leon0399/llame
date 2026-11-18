@@ -189,7 +189,7 @@ where a smaller safe merge point appears.
 ## 10. finalize
 
 - [x] 10.1 Enter `add-slash-commands/finalize` from `compact-auto` with `$gh-stack` before `$openspec-sync-specs` writes. Verify with `gh stack view --json`.
-  - Evidence: `gh stack view --json` reported `current branch "add-slash-commands/finalize" is not part of a stack`, confirming these branches were created with plain git. Before any sync write, `git log --oneline --decorate --first-parent -5` showed `2574e21b (HEAD -> add-slash-commands/finalize, origin/add-slash-commands/compact-auto, add-slash-commands/compact-auto) fix(runs): address compact-auto review`; the finalize branch points at the compact-auto tip.
+  - Evidence: `gh stack view --json` reported `current branch "add-slash-commands/finalize" is not part of a stack`, confirming these branches were created with plain git. Before any sync write, `git log --oneline --decorate --first-parent -5` showed `2574e21b (HEAD -> add-slash-commands/finalize, origin/add-slash-commands/compact-auto, add-slash-commands/compact-auto) fix(runs): address compact-auto review`; the finalize branch points at the compact-auto tip. Later restacks moved that tip; finalize was rebased onto each, last onto `584d2dcb`.
 - [x] 10.2 Run `$openspec-sync-specs`, keep the `chat-commands` Purpose, and verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
   - Evidence: synced all ten listed delta capabilities; created `chat-commands` with its Purpose and 14
     added requirements. `--specs --strict` passed (62 passed, 0 failed); `--all --strict` passed
