@@ -2793,6 +2793,29 @@ export const CompactedTurnShowsNoAction: Story = {
   },
 };
 
+/** A turn a checkpoint absorbed at its final answer offers no follow-up: the
+ *  api refuses Continue and Regenerate on a compacted turn. */
+export const TurnAbsorbedByItsCompactionShowsNoAction: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW, checkpointRow(3, THROUGH_HELLO)],
+    latestRun: latestTurnRun({ status: "completed" }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(compactionBoundary(canvasElement)).toBeVisible();
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
+  },
+};
+
 /** Failed compaction runs report their error without turn-level actions. */
 export const FailedCompactionShowsItsError: Story = {
   tags: ["ai-generated"],
