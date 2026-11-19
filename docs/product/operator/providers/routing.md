@@ -195,6 +195,9 @@ The first-token timeout defaults to 300 s and includes response headers and
 metadata until content begins. After content begins, 300 s without a stream
 part fails the request. A first-token timeout is `first_token_timeout`; a
 broken stream is `stream_broken`. `model_stream_idle` has been removed.
+For a non-streaming structured request, the first-token deadline covers the
+complete send. A deadline expiry aborts that send and follows the same bounded
+`first_token_timeout` retry policy.
 
 | Failure class                               | Operator action                                                                                                                      |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |

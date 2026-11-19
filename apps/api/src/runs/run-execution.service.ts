@@ -328,6 +328,7 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   IN_RUN_CONTEXT_PRODUCER,
   createInRunContextItems,
@@ -1572,19 +1573,18 @@ export class RunExecutionService {
   ): Promise<void> {
     await retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
+        if (
+          !(await new RunRowFenceRepository(tx).lockForDelivery(
+            input.runId,
+            input.userId,
+            input.attemptId,
+          ))
+        )
+          throw new RunNotRunnableError(input.runId);
+
         if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
           throw new RunNotRunnableError(input.runId);
 
-        const run = await new RunsRepository(tx).findById(
-          input.runId,
-          input.userId,
-        );
-
-        if (
-          run?.activeAttemptId !== input.attemptId ||
-          isTerminalRunStatus(run.status)
-        )
-          throw new RunNotRunnableError(input.runId);
         await new RunEventsRepository(tx).append(
           input.runId,
           'model.retrying',
@@ -4055,21 +4055,19 @@ export class RunExecutionService {
             persistDelta(deltas.flush());
             enqueueEvent('model.retrying', retry, async (tx) => {
               if (
-                !(await new ChatsRepository(tx).lock(
-                  input.chatId,
+                !(await new RunRowFenceRepository(tx).lockForDelivery(
+                  input.runId,
                   input.userId,
+                  attemptId,
                 ))
               )
                 throw new RunNotRunnableError(input.runId);
 
-              const run = await new RunsRepository(tx).findById(
-                input.runId,
-                input.userId,
-              );
-
               if (
-                run?.activeAttemptId !== attemptId ||
-                isTerminalRunStatus(run.status)
+                !(await new ChatsRepository(tx).lock(
+                  input.chatId,
+                  input.userId,
+                ))
               )
                 throw new RunNotRunnableError(input.runId);
 

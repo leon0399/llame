@@ -4887,11 +4887,10 @@ describe('RunExecutionService executeRun — stream completion', () => {
 
     await execution.service.executeRun(executionInput(capturing.client));
     const options = capturing.streamOptions();
-    spies.findById.mockResolvedValue({
-      ...run,
-      activeAttemptId: testAttemptId,
-      status: 'running_model',
-    });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValueOnce({ ...run, activeAttemptId: testAttemptId });
 
     await options.onRetry?.({
       code: 'server_error',
@@ -4920,16 +4919,11 @@ describe('RunExecutionService executeRun — stream completion', () => {
     expect(Object.hasOwn(usage ?? {}, 'tokensPerSecond')).toBe(false);
   });
 
-  it('refuses a live retry after another worker owns the attempt', async () => {
+  it('refuses a live retry after the terminal commit wins the run-row fence', async () => {
     const spies = mockNormalExecutionRepositories();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
     await execution.service.executeRun(executionInput(capturing.client));
-    spies.findById.mockResolvedValue({
-      ...run,
-      activeAttemptId: 'replacement-attempt',
-      status: 'running_model',
-    });
 
     await expect(
       capturing.streamOptions().onRetry?.({
@@ -4937,21 +4931,18 @@ describe('RunExecutionService executeRun — stream completion', () => {
         retry: 1,
         delayMs: 750,
       }),
-    ).rejects.toBeInstanceOf(Error);
+    ).rejects.toThrow('Failed to persist the model retry before its delay.');
     expect(
       spies.appendEvent.mock.calls.filter(
         ([, type]) => type === 'model.retrying',
       ),
     ).toEqual([]);
   });
-  it('locks the owning chat before recording a model retry', async () => {
-    const spies = mockNormalExecutionRepositories();
+
+  it('does not append a retry after the active attempt has changed', async () => {
+    mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
     const execution = makeExecutionService();
-
-    const lock = vi
-      .spyOn(ChatsRepository.prototype, 'lock')
-      .mockResolvedValue(undefined);
 
     await expect(
       execution.service.recordModelRetry(
@@ -4960,29 +4951,6 @@ describe('RunExecutionService executeRun — stream completion', () => {
       ),
     ).rejects.toBeInstanceOf(RunNotRunnableError);
 
-    expect(lock).toHaveBeenCalledWith(chatId, userId);
-    expect(spies.findById).not.toHaveBeenCalled();
-    expect(appended).toEqual([]);
-  });
-
-  it('does not append a retry event after the active attempt has changed', async () => {
-    const spies = mockNormalExecutionRepositories();
-    const appended = recordAppendedEvents();
-    const execution = makeExecutionService();
-    spies.findById.mockResolvedValue({
-      ...run,
-      activeAttemptId: 'replacement-attempt',
-      status: 'running_model',
-    });
-
-    await expect(
-      execution.service.recordModelRetry(
-        { runId, chatId, userId, attemptId: testAttemptId },
-        { code: 'server_error', retry: 1, delayMs: 750 },
-      ),
-    ).rejects.toBeInstanceOf(RunNotRunnableError);
-
-    expect(spies.findById).toHaveBeenCalledWith(runId, userId);
     expect(appended).toEqual([]);
   });
 

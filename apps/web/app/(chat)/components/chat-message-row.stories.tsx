@@ -615,7 +615,11 @@ export const PendingIndicator: Story = {
   },
 };
 
-/** A replayed retry replaces the pending indicator until the next part arrives. */
+/**
+ * A replayed retry replaces the pending indicator until the next part arrives.
+ *
+ * @summary provider overload shows the current bounded retry
+ */
 export const OverloadedProvider: Story = {
   tags: ["ai-generated"],
   args: {
@@ -645,7 +649,11 @@ export const OverloadedProvider: Story = {
   },
 };
 
-/** A part from the next send removes the old retry label without an effect. */
+/**
+ * A part from the next send removes the old retry label without an effect.
+ *
+ * @summary resumed content clears the retry label
+ */
 export const ContentAfterRetry: Story = {
   tags: ["ai-generated"],
   args: {

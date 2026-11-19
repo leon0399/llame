@@ -578,10 +578,14 @@ describe('createRunEventTranslator', () => {
     }
   });
 
-  it('preserves model.retrying through the UI stream parser as a data part', async () => {
+  it('keeps resumed text after the retry notice through the UI stream parser', async () => {
     const t = createRunEventTranslator('run-retrying-transport');
 
     const chunks = [
+      ...t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'prefix' },
+      }),
       ...t.translate({
         eventType: 'model.retrying',
         payload: { code: 'server_error', retry: 1, delayMs: 750 },
@@ -590,6 +594,7 @@ describe('createRunEventTranslator', () => {
         eventType: 'model.delta',
         payload: { text: 'recovered' },
       }),
+      ...t.translate({ eventType: 'run.completed', payload: null }),
     ];
 
     const parsed = parseJsonEventStream({
@@ -616,14 +621,58 @@ describe('createRunEventTranslator', () => {
       reconstructed = message;
     }
 
-    expect(reconstructed?.parts).toContainEqual({
-      type: 'data-model-retrying',
-      data: { code: 'server_error', retry: 1, delayMs: 750 },
-    });
-    expect(reconstructed?.parts).toContainEqual(
+    expect(reconstructed?.parts).toEqual([
+      expect.objectContaining({ type: 'text', text: 'prefix' }),
+      {
+        type: 'data-model-retrying',
+        data: { code: 'server_error', retry: 1, delayMs: 750 },
+      },
       expect.objectContaining({ type: 'text', text: 'recovered' }),
-    );
+    ]);
   });
+
+  it('does not close open model parts for an invalid retry notice', () => {
+    const translator = createRunEventTranslator('run-invalid-retrying');
+    translator.translate({
+      eventType: 'model.delta',
+      payload: { text: 'prefix' },
+    });
+
+    expect(
+      translator.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'server_error', retry: 0, delayMs: 750 },
+      }),
+    ).toEqual([]);
+    expect(
+      translator.translate({
+        eventType: 'model.delta',
+        payload: { text: 'suffix' },
+      }),
+    ).toEqual([{ type: 'text-delta', id: 'text-1', delta: 'suffix' }]);
+  });
+
+  it('closes reasoning before a retry notice', () => {
+    const translator = createRunEventTranslator('run-retrying-reasoning');
+    translator.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'thought', partId: 'wire-1' },
+    });
+
+    expect(
+      translator.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'server_error', retry: 1, delayMs: 750 },
+      }),
+    ).toEqual([
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      {
+        type: 'data-model-retrying',
+        data: { code: 'server_error', retry: 1, delayMs: 750 },
+      },
+    ]);
+  });
+
   it('ignores empty or malformed delta payloads', () => {
     const t = createRunEventTranslator('run-4');
 

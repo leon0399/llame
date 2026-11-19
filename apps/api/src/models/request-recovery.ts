@@ -425,16 +425,23 @@ async function generate(
   options: RequestRecoveryOptions,
   clock: RecoveryClock,
 ) {
-  const signal =
+  const requestSignal =
     params.abortSignal ?? options.abortSignal ?? new AbortController().signal;
 
+  const firstMilliseconds = (options.firstTokenTimeoutSeconds ?? 300) * 1000;
+
   for (let send = 1; ; send += 1) {
-    signal.throwIfAborted();
+    requestSignal.throwIfAborted();
+    const window = new SendWindow(requestSignal);
 
     try {
-      return await model.doGenerate({ ...params, abortSignal: signal });
+      return await window.wait(
+        model.doGenerate({ ...params, abortSignal: window.signal }),
+        firstMilliseconds,
+        'first_token_timeout',
+      );
     } catch (error) {
-      signal.throwIfAborted();
+      requestSignal.throwIfAborted();
 
       if (InvalidArgumentError.isInstance(error)) throw error;
       const failure = classifiedFailure(error, options, undefined, clock.now());
@@ -447,8 +454,10 @@ async function generate(
         throw failure;
       const delayMs = retryDelay(failure, send, clock);
       await options.onRetry?.({ code: failure.code, retry: send, delayMs });
-      signal.throwIfAborted();
-      await clock.delay(delayMs, signal);
+      requestSignal.throwIfAborted();
+      await clock.delay(delayMs, requestSignal);
+    } finally {
+      window.abort();
     }
   }
 }

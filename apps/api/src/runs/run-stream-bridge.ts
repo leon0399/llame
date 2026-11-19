@@ -204,6 +204,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     return [
       ...this.prelude(),
+      ...this.closeReasoning(),
+      ...this.closeText(),
       { type: 'data-model-retrying', data: { code, retry, delayMs } },
     ];
   }

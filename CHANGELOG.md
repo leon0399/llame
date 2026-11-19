@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-19
+
+- Bound structured model sends with the same first-token deadline and retry
+  allowance as streaming sends. Retry events take the active Run's row lock
+  before the Chat lock, so a terminal commit cannot be followed by a retry
+  notice. Resumed text starts after the retry marker and clears its label.
+
 # 2026-11-18
 
 - Stream Runs to the client as [AG-UI](docs/research/standards/ag-ui.md)

@@ -60,15 +60,19 @@ describe('provider failure helpers', () => {
       code: 'rate_limited',
     });
 
+    const raw = new Error('raw');
+
     const onError = vi.fn();
 
     const request = {
       onError,
     };
 
-    const sanitize = captureRequestFailure(request, () => failure);
+    const sanitize = captureRequestFailure(request, (error) =>
+      error === raw ? failure : error,
+    );
 
-    request.onError?.({ error: new Error('raw') });
+    request.onError?.({ error: raw });
 
     expect(sanitize(new NoOutputGeneratedError())).toBe(failure);
     expect(onError).toHaveBeenCalledWith({ error: failure });

@@ -781,4 +781,89 @@ describe('withRequestRecovery', () => {
     expect(sends).toBe(11);
     expect(retries).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
+
+  it('preserves owner cancellation during an unresponsive structured send', async () => {
+    const requested = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const reason = new Error('Owner stopped the structured request');
+
+    const base = new MockLanguageModelV3({
+      doGenerate: () => {
+        requested.resolve();
+
+        return new Promise(() => {});
+      },
+    });
+
+    const pending = withRequestRecovery(base, options).doGenerate({
+      prompt: [],
+      abortSignal: controller.signal,
+    });
+
+    const rejected = Promise.resolve(pending).catch((error: unknown) => error);
+
+    await requested.promise;
+    controller.abort(reason);
+
+    expect(await rejected).toBe(reason);
+  });
+
+  it('cleans up the structured send window after a successful response', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+
+    const base = new MockLanguageModelV3({
+      doGenerate: (params) => {
+        signal = params.abortSignal;
+
+        return Promise.resolve({
+          content: [{ type: 'text', text: 'Generated title' }],
+          finishReason: { unified: 'stop', raw: undefined },
+          usage,
+          warnings: [],
+        });
+      },
+    });
+
+    await withRequestRecovery(base, options).doGenerate({ prompt: [] });
+
+    expect(signal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('times out and retries unresponsive structured sends with aborted signals', async () => {
+    vi.useFakeTimers();
+    let sends = 0;
+    let aborts = 0;
+
+    const base = new MockLanguageModelV3({
+      doGenerate: ({ abortSignal }) => {
+        sends += 1;
+
+        return new Promise(() => {
+          abortSignal?.addEventListener(
+            'abort',
+            () => {
+              aborts += 1;
+            },
+            { once: true },
+          );
+        });
+      },
+    });
+
+    const pending = withRequestRecovery(
+      base,
+      { ...options, firstTokenTimeoutSeconds: 0.01 },
+      immediate,
+    ).doGenerate({ prompt: [] });
+
+    const rejected = Promise.resolve(pending).catch((error: unknown) => error);
+    await vi.runAllTimersAsync();
+
+    expect(await rejected).toMatchObject({ code: 'first_token_timeout' });
+    expect(sends).toBe(11);
+    expect(aborts).toBe(11);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
