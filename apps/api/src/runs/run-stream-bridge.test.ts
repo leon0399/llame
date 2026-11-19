@@ -1559,8 +1559,7 @@ describe('RunStreamBridgeService', () => {
 
     const body = bridge
       .createUiMessageStreamResponse({
-        runId: RUN_ID,
-        userId: 'user-1',
+        ...STREAM_INPUT,
         abortSignal: controller.signal,
       })
       .text();
@@ -1575,9 +1574,7 @@ describe('RunStreamBridgeService', () => {
           new Promise<boolean>((resolve) => setImmediate(() => resolve(false))),
         ]),
       ).toBe(true);
-      expect(await body).toBe(
-        `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-      );
+      expect(await body).toBe(RUN_STARTED_FRAME);
     } finally {
       controller.abort();
       await body;
