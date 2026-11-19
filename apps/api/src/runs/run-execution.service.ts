@@ -4406,6 +4406,7 @@ export class RunExecutionService {
             // actually completes (a run that errors mid-loop after
             // capping does not claim to have "completed with the cap").
             onCapReached: () => {
+              if (cappedAt !== null) return;
               cappedAt = maxStepsPerRun;
               enqueueEvent('run.step_cap_reached', {
                 stepsUsed: maxStepsPerRun,

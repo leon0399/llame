@@ -50,6 +50,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   Superseded text and unsigned reasoning leave the live view, Reply, and model
   input while remaining in the event log. Earlier completed steps and committed
   context stay in order; usage remains an incomplete lower bound.
+  A forced-answer restart keeps one step-cap notice and never repeats the completed tool.
 
 - Retry eligible model requests with bounded same-model sends instead of the
   SDK's hidden retries. The initial send can be followed by up to 10 retries

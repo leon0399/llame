@@ -2601,7 +2601,11 @@ describe('RunExecutionService executeRun', () => {
       );
     });
 
-    async function runScriptedRestart(stepToBreak: 0 | 1, broken: boolean) {
+    async function runScriptedRestart(
+      stepToBreak: 0 | 1,
+      broken: boolean,
+      maxStepsPerRun = 2,
+    ) {
       const spies = mockNormalExecutionRepositories();
       vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
         ...run,
@@ -2664,18 +2668,23 @@ describe('RunExecutionService executeRun', () => {
         'tool-calls',
       );
 
-      const responses = broken
-        ? stepToBreak === 1
-          ? [
-              firstToolCall,
-              brokenResponse,
-              secondToolCall,
-              providerText('final answer'),
-            ]
-          : [brokenResponse, firstToolCall, providerText('final answer')]
-        : stepToBreak === 1
-          ? [firstToolCall, secondToolCall, providerText('final answer')]
-          : [firstToolCall, providerText('final answer')];
+      const responses =
+        maxStepsPerRun === 1
+          ? broken
+            ? [firstToolCall, brokenResponse, providerText('final answer')]
+            : [firstToolCall, providerText('final answer')]
+          : broken
+            ? stepToBreak === 1
+              ? [
+                  firstToolCall,
+                  brokenResponse,
+                  secondToolCall,
+                  providerText('final answer'),
+                ]
+              : [brokenResponse, firstToolCall, providerText('final answer')]
+            : stepToBreak === 1
+              ? [firstToolCall, secondToolCall, providerText('final answer')]
+              : [firstToolCall, providerText('final answer')];
 
       const { client, model, requests } = createToolLoopClient(responses);
 
@@ -2693,7 +2702,7 @@ describe('RunExecutionService executeRun', () => {
         undefined,
         {
           ...withDeclaredTool(),
-          maxStepsPerRun: 2,
+          maxStepsPerRun,
           inRunProducer: stepProducer((step) => {
             if (step.stepNumber === 0) step.stage(item);
           }),
@@ -2800,6 +2809,29 @@ describe('RunExecutionService executeRun', () => {
         ).toHaveLength(1);
       },
     );
+
+    it('does not emit a second cap notice when the forced answer restarts', async () => {
+      const clean = await runScriptedRestart(1, false, 1);
+      vi.restoreAllMocks();
+      const restarted = await runScriptedRestart(1, true, 1);
+
+      expect(restarted.requests).toHaveLength(clean.requests.length + 1);
+      expect(restarted.requests[2]).toEqual(clean.requests[1]);
+      expect(restarted.reply.parts).toEqual(clean.reply.parts);
+      expect(
+        restarted.appended.filter(({ type }) => type === 'tool.completed'),
+      ).toHaveLength(1);
+      expect(
+        restarted.appended.filter(
+          ({ type }) => type === 'run.step_cap_reached',
+        ),
+      ).toHaveLength(1);
+      expect(
+        restarted.reply.parts.filter(
+          (part) => isRecord(part) && part['type'] === 'data-cap-notice',
+        ),
+      ).toHaveLength(1);
+    });
 
     it('restarts an answer-only send with its own event window', async () => {
       const spies = mockNormalExecutionRepositories();
