@@ -22748,6 +22748,12 @@ describe('RunExecutionService executeRun — run segments', () => {
         });
       }
 
+      if (scenario.quotaReplay)
+        vi.spyOn(
+          RunRowFenceRepository.prototype,
+          'lockForDelivery',
+        ).mockResolvedValueOnce({ ...run, activeAttemptId: testAttemptId });
+
       const result = await execution.service.executeRun(
         executionInput(segment.client),
       );
