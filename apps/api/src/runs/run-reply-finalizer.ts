@@ -35,6 +35,8 @@ import { toolTerminationResult } from './tool-settlement';
 import { wakeStateFromEvents } from './wake-projection';
 import {
   quotaPendingReplyFromEvents,
+  quotaCompactionStateFromEvents,
+  quotaRequestFromEvents,
   quotaWakeStateFromEvents,
 } from './quota-wake-projection';
 
@@ -463,13 +465,18 @@ function wakeReplyRecovery(
   running: RunningReplyUsage,
   continued: ContinueState | undefined,
 ): WakeReplyRecovery {
-  // Preparation may fail after the first wake claim commits. Only that
-  // claimed attempt restores the wait; retries must not replay its prefix.
+  // Jobs and request wakes restore only their first claimed attempt. An open
+  // summary still owns its completed reply when a later settler takes over.
   const claimedAttemptId =
     input.attemptId ?? input.run.activeAttemptId ?? running.attemptId;
 
   const wake = wakeStateFromEvents(log, claimedAttemptId);
-  const quotaWake = quotaWakeStateFromEvents(log, claimedAttemptId);
+
+  const quotaWake =
+    quotaWakeStateFromEvents(log, claimedAttemptId) ??
+    (attemptWindow(log, claimedAttemptId).length === 0
+      ? quotaCompactionStateFromEvents(log, quotaRequestFromEvents(log))
+      : undefined);
 
   const pending =
     wake === undefined && quotaWake === undefined

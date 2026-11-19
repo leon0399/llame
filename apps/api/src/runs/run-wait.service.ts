@@ -23,6 +23,7 @@ import { RunEventsRepository } from './runs-repository';
 import { retryRunTransaction } from './run-transaction';
 import { type AssistantTurnTelemetry } from './run-reply-finalizer';
 import type { StoppedCall } from '../chats/interrupted-notice';
+import type { FirstEpochBaselines } from './segment-delivery';
 
 export type RunWaitCause = 'settled' | 'interrupted' | 'timeout' | 'cancelled';
 
@@ -49,6 +50,20 @@ export type SuspendRunQuotaInput = {
   parts: Array<unknown>;
   steps: Record<string, number>;
   stoppedCalls?: ReadonlyArray<StoppedCall>;
+  /**
+   * Step budget this Run has charged so far, across every segment. It excludes
+   * a Continue Run's inherited display numbering, so a later wake does not
+   * spend this Run's cap on steps a source Run took.
+   */
+  stepBudgetUsed?: number;
+  /** The boundary summary mode this wait belongs to, frozen for its resume. */
+  boundaryMode?: 'automatic' | 'owner';
+  /** The attempt whose receipt owns the suspended summary's prefix. */
+  summaryAttemptId?: string;
+  /** The summary prefix this attempt rendered, frozen for its resume. */
+  summaryPrefixFingerprint?: string;
+  /** The first-epoch baselines this attempt rendered for its target request. */
+  baselines?: FirstEpochBaselines;
 };
 
 type AttemptRunInput = Pick<

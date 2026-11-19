@@ -32,7 +32,7 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunningReplyRepository } from './running-reply-repository';
 import { toSharedChatResponse } from './dto/chats.dto';
 import { ChatsService } from './chats.service';
-import { toStoredMessages } from '../compaction/compaction.service';
+import { toStoredMessages } from '../compaction/compaction';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { isRecord } from '@workspace/runtime-safety';
 import { buildContext, type StoredMessage } from './context-builder';

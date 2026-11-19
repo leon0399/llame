@@ -23,12 +23,10 @@ import {
 import {
   type ContextCheckpoint,
   type ModelMessage,
-  type StoredMessage,
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
-import type { Message, ModelToolDeclaration, Run } from '../db/schema';
+import type { ModelToolDeclaration, Run } from '../db/schema';
 import { toContextCheckpoint } from '../chats/context-item-producers';
-import { isRecord } from '@workspace/runtime-safety';
 import type { CheckpointMessage } from '../chats/messages-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
@@ -60,29 +58,6 @@ function schemaOnlyTools(
   }
 
   return Object.fromEntries(entries);
-}
-
-/**
- * Narrows a read history's `unknown[]` JSONB `parts` to `MessagePart[]`: each
- * part must be an object (the union's `Record<string, unknown>` fallback
- * arm), matching every other JSON-record boundary in this codebase. Malformed
- * (non-object) parts fail closed rather than silently coercing.
- */
-export function toStoredMessages(
-  history: ReadonlyArray<Message>,
-): Array<StoredMessage> {
-  return history.map((message) => ({
-    ...message,
-    parts: message.parts.map((part) => {
-      if (!isRecord(part)) {
-        throw new Error(
-          `Malformed message part in message ${message.id}: expected an object`,
-        );
-      }
-
-      return part;
-    }),
-  }));
 }
 
 /** What one summarization call yielded: usable summary text, or nothing. */
@@ -161,6 +136,11 @@ export type CompactionSummaryRequest = CompactionSummaryContext &
         readonly variant: Extract<CompactionVariant, 'window'>;
         readonly triggeringUserSeq: number;
         readonly instruction?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+        /** Only this Run's configured model owns its quota wait and retries. */
+        readonly quotaWait?: CompactionQuotaWaitPolicy & {
+          readonly modelId: string;
+        };
       }
     | {
         readonly variant: Extract<CompactionVariant, 'owner'>;
@@ -448,6 +428,13 @@ export class CompactionService {
       );
     }
 
+    const quotaWait =
+      input.variant === 'window' &&
+      input.quotaWait !== undefined &&
+      input.quotaWait.modelId === selected.run.modelId
+        ? input.quotaWait
+        : undefined;
+
     // Read off the source run this method loaded, so passing the incoming
     // turn's effort by mistake is not expressible: it was validated against a
     // different model's declared levels.
@@ -510,6 +497,7 @@ export class CompactionService {
         toolDeclarations: [],
         ...(effort !== undefined && { effort }),
         abortSignal: input.abortSignal,
+        ...(quotaWait !== undefined && { onRetry: input.onRetry }),
         media: input.media,
         reservedOutputTokens: input.reservedOutputTokens,
       });
@@ -517,6 +505,13 @@ export class CompactionService {
       if (input.abortSignal?.aborted) {
         throw error;
       }
+
+      const awaitingQuota =
+        quotaWait === undefined
+          ? undefined
+          : compactionQuotaWait(error, quotaWait);
+
+      if (awaitingQuota !== undefined) throw awaitingQuota;
 
       throw new ContextIncompatibleError(
         'Source-model summarization of the history this request carries failed.',

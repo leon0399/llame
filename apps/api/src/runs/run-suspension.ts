@@ -113,21 +113,11 @@ async function appendSuspensionEvents(
   const { kind, input, awaiting } = data;
 
   if (kind === 'quota') {
-    await events.append(run.id, 'run.suspended', {
-      kind: 'quota',
-      attemptId: input.attemptId,
-      generation,
-      failureClass: awaiting.failureClass,
-      resetsAt: awaiting.resetsAt,
-      wakeAt: awaiting.wakeAt,
-      resumeAt: awaiting.resumeAt,
-      waitCount: awaiting.waitCount,
-      parts: input.parts,
-      steps: input.steps,
-      ...(input.stoppedCalls !== undefined && {
-        stoppedCalls: input.stoppedCalls,
-      }),
-    });
+    await events.append(
+      run.id,
+      'run.suspended',
+      quotaSuspensionPayload(input, awaiting, generation),
+    );
   } else {
     if (input.telemetry !== undefined)
       await events.append(run.id, 'model.completed', {
@@ -143,4 +133,39 @@ async function appendSuspensionEvents(
       awaiting,
     });
   }
+}
+
+function quotaSuspensionPayload(
+  input: SuspendRunQuotaInput,
+  awaiting: AwaitingQuota,
+  generation: number,
+) {
+  return {
+    kind: 'quota',
+    attemptId: input.attemptId,
+    generation,
+    failureClass: awaiting.failureClass,
+    resetsAt: awaiting.resetsAt,
+    wakeAt: awaiting.wakeAt,
+    resumeAt: awaiting.resumeAt,
+    waitCount: awaiting.waitCount,
+    parts: input.parts,
+    steps: input.steps,
+    ...(input.stoppedCalls !== undefined && {
+      stoppedCalls: input.stoppedCalls,
+    }),
+    ...(input.stepBudgetUsed !== undefined && {
+      stepBudgetUsed: input.stepBudgetUsed,
+    }),
+    ...(input.boundaryMode !== undefined && {
+      boundaryMode: input.boundaryMode,
+    }),
+    ...(input.summaryAttemptId !== undefined && {
+      summaryAttemptId: input.summaryAttemptId,
+    }),
+    ...(input.summaryPrefixFingerprint !== undefined && {
+      summaryPrefixFingerprint: input.summaryPrefixFingerprint,
+    }),
+    ...(input.baselines !== undefined && { baselines: input.baselines }),
+  };
 }

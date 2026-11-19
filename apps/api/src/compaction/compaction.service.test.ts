@@ -30,10 +30,11 @@ import {
 import {
   COMPACTION_INSTRUCTION,
   renderCompactionInstruction,
+  toStoredMessages,
   type CompactionPlan,
 } from './compaction';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
-import { CompactionService, toStoredMessages } from './compaction.service';
+import { CompactionService } from './compaction.service';
 import {
   CompactionQuotaWait,
   compactionQuotaWait,
@@ -169,6 +170,15 @@ function recordingClient(options?: {
   };
 
   return { client, calls };
+}
+
+function failingClient(error: Error): ModelClient {
+  return {
+    ...createFakeModelClient(['summary']),
+    streamText: () => {
+      throw error;
+    },
+  };
 }
 
 const validTool: ModelToolDeclaration = {
@@ -953,6 +963,98 @@ describe('CompactionService.summarizeCheckpoint (window variant)', () => {
         'Source-model summarization of the history this request carries failed.',
       cause: boom,
     });
+  });
+
+  it('carries an eligible quota wait when the source is the same model', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now.getTime());
+
+    const failure = new ProviderFailure('quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: now.getTime() + 60_001,
+    });
+
+    const setup = makeService(failingClient(failure));
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    const result = setup.service.summarizeCheckpoint({
+      variant: 'window',
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      reservedOutputTokens: 10,
+      quotaWait: {
+        maxSeconds: 691_200,
+        request: undefined,
+        modelId: 'source-model-1',
+      },
+    });
+
+    await expect(result).rejects.toMatchObject({
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'quota_exhausted',
+        resetsAt: new Date(now.getTime() + 60_001).toISOString(),
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+    });
+  });
+
+  it('keeps a different source model quota failure a side-call failure', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now.getTime());
+
+    const failure = new ProviderFailure('quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: now.getTime() + 60_001,
+    });
+
+    const setup = makeService(failingClient(failure));
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    const thrown = await setup.service
+      .summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        reservedOutputTokens: 10,
+        quotaWait: {
+          maxSeconds: 691_200,
+          request: undefined,
+          modelId: 'current-run-model',
+        },
+      })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(ContextIncompatibleError);
+    expect(thrown).toHaveProperty('cause', failure);
+  });
+
+  it('keeps a source-model quota failure terminal without a Run quota policy', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now.getTime());
+
+    const failure = new ProviderFailure('quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: now.getTime() + 60_001,
+    });
+
+    const setup = makeService(failingClient(failure));
+    mockReads({ source: { run: sourceRun, receipt: sourceReceipt } });
+
+    const thrown = await setup.service
+      .summarizeCheckpoint({
+        variant: 'window',
+        chatId,
+        userId: ownerId,
+        triggeringUserSeq: 3,
+        plan: plan(),
+        reservedOutputTokens: 10,
+      })
+      .catch((error: unknown) => error);
+
+    expect(thrown).toBeInstanceOf(ContextIncompatibleError);
   });
 
   it('rethrows the original failure when the window summary was aborted', async () => {

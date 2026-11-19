@@ -1025,6 +1025,97 @@ describe('finalizeRunReply', () => {
     );
   });
 
+  it.each([false, true])(
+    'keeps the completed final answer once on summary quota cancellation (re-wait: %s)',
+    async (reWait) => {
+      const kept = [
+        contextItem('kept instructions'),
+        {
+          ...toolPart('search-call'),
+          classification: null,
+          input: { q: 'search-call' },
+          outcome: 'success',
+          output: { status: 'success', value: 'ok' },
+          state: 'output-available',
+        },
+        { type: 'text', text: 'The final answer is complete.' },
+      ];
+
+      const running = runningReplyUsage({
+        runId,
+        attemptId: reWait ? 'wake-attempt' : 'answer-attempt',
+        modelId: 'fake-model',
+        effort: undefined,
+        permissionMode: 'default',
+      });
+
+      const { update } = serve({
+        log: [
+          requested(1, 'answer-attempt'),
+          ...toolCall(2, 'search-call'),
+          event(4, 'model.delta', { text: 'The final answer is complete.' }),
+          event(5, 'run.suspended', {
+            kind: 'quota',
+            attemptId: 'answer-attempt',
+            generation: 1,
+            failureClass: 'quota_exhausted',
+            resetsAt: '2026-10-12T00:00:00.000Z',
+            wakeAt: '2026-10-12T00:01:00.000Z',
+            resumeAt: 'finalAnswer',
+            waitCount: 1,
+            parts: kept,
+            steps: {},
+          }),
+          ...(reWait
+            ? [
+                event(6, 'run.resumed', {
+                  kind: 'quota',
+                  attemptId: 'wake-attempt',
+                  generation: 1,
+                  cause: 'timeout',
+                }),
+                event(7, 'run.started', { attemptId: 'wake-attempt' }),
+                event(8, 'run.suspended', {
+                  kind: 'quota',
+                  attemptId: 'wake-attempt',
+                  generation: 2,
+                  failureClass: 'quota_exhausted',
+                  resetsAt: '2026-10-12T01:00:00.000Z',
+                  wakeAt: '2026-10-12T01:01:00.000Z',
+                  resumeAt: 'finalAnswer',
+                  waitCount: 2,
+                  parts: kept,
+                  steps: {},
+                }),
+              ]
+            : []),
+          // RunWaitService wakes a cancelled quota wait with a fresh claim and
+          // no `run.started`, because the cancellation is stamped first, so the
+          // claim never starts an attempt.
+          event(9, 'run.resumed', {
+            kind: 'quota',
+            attemptId: 'cancel-attempt',
+            generation: reWait ? 2 : 1,
+            cause: 'cancelled',
+          }),
+        ],
+        reply: reply({ usage: running, parts: reWait ? [] : kept }),
+      });
+
+      await finalizeRunReply(tx, {
+        run: { ...run, status: 'cancelled', activeAttemptId: null },
+        status: 'cancelled',
+        models,
+      });
+
+      expect(update.mock.lastCall?.[0].parts).toEqual(kept);
+      expect(update.mock.lastCall?.[0].usage).toMatchObject({
+        status: 'aborted',
+        complete: false,
+      });
+    },
+  );
+
   it('projects superseded output and lowers usage completeness', async () => {
     const item = contextItem('kept context');
 

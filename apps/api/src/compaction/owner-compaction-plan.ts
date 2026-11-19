@@ -2,8 +2,11 @@ import type {
   CheckpointMessage,
   MessagesRepository,
 } from '../chats/messages-repository';
-import { toStoredMessages } from './compaction.service';
-import { planCompactionCheckpoint, type CompactionPlan } from './compaction';
+import {
+  planCompactionCheckpoint,
+  toStoredMessages,
+  type CompactionPlan,
+} from './compaction';
 
 export type OwnerCompactionPlan = {
   nextSeq: number;
