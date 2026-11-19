@@ -67,6 +67,7 @@ import { createWorkspaceRootCell } from '../tools/workspace-path';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
+import { toMessageParts } from '../chats/chat-message-parts';
 import { asDouble } from '../testing/support';
 import type { JobNoticeRunService } from './job-notice-run.service';
 import { type RunDispatcher } from './run-dispatch.service';
@@ -13269,6 +13270,471 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     }
   });
 
+  it('parks an over-threshold summary quota before the first model request', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(3, committedTurnAnswer().run.modelId),
+    );
+    spies.findCompleted.mockImplementation(
+      completedLookupBefore(3, committedTurnAnswer()),
+    );
+    spies.findActiveCheckpoint.mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      ...committedTurn({ contextTokens: 40_000 }),
+      triggerTurn(),
+    ]);
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const publication = serveCheckpointPublication();
+    const realClient = createToolLoopClient([providerText('answer')]);
+    Object.assign(realClient.client, {
+      compactionThresholdTokens: triggerThreshold,
+    });
+
+    const execution = makeExecutionService(
+      realClient.client,
+      undefined,
+      undefined,
+      {
+        model: anchoredModel,
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+      },
+    );
+
+    execution.summarizeCheckpoint.mockRejectedValue(
+      new ProviderFailure('The provider quota is exhausted.', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 120_000,
+        statusCode: 429,
+      }),
+    );
+
+    await expect(
+      execution.service.executeRun({
+        ...executionInput(realClient.client),
+        userMessage: {
+          id: messageId,
+          seq: 3,
+          parts: [{ type: 'text', text: 'hello' }],
+        },
+      }),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(realClient.requests).toHaveLength(0);
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledOnce();
+    expect(publication.create).not.toHaveBeenCalled();
+    expect(suspendForQuota).toHaveBeenCalledOnce();
+    expect(suspendForQuota.mock.lastCall?.[0]).toMatchObject({
+      runId,
+      chatId,
+      userId,
+      attemptId: testAttemptId,
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'quota_exhausted',
+        resumeAt: 'preDispatch',
+        waitCount: 1,
+      },
+      parts: [],
+      steps: {},
+    });
+    expect(spies.markFinished).not.toHaveBeenCalled();
+  });
+
+  it('publishes and closes a pre-dispatch quota request before the resumed model request', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(3, committedTurnAnswer().run.modelId),
+    );
+    spies.findCompleted.mockImplementation(
+      completedLookupBefore(3, committedTurnAnswer()),
+    );
+
+    const historyRows = [
+      ...committedTurn({ contextTokens: 40_000 }),
+      triggerTurn(),
+    ];
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const publication = serveCheckpointPublication();
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+      () =>
+        Promise.resolve(
+          publication.create.mock.calls.length === 0
+            ? historyRows
+            : [{ ...userMessage, seq: 3 }],
+        ),
+    );
+    spies.findActiveCheckpoint.mockImplementation(() =>
+      Promise.resolve(
+        publication.create.mock.calls.length === 0
+          ? undefined
+          : activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
+      ),
+    );
+    const appended = recordAppendedEvents();
+    const realClient = createToolLoopClient([providerText('answer')]);
+    Object.assign(realClient.client, {
+      compactionThresholdTokens: triggerThreshold,
+    });
+
+    const execution = makeExecutionService(
+      realClient.client,
+      undefined,
+      undefined,
+      {
+        model: anchoredModel,
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+      },
+    );
+
+    execution.summarizeCheckpoint
+      .mockRejectedValueOnce(
+        new ProviderFailure('The provider quota is exhausted.', {
+          code: 'quota_exhausted',
+          resetsAt: Date.now() + 120_000,
+          statusCode: 429,
+        }),
+      )
+      .mockResolvedValue(checkpointSummary(2));
+
+    const request = {
+      ...executionInput(realClient.client),
+      userMessage: {
+        id: messageId,
+        seq: 3,
+        parts: [{ type: 'text' as const, text: 'hello' }],
+      },
+    };
+
+    await expect(execution.service.executeRun(request)).rejects.toBeInstanceOf(
+      RunNotRunnableError,
+    );
+    expect(realClient.requests).toHaveLength(0);
+    expect(suspendForQuota.mock.lastCall?.[0].awaiting).toMatchObject({
+      kind: 'quota',
+      failureClass: 'quota_exhausted',
+      resumeAt: 'preDispatch',
+      waitCount: 1,
+    });
+
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      attemptId: testAttemptId,
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      quotaRequest: {
+        generation: 9,
+        resumeAt: 'preDispatch',
+        waitCount: 1,
+      },
+      quotaWake: true,
+    });
+    const resumed = await execution.service.executeRun(request);
+    await resumed.consumeStream();
+
+    expect(execution.summarizeCheckpoint.mock.calls[1]?.[0].plan).toEqual(
+      execution.summarizeCheckpoint.mock.calls[0]?.[0].plan,
+    );
+    expect(execution.summarizeCheckpoint).toHaveBeenCalledTimes(2);
+    expect(publication.create).toHaveBeenCalledOnce();
+
+    const recoveryIndex = appended.findIndex(
+      ({ type }) => type === 'run.quota_recovered',
+    );
+
+    const requestIndex = appended.findIndex(
+      ({ type }) => type === 'model.requested',
+    );
+
+    expect(recoveryIndex).toBeGreaterThanOrEqual(0);
+    expect(recoveryIndex).toBeLessThan(requestIndex);
+    expect(appended[recoveryIndex]?.payload).toMatchObject({
+      generation: 9,
+      resumeAt: 'preDispatch',
+    });
+  });
+
+  it('retries the pre-dispatch request before delivering a pending steer', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(3, committedTurnAnswer().run.modelId),
+    );
+    spies.findCompleted.mockImplementation(
+      completedLookupBefore(3, committedTurnAnswer()),
+    );
+
+    const historyRows = [
+      ...committedTurn({ contextTokens: 40_000 }),
+      triggerTurn(),
+    ];
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const publication = serveCheckpointPublication();
+    let steerDelivered = false;
+
+    const steeredMessage: Message = {
+      ...userMessage,
+      id: '88888888-8888-4888-8888-888888888888',
+      seq: 4,
+      parts: [{ type: 'text', text: 'Steer the next step.' }],
+    };
+
+    const steer: ChatDelivery = {
+      id: '99999999-9999-4999-8999-999999999999',
+      chatId,
+      ownerUserId: userId,
+      producer: 'owner',
+      senderRef: null,
+      mode: 'steer',
+      parts: steeredMessage.parts,
+      settings: { modelId: 'fake-model', permissionMode: 'default' },
+      state: 'pending',
+      position: 1,
+      deliveredMessageId: null,
+      runId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+      () =>
+        Promise.resolve(
+          publication.create.mock.calls.length === 0
+            ? historyRows
+            : [
+                { ...userMessage, seq: 3 },
+                ...(steerDelivered ? [steeredMessage] : []),
+              ],
+        ),
+    );
+    spies.findActiveCheckpoint.mockImplementation(() =>
+      Promise.resolve(
+        publication.create.mock.calls.length === 0
+          ? undefined
+          : activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
+      ),
+    );
+
+    const realClient = createToolLoopClient([
+      providerText('Original request answer.'),
+      providerText('Steered request answer.'),
+    ]);
+
+    Object.assign(realClient.client, {
+      compactionThresholdTokens: triggerThreshold,
+    });
+
+    const execution = makeExecutionService(
+      realClient.client,
+      undefined,
+      undefined,
+      {
+        model: anchoredModel,
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+      },
+    );
+
+    execution.summarizeCheckpoint
+      .mockRejectedValueOnce(
+        new ProviderFailure('The provider quota is exhausted.', {
+          code: 'quota_exhausted',
+          resetsAt: Date.now() + 120_000,
+          statusCode: 429,
+        }),
+      )
+      .mockResolvedValue(checkpointSummary(2));
+
+    const request = {
+      ...executionInput(realClient.client),
+      userMessage: {
+        id: messageId,
+        seq: 3,
+        parts: [{ type: 'text' as const, text: 'hello' }],
+      },
+    };
+
+    await expect(execution.service.executeRun(request)).rejects.toBeInstanceOf(
+      RunNotRunnableError,
+    );
+
+    const markDelivered = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
+      .mockImplementation(() => {
+        steerDelivered = true;
+
+        return Promise.resolve(steer);
+      });
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([steer]);
+    vi.spyOn(ChatDeliveriesRepository.prototype, 'stepEndSignal')
+      .mockResolvedValueOnce('delivery')
+      .mockResolvedValue(undefined);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'lockPendingBoundary',
+    ).mockResolvedValueOnce([steer]);
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    ).mockResolvedValue(steeredMessage);
+    vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
+      steeredMessage,
+    );
+
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      attemptId: testAttemptId,
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: {
+        parts: toMessageParts(suspendForQuota.mock.lastCall?.[0].parts ?? []),
+      },
+      quotaRequest: {
+        generation: 11,
+        resumeAt: 'preDispatch',
+        waitCount: 1,
+      },
+      quotaWake: true,
+    });
+    const resumed = await execution.service.executeRun(request);
+    await resumed.consumeStream();
+
+    expect(realClient.requests).toHaveLength(2);
+    expect(JSON.stringify(realClient.requests[0])).toContain('hello');
+    expect(JSON.stringify(realClient.requests[0])).not.toContain(
+      'Steer the next step.',
+    );
+    expect(JSON.stringify(realClient.requests[1])).toContain(
+      'Steer the next step.',
+    );
+    expect(markDelivered).toHaveBeenCalledOnce();
+  });
+
+  it('settles a cancelled redelivery with its restored prefix when summary quota arrives', async () => {
+    const spies = mockNormalExecutionRepositories();
+    let cancellationRequested = false;
+    spies.findById.mockImplementation(() =>
+      Promise.resolve({
+        ...run,
+        activeAttemptId: testAttemptId,
+        cancelRequestedAt: cancellationRequested ? now : null,
+      }),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+    ]);
+
+    const compact: ChatDelivery = {
+      id: 'aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa',
+      chatId,
+      ownerUserId: userId,
+      producer: 'owner',
+      senderRef: null,
+      mode: 'steer',
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+      settings: { modelId: 'fake-model', permissionMode: 'default' },
+      state: 'pending',
+      position: 1,
+      deliveredMessageId: null,
+      runId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+
+    const restoredPrefix = {
+      type: 'text' as const,
+      text: 'saved answer prefix',
+      step: 2,
+    };
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockImplementation(() => {
+        cancellationRequested = true;
+
+        return Promise.resolve({ kind: 'ready', cause: 'cancelled' });
+      });
+
+    const realClient = createToolLoopClient([providerText('unused answer')]);
+
+    const execution = makeExecutionService(
+      realClient.client,
+      undefined,
+      undefined,
+      { runWait: asDouble<RunWaitService>({ suspendForQuota }) },
+    );
+
+    vi.spyOn(execution.compaction, 'computeBoundarySummary').mockRejectedValue(
+      new ProviderFailure('The provider quota is exhausted.', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 120_000,
+        statusCode: 429,
+      }),
+    );
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      attemptId: testAttemptId,
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: { parts: [restoredPrefix] },
+      quotaRequest: {
+        generation: 13,
+        resumeAt: 'boundary',
+        waitCount: 1,
+      },
+      quotaWake: true,
+    });
+
+    await expect(
+      execution.service.executeRun(executionInput(realClient.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(realClient.requests).toHaveLength(0);
+    expect(suspendForQuota).toHaveBeenCalledOnce();
+    expect(suspendForQuota.mock.lastCall?.[0].parts).toContainEqual(
+      restoredPrefix,
+    );
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
+    ).toContainEqual(restoredPrefix);
+  });
+
   it.each([
     { name: 'an over-threshold chat', variant: 'threshold' },
     {
@@ -22273,7 +22739,7 @@ describe('RunExecutionService executeRun — run segments', () => {
   }
 
   /** One declared tool, so the call carries the step callbacks. */
-  function toolService(client: ModelClient) {
+  function toolService(client: ModelClient, runWait?: RunWaitService) {
     return makeExecutionService(
       client,
       makeDynamicResolver({
@@ -22284,7 +22750,10 @@ describe('RunExecutionService executeRun — run segments', () => {
         execute: () => Promise.resolve({ status: 'success' as const }),
       }),
       undefined,
-      withDeclaredTool(),
+      {
+        ...withDeclaredTool(),
+        ...(runWait !== undefined && { runWait }),
+      },
     );
   }
 
@@ -22481,6 +22950,144 @@ describe('RunExecutionService executeRun — run segments', () => {
     if (boundaryReached) expect(types).toContain('tool.completed');
     else expect(types).not.toContain('tool.completed');
   }
+
+  it('resumes a final-answer quota on the same boundary and settles without another model request', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      {
+        ...assistantMessage,
+        id: committedTurnReplyId,
+        seq: 2,
+        inReplyTo: userMessage.id,
+      },
+    ]);
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+    vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
+      deliveredMessage,
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue('delivery');
+    const appended = recordAppendedEvents();
+    const publication = serveCheckpointPublication();
+
+    const realClient = createToolLoopClient([
+      providerText('The final answer.'),
+    ]);
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const execution = toolService(
+      realClient.client,
+      asDouble<RunWaitService>({ suspendForQuota }),
+    );
+
+    const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
+    summarize
+      .mockRejectedValueOnce(
+        new ProviderFailure('The provider quota is exhausted.', {
+          code: 'quota_exhausted',
+          resetsAt: Date.now() + 120_000,
+          statusCode: 429,
+        }),
+      )
+      .mockResolvedValue(checkpointSummary(2));
+
+    const input = executionInput(realClient.client);
+
+    const request = {
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    };
+
+    const result = await execution.service.executeRun(request);
+
+    serveDelivery([compact]);
+
+    try {
+      await result.consumeStream();
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunNotRunnableError);
+    }
+
+    expect(realClient.requests).toHaveLength(1);
+    expect(suspendForQuota.mock.lastCall?.[0].awaiting).toMatchObject({
+      kind: 'quota',
+      failureClass: 'quota_exhausted',
+      resumeAt: 'finalAnswer',
+      waitCount: 1,
+    });
+    expect(suspendForQuota.mock.lastCall?.[0].parts).toContainEqual(
+      expect.objectContaining({ type: 'text', text: 'The final answer.' }),
+    );
+
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      attemptId: testAttemptId,
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: {
+        parts: toMessageParts(suspendForQuota.mock.lastCall?.[0].parts ?? []),
+      },
+      quotaRequest: {
+        generation: 8,
+        resumeAt: 'finalAnswer',
+        waitCount: 1,
+      },
+      quotaWake: true,
+    });
+    await expect(execution.service.executeRun(request)).rejects.toBeInstanceOf(
+      RunNotRunnableError,
+    );
+
+    expect(realClient.requests).toHaveLength(1);
+    expect(summarize).toHaveBeenCalledTimes(2);
+    expect(summarize.mock.calls[1]?.[0].plan).toEqual(
+      summarize.mock.calls[0]?.[0].plan,
+    );
+    expect(
+      appended.findIndex(({ type }) => type === 'run.quota_recovered'),
+    ).toBeLessThan(appended.findIndex(({ type }) => type === 'run.completed'));
+    expect(publication.create).toHaveBeenCalledOnce();
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+    expect(
+      spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
+    ).toContainEqual(
+      expect.objectContaining({ type: 'text', text: 'The final answer.' }),
+    );
+
+    const recovery = appended.find(
+      ({ type }) => type === 'run.quota_recovered',
+    );
+
+    expect(recovery?.payload).toMatchObject({
+      generation: 8,
+      resumeAt: 'finalAnswer',
+    });
+  });
 
   it('marks compaction failure when delivery disappears at the boundary', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -26282,6 +26889,120 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
       return { status: 'success' as const };
     },
   };
+
+  it('preserves stopped-call identity and aborted close across a boundary quota wake', async () => {
+    const effect = vi.fn();
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const rig = interruptRig(
+      {
+        execute: async (context) => {
+          effect();
+          context.onMcpDispatchRecorded?.();
+          await untilAborted(context.abortSignal);
+
+          return { status: 'success' as const };
+        },
+      },
+      { runWait: asDouble<RunWaitService>({ suspendForQuota }) },
+    );
+
+    rig.spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const compact: ChatDelivery = {
+      ...interruptItem,
+      id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      { ...assistantMessage, seq: 2, inReplyTo: userMessage.id },
+    ]);
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+    serveCheckpointPublication();
+    vi.spyOn(rig.execution.compaction, 'computeBoundarySummary')
+      .mockRejectedValueOnce(
+        new ProviderFailure('The provider quota is exhausted.', {
+          code: 'quota_exhausted',
+          resetsAt: Date.now() + 120_000,
+          statusCode: 429,
+        }),
+      )
+      .mockResolvedValue(checkpointSummary(2));
+
+    const originalInput = executionInput(rig.execution.client);
+    await rig.execution.service.executeRun({
+      ...originalInput,
+      userMessage: { ...originalInput.userMessage, seq: 3 },
+    });
+    const options = rig.calls[0];
+
+    if (options === undefined)
+      throw new Error('The first model request is absent.');
+
+    const call = executeBoundTool(options, { q: 'x' }, 'stopped-mcp-call');
+    await waitForType(rig.appended, 'tool.started');
+    interruptCurrent(rig.aborts, runId);
+    await call;
+    serveInterrupt([compact, interruptItem]);
+    await options.onError?.({ error: new Error('interrupted') });
+
+    const stoppedCalls = [
+      { toolName: toolDeclaration.id, toolCallId: 'stopped-mcp-call' },
+    ];
+
+    expect(suspendForQuota.mock.lastCall?.[0].stoppedCalls).toEqual(
+      stoppedCalls,
+    );
+
+    vi.spyOn(rig.execution.service, 'claimRun').mockResolvedValue({
+      attemptId: testAttemptId,
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: {
+        parts: toMessageParts(suspendForQuota.mock.lastCall?.[0].parts ?? []),
+      },
+      quotaRequest: {
+        generation: 12,
+        resumeAt: 'boundary',
+        waitCount: 1,
+        stoppedCalls,
+      },
+      quotaWake: true,
+    });
+    serveInterrupt([compact, interruptItem]);
+
+    const resumed = await rig.execution.service.executeRun(
+      executionInput(rig.execution.client),
+    );
+
+    await resumed.consumeStream();
+
+    expect(effect).toHaveBeenCalledOnce();
+    expect(typesOf(rig.appended, 'stopped-mcp-call')).toContain(
+      'tool.completed',
+    );
+    expect(delivered(rig.appended)).toMatchObject({
+      cause: 'interrupt',
+      stoppedCalls,
+    });
+    expect(JSON.stringify(noticeOf(rig))).toContain('unknown');
+    expect(
+      rig.spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].usage,
+    ).toMatchObject({ status: 'aborted' });
+  });
 
   it('continues the same reply from what the stopped call left when the owner withdrew the item', async () => {
     const rig = interruptRig(waitingTool, { maxStepsPerRun: 5 });

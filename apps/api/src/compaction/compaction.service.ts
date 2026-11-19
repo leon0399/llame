@@ -33,6 +33,10 @@ import type { CheckpointMessage } from '../chats/messages-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { ContextIncompatibleError } from '../runs/model-context-errors';
+import {
+  compactionQuotaWait,
+  type CompactionQuotaWaitPolicy,
+} from './compaction-quota-wait';
 
 function schemaOnlyTools(
   declarations: ReadonlyArray<ModelToolDeclaration>,
@@ -137,6 +141,8 @@ export type CompactionSummaryRequest = CompactionSummaryContext &
         readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
         readonly effort?: string;
         readonly onRetry?: ModelStreamInput['onRetry'];
+        /** Quota waiting applies only to this same-attempt summary request. */
+        readonly quotaWait?: CompactionQuotaWaitPolicy;
       }
     | {
         readonly variant: 'boundary';
@@ -148,6 +154,8 @@ export type CompactionSummaryRequest = CompactionSummaryContext &
         readonly focus: string | null;
         readonly effort?: string;
         readonly onRetry?: ModelStreamInput['onRetry'];
+        /** Quota waiting applies only to this same-attempt summary request. */
+        readonly quotaWait?: CompactionQuotaWaitPolicy;
       }
     | {
         readonly variant: Extract<CompactionVariant, 'window'>;
@@ -367,6 +375,10 @@ export class CompactionService {
       if (input.abortSignal?.aborted) {
         throw error;
       }
+
+      const quotaWait = compactionQuotaWait(error, input.quotaWait);
+
+      if (quotaWait !== undefined) throw quotaWait;
 
       this.logger.warn(
         `Compaction summary failed for chat ${input.chatId}; proceeding without a checkpoint`,

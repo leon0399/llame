@@ -83,7 +83,8 @@ export async function enqueueSuspendedRun(
           run.messageId,
         );
 
-  if (!message) throw new Error(`Run ${run.id} has no triggering message`);
+  if (!message && !(run.kind === 'compaction' && run.messageId === null))
+    throw new Error(`Run ${run.id} has no triggering message`);
   const options: Omit<EnqueueOptions, 'tx'> = { id: jobId };
 
   if (data.deadline !== undefined) options.startAfter = new Date(data.deadline);
@@ -94,7 +95,7 @@ export async function enqueueSuspendedRun(
       chatId: run.chatId,
       userId: run.userId,
       modelId: run.modelId,
-      userMessage: toRunUserMessage(message),
+      ...(message && { userMessage: toRunUserMessage(message) }),
       wake: { generation, jobId },
     },
     options,
@@ -109,8 +110,9 @@ async function appendSuspensionEvents(
 ): Promise<void> {
   const events = new RunEventsRepository(tx);
 
-  if (data.kind === 'quota') {
-    const { input, awaiting } = data;
+  const { kind, input, awaiting } = data;
+
+  if (kind === 'quota') {
     await events.append(run.id, 'run.suspended', {
       kind: 'quota',
       attemptId: input.attemptId,
@@ -122,10 +124,11 @@ async function appendSuspensionEvents(
       waitCount: awaiting.waitCount,
       parts: input.parts,
       steps: input.steps,
+      ...(input.stoppedCalls !== undefined && {
+        stoppedCalls: input.stoppedCalls,
+      }),
     });
   } else {
-    const { input, awaiting } = data;
-
     if (input.telemetry !== undefined)
       await events.append(run.id, 'model.completed', {
         finishReason: input.telemetry.finishReason,

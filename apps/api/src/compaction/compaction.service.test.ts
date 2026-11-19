@@ -32,7 +32,12 @@ import {
   renderCompactionInstruction,
   type CompactionPlan,
 } from './compaction';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { CompactionService, toStoredMessages } from './compaction.service';
+import {
+  CompactionQuotaWait,
+  compactionQuotaWait,
+} from './compaction-quota-wait';
 
 const chatId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ownerId = 'owner-1';
@@ -526,6 +531,132 @@ describe('CompactionService.summarizeCheckpoint (threshold variant)', () => {
     expect(warn).toHaveBeenCalledWith(
       `Compaction summary failed for chat ${chatId}; proceeding without a checkpoint`,
     );
+  });
+
+  it('retains an admitted quota wait when the reset threshold passes during propagation', async () => {
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now.getTime());
+
+    const failure = new ProviderFailure('quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: now.getTime() + 60_001,
+    });
+
+    const base = createFakeModelClient(['summary']);
+
+    const client: ModelClient = {
+      ...base,
+      streamText: () => {
+        throw failure;
+      },
+    };
+
+    const setup = makeService(client);
+    mockReads();
+
+    const result = setup.service.summarizeCheckpoint({
+      variant: 'threshold',
+      reservedOutputTokens: null,
+      chatId,
+      userId: ownerId,
+      triggeringUserSeq: 3,
+      plan: plan(),
+      client,
+      system: 'system',
+      toolDeclarations: [],
+      quotaWait: { maxSeconds: 691_200, request: undefined },
+    });
+
+    await expect(result).rejects.toMatchObject({
+      name: 'CompactionQuotaWait',
+      message: 'Compaction summary is waiting for provider quota to reset.',
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'quota_exhausted',
+        resetsAt: new Date(now.getTime() + 60_001).toISOString(),
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+    });
+    const admitted: unknown = await result.catch((error: unknown) => error);
+    expect(admitted).toBeInstanceOf(CompactionQuotaWait);
+    clock.mockReturnValue(now.getTime() + 60_002);
+    expect(
+      compactionQuotaWait(admitted, {
+        maxSeconds: 691_200,
+        request: undefined,
+      }),
+    ).toBe(admitted);
+  });
+
+  it('continues without a checkpoint when quota waiting is not allowed', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now.getTime());
+
+    const cases = [
+      {
+        failure: new ProviderFailure('quota exhausted', {
+          code: 'quota_exhausted',
+          resetsAt: now.getTime() + 691_200_001,
+        }),
+        waitCount: 0,
+      },
+      {
+        failure: new ProviderFailure('quota exhausted', {
+          code: 'quota_exhausted',
+          resetsAt: now.getTime() + 3_600_000,
+        }),
+        waitCount: 4,
+      },
+      {
+        failure: new ProviderFailure('quota exhausted', {
+          code: 'quota_exhausted',
+          resetsAt: now.getTime() + 3_600_000,
+          toolCallStarted: true,
+        }),
+        waitCount: 0,
+      },
+      {
+        failure: new ProviderFailure('quota exhausted', {
+          code: 'quota_exhausted',
+        }),
+        waitCount: 0,
+      },
+    ];
+
+    for (const { failure, waitCount } of cases) {
+      const base = createFakeModelClient(['summary']);
+
+      const client: ModelClient = {
+        ...base,
+        streamText: () => {
+          throw failure;
+        },
+      };
+
+      const setup = makeService(client);
+      mockReads();
+
+      await expect(
+        setup.service.summarizeCheckpoint({
+          variant: 'threshold',
+          reservedOutputTokens: null,
+          chatId,
+          userId: ownerId,
+          triggeringUserSeq: 3,
+          plan: plan(),
+          client,
+          system: 'system',
+          toolDeclarations: [],
+          quotaWait: {
+            maxSeconds: 691_200,
+            request: {
+              resumeAt: 'request',
+              waitCount,
+              generation: 1,
+            },
+          },
+        }),
+      ).resolves.toBeNull();
+    }
   });
 
   it('rethrows the original failure when the attempt was aborted', async () => {
@@ -1267,6 +1398,54 @@ describe('CompactionService.computeBoundarySummary', () => {
     expect(messages.at(-1)).toEqual({
       role: 'user',
       content: renderCompactionInstruction('owner'),
+    });
+  });
+
+  it('wraps an eligible quota failure for a boundary summary', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now.getTime());
+
+    const failure = new ProviderFailure('rate limited', {
+      code: 'rate_limited',
+      resetsAt: now.getTime() + 60_001,
+    });
+
+    const base = createFakeModelClient(['summary']);
+
+    const client: ModelClient = {
+      ...base,
+      streamText: () => {
+        throw failure;
+      },
+    };
+
+    const setup = makeService(client);
+    mockReads();
+
+    await expect(
+      setup.service.computeBoundarySummary({
+        chatId,
+        userId: ownerId,
+        plan: { ...plan(), uptoSeq: 4 },
+        closedReply: [{ role: 'assistant', content: 'closed reply' }],
+        client,
+        system: 'live system prompt',
+        toolDeclarations: [],
+        focus: null,
+        reservedOutputTokens: 10,
+        quotaWait: {
+          maxSeconds: 691_200,
+          request: undefined,
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: 'CompactionQuotaWait',
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        resetsAt: new Date(now.getTime() + 60_001).toISOString(),
+        resumeAt: 'request',
+        waitCount: 1,
+      },
     });
   });
 

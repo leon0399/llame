@@ -25,6 +25,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   allowance as streaming sends. Retry events take the active Run's row lock
   before the Chat lock, so a terminal commit cannot be followed by a retry
   notice. Resumed text starts after the retry marker and clears its label.
+- Extend quota waits to compaction summaries on the Run's model, including
+  manual compaction Runs with no triggering message. Wakes retain the logical
+  request's allowance through replanning, and successful checkpoint publication
+  closes it atomically. Final-answer wakes preserve the stored reply without
+  another main model request. Model-switch summaries remain side calls.
+
 - Persist eligible step requests as `awaiting_quota` until an authoritative model
   usage-limit reset, without occupying a worker or spending the Run budget.
   `runs.quotaWaitMaxSeconds` defaults to eight days; each request gets its first

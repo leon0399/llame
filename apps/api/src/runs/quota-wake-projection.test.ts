@@ -1,6 +1,7 @@
 import { type RunEvent } from '../db/schema';
 import {
   quotaPendingReplyFromEvents,
+  quotaCompactionStateFromEvents,
   quotaRequestFromEvents,
   quotaResumeAttemptId,
   quotaWakeStateFromEvents,
@@ -92,6 +93,53 @@ describe('quota wake projection', () => {
     ).toBeUndefined();
   });
 
+  it.each(['preDispatch', 'boundary', 'finalAnswer'])(
+    'retains the %s summary checkpoint through a redelivery until recovery commits',
+    (resumeAt) => {
+      const events = [
+        quotaSuspension(3, 4, resumeAt),
+        event(2, 'run.resumed', {
+          kind: 'quota',
+          attemptId: 'wake-attempt',
+          generation: 3,
+          cause: 'timeout',
+        }),
+        event(3, 'run.started', { attemptId: 'wake-attempt' }),
+        event(4, 'run.started', { attemptId: 'redelivery' }),
+      ];
+
+      expect(quotaWakeStateFromEvents(events, 'redelivery')).toBeUndefined();
+      expect(
+        quotaCompactionStateFromEvents(events, quotaRequestFromEvents(events)),
+      ).toEqual({
+        parts: [{ type: 'text', text: 'before wait', step: 4 }],
+      });
+
+      const recovered = [
+        ...events,
+        event(5, 'run.quota_recovered', { generation: 3, resumeAt }),
+      ];
+
+      expect(
+        quotaCompactionStateFromEvents(
+          recovered,
+          quotaRequestFromEvents(recovered),
+        ),
+      ).toBeUndefined();
+    },
+  );
+
+  it('does not replay an ordinary step checkpoint after its wake claim dies', () => {
+    const events = [
+      quotaSuspension(),
+      event(2, 'run.started', { attemptId: 'redelivery' }),
+    ];
+
+    expect(
+      quotaCompactionStateFromEvents(events, quotaRequestFromEvents(events)),
+    ).toBeUndefined();
+  });
+
   it('does not treat kindless legacy job suspension and wake events as quota events', () => {
     const events = [
       event(1, 'run.suspended', {
@@ -110,6 +158,44 @@ describe('quota wake projection', () => {
     expect(quotaWakeStateFromEvents(events, 'wake-attempt')).toBeUndefined();
     expect(quotaRequestFromEvents(events)).toBeUndefined();
   });
+
+  it.each([
+    { stoppedCalls: [] },
+    { stoppedCalls: [{ toolName: 'bash', toolCallId: 'stopped-write' }] },
+  ])(
+    'retains an interrupted boundary through claim redelivery: %j',
+    ({ stoppedCalls }) => {
+      const events = [
+        event(1, 'run.suspended', {
+          ...quotaPayload(3, 2, 'boundary'),
+          stoppedCalls,
+        }),
+        event(2, 'run.resumed', {
+          kind: 'quota',
+          attemptId: 'wake-attempt',
+          generation: 3,
+        }),
+        event(3, 'run.started', { attemptId: 'wake-attempt' }),
+        event(4, 'run.started', { attemptId: 'redelivery' }),
+      ];
+
+      expect(quotaRequestFromEvents(events)).toEqual({
+        resumeAt: 'boundary',
+        waitCount: 2,
+        generation: 3,
+        stoppedCalls,
+      });
+      expect(
+        quotaRequestFromEvents([
+          ...events,
+          event(5, 'run.quota_recovered', {
+            generation: 3,
+            resumeAt: 'boundary',
+          }),
+        ]),
+      ).toBeUndefined();
+    },
+  );
 
   it('keeps the request counter after awaiting is cleared and closes only matching recovery', () => {
     const suspended = quotaSuspension(3, 4, 'boundary');

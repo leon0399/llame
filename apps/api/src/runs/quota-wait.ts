@@ -10,9 +10,11 @@ export function quotaWaitForFailure(
   if (error.code !== 'quota_exhausted' && error.code !== 'rate_limited')
     return undefined;
 
-  if (error.resetsAt === undefined || error.toolCallStarted) return undefined;
+  const resetsAt = error.resetsAt;
 
-  const remaining = error.resetsAt - Date.now();
+  if (resetsAt === undefined || error.toolCallStarted) return undefined;
+
+  const remaining = resetsAt - Date.now();
 
   if (
     remaining <= 60_000 ||
@@ -24,9 +26,9 @@ export function quotaWaitForFailure(
   return {
     kind: 'quota',
     failureClass: error.code,
-    resetsAt: new Date(error.resetsAt).toISOString(),
+    resetsAt: new Date(resetsAt).toISOString(),
     wakeAt: new Date(
-      error.resetsAt + 60_000 + Math.floor(Math.random() * 18_001),
+      resetsAt + 60_000 + Math.floor(Math.random() * 18_001),
     ).toISOString(),
     resumeAt: request?.resumeAt ?? 'request',
     waitCount: (request?.waitCount ?? 0) + 1,

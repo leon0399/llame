@@ -10,11 +10,13 @@ import {
 } from '../chats/continue-projection';
 import { toMessageParts } from '../chats/chat-message-parts';
 import { type QuotaResumeAt, type RunEvent } from '../db/schema';
+import { stoppedCallsOf, type StoppedCall } from '../chats/interrupted-notice';
 
 export type QuotaRequestState = {
   readonly resumeAt: QuotaResumeAt;
   readonly waitCount: number;
   readonly generation: number;
+  readonly stoppedCalls?: ReadonlyArray<StoppedCall>;
 };
 
 /** Restores the first claimed quota wake's checkpoint without inventing a tool result. */
@@ -56,6 +58,32 @@ export function quotaPendingReplyFromEvents(
   const state = quotaCheckpointState(suspension);
 
   return state === undefined ? undefined : { state, events: after };
+}
+
+/** An open summary still owns its saved reply after its first wake claim dies. */
+export function quotaCompactionStateFromEvents(
+  events: ReadonlyArray<RunEvent>,
+  request: QuotaRequestState | undefined,
+): ContinueState | undefined {
+  if (
+    request === undefined ||
+    request.resumeAt === 'request' ||
+    request.resumeAt === 'compactionRun'
+  )
+    return undefined;
+
+  const suspension = events.findLast(
+    (event) =>
+      event.eventType === 'run.suspended' &&
+      isRecord(event.payload) &&
+      event.payload['generation'] === request.generation &&
+      event.payload['resumeAt'] === request.resumeAt,
+  )?.payload;
+
+  if (!isRecord(suspension) || parseQuotaRequest(suspension) === undefined)
+    return undefined;
+
+  return quotaCheckpointState(suspension);
 }
 
 function quotaCheckpointState(
@@ -232,6 +260,10 @@ function parseQuotaRequest(
     resumeAt: payload['resumeAt'],
     waitCount: payload['waitCount'],
     generation: payload['generation'],
+    ...(payload['resumeAt'] === 'boundary' &&
+      Array.isArray(payload['stoppedCalls']) && {
+        stoppedCalls: stoppedCallsOf(payload),
+      }),
   };
 }
 

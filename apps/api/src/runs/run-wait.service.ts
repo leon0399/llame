@@ -22,6 +22,7 @@ import { RunDispatchService } from './run-dispatch.service';
 import { RunEventsRepository } from './runs-repository';
 import { retryRunTransaction } from './run-transaction';
 import { type AssistantTurnTelemetry } from './run-reply-finalizer';
+import type { StoppedCall } from '../chats/interrupted-notice';
 
 export type RunWaitCause = 'settled' | 'interrupted' | 'timeout' | 'cancelled';
 
@@ -47,6 +48,7 @@ export type SuspendRunQuotaInput = {
   awaiting: AwaitingQuota;
   parts: Array<unknown>;
   steps: Record<string, number>;
+  stoppedCalls?: ReadonlyArray<StoppedCall>;
 };
 
 type AttemptRunInput = Pick<

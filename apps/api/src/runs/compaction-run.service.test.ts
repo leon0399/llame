@@ -15,6 +15,7 @@ import type { ModelClient, ModelRequestRetry } from '../models/model-client';
 import { RunEventsRepository } from './runs-repository';
 import { CompactionRunService } from './compaction-run.service';
 import type { RunJob } from './run-queues';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 
 import type { Message } from '../db/schema/chats';
 
@@ -55,6 +56,11 @@ function makeService(
     recordRetryError?: Error;
     attemptId?: string;
     focus?: string | null;
+    quotaRequest?: {
+      resumeAt: 'compactionRun';
+      waitCount: number;
+      generation: number;
+    };
   } = {},
 ) {
   const tx = asDouble<Db>({});
@@ -102,7 +108,12 @@ function makeService(
     messageId: null,
     permissionMode: 'default',
     nativeDeliverySequence: 0,
+    ...(options.quotaRequest && { quotaRequest: options.quotaRequest }),
   });
+
+  const suspendCompactionForQuota = vi
+    .fn<RunExecutionService['suspendCompactionForQuota']>()
+    .mockResolvedValue(false);
 
   const recordModelRetry = vi
     .fn<RunExecutionService['recordModelRetry']>()
@@ -118,7 +129,11 @@ function makeService(
       summarizeCheckpoint,
     }),
     asDouble<InstanceConfigReader>({
-      config: { runs: { maxOutputTokens: 4096 } },
+      config: {
+        runs: {
+          maxOutputTokens: 4096,
+        },
+      },
     }),
     asDouble<
       Pick<
@@ -127,12 +142,14 @@ function makeService(
         | 'completeCompactionRun'
         | 'settleTerminalRun'
         | 'recordModelRetry'
+        | 'suspendCompactionForQuota'
       >
     >({
       claimRun,
       completeCompactionRun,
       settleTerminalRun,
       recordModelRetry,
+      suspendCompactionForQuota,
     }),
   );
 
@@ -143,6 +160,7 @@ function makeService(
     settleTerminalRun,
     claimRun,
     recordModelRetry,
+    suspendCompactionForQuota,
   };
 }
 
@@ -172,7 +190,14 @@ describe('CompactionRunService.execute', () => {
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
       [],
     );
-    const made = makeService();
+
+    const quotaRequest = {
+      resumeAt: 'compactionRun' as const,
+      waitCount: 1,
+      generation: 3,
+    };
+
+    const made = makeService({ quotaRequest });
 
     await made.service.execute(
       job,
@@ -181,9 +206,10 @@ describe('CompactionRunService.execute', () => {
       queueIdentity,
     );
 
-    expect(made.completeCompactionRun).toHaveBeenCalledWith(
-      expect.objectContaining({ summary: undefined }),
-    );
+    expect(made.completeCompactionRun.mock.lastCall?.[0]).toMatchObject({
+      summary: undefined,
+      quotaRequest,
+    });
   });
 
   it('summarizes the planned prefix and completes with its checkpoint', async () => {
@@ -416,6 +442,179 @@ describe('CompactionRunService.execute', () => {
         },
       }),
     );
+  });
+
+  it('suspends an eligible compaction summary and preserves its request counter', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const failure = new ProviderFailure('Usage limit', {
+      code: 'quota_exhausted',
+      resetsAt: Date.now() + 3_600_000,
+    });
+
+    const quotaRequest = {
+      resumeAt: 'compactionRun' as const,
+      waitCount: 2,
+      generation: 4,
+    };
+
+    const made = makeService({ summarizeError: failure, quotaRequest });
+    made.suspendCompactionForQuota.mockResolvedValue(true);
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    expect(made.suspendCompactionForQuota.mock.lastCall?.[0]).toMatchObject({
+      run: { runId: job.runId, chatId, userId },
+      attemptId: 'attempt-1',
+      error: failure,
+      request: quotaRequest,
+      resumeAt: 'compactionRun',
+      parts: [],
+    });
+    expect(made.completeCompactionRun).not.toHaveBeenCalled();
+    expect(made.settleTerminalRun).not.toHaveBeenCalled();
+  });
+
+  it('fails with the provider class after the fourth wait', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const made = makeService({
+      summarizeError: new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 3_600_000,
+      }),
+      quotaRequest: {
+        resumeAt: 'compactionRun',
+        waitCount: 4,
+        generation: 8,
+      },
+    });
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    const failureInput = made.suspendCompactionForQuota.mock.lastCall?.[0];
+    expect(failureInput?.request).toEqual({
+      resumeAt: 'compactionRun',
+      waitCount: 4,
+      generation: 8,
+    });
+    const terminalInput = made.settleTerminalRun.mock.lastCall?.[0];
+    expect(terminalInput).toMatchObject({
+      status: 'failed',
+      error: { code: 'quota_exhausted' },
+    });
+  });
+
+  it('keeps a reset beyond the configured cap as a typed failure', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const made = makeService({
+      summarizeError: new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 120_000,
+      }),
+    });
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    const terminalInput = made.settleTerminalRun.mock.lastCall?.[0];
+    expect(terminalInput).toMatchObject({
+      status: 'failed',
+      error: { code: 'quota_exhausted' },
+    });
+  });
+
+  it('does not quota-wait after a complete tool-call cutoff', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const made = makeService({
+      summarizeError: new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 3_600_000,
+        toolCallStarted: true,
+      }),
+    });
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    const terminalInput = made.settleTerminalRun.mock.lastCall?.[0];
+    expect(terminalInput).toMatchObject({
+      status: 'failed',
+      error: { code: 'quota_exhausted' },
+    });
+  });
+
+  it('delegates quota-entry cancellation settlement to RunExecutionService', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const made = makeService({
+      summarizeError: new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 3_600_000,
+      }),
+    });
+
+    made.suspendCompactionForQuota.mockResolvedValue(true);
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    expect(made.suspendCompactionForQuota).toHaveBeenCalledOnce();
+    expect(made.settleTerminalRun).not.toHaveBeenCalled();
   });
 
   it('settles cancellation with the claimed attempt and queue fences', async () => {
