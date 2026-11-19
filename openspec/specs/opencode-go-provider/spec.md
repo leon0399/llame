@@ -187,8 +187,8 @@ no fallback to another route.
 
 For Chat Completions, the request's failure message MUST be the gateway's parsed error message. That
 message applies whether the message arrives on a failure response or inside
-the response stream. The SDK's own retry rules for retryable statuses apply
-first. The run MUST show that message to the owner whose run failed and record
+the response stream. The request retries of `provider-failures` apply
+first, and the SDK makes no retry. The run MUST show that message to the owner whose run failed and record
 it.
 
 The failure response's body and headers, the request body, and the credential
@@ -206,19 +206,19 @@ except a configured credential. llame MUST redact that credential
 (`provider-api-selection`, "Provider failures never carry a configured
 credential").
 
-The system MUST NOT probe a model's eligibility or route at boot. It SHALL
+The system MUST NOT probe a model's eligibility or route at boot. It MUST
 resolve model wires from bundled provider-specific metadata or an explicit
-override under `provider-api-selection`. It MUST NOT classify Go
-failures into llame-owned error types. It MUST NOT replace the gateway's
-parsed message with a fixed one, other than for a redirect response. It MUST
-NOT introduce a quota ledger or a typed quota error. It MUST NOT retry against
-or fall back to another provider, wire, or model because a request failed.
+override under `provider-api-selection`. It MUST classify each Go failure
+under `provider-failures`. It MUST NOT replace the gateway's parsed message
+with a fixed one, other than for a redirect response. It MUST NOT introduce a
+quota ledger. It MUST NOT send a failed request to another provider, wire, or
+model.
 
 The operator runbook MUST record the accepted upstream shapes. A model that
 the gateway's format gate rejects fails with the gateway's "not supported for
-format" message, and the runbook MUST name the remedy. A usage-limit rejection
-fails with the gateway's message after the SDK's retries, and the runbook MUST
-state that llame tracks no quota.
+format" message, and the runbook MUST name the remedy. A `GoUsageLimitError`
+with a `Retry-After` can make the Run wait, as `quota-wait` defines. The runbook
+MUST state this, and it MUST state that llame tracks no quota of its own.
 
 #### Scenario: A rejected model surfaces at request time
 
@@ -229,10 +229,15 @@ state that llame tracks no quota.
 
 #### Scenario: A quota rejection is reported without inventing state
 
-- **WHEN** the gateway rejects a Chat Completions request because a usage limit is exhausted
-- **THEN** the affected request fails under the current failure and retry rules with the gateway's message
+- **WHEN** the gateway rejects a Run request with HTTP 429, `GoUsageLimitError`, a `metadata.limitName`, and `Retry-After: 3600`
+- **THEN** the Run enters `awaiting_quota` with a reset time 3,600 seconds after receipt
 - **AND** llame reports no quota state of its own and claims no cost
 - **AND** no paid fallback is attempted
+
+#### Scenario: A usage limit without Retry-After fails
+
+- **WHEN** the gateway rejects a Run request with `GoUsageLimitError` and no `Retry-After`
+- **THEN** the Run fails with `error.code` `quota_exhausted` and the gateway's parsed message
 
 #### Scenario: Raw upstream details stay out of every surface
 
@@ -250,7 +255,7 @@ state that llame tracks no quota.
 
 - **WHEN** the operator runbook for this provider is read
 - **THEN** it states that a misdeclared model fails with the gateway's "not supported for format" message and names the remedy
-- **AND** it states that a usage-limit rejection surfaces after the SDK's retries and that llame tracks no quota
+- **AND** it states that a usage-limit rejection with a `Retry-After` waits for that reset, and that llame tracks no quota of its own
 
 ### Requirement: Cost is unknown unless the operator declares pricing
 

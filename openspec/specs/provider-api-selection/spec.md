@@ -222,20 +222,20 @@ Both model-client input contracts — the streaming input and the structured-gen
 
 Every language-model request with a response stream on the Chat Completions
 wire MUST report a failure from the endpoint's response. The failure MUST fall
-under one of these classes. This rule covers any account whose model resolves
-the Chat Completions wire, including Go. The classes apply in this order:
+under one of these message cases. This rule covers any account whose model resolves
+the Chat Completions wire, and Go is one of them. The cases apply in this order:
 
 1. llame MUST report a response with a redirect status (301, 302, 303, 307, or 308) as a fixed text. The transport hands that response back to the client
    unfollowed, whatever its body. The text MUST state that the provider
    answered with a redirect that llame does not follow, and it MUST name the
    status code. This contract does not change which transports follow
    redirects. An `opencode-go` entry's transport refuses every redirect, so
-   each redirect reaches this class. An `openai-completions` entry's transport
+   each redirect reaches this case. An `openai-completions` entry's transport
    follows redirects as it does today, and llame reports its request by the
    response where its redirects end.
 
-2. llame MUST report an event inside the response stream as a fixed text when
-   that event is not JSON or does not match the wire's chunk shape. The text
+2. llame MUST report a fixed text for a stream event that is not JSON or that
+   does not match the wire's chunk shape. The text
    MUST state that the provider sent a stream event that llame cannot read.
    The same rule applies to an event that carries an error value without a
    string message.
@@ -249,10 +249,9 @@ the Chat Completions wire, including Go. The classes apply in this order:
    status text. llame MUST apply configured-credential redaction to that
    message.
 
-When the SDK's own retry rules retry a class 4 failure, llame MUST report the
-SDK's retry summary of those attempts, as it does today. A redirect that
-answers a retried request MUST still fall under class 1 alone, without that
-summary. The run MUST record that message, show it to the owner whose run
+The SDK MUST make no retry. When the request retries of `provider-failures`
+send the request again, llame MUST report the message of the last failure. A
+redirect that answers a request retry MUST fall under case 1. The run MUST record that message, show it to the owner whose run
 failed, and emit it on its terminal run event. The run MUST also write that
 message to its failure log line.
 
@@ -266,15 +265,15 @@ A failure MUST NOT expose the failure response's body or headers on the run's
 surfaces. It MUST NOT expose the content of a stream event other than a parsed
 envelope message. It MUST NOT expose the request body or the credential.
 
-The error that llame reports for classes 1 and 2 MUST carry no reference to
+The error that llame reports for cases 1 and 2 MUST carry no reference to
 the event or response that caused it. Suppose a request's caller supplies no
 error handler, such as compaction or text-path title generation. That request
-MUST report class 1 and 2 failures through that same bounded error.
+MUST report case 1 and 2 failures through that same bounded error.
 
 A failure that did not come from the endpoint's response, such as a transport
 failure, MUST keep the message it has today, after configured-credential
-redaction. A failure in this contract MUST NOT cause a retry beyond the SDK's
-own rules. It MUST NOT cause a fallback to another provider, wire, or model,
+redaction. A failure in this contract MUST NOT cause a retry beyond the request retries
+of `provider-failures`. Each failure MUST also carry its failure class. It MUST NOT cause a fallback to another provider, wire, or model,
 or a rewritten request.
 
 #### Scenario: An unreadable stream event is reported without its content
@@ -309,7 +308,7 @@ or a rewritten request.
 #### Scenario: An HTTP failure keeps its current message
 
 - **WHEN** the endpoint answers with a non-redirect failure status whose body is the error envelope, or whose body is not the envelope
-- **THEN** the run's failure message is the parsed message, or the HTTP status text, respectively, inside the SDK's retry summary when the status was retried
+- **THEN** the run's failure message is the parsed message, or the HTTP status text, respectively, of the last failed request
 - **AND** no response body, response header, request body, or credential appears in any surface the run writes
 
 #### Scenario: A refused redirect is described without its target
@@ -320,14 +319,14 @@ or a rewritten request.
 
 #### Scenario: A redirect after a retried failure is still described as a redirect
 
-- **WHEN** a retryable failure status is followed, on the SDK's retry, by a redirect response
+- **WHEN** a retryable failure status is followed, on a request retry, by a redirect response
 - **THEN** the run's failure message is the fixed redirect text. That text names the redirect's status code
 - **AND** it contains neither the `Location` value nor the redirect's bare status text
 
 #### Scenario: A transport failure keeps its message
 
 - **WHEN** the request cannot reach the endpoint and the transport rejects
-- **THEN** the run's failure message is the one the SDK reports for a transport failure today
+- **THEN** the run's failure message is the one the SDK reports for a transport failure today, and its failure class is `unreachable`
 
 #### Scenario: A caller without an error handler logs the bounded error
 

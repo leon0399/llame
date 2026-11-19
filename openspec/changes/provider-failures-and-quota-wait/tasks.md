@@ -67,7 +67,7 @@ before publication.
     `d275dbb8`; round 2 (spec 0 P0, 7 P1, 14 P2; feasibility 1 P0, 9 P1, 10 P2) fixed in the next
     commit. Design revision history v2 and v3 record them. Round 2 still changed substance, so the
     review has not converged; the GitHub review loop is the next round.
-- [ ] 1.3 Self-review the published draft PR (SR), mark it ready, and run the GitHub review loop
+- [x] 1.3 Self-review the published draft PR (SR), mark it ready, and run the GitHub review loop
       (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
 - [x] 1.4 Obtain Leo's approval of the published revision, including the deviation that the
       proposal lists.
@@ -99,7 +99,7 @@ before publication.
       runbooks under `docs/product/operator/providers/`, and add a dated `CHANGELOG.md` entry.
 - [x] 2.7 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed test
       files, `pnpm format:check`, `git diff --check`.
-- [ ] 2.8 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 2.8 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 Local evidence: focused classifier, real-wire, redaction, hosted-search, and Run-settlement tests;
 API lint/typecheck; Markdown/link lint; repository format check; strict change validation.
@@ -109,6 +109,10 @@ the API test shards and their integration cases for 2.4. Mutation testing remain
 being strengthened without gating development of the next layer.
 SR used independent correctness/security reviewers plus reuse, quality, efficiency, and ponytail
 reviews. Accepted findings were verified and fixed; GR remains non-gating under Leo's override.
+Current-head review evidence: `1d29db3e` has passing ordinary CI and mutation testing, no unresolved
+threads, and a completed bounded monitoring window. Both actionable bot threads were independently
+verified, fixed, replied to, and resolved. The proposal's current `378609f1` review likewise reports
+no new issues and no unresolved threads; earlier feedback remains in its separate revision history.
 
 ## 3. request-retries
 
@@ -293,9 +297,15 @@ findings were fixed. HTTP owner/foreign isolation cases await CI; no local datab
 Enter `provider-failures-and-quota-wait/finalize` with `$gh-stack` before `$openspec-sync-specs`
 writes canonical specs. SR and GR of this layer follow archive movement.
 
-- [ ] 8.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
+- [x] 8.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
 - [ ] 8.2 Confirm that every task above is checked and `openspec status --change
   provider-failures-and-quota-wait --json` reports every artifact complete.
-- [ ] 8.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
+- [x] 8.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
   --strict`.
 - [ ] 8.4 Run `$openspec-archive-change`.
+
+Sync evidence: all 12 selected capability deltas are canonical. Every changed requirement equals
+the approved delta, all untouched requirements and existing Purpose sections remain byte-identical,
+and all existing scenario names survive. Strict validation passed 64 canonical specs and 66 total
+items; Markdown/link lint, repository format check, and diff whitespace checks passed. Archive
+readiness remains blocked on the explicitly unchecked delivery acceptance above.
