@@ -248,6 +248,57 @@ describe('waitTool', () => {
     expect(tools.onWaitRequested).toHaveBeenCalledOnce();
   });
 
+  it('keeps one open wait when parallel validation finishes out of order', async () => {
+    const row = job('job-id');
+    const tools = setup({ 'job://bash-3': row });
+    const delayedLookup = Promise.withResolvers<ChatJob | undefined>();
+    const lookupStarted = Promise.withResolvers<void>();
+    let admittedCallId: string | undefined;
+
+    tools.beginWaitCall.mockImplementation((toolCallId) => {
+      if (admittedCallId !== undefined) return admittedCallId;
+      admittedCallId = toolCallId;
+
+      return undefined;
+    });
+    tools.findByLocator.mockImplementationOnce(() => {
+      lookupStarted.resolve();
+
+      return delayedLookup.promise;
+    });
+
+    const delayed = waitTool.execute(
+      { ...tools.context, toolCallId: 'delayed-wait' },
+      { jobs: ['job://bash-3'] },
+    );
+
+    try {
+      await lookupStarted.promise;
+      await expect(
+        waitTool.execute(
+          { ...tools.context, toolCallId: 'ready-wait' },
+          { jobs: ['job://bash-3'] },
+        ),
+      ).resolves.toBe(WAIT_SUSPENSION);
+      delayedLookup.resolve(row);
+      const refusal = await delayed;
+
+      expect(refusal).toMatchObject({
+        status: 'error',
+        type: 'wait_already_requested',
+      });
+
+      if (refusal.status !== 'error')
+        throw new Error('Expected the unreserved wait to be refused.');
+
+      expect(refusal.message).toContain('ready-wait');
+      expect(tools.onWaitRequested).toHaveBeenCalledOnce();
+    } finally {
+      delayedLookup.resolve(row);
+      await delayed;
+    }
+  });
+
   it('does not consume the wait reservation for a not-found job', async () => {
     const tools = setup({ 'job://bash-3': undefined });
 
