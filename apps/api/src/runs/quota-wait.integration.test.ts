@@ -15,6 +15,7 @@ import {
 import { RunsController } from './runs.controller';
 import { RUNS_QUEUE } from './run-queues';
 import { RunWaitService } from './run-wait.service';
+import { retryRunTransaction } from './run-transaction';
 import { createUser, seedLiveChatJob } from './worker-harness';
 
 if (!process.env.TEST_DATABASE_URL) {
@@ -155,22 +156,20 @@ describe('quota wait lifecycle persistence', () => {
       strict: false,
     });
 
-    const outcomes = await Promise.allSettled([
+    await Promise.all([
       controller.updateRun(fx.userId, seeded.runId, { status: 'cancelled' }),
-      fx.db((tx) =>
-        fx.harness.moduleRef.get(RunWaitService).wakeInTransaction(tx, {
-          runId: seeded.runId,
-          userId: fx.userId,
-          generation: waiting.wakeGeneration,
-          cause: 'timeout',
-          deadlineJobId: waiting.currentJobId!,
-        }),
+      retryRunTransaction(() =>
+        fx.db((tx) =>
+          fx.harness.moduleRef.get(RunWaitService).wakeInTransaction(tx, {
+            runId: seeded.runId,
+            userId: fx.userId,
+            generation: waiting.wakeGeneration,
+            cause: 'timeout',
+            deadlineJobId: waiting.currentJobId!,
+          }),
+        ),
       ),
     ]);
-
-    expect(outcomes.every((outcome) => outcome.status === 'fulfilled')).toBe(
-      true,
-    );
     const events = await fx.events(seeded.runId);
     expect(
       events.filter((event) => event.eventType === 'run.resumed'),
