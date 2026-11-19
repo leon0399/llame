@@ -2566,12 +2566,6 @@ export class RunExecutionService {
       stepBudgetUsed: stepBudgetOffset + wakeStepOffset,
       quotaRequest,
       quotaParts: () => assistantPartCollector.parts(),
-      quotaAssistantTurn: () => ({
-        chatId: input.chatId,
-        inReplyTo: input.userMessage.id,
-        parts: assistantPartCollector.parts(),
-        telemetry: buildAssistantTelemetry(null, 'aborted'),
-      }),
     });
 
     if (wakeCompaction && quotaRequest?.resumeAt === 'preDispatch')
@@ -7401,7 +7395,13 @@ export class RunExecutionService {
     const events = new RunEventsRepository(tx);
 
     if (input.modelCompleted) {
-      await events.append(input.runId, 'model.completed', input.modelCompleted);
+      await events.append(
+        input.runId,
+        'model.completed',
+        assistantMessage === undefined
+          ? input.modelCompleted
+          : { ...input.modelCompleted, telemetry: assistantMessage.usage },
+      );
     }
 
     // The baselines only the winning turn establishes live in the system
@@ -8621,7 +8621,6 @@ export class RunExecutionService {
     stepBudgetUsed: number;
     quotaRequest?: QuotaRequestState;
     quotaParts: () => Array<MessagePart>;
-    quotaAssistantTurn: () => AssistantTurnWrite;
   }): Promise<BoundaryDelivery | undefined> {
     if (!input.wakeCompaction) return undefined;
 
@@ -8642,7 +8641,6 @@ export class RunExecutionService {
     const boundaryCompaction = await this.prepareQuotaBoundary({
       resumeAt: 'preDispatch',
       quotaParts: input.quotaParts,
-      quotaAssistantTurn: input.quotaAssistantTurn,
       quotaRequest: input.quotaRequest,
       run: input.run,
       attemptId: input.attemptId,
@@ -8718,20 +8716,6 @@ export class RunExecutionService {
           resumeAt: 'preDispatch',
           parts: input.continued?.parts.slice() ?? [],
           stepBudgetUsed: input.stepBudgetUsed,
-          assistantTurn: {
-            chatId: input.run.chatId,
-            inReplyTo: input.run.userMessage.id,
-            parts: input.continued?.parts.slice() ?? [],
-            telemetry: {
-              modelId: input.run.client.model,
-              latencyMs: 0,
-              finishReason: null,
-              status: 'aborted',
-              runId: input.run.runId,
-              attemptId: input.attemptId,
-              complete: false,
-            },
-          },
         });
         throw new RunNotRunnableError(input.run.runId);
       }

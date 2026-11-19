@@ -3,10 +3,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 # 2026-11-19
 
 - Preserve completed replies exactly once when summary quota waits are
-  cancelled or resumed. Summary-only wakes retain their original prompt,
-  first-epoch disclosures, boundary mode, and charged step allowance without
-  publishing a target request that was never sent. Window summaries on the
-  same configured model now use the Run's quota-wait policy.
+  cancelled or resumed. Summary-only wakes keep the saved reply's original
+  attempt ownership and retain their original prompt, first-epoch
+  disclosures, boundary mode, and charged step allowance without publishing a
+  target request that was never sent. Window summaries on the same configured
+  model now use the Run's quota-wait policy.
 
 - Preserve completed tool results when a repeated quota wake expires before
   claim. Terminal recovery replays only after the saved checkpoint and does

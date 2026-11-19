@@ -253,6 +253,24 @@ describe('quota waits at compaction boundaries', () => {
     const events = await fx.events(seeded.runId);
 
     expect(finished.status).toBe('completed');
+
+    const reply = messages.find((message) => message.role === 'assistant');
+
+    expect(reply?.parts).toContainEqual(
+      expect.objectContaining({
+        type: 'text',
+        text: 'The final answer is complete.',
+      }),
+    );
+    expect(reply?.usage).toMatchObject({
+      status: 'completed',
+      complete: false,
+    });
+    expect(reply?.usage).not.toHaveProperty('latencyMs');
+    expect(
+      events.findLast((event) => event.eventType === 'model.completed')
+        ?.payload,
+    ).toMatchObject({ telemetry: reply?.usage });
     expect(
       messages.filter((message) => message.role === 'checkpoint'),
     ).toHaveLength(1);

@@ -95,6 +95,41 @@ export function quotaPendingReplyFromEvents(
   return state === undefined ? undefined : { state, events: after };
 }
 
+export function quotaSummaryWakeFromEvents(
+  events: ReadonlyArray<RunEvent>,
+  attemptId: string,
+): boolean {
+  if (
+    events.some(
+      (event) =>
+        event.eventType === 'model.requested' &&
+        isRecord(event.payload) &&
+        event.payload['attemptId'] === attemptId,
+    )
+  )
+    return false;
+
+  const suspension = firstQuotaWakeSuspension(events, attemptId);
+
+  if (
+    suspension?.['resumeAt'] === 'boundary' ||
+    suspension?.['resumeAt'] === 'finalAnswer'
+  )
+    return true;
+
+  const request = quotaRequestFromEvents(events);
+
+  const latestStart = events.findLast(
+    (event) => event.eventType === 'run.started',
+  );
+
+  return (
+    (request?.resumeAt === 'boundary' || request?.resumeAt === 'finalAnswer') &&
+    isRecord(latestStart?.payload) &&
+    latestStart.payload['attemptId'] === attemptId
+  );
+}
+
 /** An open summary still owns its saved reply after its first wake claim dies. */
 export function quotaCompactionStateFromEvents(
   events: ReadonlyArray<RunEvent>,

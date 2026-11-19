@@ -1,5 +1,6 @@
 import { type DecisionJudge } from '../decisions/decisions.service';
 import * as jobNoticeRecovery from './job-notice-recovery';
+import { runningReplyUsage } from './run-reply-finalizer';
 import type {
   LanguageModelV3Message,
   LanguageModelV3StreamPart,
@@ -900,7 +901,9 @@ function mockNormalExecutionRepositories() {
 
   const createAssistantReplyIfAbsent = vi
     .spyOn(MessagesRepository.prototype, 'createAssistantReplyIfAbsent')
-    .mockResolvedValue(assistantMessage);
+    .mockImplementation((write) =>
+      Promise.resolve({ ...assistantMessage, ...write }),
+    );
 
   // The dispatch write; stagedPartsOf places its items on the trigger's parts.
   const storeAtDispatch = vi
@@ -15317,7 +15320,9 @@ describe('RunExecutionService turn persistence and post-turn work', () => {
     vi.spyOn(
       MessagesRepository.prototype,
       'updateAssistantReply',
-    ).mockResolvedValue(assistantMessage);
+    ).mockImplementation((write) =>
+      Promise.resolve({ ...assistantMessage, ...write }),
+    );
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
     const execution = makeExecutionService(capturing.client);
@@ -23177,9 +23182,55 @@ describe('RunExecutionService executeRun — run segments', () => {
     );
 
     serveSummaryReceipt(() => firstSummary.system);
+    const wakeAttemptId = 'summary-wake-attempt';
+    const suspended = suspendForQuota.mock.lastCall?.[0];
+
+    if (suspended === undefined)
+      throw new Error('The quota checkpoint is absent.');
+    appended.push(
+      {
+        type: 'run.suspended',
+        payload: { ...suspended, ...suspended.awaiting, generation: 8 },
+      },
+      {
+        type: 'run.resumed',
+        payload: {
+          kind: 'quota',
+          generation: 8,
+          attemptId: wakeAttemptId,
+          cause: 'timeout',
+        },
+      },
+      { type: 'run.started', payload: { attemptId: wakeAttemptId } },
+    );
+    replayAppendedEvents(appended);
+    const awake = { ...run, activeAttemptId: wakeAttemptId };
+
+    spies.findById.mockResolvedValue(awake);
+    spies.markFinished.mockResolvedValue({ ...awake, status: 'completed' });
+    serveDelivery([compact], awake);
+    vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
+      userMessage,
+      assistantMessage: {
+        ...assistantMessage,
+        usage: runningReplyUsage({
+          runId,
+          attemptId: testAttemptId,
+          modelId: realClient.client.model,
+          effort: undefined,
+          permissionMode: 'default',
+        }),
+      },
+    });
+
+    const updateReply = vi
+      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
+      .mockImplementation((write) =>
+        Promise.resolve({ ...assistantMessage, ...write }),
+      );
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
-      attemptId: testAttemptId,
+      attemptId: wakeAttemptId,
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -23219,13 +23270,29 @@ describe('RunExecutionService executeRun — run segments', () => {
       runId,
       userId,
       'completed',
-      expect.objectContaining({ attemptId: testAttemptId }),
+      expect.objectContaining({ attemptId: wakeAttemptId }),
     );
-    expect(
-      spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
-    ).toContainEqual(
+    expect(updateReply.mock.lastCall?.[0].parts).toContainEqual(
       expect.objectContaining({ type: 'text', text: 'The final answer.' }),
     );
+    expect(updateReply.mock.lastCall?.[0].usage).toMatchObject({
+      attemptId: testAttemptId,
+      status: 'completed',
+      complete: false,
+    });
+
+    const completed = appended.findLast(
+      ({ type }) => type === 'model.completed',
+    )?.payload;
+
+    expect(completed).toMatchObject({
+      telemetry: {
+        attemptId: testAttemptId,
+        status: 'completed',
+        complete: false,
+      },
+    });
+    expect(completed).not.toHaveProperty('telemetry.latencyMs');
 
     const recovery = appended.find(
       ({ type }) => type === 'run.quota_recovered',
@@ -23269,7 +23336,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       ChatDeliveriesRepository.prototype,
       'stepEndSignal',
     ).mockResolvedValue('delivery');
-    recordAppendedEvents();
+    const appended = recordAppendedEvents();
     const publication = serveCheckpointPublication();
 
     const realClient = createToolLoopClient([
@@ -23333,6 +23400,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     // renders a different prefix than the one the answer did.
     execution.promptUser.mockResolvedValue({ preferredName: 'After' });
     serveSummaryReceipt(() => firstSummary.system);
+    replayAppendedEvents(appended);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
@@ -23487,6 +23555,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       },
     ];
     serveSummaryReceipt(() => firstSummary.system);
+    replayAppendedEvents(appended);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
@@ -23775,7 +23844,7 @@ describe('RunExecutionService executeRun — run segments', () => {
         recencyDigestTold: [],
       });
 
-    recordAppendedEvents();
+    const appended = recordAppendedEvents();
     serveCheckpointPublication();
 
     const realClient = createToolLoopClient([
@@ -23843,6 +23912,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       candidates: [],
     });
     serveSummaryReceipt(() => firstSummary.system);
+    replayAppendedEvents(appended);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,

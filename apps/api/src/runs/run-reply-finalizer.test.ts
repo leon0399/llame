@@ -1043,7 +1043,7 @@ describe('finalizeRunReply', () => {
 
       const running = runningReplyUsage({
         runId,
-        attemptId: reWait ? 'wake-attempt' : 'answer-attempt',
+        attemptId: 'answer-attempt',
         modelId: 'fake-model',
         effort: undefined,
         permissionMode: 'default',
@@ -1113,6 +1113,129 @@ describe('finalizeRunReply', () => {
         status: 'aborted',
         complete: false,
       });
+    },
+  );
+
+  it.each([
+    {
+      name: 'first wake',
+      attemptId: 'wake',
+      latestAttemptId: 'wake',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: true,
+    },
+    {
+      name: 'claim redelivery',
+      attemptId: 'retry',
+      latestAttemptId: 'retry',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: true,
+    },
+    {
+      name: 'stale writer',
+      attemptId: 'stale',
+      latestAttemptId: 'wake',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: false,
+    },
+    {
+      name: 'foreign reply',
+      attemptId: 'wake',
+      latestAttemptId: 'wake',
+      replyRunId: 'another-run',
+      dispatched: false,
+      allowed: false,
+    },
+    {
+      name: 'dispatched attempt',
+      attemptId: 'wake',
+      latestAttemptId: 'wake',
+      replyRunId: runId,
+      dispatched: true,
+      allowed: false,
+    },
+  ])(
+    'settles a restored live quota reply only for its current checkpoint owner: $name',
+    async (scenario) => {
+      const parts = [
+        { type: 'text', text: 'The saved answer.' },
+        { type: 'data-compaction-failed', data: {} },
+      ];
+
+      const log = [
+        requested(1, 'original'),
+        event(2, 'run.suspended', {
+          kind: 'quota',
+          attemptId: 'original',
+          generation: 1,
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-11-20T00:00:00.000Z',
+          wakeAt: '2026-11-20T00:01:00.000Z',
+          resumeAt: 'boundary',
+          waitCount: 1,
+          parts: parts.slice(0, 1),
+          steps: {},
+        }),
+        event(3, 'run.resumed', {
+          kind: 'quota',
+          attemptId: 'wake',
+          generation: 1,
+          cause: 'timeout',
+        }),
+        event(4, 'run.started', { attemptId: 'wake' }),
+      ];
+
+      if (scenario.latestAttemptId !== 'wake')
+        log.push(
+          event(5, 'run.started', { attemptId: scenario.latestAttemptId }),
+        );
+
+      if (scenario.dispatched) log.push(requested(5, 'wake'));
+
+      const { update } = serve({
+        log,
+        reply: reply({
+          usage: runningReplyUsage({
+            runId: scenario.replyRunId,
+            attemptId: 'original',
+            modelId: 'fake-model',
+            effort: undefined,
+            permissionMode: 'default',
+          }),
+        }),
+      });
+
+      await finalizeRunReply(tx, {
+        run: { ...run, activeAttemptId: scenario.latestAttemptId },
+        status: 'cancelled',
+        attemptId: scenario.attemptId,
+        live: {
+          chatId,
+          inReplyTo: messageId,
+          parts,
+          telemetry: { ...telemetry(scenario.attemptId), interrupted: true },
+        },
+        models,
+      });
+
+      if (!scenario.allowed) {
+        expect(update).not.toHaveBeenCalled();
+
+        return;
+      }
+
+      expect(update.mock.lastCall?.[0].parts).toEqual(parts);
+      expect(update.mock.lastCall?.[0].usage).toMatchObject({
+        runId,
+        attemptId: 'original',
+        status: 'aborted',
+        complete: false,
+        interrupted: true,
+      });
+      expect(update.mock.lastCall?.[0].usage).not.toHaveProperty('latencyMs');
     },
   );
 
