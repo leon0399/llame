@@ -1050,10 +1050,10 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     });
 
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
-      () => {
+      (_runId, _userId, options) => {
         eventReadOrder.push('events');
 
-        return Promise.resolve([
+        const events = [
           {
             sequence: 2,
             runId: job.runId,
@@ -1068,7 +1068,15 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
             payload: { kind: 'quota', generation: 4 },
             createdAt: resumedAt,
           },
-        ]);
+        ];
+
+        return Promise.resolve(
+          events.filter(
+            (row) =>
+              options?.eventTypes === undefined ||
+              options.eventTypes.some((type) => type === row.eventType),
+          ),
+        );
       },
     );
     const abort = new AbortController();

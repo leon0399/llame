@@ -2,6 +2,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-19
 
+- Strengthen quota wake recovery and worker execution-budget regressions,
+  including malformed recovery records and elapsed quota waits.
+
 - Recheck active Run ownership and durable cancellation after a broken-send
   retry delay before dispatching its replacement. An owner interrupt during
   that delay closes the reply as aborted and delivers the pending message

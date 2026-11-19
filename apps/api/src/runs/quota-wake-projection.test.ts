@@ -462,4 +462,40 @@ describe('quota wake projection', () => {
       ]),
     ).toEqual({ resumeAt: 'boundary', waitCount: 2, generation: 3 });
   });
+
+  it('ignores recovery records that do not carry a numeric generation', () => {
+    const suspension = quotaSuspension(3, 2, 'boundary');
+
+    expect(
+      quotaRequestFromEvents([
+        suspension,
+        event(2, 'run.quota_recovered', {
+          generation: '3',
+          resumeAt: 'boundary',
+        }),
+      ]),
+    ).toEqual({ resumeAt: 'boundary', waitCount: 2, generation: 3 });
+  });
+
+  it('skips unreadable durable payloads instead of losing the open quota request', () => {
+    const suspension = quotaSuspension(3, 2, 'boundary');
+
+    expect(
+      quotaRequestFromEvents([suspension, event(2, 'run.suspended', null)]),
+    ).toEqual({ resumeAt: 'boundary', waitCount: 2, generation: 3 });
+  });
+
+  it('rejects out-of-range generations, wait counts, and resume positions', () => {
+    for (const override of [
+      { generation: 0 },
+      { waitCount: 0 },
+      { resumeAt: 'not-a-position' },
+    ]) {
+      expect(
+        quotaRequestFromEvents([
+          event(1, 'run.suspended', { ...quotaPayload(), ...override }),
+        ]),
+      ).toBeUndefined();
+    }
+  });
 });
