@@ -548,6 +548,54 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
 });
 
 describe("ActiveRunsProvider — polled quota wait history", () => {
+  it("does not refetch missing-Run history on unrelated provider renders", async () => {
+    stubActiveRunsNetwork();
+    runHandler = (id) =>
+      Promise.resolve(
+        jsonResponse(runResponseFixture({ id, status: "running_model" })),
+      );
+
+    const { queryClient, rerenderProbe } = renderProbe("chat-fixture");
+    const messagesKey = chatQueryKeys.messages("chat-fixture");
+
+    const history = {
+      pages: [
+        {
+          messages: [],
+          compaction: null,
+          latestRun: latestRunFixture("older-run"),
+        },
+      ],
+      pageParams: [null],
+    };
+
+    queryClient.setQueryData(messagesKey, history);
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "running_model",
+      ),
+    );
+    await waitFor(() =>
+      expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(true),
+    );
+
+    queryClient.setQueryData(messagesKey, history);
+    rerenderProbe("unrelated-chat");
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("false"),
+    );
+    expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(false);
+
+    queryClient.setQueryData(
+      activeRunsQueryKeys.run("run-track"),
+      runResponseFixture({ id: "run-track", status: "awaiting_quota" }),
+    );
+    await waitFor(() =>
+      expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(true),
+    );
+  });
+
   it("propagates polled quota waiting and resumption into the latest history", async () => {
     stubActiveRunsNetwork();
     runHandler = (runId) =>

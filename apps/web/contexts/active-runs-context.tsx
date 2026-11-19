@@ -382,12 +382,13 @@ function notifyTerminalRun(
 function processRunQueries(
   activeEntries: ReadonlyArray<ActiveEntry>,
   runQueries: ReadonlyArray<ActiveRunQuery>,
-  deps: TerminalRunHandlerDeps,
+  deps: TerminalRunHandlerDeps & { syncedRuns: WeakSet<Run> },
 ): void {
   activeEntries.forEach(([runId, meta], index) => {
     const run = runQueries[index]?.data;
 
-    if (run && !isTerminalRunStatus(run.status)) {
+    if (run && !isTerminalRunStatus(run.status) && !deps.syncedRuns.has(run)) {
+      deps.syncedRuns.add(run);
       syncRunHistory(deps.queryClient, meta.chatId, run);
     }
 
@@ -414,13 +415,14 @@ function useRunCompletionEffects(params: {
   } = params;
 
   const runQueries = useActiveRunQueries(activeEntries);
-  const runStatusByChatId = useRunStatusesByChat(activeEntries, runQueries);
 
   const handledRunIds = useRef(new Set<string>());
+  const syncedRuns = useRef(new WeakSet<Run>());
 
   useEffect(() => {
     processRunQueries(activeEntries, runQueries, {
       handledRunIds,
+      syncedRuns: syncedRuns.current,
       drop,
       queryClient,
       setOutcomes,
@@ -437,7 +439,7 @@ function useRunCompletionEffects(params: {
     routerRef,
   ]);
 
-  return runStatusByChatId;
+  return useRunStatusesByChat(activeEntries, runQueries);
 }
 
 function useRouterRef(): MutableRefObject<ReturnType<typeof useRouter>> {
