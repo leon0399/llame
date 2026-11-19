@@ -2635,6 +2635,13 @@ describe('RunExecutionService executeRun', () => {
 
       const firstToolCall = providerResponse(
         [
+          { type: 'text-start', id: 'retained-prefix' },
+          {
+            type: 'text-delta',
+            id: 'retained-prefix',
+            delta: 'completed prefix before retry',
+          },
+          { type: 'text-end', id: 'retained-prefix' },
           {
             type: 'tool-call',
             toolCallId: 'spike-tool-1',
@@ -2724,6 +2731,13 @@ describe('RunExecutionService executeRun', () => {
         const restarted = await runScriptedRestart(stepToBreak, true);
 
         expect(restarted.requests).toHaveLength(clean.requests.length + 1);
+
+        if (stepToBreak === 1) {
+          // The replayed send must carry the completed prefix and staged
+          // private context item exactly once, not the failed send's parts.
+          expect(restarted.requests[2]).toEqual(clean.requests[1]);
+        }
+
         expect(restarted.reply.parts).toEqual(clean.reply.parts);
         expect(restarted.snapshot).toEqual(clean.snapshot);
 
@@ -12065,14 +12079,13 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
     if (input.mediaRows !== undefined) {
       const rows = input.mediaRows;
-      // The resolver's descriptor read is `select().from().where()`; drizzle's
-      // builders carry private state no structural double can satisfy.
       const where = () => Promise.resolve(rows.map(descriptorRow));
-      // SAFETY: the double implements exactly the fluent calls the read makes.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      vi.spyOn(execution.db, 'select').mockReturnValue({
-        from: () => ({ where }),
-      } as never);
+      Object.assign(
+        execution.db,
+        asDouble<Pick<Db, 'select'>>({
+          select: () => ({ from: () => ({ where }) }),
+        }),
+      );
     }
 
     const result = await execution.service.executeRun({
@@ -12223,12 +12236,12 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       );
 
       const where = () => Promise.resolve([descriptorRow(descriptor(imageId))]);
-      // The descriptor query uses drizzle's private fluent-builder state.
-      // SAFETY: this double implements the exact select/from/where calls used.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      vi.spyOn(execution.db, 'select').mockReturnValue({
-        from: () => ({ where }),
-      } as never);
+      Object.assign(
+        execution.db,
+        asDouble<Pick<Db, 'select'>>({
+          select: () => ({ from: () => ({ where }) }),
+        }),
+      );
 
       await execution.service.executeRun({
         ...executionInput(capturing.client),
@@ -19328,11 +19341,14 @@ describe('RunExecutionService prompt imports', () => {
         const where = () =>
           Promise.resolve([{ ...descriptorRow(owned), data: bytes }]);
 
-        // SAFETY: the double supplies the descriptor and original-blob query chains.
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        vi.spyOn(execution.db, 'select').mockReturnValue({
-          from: () => ({ where, innerJoin: () => ({ where }) }),
-        } as never);
+        Object.assign(
+          execution.db,
+          asDouble<Pick<Db, 'select'>>({
+            select: () => ({
+              from: () => ({ where, innerJoin: () => ({ where }) }),
+            }),
+          }),
+        );
         Object.assign(execution.client, { input: ['text', 'pdf'] });
         const stream = vi.spyOn(execution.client, 'streamText');
         const prompt = promptInput(execution.client, `check @${PDF_MEDIA}`);

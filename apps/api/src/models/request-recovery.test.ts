@@ -671,6 +671,39 @@ describe('withRequestRecovery', () => {
     );
     expect(fixture.sends()).toBe(1);
   });
+  it('preserves zero-valued safe metadata on a superseded live failure', async () => {
+    const original = new ProviderFailure('Provider limit', {
+      code: 'rate_limited',
+      resetsAt: 0,
+      hintMs: 0,
+      statusCode: 429,
+    });
+
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'partial' },
+        { type: 'text-delta', id: 'partial', delta: 'Visible prefix.' },
+        { type: 'error', error: original },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    const failure = providerFailureFrom(parts);
+
+    expect(text(parts)).toBe('Visible prefix.');
+    expect(parts.at(-1)).toMatchObject({ type: 'error', error: failure });
+    expect(failure).toMatchObject({
+      code: 'rate_limited',
+      resetsAt: 0,
+      hintMs: 0,
+      statusCode: 429,
+      superseded: { retry: 1, delayMs: 0 },
+    });
+    expect(fixture.sends()).toBe(1);
+  });
 
   it('discards buffered content when a whole send fails after producing it', async () => {
     const failure = new ProviderFailure('Quota exhausted', {

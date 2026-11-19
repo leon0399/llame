@@ -955,6 +955,48 @@ describe('finalizeRunReply', () => {
       },
     });
   });
+  it('keeps live usage incomplete when the current attempt supersedes a send', async () => {
+    const { update } = serve({
+      log: [
+        requested(1, 'b'),
+        event(2, 'model.delta', { text: 'discarded send' }),
+        event(3, 'model.superseded', { fromSequence: 2, step: 0 }),
+        event(4, 'model.retrying', {
+          code: 'stream_broken',
+          retry: 1,
+          delayMs: 0,
+        }),
+        event(5, 'model.delta', { text: 'replacement send' }),
+      ],
+      reply: reply({
+        usage: runningReplyUsage({
+          runId,
+          attemptId: 'b',
+          modelId: 'fake-model',
+          effort: undefined,
+          permissionMode: 'default',
+        }),
+      }),
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'completed',
+      attemptId: 'b',
+      live: {
+        chatId,
+        inReplyTo: messageId,
+        parts: [{ type: 'text', text: 'replacement send' }],
+        telemetry: { ...telemetry('b'), status: 'completed', complete: true },
+      },
+      models,
+    });
+
+    expect(update.mock.lastCall?.[0]).toMatchObject({
+      parts: [{ type: 'text', text: 'replacement send' }],
+      usage: { status: 'completed', complete: false, attemptId: 'b' },
+    });
+  });
 
   it("settles a call the attempt left open and keeps an earlier attempt's output out", async () => {
     const { append, update } = serve({
