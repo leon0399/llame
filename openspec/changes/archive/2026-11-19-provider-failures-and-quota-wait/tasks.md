@@ -1,5 +1,5 @@
 Track [#1774](https://github.com/leon0399/llame/issues/1774) and its PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
 approval of the published proposal revision. Keep live status in the Project.
 
 ## Delivery stack
@@ -68,7 +68,7 @@ before publication.
     commit. Design revision history v2 and v3 record them. Round 2 still changed substance, so the
     review has not converged; the GitHub review loop is the next round.
 - [x] 1.3 Self-review the published draft PR (SR), mark it ready, and run the GitHub review loop
-      (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
+      (GR) per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#pr-contract).
 - [x] 1.4 Obtain Leo's approval of the published revision, including the deviation that the
       proposal lists.
   - Evidence: Leo approved the published specification in the implementation handoff on
@@ -99,7 +99,7 @@ before publication.
       runbooks under `docs/product/operator/providers/`, and add a dated `CHANGELOG.md` entry.
 - [x] 2.7 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed test
       files, `pnpm format:check`, `git diff --check`.
-- [x] 2.8 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 2.8 SR before ready; GR per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 Local evidence: focused classifier, real-wire, redaction, hosted-search, and Run-settlement tests;
 API lint/typecheck; Markdown/link lint; repository format check; strict change validation.
@@ -152,7 +152,7 @@ no new issues and no unresolved threads; earlier feedback remains in its separat
 - [x] 3.9 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`,
       `pnpm --filter web lint`, `pnpm --filter web typecheck`, the changed test files, the changed
       stories, `pnpm format:check`, `git diff --check`.
-- [ ] 3.10 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 3.10 Complete independent local SR; process GR asynchronously under Leo's delivery override.
 
 Local evidence: deterministic request-recovery windows, shared send budget, short reset/hint timing,
 buffered output discard, tool-call cutoff, real Responses/Codex and Completions premature EOFs,
@@ -182,7 +182,7 @@ pass. GR remains non-gating for the next layer.
       on reload replay.
 - [x] 4.6 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.
 - [x] 4.7 Focused checks as in 3.9.
-- [ ] 4.8 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 4.8 Complete independent local SR; process GR asynchronously under Leo's delivery override.
 
 Local evidence: 228 recovery, reconstruction, finalization, and stream-bridge cases passed.
 Six focused execution cases exercise real scripted clients, clean-versus-restarted step state,
@@ -230,7 +230,7 @@ does not update the SDK's separate active response. GR remains non-gating for th
       and OpenCode Go runbooks, and `docs/product/operator/scaling.md`, and add a dated `CHANGELOG.md`
       entry.
 - [x] 5.10 Focused checks as in 3.9, the OpenAPI lint, and the changed integration test files.
-- [ ] 5.11 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 5.11 Complete independent local SR; process GR asynchronously under Leo's delivery override.
 
 Local evidence: 650 execution and stream-bridge cases passed, including real SDK quota failures
 before and after released content, deferred-wait recovery ordering, and cancellation during a
@@ -246,7 +246,7 @@ and GitHub review remain non-gating for development of the next layer under Leo'
 
 ## 6. quota-wait-compaction
 
-- [ ] 6.1 Rethrow a quota `ProviderFailure` from `summarizeCheckpoint`, add `resumeAt`, and add the
+- [x] 6.1 Rethrow a quota `ProviderFailure` from `summarizeCheckpoint`, add `resumeAt`, and add the
       wake path for a Run with no `messageId`, and rethrow from the `prepareBoundaryCompaction` catch
       (design D5, D6). Verify "A compaction Run waits", "A step-boundary compaction hits a usage limit",
       "A step-boundary summary beyond the cap", a final-answer summary that hits a usage limit and
@@ -256,7 +256,7 @@ and GitHub review remain non-gating for development of the next layer under Leo'
       limit".
 - [x] 6.3 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.
 - [x] 6.4 Focused checks as in 2.7.
-- [ ] 6.5 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 6.5 Complete independent local SR; process GR asynchronously under Leo's delivery override.
 
 Local evidence: 669 focused compaction, quota projection, and execution cases passed; API lint and
 typecheck, repository format check, strict change validation, Markdown lint, and diff whitespace
@@ -265,12 +265,13 @@ complete the final answer without another main request, preserve stopped-call id
 closure through a summary wait, and retain the restored prefix when cancellation wins. A separate
 projection smoke preserved a count-four summary through claim redelivery and stopped replay after
 recovery. Independent reuse, quality, efficiency, ponytail, and security reviews informed SR; accepted
-lifecycle findings were fixed and exercised. The real queue/database compaction acceptance remains
-unchecked until CI executes it. GR and mutation work do not gate the next layer under Leo's override.
+lifecycle findings were fixed and exercised. CI run 44450014722 at `ff53d87d` passed every API
+shard, including the real queue/database compaction acceptance. GR and mutation work remain
+asynchronous under Leo's override; no merge is authorized.
 
 ## 7. quota-wait-web
 
-- [ ] 7.1 Add `quotaWait`, `errorCode`, and `errorResetsAt` to the Run DTOs, and regenerate OpenAPI,
+- [x] 7.1 Add `quotaWait`, `errorCode`, and `errorResetsAt` to the Run DTOs, and regenerate OpenAPI,
       the orval models, and both live-protocol files. Verify "Another owner cannot read the wait" as a
       negative isolation test, and a second generation with a clean diff.
 - [x] 7.2 Add the box above the composer (design D8). Verify "A Codex weekly limit" in a story test
@@ -280,7 +281,7 @@ unchecked until CI executes it. GR and mutation work do not gate the next layer 
 - [x] 7.4 Update the owner docs for a waiting Chat and add a dated `CHANGELOG.md` entry. Put
       `Closes #1774` on this PR.
 - [x] 7.5 Focused checks as in 3.9, the OpenAPI lint, and the Storybook story tests.
-- [ ] 7.6 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 7.6 Complete independent local SR; process GR asynchronously under Leo's delivery override.
 
 Local evidence: 90 API DTO cases and 134 web state cases passed; API/web lint and typechecks
 passed. Ten Storybook MCP cases passed with accessibility checks, including the weekly-limit
@@ -290,7 +291,10 @@ reset display. A failing-before/passing-after hydration smoke verified browser-l
 OpenAPI and AsyncAPI validation, strict change validation, Markdown/link lint, and repository
 format checks passed. A second generation preserved all 238 generated outputs byte for byte.
 Five independent reviewers covered reuse, quality, efficiency, ponytail, and security; accepted
-findings were fixed. HTTP owner/foreign isolation cases await CI; no local database suite was run.
+findings were fixed. CI run 44450034463 passed the HTTP owner/foreign quota-wait isolation case
+at `75cb6b4a`; the downloaded Vitest result records the real HTTP test as passed. No local database
+suite was run. The subsequent `d990ed7f` head passed every ordinary check except the recorded
+master-red media Schemathesis mismatch.
 
 ## 8. finalize
 
@@ -298,14 +302,31 @@ Enter `provider-failures-and-quota-wait/finalize` with `$gh-stack` before `$open
 writes canonical specs. SR and GR of this layer follow archive movement.
 
 - [x] 8.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
-- [ ] 8.2 Confirm that every task above is checked and `openspec status --change
+- [x] 8.2 Confirm that every task above is checked and `openspec status --change
   provider-failures-and-quota-wait --json` reports every artifact complete.
 - [x] 8.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
   --strict`.
-- [ ] 8.4 Run `$openspec-archive-change`.
+
+8.4 Post-readiness operation: run `$openspec-archive-change`. This operation is not a readiness
+checkbox because archive itself requires the preceding checklist to be complete. Record its
+native result after execution.
 
 Sync evidence: all 12 selected capability deltas are canonical. Every changed requirement equals
 the approved delta, all untouched requirements and existing Purpose sections remain byte-identical,
 and all existing scenario names survive. Strict validation passed 64 canonical specs and 66 total
-items; Markdown/link lint, repository format check, and diff whitespace checks passed. Archive
-readiness remains blocked on the explicitly unchecked delivery acceptance above.
+items; Markdown/link lint, repository format check, and diff whitespace checks passed. The
+OpenSpec status reports every planning artifact complete. Independent reuse, quality, efficiency,
+and ponytail reviewers found no issues in the canonical merge.
+
+Delivery evidence distinguishes local SR, ordinary CI, and asynchronous GR/mutation gates.
+The latter remain merge gates, not prerequisites for developing the next layer under Leo's
+explicit override. Finalization does not authorize merging or claim pending reviews passed.
+The final integrated recovery regression run passed 770 cases across seven API files, with
+API lint and typecheck passing. A real HTTP structured-generation smoke verified deadline
+abort followed by one successful retry. Accepted retry-fence, capture, marker-order, and
+step-cap findings were independently repaired and reviewed.
+
+Archive evidence: the native OpenSpec command archived the complete change at
+`openspec/changes/archive/2026-11-19-provider-failures-and-quota-wait` on 2026-11-19.
+It used `--skip-specs` because all 12 deltas had already been synchronized and verified.
+The checked implementation history was preserved; no rollout or merge was performed.
