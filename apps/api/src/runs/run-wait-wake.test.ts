@@ -181,6 +181,114 @@ describe('RunWaitService wake transactions', () => {
     expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
     expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
   });
+  it('rejects a quota wake whose generation disappears after the chat lock', async () => {
+    const fixture = makeFixture([
+      [quotaWaitingRun],
+      [{ currentJobId: quotaWaitingRun.currentJobId }],
+      [],
+    ]);
+
+    await expect(
+      fixture.service.wakeInTransaction(fixture.tx, {
+        runId: quotaWaitingRun.id,
+        userId: quotaWaitingRun.userId,
+        generation: quotaWaitingRun.wakeGeneration,
+        cause: 'timeout',
+        deadlineJobId: quotaWaitingRun.currentJobId!,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fixture.updates).toHaveLength(0);
+    expect(fixture.append).not.toHaveBeenCalled();
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'jobs status with quota awaiting data',
+      run: { ...quotaWaitingRun, status: 'awaiting_jobs' as const },
+    },
+    {
+      label: 'quota status with jobs awaiting data',
+      run: { ...waitingRun, status: 'awaiting_quota' as const },
+    },
+  ])('rejects $label before attempting to persist a wake', async ({ run }) => {
+    const fixture = makeFixture([
+      [run],
+      [{ currentJobId: run.currentJobId }],
+      [run],
+      [{ id: run.id }],
+    ]);
+
+    await expect(
+      fixture.service.wakeInTransaction(fixture.tx, {
+        runId: run.id,
+        userId: run.userId,
+        generation: run.wakeGeneration,
+        cause: 'timeout',
+        deadlineJobId: run.currentJobId!,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fixture.updates).toHaveLength(0);
+    expect(fixture.append).not.toHaveBeenCalled();
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('allows a quota cancellation wake before its scheduled deadline', async () => {
+    const fixture = makeFixture([
+      [quotaWaitingRun],
+      [{ currentJobId: quotaWaitingRun.currentJobId }],
+      [quotaWaitingRun],
+    ]);
+
+    await expect(
+      fixture.service.wakeInTransaction(fixture.tx, {
+        runId: quotaWaitingRun.id,
+        userId: quotaWaitingRun.userId,
+        generation: quotaWaitingRun.wakeGeneration,
+        cause: 'cancelled',
+        deadlineJobId: quotaWaitingRun.currentJobId!,
+      }),
+    ).resolves.toBe(true);
+
+    expect(fixture.updates).toEqual([
+      { status: 'queued', currentJobId: quotaWaitingRun.currentJobId },
+    ]);
+    expect(fixture.append).toHaveBeenCalledWith(
+      quotaWaitingRun.id,
+      'run.resumed',
+      expect.objectContaining({
+        kind: 'quota',
+        generation: quotaWaitingRun.wakeGeneration,
+        cause: 'cancelled',
+      }),
+    );
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('does not resume a quota wait while its wake deadline is still early', async () => {
+    const fixture = makeFixture([
+      [quotaWaitingRun],
+      [{ currentJobId: quotaWaitingRun.currentJobId }],
+      [quotaWaitingRun],
+      [],
+    ]);
+
+    await expect(
+      fixture.service.wakeInTransaction(fixture.tx, {
+        runId: quotaWaitingRun.id,
+        userId: quotaWaitingRun.userId,
+        generation: quotaWaitingRun.wakeGeneration,
+        cause: 'timeout',
+        deadlineJobId: quotaWaitingRun.currentJobId!,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fixture.updates).toHaveLength(0);
+    expect(fixture.append).not.toHaveBeenCalled();
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
 
   it.each([
     {

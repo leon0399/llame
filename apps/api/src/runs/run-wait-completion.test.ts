@@ -422,6 +422,56 @@ describe('pendingWakeInTransaction', () => {
   );
 
   it.each([
+    {
+      label: 'quota awaiting data with a jobs receipt',
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        resetsAt: '2026-10-12T00:00:00.000Z',
+        wakeAt: '2026-10-12T00:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+      status: 'awaiting_quota',
+      receiptKind: 'jobs',
+    },
+    {
+      label: 'jobs awaiting data with a quota receipt',
+      awaiting: {
+        kind: 'jobs',
+        toolCallId: 'call-id',
+        jobIds: Array.of('settled-id'),
+        toolInput: { jobs: Array.of('settled-id') },
+        deadline: new Date(0).toISOString(),
+      },
+      status: 'awaiting_jobs',
+      receiptKind: 'quota',
+    },
+  ] as const)(
+    'rejects a wake receipt when $label',
+    async ({ awaiting, status, receiptKind }) => {
+      const awaitingRun = run({ status, awaiting });
+
+      await expect(
+        pendingWakeInTransaction(
+          db([
+            {
+              eventType: 'run.resumed',
+              payload: {
+                kind: receiptKind,
+                generation: awaitingRun.wakeGeneration,
+                cause: 'timeout',
+              },
+              sequence: 2,
+            },
+          ]),
+          awaitingRun,
+        ),
+      ).rejects.toThrow('The current Run wake kind is invalid.');
+    },
+  );
+
+  it.each([
     ['stale generation', { generation: 1, cause: 'settled' }],
     ['malformed receipt', null],
     ['invalid cause', { generation: 2, cause: 'unknown' }],

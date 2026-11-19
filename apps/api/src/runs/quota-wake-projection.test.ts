@@ -207,4 +207,182 @@ describe('quota wake projection', () => {
       quotaResumeAttemptId([...events, event(3, 'run.delivered', {})], 3),
     ).toBeUndefined();
   });
+  it('rejects mismatched wake generation and attempt linkage', () => {
+    const suspension = quotaSuspension();
+
+    const resumed = (generation: number, attemptId: string) =>
+      event(2, 'run.resumed', {
+        kind: 'quota',
+        attemptId,
+        generation,
+        cause: 'timeout',
+      });
+
+    const started = (attemptId: string) =>
+      event(3, 'run.started', { attemptId });
+
+    expect(
+      quotaWakeStateFromEvents(
+        [suspension, resumed(4, 'wake-attempt'), started('wake-attempt')],
+        'wake-attempt',
+      ),
+    ).toBeUndefined();
+    expect(
+      quotaWakeStateFromEvents(
+        [suspension, resumed(3, 'claimed-attempt'), started('wake-attempt')],
+        'wake-attempt',
+      ),
+    ).toBeUndefined();
+    expect(
+      quotaWakeStateFromEvents(
+        [suspension, resumed(3, 'wake-attempt'), started('other-attempt')],
+        'wake-attempt',
+      ),
+    ).toBeUndefined();
+  });
+
+  it('restores only the quota checkpoint after the latest delivery boundary', () => {
+    const events = [
+      quotaSuspension(3),
+      event(2, 'run.resumed', {
+        kind: 'quota',
+        attemptId: 'old-wake',
+        generation: 3,
+        cause: 'timeout',
+      }),
+      event(3, 'run.started', { attemptId: 'old-wake' }),
+      event(4, 'run.delivered', {}),
+      event(5, 'run.suspended', {
+        ...quotaPayload(4),
+        parts: [{ type: 'tool-bash', toolCallId: 'tool-b' }],
+        steps: { 'tool-b': 2 },
+      }),
+      event(6, 'run.resumed', {
+        kind: 'quota',
+        attemptId: 'new-wake',
+        generation: 4,
+        cause: 'timeout',
+      }),
+      event(7, 'run.started', { attemptId: 'new-wake' }),
+    ];
+
+    expect(quotaWakeStateFromEvents(events, 'new-wake')).toEqual({
+      parts: [{ type: 'tool-bash', toolCallId: 'tool-b', step: 2 }],
+    });
+    expect(quotaWakeStateFromEvents(events, 'old-wake')).toBeUndefined();
+  });
+
+  it('rejects absent or non-record checkpoint parts and invalid step maps', () => {
+    const validWake = [
+      quotaSuspension(),
+      event(2, 'run.resumed', {
+        kind: 'quota',
+        attemptId: 'wake-attempt',
+        generation: 3,
+        cause: 'timeout',
+      }),
+      event(3, 'run.started', { attemptId: 'wake-attempt' }),
+    ];
+
+    expect(
+      quotaWakeStateFromEvents(
+        [
+          event(1, 'run.suspended', {
+            ...quotaPayload(),
+            parts: undefined,
+          }),
+          ...validWake.slice(1),
+        ],
+        'wake-attempt',
+      ),
+    ).toBeUndefined();
+    expect(
+      quotaWakeStateFromEvents(
+        [
+          event(1, 'run.suspended', {
+            ...quotaPayload(),
+            parts: [{ type: 'text', text: 'valid' }, null],
+          }),
+          ...validWake.slice(1),
+        ],
+        'wake-attempt',
+      ),
+    ).toBeUndefined();
+    expect(
+      quotaWakeStateFromEvents(
+        [
+          event(1, 'run.suspended', {
+            ...quotaPayload(),
+            steps: { 'tool-a': 4, invalid: 'step' },
+          }),
+          ...validWake.slice(1),
+        ],
+        'wake-attempt',
+      ),
+    ).toBeUndefined();
+
+    expect(
+      quotaWakeStateFromEvents(
+        [
+          event(1, 'run.suspended', {
+            ...quotaPayload(),
+            parts: [{ type: 'tool-bash', toolCallId: 'tool-a' }],
+            steps: { 'tool-a': 0 },
+          }),
+          ...validWake.slice(1),
+        ],
+        'wake-attempt',
+      ),
+    ).toEqual({
+      parts: [{ type: 'tool-bash', toolCallId: 'tool-a', step: 0 }],
+    });
+    expect(
+      quotaRequestFromEvents([
+        event(1, 'run.suspended', {
+          ...quotaPayload(),
+          steps: { 'tool-a': 1.5 },
+        }),
+      ]),
+    ).toBeUndefined();
+    expect(
+      quotaRequestFromEvents([
+        event(1, 'run.suspended', {
+          ...quotaPayload(),
+          steps: { 'tool-a': -1 },
+        }),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it('validates quota reset and wake timestamps and requires exact recovery linkage', () => {
+    for (const invalidTimestamp of ['not-a-time', '']) {
+      expect(
+        quotaRequestFromEvents([
+          event(1, 'run.suspended', {
+            ...quotaPayload(),
+            resetsAt: invalidTimestamp,
+          }),
+        ]),
+      ).toBeUndefined();
+      expect(
+        quotaRequestFromEvents([
+          event(1, 'run.suspended', {
+            ...quotaPayload(),
+            wakeAt: invalidTimestamp,
+          }),
+        ]),
+      ).toBeUndefined();
+    }
+
+    const suspension = quotaSuspension(3, 2, 'boundary');
+    expect(
+      quotaRequestFromEvents([
+        suspension,
+        event(2, 'run.quota_recovered', {
+          generation: 4,
+          resumeAt: 'boundary',
+        }),
+      ]),
+    ).toEqual({ resumeAt: 'boundary', waitCount: 2, generation: 3 });
+  });
 });
