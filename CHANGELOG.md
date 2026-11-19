@@ -44,6 +44,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   allowance as streaming sends. Retry events take the active Run's row lock
   before the Chat lock, so a terminal commit cannot be followed by a retry
   notice. Resumed text starts after the retry marker and clears its label.
+- Show a waiting model's quota reset, scheduled send time, and live countdown
+  above the prompt composer. Stop cancels the wait without losing drafts or
+  pending deliveries. Failed Runs show known reset times in the browser's local
+  time. Owner-only Run responses and live updates expose the bounded wait
+  projection without internal recovery state.
+
 - Extend quota waits to compaction summaries on the Run's model, including
   manual compaction Runs with no triggering message. Wakes retain the logical
   request's allowance through replanning, and successful checkpoint publication

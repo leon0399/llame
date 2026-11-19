@@ -34,6 +34,7 @@ import {
 import { ChatTranscript } from "./chat-transcript";
 import { ChatComposer } from "./chat-composer";
 import { PendingDeliveries } from "./pending-deliveries";
+import { QuotaWaitNotice } from "./quota-wait-notice";
 import { useChatPageProject } from "./composer-project";
 import { useChatCreation } from "./use-chat-creation";
 import {
@@ -382,6 +383,25 @@ function composerFeedback(
   return { failure, notice };
 }
 
+function ComposerPending({
+  composer,
+  pending,
+}: Pick<ChatSessionComposerProps, "composer" | "pending">) {
+  return (
+    <>
+      {composer.quotaWait !== null && (
+        <QuotaWaitNotice
+          quota={composer.quotaWait}
+          modelName={composer.quotaModelName}
+          onStop={composer.handleStop}
+          pendingStop={composer.pendingStop}
+        />
+      )}
+      <PendingDeliveries {...pending} />
+    </>
+  );
+}
+
 /**
  * The chat page's composer. A chat that does not exist yet, with a project or
  * a working directory chosen, sends through the create, which binds its
@@ -412,7 +432,7 @@ function ChatSessionComposer({
       status={status}
       runActive={composer.runActive}
       onDeliver={composer.onDeliver}
-      pending={<PendingDeliveries {...pending} />}
+      pending={<ComposerPending composer={composer} pending={pending} />}
       onStop={composer.handleStop}
       pendingStop={composer.pendingStop}
       modelReadyForSend={composer.modelReadyForSend}

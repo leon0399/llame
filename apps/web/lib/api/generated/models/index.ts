@@ -177,6 +177,8 @@ export * from "./projectRepositoryLinkWithDefaultsResponse";
 export * from "./projectRepositoryLinkWithDefaultsResponseIsolation";
 export * from "./projectResponse";
 export * from "./publicUserResponse";
+export * from "./quotaWaitResponse";
+export * from "./quotaWaitResponseFailureClass";
 export * from "./registerDto";
 export * from "./reorderPinsDto";
 export * from "./reorderPinsItemDto";

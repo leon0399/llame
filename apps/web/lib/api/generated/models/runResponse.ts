@@ -5,6 +5,7 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { QuotaWaitResponse } from "./quotaWaitResponse";
 import type { RunResponseError } from "./runResponseError";
 import type { RunResponseKind } from "./runResponseKind";
 import type { RunResponsePermissionMode } from "./runResponsePermissionMode";
@@ -24,6 +25,8 @@ export interface RunResponse {
   status: RunResponseStatus;
   /** @nullable */
   error: RunResponseError;
+  /** @nullable */
+  quotaWait: QuotaWaitResponse | null;
   createdAt: string;
   /** @nullable */
   startedAt: string | null;

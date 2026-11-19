@@ -50,6 +50,7 @@ function runResponseFixture(
     modelId: "system:openai:gpt-5.4-mini",
     permissionMode: "default",
     error: null,
+    quotaWait: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     startedAt: null,
     finishedAt: null,
@@ -206,6 +207,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
             chatId: "chat-a",
             chatTitle: "Walk-away chat",
             status: "running_model",
+            quotaWait: null,
             createdAt: "2026-07-06T00:00:00.000Z",
           },
         ]),
@@ -248,6 +250,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
             chatId: "chat-awaiting",
             chatTitle: "Background chat",
             status: "awaiting_jobs",
+            quotaWait: null,
             createdAt: "2026-07-06T00:00:00.000Z",
           },
         ]),
@@ -282,6 +285,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
         chatId: "chat-e",
         chatTitle: "Stale snapshot chat",
         status: "running_model",
+        quotaWait: null,
         createdAt: "2026-07-06T00:00:00.000Z",
       },
     ]);
@@ -385,6 +389,7 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     queryClient.setQueryData(chatQueryKeys.messages("chat-viewed"), {
       messages: [],
       compaction: null,
+      latestRun: null,
     });
     screen.getByText("track").click();
     await waitFor(() =>

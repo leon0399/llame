@@ -19,13 +19,14 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  type InfiniteData,
 } from "@tanstack/react-query";
 
-import { toast } from "@workspace/ui/components/sonner";
-
+import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 import {
   activeRunsQueryKeys,
   activeRunsToTrackArgs,
+  applyRunUpdateToHistory,
   fetchActiveRuns,
   type Run,
 } from "@/lib/services/chat/active-runs";
@@ -35,6 +36,9 @@ import {
   resolveTerminalRun,
 } from "@/lib/services/chat/run-notifications";
 import type { RunMessage, RunPhase } from "@/lib/services/live/live-messages";
+
+import { toast } from "@workspace/ui/components/sonner";
+
 import {
   useActiveRunQueries,
   useOptionalLiveUpdates,
@@ -511,10 +515,10 @@ export function nextRunPhases(
 /**
  * Applies live run messages. `run.updated` carries the Run record: a Run
  * started elsewhere is tracked (so the sidebar shows it processing and its
- * completion notifies), and the record is written into the run's query cache
- * so the existing terminal handling fires without a poll; a terminal cached
- * status is never overwritten by a later non-terminal one. `run.progress`
- * keeps the per-chat phase.
+ * completion notifies), and the event updates both the matching latest-history
+ * entry and the run query cache so waiting and terminal state need no poll.
+ * A terminal cached status is never overwritten by a later non-terminal one.
+ * `run.progress` keeps the per-chat phase.
  */
 function useLiveRunProgress(
   trackRun: ActiveRunsContextValue["trackRun"],
@@ -539,6 +543,11 @@ function useLiveRunProgress(
       // Terminal too: coalescing can deliver a Run's first message already
       // finished, and its completion must still notify this tab.
       trackRun(run.id, run.chatId, cachedChatTitle(queryClient, run.chatId));
+      queryClient.setQueriesData<
+        InfiniteData<ChatMessagesResponse, number | null>
+      >({ queryKey: chatQueryKeys.messages(run.chatId) }, (prev) =>
+        applyRunUpdateToHistory(prev, run),
+      );
       queryClient.setQueryData<Run | null>(
         activeRunsQueryKeys.run(run.id),
         (prev) => (prev && isTerminalRunStatus(prev.status) ? prev : run),

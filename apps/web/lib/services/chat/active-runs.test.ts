@@ -87,6 +87,7 @@ const run = (runId: string, chatId: string, chatTitle: string): ActiveRun => ({
   chatId,
   chatTitle,
   status: "running_model",
+  quotaWait: null,
   createdAt: "2026-07-03T00:00:00.000Z",
 });
 

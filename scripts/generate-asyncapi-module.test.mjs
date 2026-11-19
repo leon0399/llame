@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import { test } from "node:test";
 import { parse as parseYaml } from "yaml";
 
@@ -124,15 +127,80 @@ test("rejects a channel message without a component payload", async () => {
   );
 });
 
-test("generates OpenAPI records as named schemas and pins as a discriminated union", async () => {
+test("validates nullable quota references without discarding their fields", async () => {
   const module = await render(asyncapi());
-  assert.match(module, /export const chatListItemResponseSchema = z/);
-  assert.match(module, /chat: chatListItemResponseSchema/);
-  assert.match(
-    module,
-    /z\.discriminatedUnion\("itemType", \[\s*chatPinnedItemResponseSchema,\s*projectPinnedItemResponseSchema,?\s*\]\)/,
-  );
-  assert.doesNotMatch(module, /z\.any\(\)\.superRefine/);
+  const compiled = ts.transpileModule(module, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS },
+  });
+  const generated = {};
+  runInNewContext(compiled.outputText, {
+    exports: generated,
+    require: createRequire(path.join(root, "apps/api/package.json")),
+  });
+  const quotaWait = {
+    failureClass: "quota_exhausted",
+    resetsAt: "2026-11-21T06:00:00.000Z",
+    wakeAt: "2026-11-21T06:01:15.000Z",
+  };
+  const run = {
+    id: "11111111-1111-4111-8111-111111111111",
+    chatId: "22222222-2222-4222-8222-222222222222",
+    messageId: null,
+    kind: "compaction",
+    modelId: "configured-model",
+    permissionMode: "default",
+    status: "awaiting_quota",
+    error: null,
+    createdAt: "2026-11-19T03:00:00.000Z",
+    startedAt: null,
+    finishedAt: null,
+    quotaWait,
+  };
+  const schema = generated.runResponseSchema;
+  assert.deepEqual(schema.parse(run).quotaWait, quotaWait);
+  assert.equal(schema.parse({ ...run, quotaWait: null }).quotaWait, null);
+  const { quotaWait: _quotaWait, ...missingQuota } = run;
+  assert.equal(schema.safeParse(missingQuota).success, false);
+  for (const invalid of [
+    { ...quotaWait, failureClass: "auth" },
+    { ...quotaWait, resetsAt: "not-a-timestamp" },
+    { failureClass: "quota_exhausted", resetsAt: quotaWait.resetsAt },
+  ]) {
+    assert.equal(
+      schema.safeParse({ ...run, quotaWait: invalid }).success,
+      false,
+    );
+  }
+});
+
+test("rejects intersections and reference wrappers with additional constraints", async () => {
+  const openapiFile = path.join(root, "apps/api/openapi.json");
+  for (const invalid of [
+    {
+      type: "object",
+      allOf: [
+        { $ref: "#/components/schemas/QuotaWaitResponse" },
+        { type: "object", properties: { extra: { type: "string" } } },
+      ],
+    },
+    {
+      type: "object",
+      allOf: [{ $ref: "#/components/schemas/QuotaWaitResponse" }],
+      required: ["extra"],
+    },
+  ]) {
+    const openapi = JSON.parse(read("apps/api/openapi.json"));
+    openapi.components.schemas.RunResponse.properties.quotaWait = invalid;
+    await assert.rejects(
+      renderLiveProtocol(
+        source,
+        "test",
+        undefined,
+        readerWith({ [openapiFile]: openapi }),
+      ),
+      /allOf only supports a single reference wrapper/,
+    );
+  }
 });
 
 test("rejects a schema keyword the generator does not support", async () => {

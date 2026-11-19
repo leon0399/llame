@@ -1,5 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { isRecord, isString } from '@workspace/runtime-safety';
+import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
+
+import {
+  toQuotaWaitResponse,
+  QuotaWaitResponse,
+} from '../../runs/dto/quota-wait.dto';
 
 import {
   followUpActions,
@@ -67,6 +72,33 @@ export class ChatLatestRunResponse {
       'stream error frame carries; null for any other Run or none recorded.',
   })
   error!: string | null;
+
+  @ApiProperty({ type: String, nullable: true })
+  errorCode!: string | null;
+
+  @ApiProperty({ type: Number, nullable: true })
+  errorResetsAt!: number | null;
+
+  @ApiProperty({ type: () => QuotaWaitResponse, nullable: true })
+  quotaWait!: QuotaWaitResponse | null;
+}
+
+/** Safe code/reset metadata is reported only for a failed Run. */
+function runErrorMetadata(
+  run: Run,
+): Pick<ChatLatestRunResponse, 'errorCode' | 'errorResetsAt'> {
+  if (run.status !== 'failed' || !isRecord(run.error)) {
+    return { errorCode: null, errorResetsAt: null };
+  }
+
+  const code = run.error['code'];
+  const resetsAt = run.error['resetsAt'];
+
+  return {
+    errorCode: isString(code) ? code : null,
+    errorResetsAt:
+      isNumber(resetsAt) && Number.isFinite(resetsAt) ? resetsAt : null,
+  };
 }
 
 /** The message a failed or expired Run's stream sent in its `error` frame, or
@@ -91,5 +123,7 @@ export function toChatLatestRunResponse(run: Run): ChatLatestRunResponse {
     effort: run.effort,
     permissionMode: run.permissionMode,
     error: runErrorMessage(run),
+    ...runErrorMetadata(run),
+    quotaWait: toQuotaWaitResponse(run.status, run.awaiting),
   };
 }

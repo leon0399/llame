@@ -5299,6 +5299,24 @@
           "createdAt"
         ]
       },
+      "QuotaWaitResponse": {
+        "type": "object",
+        "properties": {
+          "failureClass": {
+            "type": "string",
+            "enum": ["quota_exhausted", "rate_limited"]
+          },
+          "resetsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wakeAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["failureClass", "resetsAt", "wakeAt"]
+      },
       "ChatLatestRunResponse": {
         "type": "object",
         "properties": {
@@ -5359,6 +5377,23 @@
             "type": "string",
             "nullable": true,
             "description": "The terminal message of a failed or expired Run, the same text its stream error frame carries; null for any other Run or none recorded."
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorResetsAt": {
+            "type": "number",
+            "nullable": true
+          },
+          "quotaWait": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuotaWaitResponse"
+              }
+            ]
           }
         },
         "required": [
@@ -5370,7 +5405,10 @@
           "modelId",
           "effort",
           "permissionMode",
-          "error"
+          "error",
+          "errorCode",
+          "errorResetsAt",
+          "quotaWait"
         ]
       },
       "ChatMessagesResponse": {
@@ -6413,9 +6451,25 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "quotaWait": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuotaWaitResponse"
+              }
+            ]
           }
         },
-        "required": ["runId", "chatId", "chatTitle", "status", "createdAt"]
+        "required": [
+          "runId",
+          "chatId",
+          "chatTitle",
+          "status",
+          "createdAt",
+          "quotaWait"
+        ]
       },
       "SharedChatMessageResponse": {
         "type": "object",
@@ -7201,6 +7255,15 @@
             "type": "object",
             "nullable": true
           },
+          "quotaWait": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuotaWaitResponse"
+              }
+            ]
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -7225,6 +7288,7 @@
           "permissionMode",
           "status",
           "error",
+          "quotaWait",
           "createdAt",
           "startedAt",
           "finishedAt"

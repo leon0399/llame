@@ -309,11 +309,9 @@ export class RunsRepository {
         dispatchedRunPredicate(),
         eq(runs.messageId, turn.messageId),
       )) ??
-      (await this.findMostRecentDispatchedByChatMessageSequence(
-        chatId,
-        userId,
-        { beforeSeq: turn.beforeSeq },
-      ))
+      this.findMostRecentDispatchedByChatMessageSequence(chatId, userId, {
+        beforeSeq: turn.beforeSeq,
+      })
     );
   }
 
@@ -371,6 +369,7 @@ export class RunsRepository {
       chatTitle: string | null;
       status: RunStatus;
       createdAt: Date;
+      awaiting: Run['awaiting'];
     }>
   > {
     return this.db
@@ -380,6 +379,7 @@ export class RunsRepository {
         chatTitle: chats.title,
         status: runs.status,
         createdAt: runs.createdAt,
+        awaiting: runs.awaiting,
       })
       .from(runs)
       .innerJoin(chats, eq(runs.chatId, chats.id))

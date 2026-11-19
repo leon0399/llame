@@ -1,4 +1,10 @@
 import { getRun } from "../../api/generated/runs/runs";
+import type { InfiniteData } from "@tanstack/react-query";
+import type { ChatMessagesResponse } from "./history";
+import type { ChatLatestRunResponse } from "../../api/generated/models";
+import type { RunMessage } from "../live/live-messages";
+import { isNonNullObject, isString, isNumber } from "./context-item-envelope";
+import { isTerminalRunStatus } from "./run-notifications";
 import { listActiveRuns } from "../../api/generated/me/me";
 import type {
   ActiveRunResponse,
@@ -56,4 +62,56 @@ export function activeRunsToTrackArgs(
   runs: Array<ActiveRun>,
 ): Array<[string, string, string]> {
   return runs.map((r) => [r.runId, r.chatId, r.chatTitle ?? "New chat"]);
+}
+
+function nextLatestRunFromUpdate(
+  previous: ChatLatestRunResponse | null,
+  run: Extract<RunMessage, { type: "run.updated" }>["run"],
+): ChatLatestRunResponse | null {
+  if (previous === null || previous.id !== run.id) return previous;
+
+  if (isTerminalRunStatus(previous.status)) return previous;
+
+  const failed = run.status === "failed";
+
+  const error =
+    (failed || run.status === "expired") && isNonNullObject(run.error)
+      ? run.error
+      : null;
+
+  const errorCode = error?.["code"];
+  const errorResetsAt = error?.["resetsAt"];
+
+  return {
+    ...previous,
+    status: run.status,
+    quotaWait: run.quotaWait,
+    error: isString(error?.["message"]) ? error["message"] : null,
+    errorCode: failed && isString(errorCode) ? errorCode : null,
+    errorResetsAt:
+      failed && isNumber(errorResetsAt) && Number.isFinite(errorResetsAt)
+        ? errorResetsAt
+        : null,
+  };
+}
+
+export function applyRunUpdateToHistory(
+  data: InfiniteData<ChatMessagesResponse, number | null> | undefined,
+  run: Extract<RunMessage, { type: "run.updated" }>["run"],
+): InfiniteData<ChatMessagesResponse, number | null> | undefined {
+  if (!data) return data;
+
+  let changed = false;
+
+  const pages = data.pages.map((page) => {
+    const latestRun = nextLatestRunFromUpdate(page.latestRun, run);
+
+    if (latestRun === page.latestRun) return page;
+
+    changed = true;
+
+    return { ...page, latestRun };
+  });
+
+  return changed ? { ...data, pages } : data;
 }

@@ -198,6 +198,13 @@ export const chatDeliveriesMessageSchema = z
   .strict();
 export type ChatDeliveriesMessage = z.infer<typeof chatDeliveriesMessageSchema>;
 
+export const quotaWaitResponseSchema = z.object({
+  failureClass: z.enum(["quota_exhausted", "rate_limited"]),
+  resetsAt: z.string().datetime({ offset: true }),
+  wakeAt: z.string().datetime({ offset: true }),
+});
+export type QuotaWaitResponse = z.infer<typeof quotaWaitResponseSchema>;
+
 export const runResponseSchema = z.object({
   id: z.string().uuid(),
   chatId: z.string().uuid(),
@@ -232,6 +239,7 @@ export const runResponseSchema = z.object({
     "expired",
   ]),
   error: z.record(z.string(), z.any()).nullable(),
+  quotaWait: quotaWaitResponseSchema.nullable(),
   createdAt: z.string().datetime({ offset: true }),
   startedAt: z.string().datetime({ offset: true }).nullable(),
   finishedAt: z.string().datetime({ offset: true }).nullable(),
