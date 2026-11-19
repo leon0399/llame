@@ -3108,10 +3108,6 @@ describe('RunExecutionService executeRun', () => {
 
       spies.findById.mockResolvedValueOnce(queued).mockResolvedValue(started);
       const appended = recordAppendedEvents();
-      vi.spyOn(
-        RunEventsRepository.prototype,
-        'latestSequence',
-      ).mockImplementation(() => Promise.resolve(3 + appended.length));
 
       const checkpoint = [
         { type: 'text', text: 'before the quota wait', step: 2 },
@@ -3181,18 +3177,7 @@ describe('RunExecutionService executeRun', () => {
             innerJoin: () => ({
               where: () => ({
                 orderBy: () => ({
-                  limit: () =>
-                    Promise.resolve([
-                      {
-                        eventType: 'run.resumed',
-                        payload: {
-                          generation,
-                          kind: 'quota',
-                          attemptId,
-                          cause: 'timeout',
-                        },
-                      },
-                    ]),
+                  limit: () => Promise.resolve([quotaEvents[2]]),
                 }),
               }),
             }),

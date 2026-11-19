@@ -183,7 +183,12 @@ describe('RunWaitService wake transactions', () => {
   });
 
   it('rejects a quota deadline wake when the queue identity read finds no row', async () => {
-    const fixture = makeFixture([[quotaWaitingRun], []]);
+    const fixture = makeFixture([
+      [quotaWaitingRun],
+      [],
+      [quotaWaitingRun],
+      [{ id: quotaWaitingRun.id }],
+    ]);
 
     await expect(
       fixture.service.wakeInTransaction(fixture.tx, {

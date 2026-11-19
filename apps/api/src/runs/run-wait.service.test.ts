@@ -155,13 +155,15 @@ function makeFixture(
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue(asDouble<RunEvent>({}));
 
-  vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
-    asDouble<Message>({
-      id: 'message-1',
-      seq: 1,
-      parts: [{ type: 'text', text: 'wait for job-1' }],
-    }),
-  );
+  const findMessage = vi
+    .spyOn(MessagesRepository.prototype, 'findById')
+    .mockResolvedValue(
+      asDouble<Message>({
+        id: 'message-1',
+        seq: 1,
+        parts: [{ type: 'text', text: 'wait for job-1' }],
+      }),
+    );
 
   return {
     service,
@@ -172,6 +174,7 @@ function makeFixture(
     hasPendingSteering,
     updateForAttempt,
     append,
+    findMessage,
     enqueueInTransaction,
   };
 }
@@ -222,6 +225,17 @@ describe('RunWaitService.suspendForQuota', () => {
     expect(options?.startAfter).toEqual(new Date(quotaAwaiting.wakeAt));
     expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
     expect(fixture.hasPendingSteering).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ordinary wake without a triggering message', async () => {
+    const fixture = makeFixture();
+    fixture.findMessage.mockResolvedValue(undefined);
+
+    await expect(fixture.service.suspendForQuota(quotaInput)).rejects.toThrow(
+      Error,
+    );
+
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
   });
 
   it('does not suspend when cancellation was already requested', async () => {
