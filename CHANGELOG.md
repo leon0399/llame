@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-19
 
+- Strengthen broken-stream recovery regressions for lost text, supersession,
+  and retry-event writes. Each case now reaches its intended durable fence
+  and verifies failure without another provider send or a published reply.
+
 - Bound structured model sends with the same first-token deadline and retry
   allowance as streaming sends. Retry events take the active Run's row lock
   before the Chat lock, so a terminal commit cannot be followed by a retry

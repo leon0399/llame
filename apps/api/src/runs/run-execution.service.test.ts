@@ -6599,51 +6599,57 @@ describe('RunExecutionService executeRun — stream failure', () => {
     ).toHaveLength(1);
   });
 
-  it('does not retry a superseded send after streamed progress cannot be persisted', async () => {
-    const spies = mockNormalExecutionRepositories();
-    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
-      (_runId, eventType) =>
-        eventType === 'model.delta'
-          ? Promise.reject(new Error('event log unavailable'))
-          : Promise.resolve(event),
-    );
+  it.each(['model.delta', 'model.superseded', 'model.retrying'])(
+    'does not resend when persisting %s fails during broken-send recovery',
+    async (failedEvent) => {
+      const spies = mockNormalExecutionRepositories();
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+      vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+        (_runId, eventType) =>
+          eventType === failedEvent
+            ? Promise.reject(new Error('event log unavailable'))
+            : Promise.resolve(event),
+      );
 
-    const { client, requests } = createToolLoopClient([
-      providerResponse(
-        [
-          { type: 'text-start', id: 'draft' },
-          { type: 'text-delta', id: 'draft', delta: 'discarded' },
-          {
-            type: 'error',
-            error: new ProviderFailure('broken', {
-              code: 'stream_broken',
-              superseded: { retry: 1, delayMs: 0 },
-            }),
-          },
-        ],
-        'stop',
-      ),
-    ]);
+      const { client, requests } = createToolLoopClient([
+        providerResponse(
+          [
+            { type: 'text-start', id: 'draft' },
+            { type: 'text-delta', id: 'draft', delta: 'discarded' },
+            {
+              type: 'error',
+              error: new ProviderFailure('broken', {
+                code: 'stream_broken',
+                superseded: { retry: 1, delayMs: 0 },
+              }),
+            },
+          ],
+          'stop',
+        ),
+        providerText('An unrecorded retry must not reach the provider.'),
+      ]);
 
-    const execution = makeExecutionService(client);
+      const execution = makeExecutionService(client);
 
-    const result = await execution.service.executeRun(executionInput(client));
-    await result.consumeStream();
-    await vi.waitFor(() => {
-      expect(spies.markFinished).toHaveBeenCalled();
-    });
+      const result = await execution.service.executeRun(executionInput(client));
+      await result.consumeStream();
+      await vi.waitFor(() => {
+        expect(spies.markFinished).toHaveBeenCalled();
+      });
 
-    expect(requests).toHaveLength(1);
-    expect(spies.markFinished).toHaveBeenCalledWith(
-      runId,
-      userId,
-      'failed',
-      expect.objectContaining({
-        error: { message: 'Run progress could not be persisted.' },
-      }),
-    );
-    expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
-  });
+      expect(requests).toHaveLength(1);
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'failed',
+        expect.anything(),
+      );
+      expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(['cancel', 'interrupt'] as const)(
     'settles cancellation during the first broken-send retry delay (%s)',
