@@ -908,6 +908,60 @@ describe('finalizeRunReply', () => {
       }),
     );
   });
+  it('keeps the pre-wait quota checkpoint when a wake settler has no collector', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior-attempt',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(1, 'prior-attempt'),
+        event(2, 'model.delta', { text: 'pre-wait checkpoint' }),
+        event(3, 'run.suspended', {
+          kind: 'quota',
+          attemptId: 'prior-attempt',
+          generation: 2,
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-10-12T00:00:00.000Z',
+          wakeAt: '2026-10-12T00:01:00.000Z',
+          resumeAt: 'request',
+          waitCount: 1,
+          parts: [{ type: 'text', text: 'pre-wait checkpoint' }],
+          steps: {},
+        }),
+        event(4, 'run.resumed', {
+          kind: 'quota',
+          attemptId: 'wake-attempt',
+          generation: 2,
+          cause: 'timeout',
+        }),
+        event(5, 'run.started', { attemptId: 'wake-attempt' }),
+        requested(6, 'wake-attempt'),
+        event(7, 'model.delta', { text: 'after wake' }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake-attempt' },
+      status: 'failed',
+      attemptId: 'wake-attempt',
+      models,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          { type: 'text', text: 'pre-wait checkpoint' },
+          { type: 'text', text: 'after wake' },
+        ],
+      }),
+    );
+  });
 
   it('projects superseded output and lowers usage completeness', async () => {
     const item = contextItem('kept context');

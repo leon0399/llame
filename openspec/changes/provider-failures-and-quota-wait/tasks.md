@@ -217,16 +217,26 @@ does not update the SDK's separate active response. GR remains non-gating for th
       upstream shapes", and the `subscription-access-openai-codex` scenarios "Subscription limit" and "A
       plan without the model", with stubbed upstreams. Add a pg-boss test that an 8-day delayed job
       keeps `keep_until` after its `start_after`.
-- [ ] 5.8 Add `awaiting_quota` to the DTO enums and regenerate OpenAPI, the orval models, and both
+- [x] 5.8 Add `awaiting_quota` to the DTO enums and regenerate OpenAPI, the orval models, and both
       live-protocol files, with a clean second generation. Add it to the status reducer and both sidebar
       checks, and make `stopOrInterrupt` cancel a quota wait before its steer branch. Verify the
       `background-jobs` scenario "A Run that waits for a quota reset", and a Stop click with a pending
       steer, in story tests.
-- [ ] 5.9 Add "Quota wait" and `awaiting_quota` to the glossary, update `SPEC.md` §9.3, the Codex
+- [x] 5.9 Add "Quota wait" and `awaiting_quota` to the glossary, update `SPEC.md` §9.3, the Codex
       and OpenCode Go runbooks, and `docs/product/operator/scaling.md`, and add a dated `CHANGELOG.md`
       entry.
 - [ ] 5.10 Focused checks as in 3.9, the OpenAPI lint, and the changed integration test files.
 - [ ] 5.11 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+
+Local evidence: 650 execution and stream-bridge cases passed, including real SDK quota failures
+before and after released content, deferred-wait recovery ordering, and cancellation during a
+retry. The deferred-wait regression failed when its recovery write was removed and passed after
+restoration. Focused configuration, projection, budget, suspension, and wake cases also passed.
+Both quota sidebar and Stop-with-pending-steer stories passed Storybook MCP tests and browser
+inspection. OpenAPI lint and Drizzle checks passed; a second generation preserved all 236 generated
+outputs byte for byte. Five independent reviewers covered reuse, quality, efficiency, ponytail,
+and security; accepted findings were verified and fixed. Database integration acceptance remains
+unchecked until CI executes the real queue, worker, backfill, and isolation cases.
 
 ## 6. quota-wait-compaction
 

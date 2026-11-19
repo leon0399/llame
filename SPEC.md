@@ -105,7 +105,7 @@ under forced row-level security and are not copied by a fork.
 
 ### 9.3 Run state
 
-The current runtime uses only active states `queued` and `running_model` and terminal states `completed`, `failed`, `cancelled`, and `expired`. The database enum retains additional reserved states for migration compatibility; they are not current runtime behavior. Terminal state is immutable, and per-chat single-flight permits at most one non-terminal Run. A Run's assistant reply exists from the first model request of its first dispatched attempt: that attempt's dispatch transaction creates it with `running` usage naming the attempt, a retry's dispatch transaction resets it, and history, shares, forks, and the chat list skip it while it is `running`. Every terminal path finalizes the reply in its own terminal transaction — completion, failure, cancellation, expiry, dead-letter expiry, cancellation before start, native recovery, pickup failure, the claim-time transitions, and expiry by a new message — from the attempt's live parts when it holds them, otherwise rebuilt from the events of the attempt the reply names with its stored in-Run items in place; a Run that never dispatched gets no reply. No reader may therefore observe a Run as terminal while its reply is not yet final, because the terminal event is what makes clients refetch. An executor still streaming when a recovery path ends its Run can only replace that reply with its partial answer after the fact. A message sent with `delivery: "queue"` while a Chat has a live Run does not
+The runtime uses active states `queued` and `running_model`, waiting states `awaiting_jobs` and `awaiting_quota`, and terminal states `completed`, `failed`, `cancelled`, and `expired`. The database enum retains additional reserved states for migration compatibility; they are not current runtime behavior. Terminal state is immutable, and per-chat single-flight permits at most one non-terminal Run. A Run's assistant reply exists from the first model request of its first dispatched attempt: that attempt's dispatch transaction creates it with `running` usage naming the attempt, a retry's dispatch transaction resets it, and history, shares, forks, and the chat list skip it while it is `running`. Every terminal path finalizes the reply in its own terminal transaction — completion, failure, cancellation, expiry, dead-letter expiry, cancellation before start, native recovery, pickup failure, the claim-time transitions, and expiry by a new message — from the attempt's live parts when it holds them, otherwise rebuilt from the events of the attempt the reply names with its stored in-Run items in place; a Run that never dispatched gets no reply. No reader may therefore observe a Run as terminal while its reply is not yet final, because the terminal event is what makes clients refetch. An executor still streaming when a recovery path ends its Run can only replace that reply with its partial answer after the fact. A message sent with `delivery: "queue"` while a Chat has a live Run does not
 answer 409. It is stored as a pending item in `chat_deliveries` and answered
 202, with no message row and no Run. When a Run completes, its terminal
 transaction takes the Chat's first pending `queue` item, stores it as a user
@@ -119,6 +119,14 @@ Chat that is archived or gone promotes nothing. A send with `delivery` to an idl
 Run like any send. See
 [`run-steering`](openspec/specs/run-steering/spec.md)
 and [`durable-runs`](openspec/specs/durable-runs/spec.md).
+
+A step request with a classified usage-limit reset in the supported wait window
+persists an attempt-fenced quota checkpoint and delayed wake job. No worker
+executes the Run while it is `awaiting_quota`; its Chat remains in single-flight.
+Quota wait time is excluded from the Run budget. Only its deadline or cancellation
+wakes it, and pending deliveries wait until the resumed request reaches a step
+boundary. The logical request count survives a reclaimed wake independently of
+reply-prefix restoration and closes with `run.quota_recovered` on success.
 
 Runs have kind `turn` or `compaction`. A compaction Run has no triggering
 message or follow-up action, holds the Chat's single-flight slot, and publishes

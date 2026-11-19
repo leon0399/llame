@@ -25,11 +25,30 @@ import { type TurnToolAvailabilityEntry } from './model-context';
 import { type PermissionMode } from '../../tools/permissions/permission-mode';
 
 export type AwaitingJobs = {
+  kind: 'jobs';
   toolCallId: string;
   toolInput: { jobs: Array<string>; timeout?: number };
   jobIds: Array<string>;
   deadline: string;
 };
+
+export type QuotaResumeAt =
+  | 'request'
+  | 'preDispatch'
+  | 'boundary'
+  | 'finalAnswer'
+  | 'compactionRun';
+
+export type AwaitingQuota = {
+  kind: 'quota';
+  failureClass: 'quota_exhausted' | 'rate_limited';
+  resetsAt: string;
+  wakeAt: string;
+  resumeAt: QuotaResumeAt;
+  waitCount: number;
+};
+
+export type RunAwaiting = AwaitingJobs | AwaitingQuota;
 
 export type RecencyDigestEntry = {
   title: string;
@@ -330,6 +349,7 @@ export const runStatus = pgEnum('run_status', [
   'updating_artifact',
   'summarizing',
   'awaiting_jobs',
+  'awaiting_quota',
   'completed',
   'failed',
   'cancelled',
@@ -392,7 +412,8 @@ export const runs = pgTable(
     wakeGeneration: integer('wake_generation').notNull().default(0),
     currentJobId: uuid('current_job_id'),
     // The open wait call and the jobs/deadline that govern its suspension.
-    awaiting: jsonb('awaiting').$type<AwaitingJobs>(),
+    // Active wait state; legacy job records are tagged by the quota-wait migration.
+    awaiting: jsonb('awaiting').$type<RunAwaiting>(),
     // Trusted native executor identity, bound by the first native file call.
     // Retained across queue claims so physical paths cannot move to another host.
     workerId: text('worker_id'),

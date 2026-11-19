@@ -2,7 +2,7 @@ import { isSQLWrapper, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
-import { type ChatJob, type Run } from '../db/schema';
+import { type AwaitingJobs, type ChatJob, type Run } from '../db/schema';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunsRepository } from '../runs/runs-repository';
@@ -69,6 +69,29 @@ describe('recordJobSettlementNotice', () => {
     const awaitingRun = asDouble<Run>({
       id: '55555555-5555-4555-8555-555555555555',
       status: 'awaiting_jobs',
+      awaiting: asDouble<AwaitingJobs>({ kind: 'jobs' }),
+    });
+
+    const { tx, execute, insertNotice } = setup(awaitingRun);
+
+    await recordJobSettlementNotice(tx, job());
+
+    expect(insertNotice).toHaveBeenCalledWith(job());
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('records the notice but does not steer a Run suspended for quota', async () => {
+    const awaitingRun = asDouble<Run>({
+      id: '77777777-7777-4777-8777-777777777777',
+      status: 'awaiting_quota',
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        resetsAt: '2026-11-12T13:00:00.000Z',
+        wakeAt: '2026-11-12T13:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
     });
 
     const { tx, execute, insertNotice } = setup(awaitingRun);

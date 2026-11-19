@@ -228,6 +228,7 @@ describe('notifyLiveRunSteering', () => {
         workerId: null,
         activeAttemptId: null,
         awaiting: {
+          kind: 'jobs' as const,
           toolCallId: 'tool-call-id',
           toolInput: { jobs: ['job-id'] },
           jobIds: ['job-id'],
@@ -257,6 +258,36 @@ describe('notifyLiveRunSteering', () => {
       expect(execute).not.toHaveBeenCalled();
     },
   );
+
+  it('leaves steering pending for a Run awaiting quota', async () => {
+    const execute = vi.fn(() => Promise.resolve([]));
+    const wakeForChatInTransaction = vi.fn(() => Promise.resolve(true));
+    const tx = asDouble<Db>({ execute });
+
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue({
+      ...blockingRun,
+      status: 'awaiting_quota',
+      activeAttemptId: null,
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        resetsAt: '2026-10-27T02:00:00.000Z',
+        wakeAt: '2026-10-27T02:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+    });
+
+    await notifyLiveRunSteering(
+      tx,
+      { chatId: 'chat-id', userId: 'user-id' },
+      'steer',
+      { wakeForChatInTransaction },
+    );
+
+    expect(wakeForChatInTransaction).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
 
   it('sends nothing when the Chat holds no live Run', async () => {
     const execute = vi.fn(() => Promise.resolve([]));

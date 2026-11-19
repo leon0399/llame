@@ -412,7 +412,7 @@ export class RunsRepository {
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
-        activeAttemptId: randomUUID(),
+        activeAttemptId: options?.attemptId ?? randomUUID(),
         ...(options?.workerId !== undefined && { workerId: options.workerId }),
       })
       .where(
@@ -570,6 +570,7 @@ export type RunEventType =
   | 'model.requested'
   | 'model.retrying'
   | 'model.superseded'
+  | 'run.quota_recovered'
   | 'model.delta'
   | 'model.completed'
   | 'run.completed'

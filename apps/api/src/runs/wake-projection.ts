@@ -62,7 +62,12 @@ export function wakeStateFromEvents(
 
   const resumedPayload = segment[resumedIndex]?.payload;
 
-  if (resumedIndex === -1 || !isRecord(resumedPayload)) return undefined;
+  if (
+    resumedIndex === -1 ||
+    !isRecord(resumedPayload) ||
+    (resumedPayload['kind'] !== undefined && resumedPayload['kind'] !== 'jobs')
+  )
+    return undefined;
 
   const generation = resumedPayload['generation'];
 
@@ -140,13 +145,18 @@ function findSuspensionIndex(
   for (let index = resumedIndex - 1; index >= 0; index -= 1) {
     const event = segment[index];
 
+    if (event?.eventType !== 'run.suspended') continue;
+
     if (
-      event?.eventType === 'run.suspended' &&
-      isRecord(event.payload) &&
-      event.payload['generation'] === generation
+      !isRecord(event.payload) ||
+      (event.payload['kind'] !== undefined &&
+        event.payload['kind'] !== 'jobs') ||
+      event.payload['generation'] !== generation
     ) {
-      return index;
+      return -1;
     }
+
+    return index;
   }
 
   return -1;

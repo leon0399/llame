@@ -13,6 +13,7 @@ import { toolTerminationMessage } from './tool-settlement';
  */
 
 import { Injectable } from '@nestjs/common';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -538,6 +539,7 @@ export function createRunEventTranslator(
 }
 
 const POLL_MS = 200;
+const QUOTA_POLL_MS = 2000;
 
 /**
  * How long a connection may stay silent before the bridge writes an SSE
@@ -696,6 +698,8 @@ export class RunStreamBridgeService {
         return;
       }
 
+      let pollMilliseconds = POLL_MS;
+
       // Defensive: if the run row reached terminal without a terminal
       // event (or was deleted), close instead of spinning. The terminal event
       // commits with the status, so it can land between this pass's drain and
@@ -715,6 +719,8 @@ export class RunStreamBridgeService {
           });
           break;
         }
+
+        if (run.status === 'awaiting_quota') pollMilliseconds = QUOTA_POLL_MS;
       }
 
       // Hold a quiet connection open: the Run is still executing, and an
@@ -729,7 +735,11 @@ export class RunStreamBridgeService {
       // Floor delay on EVERY non-terminal pass — an actively streaming
       // run yields events on each poll, and without the floor this loop
       // re-queries the DB back-to-back for the whole stream.
-      await sleep(POLL_MS);
+      await delay(pollMilliseconds, undefined, {
+        signal: input.abortSignal,
+      }).catch((error: unknown) => {
+        if (!input.abortSignal?.aborted) throw error;
+      });
 
       if (input.abortSignal?.aborted) {
         controller.close();
@@ -740,10 +750,6 @@ export class RunStreamBridgeService {
 
     controller.close();
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

@@ -54,6 +54,8 @@ const ENV_KEYS = [
   'RUN_MAX_OUTPUT_TOKENS',
   'RUN_HEARTBEAT_SECONDS',
   'RUN_TIMEOUT_SECONDS',
+  'QUOTA_WAIT_MAX_SECONDS_TEST',
+  'QUOTA_WAIT_MAX_SECONDS_SECRET',
   'TRUST_PROXY',
   'EMPTY_TIMEOUT',
   'EMPTY_TOKEN',
@@ -660,6 +662,44 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   it('a padded literal value on another nullable-string setting (http.trustProxy) is normalized too', () => {
     writeConfig('{ "http": { "trustProxy": " 1 " } }');
     expect(loadInstanceConfig().http.trustProxy).toBe('1');
+  });
+});
+
+describe('loadInstanceConfig — quota wait cap', () => {
+  it('defaults to eight days and accepts a whole-value numeric token', () => {
+    writeConfig('{}');
+    expect(loadInstanceConfig().runs.quotaWaitMaxSeconds).toBe(691_200);
+
+    process.env.QUOTA_WAIT_MAX_SECONDS_TEST = '123456';
+    writeConfig(
+      '{ "runs": { "quotaWaitMaxSeconds": "{env:QUOTA_WAIT_MAX_SECONDS_TEST}" } }',
+    );
+    expect(loadInstanceConfig().runs.quotaWaitMaxSeconds).toBe(123_456);
+    delete process.env.QUOTA_WAIT_MAX_SECONDS_TEST;
+  });
+
+  it.each(['null', '0', '-1', '1.5'])('rejects %s', (value) => {
+    writeConfig(`{ "runs": { "quotaWaitMaxSeconds": ${value} } }`);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  });
+
+  it('does not expose an interpolated secret in numeric resolution errors', () => {
+    process.env.QUOTA_WAIT_MAX_SECONDS_SECRET = 'not-a-number-secret';
+    writeConfig(
+      '{ "runs": { "quotaWaitMaxSeconds": "{env:QUOTA_WAIT_MAX_SECONDS_SECRET}" } }',
+    );
+    let message = '';
+
+    try {
+      loadInstanceConfig();
+    } catch (error) {
+      message = errorMessage(error);
+    } finally {
+      delete process.env.QUOTA_WAIT_MAX_SECONDS_SECRET;
+    }
+
+    expect(message).toMatch(/runs\.quotaWaitMaxSeconds/);
+    expect(message).not.toContain('not-a-number-secret');
   });
 });
 

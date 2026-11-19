@@ -97,6 +97,8 @@ type HarnessOverrides = {
   runsConcurrency?: number | null;
   /** The operator's step cap per segment; absent keeps the built-in (none). */
   maxStepsPerRun?: number;
+  /** Maximum time a Run may wait for a provider quota reset. */
+  quotaWaitMaxSeconds?: number;
   timeoutSeconds?: number;
   heartbeatSeconds?: number;
   /** Explicit tool rules used to configure the worker boot. */
@@ -117,7 +119,7 @@ type HarnessOverrides = {
 };
 
 /** Merges one boot's `bootWorkerHarness` overrides onto the built-in defaults. */
-function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
+function resolveHarnessConfig(overrides: HarnessOverrides = {}): LlameConfig {
   // There is no runtime built-in policy, so the harness grants a permissive
   // allow-all group for every registered tool plus the seeded tool ids. These
   // acceptance suites prove execution/recovery, not permission decisions.
@@ -125,7 +127,7 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
 
   for (const id of [
     ...getRegisteredToolIds(),
-    ...(overrides?.allowedTools ?? []),
+    ...(overrides.allowedTools ?? []),
   ]) {
     permissions[id] = { allow: true };
   }
@@ -134,41 +136,44 @@ function resolveHarnessConfig(overrides?: HarnessOverrides): LlameConfig {
 
   return {
     ...BUILT_IN_DEFAULTS,
-    ...(overrides?.machines !== undefined && { machines: overrides.machines }),
+    ...(overrides.machines !== undefined && { machines: overrides.machines }),
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
-      allowed: [...(overrides?.allowedTools ?? [])],
-      nativeExecutorId: overrides?.nativeExecutorId,
-      ...(overrides?.maxStepsPerRun !== undefined && {
+      allowed: [...(overrides.allowedTools ?? [])],
+      nativeExecutorId: overrides.nativeExecutorId,
+      ...(overrides.maxStepsPerRun !== undefined && {
         maxStepsPerRun: overrides.maxStepsPerRun,
       }),
-      permissions: { ...permissions, ...overrides?.toolPermissions },
+      permissions: { ...permissions, ...overrides.toolPermissions },
     },
     knowledge: {
       ...BUILT_IN_DEFAULTS.knowledge,
-      ...(overrides?.knowledgeRoot !== undefined && {
+      ...(overrides.knowledgeRoot !== undefined && {
         root: overrides.knowledgeRoot,
       }),
     },
     skills: {
       directories:
-        overrides?.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
+        overrides.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
     },
     runs: {
       ...BUILT_IN_DEFAULTS.runs,
+      quotaWaitMaxSeconds:
+        overrides.quotaWaitMaxSeconds ??
+        BUILT_IN_DEFAULTS.runs.quotaWaitMaxSeconds,
       timeoutSeconds:
-        overrides?.timeoutSeconds ?? BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+        overrides.timeoutSeconds ?? BUILT_IN_DEFAULTS.runs.timeoutSeconds,
       heartbeatSeconds:
-        overrides?.heartbeatSeconds ?? BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
+        overrides.heartbeatSeconds ?? BUILT_IN_DEFAULTS.runs.heartbeatSeconds,
     },
     workers: {
       ...BUILT_IN_DEFAULTS.workers,
       all:
-        overrides?.runsConcurrency === null
+        overrides.runsConcurrency === null
           ? withoutRuns
           : {
               ...withoutRuns,
-              runs: overrides?.runsConcurrency ?? defaultRuns,
+              runs: overrides.runsConcurrency ?? defaultRuns,
             },
     },
   };

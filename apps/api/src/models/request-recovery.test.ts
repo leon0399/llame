@@ -132,6 +132,52 @@ function text(parts: Array<LanguageModelV3StreamPart>) {
 
 afterEach(() => vi.useRealTimers());
 
+it.each([false, true])(
+  'retains the complete-tool quota cutoff at the stream boundary (tool=%s)',
+  async (tool) => {
+    const resetsAt = Date.now() + 3_600_000;
+
+    const prefix: Array<LanguageModelV3StreamPart> = tool
+      ? [
+          {
+            type: 'tool-call',
+            toolCallId: 'quota-call',
+            toolName: 'search',
+            input: '{}',
+          },
+        ]
+      : [
+          { type: 'text-start', id: 'quota-draft' },
+          { type: 'text-delta', id: 'quota-draft', delta: 'partial answer' },
+        ];
+
+    const fixture = scriptedModel([
+      [
+        ...prefix,
+        {
+          type: 'error',
+          error: new ProviderFailure('Usage limit', {
+            code: 'quota_exhausted',
+            resetsAt,
+          }),
+        },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    const failure = providerFailureFrom(parts);
+    expect(failure).toMatchObject({
+      code: 'quota_exhausted',
+      resetsAt,
+    });
+    expect(failure.toolCallStarted).toBe(tool ? true : undefined);
+    expect(fixture.sends()).toBe(1);
+  },
+);
+
 describe('withRequestRecovery', () => {
   it('drops metadata from repeated failed sends and forwards one successful usage receipt', async () => {
     const failed: Array<LanguageModelV3StreamPart> = [

@@ -1,0 +1,41 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "eb6d20a0-814c-42bc-b290-bb5b538d5264",
+  "prevIds": ["ff461971-d320-4423-8b16-634441b7ad06"],
+  "footprints": [
+    {
+      "statementType": "alter_enum",
+      "statementTarget": ["enum", "public", "run_status"],
+      "writes": ["s|enum|public.run_status"],
+      "reads": ["n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "alter",
+      "key": "enums\u0000[\"public\",\"run_status\"]",
+      "set": {
+        "values": [
+          "queued",
+          "resolving_config",
+          "retrieving_context",
+          "planning",
+          "waiting_for_approval",
+          "running_model",
+          "running_tool",
+          "running_sandbox",
+          "updating_artifact",
+          "summarizing",
+          "awaiting_jobs",
+          "awaiting_quota",
+          "completed",
+          "failed",
+          "cancelled",
+          "expired"
+        ]
+      }
+    }
+  ]
+}

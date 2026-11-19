@@ -346,7 +346,20 @@ class StreamRecovery {
     send: Send,
     output: SendOutput,
   ): FailedSend {
-    const failure = this.streamFailure(error, send, output.content);
+    const classified = this.streamFailure(error, send, output.content);
+
+    const failure =
+      output.completeTool &&
+      (classified.code === 'quota_exhausted' ||
+        classified.code === 'rate_limited')
+        ? new ProviderFailure(classified.message, {
+            code: classified.code,
+            resetsAt: classified.resetsAt,
+            hintMs: classified.hintMs,
+            statusCode: classified.statusCode,
+            toolCallStarted: true,
+          })
+        : classified;
 
     const liveRetry =
       output.content &&

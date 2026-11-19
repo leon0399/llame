@@ -1,0 +1,47 @@
+import { quotaWaitElapsedMs } from './quota-budget';
+import type { RunEvent } from '../db/schema/chats';
+
+function event(
+  sequence: number,
+  eventType: RunEvent['eventType'],
+  createdAt: string,
+  payload: RunEvent['payload'],
+): RunEvent {
+  return {
+    sequence,
+    runId: 'run-1',
+    eventType,
+    createdAt: new Date(createdAt),
+    payload,
+  };
+}
+
+describe('quotaWaitElapsedMs', () => {
+  it('counts quota waits paired by generation, excluding jobs and unmatched waits', () => {
+    const events = [
+      event(1, 'run.suspended', '2026-11-01T00:00:00Z', {
+        kind: 'quota',
+        generation: 2,
+      }),
+      event(2, 'run.suspended', '2026-11-02T00:00:00Z', { generation: 3 }),
+      event(3, 'run.resumed', '2026-11-03T00:00:00Z', {
+        kind: 'quota',
+        generation: 3,
+      }),
+      event(4, 'run.resumed', '2026-11-04T00:00:00Z', {
+        kind: 'quota',
+        generation: 2,
+      }),
+      event(5, 'run.suspended', '2026-11-05T00:00:00Z', {
+        kind: 'quota',
+        generation: 4,
+      }),
+      event(6, 'run.resumed', '2026-11-06T00:00:00Z', {
+        kind: 'jobs',
+        generation: 4,
+      }),
+    ];
+
+    expect(quotaWaitElapsedMs(events)).toBe(3 * 24 * 60 * 60 * 1000);
+  });
+});

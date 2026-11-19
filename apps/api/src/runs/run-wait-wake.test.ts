@@ -1,5 +1,6 @@
 import {
   type AwaitingJobs,
+  type AwaitingQuota,
   type Chat,
   type ChatJob,
   type Message,
@@ -17,11 +18,21 @@ import { RunEventsRepository } from './runs-repository';
 import { RunWaitService } from './run-wait.service';
 
 const awaiting = asDouble<AwaitingJobs>({
+  kind: 'jobs',
   toolCallId: 'call-1',
   toolInput: { jobs: ['job-1'], timeout: 3600 },
   jobIds: ['job-1'],
   deadline: '2026-11-14T01:00:00.000Z',
 });
+
+const quotaAwaiting: AwaitingQuota = {
+  kind: 'quota',
+  failureClass: 'quota_exhausted',
+  resetsAt: '2026-11-14T02:00:00.000Z',
+  wakeAt: '2026-11-14T02:01:00.000Z',
+  resumeAt: 'request',
+  waitCount: 2,
+};
 
 const waitingRun = asDouble<Run>({
   id: 'run-1',
@@ -36,6 +47,12 @@ const waitingRun = asDouble<Run>({
   wakeGeneration: 7,
   currentJobId: 'deadline-1',
   awaiting,
+});
+
+const quotaWaitingRun = asDouble<Run>({
+  ...waitingRun,
+  status: 'awaiting_quota',
+  awaiting: quotaAwaiting,
 });
 
 type WakeUpdate = { status?: 'queued'; currentJobId?: string };
@@ -189,6 +206,44 @@ describe('RunWaitService wake transactions', () => {
       }
     },
   );
+
+  it('mints a quota waking attempt in the resumed event without activating it', async () => {
+    const fixture = makeFixture([
+      [quotaWaitingRun],
+      [{ currentJobId: 'deadline-1' }],
+      [quotaWaitingRun],
+      [{ id: 'run-1' }],
+    ]);
+
+    await expect(
+      fixture.service.wakeInTransaction(fixture.tx, {
+        runId: 'run-1',
+        userId: 'user-1',
+        generation: quotaWaitingRun.wakeGeneration,
+        cause: 'timeout',
+        deadlineJobId: 'deadline-1',
+      }),
+    ).resolves.toBe(true);
+
+    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
+    expect(fixture.updates).toEqual([
+      { status: 'queued', currentJobId: 'deadline-1' },
+    ]);
+    expect(fixture.append).toHaveBeenCalledWith(
+      quotaWaitingRun.id,
+      'run.resumed',
+      expect.objectContaining({
+        kind: 'quota',
+        generation: quotaWaitingRun.wakeGeneration,
+        cause: 'timeout',
+      }),
+    );
+    expect(fixture.append.mock.lastCall?.[2]).toHaveProperty(
+      'attemptId',
+      expect.any(String),
+    );
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
 
   it('treats a timed-out wait containing a discovered dead job as settled', async () => {
     const fixture = makeFixture(

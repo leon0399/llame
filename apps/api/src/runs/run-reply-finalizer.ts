@@ -33,6 +33,7 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type TerminalRunStatus } from './run-status';
 import { toolTerminationResult } from './tool-settlement';
 import { wakeStateFromEvents } from './wake-projection';
+import { quotaWakeStateFromEvents } from './quota-wake-projection';
 
 /** The usage an executing attempt measured, stored on its reply. */
 export type AssistantTurnTelemetry = TurnTelemetry & {
@@ -465,10 +466,11 @@ function wakeReplyRecovery(
     input.attemptId ?? input.run.activeAttemptId ?? running.attemptId;
 
   const wake = wakeStateFromEvents(log, claimedAttemptId);
-  const prefix = wake ?? continued;
+  const quotaWake = quotaWakeStateFromEvents(log, claimedAttemptId);
+  const prefix = wake ?? quotaWake ?? continued;
 
-  const recoveryAttemptId =
-    wake === undefined ? running.attemptId : claimedAttemptId;
+  const hasWake = wake !== undefined || quotaWake !== undefined;
+  const recoveryAttemptId = hasWake ? claimedAttemptId : running.attemptId;
 
   const attemptEvents = attemptWindow(log, recoveryAttemptId).filter(
     (event) =>

@@ -225,6 +225,7 @@ export const runResponseSchema = z.object({
     'updating_artifact',
     'summarizing',
     'awaiting_jobs',
+    'awaiting_quota',
     'completed',
     'failed',
     'cancelled',

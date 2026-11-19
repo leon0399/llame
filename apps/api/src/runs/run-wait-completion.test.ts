@@ -2,17 +2,22 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { type ChatJob, type Run } from '../db/schema';
+import { type ChatJob, type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { RunsRepository } from './runs-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
+  clearQuotaAwaitingInTransaction,
   completeWaitInTransaction,
   pendingWakeInTransaction,
 } from './run-wait-completion';
 
-type WakeEvent = { eventType: string; payload: unknown; sequence: number };
+type WakeEvent = {
+  eventType: string;
+  payload: RunEvent['payload'];
+  sequence: number;
+};
 
 function job(id: string, state: ChatJob['state']): ChatJob {
   const startedAt = new Date('2026-01-01T00:00:00.000Z');
@@ -56,6 +61,7 @@ function run(overrides: Partial<Run> = {}): Run {
     status: 'running_tool',
     wakeGeneration: 2,
     awaiting: {
+      kind: 'jobs',
       toolCallId: 'call-id',
       jobIds: ['settled-id', 'running-id'],
       toolInput: { jobs: [] },
@@ -163,7 +169,10 @@ describe('completeWaitInTransaction', () => {
     const result = await completeWaitInTransaction(
       db([running, settled]),
       currentRun,
-      { toolCallId: 'call-id', jobIds: ['settled-id', 'running-id'] },
+      {
+        toolCallId: 'call-id',
+        jobIds: ['settled-id', 'running-id'],
+      },
       'settled',
     );
 
@@ -188,6 +197,83 @@ describe('completeWaitInTransaction', () => {
       currentRun.activeAttemptId,
       { awaiting: null },
     );
+  });
+  it('clears quota awaiting under the active-attempt fence without completing a tool', async () => {
+    const currentRun = run({
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'quota_exhausted',
+        resetsAt: '2026-10-12T00:00:00.000Z',
+        wakeAt: '2026-10-12T00:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+    });
+
+    const update = vi
+      .spyOn(RunsRepository.prototype, 'updateForAttempt')
+      .mockResolvedValue(currentRun);
+
+    const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+
+    await expect(
+      clearQuotaAwaitingInTransaction(db([]), currentRun, 'timeout'),
+    ).resolves.toBeUndefined();
+
+    expect(update).toHaveBeenCalledWith(
+      currentRun.id,
+      currentRun.userId,
+      currentRun.activeAttemptId,
+      { awaiting: null },
+    );
+    expect(append).not.toHaveBeenCalled();
+  });
+  it('clears quota awaiting only after the cancellation fence is set', async () => {
+    const currentRun = run({
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        resetsAt: '2026-10-12T00:00:00.000Z',
+        wakeAt: '2026-10-12T00:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+    });
+
+    const fenced = { ...currentRun, cancelRequestedAt: new Date() };
+
+    const update = vi
+      .spyOn(RunsRepository.prototype, 'updateForAttempt')
+      .mockResolvedValue(fenced);
+
+    await expect(
+      clearQuotaAwaitingInTransaction(db([]), currentRun, 'settled'),
+    ).rejects.toThrow('A quota wait cannot resume for this cause.');
+    expect(update).not.toHaveBeenCalled();
+
+    await expect(
+      clearQuotaAwaitingInTransaction(db([]), currentRun, 'cancelled'),
+    ).resolves.toBeUndefined();
+  });
+  it('rejects quota awaiting when the attempt fence is lost', async () => {
+    const currentRun = run({
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'quota_exhausted',
+        resetsAt: '2026-10-12T00:00:00.000Z',
+        wakeAt: '2026-10-12T00:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+    });
+
+    vi.spyOn(RunsRepository.prototype, 'updateForAttempt').mockResolvedValue(
+      undefined,
+    );
+
+    await expect(
+      clearQuotaAwaitingInTransaction(db([]), currentRun, 'timeout'),
+    ).rejects.toThrow('The resumed quota wait lost its active attempt.');
   });
 
   it('refuses a listed job that is no longer visible before consuming notices', async () => {
@@ -280,6 +366,37 @@ describe('pendingWakeInTransaction', () => {
       ).resolves.toBe(cause);
     },
   );
+  it('accepts quota timeout and cancellation wake causes only for quota awaiting', async () => {
+    const quotaRun = run({
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        resetsAt: '2026-10-12T00:00:00.000Z',
+        wakeAt: '2026-10-12T00:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
+    });
+
+    for (const cause of ['timeout', 'cancelled'] as const) {
+      await expect(
+        pendingWakeInTransaction(
+          db([
+            {
+              eventType: 'run.resumed',
+              payload: {
+                kind: 'quota',
+                generation: 2,
+                cause,
+              },
+              sequence: 2,
+            },
+          ]),
+          quotaRun,
+        ),
+      ).resolves.toBe(cause);
+    }
+  });
 
   it.each(['run.started', 'run.delivered'])(
     'does not treat a latest %s event as a wait wake',

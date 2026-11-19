@@ -71,8 +71,9 @@ cost calculation.
 Stop every API and Run worker before re-login. Run `codex login`, replace the
 same credential file atomically, then start every process again. A running
 process retains its startup snapshot after logout or revocation. Quota failures
-follow the bounded retry policy; eligible requests retry within the same Run
-attempt. Authentication failures end the Run. llame does not refresh
+follow the bounded retry policy. A step request with an authoritative usage
+reset more than 60 seconds away waits durably, up to the operator's eight-day
+default cap; the worker is released and Stop cancels the wait. Authentication failures end the Run. llame does not refresh
 credentials or select a paid fallback, and disables the SDK's hidden retries.
 See [provider routing](routing.md#diagnosing-failed-model-requests) for the
 retry policy. After re-login and restart, manually retry a request that failed

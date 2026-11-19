@@ -16,7 +16,11 @@ export async function recordJobSettlementNotice(
     job.ownerUserId,
   );
 
-  if (run && run.status !== 'awaiting_jobs') {
+  if (
+    run &&
+    run.status !== 'awaiting_quota' &&
+    !(run.status === 'awaiting_jobs' && run.awaiting?.kind === 'jobs')
+  ) {
     await notifyRunControl(tx, { runId: run.id, kind: 'steer' });
   }
 }

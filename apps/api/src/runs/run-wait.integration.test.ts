@@ -383,9 +383,10 @@ describe('Run wait transactions', () => {
         .where(eq(runs.id, seeded.runId)),
     );
 
-    const deadline = (await fx.run(seeded.runId))?.awaiting?.deadline;
+    const awaiting = (await fx.run(seeded.runId))?.awaiting;
 
-    if (!deadline) throw new Error('Run lost its wait deadline');
+    if (awaiting?.kind !== 'jobs') throw new Error('Run lost its jobs wait');
+    const deadline = awaiting.deadline;
 
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse(deadline) - 5e3);
 

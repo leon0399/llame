@@ -59,7 +59,11 @@ function nextRunStatusesByChat(
 
     const current = statuses.get(meta.chatId);
 
-    if (current === undefined || current === "awaiting_jobs") {
+    if (
+      current === undefined ||
+      current === "awaiting_jobs" ||
+      current === "awaiting_quota"
+    ) {
       statuses.set(meta.chatId, status);
     }
   });

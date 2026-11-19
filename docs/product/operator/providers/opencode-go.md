@@ -163,9 +163,11 @@ gateway on 2026-09-22, except where noted:
 - **An exhausted usage limit (the gateway's documented behavior, not observed
   in llame's live proof).** Quota exhaustion is documented as HTTP 429 with
   `retry-after` and body type `GoUsageLimitError`. llame uses its own bounded
-  retry policy rather than SDK status retries; a long rate-limit hint fails
-  this layer instead of parking the Run. llame reports no quota state of its
-  own and claims no cost, and no paid fallback is attempted. No usage-limit
+  retry policy rather than SDK status retries. A classified usage limit with
+  `Retry-After` more than 60 seconds away makes an eligible step request wait
+  durably within `runs.quotaWaitMaxSeconds`; without a reset it fails. llame
+  stores only the reported reset and wake instants, not inferred quota
+  balances, and claims no cost. No paid fallback is attempted. No usage-limit
   rejection occurred during llame's live proof on 2026-09-22, so this remains
   the gateway's documented behavior rather than something llame has seen.
   Whether an exhausted monthly window returns that class or a 401
@@ -198,10 +200,10 @@ model whose prompts you would not send.
 
 The subscription meters per model across three windows: a five-hour window, a
 weekly window, and a monthly window. The gateway applies them per model and
-does not return window state in response headers, which is why llame shows no
-quota surface and reports no quota state: an exhausted window surfaces as the
-upstream failure the gateway documents (the 429 shape above), not as a number
-llame can display. Model caps are set upstream and change — a promotional
+does not return window state in response headers. llame does not infer a quota
+balance: it can wait only when a classified usage-limit rejection supplies an
+authoritative reset, including the documented `Retry-After` shape above.
+Model caps are set upstream and change; a promotional
 monthly cap on `deepseek-v4.1-flash` ended on 2026-09-20 — so read the console
 for the cap you are planning against rather than any published table.
 
