@@ -19,14 +19,12 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
-  type InfiniteData,
 } from "@tanstack/react-query";
 
-import type { ChatMessagesResponse } from "@/lib/services/chat/history";
 import {
   activeRunsQueryKeys,
   activeRunsToTrackArgs,
-  applyRunUpdateToHistory,
+  syncRunHistory,
   fetchActiveRuns,
   type Run,
 } from "@/lib/services/chat/active-runs";
@@ -387,7 +385,13 @@ function processRunQueries(
   deps: TerminalRunHandlerDeps,
 ): void {
   activeEntries.forEach(([runId, meta], index) => {
-    handleTerminalRun(runId, meta, runQueries[index]?.data, deps);
+    const run = runQueries[index]?.data;
+
+    if (run && !isTerminalRunStatus(run.status)) {
+      syncRunHistory(deps.queryClient, meta.chatId, run);
+    }
+
+    handleTerminalRun(runId, meta, run, deps);
   });
 }
 
@@ -543,15 +547,15 @@ function useLiveRunProgress(
       // Terminal too: coalescing can deliver a Run's first message already
       // finished, and its completion must still notify this tab.
       trackRun(run.id, run.chatId, cachedChatTitle(queryClient, run.chatId));
-      queryClient.setQueriesData<
-        InfiniteData<ChatMessagesResponse, number | null>
-      >({ queryKey: chatQueryKeys.messages(run.chatId) }, (prev) =>
-        applyRunUpdateToHistory(prev, run),
-      );
+      void queryClient.cancelQueries({
+        queryKey: activeRunsQueryKeys.run(run.id),
+        exact: true,
+      });
       queryClient.setQueryData<Run | null>(
         activeRunsQueryKeys.run(run.id),
         (prev) => (prev && isTerminalRunStatus(prev.status) ? prev : run),
       );
+      syncRunHistory(queryClient, run.chatId, run);
     });
   }, [subscribe, trackRun, queryClient]);
 

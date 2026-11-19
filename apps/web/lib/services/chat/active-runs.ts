@@ -1,8 +1,11 @@
 import { getRun } from "../../api/generated/runs/runs";
-import type { InfiniteData } from "@tanstack/react-query";
+import {
+  replaceEqualDeep,
+  type InfiniteData,
+  type QueryClient,
+} from "@tanstack/react-query";
 import type { ChatMessagesResponse } from "./history";
 import type { ChatLatestRunResponse } from "../../api/generated/models";
-import type { RunMessage } from "../live/live-messages";
 import { isNonNullObject, isString, isNumber } from "./context-item-envelope";
 import { isTerminalRunStatus } from "./run-notifications";
 import { listActiveRuns } from "../../api/generated/me/me";
@@ -12,6 +15,7 @@ import type {
 } from "../../api/generated/models";
 import { getApiErrorStatus } from "../../api/errors";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
+import { chatQueryKeys } from "./queries";
 
 // Feature key factory (apps/web/AGENTS.md convention), mirroring chatQueryKeys
 // in ./queries.ts: generic resource -> specific resource/subresource.
@@ -21,7 +25,10 @@ export const activeRunsQueryKeys = {
   run: (runId: string) => [...activeRunsQueryKeys.all, "run", runId] as const,
 };
 
-export type Run = Pick<RunResponse, "id" | "status" | "kind">;
+export type Run = Pick<
+  RunResponse,
+  "id" | "status" | "kind" | "quotaWait" | "error"
+>;
 
 /**
  * Poll a run's status (owner-scoped server-side). Returns null on 404 — the run
@@ -66,7 +73,7 @@ export function activeRunsToTrackArgs(
 
 function nextLatestRunFromUpdate(
   previous: ChatLatestRunResponse | null,
-  run: Extract<RunMessage, { type: "run.updated" }>["run"],
+  run: Run,
 ): ChatLatestRunResponse | null {
   if (previous === null || previous.id !== run.id) return previous;
 
@@ -82,7 +89,7 @@ function nextLatestRunFromUpdate(
   const errorCode = error?.["code"];
   const errorResetsAt = error?.["resetsAt"];
 
-  return {
+  return replaceEqualDeep(previous, {
     ...previous,
     status: run.status,
     quotaWait: run.quotaWait,
@@ -92,12 +99,12 @@ function nextLatestRunFromUpdate(
       failed && isNumber(errorResetsAt) && Number.isFinite(errorResetsAt)
         ? errorResetsAt
         : null,
-  };
+  });
 }
 
-export function applyRunUpdateToHistory(
+function applyRunUpdateToHistory(
   data: InfiniteData<ChatMessagesResponse, number | null> | undefined,
-  run: Extract<RunMessage, { type: "run.updated" }>["run"],
+  run: Run,
 ): InfiniteData<ChatMessagesResponse, number | null> | undefined {
   if (!data) return data;
 
@@ -114,4 +121,73 @@ export function applyRunUpdateToHistory(
   });
 
   return changed ? { ...data, pages } : data;
+}
+
+function needsRunHistoryRefresh(
+  queryClient: QueryClient,
+  chatId: string,
+  run: Run,
+): boolean {
+  return (
+    !isTerminalRunStatus(run.status) &&
+    queryClient
+      .getQueriesData<InfiniteData<ChatMessagesResponse, number | null>>({
+        queryKey: chatQueryKeys.messages(chatId),
+      })
+      .some(([, history]) =>
+        history?.pages.some((page) => page.latestRun?.id !== run.id),
+      )
+  );
+}
+
+async function refreshRunHistory(
+  queryClient: QueryClient,
+  chatId: string,
+  runId: string,
+): Promise<void> {
+  const queryKey = chatQueryKeys.messages(chatId);
+
+  await queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
+
+  const afterRead = queryClient.getQueryData<Run>(
+    activeRunsQueryKeys.run(runId),
+  );
+
+  // The joined read may predate this Run or only load an older history page.
+  if (afterRead && needsRunHistoryRefresh(queryClient, chatId, afterRead)) {
+    await queryClient.invalidateQueries({ queryKey }, { cancelRefetch: false });
+  }
+
+  const latest = queryClient.getQueryData<Run>(activeRunsQueryKeys.run(runId));
+
+  if (!latest) return;
+  queryClient.setQueriesData<InfiniteData<ChatMessagesResponse, number | null>>(
+    { queryKey },
+    (previous) => {
+      const next = applyRunUpdateToHistory(previous, latest);
+
+      return next === previous ? undefined : next;
+    },
+  );
+}
+
+export function syncRunHistory(
+  queryClient: QueryClient,
+  chatId: string,
+  run: Run,
+): void {
+  const queryKey = chatQueryKeys.messages(chatId);
+
+  queryClient.setQueriesData<InfiniteData<ChatMessagesResponse, number | null>>(
+    { queryKey },
+    (previous) => {
+      const next = applyRunUpdateToHistory(previous, run);
+
+      return next === previous ? undefined : next;
+    },
+  );
+
+  if (needsRunHistoryRefresh(queryClient, chatId, run)) {
+    void refreshRunHistory(queryClient, chatId, run.id);
+  }
 }

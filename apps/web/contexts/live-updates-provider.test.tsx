@@ -11,13 +11,20 @@ import { useEffect, useState } from "react";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 
 import type {
   ActiveRunResponse,
   ChatLatestRunResponse,
 } from "@/lib/api/generated/models";
-import { activeRunsQueryKeys } from "@/lib/services/chat/active-runs";
+import {
+  activeRunsQueryKeys,
+  syncRunHistory,
+} from "@/lib/services/chat/active-runs";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { chatJobsQueryKeys } from "@/lib/services/jobs/queries";
 import type {
@@ -174,6 +181,24 @@ const runUpdated = (
   },
 });
 
+const latestRunFixture = (
+  overrides: Partial<ChatLatestRunResponse> = {},
+): ChatLatestRunResponse => ({
+  kind: "turn",
+  id: runId,
+  messageId: null,
+  status: "running_model",
+  followUpAction: null,
+  modelId: "m",
+  effort: null,
+  permissionMode: "default",
+  error: null,
+  errorCode: null,
+  errorResetsAt: null,
+  quotaWait: null,
+  ...overrides,
+});
+
 beforeEach(() => {
   FakeWebSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -187,7 +212,7 @@ beforeEach(() => {
     }
 
     if (pathname.startsWith("/api/v1/runs/")) {
-      return jsonResponse({ id: runId, status: "running_model" });
+      return jsonResponse(runUpdated("running_model").run);
     }
 
     throw new Error(`unrouted fetch in test: ${pathname}`);
@@ -437,6 +462,146 @@ describe("ActiveRunsProvider with live updates", () => {
       queryClient.getQueryData(chatQueryKeys.messages(chatId)),
     );
   });
+  it.each([false, true])(
+    "keeps a newer quota update after a late history read (previous Run: %s)",
+    async (returnsPreviousRun) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+
+      const key = chatQueryKeys.messages(chatId);
+
+      const oldHistory = {
+        pages: [
+          {
+            messages: [],
+            compaction: null,
+            latestRun: latestRunFixture({
+              id: "previous",
+              status: "completed",
+            }),
+          },
+        ],
+        pageParams: [null],
+      };
+
+      const queuedHistory = {
+        ...oldHistory,
+        pages: [
+          {
+            messages: [],
+            compaction: null,
+            latestRun: latestRunFixture({ status: "queued" }),
+          },
+        ],
+      };
+
+      let resolveSnapshot!: (value: typeof queuedHistory) => void;
+
+      const snapshot = new Promise<typeof queuedHistory>((resolve) => {
+        resolveSnapshot = resolve;
+      });
+
+      queryClient.setQueryData(key, oldHistory);
+
+      let reads = 0;
+
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: () =>
+          ++reads === 1 ? snapshot : Promise.resolve(queuedHistory),
+        staleTime: Infinity,
+      });
+
+      const unsubscribe = observer.subscribe(() => undefined);
+
+      const quotaWait: NonNullable<ChatLatestRunResponse["quotaWait"]> = {
+        failureClass: "quota_exhausted",
+        resetsAt: "2026-11-20T12:00:00.000Z",
+        wakeAt: "2026-11-20T12:01:00.000Z",
+      };
+
+      try {
+        const update = runUpdated("awaiting_quota", { quotaWait }).run;
+
+        queryClient.setQueryData(activeRunsQueryKeys.run(runId), update);
+        syncRunHistory(queryClient, chatId, update);
+        resolveSnapshot(returnsPreviousRun ? oldHistory : queuedHistory);
+        await waitFor(() =>
+          expect(queryClient.getQueryData(key)).toMatchObject({
+            pages: [
+              { latestRun: { id: runId, status: "awaiting_quota", quotaWait } },
+            ],
+          }),
+        );
+      } finally {
+        resolveSnapshot(queuedHistory);
+        unsubscribe();
+      }
+    },
+  );
+
+  it.each([
+    [
+      "a completed Run",
+      latestRunFixture({
+        id: "55555555-5555-4555-8555-555555555555",
+        status: "completed",
+      }),
+    ],
+    ["no latest Run", null],
+  ] as const)(
+    "invalidates history for a live Run replacing %s",
+    (_label, latestRun) => {
+      const { queryClient } = renderLive(
+        <ActiveRunsProvider>
+          <RunsProbe />
+        </ActiveRunsProvider>,
+      );
+
+      const messagesKey = chatQueryKeys.messages(chatId);
+      const targetKey = chatQueryKeys.targetMessages(chatId, 17);
+      latestSocket().serverOpen();
+
+      const history = {
+        pages: [
+          {
+            messages: [],
+            compaction: null,
+            latestRun,
+          },
+        ],
+        pageParams: [null],
+      };
+
+      queryClient.setQueryData(messagesKey, history);
+      queryClient.setQueryData(targetKey, history);
+
+      latestSocket().serverSend(
+        JSON.stringify(
+          runUpdated("awaiting_quota", {
+            quotaWait: {
+              failureClass: "quota_exhausted",
+              resetsAt: "2026-11-20T12:00:00.000Z",
+              wakeAt: "2026-11-20T12:01:00.000Z",
+            },
+          }),
+        ),
+      );
+
+      expect(
+        queryClient.getQueryData(activeRunsQueryKeys.run(runId)),
+      ).toMatchObject({ status: "awaiting_quota" });
+      expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(targetKey)?.isInvalidated).toBe(true);
+      // The live frame is not a complete latest-history record: keep the cached
+      // content until the authoritative refetch resolves, rather than writing
+      // an incomplete Run over it.
+      expect(queryClient.getQueryData(messagesKey)).toBe(history);
+      expect(queryClient.getQueryData(targetKey)).toBe(history);
+    },
+  );
+
   it("clears a live quota wait when the run completes without queuing", () => {
     const { queryClient } = renderLive(
       <ActiveRunsProvider>

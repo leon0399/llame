@@ -14,6 +14,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-19
 
+- Refresh authoritative Chat history when a new Run enters quota wait, and
+  propagate wait and wake state through the polling fallback. Late history
+  or status reads cannot overwrite a newer live quota update.
+
 - Preserve completed replies exactly once when summary quota waits are
   cancelled or resumed. Summary-only wakes keep the saved reply's original
   attempt ownership and retain their original prompt, first-epoch
