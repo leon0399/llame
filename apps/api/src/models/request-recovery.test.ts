@@ -854,7 +854,7 @@ describe('withRequestRecovery', () => {
 
     const pending = withRequestRecovery(
       base,
-      { ...options, firstTokenTimeoutSeconds: 0.01 },
+      { ...options, firstTokenTimeoutSeconds: 1 },
       immediate,
     ).doGenerate({ prompt: [] });
 
