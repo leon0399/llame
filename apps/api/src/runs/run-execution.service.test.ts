@@ -4944,6 +4944,47 @@ describe('RunExecutionService executeRun — stream completion', () => {
       ),
     ).toEqual([]);
   });
+  it('locks the owning chat before recording a model retry', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+
+    const lock = vi
+      .spyOn(ChatsRepository.prototype, 'lock')
+      .mockResolvedValue(undefined);
+
+    await expect(
+      execution.service.recordModelRetry(
+        { runId, chatId, userId, attemptId: testAttemptId },
+        { code: 'server_error', retry: 1, delayMs: 750 },
+      ),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(lock).toHaveBeenCalledWith(chatId, userId);
+    expect(spies.findById).not.toHaveBeenCalled();
+    expect(appended).toEqual([]);
+  });
+
+  it('does not append a retry event after the active attempt has changed', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const execution = makeExecutionService();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: 'replacement-attempt',
+      status: 'running_model',
+    });
+
+    await expect(
+      execution.service.recordModelRetry(
+        { runId, chatId, userId, attemptId: testAttemptId },
+        { code: 'server_error', retry: 1, delayMs: 750 },
+      ),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(spies.findById).toHaveBeenCalledWith(runId, userId);
+    expect(appended).toEqual([]);
+  });
 
   it('stamps the first streamed delta, counts the deltas, and derives throughput on the completed usage (#155)', async () => {
     const spies = mockNormalExecutionRepositories();

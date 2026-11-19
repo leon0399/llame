@@ -273,6 +273,100 @@ describe('withRequestRecovery', () => {
     expect(delays).toEqual([20_000]);
   });
 
+  it('admits a quota reset exactly sixty seconds away', async () => {
+    const now = 1_900_000_000_000;
+
+    const fixture = scriptedModel([
+      new ProviderFailure('Quota', {
+        code: 'quota_exhausted',
+        resetsAt: now + 60_000,
+      }),
+      complete,
+    ]);
+
+    const delays: Array<number> = [];
+
+    const model = withRequestRecovery(fixture.model, options, {
+      now: () => now,
+      random: () => 0,
+      delay: (milliseconds) => {
+        delays.push(milliseconds);
+
+        return Promise.resolve();
+      },
+    });
+
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(fixture.sends()).toBe(2);
+    expect(delays).toEqual([60_000]);
+  });
+
+  it('admits a rate-limit hint exactly sixty seconds away', async () => {
+    const fixture = scriptedModel([
+      new ProviderFailure('Rate limit', {
+        code: 'rate_limited',
+        hintMs: 60_000,
+      }),
+      complete,
+    ]);
+
+    const delays: Array<number> = [];
+
+    const model = withRequestRecovery(fixture.model, options, {
+      random: () => 0,
+      delay: (milliseconds) => {
+        delays.push(milliseconds);
+
+        return Promise.resolve();
+      },
+    });
+
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(fixture.sends()).toBe(2);
+    expect(delays).toEqual([60_000]);
+  });
+
+  it('uses progressive full-jitter windows capped at eight seconds', async () => {
+    const fixture = scriptedModel([
+      ...Array.from({ length: 10 }, () => overloaded()),
+      complete,
+    ]);
+
+    const delays: Array<number> = [];
+
+    const model = withRequestRecovery(fixture.model, options, {
+      random: () => 0.999,
+      delay: (milliseconds) => {
+        delays.push(milliseconds);
+
+        return Promise.resolve();
+      },
+    });
+
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(fixture.sends()).toBe(11);
+    expect(delays).toEqual([
+      499, 999, 1998, 3996, 7992, 7992, 7992, 7992, 7992, 7992,
+    ]);
+  });
+
+  it.each(['unreachable', 'server_error', 'overloaded'] as const)(
+    'retries a %s request failure',
+    async (code) => {
+      const fixture = scriptedModel([
+        new ProviderFailure('Transient request failure', { code }),
+        complete,
+      ]);
+
+      expect(
+        text(
+          await collect(withRequestRecovery(fixture.model, options, immediate)),
+        ),
+      ).toBe('Recovered answer.');
+      expect(fixture.sends()).toBe(2);
+    },
+  );
+
   it('does not turn a long rate-limit hint into an in-process retry', async () => {
     const fixture = scriptedModel([
       new ProviderFailure('Rate limit', {
@@ -521,6 +615,34 @@ describe('withRequestRecovery', () => {
     expect(summary.sends()).toBe(2);
   });
 
+  it('retries a buffered whole-send provider error without exposing its prefix', async () => {
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'failed' },
+        {
+          type: 'error',
+          error: new ProviderFailure('Temporary failure', {
+            code: 'server_error',
+          }),
+        },
+      ],
+      complete,
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, bufferWholeSend: true },
+        immediate,
+      ),
+    );
+
+    expect(text(parts)).toBe('Recovered answer.');
+    expect(
+      parts.some((part) => part.type === 'text-start' && part.id === 'failed'),
+    ).toBe(false);
+  });
+
   it('does not retry a buffered provider tool call even for a transient failure', async () => {
     const fixture = scriptedModel([
       [
@@ -630,5 +752,33 @@ describe('withRequestRecovery', () => {
 
     expect(result.content).toEqual([{ type: 'text', text: 'Recovered title' }]);
     expect(sends).toBe(2);
+  });
+
+  it('stops structured generation at the shared eleven-send budget', async () => {
+    let sends = 0;
+    const retries: Array<number> = [];
+
+    const base = new MockLanguageModelV3({
+      doGenerate: () => {
+        sends += 1;
+
+        return Promise.reject(overloaded());
+      },
+    });
+
+    await expect(
+      withRequestRecovery(
+        base,
+        {
+          ...options,
+          onRetry: ({ retry }) => {
+            retries.push(retry);
+          },
+        },
+        immediate,
+      ).doGenerate({ prompt: [] }),
+    ).rejects.toMatchObject({ code: 'overloaded' });
+    expect(sends).toBe(11);
+    expect(retries).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 });
