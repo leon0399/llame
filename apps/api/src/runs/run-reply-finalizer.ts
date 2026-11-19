@@ -32,7 +32,7 @@ import { NativeFilesRepository } from './native-files-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type TerminalRunStatus } from './run-status';
 import { toolTerminationResult } from './tool-settlement';
-import { wakeStateFromEvents } from './wake-projection';
+import { attemptWindow, wakeStateFromEvents } from './wake-projection';
 import {
   quotaPendingReplyFromEvents,
   quotaCompactionStateFromEvents,
@@ -219,30 +219,6 @@ function eventsAfterLatestDelivery(
   );
 
   return events.slice(delivered + 1);
-}
-
-/**
- * One attempt's events: from the `model.requested` that names it up to the
- * next attempt's `run.started`, or the end of the log. Empty when no request
- * names the attempt.
- */
-export function attemptWindow(
-  events: ReadonlyArray<RunEvent>,
-  attemptId: string,
-): Array<RunEvent> {
-  const start = events.findIndex(
-    (event) =>
-      event.eventType === 'model.requested' &&
-      stringField(event.payload, 'attemptId') === attemptId,
-  );
-
-  if (start === -1) return [];
-
-  const end = events.findIndex(
-    (event, index) => index > start && event.eventType === 'run.started',
-  );
-
-  return events.slice(start, end === -1 ? undefined : end);
 }
 
 /**
@@ -488,9 +464,7 @@ function wakeReplyRecovery(
       : undefined);
 
   const pending =
-    wake === undefined && quotaWake === undefined
-      ? quotaPendingReplyFromEvents(log)
-      : undefined;
+    wake || quotaWake ? undefined : quotaPendingReplyFromEvents(log);
 
   const prefix = wake ?? quotaWake ?? pending?.state ?? continued;
 
@@ -503,8 +477,7 @@ function wakeReplyRecovery(
     (event) =>
       wake === undefined ||
       event.eventType !== 'tool.completed' ||
-      !isRecord(event.payload) ||
-      event.payload['toolCallId'] !== wake.toolCallId,
+      stringField(event.payload, 'toolCallId') !== wake.toolCallId,
   );
 
   return {

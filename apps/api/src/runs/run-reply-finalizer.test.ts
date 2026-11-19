@@ -8,7 +8,6 @@ import {
 import { type Message, type Run, type RunEvent } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
-  attemptWindow,
   failRunTransactionally,
   finalizeRunReply,
   placeStoredContextItems,
@@ -16,6 +15,7 @@ import {
   type AssistantTurnTelemetry,
 } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { attemptWindow } from './wake-projection';
 
 const runId = '11111111-1111-4111-8111-111111111111';
 const chatId = '22222222-2222-4222-8222-222222222222';

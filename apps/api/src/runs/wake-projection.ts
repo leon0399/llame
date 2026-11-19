@@ -44,6 +44,29 @@ type WakeWindow = {
 };
 
 /**
+ * One attempt's events: from its model.requested until the next run.started.
+ * An attempt that never dispatched has no window.
+ */
+export function attemptWindow(
+  events: ReadonlyArray<RunEvent>,
+  attemptId: string,
+): Array<RunEvent> {
+  const start = events.findIndex(
+    (event) =>
+      event.eventType === 'model.requested' &&
+      eventPayloadString(event.payload, 'attemptId') === attemptId,
+  );
+
+  if (start === -1) return [];
+
+  const end = events.findIndex(
+    (event, index) => index > start && event.eventType === 'run.started',
+  );
+
+  return events.slice(start, end === -1 ? undefined : end);
+}
+
+/**
  * Restore the checkpoint and the one wait result claimed by this attempt.
  * Retries after that first claim deliberately return no prefix: their current
  * attempt is an ordinary model attempt, not another delivery of the wait.
