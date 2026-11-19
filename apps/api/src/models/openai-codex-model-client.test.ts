@@ -552,7 +552,6 @@ describe('createOpenAICodexModelClient', () => {
     await expect(result.text).rejects.not.toThrow(secret);
   });
 
-
   describe('provider-options invariants (provider-options)', () => {
     function build(
       config: Partial<Parameters<typeof createOpenAICodexModelClient>[0]> = {},
