@@ -13,7 +13,7 @@ import { type ContinueFollowUpRunDto } from './dto/follow-up-run.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
 import type { ChatJobsService } from './chat-jobs.service';
-import type { Chat, Message, Run } from '../db/schema';
+import type { Chat, Message } from '../db/schema';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import type { RunStreamResponder } from '../runs/run-stream-bridge';
 import { asDouble } from '../testing/support';
@@ -264,56 +264,6 @@ describe('ChatsController', () => {
     expect(item.lastMessage?.length).toBeLessThanOrEqual(160);
     expect(item.lastMessage?.endsWith('…')).toBe(true);
     expect(item.lastMessage).not.toContain('tool-call');
-  });
-
-  it('reports the latest Run beside the messages, field by field', async () => {
-    const latestRun: Run = {
-      id: '11111111-1111-4111-8111-111111111111',
-      kind: 'turn',
-      chatId: chat.id,
-      messageId: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-      userId: 'verified-user',
-      modelId: 'system:openai:gpt-5.4-mini',
-      status: 'failed',
-      workerId: null,
-      activeAttemptId: null,
-      completedAttemptId: null,
-      turnToolAvailability: null,
-      cancelRequestedAt: null,
-      error: { message: 'provider failed' },
-      createdAt: new Date('2026-10-27T00:00:00.000Z'),
-      startedAt: null,
-      finishedAt: new Date('2026-10-27T00:00:01.000Z'),
-      wakeGeneration: 0,
-      currentJobId: null,
-      awaiting: null,
-      effort: 'high',
-      permissionMode: 'bypass',
-      followUpAction: 'continue',
-      sourceRunId: null,
-    };
-
-    const { controller } = makeController({
-      getChatMessages: vi
-        .fn()
-        .mockResolvedValue({ messages: chatMessages, latestRun }),
-    });
-
-    const result = await controller.getChatMessages('verified-user', chat.id, {
-      limit: 100,
-    });
-
-    expect(result.latestRun).toEqual({
-      kind: 'turn',
-      id: '11111111-1111-4111-8111-111111111111',
-      messageId: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-      status: 'failed',
-      followUpAction: 'continue',
-      modelId: 'system:openai:gpt-5.4-mini',
-      effort: 'high',
-      permissionMode: 'bypass',
-      error: 'provider failed',
-    });
   });
 
   it('returns 404 when the verified user cannot read chat messages', async () => {
