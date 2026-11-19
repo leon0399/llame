@@ -658,11 +658,9 @@ class DurableAssistantReconstructor {
         (event.eventType === 'model.delta' ||
           event.eventType === 'reasoning.delta') &&
         window !== undefined &&
-        event.sequence >= window.from &&
-        event.sequence < window.to
-      ) {
+        event.sequence >= window.from
+      )
         continue;
-      }
 
       this.applyEvent(event);
     }

@@ -324,6 +324,7 @@ export class ReplyReducer {
 
     if (removed.size === 0) return false;
     const positions = new Map<number, number>();
+
     const parts = this.state.parts.filter((_part, index) => {
       if (removed.has(index)) return false;
       positions.set(index, positions.size);

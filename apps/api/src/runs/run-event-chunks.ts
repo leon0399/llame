@@ -12,18 +12,10 @@ import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 /** The part chunks of a reply (a subset of the AI SDK UI-message chunks). */
 export type UiChunk =
   | { type: 'start'; messageId: string }
-  | {
-      type: 'text-start';
-      id: string;
-      providerMetadata?: { llame: { partId: string } };
-    }
+  | { type: 'text-start'; id: string }
   | { type: 'text-delta'; id: string; delta: string }
   | { type: 'text-end'; id: string }
-  | {
-      type: 'reasoning-start';
-      id: string;
-      providerMetadata?: { llame: { partId: string } };
-    }
+  | { type: 'reasoning-start'; id: string }
   | { type: 'reasoning-delta'; id: string; delta: string }
   | { type: 'reasoning-end'; id: string }
   | { type: 'data-superseded'; data: { partIds: Array<string> } }

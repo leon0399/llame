@@ -212,8 +212,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       { type: 'data-model-retrying', data: { code, retry, delayMs } },
     ];
   }
@@ -255,10 +254,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         this.unsettledPartSequences.set(this.openTextId, event.sequence!);
       }
 
-      chunks.push({
-        type: 'text-start',
-        id: this.openTextId,
-      });
+      chunks.push({ type: 'text-start', id: this.openTextId });
     }
 
     chunks.push({ type: 'text-delta', id: this.openTextId, delta: text });
@@ -302,10 +298,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         this.unsettledPartSequences.set(openReasoningId, event.sequence!);
       }
 
-      chunks.push({
-        type: 'reasoning-start',
-        id: openReasoningId,
-      });
+      chunks.push({ type: 'reasoning-start', id: openReasoningId });
     } else if (partId !== undefined) {
       // A defined id becomes the open part's id; an absent one adds nothing.
       this.openReasoningPartId = partId;

@@ -220,33 +220,85 @@ describe("ReplyReducer", () => {
       ...reasoning("discarded-reasoning", "Unfinished thought"),
       ...text("discarded-text", "Partial answer"),
       ...toolCall("retained-tool", { command: "pwd" }),
-      { type: EventType.TEXT_MESSAGE_START, messageId: "active", role: "assistant" },
-      { type: EventType.CUSTOM, name: "llame.model-retrying", value: { retry: 1 } },
-      { type: EventType.CUSTOM, name: "llame.message-metadata", value: { usage: { inputTokens: 3 } } },
-    ] satisfies Array<AGUIEvent>) reducer.apply(event);
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: "active",
+        role: "assistant",
+      },
+      {
+        type: EventType.CUSTOM,
+        name: "llame.model-retrying",
+        value: { retry: 1 },
+      },
+      {
+        type: EventType.CUSTOM,
+        name: "llame.message-metadata",
+        value: { usage: { inputTokens: 3 } },
+      },
+    ] satisfies Array<AGUIEvent>)
+      reducer.apply(event);
 
     const before = reducer.reply();
-    expect(reducer.apply({
-      type: EventType.CUSTOM,
-      name: "llame.model-superseded",
-      value: { messageIds: ["discarded-reasoning", "discarded-text", "retained-tool", "unknown"] },
-    })).toBe(true);
-    reducer.apply({ type: EventType.TEXT_MESSAGE_CONTENT, messageId: "active", delta: "Replacement." });
+    expect(
+      reducer.apply({
+        type: EventType.CUSTOM,
+        name: "llame.model-superseded",
+        value: {
+          messageIds: [
+            "discarded-reasoning",
+            "discarded-text",
+            "retained-tool",
+            "unknown",
+          ],
+        },
+      }),
+    ).toBe(true);
+    reducer.apply({
+      type: EventType.TEXT_MESSAGE_CONTENT,
+      messageId: "active",
+      delta: "Replacement.",
+    });
     reducer.apply({ type: EventType.TEXT_MESSAGE_END, messageId: "active" });
-    reducer.apply({ type: EventType.TOOL_CALL_RESULT, toolCallId: "retained-tool", content: '{"cwd":"/workspace"}' });
+    reducer.apply({
+      type: EventType.TOOL_CALL_RESULT,
+      toolCallId: "retained-tool",
+      content: '{"cwd":"/workspace"}',
+    });
 
     expect(reducer.reply().parts).toEqual([
       { type: "text", text: "Earlier answer.", state: "done" },
-      { type: "dynamic-tool", toolCallId: "retained-tool", toolName: "bash", state: "output-available", input: { command: "pwd" }, output: { cwd: "/workspace" } },
+      {
+        type: "dynamic-tool",
+        toolCallId: "retained-tool",
+        toolName: "bash",
+        state: "output-available",
+        input: { command: "pwd" },
+        output: { cwd: "/workspace" },
+      },
       { type: "text", text: "Replacement.", state: "done" },
       { type: "data-model-retrying", data: { retry: 1 } },
     ]);
     expect(reducer.reply().metadata).toEqual({ usage: { inputTokens: 3 } });
-    expect(before.parts).toContainEqual({ type: "text", text: "Partial answer", state: "done" });
+    expect(before.parts).toContainEqual({
+      type: "text",
+      text: "Partial answer",
+      state: "done",
+    });
 
-    for (const value of [{ messageIds: ["unknown"] }, { messageIds: [1] }, { partIds: ["kept"] }, { messageIds: [] }]) {
+    for (const value of [
+      { messageIds: ["unknown"] },
+      { messageIds: [1] },
+      { partIds: ["kept"] },
+      { messageIds: [] },
+    ]) {
       const held = reducer.reply();
-      expect(reducer.apply({ type: EventType.CUSTOM, name: "llame.model-superseded", value })).toBe(false);
+      expect(
+        reducer.apply({
+          type: EventType.CUSTOM,
+          name: "llame.model-superseded",
+          value,
+        }),
+      ).toBe(false);
       expect(reducer.reply()).toBe(held);
     }
   });
