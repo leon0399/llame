@@ -629,6 +629,100 @@ describe('withRequestRecovery', () => {
     expect(text(summaryParts)).toBe('Recovered answer.');
     expect(summary.sends()).toBe(2);
   });
+  it('retains safe failure metadata on a live break without retaining its raw cause', async () => {
+    const rawCause = new Error('private provider response body');
+    const resetsAt = Date.now();
+
+    const original = new ProviderFailure('Provider rate limit', {
+      code: 'rate_limited',
+      resetsAt,
+      hintMs: 30_000,
+      statusCode: 429,
+    });
+
+    Object.defineProperty(original, 'cause', { value: rawCause });
+
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'partial' },
+        { type: 'text-delta', id: 'partial', delta: 'Partial answer.' },
+        { type: 'error', error: original },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    const failure = providerFailureFrom(parts);
+
+    expect(text(parts)).toBe('Partial answer.');
+    expect(failure).not.toBe(original);
+    expect(failure).toMatchObject({
+      code: 'rate_limited',
+      resetsAt,
+      hintMs: 30_000,
+      statusCode: 429,
+      superseded: { retry: 1, delayMs: 30_000 },
+    });
+    expect(failure.cause).toBeUndefined();
+    expect(JSON.stringify(failure)).not.toContain(
+      'private provider response body',
+    );
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('discards buffered content when a whole send fails after producing it', async () => {
+    const failure = new ProviderFailure('Quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: 1_900_000_000_000,
+      hintMs: 60_000,
+      statusCode: 429,
+    });
+
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'summary' },
+        { type: 'text-delta', id: 'summary', delta: 'Must not escape.' },
+        { type: 'error', error: failure },
+      ],
+      complete,
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, bufferWholeSend: true },
+        immediate,
+      ),
+    );
+
+    expect(parts).toEqual([{ type: 'error', error: failure }]);
+    expect(text(parts)).toBe('');
+    expect(providerFailureFrom(parts)).toMatchObject({
+      code: 'quota_exhausted',
+      resetsAt: 1_900_000_000_000,
+      hintMs: 60_000,
+      statusCode: 429,
+    });
+    expect(providerFailureFrom(parts).superseded).toBeUndefined();
+    expect(fixture.sends()).toBe(1);
+  });
+  it('does not label an empty exhausted send as superseding visible content', async () => {
+    const fixture = scriptedModel(
+      Array.from({ length: 11 }, () => [
+        { type: 'error', error: overloaded() },
+      ]),
+    );
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    expect(parts).toHaveLength(1);
+    expect(providerFailureFrom(parts).superseded).toBeUndefined();
+    expect(fixture.sends()).toBe(11);
+  });
 
   it('retries a buffered whole-send provider error without exposing its prefix', async () => {
     const fixture = scriptedModel([

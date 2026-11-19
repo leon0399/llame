@@ -144,6 +144,101 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([]);
   });
+  it('tracks only positive integer part starts inside the superseded window', () => {
+    const t = createRunEventTranslator('run-sequence-window');
+
+    const textChunks = t.translate({
+      eventType: 'model.delta',
+      sequence: 1,
+      payload: { text: 'kept text' },
+    });
+
+    const allChunks = [
+      ...textChunks,
+      ...t.translate({
+        eventType: 'reasoning.delta',
+        sequence: 3,
+        payload: { text: 'discarded reasoning', partId: 'reasoning-from' },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        sequence: 7,
+        payload: { text: 'discarded text' },
+      }),
+      ...t.translate({
+        eventType: 'reasoning.delta',
+        sequence: 10,
+        payload: { text: 'kept reasoning', partId: 'reasoning-to' },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        sequence: 11,
+        payload: { text: 'opened beyond the exclusive upper bound' },
+      }),
+    ];
+
+    // Invalid starts cannot be attached to a later supersession window.
+    for (const sequence of [0, -1, 1.5]) {
+      const invalid = createRunEventTranslator(`run-invalid-${sequence}`);
+      invalid.translate({
+        eventType: 'model.delta',
+        sequence,
+        payload: { text: 'untracked text' },
+      });
+      invalid.translate({
+        eventType: 'reasoning.delta',
+        sequence,
+        payload: { text: 'untracked reasoning', partId: 'invalid' },
+      });
+      expect(
+        invalid.translate({
+          eventType: 'model.superseded',
+          sequence: 10,
+          payload: { fromSequence: 1, step: 1 },
+        }),
+      ).not.toContainEqual(
+        expect.objectContaining({ type: 'data-superseded' }),
+      );
+    }
+
+    expect(
+      allChunks.flatMap((chunk) =>
+        chunk.type === 'text-delta' ? [chunk.delta] : [],
+      ),
+    ).toEqual([
+      'kept text',
+      'discarded text',
+      'opened beyond the exclusive upper bound',
+    ]);
+    expect(
+      allChunks.flatMap((chunk) =>
+        chunk.type === 'reasoning-delta' ? [chunk.delta] : [],
+      ),
+    ).toEqual(['discarded reasoning', 'kept reasoning']);
+
+    const superseded = t.translate({
+      eventType: 'model.superseded',
+      sequence: 10,
+      payload: { fromSequence: 3, step: 1 },
+    });
+
+    expect(superseded).toEqual([
+      { type: 'text-end', id: 'text-3' },
+      {
+        type: 'data-superseded',
+        data: { partIds: ['reasoning-1', 'text-2'] },
+      },
+    ]);
+
+    // Repeating the same window closes no new parts and cannot invent a chunk.
+    expect(
+      t.translate({
+        eventType: 'model.superseded',
+        sequence: 10,
+        payload: { fromSequence: 3, step: 2 },
+      }),
+    ).toEqual([]);
+  });
 
   it('prelude() returns start once, so a later translate adds no second start', () => {
     const t = createRunEventTranslator('run-1');

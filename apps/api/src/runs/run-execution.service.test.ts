@@ -6489,6 +6489,94 @@ describe('RunExecutionService executeRun — stream failure', () => {
     );
   });
 
+  it('does not resend after the retry event loses its chat fence', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const { client, requests } = createToolLoopClient([
+      providerResponse(
+        [
+          {
+            type: 'error',
+            error: new ProviderFailure('broken', {
+              code: 'stream_broken',
+              superseded: { retry: 1, delayMs: 0 },
+            }),
+          },
+        ],
+        'stop',
+      ),
+    ]);
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
+      Promise.resolve(requests.length === 0 ? chat : undefined),
+    );
+    const execution = makeExecutionService(client);
+
+    const result = await execution.service.executeRun(executionInput(client));
+    await result.consumeStream();
+    await vi.waitFor(() => {
+      expect(spies.markFinished).toHaveBeenCalled();
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.anything(),
+    );
+    expect(
+      appended.filter(({ type }) => type === 'model.requested'),
+    ).toHaveLength(1);
+  });
+
+  it('does not retry a superseded send after streamed progress cannot be persisted', async () => {
+    const spies = mockNormalExecutionRepositories();
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType) =>
+        eventType === 'model.delta'
+          ? Promise.reject(new Error('event log unavailable'))
+          : Promise.resolve(event),
+    );
+
+    const { client, requests } = createToolLoopClient([
+      providerResponse(
+        [
+          { type: 'text-start', id: 'draft' },
+          { type: 'text-delta', id: 'draft', delta: 'discarded' },
+          {
+            type: 'error',
+            error: new ProviderFailure('broken', {
+              code: 'stream_broken',
+              superseded: { retry: 1, delayMs: 0 },
+            }),
+          },
+        ],
+        'stop',
+      ),
+    ]);
+
+    const execution = makeExecutionService(client);
+
+    const result = await execution.service.executeRun(executionInput(client));
+    await result.consumeStream();
+    await vi.waitFor(() => {
+      expect(spies.markFinished).toHaveBeenCalled();
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'Run progress could not be persisted.' },
+      }),
+    );
+    expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+  });
+
   it.each(['cancel', 'interrupt'] as const)(
     'settles cancellation during the first broken-send retry delay (%s)',
     async (mode) => {
@@ -6497,8 +6585,11 @@ describe('RunExecutionService executeRun — stream failure', () => {
         ...run,
         activeAttemptId: testAttemptId,
       });
+      const appended: Array<string> = [];
       const retrying = Promise.withResolvers<void>();
       spies.appendEvent.mockImplementation((_id, type, payload) => {
+        appended.push(type);
+
         if (type === 'model.retrying') retrying.resolve();
 
         return Promise.resolve({
@@ -6509,6 +6600,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
       });
       const controller = new AbortController();
       const capturing = makeCapturingClient();
+      const dispatch = vi.spyOn(capturing.client, 'streamText');
       const aborts = new RunAbortRegistry();
       aborts.register(runId, userId);
 
@@ -6550,6 +6642,8 @@ describe('RunExecutionService executeRun — stream failure', () => {
         'cancelled',
         expect.anything(),
       );
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(appended).toContain('run.cancelled');
     },
   );
 
