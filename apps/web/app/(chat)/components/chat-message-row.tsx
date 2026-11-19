@@ -445,21 +445,17 @@ function hostMessageRow(
   ) : null;
 }
 
-function VisibleChatMessage({
-  message,
-  mode,
-  renderKey,
-  renderers,
-  footerProps,
-  isLast,
-}: {
+type VisibleChatMessageProps = {
   message: UIMessage;
   mode: MessageRowMode;
   renderKey: string;
   renderers: ChatMarkdownRenderers;
   footerProps: ChatMessageActionProps;
   isLast: boolean;
-}) {
+};
+
+function VisibleChatMessage(props: VisibleChatMessageProps) {
+  const { message, mode, renderKey, renderers, footerProps, isLast } = props;
   const messageSeq = messageSeqFromMetadata(message.metadata);
   const { status } = footerProps;
 

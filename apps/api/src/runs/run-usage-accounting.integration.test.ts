@@ -1099,15 +1099,19 @@ describe('Run usage accounting through the worker and Postgres', () => {
     });
 
     const replay = await bridge
-      .createUiMessageStreamResponse({ runId: seed.runId, userId: ownerId })
+      .createUiMessageStreamResponse({
+        chatId: seed.chatId,
+        runId: seed.runId,
+        userId: ownerId,
+      })
       .text();
 
-    const retryOffset = replay.indexOf('"type":"data-model-retrying"');
+    const retryOffset = replay.indexOf('"name":"llame.model-retrying"');
     const resumedOffset = replay.indexOf('"delta":"resumed content"');
     expect(retryOffset).toBeGreaterThanOrEqual(0);
     expect(resumedOffset).toBeGreaterThan(retryOffset);
     expect(replay).toContain(
-      '"data":{"code":"server_error","retry":1,"delayMs":750}',
+      '"value":{"code":"server_error","retry":1,"delayMs":750}',
     );
   });
 
