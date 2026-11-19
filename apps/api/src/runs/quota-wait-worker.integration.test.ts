@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isRecord } from '@workspace/runtime-safety';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 
 import { runs, runEvents } from '../db/schema';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -424,25 +424,30 @@ describe('quota wait worker acceptance', () => {
 
     if (!started || !suspended)
       throw new Error('Expected start and suspension events');
-    const resumeAt = new Date();
-    await db((tx) =>
-      tx
+    const suspendedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const startedAt = new Date(suspendedAt.getTime() - 600_000);
+
+    // Tenants cannot update the append-only log. This owner-only fixture
+    // transaction restores FORCE before commit; failure rolls back its DDL.
+    await harness.db.transaction(async (tx) => {
+      await tx.execute(sql`ALTER TABLE run_events NO FORCE ROW LEVEL SECURITY`);
+
+      const agedSuspension = await tx
         .update(runEvents)
-        .set({
-          createdAt: new Date(resumeAt.getTime() - 2 * 24 * 60 * 60 * 1000),
-        })
-        .where(eq(runEvents.sequence, suspended.sequence)),
-    );
-    await db((tx) =>
-      tx
+        .set({ createdAt: suspendedAt })
+        .where(eq(runEvents.sequence, suspended.sequence))
+        .returning({ createdAt: runEvents.createdAt });
+
+      const agedStart = await tx
         .update(runEvents)
-        .set({
-          createdAt: new Date(
-            resumeAt.getTime() - 2 * 24 * 60 * 60 * 1000 - 600_000,
-          ),
-        })
-        .where(eq(runEvents.sequence, started.sequence)),
-    );
+        .set({ createdAt: startedAt })
+        .where(eq(runEvents.sequence, started.sequence))
+        .returning({ createdAt: runEvents.createdAt });
+
+      expect(agedSuspension).toEqual([{ createdAt: suspendedAt }]);
+      expect(agedStart).toEqual([{ createdAt: startedAt }]);
+      await tx.execute(sql`ALTER TABLE run_events FORCE ROW LEVEL SECURITY`);
+    });
     await wakeQuota(seeded.runId);
     const resumed = await terminal(seeded.runId);
 

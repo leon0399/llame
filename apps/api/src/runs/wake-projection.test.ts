@@ -663,6 +663,11 @@ describe('wakeStateFromEvents', () => {
         cause: 'timeout',
       }),
       event(3, 'run.started', { attemptId: 'wake-attempt' }),
+      event(4, 'tool.completed', {
+        toolCallId: 'forged-wait',
+        toolName: 'wait',
+        output: { status: 'success', value: 'settled' },
+      }),
     ];
 
     expect(wakeStateFromEvents(events, 'wake-attempt')).toBeUndefined();

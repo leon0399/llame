@@ -26,6 +26,41 @@ export function quotaWakeStateFromEvents(
 
   if (suspension === undefined) return undefined;
 
+  return quotaCheckpointState(suspension);
+}
+
+/** Preserves stored history before dispatch without authorizing execution. */
+export function quotaPendingReplyFromEvents(
+  events: ReadonlyArray<RunEvent>,
+): { state: ContinueState; events: Array<RunEvent> } | undefined {
+  const request = quotaRequestFromEvents(events);
+
+  if (request?.resumeAt !== 'request') return undefined;
+
+  const index = events.findLastIndex(
+    (event) =>
+      event.eventType === 'run.suspended' &&
+      isRecord(event.payload) &&
+      parseQuotaRequest(event.payload)?.generation === request.generation,
+  );
+
+  const suspension = events[index]?.payload;
+
+  if (!isRecord(suspension)) return undefined;
+
+  const after = events.slice(index + 1);
+
+  if (after.some((event) => event.eventType === 'model.requested'))
+    return undefined;
+
+  const state = quotaCheckpointState(suspension);
+
+  return state === undefined ? undefined : { state, events: after };
+}
+
+function quotaCheckpointState(
+  suspension: UnknownRecord,
+): ContinueState | undefined {
   const parts = suspension['parts'];
 
   if (!Array.isArray(parts) || !parts.every(isRecord)) return undefined;

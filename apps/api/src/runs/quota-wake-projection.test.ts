@@ -1,5 +1,6 @@
 import { type RunEvent } from '../db/schema';
 import {
+  quotaPendingReplyFromEvents,
   quotaRequestFromEvents,
   quotaResumeAttemptId,
   quotaWakeStateFromEvents,
@@ -40,6 +41,16 @@ function quotaSuspension(generation = 3, waitCount = 1, resumeAt = 'request') {
 }
 
 describe('quota wake projection', () => {
+  it.each([
+    event(2, 'model.requested', { attemptId: 'later-attempt' }),
+    event(2, 'run.quota_recovered', { generation: 3, resumeAt: 'request' }),
+    event(2, 'run.delivered', {}),
+  ])('does not recover pending history after $eventType', (later) => {
+    expect(
+      quotaPendingReplyFromEvents([quotaSuspension(), later]),
+    ).toBeUndefined();
+  });
+
   it('restores checkpoint parts and step state without adding a synthetic tool part', () => {
     const events = [
       quotaSuspension(),

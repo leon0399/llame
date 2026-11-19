@@ -165,9 +165,9 @@ first queue job uses the Run id; later wake jobs use the Run's recorded
 `current_job_id` and generation. The `runs` queue declares a job duration of
 86,399 s, so pg-boss never expires a live Run at its 900 s default. Without an
 operator budget, the worker ends an executing attempt after 23 h 55 m. With
-`runs.timeoutSeconds`, the budget starts at the first claim and includes time
-spent waiting. Model requests have separate stream windows: the first-token
-timeout is 300 s by default and covers response headers and metadata until
+`runs.timeoutSeconds`, the budget starts at the first claim and includes jobs
+waits but excludes quota waits. Model requests have separate stream windows:
+the first-token timeout is 300 s by default and covers response headers and metadata until
 content starts; after content starts, 300 s without a stream part fails the
 request. These are model-request timeouts, not a Run-wide execution ceiling.
 Set `models[].firstTokenTimeoutSeconds` to a positive integer to override the
@@ -210,9 +210,11 @@ from Postgres. This layer prepares that lifecycle but exposes no `wait` tool.
 A step request that fails with `quota_exhausted` or `rate_limited` and an
 authoritative reset more than 60 seconds away enters `awaiting_quota`, provided
 the reset is no more than `runs.quotaWaitMaxSeconds` away (default 691,200,
-eight days). The setting must be a positive integer. A missing reset or one
-beyond the cap ends the request with its failure class. Completed tool calls
-are never replayed. The checkpoint omits failed-send output, retains completed
+eight days), no tool call has started, and this logical request has waited
+fewer than four times. The setting must be a positive integer. A missing
+reset, one beyond the cap, a started tool call, or an exhausted wait allowance
+ends the request with its failure class. Completed tool calls are never
+replayed. The checkpoint omits failed-send output, retains completed
 steps and context, and releases the worker while keeping the Chat in
 single-flight. The deadline job sends again after reset plus 60 seconds and
 0-18 seconds of jitter. Each logical request can wait once and re-wait three

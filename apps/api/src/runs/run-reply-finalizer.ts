@@ -33,7 +33,10 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type TerminalRunStatus } from './run-status';
 import { toolTerminationResult } from './tool-settlement';
 import { wakeStateFromEvents } from './wake-projection';
-import { quotaWakeStateFromEvents } from './quota-wake-projection';
+import {
+  quotaPendingReplyFromEvents,
+  quotaWakeStateFromEvents,
+} from './quota-wake-projection';
 
 /** The usage an executing attempt measured, stored on its reply. */
 export type AssistantTurnTelemetry = TurnTelemetry & {
@@ -467,12 +470,20 @@ function wakeReplyRecovery(
 
   const wake = wakeStateFromEvents(log, claimedAttemptId);
   const quotaWake = quotaWakeStateFromEvents(log, claimedAttemptId);
-  const prefix = wake ?? quotaWake ?? continued;
+
+  const pending =
+    wake === undefined && quotaWake === undefined
+      ? quotaPendingReplyFromEvents(log)
+      : undefined;
+
+  const prefix = wake ?? quotaWake ?? pending?.state ?? continued;
 
   const hasWake = wake !== undefined || quotaWake !== undefined;
   const recoveryAttemptId = hasWake ? claimedAttemptId : running.attemptId;
 
-  const attemptEvents = attemptWindow(log, recoveryAttemptId).filter(
+  const attemptEvents = (
+    pending?.events ?? attemptWindow(log, recoveryAttemptId)
+  ).filter(
     (event) =>
       wake === undefined ||
       event.eventType !== 'tool.completed' ||
