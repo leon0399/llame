@@ -82,17 +82,23 @@ function makeService(
       options.summary === undefined ? summary : options.summary,
     );
 
-  if (options.summarizeError) {
-    summarizeCheckpoint.mockRejectedValue(options.summarizeError);
-  } else if (options.retry) {
+  if (options.retry) {
     const retry = options.retry;
     summarizeCheckpoint.mockImplementation(async (input) => {
       if (input.variant === 'window')
         throw new Error('Expected an owner-model summary');
+
+      if (options.summarizeError) {
+        await Promise.resolve(input.onRetry?.(retry)).catch(() => {});
+        throw options.summarizeError;
+      }
+
       await input.onRetry?.(retry);
 
       return options.summary === undefined ? summary : options.summary;
     });
+  } else if (options.summarizeError) {
+    summarizeCheckpoint.mockRejectedValue(options.summarizeError);
   }
 
   const completeCompactionRun = vi
@@ -378,6 +384,46 @@ describe('CompactionRunService.execute', () => {
       }),
     );
     expect(made.completeCompactionRun).not.toHaveBeenCalled();
+  });
+  it('keeps retry persistence failure terminal when summary reports quota', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const retry: ModelRequestRetry = {
+      code: 'rate_limited',
+      retry: 1,
+      delayMs: 750,
+    };
+
+    const made = makeService({
+      retry,
+      recordRetryError: new Error('database detail must not escape'),
+      summarizeError: new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 3_600_000,
+      }),
+    });
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    expect(made.settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'failed' }),
+    );
+    const failure = made.settleTerminalRun.mock.calls[0]?.[0].error;
+
+    expect(failure).not.toHaveProperty('code');
+    expect(JSON.stringify(failure)).not.toContain('database detail');
+    expect(made.suspendCompactionForQuota).not.toHaveBeenCalled();
   });
 
   it('ignores a no-longer-runnable retry without settling the attempt', async () => {

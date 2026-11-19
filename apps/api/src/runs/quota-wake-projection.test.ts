@@ -129,16 +129,19 @@ describe('quota wake projection', () => {
     },
   );
 
-  it('does not replay an ordinary step checkpoint after its wake claim dies', () => {
-    const events = [
-      quotaSuspension(),
-      event(2, 'run.started', { attemptId: 'redelivery' }),
-    ];
+  it.each(['request', 'compactionRun'])(
+    'does not replay the parent checkpoint for a %s wake after its claim dies',
+    (resumeAt) => {
+      const events = [
+        quotaSuspension(3, 1, resumeAt),
+        event(2, 'run.started', { attemptId: 'redelivery' }),
+      ];
 
-    expect(
-      quotaCompactionStateFromEvents(events, quotaRequestFromEvents(events)),
-    ).toBeUndefined();
-  });
+      expect(
+        quotaCompactionStateFromEvents(events, quotaRequestFromEvents(events)),
+      ).toBeUndefined();
+    },
+  );
 
   it('does not treat kindless legacy job suspension and wake events as quota events', () => {
     const events = [
