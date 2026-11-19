@@ -2611,6 +2611,13 @@ describe('RunExecutionService executeRun', () => {
         ...run,
         activeAttemptId: testAttemptId,
       });
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
       const appended = recordAppendedEvents();
       const item = workspaceNotice(runId);
 
@@ -2836,6 +2843,13 @@ describe('RunExecutionService executeRun', () => {
     it('restarts an answer-only send with its own event window', async () => {
       const spies = mockNormalExecutionRepositories();
       spies.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({
         ...run,
         activeAttemptId: testAttemptId,
       });
@@ -6554,10 +6568,18 @@ describe('RunExecutionService executeRun — stream failure', () => {
       ),
     ]);
 
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const execution = makeExecutionService(client);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
       Promise.resolve(requests.length === 0 ? chat : undefined),
     );
-    const execution = makeExecutionService(client);
 
     const result = await execution.service.executeRun(executionInput(client));
     await result.consumeStream();
@@ -6628,6 +6650,13 @@ describe('RunExecutionService executeRun — stream failure', () => {
     async (mode) => {
       const spies = mockNormalExecutionRepositories();
       spies.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({
         ...run,
         activeAttemptId: testAttemptId,
       });
