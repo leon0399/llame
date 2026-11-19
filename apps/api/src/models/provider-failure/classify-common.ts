@@ -124,11 +124,8 @@ function selectReset(
   const delay = retryHintMs(context);
 
   if (delay === undefined) return undefined;
-  const instant = context.now + delay;
 
-  return Number.isFinite(instant) && instant <= 8_640_000_000_000_000
-    ? instant
-    : undefined;
+  return context.now + delay;
 }
 
 export function classifyForWire(

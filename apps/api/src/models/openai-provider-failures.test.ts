@@ -43,7 +43,7 @@ describe('OpenAI Responses provider failures', () => {
           new Response(
             JSON.stringify({
               error: {
-                message: 'Authentication failed',
+                message: 'Authentication failed: credential-canary',
                 code: 'invalid_api_key',
                 type: 'authentication_error',
               },
@@ -73,12 +73,15 @@ describe('OpenAI Responses provider failures', () => {
           }),
       };
 
+      let reportedFailure: unknown;
+
       try {
         const result = clients[wire]().streamText({
           chat: CHAT,
           messages,
           onReasoningDelta: () => undefined,
-          onError: async () => {
+          onError: async ({ error }) => {
+            reportedFailure = error;
             await persistence.promise;
           },
         });
@@ -91,6 +94,14 @@ describe('OpenAI Responses provider failures', () => {
         expect(failure).not.toHaveProperty('requestBodyValues');
         persistence.resolve();
         await result.consumeStream();
+        expect(reportedFailure).toBeInstanceOf(ProviderFailure);
+        expect(reportedFailure).toMatchObject({
+          code: 'auth',
+          statusCode: 401,
+        });
+        expect(JSON.stringify(reportedFailure)).not.toContain(
+          'credential-canary',
+        );
       } finally {
         persistence.resolve();
         globalThis.fetch = previousFetch;

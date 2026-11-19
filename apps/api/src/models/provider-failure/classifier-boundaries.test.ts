@@ -12,7 +12,11 @@ import {
   parseRetryAfter,
   type FailureContext,
 } from './classifier-utils';
-import { FAILURE_CLASSES, type FailureInput } from './provider-failure';
+import {
+  FAILURE_CLASSES,
+  ProviderFailure,
+  type FailureInput,
+} from './provider-failure';
 
 const now = Date.UTC(2026, 0, 1);
 
@@ -579,6 +583,44 @@ describe('provider classifier input boundaries', () => {
 
       expect(failure.code).toBe(code);
       expect(failure.resetsAt).toBe(resetsAt);
+    },
+  );
+
+  it.each(['resetsAt', 'hintMs'] as const)(
+    'rejects negative %s without discarding the failure class',
+    (field) => {
+      const failure = new ProviderFailure('Quota is exhausted.', {
+        code: 'quota_exhausted',
+        [field]: -1,
+      });
+
+      expect(failure.code).toBe('quota_exhausted');
+      expect(failure[field]).toBeUndefined();
+    },
+  );
+
+  it.each(['resetsAt', 'hintMs'] as const)(
+    'retains the valid zero boundary for %s',
+    (field) => {
+      const failure = new ProviderFailure('Quota is exhausted.', {
+        code: 'quota_exhausted',
+        [field]: 0,
+      });
+
+      expect(failure[field]).toBe(0);
+    },
+  );
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'omits a non-finite HTTP status %s from a safe failure',
+    (statusCode) => {
+      const failure = new ProviderFailure('Quota is exhausted.', {
+        code: 'quota_exhausted',
+        statusCode,
+      });
+
+      expect(failure.statusCode).toBeUndefined();
+      expect(failure.code).toBe('quota_exhausted');
     },
   );
 

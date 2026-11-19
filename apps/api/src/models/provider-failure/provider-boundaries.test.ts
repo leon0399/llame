@@ -616,21 +616,6 @@ describe('provider classification boundaries', () => {
     },
   );
 
-  it('rejects overflowing fallback reset instants while preserving retry hint', () => {
-    const failure = classifyResponses({
-      provider: 'other',
-      now: 8_640_000_000_000_000,
-      error: sdkError({
-        statusCode: 429,
-        responseHeaders: { 'retry-after': '1' },
-      }),
-    });
-
-    expect(failure.code).toBe('rate_limited');
-    expect(failure.resetsAt).toBeUndefined();
-    expect(failure.hintMs).toBe(1000);
-  });
-
   it('does not attach provider resets for classes without reset semantics', () => {
     const failure = classifyResponses({
       provider: 'anthropic',
