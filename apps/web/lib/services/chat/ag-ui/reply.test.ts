@@ -261,6 +261,7 @@ describe("ReplyReducer", () => {
     reducer.apply({ type: EventType.TEXT_MESSAGE_END, messageId: "active" });
     reducer.apply({
       type: EventType.TOOL_CALL_RESULT,
+      messageId: "result-retained-tool",
       toolCallId: "retained-tool",
       content: '{"cwd":"/workspace"}',
     });

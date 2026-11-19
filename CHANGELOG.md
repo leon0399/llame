@@ -11,6 +11,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   and retry-event writes. Each case now reaches its intended durable fence
   and verifies failure without another provider send or a published reply.
 
+- Carry model retry and broken-send supersession notices through AG-UI.
+  Supersession addresses the stream's text and reasoning message ids, so
+  live and reconnected replies remove discarded output while preserving
+  earlier content, tool results, and usage metadata.
+
 - Bound structured model sends with the same first-token deadline and retry
   allowance as streaming sends. Retry events take the active Run's row lock
   before the Chat lock, so a terminal commit cannot be followed by a retry
