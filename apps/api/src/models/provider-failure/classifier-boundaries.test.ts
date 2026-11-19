@@ -3,20 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { classifyAnthropic } from './classify-anthropic';
 import { classifyCompletions } from './classify-completions';
 import { classifyResponses } from './classify-responses';
-import { FAILURE_CLASSES } from './provider-failure';
+import {
+  bodyResetAt,
+  header,
+  parseDurationMs,
+  parseEpochSeconds,
+  parseInstant,
+  parseRetryAfter,
+  type FailureContext,
+} from './classifier-utils';
+import { FAILURE_CLASSES, type FailureInput } from './provider-failure';
 
 const now = Date.UTC(2026, 0, 1);
 
-type SdkErrorFields = {
-  statusCode?: unknown;
-  responseBody?: unknown;
-  response?: unknown;
-  responseHeaders?: unknown;
-  code?: unknown;
-  lastError?: unknown;
-};
-
-function sdkError(fields: SdkErrorFields = {}) {
+function sdkError(fields: FailureInput['error'] = {}) {
   return Object.assign(new Error('request failed'), fields);
 }
 
@@ -352,5 +352,244 @@ describe('provider classifier input boundaries', () => {
 
     expect(failure.code).toBe('billing');
     expect(failure.resetsAt).toBeUndefined();
+  });
+  it('normalizes response header names and numeric values before reset classification', () => {
+    const failure = classifyResponses({
+      provider: 'openai',
+      now,
+      error: sdkError({
+        statusCode: 429,
+        responseBody: { error: { code: 'rate_limit_exceeded' } },
+        responseHeaders: {
+          'X-RateLimit-Remaining-Requests': 0,
+          'X-RateLimit-Reset-Requests': '250ms',
+        },
+      }),
+    });
+
+    expect(header({ 'Retry-After': '3' }, 'retry-after')).toBe('3');
+    expect(failure.code).toBe('rate_limited');
+    expect(failure.resetsAt).toBe(now + 250);
+  });
+
+  it.each([
+    [{ 'retry-after-ms': '0' }, 0],
+    [{ 'retry-after-ms': '-1', 'Retry-After': '2' }, 2000],
+    [{ 'retry-after': '0' }, 0],
+    [{ 'retry-after': '   ' }, undefined],
+    [{ 'retry-after': '-0.5' }, undefined],
+    [{ 'retry-after': 'not a date' }, undefined],
+    [{ 'retry-after': 'Thu, 01 Jan 2026 00:00:02 GMT' }, 2000],
+    [{ 'retry-after': 'Thu, 01 Jan 2025 00:00:00 GMT' }, 0],
+  ] as const)(
+    'parses retry hints with zero, invalid, and date boundaries: %j',
+    (headers, expected) => {
+      expect(parseRetryAfter(headers, now)).toBe(expected);
+    },
+  );
+
+  it('keeps a bare Retry-After as a hint without inventing a quota reset', () => {
+    const failure = classifyResponses({
+      provider: 'custom-provider',
+      now,
+      error: sdkError({
+        statusCode: 429,
+        responseBody: { error: { code: 'rate_limit_exceeded' } },
+        responseHeaders: { 'retry-after': '1.5' },
+      }),
+    });
+
+    expect(failure.code).toBe('rate_limited');
+    expect(failure.resetsAt).toBeUndefined();
+    expect(failure.hintMs).toBe(1500);
+  });
+
+  it.each([
+    ['0', 0],
+    [0, 0],
+    ['8640000000000', 8_640_000_000_000_000],
+    ['-1', undefined],
+    ['', undefined],
+    ['Infinity', undefined],
+    ['8640000000001', undefined],
+  ] as const)(
+    'parses epoch seconds at numeric boundaries: %j',
+    (value, expected) => {
+      expect(parseEpochSeconds(value)).toBe(expected);
+    },
+  );
+
+  it.each([
+    ['1970-01-01T00:00:00.000Z', 0],
+    ['2026-01-01T00:00:00.000Z', now],
+    ['1969-12-31T23:59:59.999Z', undefined],
+    ['', undefined],
+    ['not-a-date', undefined],
+  ] as const)(
+    'accepts only valid nonnegative reset instants: %j',
+    (value, expected) => {
+      expect(parseInstant(value)).toBe(expected);
+    },
+  );
+
+  it.each([
+    ['0', 0],
+    ['1.25', 1250],
+    ['250ms', 250],
+    ['1.5s', 1500],
+    ['1h2m3.5s250ms', 3_723_750],
+    [' 6M0S ', 360_000],
+    ['-1s', undefined],
+    ['1.1234s', 1123.4],
+    ['1.2.3s', undefined],
+    ['1s trailing', undefined],
+    ['1d', undefined],
+    ['0s', 0],
+    ['9'.repeat(400) + 'h', undefined],
+  ] as const)(
+    'accepts complete duration sequences and rejects malformed units: %j',
+    (value, expected) => {
+      if (expected === undefined)
+        expect(parseDurationMs(value)).toBeUndefined();
+      else expect(parseDurationMs(value)).toBeCloseTo(expected, 6);
+    },
+  );
+  it('uses a metadata reset timestamp when the enclosing error has no reset', () => {
+    const context: FailureContext = {
+      message: 'Provider request failed',
+      headers: {},
+      error: { metadata: { resets_at: '2026-01-01T00:00:03.000Z' } },
+      transportError: {},
+      now,
+    };
+
+    expect(bodyResetAt(context)).toBe(now + 3000);
+  });
+
+  it('uses nested provider payloads without exposing payload messages over the transport message', () => {
+    const failure = classifyResponses({
+      provider: 'openai',
+      now,
+      error: sdkError({
+        statusCode: 429,
+        responseBody: {
+          error: {
+            code: 'rate_limit_exceeded',
+            message: 'private provider payload detail',
+          },
+        },
+      }),
+    });
+
+    expect(failure.code).toBe('rate_limited');
+    expect(failure.message).toBe('request failed');
+    expect(failure.message).not.toContain('private provider payload detail');
+  });
+
+  it('uses response body only when it is a record and preserves response error precedence', () => {
+    const malformedBody = classifyResponses({
+      provider: 'openai',
+      now,
+      error: sdkError({
+        statusCode: 429,
+        responseBody: ['error', { code: 'rate_limit_exceeded' }],
+        response: {
+          status: 429,
+          body: { error: { code: 'usage_not_included' } },
+        },
+      }),
+    });
+
+    const malformedEnvelope = classifyResponses({
+      provider: 'openai',
+      now,
+      error: {
+        statusCode: 429,
+        response: ['not', 'a response record'],
+        responseBody: { error: { code: 'rate_limit_exceeded' } },
+      },
+    });
+
+    expect(malformedBody.code).toBe('billing');
+    expect(malformedEnvelope.code).toBe('rate_limited');
+  });
+
+  it('uses only recognized raw direct signals and does not let unrelated transport codes mask body errors', () => {
+    const direct = classifyResponses({
+      provider: 'openai',
+      now,
+      error: sdkError({ statusCode: 500, code: 'insufficient_quota' }),
+    });
+
+    const bodyOverRaw = classifyResponses({
+      provider: 'openai',
+      now,
+      error: sdkError({
+        statusCode: 429,
+        error: { code: 'insufficient_quota' },
+        responseBody: { error: { code: 'rate_limit_exceeded' } },
+      }),
+    });
+
+    expect(direct.code).toBe('billing');
+    expect(bodyOverRaw.code).toBe('rate_limited');
+  });
+
+  it.each([
+    {
+      signal: 'details.error_code',
+      error: sdkError({ details: { error_code: 'insufficient_quota' } }),
+      provider: 'openai',
+      code: 'billing',
+      resetsAt: undefined,
+    },
+    {
+      signal: 'error_code',
+      error: sdkError({ error_code: 'insufficient_quota' }),
+      provider: 'openai',
+      code: 'billing',
+      resetsAt: undefined,
+    },
+    {
+      signal: 'metadata',
+      error: sdkError({
+        metadata: {
+          limit_source: 'account',
+          resets_at: '2026-01-01T00:00:04.000Z',
+        },
+      }),
+      provider: 'openrouter',
+      code: 'quota_exhausted',
+      resetsAt: now + 4000,
+    },
+    {
+      signal: 'resets_at',
+      error: sdkError({
+        limit_source: 'account',
+        resets_at: '2026-01-01T00:00:05.000Z',
+      }),
+      provider: 'openrouter',
+      code: 'quota_exhausted',
+      resetsAt: now + 5000,
+    },
+  ] as const)(
+    'classifies a raw direct signal carried by $signal',
+    ({ error, provider, code, resetsAt }) => {
+      const failure = classifyResponses({ provider, error, now });
+
+      expect(failure.code).toBe(code);
+      expect(failure.resetsAt).toBe(resetsAt);
+    },
+  );
+
+  it('uses a safe generic message for non-error input', () => {
+    const failure = classifyResponses({
+      provider: 'openai',
+      now,
+      error: 'unexpected scalar failure',
+    });
+
+    expect(failure.code).toBe('unknown');
+    expect(failure.message).toBe('Provider request failed');
   });
 });
