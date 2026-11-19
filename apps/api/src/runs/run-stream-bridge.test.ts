@@ -546,6 +546,7 @@ describe('createRunEventTranslator', () => {
     );
   });
 
+
   it.each([
     ['run.expired', toolTerminationMessage('expired')],
     ['run.failed', toolTerminationMessage('failed')],

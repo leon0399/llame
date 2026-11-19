@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-19
 
+- Recheck active Run ownership and durable cancellation after a broken-send
+  retry delay before dispatching its replacement. An owner interrupt during
+  that delay closes the reply as aborted and delivers the pending message
+  without cancelling the Run.
+
 - Strengthen broken-stream recovery regressions for lost text, supersession,
   and retry-event writes. Each case now reaches its intended durable fence
   and verifies failure without another provider send or a published reply.

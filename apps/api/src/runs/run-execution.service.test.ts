@@ -6651,27 +6651,27 @@ describe('RunExecutionService executeRun — stream failure', () => {
     },
   );
 
-  it.each(['cancel', 'interrupt'] as const)(
-    'settles cancellation during the first broken-send retry delay (%s)',
-    async (mode) => {
+  it.each(['cancelled', 'reclaimed'] as const)(
+    'does not resend when the Run is durably %s during the retry delay',
+    async (state) => {
       const spies = mockNormalExecutionRepositories();
-      spies.findById.mockResolvedValue({
-        ...run,
-        activeAttemptId: testAttemptId,
-      });
-      vi.spyOn(
-        RunRowFenceRepository.prototype,
-        'lockForDelivery',
-      ).mockResolvedValue({
-        ...run,
-        activeAttemptId: testAttemptId,
-      });
+      const active = { ...run, activeAttemptId: testAttemptId };
+
+      const fence = vi
+        .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
+        .mockResolvedValue(active);
+
       const appended: Array<string> = [];
-      const retrying = Promise.withResolvers<void>();
+
       spies.appendEvent.mockImplementation((_id, type, payload) => {
         appended.push(type);
 
-        if (type === 'model.retrying') retrying.resolve();
+        if (type === 'model.retrying')
+          fence.mockResolvedValue(
+            state === 'cancelled'
+              ? { ...active, cancelRequestedAt: now }
+              : undefined,
+          );
 
         return Promise.resolve({
           ...event,
@@ -6680,53 +6680,107 @@ describe('RunExecutionService executeRun — stream failure', () => {
         });
       });
       const controller = new AbortController();
-      const capturing = makeCapturingClient();
-      const dispatch = vi.spyOn(capturing.client, 'streamText');
-      const aborts = new RunAbortRegistry();
-      aborts.register(runId, userId);
 
-      const execution = makeExecutionService(
-        capturing.client,
-        undefined,
-        undefined,
-        {
-          segmentAborts: aborts,
-        },
+      const { client, requests } = createToolLoopClient([
+        providerResponse(
+          [
+            { type: 'text-start', id: 'draft' },
+            { type: 'text-delta', id: 'draft', delta: 'discarded draft' },
+            {
+              type: 'error',
+              error: new ProviderFailure('broken', { code: 'stream_broken' }),
+            },
+          ],
+          'stop',
+        ),
+        providerText('A cancelled or reclaimed attempt must not send this.'),
+      ]);
+
+      const execution = makeExecutionService(client);
+
+      const result = await execution.service.executeRun(
+        executionInput(client, controller.signal),
       );
 
-      await execution.service.executeRun(
-        executionInput(capturing.client, controller.signal),
-      );
-      const options = capturing.streamOptions();
-      options.onTextDelta?.('discarded draft');
+      await result.consumeStream();
 
-      const handling = options.onError?.({
-        error: new ProviderFailure('broken', {
-          code: 'stream_broken',
-          superseded: { retry: 1, delayMs: 60_000 },
-        }),
-      });
+      expect(controller.signal.aborted).toBe(false);
+      expect(requests).toHaveLength(1);
 
-      await retrying.promise;
-
-      try {
-        if (mode === 'interrupt')
-          expect(interruptCurrent(aborts, runId)).toBe(true);
-      } finally {
-        controller.abort();
-        await handling;
+      if (state === 'cancelled') {
+        expect(spies.markFinished).toHaveBeenCalledWith(
+          runId,
+          userId,
+          'cancelled',
+          expect.anything(),
+        );
+        expect(appended).toContain('run.cancelled');
+      } else {
+        expect(spies.markFinished).not.toHaveBeenCalled();
+        expect(appended).not.toContain('run.cancelled');
+        expect(appended).not.toContain('run.failed');
       }
-
-      expect(spies.markFinished).toHaveBeenCalledWith(
-        runId,
-        userId,
-        'cancelled',
-        expect.anything(),
-      );
-      expect(dispatch).toHaveBeenCalledTimes(1);
-      expect(appended).toContain('run.cancelled');
     },
   );
+
+  it('settles parent cancellation during the first broken-send retry delay', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    const appended: Array<string> = [];
+    const retrying = Promise.withResolvers<void>();
+    spies.appendEvent.mockImplementation((_id, type, payload) => {
+      appended.push(type);
+
+      if (type === 'model.retrying') retrying.resolve();
+
+      return Promise.resolve({
+        ...event,
+        eventType: type,
+        payload: payload ?? null,
+      });
+    });
+    const controller = new AbortController();
+    const capturing = makeCapturingClient();
+    const dispatch = vi.spyOn(capturing.client, 'streamText');
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(
+      executionInput(capturing.client, controller.signal),
+    );
+    const options = capturing.streamOptions();
+    options.onTextDelta?.('discarded draft');
+
+    const handling = options.onError?.({
+      error: new ProviderFailure('broken', {
+        code: 'stream_broken',
+        superseded: { retry: 1, delayMs: 60_000 },
+      }),
+    });
+
+    await retrying.promise;
+
+    controller.abort();
+    await handling;
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.anything(),
+    );
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(appended).toContain('run.cancelled');
+  });
 
   it('settles the run as failed when a progress write is lost, discarding the streamed turn', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -25190,6 +25244,63 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     vi.waitFor(() =>
       expect(appended.map((entry) => entry.type)).toContain(type),
     );
+
+  it('delivers an interrupt during broken-send retry without cancelling the Run', async () => {
+    const controller = new AbortController();
+    const rig = interruptRig({ native: ['read'] });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+    const { result, options } = await rig.start(controller.signal);
+    options.onTextDelta?.('discarded draft');
+
+    const handling = options.onError?.({
+      error: new ProviderFailure('broken', {
+        code: 'stream_broken',
+        superseded: { retry: 1, delayMs: 60_000 },
+      }),
+    });
+
+    try {
+      await waitForType(rig.appended, 'model.retrying');
+      serveInterrupt([interruptItem]);
+      vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+        deliveredMessage,
+      );
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        userMessage,
+        deliveredMessage,
+      ]);
+      expect(interruptCurrent(rig.aborts, runId)).toBe(true);
+      await handling;
+
+      expect(controller.signal.aborted).toBe(false);
+      expect(delivered(rig.appended)).toMatchObject({
+        cause: 'interrupt',
+        stoppedCalls: [],
+      });
+      expect(
+        rig.spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0].usage,
+      ).toMatchObject({ status: 'aborted' });
+      expect(rig.spies.markFinished).not.toHaveBeenCalled();
+      expect(rig.appended.map(({ type }) => type)).not.toContain(
+        'run.cancelled',
+      );
+      expect(rig.calls).toHaveLength(1);
+
+      await result.consumeStream();
+
+      expect(rig.calls).toHaveLength(2);
+      expect(JSON.stringify(rig.calls[1]?.messages)).toContain('change course');
+      expect(JSON.stringify(rig.calls[1]?.messages)).not.toContain(
+        'discarded draft',
+      );
+    } finally {
+      controller.abort();
+      await handling;
+    }
+  });
 
   const NOT_RUN =
     'This call did not run. The owner interrupted the step before it started. Run it again if you still need it.';

@@ -4488,6 +4488,10 @@ function supersededReply(retry: Promise<void>, finished: Promise<void>) {
   });
 }
 
+/**
+ * Exercise supersession during streaming without reloading the Chat.
+ * @summary Removes discarded output from a live reply.
+ */
 export const SupersededSendLeavesLiveReply: Story = {
   tags: ["ai-generated"],
   parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
@@ -4525,6 +4529,10 @@ export const SupersededSendLeavesLiveReply: Story = {
   },
 };
 
+/**
+ * Exercise reconstruction after reloading a Chat with a superseded send.
+ * @summary Keeps discarded output absent from replay.
+ */
 export const SupersededSendStaysAbsentOnReplay: Story = {
   tags: ["ai-generated"],
   parameters: { latestRun: liveRun() } satisfies ChatPageParameters,

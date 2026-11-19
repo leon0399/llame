@@ -4103,8 +4103,10 @@ export class RunExecutionService {
         }
       };
 
-      const settleSupersededAbort = async (): Promise<void> => {
-        if (stoppedByInterrupt()) {
+      const settleSupersededAbort = async (
+        cancelRequested: boolean,
+      ): Promise<void> => {
+        if (!cancelRequested && stoppedByInterrupt()) {
           await settleOnInterrupt();
 
           if (!input.abortSignal?.aborted) {
@@ -4120,7 +4122,7 @@ export class RunExecutionService {
           return;
         }
 
-        if (input.abortSignal?.aborted) {
+        if (cancelRequested || input.abortSignal?.aborted) {
           const status = classifyAbortedRun(input.abortSignal);
 
           const message = this.abortedRunMessage(status, input.abortSignal);
@@ -4206,8 +4208,20 @@ export class RunExecutionService {
             signal: callSignal,
           }).catch(noop);
 
-          if (callSignal?.aborted) {
-            await settleSupersededAbort();
+          const current = await this.tenantDb.runAs(input.userId, (tx) =>
+            new RunRowFenceRepository(tx).lockForDelivery(
+              input.runId,
+              input.userId,
+              attemptId,
+            ),
+          );
+
+          if (current === undefined) return;
+
+          const cancelRequested = current.cancelRequestedAt !== null;
+
+          if (callSignal?.aborted || cancelRequested) {
+            await settleSupersededAbort(cancelRequested);
 
             return;
           }
