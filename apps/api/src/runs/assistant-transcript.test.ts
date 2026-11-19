@@ -869,6 +869,33 @@ describe('reconstructDurableAssistant', () => {
     ).toEqual([{ type: 'text', text: 'kept' }]);
   });
 
+  it('removes superseded output and keeps the following send', () => {
+    const at = (
+      sequence: number,
+      eventType: string,
+      payload: RunEvent['payload'],
+    ) => ({
+      ...event(eventType, payload),
+      sequence,
+    });
+
+    const parts = reconstructDurableAssistant([
+      at(1, 'model.delta', { text: 'before|' }),
+      at(2, 'reasoning.delta', { text: 'start-boundary' }),
+      at(3, 'model.delta', { text: 'inside|' }),
+      at(4, 'reasoning.delta', { text: 'inside-reasoning' }),
+      at(5, 'model.delta', { text: 'last-excluded|' }),
+      at(6, 'model.superseded', { fromSequence: 2, step: 0 }),
+      at(7, 'model.delta', { text: 'end-boundary' }),
+      at(8, 'reasoning.delta', { text: '|after' }),
+    ]).collector.parts();
+
+    expect(parts).toEqual([
+      { type: 'text', text: 'before|end-boundary' },
+      { type: 'reasoning', text: '|after' },
+    ]);
+  });
+
   it('rebuilds an error part with its artifact locator', () => {
     const result = reconstructDurableAssistant([
       event('tool.requested', {
