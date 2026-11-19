@@ -51,13 +51,22 @@ describe('quota-wait awaiting backfill', () => {
       tx.execute(sql`
       UPDATE runs
       SET status = 'awaiting_jobs',
-          awaiting = ${JSON.stringify(legacyAwaiting)}::jsonb,
+          awaiting = (${JSON.stringify(legacyAwaiting)}::text)::jsonb,
           current_job_id = ${jobId}::uuid,
           wake_generation = ${generation},
           active_attempt_id = NULL
       WHERE id = ${seeded.runId}::uuid
     `),
     );
+    expect(
+      await fx.db((tx) =>
+        tx.execute(sql`
+        SELECT jsonb_typeof(awaiting) AS awaiting_type
+        FROM runs
+        WHERE id = ${seeded.runId}::uuid
+      `),
+      ),
+    ).toMatchObject([{ awaiting_type: 'object' }]);
 
     await fx.db(async (tx) => {
       await tx.execute(

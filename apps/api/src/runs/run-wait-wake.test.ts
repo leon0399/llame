@@ -143,6 +143,24 @@ function makeFixture(
 afterEach(() => vi.restoreAllMocks());
 
 describe('RunWaitService wake transactions', () => {
+  it('ignores a wake when the initial candidate query finds no run', async () => {
+    const fixture = makeFixture([[]]);
+
+    await expect(
+      fixture.service.wakeInTransaction(fixture.tx, {
+        runId: 'run-1',
+        userId: 'user-1',
+        generation: waitingRun.wakeGeneration,
+        cause: 'settled',
+      }),
+    ).resolves.toBe(false);
+
+    expect(fixture.updates).toHaveLength(0);
+    expect(fixture.append).not.toHaveBeenCalled();
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
+  });
+
   it('rejects a deadline wake with a stale queue identity', async () => {
     const fixture = makeFixture([
       [waitingRun],

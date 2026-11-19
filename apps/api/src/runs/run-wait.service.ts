@@ -275,7 +275,8 @@ export class RunWaitService {
       .where(wakeRunPredicate(input))
       .limit(1);
 
-    if (!awaitingMatchesStatus(candidate)) return undefined;
+    if (candidate === undefined || !awaitingMatchesStatus(candidate))
+      return undefined;
 
     if (!(await new ChatsRepository(tx).lock(candidate.chatId, input.userId)))
       return undefined;
