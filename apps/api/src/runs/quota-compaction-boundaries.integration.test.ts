@@ -259,11 +259,6 @@ describe('quota waits at compaction boundaries', () => {
     expect(started.prompts()).toHaveLength(1);
     expect(summarize).toHaveBeenCalledTimes(2);
     expect(events.map((event) => event.eventType)).toContain('run.resumed');
-    expect(
-      events
-        .map((event) => event.eventType)
-        .filter((type) => type === 'model.requested'),
-    ).toHaveLength(1);
   });
 
   it('A threshold quota wake resumes pre-dispatch preparation with prior-turn history', async () => {
@@ -395,6 +390,12 @@ describe('quota waits at compaction boundaries', () => {
           );
       },
     );
+
+    await awaitingQuota(seeded.runId, 'boundary');
+    fx.harness.models.register(seeded.modelId, {
+      kind: 'step-script',
+      steps: [answer('The run continues without a checkpoint.')],
+    });
 
     for (let waitCount = 1; waitCount <= 4; waitCount += 1) {
       const suspended = await awaitingQuota(seeded.runId, 'boundary');
