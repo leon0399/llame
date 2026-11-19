@@ -2943,6 +2943,11 @@ describe('RunExecutionService executeRun', () => {
           runWait: asDouble<RunWaitService>({ suspendForQuota }),
         });
 
+        vi.spyOn(
+          RunRowFenceRepository.prototype,
+          'lockForDelivery',
+        ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+
         const result = await execution.service.executeRun(
           executionInput(client),
         );
@@ -3070,62 +3075,245 @@ describe('RunExecutionService executeRun', () => {
       expect(appended.map(({ type }) => type)).not.toContain('run.completed');
     });
 
-    it('completes a quota wake with its restored reply prefix', async () => {
+    it('completes a quota wake through the fenced claim with its restored reply prefix', async () => {
       const spies = mockNormalExecutionRepositories();
-      spies.findById.mockResolvedValue({
+      const generation = 3;
+      const attemptId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+      const resetsAt = new Date(Date.now() - 120_000).toISOString();
+      const wakeAt = new Date(Date.now() - 60_000).toISOString();
+
+      const awaiting = {
+        kind: 'quota' as const,
+        failureClass: 'quota_exhausted' as const,
+        resetsAt,
+        wakeAt,
+        resumeAt: 'request' as const,
+        waitCount: 1,
+      };
+
+      const queued = {
         ...run,
-        activeAttemptId: testAttemptId,
-      });
+        status: 'queued' as const,
+        activeAttemptId: null,
+        awaiting,
+        wakeGeneration: generation,
+        currentJobId: 'quota-wake-job',
+      };
+
+      const started = {
+        ...queued,
+        status: 'running_model' as const,
+        activeAttemptId: attemptId,
+      };
+
+      spies.findById.mockResolvedValueOnce(queued).mockResolvedValue(started);
       const appended = recordAppendedEvents();
+      vi.spyOn(
+        RunEventsRepository.prototype,
+        'latestSequence',
+      ).mockImplementation(() => Promise.resolve(3 + appended.length));
+
+      const checkpoint = [
+        { type: 'text', text: 'before the quota wait', step: 2 },
+      ];
+
+      const quotaEvents: Array<RunEvent> = [
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: testAttemptId,
+            generation,
+            ...awaiting,
+            parts: checkpoint,
+            steps: {},
+          },
+        },
+        {
+          ...event,
+          sequence: 3,
+          eventType: 'run.resumed',
+          payload: {
+            generation,
+            kind: 'quota',
+            attemptId,
+            cause: 'timeout',
+          },
+        },
+      ];
+
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+        (_runId, _userId, options) =>
+          Promise.resolve(
+            filterDurableEvents(
+              [...quotaEvents, ...durableEventsFrom(appended)],
+              options,
+            ),
+          ),
+      );
       vi.spyOn(
         ChatsRepository.prototype,
         'setSkillCatalogBaseline',
       ).mockResolvedValue(undefined);
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({ ...started, awaiting: null });
 
       const { client, requests } = createToolLoopClient([
         providerText('after the wait'),
       ]);
 
       const execution = makeExecutionService(client);
-      vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
-        effort: undefined,
-        permissionMode: 'default',
-        attemptId: testAttemptId,
-        messageId,
-        nativeDeliverySequence: 1,
-        wakeState: {
-          parts: [{ type: 'text', text: 'before the wait', step: 2 }],
-        },
-        quotaRequest: {
-          generation: 13,
-          resumeAt: 'request',
-          waitCount: 2,
-        },
-        quotaWake: true,
+      spies.markStarted.mockResolvedValue(started);
+      spies.updateForAttempt.mockResolvedValue({ ...started, awaiting: null });
+      Object.defineProperty(execution.db, 'select', {
+        configurable: true,
+        value: () => ({
+          from: () => ({
+            innerJoin: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  limit: () =>
+                    Promise.resolve([
+                      {
+                        eventType: 'run.resumed',
+                        payload: {
+                          generation,
+                          kind: 'quota',
+                          attemptId,
+                          cause: 'timeout',
+                        },
+                      },
+                    ]),
+                }),
+              }),
+            }),
+            where: () => Promise.resolve([]),
+          }),
+        }),
       });
 
-      const result = await execution.service.executeRun(executionInput(client));
+      const result = await execution.service.executeRun({
+        ...executionInput(client),
+        expectedQueueIdentity: {
+          currentJobId: 'quota-wake-job',
+          wakeGeneration: generation,
+        },
+      });
+
       await expect(result.text).resolves.toBe('after the wait');
 
-      const replyParts =
-        spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts;
-
+      expect(spies.markStarted).toHaveBeenCalledWith(runId, userId, {
+        expectedQueueIdentity: {
+          currentJobId: 'quota-wake-job',
+          wakeGeneration: generation,
+        },
+        attemptId,
+      });
+      expect(spies.updateForAttempt).toHaveBeenCalledWith(
+        runId,
+        userId,
+        attemptId,
+        { awaiting: null },
+      );
       expect(requests).toHaveLength(1);
       expect(appended).toContainEqual({
-        type: 'run.quota_recovered',
-        payload: { generation: 13, resumeAt: 'request' },
+        type: 'run.started',
+        payload: { attemptId },
       });
-      expect(spies.appendEvent).toHaveBeenCalledWith(
-        runId,
-        'run.quota_recovered',
-        { generation: 13, resumeAt: 'request' },
-      );
-      expect(JSON.stringify(requests[0])).toContain('before the wait');
-      expect(replyParts).toContainEqual({
+      expect(appended).toContainEqual({
+        type: 'run.quota_recovered',
+        payload: { generation, resumeAt: 'request' },
+      });
+      expect(JSON.stringify(requests[0])).toContain('before the quota wait');
+      expect(
+        spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
+      ).toContainEqual({
         type: 'text',
-        text: 'before the wait',
+        text: 'before the quota wait',
         step: 2,
       });
+    });
+    it('fails closed when a quota wake has no resumed attempt identity', async () => {
+      const spies = mockNormalExecutionRepositories();
+
+      const queued = {
+        ...run,
+        status: 'queued' as const,
+        activeAttemptId: null,
+        awaiting: {
+          kind: 'quota' as const,
+          failureClass: 'quota_exhausted' as const,
+          resetsAt: new Date(Date.now() - 120_000).toISOString(),
+          wakeAt: new Date(Date.now() - 60_000).toISOString(),
+          resumeAt: 'request' as const,
+          waitCount: 1,
+        },
+        wakeGeneration: 3,
+        currentJobId: 'quota-wake-job',
+      };
+
+      spies.findById.mockResolvedValueOnce(queued);
+
+      const resumedWithoutIdentity = {
+        ...event,
+        sequence: 3,
+        eventType: 'run.resumed' as const,
+        payload: {
+          generation: 3,
+          kind: 'quota',
+          cause: 'timeout',
+        },
+      };
+
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: testAttemptId,
+            generation: 3,
+            ...queued.awaiting,
+            parts: [{ type: 'text', text: 'checkpoint' }],
+            steps: {},
+          },
+        },
+        resumedWithoutIdentity,
+      ]);
+
+      const { client, requests } = createToolLoopClient([
+        providerText('must not dispatch'),
+      ]);
+
+      const execution = makeExecutionService(client);
+
+      await expect(
+        execution.service.executeRun({
+          ...executionInput(client),
+          expectedQueueIdentity: {
+            currentJobId: 'quota-wake-job',
+            wakeGeneration: 3,
+          },
+        }),
+      ).rejects.toThrow('The quota wake has no waking attempt identity.');
+
+      expect(spies.markStarted).not.toHaveBeenCalled();
+      expect(requests).toHaveLength(0);
     });
     it('increments the persisted wait count after a quota wake is claimed', async () => {
       mockNormalExecutionRepositories();

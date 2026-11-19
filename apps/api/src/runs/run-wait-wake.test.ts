@@ -181,6 +181,25 @@ describe('RunWaitService wake transactions', () => {
     expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
     expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
   });
+
+  it('rejects a quota deadline wake when the queue identity read finds no row', async () => {
+    const fixture = makeFixture([[quotaWaitingRun], []]);
+
+    await expect(
+      fixture.service.wakeInTransaction(fixture.tx, {
+        runId: quotaWaitingRun.id,
+        userId: quotaWaitingRun.userId,
+        generation: quotaWaitingRun.wakeGeneration,
+        cause: 'timeout',
+        deadlineJobId: quotaWaitingRun.currentJobId!,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fixture.updates).toHaveLength(0);
+    expect(fixture.append).not.toHaveBeenCalled();
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
   it('rejects a quota wake whose generation disappears after the chat lock', async () => {
     const fixture = makeFixture([
       [quotaWaitingRun],

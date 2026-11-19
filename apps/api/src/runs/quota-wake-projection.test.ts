@@ -241,6 +241,83 @@ describe('quota wake projection', () => {
     ).toBeUndefined();
   });
 
+  it('stops restoring the checkpoint and quota request after delivery', () => {
+    const events = [
+      quotaSuspension(),
+      event(2, 'run.resumed', {
+        kind: 'quota',
+        attemptId: 'wake-attempt',
+        generation: 3,
+        cause: 'timeout',
+      }),
+      event(3, 'run.started', { attemptId: 'wake-attempt' }),
+      event(4, 'model.requested', { modelId: 'model-a' }),
+      event(5, 'run.delivered', { messageId: 'message-a' }),
+    ];
+
+    expect(quotaWakeStateFromEvents(events, 'wake-attempt')).toBeUndefined();
+    expect(quotaRequestFromEvents(events)).toBeUndefined();
+  });
+
+  it('matches a waking attempt after the original run start and model request', () => {
+    const events = [
+      event(1, 'run.started', { attemptId: 'original-attempt' }),
+      event(2, 'model.requested', { modelId: 'model-a' }),
+      event(3, 'run.suspended', quotaPayload()),
+      event(4, 'run.resumed', {
+        kind: 'quota',
+        attemptId: 'wake-attempt',
+        generation: 3,
+        cause: 'timeout',
+      }),
+      event(5, 'run.started', { attemptId: 'wake-attempt' }),
+    ];
+
+    expect(quotaWakeStateFromEvents(events, 'wake-attempt')).toEqual({
+      parts: [{ type: 'text', text: 'before wait', step: 4 }],
+    });
+  });
+
+  it('accepts each durable quota failure class and resume position', () => {
+    for (const failureClass of ['rate_limited', 'quota_exhausted']) {
+      for (const resumeAt of [
+        'request',
+        'preDispatch',
+        'boundary',
+        'finalAnswer',
+        'compactionRun',
+      ]) {
+        expect(
+          quotaRequestFromEvents([
+            event(1, 'run.suspended', {
+              ...quotaPayload(1, 1, resumeAt),
+              failureClass,
+            }),
+          ]),
+        ).toEqual({ resumeAt, waitCount: 1, generation: 1 });
+      }
+    }
+  });
+
+  it('rejects unknown quota failure classes and any invalid checkpoint part', () => {
+    expect(
+      quotaRequestFromEvents([
+        event(1, 'run.suspended', {
+          ...quotaPayload(),
+          failureClass: 'unknown',
+        }),
+      ]),
+    ).toBeUndefined();
+    expect(
+      quotaRequestFromEvents([
+        event(1, 'run.suspended', {
+          ...quotaPayload(),
+          parts: [{ type: 'text', text: 'valid part' }, null],
+        }),
+      ]),
+    ).toBeUndefined();
+  });
+
   it('restores only the quota checkpoint after the latest delivery boundary', () => {
     const events = [
       quotaSuspension(3),

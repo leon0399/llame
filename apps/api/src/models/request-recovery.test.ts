@@ -132,9 +132,14 @@ function text(parts: Array<LanguageModelV3StreamPart>) {
 
 afterEach(() => vi.useRealTimers());
 
-it.each([false, true])(
-  'retains the complete-tool quota cutoff at the stream boundary (tool=%s)',
-  async (tool) => {
+it.each([
+  { failureClass: 'quota_exhausted', tool: false },
+  { failureClass: 'quota_exhausted', tool: true },
+  { failureClass: 'rate_limited', tool: false },
+  { failureClass: 'rate_limited', tool: true },
+] as const)(
+  'retains the complete-tool $failureClass cutoff at the stream boundary (tool=$tool)',
+  async ({ failureClass, tool }) => {
     const resetsAt = Date.now() + 3_600_000;
 
     const prefix: Array<LanguageModelV3StreamPart> = tool
@@ -157,7 +162,7 @@ it.each([false, true])(
         {
           type: 'error',
           error: new ProviderFailure('Usage limit', {
-            code: 'quota_exhausted',
+            code: failureClass,
             resetsAt,
           }),
         },
@@ -170,7 +175,7 @@ it.each([false, true])(
 
     const failure = providerFailureFrom(parts);
     expect(failure).toMatchObject({
-      code: 'quota_exhausted',
+      code: failureClass,
       resetsAt,
     });
     expect(failure.toolCallStarted).toBe(tool ? true : undefined);

@@ -258,6 +258,42 @@ describe('notifyLiveRunSteering', () => {
       expect(execute).not.toHaveBeenCalled();
     },
   );
+  it('notifies a queued Run that still carries awaiting jobs data', async () => {
+    const execute = vi.fn(() => Promise.resolve([]));
+    const tx = asDouble<Db>({ execute });
+    const wakeForChatInTransaction = vi.fn(() => Promise.resolve(true));
+
+    const queuedRun = {
+      ...blockingRun,
+      status: 'queued' as const,
+      activeAttemptId: null,
+      workerId: null,
+      awaiting: {
+        kind: 'jobs' as const,
+        toolCallId: 'tool-call-id',
+        toolInput: { jobs: ['job-id'] },
+        jobIds: ['job-id'],
+        deadline: '2026-10-27T01:00:00.000Z',
+      },
+    };
+
+    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
+      queuedRun,
+    );
+
+    await notifyLiveRunSteering(
+      tx,
+      { chatId: 'chat-id', userId: 'user-id' },
+      'steer',
+      { wakeForChatInTransaction },
+    );
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(execute.mock.calls)).toContain(
+      JSON.stringify(JSON.stringify({ runId: queuedRun.id, kind: 'steer' })),
+    );
+    expect(wakeForChatInTransaction).not.toHaveBeenCalled();
+  });
 
   it('leaves steering pending for a Run awaiting quota', async () => {
     const execute = vi.fn(() => Promise.resolve([]));

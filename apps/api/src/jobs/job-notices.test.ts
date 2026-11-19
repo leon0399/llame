@@ -141,6 +141,43 @@ describe('recordJobSettlementNotice', () => {
     ]);
   });
 
+  it('notifies a queued Run that still carries awaiting jobs data', async () => {
+    const queuedRun = asDouble<Run>({
+      id: '88888888-8888-4888-8888-888888888888',
+      status: 'queued',
+      currentJobId: '99999999-9999-4999-8999-999999999999',
+      awaiting: {
+        kind: 'jobs',
+        toolCallId: 'call-4',
+        toolInput: { jobs: ['job-id'] },
+        jobIds: ['job-id'],
+        deadline: '2026-11-12T13:00:00.000Z',
+      },
+    });
+
+    const { tx, execute, insertNotice } = setup(queuedRun);
+
+    await recordJobSettlementNotice(tx, job());
+
+    expect(insertNotice).toHaveBeenCalledWith(job());
+    const notification = execute.mock.calls[0]?.[0];
+    expect(notification).toBeDefined();
+
+    if (!notification || !isSQLWrapper(notification)) {
+      throw new Error('Expected a SQL notification');
+    }
+
+    const { sql, params } = new PgDialect().sqlToQuery(notification.getSQL());
+    expect(sql).toBe('select pg_notify($1, $2)');
+    expect(params).toEqual([
+      'llame_run_control',
+      JSON.stringify({
+        runId: '88888888-8888-4888-8888-888888888888',
+        kind: 'steer',
+      }),
+    ]);
+  });
+
   it('records the notice without notifying when there is no active Run', async () => {
     const { tx, execute, insertNotice } = setup(undefined);
 

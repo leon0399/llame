@@ -1513,6 +1513,76 @@ describe('RunStreamBridgeService', () => {
     expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
     expect(listByRunId).toHaveBeenCalledTimes(4);
   });
+  it('closes a quota-waiting stream when cancelled during its poll delay', async () => {
+    const firstPoll = Promise.withResolvers<void>();
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    vi.spyOn(RunsRepository.prototype, 'findById').mockImplementation(() => {
+      firstPoll.resolve();
+
+      return Promise.resolve({
+        id: RUN_ID,
+        kind: 'turn',
+        chatId: '00000000-0000-4000-8000-000000000002',
+        messageId: null,
+        userId: 'user-1',
+        modelId: 'model-1',
+        activeAttemptId: null,
+        completedAttemptId: null,
+        turnToolAvailability: null,
+        status: 'awaiting_quota',
+        workerId: null,
+        cancelRequestedAt: null,
+        error: null,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        startedAt: null,
+        finishedAt: null,
+        wakeGeneration: 3,
+        currentJobId: 'quota-wake-job',
+        awaiting: {
+          kind: 'quota',
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-11-19T14:00:00.000Z',
+          wakeAt: '2026-11-19T14:01:00.000Z',
+          resumeAt: 'request',
+          waitCount: 1,
+        },
+        effort: null,
+        permissionMode: 'default',
+        followUpAction: null,
+        sourceRunId: null,
+      });
+    });
+    const controller = new AbortController();
+    const { bridge } = bridgeFixture();
+
+    const body = bridge
+      .createUiMessageStreamResponse({
+        runId: RUN_ID,
+        userId: 'user-1',
+        abortSignal: controller.signal,
+      })
+      .text();
+
+    try {
+      await firstPoll.promise;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      controller.abort();
+      expect(
+        await Promise.race([
+          body.then(() => true),
+          new Promise<boolean>((resolve) => setImmediate(() => resolve(false))),
+        ]),
+      ).toBe(true);
+      expect(await body).toBe(
+        `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
+      );
+    } finally {
+      controller.abort();
+      await body;
+    }
+  });
 
   it('closes without output when the client aborts before polling', async () => {
     const listByRunId = vi
