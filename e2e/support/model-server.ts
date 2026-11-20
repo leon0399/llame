@@ -298,6 +298,21 @@ function toolIsOffered(
   );
 }
 
+const INTENT_TOOLS = new Set([
+  "bash",
+  "read",
+  "edit",
+  "write",
+  "grep",
+  "wait",
+  "stop",
+  "enter_workspace",
+  "search_conversations",
+  "conversation_read",
+  "knowledge_search",
+  "web_search",
+]);
+
 /** OpenAI-compatible streaming tool_call delta (AI SDK requires id + type +
  * function.name on the first chunk; full args in one string is valid). */
 function toolCallChunk(input: {
@@ -321,7 +336,11 @@ function toolCallChunk(input: {
               type: "function",
               function: {
                 name: input.name,
-                arguments: JSON.stringify(input.arguments),
+                arguments: JSON.stringify(
+                  INTENT_TOOLS.has(input.name)
+                    ? { i: "Running the scripted call", ...input.arguments }
+                    : input.arguments,
+                ),
               },
             },
           ],

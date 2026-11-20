@@ -338,7 +338,7 @@
         ],
         "responses": {
           "200": {
-            "description": "AI SDK v5 UI-message stream (SSE) replaying the active run",
+            "description": "AG-UI event stream (SSE) replaying the active run",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -817,7 +817,7 @@
         },
         "responses": {
           "200": {
-            "description": "AI SDK v5 UI-message stream (SSE) or chat command result",
+            "description": "AG-UI event stream (SSE) or chat command result",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -962,7 +962,7 @@
         },
         "responses": {
           "200": {
-            "description": "AI SDK v5 UI-message stream (SSE)",
+            "description": "AG-UI event stream (SSE)",
             "content": {
               "text/event-stream": {
                 "schema": {
@@ -5299,6 +5299,24 @@
           "createdAt"
         ]
       },
+      "QuotaWaitResponse": {
+        "type": "object",
+        "properties": {
+          "failureClass": {
+            "type": "string",
+            "enum": ["quota_exhausted", "rate_limited"]
+          },
+          "resetsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "wakeAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["failureClass", "resetsAt", "wakeAt"]
+      },
       "ChatLatestRunResponse": {
         "type": "object",
         "properties": {
@@ -5330,6 +5348,7 @@
               "updating_artifact",
               "summarizing",
               "awaiting_jobs",
+              "awaiting_quota",
               "completed",
               "failed",
               "cancelled",
@@ -5358,6 +5377,23 @@
             "type": "string",
             "nullable": true,
             "description": "The terminal message of a failed or expired Run, the same text its stream error frame carries; null for any other Run or none recorded."
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorResetsAt": {
+            "type": "number",
+            "nullable": true
+          },
+          "quotaWait": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuotaWaitResponse"
+              }
+            ]
           }
         },
         "required": [
@@ -5369,7 +5405,10 @@
           "modelId",
           "effort",
           "permissionMode",
-          "error"
+          "error",
+          "errorCode",
+          "errorResetsAt",
+          "quotaWait"
         ]
       },
       "ChatMessagesResponse": {
@@ -6402,6 +6441,7 @@
               "updating_artifact",
               "summarizing",
               "awaiting_jobs",
+              "awaiting_quota",
               "completed",
               "failed",
               "cancelled",
@@ -6411,9 +6451,25 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "quotaWait": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuotaWaitResponse"
+              }
+            ]
           }
         },
-        "required": ["runId", "chatId", "chatTitle", "status", "createdAt"]
+        "required": [
+          "runId",
+          "chatId",
+          "chatTitle",
+          "status",
+          "createdAt",
+          "quotaWait"
+        ]
       },
       "SharedChatMessageResponse": {
         "type": "object",
@@ -7188,6 +7244,7 @@
               "updating_artifact",
               "summarizing",
               "awaiting_jobs",
+              "awaiting_quota",
               "completed",
               "failed",
               "cancelled",
@@ -7197,6 +7254,15 @@
           "error": {
             "type": "object",
             "nullable": true
+          },
+          "quotaWait": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/QuotaWaitResponse"
+              }
+            ]
           },
           "createdAt": {
             "format": "date-time",
@@ -7222,6 +7288,7 @@
           "permissionMode",
           "status",
           "error",
+          "quotaWait",
           "createdAt",
           "startedAt",
           "finishedAt"

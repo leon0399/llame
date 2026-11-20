@@ -172,9 +172,9 @@ export async function notifyLiveRunSteering(
     chat.userId,
   );
 
-  if (!live) return;
+  if (live === undefined || live.status === 'awaiting_quota') return;
 
-  if (live.status === 'awaiting_jobs') {
+  if (live.status === 'awaiting_jobs' && live.awaiting?.kind === 'jobs') {
     await runWait.wakeForChatInTransaction(tx, {
       chatId: chat.chatId,
       userId: chat.userId,

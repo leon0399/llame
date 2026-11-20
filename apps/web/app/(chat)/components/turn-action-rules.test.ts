@@ -33,6 +33,9 @@ function latestRun(
     effort: "low",
     permissionMode: "default",
     error: null,
+    errorCode: null,
+    errorResetsAt: null,
+    quotaWait: null,
     ...overrides,
   };
 }

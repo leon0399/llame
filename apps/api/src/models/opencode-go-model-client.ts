@@ -58,6 +58,7 @@ type OpenCodeGoModelClientConfig = {
   providerOptions?: ProviderOptionRecord;
   /** Catalog `models[].maxOutputTokens`, forwarded to every request. */
   maxOutputTokens?: number;
+  firstTokenTimeoutSeconds?: number;
   /**
    * Resolved per-million-token pricing (design D9): Go bills a subscription
    * with usage windows, not a per-token invoice, so the example configuration
@@ -69,6 +70,34 @@ type OpenCodeGoModelClientConfig = {
   compactionThresholdTokens?: number;
   input?: ReadonlyArray<ModelInput>;
 };
+
+/** Builds the configured Responses or Messages transport for OpenCode Go. */
+function createOpenCodeGoWireClient(
+  config: OpenCodeGoModelClientConfig,
+): ModelClient | undefined {
+  if (
+    config.wire !== 'openai-responses' &&
+    config.wire !== 'anthropic-messages'
+  ) {
+    return undefined;
+  }
+
+  const transport = {
+    ...config,
+    providerType: 'opencode-go',
+    baseUrl: OPENCODE_GO_BASE_URL,
+    reasoningDeclared: config.reasoningDeclared ?? false,
+    requestHeaders: goRequestHeaders(config.requestHeaders),
+    fetch: rejectRedirects(globalThis.fetch),
+  };
+
+  const client =
+    config.wire === 'openai-responses'
+      ? createOpenAIModelClient({ ...transport, provider: 'opencode-go' })
+      : createAnthropicModelClient(transport);
+
+  return { ...client, provider: 'opencode-go' };
+}
 
 /**
  * Creates a model client for an `opencode-go` provider entry: the Chat
@@ -92,31 +121,16 @@ export function createOpenCodeGoModelClient(
     streamText,
   },
 ): ModelClient {
-  if (
-    config.wire === 'openai-responses' ||
-    config.wire === 'anthropic-messages'
-  ) {
-    const transport = {
-      ...config,
-      baseUrl: OPENCODE_GO_BASE_URL,
-      reasoningDeclared: config.reasoningDeclared ?? false,
-      requestHeaders: goRequestHeaders(config.requestHeaders),
-      fetch: rejectRedirects(globalThis.fetch),
-    };
+  const wireClient = createOpenCodeGoWireClient(config);
 
-    const client =
-      config.wire === 'openai-responses'
-        ? createOpenAIModelClient({ ...transport, provider: 'opencode-go' })
-        : createAnthropicModelClient(transport);
-
-    return { ...client, provider: 'opencode-go' };
-  }
+  if (wireClient !== undefined) return wireClient;
 
   return createOpenAICompletionsModelClient(
     {
       ...config,
       baseUrl: OPENCODE_GO_BASE_URL,
       provider: 'opencode-go',
+      providerType: 'opencode-go',
       headers: { [OPENCODE_GO_CLIENT_HEADER]: 'llame' },
       fetch: rejectRedirects(globalThis.fetch),
       // The gateway answers `stream_options.include_usage` with a stream that

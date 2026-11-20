@@ -309,11 +309,9 @@ export class RunsRepository {
         dispatchedRunPredicate(),
         eq(runs.messageId, turn.messageId),
       )) ??
-      (await this.findMostRecentDispatchedByChatMessageSequence(
-        chatId,
-        userId,
-        { beforeSeq: turn.beforeSeq },
-      ))
+      this.findMostRecentDispatchedByChatMessageSequence(chatId, userId, {
+        beforeSeq: turn.beforeSeq,
+      })
     );
   }
 
@@ -371,6 +369,7 @@ export class RunsRepository {
       chatTitle: string | null;
       status: RunStatus;
       createdAt: Date;
+      awaiting: Run['awaiting'];
     }>
   > {
     return this.db
@@ -380,6 +379,7 @@ export class RunsRepository {
         chatTitle: chats.title,
         status: runs.status,
         createdAt: runs.createdAt,
+        awaiting: runs.awaiting,
       })
       .from(runs)
       .innerJoin(chats, eq(runs.chatId, chats.id))
@@ -412,7 +412,7 @@ export class RunsRepository {
       .set({
         status: 'running_model' satisfies RunStatus,
         startedAt: new Date(),
-        activeAttemptId: randomUUID(),
+        activeAttemptId: options?.attemptId ?? randomUUID(),
         ...(options?.workerId !== undefined && { workerId: options.workerId }),
       })
       .where(
@@ -568,6 +568,9 @@ export type RunEventType =
   | 'run.created'
   | 'run.started'
   | 'model.requested'
+  | 'model.retrying'
+  | 'model.superseded'
+  | 'run.quota_recovered'
   | 'model.delta'
   | 'model.completed'
   | 'run.completed'
@@ -618,6 +621,18 @@ export class RunEventsRepository {
       .returning();
 
     return created;
+  }
+
+  async latestSequence(runId: string, userId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ sequence: runEvents.sequence })
+      .from(runEvents)
+      .innerJoin(runs, eq(runEvents.runId, runs.id))
+      .where(and(eq(runEvents.runId, runId), eq(runs.userId, userId)))
+      .orderBy(desc(runEvents.sequence))
+      .limit(1);
+
+    return row?.sequence ?? 0;
   }
 
   /**

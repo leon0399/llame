@@ -763,6 +763,139 @@ describe('reconstructDurableAssistant', () => {
     expect(result.openToolCalls).toEqual(new Map());
   });
 
+  it('retains display intent after recovery without adding it to model replay input', () => {
+    const recovered = reconstructDurableAssistant([
+      event('tool.requested', {
+        toolCallId: 'intent-call',
+        toolName: 'bash',
+        input: { command: 'pwd' },
+        intent: 'Inspecting the working directory',
+      }),
+      event('tool.completed', {
+        toolCallId: 'intent-call',
+        output: { status: 'success', exitCode: 0, stdout: '/work', stderr: '' },
+      }),
+    ]).collector.parts();
+
+    expect(recovered).toEqual([
+      expect.objectContaining({
+        intent: 'Inspecting the working directory',
+        input: { command: 'pwd' },
+      }),
+    ]);
+
+    const replay = project(recovered)[0]?.pair.toolCallPart;
+
+    expect(replay).toEqual({
+      type: 'tool-call',
+      toolCallId: 'intent-call',
+      toolName: 'bash',
+      input: { command: 'pwd' },
+    });
+  });
+
+  it('projects only superseded model text and reasoning out of reconstruction', () => {
+    const at = (
+      sequence: number,
+      eventType: string,
+      payload: RunEvent['payload'],
+    ) => ({
+      ...event(eventType, payload),
+      sequence,
+    });
+
+    const opaque = {
+      openai: { reasoningEncryptedContent: 'signed-opaque-value' },
+    };
+
+    const events = [
+      at(1, 'model.delta', { text: 'prior answer' }),
+      at(2, 'tool.requested', {
+        toolCallId: 'prior-call',
+        toolName: 'search',
+        input: { query: 'kept' },
+      }),
+      at(3, 'tool.completed', {
+        toolCallId: 'prior-call',
+        output: { status: 'success', value: 'kept result' },
+      }),
+      at(4, 'reasoning.delta', {
+        text: 'broken thought',
+        providerMetadata: opaque,
+      }),
+      at(5, 'model.delta', { text: 'broken answer' }),
+      at(6, 'model.superseded', { fromSequence: 4, step: 0 }),
+      at(7, 'reasoning.delta', { text: 'successful replacement thought' }),
+      at(8, 'model.delta', { text: 'replacement answer' }),
+      at(9, 'model.delta', { text: 'another broken answer' }),
+      at(10, 'model.superseded', { fromSequence: 9, step: 1 }),
+      at(11, 'model.delta', { text: 'final answer' }),
+    ];
+
+    const parts = reconstructDurableAssistant(events).collector.parts();
+
+    expect(parts).toEqual([
+      { type: 'text', text: 'prior answer' },
+      expect.objectContaining({
+        type: 'tool-search',
+        toolCallId: 'prior-call',
+      }),
+      { type: 'reasoning', text: 'successful replacement thought' },
+      { type: 'text', text: 'replacement answerfinal answer' },
+    ]);
+    expect(JSON.stringify(parts)).not.toContain('signed-opaque-value');
+    expect(events[3]).toMatchObject({
+      sequence: 4,
+      eventType: 'reasoning.delta',
+      payload: { text: 'broken thought', providerMetadata: opaque },
+    });
+  });
+
+  it('leaves malformed superseded markers inert', () => {
+    const at = (
+      sequence: number,
+      eventType: string,
+      payload: RunEvent['payload'],
+    ) => ({
+      ...event(eventType, payload),
+      sequence,
+    });
+
+    expect(
+      reconstructDurableAssistant([
+        at(1, 'model.delta', { text: 'kept' }),
+        at(2, 'model.superseded', { fromSequence: 3, step: 0 }),
+      ]).collector.parts(),
+    ).toEqual([{ type: 'text', text: 'kept' }]);
+  });
+
+  it('removes superseded output and keeps the following send', () => {
+    const at = (
+      sequence: number,
+      eventType: string,
+      payload: RunEvent['payload'],
+    ) => ({
+      ...event(eventType, payload),
+      sequence,
+    });
+
+    const parts = reconstructDurableAssistant([
+      at(1, 'model.delta', { text: 'before|' }),
+      at(2, 'reasoning.delta', { text: 'start-boundary' }),
+      at(3, 'model.delta', { text: 'inside|' }),
+      at(4, 'reasoning.delta', { text: 'inside-reasoning' }),
+      at(5, 'model.delta', { text: 'last-excluded|' }),
+      at(6, 'model.superseded', { fromSequence: 2, step: 0 }),
+      at(7, 'model.delta', { text: 'end-boundary' }),
+      at(8, 'reasoning.delta', { text: '|after' }),
+    ]).collector.parts();
+
+    expect(parts).toEqual([
+      { type: 'text', text: 'before|end-boundary' },
+      { type: 'reasoning', text: '|after' },
+    ]);
+  });
+
   it('rebuilds an error part with its artifact locator', () => {
     const result = reconstructDurableAssistant([
       event('tool.requested', {

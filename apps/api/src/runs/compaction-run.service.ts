@@ -10,8 +10,11 @@ import {
   classifyAbortedRun,
   expiredRunMessage,
   RunExecutionService,
+  RunNotRunnableError,
   type RunClaimResult,
 } from './run-execution.service';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
+import type { QuotaRequestState } from './quota-wake-projection';
 import { type RunJob } from './run-queues';
 import {
   renderCompactionInstruction,
@@ -22,13 +25,27 @@ import {
   type CompactionSummary,
 } from '../compaction/compaction.service';
 import { createRunMediaResolver } from '../media/media-descriptors';
-import { type ModelClient } from '../models/model-client';
+import {
+  type ModelClient,
+  type ModelStreamInput,
+} from '../models/model-client';
 import { TenantDbService } from '../db/tenant-db.service';
+import { modelRequestFailure } from './model-request-failure';
 import { readCreatedFlags } from './run-created-flags';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+
+type CompactionRunAttempt = {
+  job: RunJob;
+  claim: Extract<RunClaimResult, { messageId: string | null }>;
+  abortSignal: AbortSignal;
+  expectedQueueIdentity: {
+    currentJobId: string | null;
+    wakeGeneration: number;
+  };
+};
 
 @Injectable()
 export class CompactionRunService {
@@ -42,7 +59,11 @@ export class CompactionRunService {
     @Inject(RunExecutionService)
     private readonly execution: Pick<
       RunExecutionService,
-      'claimRun' | 'completeCompactionRun' | 'settleTerminalRun'
+      | 'claimRun'
+      | 'completeCompactionRun'
+      | 'settleTerminalRun'
+      | 'recordModelRetry'
+      | 'suspendCompactionForQuota'
     >,
   ) {}
 
@@ -130,6 +151,7 @@ export class CompactionRunService {
       expectedQueueIdentity: input.expectedQueueIdentity,
       focus,
       abortSignal: input.abortSignal,
+      quotaRequest: input.claim.quotaRequest,
     });
   }
   private async finishWithoutSummary(
@@ -151,18 +173,11 @@ export class CompactionRunService {
       expectedQueueIdentity: input.expectedQueueIdentity,
       focus,
       abortSignal: input.abortSignal,
+      quotaRequest: input.claim.quotaRequest,
     });
   }
 
-  private async settleAborted(input: {
-    job: RunJob;
-    claim: Extract<RunClaimResult, { messageId: string | null }>;
-    abortSignal: AbortSignal;
-    expectedQueueIdentity: {
-      currentJobId: string | null;
-      wakeGeneration: number;
-    };
-  }): Promise<void> {
+  private async settleAborted(input: CompactionRunAttempt): Promise<void> {
     const status = classifyAbortedRun(input.abortSignal);
 
     const message =
@@ -181,45 +196,108 @@ export class CompactionRunService {
     });
   }
 
-  private async summarizeOrFail(input: {
-    job: RunJob;
-    client: ModelClient;
-    claim: Extract<RunClaimResult, { messageId: string | null }>;
-    plan: CompactionPlan;
-    nextSeq: number;
-    activeCheckpoint: OwnerCompactionPlan['activeCheckpoint'];
-    focus: string | null;
-    abortSignal: AbortSignal;
-    expectedQueueIdentity: {
-      currentJobId: string | null;
-      wakeGeneration: number;
-    };
-  }): Promise<CompactionSummary | undefined> {
-    try {
-      const summary = await this.summarize(input);
+  private async summarizeOrFail(
+    input: CompactionRunAttempt & {
+      client: ModelClient;
+      plan: CompactionPlan;
+      nextSeq: number;
+      activeCheckpoint: OwnerCompactionPlan['activeCheckpoint'];
+      focus: string | null;
+    },
+  ): Promise<CompactionSummary | undefined> {
+    let retryWriteError: unknown;
 
-      if (summary === null) {
+    try {
+      const summary = await this.summarize(input, (retry) =>
+        this.execution
+          .recordModelRetry(
+            { ...input.job, attemptId: input.claim.attemptId },
+            retry,
+          )
+          .catch((error: unknown) => {
+            retryWriteError = error;
+            throw error;
+          }),
+      );
+
+      if (summary === null)
         throw new Error('Compaction summary returned no valid text summary.');
-      }
 
       return summary;
     } catch (error) {
       if (input.abortSignal.aborted) throw error;
 
-      const message = errorMessageWithoutParams(error);
+      if (retryWriteError instanceof RunNotRunnableError) return undefined;
 
-      await this.execution.settleTerminalRun({
-        runId: input.job.runId,
-        userId: input.job.userId,
-        status: 'failed',
-        attemptId: input.claim.attemptId,
-        expectedQueueIdentity: input.expectedQueueIdentity,
-        runPayload: { status: 'failed', message },
-        error: { message },
-      });
+      await this.handleSummaryFailure(
+        input,
+        error,
+        retryWriteError !== undefined,
+      );
 
       return undefined;
     }
+  }
+
+  private async handleSummaryFailure(
+    input: CompactionRunAttempt,
+    error: unknown,
+    retryWriteFailed: boolean,
+  ): Promise<void> {
+    if (
+      !retryWriteFailed &&
+      error instanceof ProviderFailure &&
+      (await this.execution.suspendCompactionForQuota({
+        run: {
+          runId: input.job.runId,
+          chatId: input.job.chatId,
+          userId: input.job.userId,
+        },
+        attemptId: input.claim.attemptId,
+        error,
+        request: input.claim.quotaRequest,
+        resumeAt: 'compactionRun',
+        parts: [],
+      }))
+    ) {
+      return;
+    }
+
+    await this.failSummary(
+      { ...input, attemptId: input.claim.attemptId },
+      error,
+      retryWriteFailed,
+    );
+  }
+
+  private async failSummary(
+    input: {
+      job: RunJob;
+      attemptId: string;
+      expectedQueueIdentity: {
+        currentJobId: string | null;
+        wakeGeneration: number;
+      };
+    },
+    error: unknown,
+    retryWriteFailed: boolean,
+  ): Promise<void> {
+    const failure = retryWriteFailed
+      ? { message: 'Failed to persist the model retry before its delay.' }
+      : {
+          message: errorMessageWithoutParams(error),
+          ...modelRequestFailure(error),
+        };
+
+    await this.execution.settleTerminalRun({
+      runId: input.job.runId,
+      userId: input.job.userId,
+      status: 'failed',
+      attemptId: input.attemptId,
+      expectedQueueIdentity: input.expectedQueueIdentity,
+      runPayload: { status: 'failed', ...failure },
+      error: failure,
+    });
   }
 
   private async plan(
@@ -238,16 +316,16 @@ export class CompactionRunService {
     });
   }
 
-  private async summarize(input: {
-    job: RunJob;
-    client: ModelClient;
-    claim: Extract<RunClaimResult, { messageId: string | null }>;
-    plan: CompactionPlan;
-    nextSeq: number;
-    activeCheckpoint: OwnerCompactionPlan['activeCheckpoint'];
-    focus: string | null;
-    abortSignal: AbortSignal;
-  }): Promise<CompactionSummary | null> {
+  private async summarize(
+    input: CompactionRunAttempt & {
+      client: ModelClient;
+      plan: CompactionPlan;
+      nextSeq: number;
+      activeCheckpoint: OwnerCompactionPlan['activeCheckpoint'];
+      focus: string | null;
+    },
+    onRetry: ModelStreamInput['onRetry'],
+  ): Promise<CompactionSummary | null> {
     const instruction = renderCompactionInstruction('owner', input.focus);
 
     return this.compaction.summarizeCheckpoint({
@@ -260,6 +338,7 @@ export class CompactionRunService {
       client: input.client,
       reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
       abortSignal: input.abortSignal,
+      onRetry,
       media: createRunMediaResolver(this.tenantDb, input.job.userId),
       instruction,
       ...(input.claim.effort !== undefined && { effort: input.claim.effort }),
@@ -276,6 +355,7 @@ export class CompactionRunService {
     };
     focus: string | null;
     abortSignal: AbortSignal;
+    quotaRequest?: QuotaRequestState;
   }): Promise<void> {
     await this.execution.completeCompactionRun({
       runId: input.job.runId,
@@ -286,6 +366,7 @@ export class CompactionRunService {
       summary: input.summary,
       abortSignal: input.abortSignal,
       focus: input.focus,
+      ...(input.quotaRequest && { quotaRequest: input.quotaRequest }),
     });
   }
 }

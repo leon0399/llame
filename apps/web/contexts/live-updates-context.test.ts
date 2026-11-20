@@ -35,6 +35,7 @@ const updated = (
     permissionMode: "default",
     status,
     error: null,
+    quotaWait: null,
     createdAt: "2026-10-16T12:00:00.000Z",
     startedAt: null,
     finishedAt: null,

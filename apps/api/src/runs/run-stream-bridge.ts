@@ -1,19 +1,23 @@
+import { supersededWindow } from './superseded-output';
 import { keptPartEvents } from './kept-parts-events';
 import { toolTerminationMessage } from './tool-settlement';
 /**
- * Run-event → AI SDK UI-message stream bridge (#50, SPEC §9.4/§9.5).
+ * Run-event → AG-UI stream bridge (#50, SPEC §9.4/§9.5).
  *
  * In worker mode the API request thread no longer holds the model stream — the
  * worker executes the run and persists run_events; this bridge replays those
- * events to the HTTP client in the AI SDK UI-message SSE protocol (v1), so the
- * existing apps/web chat transport works unchanged. A client disconnect stops
- * only the bridge; the run keeps executing — that is the durability win.
+ * events to the HTTP client as AG-UI events over SSE. The translator below
+ * decides the ordered parts of the reply as `UiChunk`s, and `ag-ui-events.ts`
+ * writes each one in the wire format. A client disconnect stops only the
+ * bridge; the run keeps executing — that is the durability win.
  */
 
 import { Injectable } from '@nestjs/common';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { isRecord, isString } from '@workspace/runtime-safety';
+import { createAgUiEncoder } from './ag-ui-events';
 import {
   payloadField,
   payloadNumber,
@@ -82,6 +86,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   // these: `tool-input-available` renders as "running", so finishing without
   // closing them leaves the UI spinning on a call that will never complete.
   private readonly openToolCallIds = new Set<string>();
+  private readonly unsettledPartSequences = new Map<string, number>();
 
   constructor(private readonly messageId: string) {}
 
@@ -122,6 +127,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return [chunk];
   }
 
+  private closeModelParts(): Array<UiChunk> {
+    return this.openTextId === null ? this.closeReasoning() : this.closeText();
+  }
+
   private settleOpenTools(reason: string): Array<UiChunk> {
     const chunks: Array<UiChunk> = [];
 
@@ -142,10 +151,14 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
   translate(event: RunEventLike): Array<UiChunk> {
     switch (event.eventType) {
+      case 'model.superseded':
+        return this.onModelSuperseded(event);
       case 'model.delta':
         return this.onModelDelta(event);
       case 'reasoning.delta':
         return this.onReasoningDelta(event);
+      case 'model.retrying':
+        return this.onModelRetrying(event);
       case 'model.completed':
         return this.onModelCompleted(event);
       case 'tool.requested':
@@ -181,6 +194,30 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     }
   }
 
+  private onModelRetrying(event: RunEventLike): Array<UiChunk> {
+    const code = payloadString(event.payload, 'code');
+    const retry = payloadNumber(event.payload, 'retry');
+    const delayMs = payloadNumber(event.payload, 'delayMs');
+
+    if (
+      code === undefined ||
+      retry === undefined ||
+      !Number.isInteger(retry) ||
+      retry < 1 ||
+      retry > 10 ||
+      delayMs === undefined ||
+      !Number.isFinite(delayMs) ||
+      delayMs < 0
+    )
+      return [];
+
+    return [
+      ...this.prelude(),
+      ...this.closeModelParts(),
+      { type: 'data-model-retrying', data: { code, retry, delayMs } },
+    ];
+  }
+
   /**
    * The kept parts of a Continue Run (turn-actions D5), replayed through the
    * same handlers and counters every other chunk uses: the parts are decoded
@@ -213,6 +250,11 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (this.openTextId === null) {
       this.textPartCount += 1;
       this.openTextId = `text-${this.textPartCount}`;
+
+      if (Number.isInteger(event.sequence) && event.sequence! > 0) {
+        this.unsettledPartSequences.set(this.openTextId, event.sequence!);
+      }
+
       chunks.push({ type: 'text-start', id: this.openTextId });
     }
 
@@ -252,6 +294,11 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       openReasoningId = `reasoning-${this.reasoningPartCount}`;
       this.openReasoningId = openReasoningId;
       this.openReasoningPartId = partId;
+
+      if (Number.isInteger(event.sequence) && event.sequence! > 0) {
+        this.unsettledPartSequences.set(openReasoningId, event.sequence!);
+      }
+
       chunks.push({ type: 'reasoning-start', id: openReasoningId });
     } else if (partId !== undefined) {
       // A defined id becomes the open part's id; an absent one adds nothing.
@@ -267,11 +314,30 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return chunks;
   }
 
+  private onModelSuperseded(event: RunEventLike): Array<UiChunk> {
+    const window = supersededWindow(event);
+
+    if (window === undefined) return [];
+    const partIds: Array<string> = [];
+
+    for (const [partId, openedAt] of this.unsettledPartSequences) {
+      if (openedAt >= window.from && openedAt < window.to) {
+        partIds.push(partId);
+        this.unsettledPartSequences.delete(partId);
+      }
+    }
+
+    const chunks = [...this.prelude(), ...this.closeModelParts()];
+
+    if (partIds.length)
+      chunks.push({ type: 'data-superseded', data: { partIds } });
+
+    return chunks;
+  }
+
   private onModelCompleted(event: RunEventLike): Array<UiChunk> {
-    // Surface the per-turn telemetry (tokens + cost + latency + model) as
-    // message metadata so the UI can show it live and on resume — useChat
-    // lands `messageMetadata` on `message.metadata`. Not terminal — the
-    // stream still finishes on the following run.completed/cancelled.
+    this.unsettledPartSequences.clear();
+    // Surface per-turn usage as message metadata after closing the open part.
     const telemetry = payloadField(event.payload, 'telemetry');
 
     if (telemetry === undefined) {
@@ -281,11 +347,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     // Close whichever part (text or reasoning) is open first so metadata
     // lands after the answer; run.completed's own close becomes a no-op.
-    const chunks = [
-      ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
-    ];
+    const chunks = [...this.prelude(), ...this.closeModelParts()];
 
     chunks.push({
       type: 'message-metadata',
@@ -315,13 +377,15 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     // distinct part, so neither should stay open across it.
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       {
         type: 'tool-input-available',
         toolCallId,
         toolName,
         input,
+        ...(payloadString(event.payload, 'intent') !== undefined && {
+          intent: payloadString(event.payload, 'intent'),
+        }),
         dynamic: true,
       },
     ];
@@ -348,6 +412,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       isRecord(event.payload) && event.payload['interrupted'] === true;
 
     if (status !== 'error') {
+      this.unsettledPartSequences.clear();
+
       return [
         ...this.prelude(),
         { type: 'tool-output-available', toolCallId, output, dynamic: true },
@@ -383,12 +449,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   private onCompactionNote(
     type: 'data-compaction-failed' | 'data-compaction-disabled',
   ): Array<UiChunk> {
-    return [
-      ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
-      { type, data: {} },
-    ];
+    return [...this.prelude(), ...this.closeModelParts(), { type, data: {} }];
   }
 
   private onStepCapReached(event: RunEventLike): Array<UiChunk> {
@@ -403,8 +464,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     // notice is a structurally distinct part.
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       {
         type: 'data-cap-notice',
         data: { stepsUsed, maxSteps },
@@ -417,17 +477,19 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       ...this.settleOpenTools(
         toolTerminationMessage(
           event.eventType === 'run.cancelled' ? 'cancelled' : 'failed',
         ),
       ),
-      // The only chunk that says the run reached its terminal state. A client
-      // reads its presence — not its value — as "this turn ended here", so a
-      // connection that drops mid-run cannot look like a finished answer.
-      { type: 'finish', finishReason: 'stop' },
+      {
+        type: 'finish',
+        finishReason: 'stop',
+        ...(event.eventType === 'run.cancelled' && {
+          cancelled: true as const,
+        }),
+      },
     ];
   }
 
@@ -444,8 +506,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       { type: 'data-run-delivered', data: { messageId } },
       { type: 'finish', finishReason: 'stop' },
     ];
@@ -457,8 +518,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     const chunks = [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       ...this.settleOpenTools(
         toolTerminationMessage(
           event.eventType === 'run.expired' ? 'expired' : 'failed',
@@ -479,6 +539,7 @@ export function createRunEventTranslator(
 }
 
 const POLL_MS = 200;
+const QUOTA_POLL_MS = 2000;
 
 /**
  * How long a connection may stay silent before the bridge writes an SSE
@@ -489,6 +550,8 @@ const POLL_MS = 200;
 const KEEPALIVE_MS = 15 * 1000;
 
 type UiMessageStreamInput = {
+  /** The Chat the Run belongs to: the AG-UI thread of the stream. */
+  chatId: string;
   runId: string;
   userId: string;
   /**
@@ -505,9 +568,9 @@ export class RunStreamBridgeService {
 
   /**
    * Build the SSE Response for a freshly enqueued run. Polls run_events by
-   * cursor until the run is terminal, translating to UI-message chunks. The
-   * `messageId` in the start chunk is the run id — a client-side surrogate;
-   * reloads read real message ids from history.
+   * cursor until the run is terminal, translating to AG-UI events. The reply's
+   * message id is the run id — a client-side surrogate; reloads read real
+   * message ids from history.
    *
    * The stream has no wall-clock bound: it ends when the run reaches a terminal
    * event, when the client goes away, or when the run row is already terminal.
@@ -537,7 +600,6 @@ export class RunStreamBridgeService {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
         connection: 'keep-alive',
-        'x-vercel-ai-ui-message-stream': 'v1',
       },
     });
   }
@@ -589,9 +651,17 @@ export class RunStreamBridgeService {
     let cursor = input.afterSequence ?? 0;
     let lastWriteAt = Date.now();
 
+    const encoder = createAgUiEncoder({
+      threadId: input.chatId,
+      runId: input.runId,
+    });
+
     const emit = (chunk: UiChunk) => {
       lastWriteAt = Date.now();
-      controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`);
+
+      for (const event of encoder.encode(chunk)) {
+        controller.enqueue(`data: ${JSON.stringify(event)}\n\n`);
+      }
     };
 
     // Acknowledge acceptance before any poll so the client has the Run id
@@ -628,6 +698,8 @@ export class RunStreamBridgeService {
         return;
       }
 
+      let pollMilliseconds = POLL_MS;
+
       // Defensive: if the run row reached terminal without a terminal
       // event (or was deleted), close instead of spinning. The terminal event
       // commits with the status, so it can land between this pass's drain and
@@ -647,6 +719,8 @@ export class RunStreamBridgeService {
           });
           break;
         }
+
+        if (run.status === 'awaiting_quota') pollMilliseconds = QUOTA_POLL_MS;
       }
 
       // Hold a quiet connection open: the Run is still executing, and an
@@ -661,7 +735,11 @@ export class RunStreamBridgeService {
       // Floor delay on EVERY non-terminal pass — an actively streaming
       // run yields events on each poll, and without the floor this loop
       // re-queries the DB back-to-back for the whole stream.
-      await sleep(POLL_MS);
+      await delay(pollMilliseconds, undefined, {
+        signal: input.abortSignal,
+      }).catch((error: unknown) => {
+        if (!input.abortSignal?.aborted) throw error;
+      });
 
       if (input.abortSignal?.aborted) {
         controller.close();
@@ -670,16 +748,8 @@ export class RunStreamBridgeService {
       }
     }
 
-    if (translator.finished()) {
-      controller.enqueue('data: [DONE]\n\n');
-    }
-
     controller.close();
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**

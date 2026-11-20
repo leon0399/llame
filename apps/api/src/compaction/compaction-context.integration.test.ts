@@ -4,6 +4,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { scriptedToolInput } from '../testing/run-execution-integration-fixture';
 
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { streamText } from 'ai';
@@ -394,7 +395,10 @@ function compactionClient(input: {
                       type: 'tool-call',
                       toolCallId: `compaction-tool-${index}`,
                       toolName: toolCall.toolName,
-                      input: JSON.stringify(toolCall.input),
+                      input: scriptedToolInput(
+                        toolCall.toolName,
+                        toolCall.input,
+                      ),
                     });
                   }
 

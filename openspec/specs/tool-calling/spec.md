@@ -1291,7 +1291,7 @@ or `workerId` precondition. Before terminal settlement, the host MUST settle eac
 has a durable `native.result` from that result, whatever the tool source. Recovery MUST first
 arbitrate with any pending host promotion under their shared durable fence. It uses a committed
 promotion's result, or records `outcome_unknown` if recovery wins before promotion. An open
-`bash`, native mutation, or MCP call with a recorded `native.attempt` and no competing promotion
+`bash`, native mutation, or MCP call with a recorded `native.attempt` and no other promotion
 or result MUST settle as `outcome_unknown`. Every other open call settles as the termination
 settlement rules require.
 
@@ -1300,8 +1300,9 @@ state of a terminal Run into a new Run. That Continue Run MUST replay the settle
 MUST NOT execute a settled call again. A future durable effect-dedupe capability can replace
 this terminal behavior, and this capability does not define it.
 
-A wake of a Run from `awaiting_jobs` is not a retry. The first attempt after a wake MUST
-continue from the stored steps of the current reply, as the requirement for a woken Run defines.
+A wake of a Run from `awaiting_jobs` or `awaiting_quota` is not a retry. The first attempt after a
+wake MUST continue from the stored steps of the current reply. The requirement for a woken Run, or
+`quota-wait`, defines this.
 A redelivered queue job of a woken Run is a retry, and it MUST follow the rules of this
 requirement.
 
@@ -1367,6 +1368,12 @@ requirement.
 
 - **WHEN** the queue retries the job of a woken Run whose current segment has no `native.attempt`
 - **THEN** the tool loop executes again from the first step of that segment
+
+#### Scenario: A quota wake does not restart the segment
+
+- **WHEN** a segment records a `bash` attempt, a later step request enters `awaiting_quota`, and the deadline job wakes the Run
+- **THEN** the woken attempt continues from the stored steps, and the `bash` command does not execute again
+- **AND** the Run does not fail as `outcome_unknown`
 
 ### Requirement: A tool can yield to a steer
 
@@ -1907,3 +1914,47 @@ the field. Model replay, public shares, exports, and search MUST NOT carry it.
 
 - **WHEN** an allowlisted MCP tool call starts
 - **THEN** its stored tool part records `classification: "unverified"`
+
+### Requirement: Model-authored tool intent is presentation metadata
+
+The model-facing declarations for `bash`, `read`, `edit`, `write`, `grep`, `wait`,
+`stop`, `enter_workspace`, `search_conversations`, `conversation_read`,
+`knowledge_search`, and `web_search` MUST require a nonblank string `i` of at most
+120 characters. This envelope MUST be part of the canonical model declaration.
+The executor schemas MUST remain unchanged. Before ordinary argument validation,
+permission admission, or execution, the harness MUST remove `i` and retain it as
+the call's display-only `intent`. It MUST NOT alter eligibility, permission
+decisions, native-attempt identity, or the arguments sent to an MCP server.
+
+Owner history, live streaming, kept-part replay, and event-based reconstruction
+MUST preserve that intent separately from the executable input. Model history,
+public shares, exports, and search MUST NOT receive this separate display field.
+Normalized model-history tool-call arguments, including refused calls, MUST omit
+the envelope. SDK refusal diagnostics MUST retain their original text, which can
+quote the model's original rejected arguments, including its intent text; this
+separation is not a text-redaction guarantee.
+Trusted system-origin calls MUST NOT require or fabricate an intent. MCP tools
+MUST retain their original schemas, including any server-owned argument named `i`.
+
+#### Scenario: A described command still receives ordinary admission
+
+- **WHEN** a model requests `bash` with `i: "Checking files"` and a command rejected by its permission group
+- **THEN** the command is rejected regardless of the intent
+- **AND** the recorded executable input contains the command and no `i`
+- **AND** the owner-facing tool part carries `intent: "Checking files"`
+
+#### Scenario: An internal read does not need model presentation data
+
+- **WHEN** instruction loading or skill activation requests an authorized `read` with only a path
+- **THEN** the read is validated and executed under its unchanged executor schema
+- **AND** no synthetic intent is added
+
+#### Scenario: Reconnection preserves the intent beside the real arguments
+
+- **WHEN** a tool part with an intent is rebuilt from events or replayed by a Continue Run
+- **THEN** its intent and executable input remain separate and agree with owner history
+
+#### Scenario: An MCP argument named i keeps its server-defined meaning
+
+- **WHEN** an MCP tool declares and receives its own argument `i`
+- **THEN** the harness does not replace or strip that argument

@@ -2,10 +2,16 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { toRunUserMessage } from '../chats/chat-message-parts';
-import { chatJobs, runs, type AwaitingJobs, type Run } from '../db/schema';
-import { isTerminalRunStatus } from './run-status';
+import { ChatsRepository } from '../chats/chats-repository';
+import { enqueueSuspendedRun, persistRunSuspension } from './run-suspension';
+import {
+  chatJobs,
+  runs,
+  type AwaitingJobs,
+  type AwaitingQuota,
+  type Run,
+} from '../db/schema';
+import { isTerminalRunStatus, WAITING_RUN_STATUSES } from './run-status';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   InstanceConfigService,
@@ -13,10 +19,12 @@ import {
 } from '../instance-config/instance-config.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunDispatchService } from './run-dispatch.service';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunEventsRepository } from './runs-repository';
 import { retryRunTransaction } from './run-transaction';
-import { type EnqueueOptions } from '../queue/queue';
 import { type AssistantTurnTelemetry } from './run-reply-finalizer';
+import type { StoppedCall } from '../chats/interrupted-notice';
+import type { FirstEpochBaselines } from './segment-delivery';
+import type { CompactionSet } from '../compaction/boundary-compaction';
 
 export type RunWaitCause = 'settled' | 'interrupted' | 'timeout' | 'cancelled';
 
@@ -34,6 +42,37 @@ export type SuspendRunWaitInput = {
   telemetry?: AssistantTurnTelemetry;
 };
 
+export type SuspendRunQuotaInput = {
+  runId: string;
+  chatId: string;
+  userId: string;
+  attemptId: string;
+  awaiting: AwaitingQuota;
+  parts: Array<unknown>;
+  steps: Record<string, number>;
+  stoppedCalls?: ReadonlyArray<StoppedCall>;
+  /**
+   * Step budget this Run has charged so far, across every segment. It excludes
+   * a Continue Run's inherited display numbering, so a later wake does not
+   * spend this Run's cap on steps a source Run took.
+   */
+  stepBudgetUsed?: number;
+  /** The boundary summary mode this wait belongs to, frozen for its resume. */
+  boundaryMode?: 'automatic' | 'owner';
+  compactionSet?: CompactionSet;
+  /** The attempt whose receipt owns the suspended summary's prefix. */
+  summaryAttemptId?: string;
+  /** The summary prefix this attempt rendered, frozen for its resume. */
+  summaryPrefixFingerprint?: string;
+  /** The first-epoch baselines this attempt rendered for its target request. */
+  baselines?: FirstEpochBaselines;
+};
+
+type AttemptRunInput = Pick<
+  SuspendRunWaitInput,
+  'runId' | 'chatId' | 'userId' | 'attemptId'
+>;
+
 type WakeRunInput = {
   runId: string;
   userId: string;
@@ -49,6 +88,23 @@ type WakeForChatInput = {
   kind: 'settlement' | 'steer' | 'interrupt' | 'cancel';
 };
 
+function awaitingMatchesStatus(run: Pick<Run, 'status' | 'awaiting'>): boolean {
+  if (!run.awaiting) return false;
+
+  return run.status === 'awaiting_jobs'
+    ? run.awaiting.kind === 'jobs'
+    : run.status === 'awaiting_quota' && run.awaiting.kind === 'quota';
+}
+
+function wakeRunPredicate(input: WakeRunInput) {
+  return and(
+    eq(runs.id, input.runId),
+    eq(runs.userId, input.userId),
+    inArray(runs.status, [...WAITING_RUN_STATUSES]),
+    eq(runs.wakeGeneration, input.generation),
+  );
+}
+
 @Injectable()
 export class RunWaitService {
   constructor(
@@ -58,6 +114,31 @@ export class RunWaitService {
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,
   ) {}
+
+  async suspendForQuota(
+    input: SuspendRunQuotaInput,
+  ): Promise<{ kind: 'suspended' } | { kind: 'ready'; cause: 'cancelled' }> {
+    return retryRunTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        const run = await this.lockActiveRun(tx, input);
+
+        if (!run || run.cancelRequestedAt !== null)
+          return { kind: 'ready', cause: 'cancelled' } as const;
+
+        if (
+          !(await persistRunSuspension(tx, this.dispatch, run, {
+            kind: 'quota',
+            input,
+            awaiting: input.awaiting,
+            deadline: input.awaiting.wakeAt,
+          }))
+        )
+          return { kind: 'ready', cause: 'cancelled' } as const;
+
+        return { kind: 'suspended' } as const;
+      }),
+    );
+  }
 
   async suspend(
     input: SuspendRunWaitInput,
@@ -91,76 +172,26 @@ export class RunWaitService {
 
     if (cause) return { kind: 'ready', cause };
 
-    if (!(await this.suspendLockedRun(tx, run, input)))
+    if (
+      !(await persistRunSuspension(tx, this.dispatch, run, {
+        kind: 'jobs',
+        input,
+        awaiting: {
+          kind: 'jobs',
+          toolCallId: input.toolCallId,
+          toolInput: input.toolInput,
+          jobIds: input.jobIds,
+          deadline: input.deadline,
+        },
+        deadline: input.deadline,
+      }))
+    )
       return { kind: 'ready', cause: 'cancelled' };
 
     return { kind: 'suspended' };
   }
 
-  private async suspendLockedRun(
-    tx: Db,
-    run: Run,
-    input: SuspendRunWaitInput,
-  ): Promise<boolean> {
-    const checkpoint = await this.writeSuspensionCheckpoint(tx, run, input);
-
-    if (!checkpoint) return false;
-    await this.enqueueRun(tx, {
-      run,
-      userId: input.userId,
-      ...checkpoint,
-      deadline: input.deadline,
-    });
-
-    return true;
-  }
-
-  private async writeSuspensionCheckpoint(
-    tx: Db,
-    run: Run,
-    input: SuspendRunWaitInput,
-  ): Promise<{ generation: number; jobId: string } | undefined> {
-    const { toolCallId, toolInput, jobIds, deadline } = input;
-    const awaiting: AwaitingJobs = { toolCallId, toolInput, jobIds, deadline };
-
-    const generation = run.wakeGeneration + 1;
-    const jobId = randomUUID();
-
-    const updated = await new RunsRepository(tx).updateForAttempt(
-      run.id,
-      input.userId,
-      input.attemptId,
-      {
-        status: 'awaiting_jobs',
-        awaiting,
-        wakeGeneration: generation,
-        currentJobId: jobId,
-        activeAttemptId: null,
-      },
-    );
-
-    if (!updated) return undefined;
-
-    const events = new RunEventsRepository(tx);
-
-    if (input.telemetry !== undefined)
-      await events.append(run.id, 'model.completed', {
-        finishReason: input.telemetry.finishReason,
-        telemetry: input.telemetry,
-      });
-    await events.append(run.id, 'run.suspended', {
-      attemptId: input.attemptId,
-      generation,
-      toolCallId: input.toolCallId,
-      parts: input.parts,
-      steps: input.steps,
-      awaiting,
-    });
-
-    return { generation, jobId };
-  }
-
-  private async lockActiveRun(tx: Db, input: SuspendRunWaitInput) {
+  private async lockActiveRun(tx: Db, input: AttemptRunInput) {
     if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
       return undefined;
 
@@ -203,9 +234,7 @@ export class RunWaitService {
         ),
       );
 
-    const listedIds = new Set<string>();
-
-    for (const job of jobs) listedIds.add(job.id);
+    const listedIds = new Set(jobs.map((job) => job.id));
 
     if (input.jobIds.some((id) => !listedIds.has(id))) return 'interrupted';
     await this.settleDeadJobs(tx, input.chatId, input.userId);
@@ -233,11 +262,10 @@ export class RunWaitService {
 
     if (!candidate) return false;
 
-    const deadJobIds = await this.settleDeadJobs(
-      tx,
-      candidate.chatId,
-      input.userId,
-    );
+    const deadJobIds =
+      candidate.awaiting?.kind === 'jobs'
+        ? await this.settleDeadJobs(tx, candidate.chatId, input.userId)
+        : new Set<string>();
 
     const run = await this.lockWakeRun(tx, input);
 
@@ -250,7 +278,11 @@ export class RunWaitService {
     if (!resumed) return false;
 
     if (input.deadlineJobId === undefined)
-      await this.enqueueRun(tx, { run, userId: input.userId, ...resumed });
+      await enqueueSuspendedRun(tx, this.dispatch, {
+        run,
+        userId: input.userId,
+        ...resumed,
+      });
 
     return true;
   }
@@ -259,38 +291,26 @@ export class RunWaitService {
     const [candidate] = await tx
       .select()
       .from(runs)
-      .where(
-        and(
-          eq(runs.id, input.runId),
-          eq(runs.userId, input.userId),
-          eq(runs.status, 'awaiting_jobs'),
-          eq(runs.wakeGeneration, input.generation),
-        ),
-      )
+      .where(wakeRunPredicate(input))
       .limit(1);
 
-    if (!candidate) return undefined;
+    if (candidate === undefined || !awaitingMatchesStatus(candidate))
+      return undefined;
 
     if (!(await new ChatsRepository(tx).lock(candidate.chatId, input.userId)))
       return undefined;
 
-    const [current] = await tx
+    const [lockedCandidate] = await tx
       .select({ currentJobId: runs.currentJobId })
       .from(runs)
-      .where(
-        and(
-          eq(runs.id, input.runId),
-          eq(runs.userId, input.userId),
-          eq(runs.status, 'awaiting_jobs'),
-          eq(runs.wakeGeneration, input.generation),
-        ),
-      )
+      .where(wakeRunPredicate(input))
       .limit(1);
 
+    if (lockedCandidate === undefined) return undefined;
+
     if (
-      !current ||
-      (input.deadlineJobId !== undefined &&
-        current.currentJobId !== input.deadlineJobId)
+      input.deadlineJobId !== undefined &&
+      lockedCandidate.currentJobId !== input.deadlineJobId
     )
       return undefined;
 
@@ -301,17 +321,10 @@ export class RunWaitService {
     const [run] = await tx
       .select()
       .from(runs)
-      .where(
-        and(
-          eq(runs.id, input.runId),
-          eq(runs.userId, input.userId),
-          eq(runs.status, 'awaiting_jobs'),
-          eq(runs.wakeGeneration, input.generation),
-        ),
-      )
+      .where(wakeRunPredicate(input))
       .for('update');
 
-    if (!run?.awaiting || !run.currentJobId) return undefined;
+    if (!run?.currentJobId || !awaitingMatchesStatus(run)) return undefined;
 
     if (
       input.deadlineJobId !== undefined &&
@@ -328,40 +341,73 @@ export class RunWaitService {
     input: WakeRunInput,
     deadJobIds: Set<string>,
   ): Promise<RunWaitCause | undefined> {
-    const cause =
+    if (run.awaiting?.kind === 'quota')
+      return this.resolveQuotaWakeCause(tx, run, input, run.awaiting);
+
+    return this.resolveJobsWakeCause(tx, run, input, deadJobIds);
+  }
+
+  private async resolveQuotaWakeCause(
+    tx: Db,
+    run: Run,
+    input: WakeRunInput,
+    awaiting: AwaitingQuota,
+  ): Promise<RunWaitCause | undefined> {
+    if (input.cause !== 'timeout' && input.cause !== 'cancelled')
+      return undefined;
+
+    if (
       input.cause === 'timeout' &&
-      run.awaiting?.jobIds.some((jobId) => deadJobIds.has(jobId))
-        ? 'settled'
-        : input.cause;
+      !(await this.wakeDeadlineIsDue(tx, run.id, awaiting.wakeAt))
+    )
+      return undefined;
 
-    if (!run.awaiting) return undefined;
+    return input.cause;
+  }
 
-    if (cause === 'timeout') {
-      const due = await tx
-        .select({ id: runs.id })
-        .from(runs)
-        .where(
-          and(
-            eq(runs.id, run.id),
-            sql`${run.awaiting.deadline}::timestamptz <= now()`,
-          ),
-        );
+  private async resolveJobsWakeCause(
+    tx: Db,
+    run: Run,
+    input: WakeRunInput,
+    deadJobIds: Set<string>,
+  ): Promise<RunWaitCause | undefined> {
+    const awaiting = run.awaiting;
 
-      if (due.length === 0) return undefined;
+    if (awaiting?.kind !== 'jobs') return undefined;
+
+    if (input.cause === 'timeout') {
+      if (awaiting.jobIds.some((jobId) => deadJobIds.has(jobId)))
+        return 'settled';
+
+      if (!(await this.wakeDeadlineIsDue(tx, run.id, awaiting.deadline)))
+        return undefined;
     }
 
-    if (cause === 'settled') {
-      const states = await this.listedJobStates(
-        tx,
-        run.chatId,
-        input.userId,
-        run.awaiting.jobIds,
-      );
+    if (input.cause !== 'settled') return input.cause;
 
-      if (!states.some((job) => job.state !== 'running')) return undefined;
-    }
+    const states = await this.listedJobStates(
+      tx,
+      run.chatId,
+      input.userId,
+      awaiting.jobIds,
+    );
 
-    return cause;
+    return states.some((job) => job.state !== 'running')
+      ? 'settled'
+      : undefined;
+  }
+
+  private async wakeDeadlineIsDue(
+    tx: Db,
+    runId: string,
+    deadline: string,
+  ): Promise<boolean> {
+    const due = await tx
+      .select({ id: runs.id })
+      .from(runs)
+      .where(and(eq(runs.id, runId), sql`${deadline}::timestamptz <= now()`));
+
+    return due.length > 0;
   }
 
   private async persistWake(
@@ -373,8 +419,11 @@ export class RunWaitService {
     const jobId =
       input.deadlineJobId === undefined ? randomUUID() : run.currentJobId;
 
-    if (!jobId) return undefined;
+    if (!jobId || !run.awaiting) return undefined;
     const generation = run.wakeGeneration;
+
+    const quotaAttemptId =
+      run.awaiting.kind === 'quota' ? randomUUID() : undefined;
 
     const [updated] = await tx
       .update(runs)
@@ -382,17 +431,25 @@ export class RunWaitService {
       .where(
         and(
           eq(runs.id, run.id),
-          eq(runs.status, 'awaiting_jobs'),
+          eq(runs.status, run.status),
           eq(runs.wakeGeneration, input.generation),
         ),
       )
       .returning();
 
     if (!updated) return undefined;
-    await new RunEventsRepository(tx).append(run.id, 'run.resumed', {
-      generation,
-      cause,
-    });
+    const events = new RunEventsRepository(tx);
+
+    if (quotaAttemptId === undefined) {
+      await events.append(run.id, 'run.resumed', { generation, cause });
+    } else {
+      await events.append(run.id, 'run.resumed', {
+        kind: 'quota',
+        attemptId: quotaAttemptId,
+        generation,
+        cause,
+      });
+    }
 
     return { generation, jobId };
   }
@@ -415,53 +472,14 @@ export class RunWaitService {
       );
   }
 
-  private async enqueueRun(
-    tx: Db,
-    data: {
-      run: Run;
-      userId: string;
-      generation: number;
-      jobId: string;
-      deadline?: string;
-    },
-  ): Promise<void> {
-    const { run, userId, generation, jobId } = data;
-
-    const message =
-      run.messageId === null
-        ? undefined
-        : await new MessagesRepository(tx).findById(
-            run.chatId,
-            userId,
-            run.messageId,
-          );
-
-    if (!message) throw new Error(`Run ${run.id} has no triggering message`);
-    const options: Omit<EnqueueOptions, 'tx'> = { id: jobId };
-
-    if (data.deadline !== undefined)
-      options.startAfter = new Date(data.deadline);
-    await this.dispatch.enqueueInTransaction(
-      tx,
-      {
-        runId: run.id,
-        chatId: run.chatId,
-        userId: run.userId,
-        modelId: run.modelId,
-        userMessage: toRunUserMessage(message),
-        wake: { generation, jobId },
-      },
-      options,
-    );
-  }
-
   async wakeForChatInTransaction(
     tx: Db,
     input: WakeForChatInput,
   ): Promise<boolean> {
     const run = await this.lockChatAwaitingRun(tx, input);
 
-    if (!run?.awaiting || !run.currentJobId) return false;
+    if (!run?.awaiting || run.awaiting.kind !== 'jobs' || !run.currentJobId)
+      return false;
     const cause = await this.resolveChatWakeCause(tx, run, input);
 
     if (!cause) return false;
@@ -479,7 +497,11 @@ export class RunWaitService {
     );
 
     if (!resumed) return false;
-    await this.enqueueRun(tx, { run, userId: input.userId, ...resumed });
+    await enqueueSuspendedRun(tx, this.dispatch, {
+      run,
+      userId: input.userId,
+      ...resumed,
+    });
 
     return true;
   }
@@ -500,7 +522,8 @@ export class RunWaitService {
       )
       .limit(1);
 
-    if (!candidate?.awaiting) return undefined;
+    if (!candidate?.awaiting || candidate.awaiting.kind !== 'jobs')
+      return undefined;
     await this.settleDeadJobs(tx, input.chatId, input.userId);
 
     const [run] = await tx
@@ -525,9 +548,9 @@ export class RunWaitService {
   ): Promise<RunWaitCause | undefined> {
     if (input.kind !== 'settlement')
       return input.kind === 'cancel' ? 'cancelled' : 'interrupted';
-    const jobIds = run.awaiting?.jobIds;
 
-    if (!jobIds) return undefined;
+    if (run.awaiting?.kind !== 'jobs') return undefined;
+    const jobIds = run.awaiting.jobIds;
 
     const states = await this.listedJobStates(
       tx,

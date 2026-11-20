@@ -304,7 +304,9 @@ export async function closeReply(
     await new RunEventsRepository(tx).append(
       locked.id,
       'model.completed',
-      closing.modelCompleted,
+      closedReply === undefined
+        ? closing.modelCompleted
+        : { ...closing.modelCompleted, telemetry: closedReply.usage },
     );
   }
 

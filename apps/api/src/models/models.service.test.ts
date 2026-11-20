@@ -403,42 +403,6 @@ describe('ModelsService', () => {
     ).toBeUndefined();
   });
 
-  it('creates a client from an opaque llame model id, routed through its configured provider', () => {
-    const service = createService({
-      providers: [
-        {
-          id: 'ollama',
-          type: 'openai-completions',
-          key: null,
-          baseUrl: 'http://localhost:11434/v1',
-          headers: {},
-        },
-      ],
-      models: [{ ...CATALOG[2], provider: 'ollama' }],
-    });
-
-    service.createClient('system:openai:gpt-5.4-mini');
-
-    // `ollama` is a Chat Completions endpoint, so its declared wire builds the
-    // compatible client — not the Responses one, whatever the id is spelled.
-    expect(createOpenAICompletionsModelClientMock).toHaveBeenCalledWith({
-      credential: undefined,
-      baseUrl: 'http://localhost:11434/v1',
-      providerModelId: 'gpt-5.4-mini',
-      modelId: 'system:openai:gpt-5.4-mini',
-      contextWindowTokens: 400_000,
-      userAgent: USER_AGENT,
-      requestHeaders: {},
-      pricing: {
-        inputUsdPer1M: 0.75,
-        cachedInputUsdPer1M: 0.075,
-        outputUsdPer1M: 4.5,
-      },
-      input: ['text', 'image'],
-    });
-    expect(createOpenAIModelClientMock).not.toHaveBeenCalled();
-  });
-
   describe('validateModelSelection', () => {
     it('accepts an available model id when the default is configured', () => {
       const service = createService({

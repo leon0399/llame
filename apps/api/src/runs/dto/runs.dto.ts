@@ -14,6 +14,7 @@ import {
   PERMISSION_MODES,
   type PermissionMode,
 } from '../../tools/permissions/permission-mode';
+import { toQuotaWaitResponse, QuotaWaitResponse } from './quota-wait.dto';
 import { isTerminalRunStatus } from '../run-status';
 
 /** Query for the run-event replay cursor (SPEC §9.4). */
@@ -78,6 +79,9 @@ export class RunResponse {
 
   @ApiProperty({ type: Object, nullable: true })
   error!: unknown;
+
+  @ApiProperty({ type: () => QuotaWaitResponse, nullable: true })
+  quotaWait!: QuotaWaitResponse | null;
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
@@ -177,6 +181,7 @@ export function toRunResponse(run: Run): RunResponse {
     ...(run.effort !== null && { effort: run.effort }),
     status: run.status,
     error: run.error,
+    quotaWait: toQuotaWaitResponse(run.status, run.awaiting),
     createdAt: run.createdAt,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,

@@ -14,7 +14,7 @@ cache invalidation, and domain errors.
 
 Generated code stays runtime-neutral: relative URLs; no Next, React, TanStack,
 environment, or browser imports. Callers inject the policy from `fetch.ts`.
-`buildApiUrl` is reserved for explicit AI SDK transports.
+`buildApiUrl` is reserved for the explicit stream transports.
 
 The `streaming` OpenAPI tag is excluded. Chat send, reconnect, and run-event
 streams remain explicit transports using `buildApiUrl` and `authAwareFetch`.

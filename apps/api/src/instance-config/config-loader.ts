@@ -192,6 +192,16 @@ function resolveRunsConfig(
       nullable: true,
       env,
     }),
+    quotaWaitMaxSeconds: requireResolvedNumber(
+      resolveNumeric({
+        configPath: 'runs.quotaWaitMaxSeconds',
+        ...readLeaf(raw, 'runs', 'quotaWaitMaxSeconds'),
+        builtInDefault: BUILT_IN_DEFAULTS.runs.quotaWaitMaxSeconds,
+        nullable: false,
+        env,
+      }),
+      'runs.quotaWaitMaxSeconds',
+    ),
     // nullable:false guarantees a number, never null — see resolveNumeric.
     heartbeatSeconds: requireResolvedNumber(
       resolveNumeric({
@@ -209,15 +219,7 @@ function resolveRunsConfig(
     ),
     // Opt-in: null (absent, explicit null, or an empty-resolving token) is
     // "no wall-clock budget".
-    timeoutSeconds: requireBudgetUnderExecutionCeiling(
-      resolveNumeric({
-        configPath: 'runs.timeoutSeconds',
-        ...readLeaf(raw, 'runs', 'timeoutSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
-        nullable: true,
-        env,
-      }),
-    ),
+    timeoutSeconds: resolveRunBudget(raw, env),
   };
 }
 
@@ -2188,9 +2190,18 @@ function requireResolvedNumber(
  * ceiling would silently truncate, so it fails startup naming the path rather
  * than pretending to apply. A `null` budget is never checked.
  */
-function requireBudgetUnderExecutionCeiling(
-  value: number | null,
+function resolveRunBudget(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
 ): number | null {
+  const value = resolveNumeric({
+    configPath: 'runs.timeoutSeconds',
+    ...readLeaf(raw, 'runs', 'timeoutSeconds'),
+    builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+    nullable: true,
+    env,
+  });
+
   if (value !== null && value >= RUN_EXECUTION_CEILING_SECONDS) {
     throw new InstanceConfigError(
       `runs.timeoutSeconds: must be below ${RUN_EXECUTION_CEILING_SECONDS} (the Run execution ceiling)`,
@@ -3385,13 +3396,17 @@ function resolveContextWindowTokens(
 
 /**
  * Resolve one optional per-model numeric setting (`compactionThresholdTokens`,
- * `maxOutputTokens`): absent stays absent, otherwise the shared
- * literal-or-whole-value-token resolution with the positive-integer bound
- * applied after interpolation — exactly like `contextWindowTokens`.
+ * `maxOutputTokens`, `firstTokenTimeoutSeconds`): absent stays absent,
+ * otherwise the shared literal-or-whole-value-token resolution with the
+ * positive-integer bound applied after interpolation — exactly like
+ * `contextWindowTokens`.
  */
 function resolveOptionalModelNumber(
   entry: RawModelEntry,
-  field: 'compactionThresholdTokens' | 'maxOutputTokens',
+  field:
+    | 'compactionThresholdTokens'
+    | 'maxOutputTokens'
+    | 'firstTokenTimeoutSeconds',
   env: NodeJS.ProcessEnv,
 ): number | undefined {
   const raw = entry[field];
@@ -3511,6 +3526,7 @@ function resolveModelEntry(
     billing: _rawBilling,
     contextWindowTokens: _rawContextWindowTokens,
     compactionThresholdTokens: _rawCompactionThresholdTokens,
+    firstTokenTimeoutSeconds: _rawFirstTokenTimeoutSeconds,
     input: _rawInput,
     maxOutputTokens: _rawMaxOutputTokens,
     providerOptions: _rawProviderOptions,
@@ -3538,6 +3554,11 @@ function resolveModelScalars(entry: RawModelEntry, env: NodeJS.ProcessEnv) {
       env,
     ),
     maxOutputTokens: resolveOptionalModelNumber(entry, 'maxOutputTokens', env),
+    firstTokenTimeoutSeconds: resolveOptionalModelNumber(
+      entry,
+      'firstTokenTimeoutSeconds',
+      env,
+    ),
   };
 }
 
@@ -3553,6 +3574,7 @@ type ModelDisplayFields = Omit<
   | 'compactionThresholdTokens'
   | 'input'
   | 'maxOutputTokens'
+  | 'firstTokenTimeoutSeconds'
   | 'providerOptions'
   | 'reasoning'
   | 'systemPromptFile'
@@ -3573,6 +3595,7 @@ function buildModelCatalogEntry(
     contextWindowTokens,
     compactionThresholdTokens,
     maxOutputTokens,
+    firstTokenTimeoutSeconds,
   } = resolveModelScalars(entry, env);
 
   const prompt = promptLoader.resolve(entry);
@@ -3598,6 +3621,9 @@ function buildModelCatalogEntry(
       compactionThresholdTokens,
     }),
     ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+    ...(firstTokenTimeoutSeconds !== undefined && {
+      firstTokenTimeoutSeconds,
+    }),
     ...(providerOptions !== undefined && { providerOptions }),
     ...(reasoning !== undefined && { reasoning }),
     ...resolveToolPromptFilesEntry(entry.toolPromptFiles),

@@ -11,11 +11,11 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { z } from 'zod';
-import { sql as dsql } from 'drizzle-orm';
+import { eq, sql as dsql } from 'drizzle-orm';
 import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
-import { projects, type Message } from '../db/schema';
+import { projects, runs, type Message } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -36,6 +36,14 @@ import {
 const hasDb = !!process.env.POSTGRES_URL;
 const d = hasDb ? describe : describe.skip;
 const chatTitleResponse = z.object({ title: z.string().nullable() });
+
+const quotaWaitResponse = z
+  .object({
+    failureClass: z.literal('rate_limited'),
+    resetsAt: z.string(),
+    wakeAt: z.string(),
+  })
+  .strict();
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -563,7 +571,11 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
       // The same message the Run's stream error frame carries.
       await runsRepo.markFinished(failed.id, userAId, 'failed', {
-        error: { message: 'This model is unavailable for free.' },
+        error: {
+          message: 'This model is unavailable for free.',
+          code: 'context_incompatible',
+          resetsAt: 1_900_000_000_000,
+        },
       });
       failedRunId = failed.id;
     });
@@ -587,8 +599,10 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       effort: 'high',
       permissionMode: 'bypass',
       error: 'This model is unavailable for free.',
+      errorCode: 'context_incompatible',
+      errorResetsAt: 1_900_000_000_000,
+      quotaWait: null,
     });
-
     // A Continue Run on the same turn is the newest Run, and records the action
     // that started it. It is created in its own transaction so its `createdAt`
     // is strictly later than the Run it continues.
@@ -630,6 +644,9 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       effort: 'high',
       permissionMode: 'default',
       error: null,
+      errorCode: null,
+      errorResetsAt: null,
+      quotaWait: null,
     });
     expect(continueRunId).not.toBe(failedRunId);
 
@@ -673,6 +690,128 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(foreignRead.status).toBe(404);
     expect(foreignRead.body).not.toHaveProperty('latestRun');
   });
+  it('exposes only quota wait scheduling fields to its owner over HTTP', async () => {
+    const chatId = await createChat(userAId, 'Quota wait API Chat');
+    const messageId = crypto.randomUUID();
+    const resetsAt = '2026-11-20T12:00:00.000Z';
+    const wakeAt = '2026-11-20T12:01:00.000Z';
+
+    const awaiting = {
+      kind: 'quota' as const,
+      failureClass: 'rate_limited' as const,
+      resetsAt,
+      wakeAt,
+      resumeAt: 'preDispatch' as const,
+      waitCount: 3,
+    };
+
+    let runId = '';
+
+    await tenantDb.runAs(userAId, async (tx) => {
+      await new MessagesRepository(tx).create({
+        id: messageId,
+        chatId,
+        role: 'user',
+        senderUserId: userAId,
+        parts: [{ type: 'text', text: 'Wait for quota' }],
+      });
+
+      const run = await new RunsRepository(tx).create({
+        chatId,
+        messageId,
+        userId: userAId,
+        modelId: 'system:test-model-a',
+        permissionMode: 'default',
+      });
+
+      await tx
+        .update(runs)
+        .set({ status: 'awaiting_quota', awaiting })
+        .where(eq(runs.id, run.id));
+      runId = run.id;
+    });
+
+    const ownerRead = await request(http)
+      .get(`/api/v1/chats/${chatId}/messages`)
+      .set('Cookie', cookieA);
+
+    expect(ownerRead.status).toBe(200);
+    expect(
+      z.object({ latestRun: z.unknown() }).parse(ownerRead.body).latestRun,
+    ).toEqual({
+      id: runId,
+      kind: 'turn',
+      messageId,
+      status: 'awaiting_quota',
+      followUpAction: null,
+      modelId: 'system:test-model-a',
+      effort: null,
+      permissionMode: 'default',
+      error: null,
+      errorCode: null,
+      errorResetsAt: null,
+      quotaWait: { failureClass: 'rate_limited', resetsAt, wakeAt },
+    });
+
+    const directOwnerRead = await request(http)
+      .get(`/api/v1/runs/${runId}`)
+      .set('Cookie', cookieA);
+
+    expect(directOwnerRead.status).toBe(200);
+
+    const directOwnerRun = z
+      .object({ quotaWait: quotaWaitResponse })
+      .parse(directOwnerRead.body);
+
+    expect(directOwnerRun.quotaWait).toEqual({
+      failureClass: 'rate_limited',
+      resetsAt,
+      wakeAt,
+    });
+    expect(Object.keys(directOwnerRun.quotaWait).sort()).toEqual([
+      'failureClass',
+      'resetsAt',
+      'wakeAt',
+    ]);
+
+    const activeRead = await request(http)
+      .get('/api/v1/me/runs')
+      .query({ status: 'active' })
+      .set('Cookie', cookieA);
+
+    const activeRuns = z.array(z.unknown()).parse(activeRead.body);
+
+    const activeRun = activeRuns.find(
+      (candidate) => isRecord(candidate) && candidate['runId'] === runId,
+    );
+
+    expect(activeRead.status).toBe(200);
+
+    const activeRunQuotaWait = z
+      .object({ quotaWait: quotaWaitResponse })
+      .parse(isRecord(activeRun) ? activeRun : undefined);
+
+    expect(activeRunQuotaWait.quotaWait).toEqual({
+      failureClass: 'rate_limited',
+      resetsAt,
+      wakeAt,
+    });
+
+    const directForeignRead = await request(http)
+      .get(`/api/v1/runs/${runId}`)
+      .set('Cookie', cookieB);
+
+    expect(directForeignRead.status).toBe(404);
+    expect(directForeignRead.body).not.toHaveProperty('quotaWait');
+
+    const foreignRead = await request(http)
+      .get(`/api/v1/chats/${chatId}/messages`)
+      .set('Cookie', cookieB);
+
+    expect(foreignRead.status).toBe(404);
+    expect(foreignRead.body).not.toHaveProperty('latestRun');
+  });
+
   it('The boundary shows the focus', async () => {
     const checkpointChatId = await createChat(userAId, 'Checkpoint API Chat');
     const checkpointIds: Array<string> = [];
@@ -960,7 +1099,6 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('text/event-stream');
-    expect(res.headers['x-vercel-ai-ui-message-stream']).toBe('v1');
     expect(streamedText(res.text)).toBe('hello from model');
     expect(models.client.turns).toHaveLength(1);
 

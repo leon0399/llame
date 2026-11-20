@@ -1,5 +1,146 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-20
+
+- Strengthen summary quota-wake regressions for durable checkpoint recovery,
+  claim ownership, original execution context, and completed reply retention.
+- Retain a redelivered summary wake's saved answer when terminal settlement
+  closes quota recovery before persisting the reply.
+- Preserve the suspended summary's command set and focus, exclude undispatched
+  context from its replay, and settle final answers without target-request
+  admission. Durable baseline metadata stores only its declared fields.
+- Give API mutation shards a 90-minute execution deadline after the largest
+  changed-file shard exceeded 45 minutes; scoring and mutation scope are unchanged.
+
+# 2026-11-19
+
+- Refresh authoritative Chat history when a new Run enters quota wait, and
+  propagate wait and wake state through the polling fallback only when Run
+  data changes. Late history or status reads cannot overwrite a newer live
+  quota update.
+
+- Preserve completed replies exactly once when summary quota waits are
+  cancelled or resumed. Summary-only wakes keep the saved reply's original
+  attempt ownership and retain their original prompt, first-epoch
+  disclosures, boundary mode, and charged step allowance without publishing a
+  target request that was never sent. Window summaries on the same configured
+  model now use the Run's quota-wait policy.
+
+- Preserve completed tool results when a repeated quota wake expires before
+  claim. Terminal recovery replays only after the saved checkpoint and does
+  not authorize execution without a matching start. Strengthen quota recovery
+  and execution-budget regressions, including append-only log fixture aging.
+
+- Recheck active Run ownership and durable cancellation after a broken-send
+  retry delay before dispatching its replacement. An owner interrupt during
+  that delay closes the reply as aborted and delivers the pending message
+  without cancelling the Run.
+
+- Strengthen broken-stream recovery regressions for lost text, supersession,
+  and retry-event writes. Each case now reaches its intended durable fence
+  and verifies failure without another provider send or a published reply.
+
+- Carry model retry and broken-send supersession notices through AG-UI.
+  Supersession addresses the stream's text and reasoning message ids, so
+  live and reconnected replies remove discarded output while preserving
+  earlier content, tool results, and usage metadata.
+
+- Bound structured model sends with the same first-token deadline and retry
+  allowance as streaming sends. Retry events take the active Run's row lock
+  before the Chat lock, so a terminal commit cannot be followed by a retry
+  notice. Resumed text starts after the retry marker and clears its label.
+- Show a waiting model's quota reset, scheduled send time, and live countdown
+  above the prompt composer. Stop cancels the wait without losing drafts or
+  pending deliveries. Failed Runs show known reset times in the browser's local
+  time. Owner-only Run responses and live updates expose the bounded wait
+  projection without internal recovery state.
+
+- Extend quota waits to compaction summaries on the Run's model, including
+  manual compaction Runs with no triggering message. Wakes retain the logical
+  request's allowance through replanning, and successful checkpoint publication
+  closes it atomically. Final-answer wakes preserve the stored reply without
+  another main model request. Model-switch summaries remain side calls.
+
+- Persist eligible step requests as `awaiting_quota` until an authoritative model
+  usage-limit reset, without occupying a worker or spending the Run budget.
+  `runs.quotaWaitMaxSeconds` defaults to eight days; each request gets its first
+  wait and at most three re-waits, retained through worker redelivery. Deadline
+  wakes use reset plus grace and jitter, completed tools are never replayed, and
+  pending deliveries stay held until the recovered request's next boundary.
+  Stop cancels a quota wait even with a pending steer. Waiting Chats show
+  background activity in the sidebar.
+
+# 2026-11-18
+
+- Stream Runs to the client as [AG-UI](docs/research/standards/ag-ui.md)
+  events. `POST /api/v1/chats/:id/messages`, the follow-up Run route, and
+  `GET /api/v1/chats/:id/stream` now answer with AG-UI 1.0 events over SSE in
+  place of the AI SDK UI-message stream: the Chat is the thread, the Run is the
+  run, each text and reasoning part is a message of its own, and llame's
+  notices, reply metadata, and deliveries are `llame.*` `CUSTOM` events.
+  **Breaking** for any client of those three routes. The request bodies are
+  unchanged: these routes are llame's authenticated binding rather than the
+  standard AG-UI `RunAgentInput` endpoint. The web client uses an incremental,
+  bounded SSE parser and no longer depends on `@ai-sdk/react`. Cancellation
+  carries an explicit outcome; incomplete streams enter bounded reconnect
+  repair, and a terminal Run found by repair returns to durable history.
+  Refused HTTP sends restore the owner's draft text and images; late callbacks
+  from a departed engine cannot affect a replacement for the same Chat.
+
+- Restyle the transcript with shadcn/ui AI Elements Trace, Message, and Bubble
+  components. A tool call or a thought is one line that expands into its
+  detail, and a run of four or more between two pieces of the answer folds
+  into one "Worked through N steps" line once the answer moves on, open while
+  it is still running. Bash output uses a terminal trace with exact command,
+  standard output, standard error, and exit status. Failed calls stay visible
+  in folded summaries. Empty answer-start events do not prematurely fold live
+  steps. Named, keyboard-focusable groups expose tool inputs and results;
+  compact intent lines constrain long command previews without hiding their
+  expanded input. Message rows use the same 10px gap as their action rows.
+  The scroll-to-latest icon has an accessible name when the reader moves away
+  from the bottom.
+
+- Show a concise model-authored intent beside tool calls while keeping their
+  exact arguments visible. The required `i` envelope is separate from executor
+  arguments and cannot authorize a call. Its model-facing instructions use a
+  packaged prompt template. Persist it for owner history and
+  reconnects without adding the presentation field to model history or public
+  shares. SDK refusal diagnostics retain their original text and can quote the
+  original model arguments. Reasoning rows use a complete standalone bold heading
+  outside code fences when present and retain accessible lifecycle state.
+- Restart a step after a transient provider stream failure before a complete
+  tool call, sharing the same bounded retry allowance as failures before content.
+  Superseded text and unsigned reasoning leave the live view, Reply, and model
+  input while remaining in the event log. Earlier completed steps and committed
+  context stay in order; usage remains an incomplete lower bound.
+  A forced-answer restart keeps one step-cap notice and never repeats the completed tool.
+
+- Retry eligible model requests with bounded same-model sends instead of the
+  SDK's hidden retries. The initial send can be followed by up to 10 retries
+  with full jitter and provider delay/reset hints up to 60 seconds. Completed
+  tool calls are never replayed; buffered title and summary calls discard
+  failed output before retrying. Runs record `model.retrying` events and owners
+  see a retry line. **Breaking**: remove `model_stream_idle`; first-token
+  timeouts now use `first_token_timeout`, and broken streams use
+  `stream_broken`. First-token timeout defaults to 300 s across response
+  headers and metadata; content-idle timeout remains 300 s. Long rate-limit
+  hints and long authoritative resets fail the request. See
+  [provider diagnostics](docs/product/operator/providers/routing.md#diagnosing-failed-model-requests)
+  and [horizontal scaling](docs/product/operator/scaling.md#runtime-invariants-and-current-limitation).
+
+- Classify provider failures before sanitizing them, and retain the failure class
+  and any stated reset instant on failed Runs and their events. Compaction Runs
+  retain the same diagnostic fields. Hosted web search maps usage limits to its
+  existing rate-limit failure so configured engine chains and aggregates keep
+  their fallback behavior. Structured Messages calls retain caller cancellation,
+  stream cancellation does not manufacture a second provider failure, and
+  negative numeric Retry-After values do not become reset dates. Promise channels
+  retain their class when read before text, and an invalid OpenRouter reset field
+  does not turn a Retry-After hint into an authoritative reset. Out-of-range reset
+  instants are rejected, and owner error-callback failures retain their identity on
+  the text and stream-consumption paths. See
+  [provider diagnostics](docs/product/operator/providers/routing.md#diagnosing-failed-model-requests).
+
 # 2026-11-17
 
 - Size decision-model requests by the model. A `decisionModels[]` entry can

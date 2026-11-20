@@ -1,12 +1,15 @@
 "use client";
 
-import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import {
-  Collapsible,
-  CollapsibleTrigger,
-} from "@workspace/ui/components/collapsible";
+  TraceCollapsible,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from "@workspace/ui/components/trace";
 import { cn } from "@workspace/ui/lib/utils";
-import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { CircleCheckIcon, LoaderCircleIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import {
   createContext,
@@ -16,13 +19,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 
 type ReasoningContextValue = {
   isStreaming: boolean;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
   duration: number | undefined;
+  title: string | undefined;
 };
 
 const ReasoningContext = createContext<ReasoningContextValue | null>(null);
@@ -37,44 +40,50 @@ export const useReasoning = () => {
   return context;
 };
 
-export type ReasoningProps = ComponentProps<typeof Collapsible> & {
+export type ReasoningProps = Omit<
+  ComponentProps<typeof TraceCollapsible>,
+  "open" | "onOpenChange" | "defaultOpen"
+> & {
   /**
    * Whether the model is still streaming reasoning tokens. While `true` the
-   * panel auto-opens and `ReasoningTrigger`'s default message shows the
-   * animated "Thinking…" label. When it flips to `false`, the elapsed time
-   * since streaming started is captured into `duration` and the panel
-   * auto-closes once, shortly after.
+   * line reads "Thinking" and is open; when it flips to `false` the elapsed
+   * time is captured into `duration` and the line closes, unless the reader
+   * opened or closed it themselves.
    */
   isStreaming?: boolean;
-  /** Controlled open state. Omit to let the component manage its own via `defaultOpen`/`onOpenChange`. */
+  /** Controlled open state. Omit to let the line follow `isStreaming`. */
   open?: boolean;
   /**
-   * Initial open state for uncontrolled usage. Defaults to `true` so
-   * reasoning is visible as it streams in; the component auto-collapses it
-   * once after streaming ends.
+   * Where the line starts, as if the reader had set it: the line then keeps
+   * that state instead of following `isStreaming`.
    */
   defaultOpen?: boolean;
-  /** Called whenever the open state changes, from user interaction or the auto-close behavior. */
+  /** Called when the reader opens or closes the line. */
   onOpenChange?: (open: boolean) => void;
   /**
    * Elapsed reasoning time in seconds, shown by the default trigger message
-   * (e.g. "Thought for 4 seconds"). Controlled like `open`/`onOpenChange`;
-   * omit to let the component derive it automatically from how long
-   * `isStreaming` was `true`.
+   * (e.g. "Thought for 4s"). Omit to let the component derive it from how
+   * long `isStreaming` was `true`.
    */
   duration?: number;
+  /**
+   * What the thought is about: the heading of its latest summary section
+   * (see `latestReasoningHeading`). The default trigger shows it in place of
+   * "Thinking" and "Thought".
+   */
+  title?: string;
 };
 
-const AUTO_CLOSE_DELAY = 1000;
 const MS_IN_S = 1000;
 
 /**
- * Reasoning displays a model's chain-of-thought as a collapsible panel that
- * auto-opens while streaming and auto-collapses shortly after it finishes, so
- * a completed reasoning trace doesn't stay expanded and compete with the
- * final answer. Compose it with `ReasoningTrigger` and `ReasoningContent`.
+ * Reasoning displays a model's thinking as a trace line that expands into the
+ * thought. It reads "Thinking" and is open while the model thinks, then reads
+ * "Thought" and closes; the reader's own choice wins over both. Compose it
+ * with `ReasoningTrigger` and `ReasoningContent`, inside a `Trace`.
  *
- * Vendored from [AI Elements Reasoning](https://elements.ai-sdk.dev/components/reasoning).
+ * Follows the shadcn/ui [Reasoning](https://ui.shadcn.com/docs/ai-elements/base/reasoning)
+ * pattern, keeping the exports and props of the AI Elements `Reasoning`.
  *
  * @summary for a collapsible view of a model's reasoning/thinking output
  */
@@ -83,100 +92,86 @@ export const Reasoning = memo(
     className,
     isStreaming = false,
     open,
-    defaultOpen = true,
+    defaultOpen,
     onOpenChange,
     duration: durationProp,
+    title,
     children,
     ...props
   }: ReasoningProps) => {
-    const [isOpen, setIsOpen] = useControllableState({
-      prop: open,
-      defaultProp: defaultOpen,
-      onChange: onOpenChange,
-    });
+    // Undefined until the reader toggles the line; until then it follows
+    // `isStreaming`.
+    const [chosen, setChosen] = useState(defaultOpen);
+    const isOpen = open ?? chosen ?? isStreaming;
 
-    const [duration, setDuration] = useControllableState({
-      prop: durationProp,
-      defaultProp: undefined,
-    });
-
-    const [hasAutoClosed, setHasAutoClosed] = useState(false);
-    // When the current streaming pass began, for the elapsed-time readout. A
-    // ref, not state: the start time is never rendered, and the value written
-    // when a pass ends is the derived `duration`.
+    const [measured, setMeasured] = useState<number>();
+    const duration = durationProp ?? measured;
+    // When the current streaming pass began. A ref, not state: the start time
+    // is never rendered, and the value written when a pass ends is `measured`.
     const startTimeRef = useRef<number | null>(null);
 
-    // Track duration when streaming starts and ends
     useEffect(() => {
       if (isStreaming) {
         startTimeRef.current ??= Date.now();
       } else if (startTimeRef.current !== null) {
         const startTime = startTimeRef.current;
         startTimeRef.current = null;
-        setDuration(Math.ceil((Date.now() - startTime) / MS_IN_S));
+        setMeasured(Math.ceil((Date.now() - startTime) / MS_IN_S));
       }
-    }, [isStreaming, setDuration]);
+    }, [isStreaming]);
 
-    // Auto-open when streaming starts, auto-close when streaming ends (once only)
-    useEffect(() => {
-      if (defaultOpen && !isStreaming && isOpen && !hasAutoClosed) {
-        // Add a small delay before closing to allow user to see the content
-        const timer = setTimeout(() => {
-          setIsOpen(false);
-          setHasAutoClosed(true);
-        }, AUTO_CLOSE_DELAY);
-
-        return () => clearTimeout(timer);
-      }
-    }, [isStreaming, isOpen, defaultOpen, setIsOpen, hasAutoClosed]);
-
-    const handleOpenChange = (newOpen: boolean) => {
-      setIsOpen(newOpen);
+    const setIsOpen = (next: boolean) => {
+      setChosen(next);
+      onOpenChange?.(next);
     };
 
     return (
       <ReasoningContext.Provider
-        value={{ isStreaming, isOpen, setIsOpen, duration }}
+        value={{ isStreaming, isOpen, setIsOpen, duration, title }}
       >
-        <Collapsible
+        <TraceCollapsible
           // Off-screen paint deferred via globals.css (content-visibility).
           data-transcript-reasoning=""
-          className={cn("not-prose mb-4", className)}
-          onOpenChange={handleOpenChange}
-          open={isOpen}
+          className={cn("not-prose", className)}
           {...props}
+          onOpenChange={setIsOpen}
+          open={isOpen}
         >
           {children}
-        </Collapsible>
+        </TraceCollapsible>
       </ReasoningContext.Provider>
     );
   },
 );
 
 export type ReasoningTriggerProps = ComponentProps<
-  typeof CollapsibleTrigger
+  typeof TraceCollapsibleTrigger
 > & {
   /**
    * Renders the trigger's label given the current streaming state and
    * elapsed `duration` (seconds) from the enclosing `Reasoning`. Defaults to
-   * an animated "Thinking…" shimmer while streaming, then "Thought for N
-   * seconds" once finished. Pass `children` instead to replace the whole
-   * trigger content (icon and chevron included).
+   * "Thinking" while streaming, where the line shimmers, then "Thought for
+   * Ns" once finished. Pass `children` instead to replace the whole line.
    */
   getThinkingMessage?: (isStreaming: boolean, duration?: number) => ReactNode;
 };
 
 const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
-  if (isStreaming || duration === 0) {
-    return <Shimmer duration={1}>Thinking...</Shimmer>;
+  if (isStreaming) {
+    return "Thinking";
   }
 
-  if (duration === undefined) {
-    return <p>Thought for a few seconds</p>;
-  }
-
-  return <p>Thought for {duration} seconds</p>;
+  return duration === undefined || duration === 0
+    ? "Thought"
+    : `Thought for ${duration}s`;
 };
+
+/** The seconds a titled thought took, shown after its title. */
+function titledDuration(isStreaming: boolean, duration: number | undefined) {
+  return isStreaming || duration === undefined || duration === 0
+    ? null
+    : `${duration}s`;
+}
 
 /**
  * ReasoningTrigger toggles its `Reasoning`'s open state and shows a
@@ -191,29 +186,34 @@ export const ReasoningTrigger = memo(
     getThinkingMessage = defaultGetThinkingMessage,
     ...props
   }: ReasoningTriggerProps) => {
-    const { isStreaming, isOpen, duration } = useReasoning();
+    const { isStreaming, duration, title } = useReasoning();
+    const seconds = titledDuration(isStreaming, duration);
 
     return (
-      <CollapsibleTrigger
-        className={cn(
-          "flex w-full items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground",
-          className,
-        )}
-        {...props}
-      >
+      <TraceCollapsibleTrigger className={className} {...props}>
         {children ?? (
-          <>
-            <BrainIcon className="size-4" />
-            {getThinkingMessage(isStreaming, duration)}
-            <ChevronDownIcon
-              className={cn(
-                "size-4 transition-transform",
-                isOpen ? "rotate-180" : "rotate-0",
+          <TraceLine status={isStreaming ? "running" : undefined}>
+            <TraceIcon>
+              {isStreaming ? (
+                <LoaderCircleIcon className="animate-spin motion-reduce:animate-none" />
+              ) : (
+                <CircleCheckIcon />
               )}
-            />
-          </>
+            </TraceIcon>
+            <TraceTitle>
+              {title || getThinkingMessage(isStreaming, duration)}
+            </TraceTitle>
+            {title ? (
+              <span className="sr-only">
+                {isStreaming ? ", Thinking" : ", Thought"}
+              </span>
+            ) : null}
+            {title && seconds ? (
+              <TraceDescription>{seconds}</TraceDescription>
+            ) : null}
+          </TraceLine>
         )}
-      </CollapsibleTrigger>
+      </TraceCollapsibleTrigger>
     );
   },
 );

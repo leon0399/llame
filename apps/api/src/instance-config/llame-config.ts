@@ -383,6 +383,13 @@ export type RawModelEntry = {
    */
   maxOutputTokens?: unknown;
   /**
+   * Per-model first-token timeout (request-retries D10): still unresolved —
+   * a literal positive integer or a whole-value `{env:}`/`{path:}` token,
+   * resolved and re-bounded after interpolation. Optional; the recovery
+   * middleware owns its 300-second default.
+   */
+  firstTokenTimeoutSeconds?: unknown;
+  /**
    * The operator's provider-native request options for the adapter this
    * entry's resolved wire selects. Stays `unknown` because the loader proves
    * it itself: it must be a JSON record at every depth, any `{env:…}`/
@@ -648,6 +655,11 @@ export type LlameConfig = {
   runs: {
     maxOutputTokens: number | null;
     /**
+     * Maximum time, in seconds, a Run may wait for a provider quota reset.
+     * Quota waits do not consume the Run's execution budget.
+     */
+    quotaWaitMaxSeconds: number;
+    /**
      * The job-queue's native worker-liveness window, in seconds
      * (durable-run-workers D7): applied as the `runs` queue's
      * `heartbeatSeconds` — while a run's job is in flight the worker
@@ -824,6 +836,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   runs: {
     maxOutputTokens: null,
+    quotaWaitMaxSeconds: 691_200,
     heartbeatSeconds: 15,
     timeoutSeconds: null,
   },

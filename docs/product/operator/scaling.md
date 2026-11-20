@@ -165,9 +165,33 @@ first queue job uses the Run id; later wake jobs use the Run's recorded
 `current_job_id` and generation. The `runs` queue declares a job duration of
 86,399 s, so pg-boss never expires a live Run at its 900 s default. Without an
 operator budget, the worker ends an executing attempt after 23 h 55 m. With
-`runs.timeoutSeconds`, the budget starts at the first claim and includes time
-spent waiting. A model request that streams nothing for 300 s fails its Run
-with `model_stream_idle`.
+`runs.timeoutSeconds`, the budget starts at the first claim and includes jobs
+waits but excludes quota waits. Model requests have separate stream windows:
+the first-token timeout is 300 s by default and covers response headers and metadata until
+content starts; after content starts, 300 s without a stream part fails the
+request. These are model-request timeouts, not a Run-wide execution ceiling.
+Set `models[].firstTokenTimeoutSeconds` to a positive integer to override the
+300 s first-content window. This server-only setting is not returned in the
+owner's model catalog.
+
+Eligible model requests can be retried up to 10 times after the initial send,
+using full jitter from 500 ms with exponential backoff capped at 8 s. Short
+provider delay hints and authoritative reset times up to 60 s are honored.
+Long rate-limit hints fail the request; long non-rate-limit delay hints are
+ignored. An eligible step request with a long authoritative reset enters the
+quota wait described below. A retry does not replay a completed tool call. Buffered title and summary requests
+discard failed output before retrying. `model.retrying` events record the
+failure class, retry number, and delay, and the owner sees a retry line.
+Failed first-token windows use `first_token_timeout`; broken streams use
+`stream_broken`. The removed `model_stream_idle` code is not emitted.
+
+A transient failure after live output restarts that step on the same model when
+no complete tool call has streamed. Its `model.superseded` event removes the
+broken send's text and reasoning from the live transcript, stored Reply, and
+later model input; the append-only event log retains them. Completed earlier
+steps and committed context items remain in order. Hidden retries and step
+restarts share the same ten-retry allowance, and discarded sends make usage
+incomplete while retaining known token and cost totals as lower bounds.
 
 Admission judges a blocking Run by its current queue job: queued, retrying, or
 active blocks with 409. An absent recorded wake job is stuck immediately; the
@@ -182,6 +206,49 @@ deadline job together, then releases the Run worker slot. Suspension keeps the
 Chat's single-flight slot. Settlement, steering, cancellation, or the deadline
 can queue one generation-fenced wake; a replacement worker reads its state
 from Postgres. This layer prepares that lifecycle but exposes no `wait` tool.
+
+A step request that fails with `quota_exhausted` or `rate_limited` and an
+authoritative reset more than 60 seconds away enters `awaiting_quota`, provided
+the reset is no more than `runs.quotaWaitMaxSeconds` away (default 691,200,
+eight days), no tool call has started, and this logical request has waited
+fewer than four times. The setting must be a positive integer. A missing
+reset, one beyond the cap, a started tool call, or an exhausted wait allowance
+ends the request with its failure class. Completed tool calls are never
+replayed. The checkpoint omits failed-send output, retains completed
+steps and context, and releases the worker while keeping the Chat in
+single-flight. The deadline job sends again after reset plus 60 seconds and
+0-18 seconds of jitter. Each logical request can wait once and re-wait three
+times; recovery and redelivery retain that count until the request succeeds.
+
+Quota wait time does not count toward `runs.timeoutSeconds`; each claim keeps
+its own execution ceiling. Only the deadline or Stop wakes a quota wait.
+Steers, interrupts, queued deliveries, and job notices remain pending; a plain
+send still gets 409. After the wake, the failed request is sent before pending
+items reach its next step boundary. Stop cancels rather than promoting a
+pending steer. The API stream stays open, polling every two seconds while the
+Run waits and sending a keepalive comment after 15 quiet seconds.
+
+Compaction summaries on the Run's own model use the same quota wait, including
+pre-dispatch, step-boundary, final-answer, and manual compaction Runs. This
+includes a context-window summary when it selects that same configured model
+entry. A wake replans the summary with its existing wait count, original
+automatic or owner-requested mode, original command set and focus, and remaining
+segment step allowance. Commands queued during the summary wait remain for the
+next boundary; final-answer settlement still consumes commands pending at its
+terminal lock. Successful checkpoint publication ends that request's allowance
+in the same transaction; a later request starts a new allowance.
+
+A final-answer wake summarizes and settles the stored reply without sending
+or admitting its main request again. Its first-epoch baselines remain those the
+answering request received. Resumed step-boundary summaries use stored replay,
+not items the wake staged but never dispatched, reuse the original system-prompt
+receipt, and require matching tool declarations. An unavailable or changed
+prefix records a compaction failure without sending a substituted summary
+request or publishing a checkpoint.
+An in-Run summary whose reset exceeds the cap still continues without a
+checkpoint. A context-window summary that selects another configured model
+remains a side call: it fails `context_incompatible` rather than waiting on
+that other model.
 
 Per-Chat ordering is exclusivity, not queueing: one nonterminal Run per Chat;
 concurrent new messages get 409 and same-message retry supersedes.

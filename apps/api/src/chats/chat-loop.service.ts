@@ -336,6 +336,7 @@ export class ChatLoopService {
     });
 
     const response = this.bridge.createUiMessageStreamResponse({
+      chatId: input.chatId,
       runId: input.runId,
       userId: input.userId,
       abortSignal: input.abortSignal,

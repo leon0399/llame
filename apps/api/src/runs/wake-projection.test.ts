@@ -21,6 +21,7 @@ function firstWakeEvents(
       toolCallId: 'wait-1',
       toolName: 'wait',
       stepNumber: 0,
+      intent: 'Waiting for the command',
       permission: {
         policyId: 'policy-1',
         decision: 'allow',
@@ -69,6 +70,7 @@ describe('wakeStateFromEvents', () => {
     });
     expect(state?.parts[1]).toMatchObject({
       toolCallId: 'wait-1',
+      intent: 'Waiting for the command',
       permission: {
         policyId: 'policy-1',
         decision: 'allow',
@@ -638,5 +640,36 @@ describe('wakeStateFromEvents', () => {
         step: 5,
       },
     );
+  });
+  it('does not project a typed quota suspension as a synthetic jobs wait', () => {
+    const events = [
+      event(1, 'run.suspended', {
+        kind: 'quota',
+        generation: 1,
+        toolCallId: 'forged-wait',
+        awaiting: {
+          toolCallId: 'forged-wait',
+          toolInput: { jobs: ['job://executor-1'] },
+          jobIds: ['job-id'],
+          deadline: '2026-10-10T01:00:00.000Z',
+        },
+        parts: [{ type: 'text', text: 'quota checkpoint' }],
+        steps: {},
+      }),
+      event(2, 'run.resumed', {
+        kind: 'quota',
+        generation: 1,
+        attemptId: 'wake-attempt',
+        cause: 'timeout',
+      }),
+      event(3, 'run.started', { attemptId: 'wake-attempt' }),
+      event(4, 'tool.completed', {
+        toolCallId: 'forged-wait',
+        toolName: 'wait',
+        output: { status: 'success', value: 'settled' },
+      }),
+    ];
+
+    expect(wakeStateFromEvents(events, 'wake-attempt')).toBeUndefined();
   });
 });

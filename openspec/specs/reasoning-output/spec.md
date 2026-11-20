@@ -246,7 +246,7 @@ reasoning text elsewhere.
 
 ### Requirement: Existing UI support receives durable reasoning parts
 
-The backend SHALL use the existing AI SDK reasoning stream protocol and persisted reasoning part shape, extended only by the optional opaque provider metadata this capability defines. The web chat SHALL render reasoning parts in persisted order. Consecutive reasoning parts with no intervening tool or visible text part SHALL share one Thinking panel. A tool or visible text part SHALL split panels so occurrence order is preserved. A panel whose grouped parts carry no reasoning text SHALL NOT be rendered: a provider that withholds thinking text still returns thinking blocks whose text is empty and whose metadata is needed for replay, so such parts persist and replay exactly as any other reasoning part while the chat shows nothing for them.
+The backend SHALL preserve the persisted AI SDK reasoning-part shape, extended only by the optional opaque provider metadata this capability defines. The owner stream SHALL carry displayable reasoning through AG-UI 1.0 `REASONING_*` events without exposing that opaque metadata. The web chat SHALL render reasoning parts in persisted order. Consecutive reasoning parts with no intervening tool or visible text part SHALL share one reasoning panel. A tool or visible text part SHALL split panels so occurrence order is preserved. A panel whose grouped parts carry no reasoning text SHALL NOT be rendered: a provider that withholds thinking text still returns thinking blocks whose text is empty and whose metadata is needed for replay, so such parts persist and replay exactly as any other reasoning part while the chat shows nothing for them.
 
 #### Scenario: Existing renderer receives historical reasoning
 
@@ -264,6 +264,33 @@ The backend SHALL use the existing AI SDK reasoning stream protocol and persiste
 - **WHEN** an assistant message holds consecutive reasoning parts whose text is empty, for example signed thinking blocks returned with their text withheld
 - **THEN** the chat renders no Thinking panel for that segment
 - **AND** the parts persist with their provider metadata and are replayed to the provider unchanged
+
+### Requirement: A reasoning summary heading can title its panel
+
+The reasoning panel SHOULD use the latest complete heading in its original text
+as its title. A heading MUST be a line containing exactly one `**...**` bold run
+and no other non-whitespace content, outside fenced code blocks. A partial
+heading, inline emphasis, or several bold runs on one line MUST NOT replace the
+title. Display repair of glued markdown MUST NOT turn inline text into a title.
+With no qualifying heading, the panel MUST retain its Thinking or Thought label.
+Its running or completed state MUST remain accessible when a heading replaces
+that label. Title extraction MUST NOT modify persisted text or provider replay.
+
+#### Scenario: The latest complete summary titles the line
+
+- **WHEN** reasoning contains `**Inspecting input**`, followed on a later line by `**Checking output**`
+- **THEN** its panel title is `Checking output`
+- **AND** the full reasoning remains available in the panel
+
+#### Scenario: Inline markdown does not become a title
+
+- **WHEN** reasoning contains only `Check **one** and **two**` or `**One****Two**`
+- **THEN** its panel uses the ordinary Thinking or Thought label
+
+#### Scenario: A code example cannot title reasoning
+
+- **WHEN** a fenced code block contains a line `**Example heading**`
+- **THEN** that line is ignored when selecting the panel title
 
 ### Requirement: Reasoning summaries render as distinct markdown blocks
 

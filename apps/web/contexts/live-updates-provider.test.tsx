@@ -11,10 +11,20 @@ import { useEffect, useState } from "react";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryObserver,
+} from "@tanstack/react-query";
 
-import type { ActiveRunResponse } from "@/lib/api/generated/models";
-import { activeRunsQueryKeys } from "@/lib/services/chat/active-runs";
+import type {
+  ActiveRunResponse,
+  ChatLatestRunResponse,
+} from "@/lib/api/generated/models";
+import {
+  activeRunsQueryKeys,
+  syncRunHistory,
+} from "@/lib/services/chat/active-runs";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { chatJobsQueryKeys } from "@/lib/services/jobs/queries";
 import type {
@@ -151,6 +161,7 @@ const runProgress = (
 
 const runUpdated = (
   status: RunUpdatedMessage["run"]["status"],
+  overrides: Partial<RunUpdatedMessage["run"]> = {},
 ): RunUpdatedMessage => ({
   type: "run.updated",
   run: {
@@ -162,10 +173,30 @@ const runUpdated = (
     permissionMode: "default",
     status,
     error: null,
+    quotaWait: null,
     createdAt: "2026-10-16T12:00:00.000Z",
     startedAt: null,
     finishedAt: null,
+    ...overrides,
   },
+});
+
+const latestRunFixture = (
+  overrides: Partial<ChatLatestRunResponse> = {},
+): ChatLatestRunResponse => ({
+  kind: "turn",
+  id: runId,
+  messageId: null,
+  status: "running_model",
+  followUpAction: null,
+  modelId: "m",
+  effort: null,
+  permissionMode: "default",
+  error: null,
+  errorCode: null,
+  errorResetsAt: null,
+  quotaWait: null,
+  ...overrides,
 });
 
 beforeEach(() => {
@@ -181,7 +212,7 @@ beforeEach(() => {
     }
 
     if (pathname.startsWith("/api/v1/runs/")) {
-      return jsonResponse({ id: runId, status: "running_model" });
+      return jsonResponse(runUpdated("running_model").run);
     }
 
     throw new Error(`unrouted fetch in test: ${pathname}`);
@@ -315,6 +346,332 @@ describe("ActiveRunsProvider with live updates", () => {
     await waitFor(() =>
       expect(screen.getByTestId("processing").textContent).toBe("false"),
     );
+  });
+  it("updates the cached latest run through quota wait, wake, and failure", () => {
+    const { queryClient } = renderLive(
+      <ActiveRunsProvider>
+        <RunsProbe />
+      </ActiveRunsProvider>,
+    );
+
+    const latestRun: ChatLatestRunResponse = {
+      kind: "turn",
+      id: runId,
+      messageId: null,
+      status: "running_model",
+      followUpAction: null,
+      modelId: "m",
+      effort: null,
+      permissionMode: "default",
+      error: null,
+      errorCode: null,
+      errorResetsAt: null,
+      quotaWait: null,
+    };
+
+    queryClient.setQueryData(chatQueryKeys.messages(chatId), {
+      pages: [{ messages: [], compaction: null, latestRun }],
+      pageParams: [null],
+    });
+    const targetKey = chatQueryKeys.targetMessages(chatId, 17);
+    queryClient.setQueryData(
+      targetKey,
+      queryClient.getQueryData(chatQueryKeys.messages(chatId)),
+    );
+
+    const latest = () =>
+      queryClient.getQueryData<{
+        pages: Array<{ latestRun: ChatLatestRunResponse }>;
+      }>(chatQueryKeys.messages(chatId))?.pages[0]?.latestRun;
+
+    latestSocket().serverOpen();
+    latestSocket().serverSend(
+      JSON.stringify(
+        runUpdated("awaiting_quota", {
+          quotaWait: {
+            failureClass: "quota_exhausted",
+            resetsAt: "2026-11-20T12:00:00.000Z",
+            wakeAt: "2026-11-20T12:01:00.000Z",
+          },
+        }),
+      ),
+    );
+    expect(
+      queryClient.getQueryData(activeRunsQueryKeys.run(runId)),
+    ).toMatchObject({
+      status: "awaiting_quota",
+      quotaWait: { failureClass: "quota_exhausted" },
+    });
+    expect(latest()).toMatchObject({
+      status: "awaiting_quota",
+      quotaWait: { failureClass: "quota_exhausted" },
+      errorCode: null,
+      errorResetsAt: null,
+    });
+    expect(queryClient.getQueryData(targetKey)).toEqual(
+      queryClient.getQueryData(chatQueryKeys.messages(chatId)),
+    );
+
+    latestSocket().serverSend(JSON.stringify(runUpdated("queued")));
+    expect(
+      queryClient.getQueryData(activeRunsQueryKeys.run(runId)),
+    ).toMatchObject({ status: "queued", quotaWait: null });
+    expect(latest()).toMatchObject({
+      status: "queued",
+      quotaWait: null,
+      errorCode: null,
+      errorResetsAt: null,
+    });
+    latestSocket().serverSend(
+      JSON.stringify(
+        runUpdated("failed", {
+          chatId: "33333333-3333-4333-8333-333333333333",
+          error: { code: "other", resetsAt: 1_900_000_000_001 },
+        }),
+      ),
+    );
+    expect(latest()).toMatchObject({
+      status: "queued",
+      quotaWait: null,
+      errorCode: null,
+      errorResetsAt: null,
+    });
+
+    latestSocket().serverSend(
+      JSON.stringify(
+        runUpdated("failed", {
+          error: {
+            code: "quota_exhausted",
+            message: "The provider's weekly usage limit was reached.",
+            resetsAt: 1_900_000_000_000,
+          },
+        }),
+      ),
+    );
+    expect(
+      queryClient.getQueryData(activeRunsQueryKeys.run(runId)),
+    ).toMatchObject({ status: "failed", quotaWait: null });
+    expect(latest()).toMatchObject({
+      status: "failed",
+      quotaWait: null,
+      error: "The provider's weekly usage limit was reached.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: 1_900_000_000_000,
+    });
+    expect(queryClient.getQueryData(targetKey)).toEqual(
+      queryClient.getQueryData(chatQueryKeys.messages(chatId)),
+    );
+  });
+  it.each([false, true])(
+    "keeps a newer quota update after a late history read (previous Run: %s)",
+    async (returnsPreviousRun) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+
+      const key = chatQueryKeys.messages(chatId);
+
+      const oldHistory = {
+        pages: [
+          {
+            messages: [],
+            compaction: null,
+            latestRun: latestRunFixture({
+              id: "previous",
+              status: "completed",
+            }),
+          },
+        ],
+        pageParams: [null],
+      };
+
+      const queuedHistory = {
+        ...oldHistory,
+        pages: [
+          {
+            messages: [],
+            compaction: null,
+            latestRun: latestRunFixture({ status: "queued" }),
+          },
+        ],
+      };
+
+      let resolveSnapshot!: (value: typeof queuedHistory) => void;
+
+      const snapshot = new Promise<typeof queuedHistory>((resolve) => {
+        resolveSnapshot = resolve;
+      });
+
+      queryClient.setQueryData(key, oldHistory);
+
+      let reads = 0;
+
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: () =>
+          ++reads === 1 ? snapshot : Promise.resolve(queuedHistory),
+        staleTime: Infinity,
+      });
+
+      const unsubscribe = observer.subscribe(() => undefined);
+
+      const quotaWait: NonNullable<ChatLatestRunResponse["quotaWait"]> = {
+        failureClass: "quota_exhausted",
+        resetsAt: "2026-11-20T12:00:00.000Z",
+        wakeAt: "2026-11-20T12:01:00.000Z",
+      };
+
+      try {
+        const update = runUpdated("awaiting_quota", { quotaWait }).run;
+
+        queryClient.setQueryData(activeRunsQueryKeys.run(runId), update);
+        syncRunHistory(queryClient, chatId, update);
+        resolveSnapshot(returnsPreviousRun ? oldHistory : queuedHistory);
+        await waitFor(() =>
+          expect(queryClient.getQueryData(key)).toMatchObject({
+            pages: [
+              { latestRun: { id: runId, status: "awaiting_quota", quotaWait } },
+            ],
+          }),
+        );
+      } finally {
+        resolveSnapshot(queuedHistory);
+        unsubscribe();
+      }
+    },
+  );
+
+  it.each([
+    [
+      "a completed Run",
+      latestRunFixture({
+        id: "55555555-5555-4555-8555-555555555555",
+        status: "completed",
+      }),
+    ],
+    ["no latest Run", null],
+  ] as const)(
+    "invalidates history for a live Run replacing %s",
+    (_label, latestRun) => {
+      const { queryClient } = renderLive(
+        <ActiveRunsProvider>
+          <RunsProbe />
+        </ActiveRunsProvider>,
+      );
+
+      const messagesKey = chatQueryKeys.messages(chatId);
+      const targetKey = chatQueryKeys.targetMessages(chatId, 17);
+      latestSocket().serverOpen();
+
+      const history = {
+        pages: [
+          {
+            messages: [],
+            compaction: null,
+            latestRun,
+          },
+        ],
+        pageParams: [null],
+      };
+
+      queryClient.setQueryData(messagesKey, history);
+      queryClient.setQueryData(targetKey, history);
+
+      latestSocket().serverSend(
+        JSON.stringify(
+          runUpdated("awaiting_quota", {
+            quotaWait: {
+              failureClass: "quota_exhausted",
+              resetsAt: "2026-11-20T12:00:00.000Z",
+              wakeAt: "2026-11-20T12:01:00.000Z",
+            },
+          }),
+        ),
+      );
+
+      expect(
+        queryClient.getQueryData(activeRunsQueryKeys.run(runId)),
+      ).toMatchObject({ status: "awaiting_quota" });
+      expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(true);
+      expect(queryClient.getQueryState(targetKey)?.isInvalidated).toBe(true);
+      // The live frame is not a complete latest-history record: keep the cached
+      // content until the authoritative refetch resolves, rather than writing
+      // an incomplete Run over it.
+      expect(queryClient.getQueryData(messagesKey)).toBe(history);
+      expect(queryClient.getQueryData(targetKey)).toBe(history);
+    },
+  );
+
+  it("clears a live quota wait when the run completes without queuing", () => {
+    const { queryClient } = renderLive(
+      <ActiveRunsProvider>
+        <RunsProbe />
+      </ActiveRunsProvider>,
+    );
+
+    const completedChatId = "33333333-3333-4333-8333-333333333333";
+    const completedRunId = "44444444-4444-4444-8444-444444444444";
+    queryClient.setQueryData(chatQueryKeys.messages(completedChatId), {
+      pages: [
+        {
+          messages: [],
+          compaction: null,
+          latestRun: {
+            kind: "turn",
+            id: completedRunId,
+            messageId: null,
+            status: "running_model",
+            followUpAction: null,
+            modelId: "m",
+            effort: null,
+            permissionMode: "default",
+            error: null,
+            errorCode: null,
+            errorResetsAt: null,
+            quotaWait: null,
+          },
+        },
+      ],
+      pageParams: [null],
+    });
+
+    const latest = () =>
+      queryClient.getQueryData<{
+        pages: Array<{ latestRun: ChatLatestRunResponse }>;
+      }>(chatQueryKeys.messages(completedChatId))?.pages[0]?.latestRun;
+
+    latestSocket().serverOpen();
+    latestSocket().serverSend(
+      JSON.stringify(
+        runUpdated("awaiting_quota", {
+          id: completedRunId,
+          chatId: completedChatId,
+          quotaWait: {
+            failureClass: "rate_limited",
+            resetsAt: "2026-11-20T12:00:00.000Z",
+            wakeAt: "2026-11-20T12:01:00.000Z",
+          },
+        }),
+      ),
+    );
+    latestSocket().serverSend(
+      JSON.stringify(
+        runUpdated("completed", {
+          id: completedRunId,
+          chatId: completedChatId,
+        }),
+      ),
+    );
+    expect(
+      queryClient.getQueryData(activeRunsQueryKeys.run(completedRunId)),
+    ).toMatchObject({ status: "completed", quotaWait: null });
+
+    expect(latest()).toMatchObject({
+      status: "completed",
+      quotaWait: null,
+      errorCode: null,
+      errorResetsAt: null,
+    });
   });
 
   it("drops live phases while disconnected", () => {

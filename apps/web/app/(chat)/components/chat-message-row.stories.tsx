@@ -9,6 +9,7 @@ import {
   within,
 } from "storybook/test";
 import type { UIMessage } from "ai";
+import { useState, type ComponentProps } from "react";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
@@ -207,8 +208,8 @@ type PlayContext = Parameters<NonNullable<Story["play"]>>[0];
  *  renders `**bold**` as a tagged span, not a `strong` element. */
 function renderedTitlesIn(trigger: HTMLElement): Array<string | null> {
   const panel = trigger
-    .closest('[data-slot="collapsible"]')
-    ?.querySelector('[data-slot="collapsible-content"]');
+    .closest('[data-slot="trace-collapsible"]')
+    ?.querySelector('[data-slot="trace-collapsible-content"]');
 
   if (!panel) return [];
 
@@ -218,8 +219,8 @@ function renderedTitlesIn(trigger: HTMLElement): Array<string | null> {
   );
 }
 
-/** The panel boundaries every conversation state must show: one Thinking
- *  panel per uninterrupted summary run, the tool between them, and the answer
+/** The step boundaries every conversation state must show: one Thinking line
+ *  per uninterrupted summary run, the tool between them, and the answer
  *  after — persisted order intact, reasoning never hoisted above the tool. */
 async function expectGroupedSummaryRun({ canvas }: PlayContext): Promise<void> {
   const triggers = await waitFor(
@@ -232,8 +233,6 @@ async function expectGroupedSummaryRun({ canvas }: PlayContext): Promise<void> {
 
       return found;
     },
-    // The row withholds the transcript until the Streamdown-backed markdown
-    // renderers load, so the first query waits on that chunk.
     { timeout: 15_000 },
   );
 
@@ -389,6 +388,8 @@ async function expandWebSearchRows(
 
       return found;
     },
+    // The row withholds the transcript until the Streamdown-backed markdown
+    // renderers load, so the first query waits on that chunk.
     { timeout: 15_000 },
   );
 
@@ -615,6 +616,77 @@ export const PendingIndicator: Story = {
 };
 
 /**
+ * A replayed retry replaces the pending indicator until the next part arrives.
+ *
+ * @summary provider overload shows the current bounded retry
+ */
+export const OverloadedProvider: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: {
+      ...PENDING_MESSAGE,
+      parts: [
+        {
+          type: "data-model-retrying",
+          data: { code: "overloaded", retry: 3, delayMs: 1000 },
+        },
+      ],
+    },
+    isLast: true,
+    status: "streaming",
+  },
+  play: async ({ canvas }) => {
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByText("Retrying after provider overload (3/10)"),
+        ).toBeVisible(),
+      {
+        timeout: 15_000,
+      },
+    );
+    await expect(canvas.queryByText("Thinking…")).toBeNull();
+  },
+};
+
+/**
+ * A part from the next send removes the old retry label without an effect.
+ *
+ * @summary resumed content clears the retry label
+ */
+export const ContentAfterRetry: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: {
+      ...PENDING_MESSAGE,
+      parts: [
+        {
+          type: "data-model-retrying",
+          data: { code: "overloaded", retry: 3, delayMs: 1000 },
+        },
+        { type: "text", text: "The provider is responding again." },
+      ],
+    },
+    isLast: true,
+    status: "streaming",
+  },
+  play: async ({ canvas }) => {
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByText("The provider is responding again."),
+        ).toBeVisible(),
+      {
+        timeout: 15_000,
+      },
+    );
+    await expect(
+      canvas.queryByText("Retrying after provider overload (3/10)"),
+    ).toBeNull();
+  },
+};
+
+/**
  * A live-only empty placeholder after Stop settles: the bubble is withheld,
  * but a compaction marker attached to that index stays visible.
  *
@@ -777,14 +849,14 @@ export const ImageOnlyMessage: Story = {
     await expect(canvas.queryByText(/unsupported part type/)).toBeNull();
     const list = canvas.getByRole("list", { name: "Attachments" });
 
-    // The thumbnails are the row's first child and the action row its second:
-    // no bubble sits between them.
-    const row = canvasElement.querySelector(
-      '[data-message-key="user-image-only"]',
+    // The thumbnails are the first child of the row's content and the action
+    // row its second: no bubble sits between them.
+    const content = canvasElement.querySelector(
+      '[data-message-key="user-image-only"] > [data-slot="message-content"]',
     );
 
-    await expect(row?.children[0]).toBe(list);
-    await expect(row?.children[1]).toContainElement(fork);
+    await expect(content?.children[0]).toBe(list);
+    await expect(content?.children[1]).toContainElement(fork);
   },
 };
 
@@ -1627,6 +1699,9 @@ function turnRun(
     effort: "low",
     permissionMode: "default",
     error: null,
+    errorCode: null,
+    errorResetsAt: null,
+    quotaWait: null,
     ...overrides,
   };
 }
@@ -2250,5 +2325,228 @@ export const MixedOwnerJobNotice: Story = {
     );
 
     await expect(fork).toBeInTheDocument();
+  },
+};
+
+const bashStep = (id: string, command: string) =>
+  ({
+    type: "tool-bash",
+    toolCallId: id,
+    state: "output-available",
+    input: { command },
+    output: { status: "success", exitCode: 0, stdout: "", stderr: "" },
+  }) as const;
+
+/**
+ * A reply that took four or more steps before its answer: the run folds into
+ * one summary line, keeping each step's open state while the group is closed.
+ *
+ * @summary a long run of steps folds behind one summary line
+ */
+export const FoldedSteps: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-folded",
+    message: {
+      id: "assistant-folded",
+      role: "assistant",
+      parts: [
+        {
+          type: "reasoning",
+          text: "Check the workspace first.",
+          state: "done",
+        },
+        bashStep("fold-1", "pnpm lint"),
+        bashStep("fold-2", "pnpm typecheck"),
+        bashStep("fold-3", "pnpm test"),
+        { type: "text", text: "All three checks pass." },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole(
+      "button",
+      { name: "Worked through 4 steps" },
+      { timeout: 15_000 },
+    );
+
+    await expect(canvas.getByText("pnpm typecheck")).not.toBeVisible();
+    await userEvent.click(summary);
+    await expect(await canvas.findByText("pnpm typecheck")).toBeVisible();
+    await expect(canvas.getByText("All three checks pass.")).toBeVisible();
+
+    const tool = canvas.getByRole("button", {
+      name: /pnpm lint.*bash, Completed/u,
+    });
+
+    await userEvent.click(tool);
+    await expect(
+      canvas.getByLabelText("Command and standard output"),
+    ).toBeVisible();
+    summary.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect(summary).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() =>
+      expect(
+        canvas.getByLabelText("Command and standard output"),
+      ).not.toBeVisible(),
+    );
+    await userEvent.keyboard("{Enter}");
+    await expect(tool).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      canvas.getByLabelText("Command and standard output"),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * A command's nonzero exit remains visible in the folded group's outcome.
+ *
+ * @summary a folded trace retains its failed-command count
+ */
+export const FailedStepGroup: Story = {
+  args: {
+    renderKey: "failed-step-group",
+    message: {
+      id: "failed-step-group",
+      role: "assistant",
+      parts: [
+        bashStep("status", "git status --short"),
+        bashStep("history", "git log -5"),
+        bashStep("files", "git ls-files"),
+        {
+          ...bashStep("failed", "ls /missing"),
+          output: {
+            status: "success",
+            exitCode: 2,
+            stdout: "",
+            stderr: "No such file or directory",
+          },
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole("button", { name: /1 failed/u });
+
+    await expect(summary).toBeVisible();
+    await userEvent.click(summary);
+
+    const command = await canvas.findByRole("button", {
+      name: /exited with code 2/u,
+    });
+
+    await expect(command).not.toHaveAccessibleName(/Completed/u);
+    await userEvent.click(command);
+    await expect(
+      await canvas.findByText("No such file or directory"),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * A cancelled step stays visible in the folded summary without becoming a failure.
+ *
+ * @summary a folded trace distinguishes cancellation from failure
+ */
+export const CancelledStepGroup: Story = {
+  args: {
+    renderKey: "cancelled-step-group",
+    message: {
+      id: "cancelled-step-group",
+      role: "assistant",
+      parts: [
+        bashStep("status", "git status --short"),
+        bashStep("history", "git log -5"),
+        bashStep("files", "git ls-files"),
+        {
+          type: "dynamic-tool",
+          toolName: "bash",
+          toolCallId: "cancelled",
+          state: "output-error",
+          input: { command: "sleep 30" },
+          errorText: "Run cancelled",
+          resultProviderMetadata: { llame: { cancelled: true } },
+        },
+      ],
+    },
+  },
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole("button", { name: /1 cancelled/u });
+
+    await expect(summary).not.toHaveAccessibleName(/failed/u);
+    await userEvent.click(summary);
+    await expect(
+      await canvas.findByRole("button", {
+        name: /sleep 30.*Cancelled/u,
+      }),
+    ).toBeVisible();
+  },
+};
+
+/** A live reply receives whitespace before its first visible answer delta. */
+function StreamedAnswerAfterSteps(
+  props: ComponentProps<typeof ChatMessageRow>,
+) {
+  const [text, setText] = useState("");
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setText(text === "" ? "\n  " : "All checks pass.")}
+      >
+        Next delta
+      </button>
+      <ChatMessageRow
+        {...props}
+        message={{
+          ...props.message,
+          parts: [
+            ...props.message.parts,
+            { type: "text", text, state: "streaming" },
+          ],
+        }}
+      />
+    </>
+  );
+}
+
+/**
+ * Settled steps remain open while the model has emitted only empty or whitespace
+ * answer text, then fold once the answer becomes visible, before the Run finishes.
+ *
+ * @summary step activity follows visible answer text rather than text-start events
+ */
+export const StepsRunUntilVisibleAnswer: Story = {
+  args: {
+    status: "streaming",
+    isLast: true,
+    message: {
+      id: "live-step-boundary",
+      role: "assistant",
+      parts: [
+        { type: "reasoning", text: "Check the workspace.", state: "done" },
+        bashStep("live-1", "pnpm lint"),
+        bashStep("live-2", "pnpm typecheck"),
+        bashStep("live-3", "pnpm test"),
+      ],
+    },
+  },
+  render: (args) => <StreamedAnswerAfterSteps {...args} />,
+  play: async ({ canvas }) => {
+    const summary = await canvas.findByRole("button", { name: "Working" });
+
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+    await expect(canvas.getByText("pnpm typecheck")).toBeVisible();
+    await userEvent.click(canvas.getByRole("button", { name: "Next delta" }));
+    await expect(summary).toHaveAccessibleName("Working");
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+    await userEvent.click(canvas.getByRole("button", { name: "Next delta" }));
+    await waitFor(() =>
+      expect(summary).toHaveAccessibleName("Worked through 4 steps"),
+    );
+    await expect(summary).toHaveAttribute("aria-expanded", "false");
+    await expect(canvas.getByText("All checks pass.")).toBeVisible();
   },
 };

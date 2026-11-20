@@ -46,6 +46,7 @@ beforeEach(() => {
   vi.spyOn(RunEventsRepository.prototype, 'findFirstByType').mockResolvedValue(
     undefined,
   );
+  vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
 });
 
 /** Native Drizzle mock; repository behavior is mocked at its public seam. */
@@ -926,10 +927,12 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     expect(findFirstByType).not.toHaveBeenCalled();
   });
 
-  it('uses only the remaining run budget after a current wake', async () => {
+  it('does not subtract a two-day jobs wait from the run execution budget', async () => {
     const startedAt = new Date('2026-11-13T12:00:00.000Z');
+    const suspendedAt = new Date(startedAt.getTime() + 10_000);
+    const resumedAt = new Date(suspendedAt.getTime() + 2 * 24 * 60 * 60 * 1000);
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(startedAt.getTime() + 10_000));
+    vi.setSystemTime(new Date(resumedAt.getTime() + 10_000));
     vi.spyOn(RunsRepository.prototype, 'findById')
       .mockResolvedValueOnce({
         ...queuedRun,
@@ -939,17 +942,6 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       })
       .mockResolvedValueOnce({
         ...queuedRun,
-        currentJobId: 'wake-job',
-        wakeGeneration: 4,
-      })
-      .mockResolvedValueOnce({
-        ...queuedRun,
-        currentJobId: 'wake-job',
-        wakeGeneration: 4,
-      })
-      .mockResolvedValueOnce({
-        ...queuedRun,
-        status: 'awaiting_jobs',
         currentJobId: 'wake-job',
         wakeGeneration: 4,
       });
@@ -963,11 +955,134 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       payload: { status: 'running_model' },
       createdAt: startedAt,
     });
-    const wakeInTransaction = vi.fn().mockResolvedValue(true);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      {
+        sequence: 2,
+        runId: job.runId,
+        eventType: 'run.suspended',
+        payload: { kind: 'jobs', generation: 4 },
+        createdAt: suspendedAt,
+      },
+      {
+        sequence: 3,
+        runId: job.runId,
+        eventType: 'run.resumed',
+        payload: { kind: 'jobs', generation: 4 },
+        createdAt: resumedAt,
+      },
+    ]);
+    const createClient = vi.fn();
+    const executeRun = vi.fn();
+    const settleTerminalRun = vi.fn().mockResolvedValue({ outcome: 'won' });
+
+    const { service, consumeSpy } = makeService(makeFakeTx(), {
+      timeoutSeconds: 300,
+      models: { createClient },
+      runExecution: { executeRun, settleTerminalRun },
+      runWait: { wakeInTransaction: vi.fn().mockResolvedValue(true) },
+    });
+
+    const handler = await captureRunsHandler(service, consumeSpy);
+
+    await handler({
+      ...job,
+      wake: { generation: 4, jobId: 'wake-job' },
+    });
+
+    expect(createClient).not.toHaveBeenCalled();
+    expect(executeRun).not.toHaveBeenCalled();
+    expect(settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'expired',
+        expectedQueueIdentity: {
+          currentJobId: 'wake-job',
+          wakeGeneration: 4,
+        },
+      }),
+    );
+  });
+
+  it('subtracts a two-day quota suspension from the run budget after its wake is appended', async () => {
+    const startedAt = new Date('2026-11-13T12:00:00.000Z');
+    const suspendedAt = new Date(startedAt.getTime() + 10_000);
+    const resumedAt = new Date(suspendedAt.getTime() + 2 * 24 * 60 * 60 * 1000);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(resumedAt.getTime() + 10_000));
+    vi.spyOn(RunsRepository.prototype, 'findById')
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'awaiting_quota',
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      })
+      .mockResolvedValueOnce({
+        ...queuedRun,
+        status: 'awaiting_quota',
+        currentJobId: 'wake-job',
+        wakeGeneration: 4,
+      });
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue({
+      sequence: 1,
+      runId: job.runId,
+      eventType: 'run.started',
+      payload: { status: 'running_model' },
+      createdAt: startedAt,
+    });
+    const eventReadOrder: Array<string> = [];
+
+    const wakeInTransaction = vi.fn(() => {
+      eventReadOrder.push('wake');
+
+      return Promise.resolve(true);
+    });
+
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+      (_runId, _userId, options) => {
+        eventReadOrder.push('events');
+
+        const events = [
+          {
+            sequence: 2,
+            runId: job.runId,
+            eventType: 'run.suspended',
+            payload: { kind: 'quota', generation: 4 },
+            createdAt: suspendedAt,
+          },
+          {
+            sequence: 3,
+            runId: job.runId,
+            eventType: 'run.resumed',
+            payload: { kind: 'quota', generation: 4 },
+            createdAt: resumedAt,
+          },
+        ];
+
+        return Promise.resolve(
+          events.filter(
+            (row) =>
+              options?.eventTypes === undefined ||
+              options.eventTypes.some((type) => type === row.eventType),
+          ),
+        );
+      },
+    );
     const abort = new AbortController();
 
     const executeRun = vi.fn(async () => {
-      await vi.advanceTimersByTimeAsync(289_999);
+      await vi.advanceTimersByTimeAsync(279_999);
       expect(abort.signal.aborted).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       expect(abort.signal.aborted).toBe(true);
@@ -999,6 +1114,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
       wake: { generation: 4, jobId: 'wake-job' },
     });
 
+    expect(eventReadOrder).toEqual(['wake', 'events']);
     expect(executeRun).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedQueueIdentity: {

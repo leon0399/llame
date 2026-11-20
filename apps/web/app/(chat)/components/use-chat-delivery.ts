@@ -402,6 +402,15 @@ type StopInput = {
  *  Run is cancelled. The draft in the composer is never touched. */
 function stopOrInterrupt(input: StopInput) {
   const { items, status, latestRun, messages } = input;
+
+  if (latestRun?.status === "awaiting_quota") {
+    cancelRun(latestRun.id).catch(() =>
+      toast.error("Couldn't stop the response. Try again."),
+    );
+
+    return;
+  }
+
   const steer = firstPendingSteer(items);
 
   if (steer !== undefined) return input.interrupt(steer);

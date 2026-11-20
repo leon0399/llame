@@ -5,14 +5,18 @@
  * the transport is stubbed, through the client's own `fetch` setting, so an
  * adapter upgrade that changes how a failure is delivered fails here.
  */
-import type { ModelMessage } from 'ai';
 
+import { jsonSchema, type ModelMessage } from 'ai';
+import { z } from 'zod';
 import type { ChatIdentity, ModelClient } from './model-client';
+import { ProviderFailure } from './provider-failure/provider-failure';
 import { createOpenAICompletionsModelClient } from './openai-completions-model-client';
-import {
-  ModelStreamIdleError,
-  STREAM_IDLE_TIMEOUT_MS,
-} from './stream-idle-watchdog';
+
+import type { ProviderOptionRecord } from './provider-options';
+
+vi.mock('node:timers/promises', () => ({
+  setTimeout: () => Promise.resolve(),
+}));
 
 const CHAT: ChatIdentity = { id: 'chat-test', lane: 'main' };
 
@@ -52,7 +56,14 @@ function redirectResponse(): Response {
   });
 }
 
-function buildClient(fetch: typeof globalThis.fetch): ModelClient {
+function buildClient(
+  fetch: typeof globalThis.fetch,
+  overrides: {
+    providerOptions?: ProviderOptionRecord;
+    maxOutputTokens?: number;
+    sessionHeader?: (chat: ChatIdentity) => { name: string; value: string };
+  } = {},
+): ModelClient {
   return createOpenAICompletionsModelClient({
     providerModelId: 'test-model',
     modelId: 'system:test:test-model',
@@ -61,6 +72,7 @@ function buildClient(fetch: typeof globalThis.fetch): ModelClient {
     baseUrl: 'https://endpoint.example.test/v1',
     requestHeaders: {},
     fetch,
+    ...overrides,
   });
 }
 
@@ -89,6 +101,7 @@ async function reportedError(client: ModelClient): Promise<Error> {
     .streamText({
       chat: CHAT,
       messages,
+      onTextDelta: vi.fn(),
       onError: ({ error }) => {
         if (!(error instanceof Error)) {
           throw new TypeError(`expected an Error, received ${String(error)}`);
@@ -113,7 +126,234 @@ function surfaces(error: Error): string {
   return `${error.message}\n${error.stack ?? ''}`;
 }
 
+describe('Chat Completions structured retries', () => {
+  it('preserves per-call settings through transient 529 and 503 responses', async () => {
+    const requestSettings = z.object({
+      user: z.string(),
+      max_tokens: z.number(),
+    });
+
+    const requests: Array<{
+      headers: Headers;
+      body: z.infer<typeof requestSettings>;
+    }> = [];
+
+    const responses = [
+      new Response(JSON.stringify({ error: { message: 'overloaded' } }), {
+        status: 529,
+      }),
+      new Response(JSON.stringify({ error: { message: 'unavailable' } }), {
+        status: 503,
+      }),
+      new Response(
+        JSON.stringify({
+          id: 'completion-1',
+          object: 'chat.completion',
+          created: 0,
+          model: 'test-model',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  {
+                    id: 'call-0',
+                    type: 'function',
+                    function: {
+                      name: 'structured_title',
+                      arguments: '{"title":"A title"}',
+                    },
+                  },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    ];
+
+    let attempt = 0;
+
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        requests.push({
+          headers: request.headers,
+          body: requestSettings.parse(JSON.parse(await request.text())),
+        });
+        const response = responses[attempt++];
+
+        if (response === undefined) throw new TypeError('no response scripted');
+
+        return response;
+      },
+    );
+
+    const client = buildClient(fetch, {
+      providerOptions: { user: 'configured-user' },
+      maxOutputTokens: 1234,
+      sessionHeader: (chat) => ({ name: 'x-chat-id', value: chat.id }),
+    });
+
+    if (!client.generateObject) {
+      throw new TypeError('expected structured generation to be available');
+    }
+
+    await expect(
+      client.generateObject({
+        chat: CHAT,
+        messages,
+        schemaName: 'structured_title',
+        schema: jsonSchema<{ title: string }>({
+          type: 'object',
+          properties: { title: { type: 'string' } },
+          required: ['title'],
+        }),
+      }),
+    ).resolves.toEqual({ title: 'A title' });
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(requests).toHaveLength(3);
+
+    for (const { headers, body } of requests) {
+      expect(headers.get('x-chat-id')).toBe(CHAT.id);
+      expect(body).toMatchObject({
+        user: 'configured-user',
+        max_tokens: 1234,
+      });
+    }
+  });
+});
+
 describe('createOpenAICompletionsModelClient — bounded stream failures', () => {
+  it('classifies an authentication failure when usage is consumed before text', async () => {
+    const client = buildClient(
+      serve(
+        () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: 'Authentication failed',
+                code: 'invalid_api_key',
+              },
+            }),
+            { status: 401, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    );
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: () => undefined,
+    });
+
+    await expect(result.usage).rejects.toMatchObject({
+      code: 'auth',
+      statusCode: 401,
+    });
+  });
+
+  it.each(['text', 'consumeStream'] as const)(
+    'preserves a rejected owner error callback through %s',
+    async (channel) => {
+      const ownerError = new Error('Owner persistence failed');
+
+      const client = buildClient(
+        serve(
+          () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  message: 'Authentication failed',
+                  code: 'invalid_api_key',
+                },
+              }),
+              { status: 401, headers: { 'content-type': 'application/json' } },
+            ),
+        ),
+      );
+
+      const result = client.streamText({
+        chat: CHAT,
+        messages,
+        onError: () => Promise.reject(ownerError),
+      });
+
+      await expect(
+        channel === 'text' ? result.text : result.consumeStream(),
+      ).rejects.toBe(ownerError);
+    },
+  );
+
+  it.each(['text', 'consumeStream'] as const)(
+    'preserves abort-persistence failure identity through %s',
+    async (channel) => {
+      const requested = Promise.withResolvers<void>();
+      const controller = new AbortController();
+      const abortReason = new DOMException('Stopped', 'AbortError');
+      const ownerError = new Error('Owner persistence failed');
+
+      const client = buildClient(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(abortReason), {
+              once: true,
+            });
+            requested.resolve();
+          }),
+      );
+
+      const result = client.streamText({
+        chat: CHAT,
+        messages,
+        abortSignal: controller.signal,
+        onError: () => {
+          throw ownerError;
+        },
+      });
+
+      const pending = channel === 'text' ? result.text : result.consumeStream();
+
+      const failure = pending.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      await requested.promise;
+      controller.abort(abortReason);
+
+      expect(await failure).toBe(ownerError);
+    },
+  );
+  it('retries an empty stream that closes without a provider finish reason', async () => {
+    const fetch = serve(
+      () => streamOf(),
+      () =>
+        streamOf(
+          TEXT_CHUNK,
+          JSON.stringify({
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          }),
+        ),
+    );
+
+    const onRetry = vi.fn();
+
+    await expect(
+      buildClient(fetch).streamText({ chat: CHAT, messages, onRetry }).text,
+    ).resolves.toBe('partial');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(onRetry).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'stream_broken', retry: 1 }),
+    );
+  });
+
   it('reports an unparseable and a schema-mismatched event with one fixed text and none of either event', async () => {
     const notJson = await reportedError(
       buildClient(
@@ -199,7 +439,7 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     expect(error.cause).toBeUndefined();
   });
 
-  it('reports a redirect answering a retried request as the redirect alone', async () => {
+  it('reports a redirect after llame retries a transient provider failure', async () => {
     const fetch = serve(
       () =>
         new Response('', {
@@ -219,16 +459,27 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     expect(error.cause).toBeUndefined();
   });
 
-  it('passes a transport failure through unchanged', async () => {
-    const transportFailure = new TypeError('network unreachable');
+  it('classifies a transport failure without retaining its error graph', async () => {
+    const transportFailure = new TypeError('fetch failed', {
+      cause: Object.assign(new Error(`unreachable ${CANARY}`), {
+        code: 'ECONNREFUSED',
+      }),
+    });
 
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.reject(transportFailure),
     );
 
-    await expect(reportedError(buildClient(fetch))).resolves.toBe(
-      transportFailure,
-    );
+    const error = await reportedError(buildClient(fetch));
+
+    expect(error).toBeInstanceOf(ProviderFailure);
+    expect(error).toMatchObject({
+      code: 'unreachable',
+    });
+    expect(error.cause).toBeUndefined();
+    expect(error).not.toHaveProperty('responseBody');
+    expect(error).not.toHaveProperty('responseHeaders');
+    expect(error).not.toHaveProperty('requestBodyValues');
   });
 
   it("keeps the stream's drain waiting on the caller's asynchronous handler", async () => {
@@ -304,58 +555,5 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     } finally {
       consoleError.mockRestore();
     }
-  });
-});
-
-describe('createOpenAICompletionsModelClient — stream-idle watchdog (design D4)', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("reports a stall after a chunk on onError, keeping the wire's bounded failures honest", async () => {
-    // The wire answers with headers and one chunk, then goes silent: the
-    // watchdog's case, over the real adapter's own streaming read.
-    const client = buildClient(() =>
-      Promise.resolve(
-        new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              controller.enqueue(
-                new TextEncoder().encode(`data: ${TEXT_CHUNK}\n\n`),
-              );
-            },
-          }),
-          { headers: { 'content-type': 'text/event-stream' } },
-        ),
-      ),
-    );
-
-    const reported: Array<unknown> = [];
-
-    const result = client.streamText({
-      chat: CHAT,
-      messages,
-      onError: ({ error }) => {
-        reported.push(error);
-      },
-    });
-
-    // The SDK streams nothing until a result accessor is read.
-    const drained = result.fullStream
-      .pipeTo(new WritableStream())
-      .catch(() => undefined);
-
-    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
-    await drained;
-
-    expect(reported[0]).toBeInstanceOf(ModelStreamIdleError);
-    expect(reported[0]).toMatchObject({ code: 'model_stream_idle' });
-    // Terminal, so the Run is settled rather than left for a queue retry.
-    await expect(Promise.resolve(result.finishReason)).resolves.toBe('error');
-    await expect(Promise.resolve(result.text)).resolves.toBe('partial');
   });
 });

@@ -9,7 +9,7 @@ import { RetryError } from 'ai';
 import { PROTECTED_VALUE_REDACTION_MARKER } from '@workspace/runtime-safety';
 
 import { redactModelFailure } from './model-failure-redaction';
-import { ModelStreamIdleError } from './stream-idle-watchdog';
+import { ProviderFailure } from './provider-failure/provider-failure';
 
 /** A value that exists only inside the stubbed upstream's text. */
 const CANARY = 'CONFIGURED-CREDENTIAL-7f3a';
@@ -66,7 +66,7 @@ describe('redactModelFailure', () => {
 
   it('rewrites the failure in place, keeping its identity, name, and code', () => {
     const error = Object.assign(new Error(`Upstream echoed ${CANARY}`), {
-      code: 'model_stream_idle',
+      code: 'stream_broken',
       statusCode: 429,
     });
 
@@ -78,20 +78,23 @@ describe('redactModelFailure', () => {
     );
     expect(surfaces(error)).not.toContain(CANARY);
     expect(error.name).toBe('Error');
-    expect(error).toMatchObject({ code: 'model_stream_idle', statusCode: 429 });
+    expect(error).toMatchObject({ code: 'stream_broken', statusCode: 429 });
   });
 
-  it("keeps the run's idle-failure class and code intact", () => {
-    const error = new ModelStreamIdleError();
-    // A synthetic double: no shipped wire puts a credential in this message,
-    // and the run classifies it by `instanceof` and `code`.
-    error.message = `${error.message} ${CANARY}`;
+  it('keeps the typed provider failure and reset metadata intact', () => {
+    const error = new ProviderFailure(`Provider failure ${CANARY}`, {
+      code: 'quota_exhausted',
+      resetsAt: 1_900_000_000_000,
+    });
 
     const redacted = redactModelFailure(error, credentials);
 
     expect(redacted).toBe(error);
-    expect(error).toBeInstanceOf(ModelStreamIdleError);
-    expect(error).toMatchObject({ code: 'model_stream_idle' });
+    expect(error).toBeInstanceOf(ProviderFailure);
+    expect(error).toMatchObject({
+      code: 'quota_exhausted',
+      resetsAt: 1_900_000_000_000,
+    });
     expect(surfaces(error)).not.toContain(CANARY);
   });
 

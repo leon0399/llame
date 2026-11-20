@@ -39,6 +39,9 @@ describe('toChatLatestRunResponse', () => {
       effort: 'high',
       permissionMode: 'bypass',
       error: null,
+      errorCode: null,
+      errorResetsAt: null,
+      quotaWait: null,
     });
   });
 
@@ -70,5 +73,36 @@ describe('toChatLatestRunResponse', () => {
       toChatLatestRunResponse({ ...run, error: 'not-a-record' }).error,
     ).toBeNull();
     expect(toChatLatestRunResponse({ ...run, error: [] }).error).toBeNull();
+  });
+
+  it('projects failed error code and reset metadata without narrowing codes', () => {
+    expect(
+      toChatLatestRunResponse({
+        ...run,
+        error: {
+          message: 'failed',
+          code: 'context_incompatible',
+          resetsAt: 1_900_000_000_000,
+          provider: 'private',
+        },
+      }),
+    ).toMatchObject({
+      error: 'failed',
+      errorCode: 'context_incompatible',
+      errorResetsAt: 1_900_000_000_000,
+    });
+    expect(
+      toChatLatestRunResponse({
+        ...run,
+        error: { code: 'quota_exhausted', resetsAt: Number.POSITIVE_INFINITY },
+      }),
+    ).toMatchObject({ errorCode: 'quota_exhausted', errorResetsAt: null });
+    expect(
+      toChatLatestRunResponse({
+        ...run,
+        status: 'expired',
+        error: { code: 'provider_private', resetsAt: 1_900_000_000_000 },
+      }),
+    ).toMatchObject({ errorCode: null, errorResetsAt: null });
   });
 });

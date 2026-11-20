@@ -21,6 +21,7 @@ import {
 import { type BillingMode } from '../models/model-client';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { reconstructDurableAssistant } from './assistant-transcript';
+import { hasSupersededOutput } from './superseded-output';
 import {
   continueStateFromEvents,
   continueStepOffset,
@@ -31,7 +32,15 @@ import { NativeFilesRepository } from './native-files-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type TerminalRunStatus } from './run-status';
 import { toolTerminationResult } from './tool-settlement';
-import { wakeStateFromEvents } from './wake-projection';
+import { attemptWindow, wakeStateFromEvents } from './wake-projection';
+import {
+  quotaPendingReplyFromEvents,
+  quotaCompactionStateFromEvents,
+  quotaRequestFromEvents,
+  quotaWakeStateFromEvents,
+  quotaResumeAttemptId,
+  quotaSummaryWakeFromEvents,
+} from './quota-wake-projection';
 
 /** The usage an executing attempt measured, stored on its reply. */
 export type AssistantTurnTelemetry = TurnTelemetry & {
@@ -213,30 +222,6 @@ function eventsAfterLatestDelivery(
 }
 
 /**
- * One attempt's events: from the `model.requested` that names it up to the
- * next attempt's `run.started`, or the end of the log. Empty when no request
- * names the attempt.
- */
-export function attemptWindow(
-  events: ReadonlyArray<RunEvent>,
-  attemptId: string,
-): Array<RunEvent> {
-  const start = events.findIndex(
-    (event) =>
-      event.eventType === 'model.requested' &&
-      stringField(event.payload, 'attemptId') === attemptId,
-  );
-
-  if (start === -1) return [];
-
-  const end = events.findIndex(
-    (event, index) => index > start && event.eventType === 'run.started',
-  );
-
-  return events.slice(start, end === -1 ? undefined : end);
-}
-
-/**
  * Places each context item of a stored part snapshot among parts rebuilt from
  * events: after the last rebuilt part whose `toolCallId` appears anywhere
  * before the item in the snapshot, at the start when none survives, and after
@@ -377,22 +362,26 @@ function dispatchedReplyWrite(
     return undefined;
   }
 
+  const parts = reconstructDurableAssistant(
+    [...log, ...settled],
+    stepOffset,
+  ).collector.parts();
+
+  const usage =
+    input.telemetry ??
+    tokenlessUsage(
+      {
+        runId: input.run.id,
+        modelId: input.run.modelId,
+        ...(input.run.effort !== null && { effort: input.run.effort }),
+      },
+      input.status,
+      input.models,
+    );
+
   return {
-    parts: reconstructDurableAssistant(
-      [...log, ...settled],
-      stepOffset,
-    ).collector.parts(),
-    usage:
-      input.telemetry ??
-      tokenlessUsage(
-        {
-          runId: input.run.id,
-          modelId: input.run.modelId,
-          ...(input.run.effort !== null && { effort: input.run.effort }),
-        },
-        input.status,
-        input.models,
-      ),
+    parts,
+    usage: hasSupersededOutput(log) ? { ...usage, complete: false } : usage,
   };
 }
 
@@ -435,7 +424,9 @@ function rebuiltReplyWrite(
 
   return {
     parts: replyParts(input.run, rebuilt, reply.parts, recovery.prefix),
-    usage: telemetry,
+    usage: hasSupersededOutput(recovery.attemptEvents)
+      ? { ...telemetry, complete: false }
+      : telemetry,
   };
 }
 
@@ -452,23 +443,41 @@ function wakeReplyRecovery(
   running: RunningReplyUsage,
   continued: ContinueState | undefined,
 ): WakeReplyRecovery {
-  // Preparation may fail after the first wake claim commits. Only that
-  // claimed attempt restores the wait; retries must not replay its prefix.
+  // Jobs and request wakes restore only their first claimed attempt. An open
+  // summary still owns its completed reply when a later settler takes over.
+  const quotaRequest = quotaRequestFromEvents(log);
+
   const claimedAttemptId =
-    input.attemptId ?? input.run.activeAttemptId ?? running.attemptId;
+    input.attemptId ??
+    input.run.activeAttemptId ??
+    (quotaRequest === undefined
+      ? undefined
+      : quotaResumeAttemptId(log, quotaRequest.generation)) ??
+    running.attemptId;
 
   const wake = wakeStateFromEvents(log, claimedAttemptId);
-  const prefix = wake ?? continued;
 
-  const recoveryAttemptId =
-    wake === undefined ? running.attemptId : claimedAttemptId;
+  const quotaWake =
+    quotaWakeStateFromEvents(log, claimedAttemptId) ??
+    (attemptWindow(log, claimedAttemptId).length === 0
+      ? quotaCompactionStateFromEvents(log, quotaRequest)
+      : undefined);
 
-  const attemptEvents = attemptWindow(log, recoveryAttemptId).filter(
+  const pending =
+    wake || quotaWake ? undefined : quotaPendingReplyFromEvents(log);
+
+  const prefix = wake ?? quotaWake ?? pending?.state ?? continued;
+
+  const hasWake = wake !== undefined || quotaWake !== undefined;
+  const recoveryAttemptId = hasWake ? claimedAttemptId : running.attemptId;
+
+  const attemptEvents = (
+    pending?.events ?? attemptWindow(log, recoveryAttemptId)
+  ).filter(
     (event) =>
       wake === undefined ||
       event.eventType !== 'tool.completed' ||
-      !isRecord(event.payload) ||
-      event.payload['toolCallId'] !== wake.toolCallId,
+      stringField(event.payload, 'toolCallId') !== wake.toolCallId,
   );
 
   return {
@@ -548,6 +557,37 @@ export async function persistReply(
   });
 }
 
+function liveReplyUsage(
+  input: RunReplyFinalization,
+  reply: Message | undefined,
+  log: Array<RunEvent>,
+  live: AssistantTurnWrite,
+) {
+  if (ownsLiveReply(reply, input.attemptId, true)) {
+    const attemptEvents = attemptWindow(
+      log,
+      input.attemptId ?? live.telemetry.attemptId,
+    );
+
+    return hasSupersededOutput(attemptEvents)
+      ? { ...live.telemetry, complete: false }
+      : live.telemetry;
+  }
+
+  if (
+    !isRunningUsage(reply?.usage) ||
+    reply.usage.runId !== input.run.id ||
+    input.run.activeAttemptId !== input.attemptId ||
+    !quotaSummaryWakeFromEvents(log, input.attemptId)
+  )
+    return undefined;
+
+  return {
+    ...tokenlessUsage(reply.usage, input.status, input.models),
+    ...(live.telemetry.interrupted && { interrupted: true as const }),
+  };
+}
+
 /**
  * Finalizes a terminal Run's reply (design D3/D6), after settling the tool
  * calls its log leaves open. The live collector's parts win when the settler
@@ -581,13 +621,15 @@ export async function finalizeRunReply(
   if (inReplyTo === null || turn === undefined) return undefined;
 
   if (live !== undefined) {
-    if (!ownsLiveReply(reply, input.attemptId, true)) return undefined;
+    const usage = liveReplyUsage(input, reply, log, live);
+
+    if (usage === undefined) return undefined;
 
     return persistReply(messagesRepo, turn, {
       chatId,
       inReplyTo,
       parts: live.parts,
-      usage: live.telemetry,
+      usage,
     });
   }
 

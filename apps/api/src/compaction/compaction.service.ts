@@ -3,7 +3,7 @@ import { tool, type ToolSet } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { toFlexibleSchema } from '../tools/schema-utils';
-import { type ModelClient } from '../models/model-client';
+import type { ModelClient, ModelStreamInput } from '../models/model-client';
 import { mergeRetainedMedia } from '../media/attempt-media';
 import type { RunMediaResolver } from '../media/media-descriptors';
 import { loadMediaSizing } from '../media/epoch-admission';
@@ -23,16 +23,18 @@ import {
 import {
   type ContextCheckpoint,
   type ModelMessage,
-  type StoredMessage,
 } from '../chats/context-builder';
 import { buildTurnTelemetry } from '../chats/turn-telemetry';
-import type { Message, ModelToolDeclaration, Run } from '../db/schema';
+import type { ModelToolDeclaration, Run } from '../db/schema';
 import { toContextCheckpoint } from '../chats/context-item-producers';
-import { isRecord } from '@workspace/runtime-safety';
 import type { CheckpointMessage } from '../chats/messages-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { ContextIncompatibleError } from '../runs/model-context-errors';
+import {
+  compactionQuotaWait,
+  type CompactionQuotaWaitPolicy,
+} from './compaction-quota-wait';
 
 function schemaOnlyTools(
   declarations: ReadonlyArray<ModelToolDeclaration>,
@@ -56,29 +58,6 @@ function schemaOnlyTools(
   }
 
   return Object.fromEntries(entries);
-}
-
-/**
- * Narrows a read history's `unknown[]` JSONB `parts` to `MessagePart[]`: each
- * part must be an object (the union's `Record<string, unknown>` fallback
- * arm), matching every other JSON-record boundary in this codebase. Malformed
- * (non-object) parts fail closed rather than silently coercing.
- */
-export function toStoredMessages(
-  history: ReadonlyArray<Message>,
-): Array<StoredMessage> {
-  return history.map((message) => ({
-    ...message,
-    parts: message.parts.map((part) => {
-      if (!isRecord(part)) {
-        throw new Error(
-          `Malformed message part in message ${message.id}: expected an object`,
-        );
-      }
-
-      return part;
-    }),
-  }));
 }
 
 /** What one summarization call yielded: usable summary text, or nothing. */
@@ -115,72 +94,64 @@ type SourceRun = {
  * previous completed Run — is resolved here, where the receipt and the effort it
  * was persisted with are read.
  */
-export type CompactionSummaryRequest =
-  | {
-      readonly variant: Extract<CompactionVariant, 'threshold'>;
-      readonly chatId: string;
-      readonly userId: string;
-      readonly triggeringUserSeq: number;
-      readonly plan: CompactionPlan;
-      /** The attempt's own model, pre-re-bake prompt, declarations and effort. */
-      readonly client: ModelClient;
-      readonly system: string;
-      readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-      readonly effort?: string;
-      /**
-       * The configured output reserve, which the epoch media window's PDF
-       * page bound subtracts as the Run's own requests do (pdf-media D5).
-       */
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      /**
-       * The Run owner's media, so the summary request projects the prefix's
-       * images and PDFs for the summarizing client's own `input`
-       * (vision-media D9, pdf-media D5).
-       */
-      readonly media?: RunMediaResolver;
-    }
-  | {
-      readonly variant: 'boundary';
-      readonly chatId: string;
-      readonly userId: string;
-      readonly plan: CompactionPlan;
-      /** The live prefix through the newly projected closing reply. */
-      readonly closedReply: ReadonlyArray<ModelMessage>;
-      readonly client: ModelClient;
-      readonly system: string;
-      readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
-      readonly focus: string | null;
-      readonly effort?: string;
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      readonly media?: RunMediaResolver;
-    }
-  | {
-      readonly variant: Extract<CompactionVariant, 'window'>;
-      readonly chatId: string;
-      readonly userId: string;
-      readonly triggeringUserSeq: number;
-      readonly plan: CompactionPlan;
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      readonly media?: RunMediaResolver;
-      readonly instruction?: string;
-    }
-  | {
-      readonly variant: Extract<CompactionVariant, 'owner'>;
-      readonly chatId: string;
-      readonly userId: string;
-      readonly triggeringUserSeq: number;
-      readonly plan: CompactionPlan;
-      readonly previousCheckpoint: CheckpointMessage | undefined;
-      readonly client: ModelClient;
-      readonly instruction?: string;
-      readonly effort?: string;
-      readonly reservedOutputTokens: number | null;
-      readonly abortSignal?: AbortSignal;
-      readonly media?: RunMediaResolver;
-    };
+type CompactionSummaryContext = {
+  readonly chatId: string;
+  readonly userId: string;
+  readonly plan: CompactionPlan;
+  /** The output reserve also bounds the media window's PDF pages. */
+  readonly reservedOutputTokens: number | null;
+  readonly abortSignal?: AbortSignal;
+  /** The Run owner's media, projected for the summarizing model's input. */
+  readonly media?: RunMediaResolver;
+};
+
+export type CompactionSummaryRequest = CompactionSummaryContext &
+  (
+    | {
+        readonly variant: Extract<CompactionVariant, 'threshold'>;
+        readonly triggeringUserSeq: number;
+        /** The attempt's own model, pre-re-bake prompt, declarations and effort. */
+        readonly client: ModelClient;
+        readonly system: string;
+        readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+        readonly effort?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+        /** Quota waiting applies only to this same-attempt summary request. */
+        readonly quotaWait?: CompactionQuotaWaitPolicy;
+      }
+    | {
+        readonly variant: 'boundary';
+        /** The live prefix through the newly projected closing reply. */
+        readonly closedReply: ReadonlyArray<ModelMessage>;
+        readonly client: ModelClient;
+        readonly system: string;
+        readonly toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+        readonly focus: string | null;
+        readonly effort?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+        /** Quota waiting applies only to this same-attempt summary request. */
+        readonly quotaWait?: CompactionQuotaWaitPolicy;
+      }
+    | {
+        readonly variant: Extract<CompactionVariant, 'window'>;
+        readonly triggeringUserSeq: number;
+        readonly instruction?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+        /** Only this Run's configured model owns its quota wait and retries. */
+        readonly quotaWait?: CompactionQuotaWaitPolicy & {
+          readonly modelId: string;
+        };
+      }
+    | {
+        readonly variant: Extract<CompactionVariant, 'owner'>;
+        readonly triggeringUserSeq: number;
+        readonly previousCheckpoint: CheckpointMessage | undefined;
+        readonly client: ModelClient;
+        readonly instruction?: string;
+        readonly effort?: string;
+        readonly onRetry?: ModelStreamInput['onRetry'];
+      }
+  );
 
 /**
  * CompactionService (#57) — one summarization path for the pre-step
@@ -315,6 +286,7 @@ export class CompactionService {
       toolDeclarations: [],
       ...(input.effort !== undefined && { effort: input.effort }),
       abortSignal: input.abortSignal,
+      onRetry: input.onRetry,
       media: input.media,
       reservedOutputTokens: input.reservedOutputTokens,
     });
@@ -375,6 +347,7 @@ export class CompactionService {
         toolDeclarations: input.toolDeclarations,
         ...(input.effort !== undefined && { effort: input.effort }),
         abortSignal: input.abortSignal,
+        onRetry: input.onRetry,
         media: input.media,
         reservedOutputTokens: input.reservedOutputTokens,
       });
@@ -382,6 +355,10 @@ export class CompactionService {
       if (input.abortSignal?.aborted) {
         throw error;
       }
+
+      const quotaWait = compactionQuotaWait(error, input.quotaWait);
+
+      if (quotaWait !== undefined) throw quotaWait;
 
       this.logger.warn(
         `Compaction summary failed for chat ${input.chatId}; proceeding without a checkpoint`,
@@ -451,6 +428,13 @@ export class CompactionService {
       );
     }
 
+    const quotaWait =
+      input.variant === 'window' &&
+      input.quotaWait !== undefined &&
+      input.quotaWait.modelId === selected.run.modelId
+        ? input.quotaWait
+        : undefined;
+
     // Read off the source run this method loaded, so passing the incoming
     // turn's effort by mistake is not expressible: it was validated against a
     // different model's declared levels.
@@ -513,6 +497,7 @@ export class CompactionService {
         toolDeclarations: [],
         ...(effort !== undefined && { effort }),
         abortSignal: input.abortSignal,
+        ...(quotaWait !== undefined && { onRetry: input.onRetry }),
         media: input.media,
         reservedOutputTokens: input.reservedOutputTokens,
       });
@@ -520,6 +505,13 @@ export class CompactionService {
       if (input.abortSignal?.aborted) {
         throw error;
       }
+
+      const awaitingQuota =
+        quotaWait === undefined
+          ? undefined
+          : compactionQuotaWait(error, quotaWait);
+
+      if (awaitingQuota !== undefined) throw awaitingQuota;
 
       throw new ContextIncompatibleError(
         'Source-model summarization of the history this request carries failed.',
@@ -586,6 +578,7 @@ export class CompactionService {
      */
     effort?: string;
     abortSignal?: AbortSignal;
+    onRetry?: ModelStreamInput['onRetry'];
     media: RunMediaResolver | undefined;
     reservedOutputTokens: number | null;
   }): Promise<SummaryInference> {
@@ -601,16 +594,22 @@ export class CompactionService {
       };
     }
 
+    let streamFailure: { error: unknown } | undefined;
+
     const result = input.client.streamText({
       ...(input.system !== undefined && { system: input.system }),
       messages: input.messages,
       chat: { id: input.chatId, lane: 'main' },
       abortSignal: input.abortSignal,
+      onRetry: input.onRetry,
       ...(input.media !== undefined && { media: input.media }),
       reservedOutputTokens: input.reservedOutputTokens,
       ...(input.effort !== undefined && { effort: input.effort }),
       ...(input.toolDeclarations.length > 0 && { tools }),
       toolChoice: 'none',
+      onError: ({ error }) => {
+        streamFailure ??= { error };
+      },
     });
 
     const [text, toolCalls, usage, finishReason] = await Promise.all([
@@ -618,7 +617,13 @@ export class CompactionService {
       Promise.resolve(result.toolCalls).catch(() => []),
       Promise.resolve(result.usage).catch(() => null),
       Promise.resolve(result.finishReason).catch(() => null),
-    ]);
+    ]).catch((error: unknown) => {
+      throw streamFailure === undefined ? error : streamFailure.error;
+    });
+
+    // A trailing finish can make the SDK's text promise fulfill after an error
+    // frame. Never publish that partial summary over the original failure.
+    if (streamFailure !== undefined) throw streamFailure.error;
 
     // A provider that returns a tool call despite `toolChoice: 'none'` has no
     // executor here, so its output is rejected rather than persisted: a

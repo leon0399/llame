@@ -116,14 +116,14 @@ the usage that a cancelled turn records.
 
 ### Requirement: The Run stream identifies its Run at acceptance
 
-The API can accept an owner message and answer with its UI message stream. The first frame of that
-stream MUST then be a UI message stream `start` frame. Its `messageId` MUST be the id of the
-accepted Run, the same id that the cancellation request accepts. The API MUST send the frame when
-the Run is accepted and enqueued. It MUST NOT wait for a Run event or model output.
+The API can accept an owner message and answer with AG-UI 1.0 events over SSE. The first event of
+that stream MUST be `RUN_STARTED`. Its `runId` MUST be the accepted Run id, the same id that the
+cancellation request accepts, and its `threadId` MUST be the Chat id. The API MUST send the event
+when the Run is accepted and enqueued. It MUST NOT wait for a Run event or model output.
 
 A stream MUST cover one segment of the Run, as `run-steering` defines segments. The resume
 stream of the active Run of a Chat MUST start with the same frame. It MUST then replay the events
-of the current segment. Each stream MUST carry exactly one `start` frame.
+of the current segment. Each stream MUST carry exactly one `RUN_STARTED` event.
 
 The API MUST send the frame only on streams in the scope of the authenticated owner. A resume
 request for a Chat that has no active Run of the authenticated owner MUST keep its no-content
@@ -132,30 +132,36 @@ answer and carry no frame. This applies also to the Chat of another owner.
 #### Scenario: The Run id arrives before any model output
 
 - **WHEN** the owner sends a message, and the accepted Run has no events after its creation
-- **THEN** the first frame of the answer is a `start` frame whose `messageId` is the Run id
+- **THEN** the first event of the answer is `RUN_STARTED` whose `runId` is the Run id and whose `threadId` is the Chat id
 - **AND** the client receives that frame while the Run has no model output
 
 #### Scenario: The early id cancels the Run
 
-- **WHEN** a client cancels the Run that the `start` frame names before a worker claims it
+- **WHEN** a client cancels the Run that `RUN_STARTED` names before a worker claims it
 - **THEN** the Run is settled `cancelled` without a model request
 - **AND** no assistant message is persisted for the user message
 
 #### Scenario: Resume identifies the active Run first
 
 - **WHEN** the owner resumes a Chat whose Run is active
-- **THEN** the first frame of the resume stream is a `start` frame whose `messageId` is the id of that Run
+- **THEN** the first event of the resume stream is `RUN_STARTED` whose `runId` is the active Run id and whose `threadId` is the Chat id
 - **AND** the replayed events of the current segment follow it
 
 #### Scenario: The start frame is not repeated
 
-- **WHEN** model output, tool activity, or the terminal event of a Run arrives on a stream that already carried its `start` frame
-- **THEN** the stream carries no second `start` frame
+- **WHEN** model output, tool activity, or the terminal event of a Run arrives on a stream that already carried `RUN_STARTED`
+- **THEN** the stream carries no second `RUN_STARTED` event
 
 #### Scenario: Another owner's chat yields no frame
 
 - **WHEN** an authenticated user resumes a Chat of another user that has an active Run
 - **THEN** the answer is the no-content answer and carries no frame that names that Run
+
+#### Scenario: Cancellation is distinguished from completion on the stream
+
+- **WHEN** the Run of an open stream is cancelled
+- **THEN** the stream ends with `RUN_FINISHED` whose outcome is `{ "type": "cancelled" }`
+- **AND** all open text and reasoning messages close before that terminal event
 
 #### Scenario: A resume after a delivery replays only the current segment
 

@@ -1,17 +1,14 @@
-import { RetryError, type ModelMessage, type streamText } from 'ai';
+import type { ModelMessage, streamText } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 import type { createOpenAI } from '@ai-sdk/openai';
 
+import { ProviderFailure } from './provider-failure/provider-failure';
 import {
   CODEX_RESPONSES_BASE_URL,
   createOpenAICodexModelClient,
 } from './openai-codex-model-client';
 import type { ChatIdentity } from './model-client';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
-import {
-  ModelStreamIdleError,
-  STREAM_IDLE_TIMEOUT_MS,
-} from './stream-idle-watchdog';
 
 const messages = [
   { role: 'user', content: 'Use the configured transport.' },
@@ -28,6 +25,57 @@ const SEARCH_CHAT: ChatIdentity = { id: 'c1', lane: 'search' };
 const USER_AGENT = 'llame/0.0.0-test';
 
 describe('createOpenAICodexModelClient', () => {
+  it('discards a broken title send before releasing the recovered text', async () => {
+    let calls = 0;
+
+    const fetchMock = vi.fn<typeof globalThis.fetch>(() => {
+      calls += 1;
+
+      const events = [
+        'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"item-1"}}\n\n',
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'item-1', delta: calls === 1 ? 'Discard this title.' : 'Recovered title' })}\n\n`,
+        ...(calls === 1
+          ? []
+          : [
+              'data: {"type":"response.completed","response":{"incomplete_details":null,"usage":{"input_tokens":1,"output_tokens":1}}}\n\n',
+            ]),
+      ];
+
+      return Promise.resolve(
+        new Response(events.join(''), {
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      );
+    });
+
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock;
+
+    try {
+      const client = createOpenAICodexModelClient({
+        credential: 'access-token',
+        accountId: 'account-id',
+        providerModelId: 'gpt-test',
+        modelId: 'system:codex:gpt-test',
+        contextWindowTokens: 128_000,
+        userAgent: USER_AGENT,
+        requestHeaders: {},
+      });
+
+      const onRetry = vi.fn();
+
+      await expect(
+        client.streamText({ chat: CHAT, messages, onRetry }).text,
+      ).resolves.toBe('Recovered title');
+      expect(calls).toBe(2);
+      expect(onRetry).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'stream_broken', retry: 1 }),
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
   it.each([
     [{}, CHAT, null],
     [{ 'X-Session-Id': ['', ''] }, CHAT, CHAT.id],
@@ -454,124 +502,6 @@ describe('createOpenAICodexModelClient', () => {
     }
   });
 
-  it('replaces an upstream authentication error before it reaches the run', async () => {
-    const providerModel = new MockLanguageModelV3({
-      provider: 'openai.responses',
-      modelId: 'gpt-test',
-    });
-
-    const provider = Object.assign(
-      vi.fn(() => providerModel),
-      {
-        chat: vi.fn(() => providerModel),
-      },
-    );
-
-    const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
-      partial: true,
-    });
-
-    createOpenAIMock.mockReturnValue(provider);
-
-    const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
-      partial: true,
-    });
-
-    streamTextMock.mockReturnValue({});
-    const onError = vi.fn();
-    const secret = 'codex-access-token-canary';
-
-    const client = createOpenAICodexModelClient(
-      {
-        credential: secret,
-        accountId: 'account-id',
-        providerModelId: 'gpt-test',
-        modelId: 'system:codex:gpt-test',
-        contextWindowTokens: 128_000,
-        userAgent: USER_AGENT,
-        requestHeaders: {},
-      },
-      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
-    );
-
-    client.streamText({ chat: CHAT, messages, onError });
-    const [options] = streamTextMock.mock.calls.at(0) ?? [];
-
-    const upstreamError = Object.assign(
-      new Error(`401 unauthorized: Bearer ${secret}`),
-      { statusCode: 401 },
-    );
-
-    await options?.onError?.({ error: upstreamError });
-
-    expect(onError).toHaveBeenCalledWith({
-      error: Object.assign(
-        new Error(
-          'Codex subscription authentication failed. Re-login and restart llame.',
-        ),
-        { statusCode: 401 },
-      ),
-    });
-    expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
-  });
-
-  it('reports a subscription limit without retaining the upstream response', async () => {
-    const providerModel = new MockLanguageModelV3({
-      provider: 'openai.responses',
-      modelId: 'gpt-test',
-    });
-
-    const provider = Object.assign(
-      vi.fn(() => providerModel),
-      {
-        chat: vi.fn(() => providerModel),
-      },
-    );
-
-    const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
-      partial: true,
-    });
-
-    createOpenAIMock.mockReturnValue(provider);
-
-    const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
-      partial: true,
-    });
-
-    streamTextMock.mockReturnValue({});
-    const onError = vi.fn();
-    const secret = 'codex-quota-canary';
-
-    const client = createOpenAICodexModelClient(
-      {
-        credential: 'access-token',
-        accountId: 'account-id',
-        providerModelId: 'gpt-test',
-        modelId: 'system:codex:gpt-test',
-        contextWindowTokens: 128_000,
-        userAgent: USER_AGENT,
-        requestHeaders: {},
-      },
-      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
-    );
-
-    client.streamText({ chat: CHAT, messages, onError });
-    const [options] = streamTextMock.mock.calls.at(0) ?? [];
-    await options?.onError?.({
-      error: Object.assign(new Error(`429 quota exceeded: ${secret}`), {
-        statusCode: 429,
-      }),
-    });
-
-    expect(onError).toHaveBeenCalledWith({
-      error: Object.assign(
-        new Error('Codex subscription limit reached. Retry manually later.'),
-        { statusCode: 429 },
-      ),
-    });
-    expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
-  });
-
   it('sanitizes an upstream rejection from the stream result', async () => {
     const providerModel = new MockLanguageModelV3({
       provider: 'openai.responses',
@@ -613,78 +543,13 @@ describe('createOpenAICodexModelClient', () => {
       { createOpenAI: createOpenAIMock, streamText: streamTextMock },
     );
 
-    await expect(
-      client.streamText({ chat: CHAT, messages }).text,
-    ).rejects.toThrow('Codex subscription request failed.');
-    await expect(
-      client.streamText({ chat: CHAT, messages }).text,
-    ).rejects.not.toThrow(secret);
-    await expect(
-      client.streamText({ chat: CHAT, messages }).text,
-    ).rejects.not.toHaveProperty('statusCode');
-  });
-
-  it('classifies a retry-exhausted quota error without exposing its details', async () => {
-    const providerModel = new MockLanguageModelV3({
-      provider: 'openai.responses',
-      modelId: 'gpt-test',
+    const result = client.streamText({ chat: CHAT, messages });
+    await expect(result.text).rejects.toMatchObject({
+      name: 'ProviderFailure',
+      message: 'Codex subscription request failed.',
     });
-
-    const provider = Object.assign(
-      vi.fn(() => providerModel),
-      {
-        chat: vi.fn(() => providerModel),
-      },
-    );
-
-    const createOpenAIMock = vi.mocked(vi.fn<typeof createOpenAI>(), {
-      partial: true,
-    });
-
-    createOpenAIMock.mockReturnValue(provider);
-
-    const streamTextMock = vi.mocked(vi.fn<typeof streamText>(), {
-      partial: true,
-    });
-
-    streamTextMock.mockReturnValue({});
-    const onError = vi.fn();
-    const secret = 'codex-retry-quota-canary';
-
-    const client = createOpenAICodexModelClient(
-      {
-        credential: 'access-token',
-        accountId: 'account-id',
-        providerModelId: 'gpt-test',
-        modelId: 'system:codex:gpt-test',
-        contextWindowTokens: 128_000,
-        userAgent: USER_AGENT,
-        requestHeaders: {},
-      },
-      { createOpenAI: createOpenAIMock, streamText: streamTextMock },
-    );
-
-    client.streamText({ chat: CHAT, messages, onError });
-    const [options] = streamTextMock.mock.calls.at(0) ?? [];
-    await options?.onError?.({
-      error: new RetryError({
-        message: `retries exhausted: ${secret}`,
-        reason: 'maxRetriesExceeded',
-        errors: [
-          Object.assign(new Error(`429 quota exceeded: ${secret}`), {
-            statusCode: 429,
-          }),
-        ],
-      }),
-    });
-
-    expect(onError).toHaveBeenCalledWith({
-      error: Object.assign(
-        new Error('Codex subscription limit reached. Retry manually later.'),
-        { statusCode: 429 },
-      ),
-    });
-    expect(JSON.stringify(onError.mock.calls)).not.toContain(secret);
+    await expect(result.text).rejects.toBeInstanceOf(ProviderFailure);
+    await expect(result.text).rejects.not.toThrow(secret);
   });
 
   describe('provider-options invariants (provider-options)', () => {
@@ -826,66 +691,5 @@ describe('createOpenAICodexModelClient', () => {
         .input,
     ).toEqual(['text', 'image']);
     expect(createOpenAICodexModelClient(config)).not.toHaveProperty('input');
-  });
-});
-
-/** A Responses stream that delivers one delta, then never sends again. */
-const createdThenDeltaThenSilence = [
-  'event: response.created\ndata: {"type":"response.created","response":{"id":"r1"}}\n\n',
-  'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","item_id":"i1","delta":"partial"}\n\n',
-];
-
-describe('createOpenAICodexModelClient — stream-idle watchdog (design D4)', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('keeps the watchdog error and its code through the subscription sanitizer', async () => {
-    // A 200 whose SSE body delivers a delta and then goes silent: the
-    // provider answered, started, and stopped — the watchdog's case.
-    globalThis.fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-      new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            for (const event of createdThenDeltaThenSilence) {
-              controller.enqueue(new TextEncoder().encode(event));
-            }
-          },
-        }),
-        { headers: { 'content-type': 'text/event-stream' } },
-      ),
-    );
-
-    const client = createOpenAICodexModelClient({
-      credential: 'access-token',
-      accountId: 'account-id',
-      providerModelId: 'gpt-test',
-      modelId: 'system:codex:gpt-test',
-      contextWindowTokens: 128_000,
-      userAgent: USER_AGENT,
-      requestHeaders: {},
-    });
-
-    const reported: Array<unknown> = [];
-
-    const result = client.streamText({
-      chat: CHAT,
-      messages,
-      onError: ({ error }) => {
-        reported.push(error);
-      },
-    });
-
-    // The SDK streams nothing until a result accessor is read.
-    const drained = result.fullStream.pipeTo(new WritableStream());
-    await vi.advanceTimersByTimeAsync(STREAM_IDLE_TIMEOUT_MS);
-    await drained;
-
-    expect(reported[0]).toBeInstanceOf(ModelStreamIdleError);
-    expect(reported[0]).toMatchObject({ code: 'model_stream_idle' });
   });
 });

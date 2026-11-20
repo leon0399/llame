@@ -35,6 +35,7 @@ import { ChatMessageRow } from "./chat-message-row";
 import { messageBoundaries } from "./message-boundaries";
 import { carriesTurnActions, needsFailedTurnRow } from "./turn-action-rules";
 import { TurnActions } from "./turn-actions";
+import { QuotaResetTime } from "./quota-wait-notice";
 import {
   messageRenderKey,
   messageSeqFromMetadata,
@@ -251,8 +252,15 @@ function ChatTranscriptFailedTurn(props: ChatTranscriptMessagesProps) {
     <div className="mx-auto w-full max-w-3xl md:px-6">
       <Alert>
         <AlertTitle>{title}</AlertTitle>
-        {latestRun.error !== null && (
-          <AlertDescription>{latestRun.error}</AlertDescription>
+        {(latestRun.error !== null || latestRun.errorResetsAt !== null) && (
+          <AlertDescription>
+            {latestRun.error !== null && <p>{latestRun.error}</p>}
+            {latestRun.errorResetsAt !== null && (
+              <p>
+                <QuotaResetTime resetsAt={latestRun.errorResetsAt} />
+              </p>
+            )}
+          </AlertDescription>
         )}
         <AlertAction>
           <TurnActions
@@ -291,23 +299,39 @@ function isFailedCompaction(latestRun: ChatLatestRunResponse | null): boolean {
   );
 }
 
+function CompactionFailure({
+  latestRun,
+}: {
+  latestRun: ChatLatestRunResponse;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-3xl md:px-6">
+      <Alert>
+        <AlertTitle>Compaction failed</AlertTitle>
+        <AlertDescription>
+          <p>{latestRun.error ?? "Compaction failed."}</p>
+          {latestRun.errorResetsAt !== null && (
+            <p>
+              <QuotaResetTime resetsAt={latestRun.errorResetsAt} />
+            </p>
+          )}
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
 function CompactionRunRow({ latestRun }: { latestRun: ChatLatestRunResponse }) {
-  if (latestRun.status === "completed" || latestRun.status === "cancelled") {
+  if (
+    latestRun.status === "completed" ||
+    latestRun.status === "cancelled" ||
+    latestRun.status === "awaiting_quota"
+  ) {
     return null;
   }
 
-  if (isFailedCompaction(latestRun)) {
-    return (
-      <div className="mx-auto w-full max-w-3xl md:px-6">
-        <Alert>
-          <AlertTitle>Compaction failed</AlertTitle>
-          <AlertDescription>
-            {latestRun.error ?? "Compaction failed."}
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
+  if (isFailedCompaction(latestRun))
+    return <CompactionFailure latestRun={latestRun} />;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between md:px-6">
@@ -330,12 +354,27 @@ function CompactionRunRow({ latestRun }: { latestRun: ChatLatestRunResponse }) {
 
 /** The send/stream error alert. Split out of `ChatTranscriptBody` as its
  *  own self-contained region. */
-function ChatTranscriptErrorAlert({ error }: { error: Error }) {
+function ChatTranscriptErrorAlert({
+  name,
+  message,
+  resetsAt,
+}: {
+  name: string;
+  message: string;
+  resetsAt: number | null;
+}) {
   return (
     <div className="max-w-3xl mx-auto">
-      <Alert variant={"destructive"} className="w-full">
-        <AlertTitle>Error: {error.name}</AlertTitle>
-        <AlertDescription>{error.message}</AlertDescription>
+      <Alert className="w-full">
+        <AlertTitle>Error: {name}</AlertTitle>
+        <AlertDescription>
+          <p>{message}</p>
+          {resetsAt !== null && (
+            <p>
+              <QuotaResetTime resetsAt={resetsAt} />
+            </p>
+          )}
+        </AlertDescription>
       </Alert>
     </div>
   );
@@ -357,6 +396,37 @@ type ChatTranscriptProps = {
   onInspectContext: (runId: string) => void;
 };
 
+function TranscriptFailure(props: ChatTranscriptProps) {
+  const { latestRun, displayedError } = props;
+
+  const storedFailure =
+    latestRun?.status === "failed" &&
+    (props.status === "ready" || props.status === "error")
+      ? latestRun.error
+      : null;
+
+  const errorMessage = displayedError?.message ?? storedFailure;
+
+  const shownByFailedTurn =
+    latestRun !== null &&
+    latestRun.error === errorMessage &&
+    (isFailedCompaction(latestRun) || showsFailedTurnRow(props));
+
+  if (errorMessage === null || shownByFailedTurn) return null;
+
+  return (
+    <ChatTranscriptErrorAlert
+      name={displayedError?.name ?? "Error"}
+      message={errorMessage}
+      resetsAt={
+        latestRun?.status === "failed" && latestRun.error === errorMessage
+          ? latestRun.errorResetsAt
+          : null
+      }
+    />
+  );
+}
+
 /** The scrollable region's content: older-page loading, every message row,
  *  and a send/stream error. Split out of `ChatTranscript` as its own
  *  self-contained region — reuses its parent's full prop set. */
@@ -366,16 +436,7 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
     hasOlderMessages,
     isLoadingOlderMessages,
     onLoadOlderMessages,
-    displayedError,
-    latestRun,
   } = props;
-
-  // The failed-turn or compaction error row already names this message once
-  // the history read reports it; a second alert would announce it twice.
-  const shownByFailedTurn =
-    latestRun !== null &&
-    latestRun.error === displayedError?.message &&
-    (isFailedCompaction(latestRun) || showsFailedTurnRow(props));
 
   return (
     <>
@@ -390,9 +451,7 @@ function ChatTranscriptBody(props: ChatTranscriptProps) {
         }
       />
       <ChatTranscriptMessages {...props} />
-      {displayedError && !shownByFailedTurn && (
-        <ChatTranscriptErrorAlert error={displayedError} />
-      )}
+      <TranscriptFailure {...props} />
     </>
   );
 }
@@ -467,12 +526,14 @@ export function ChatTranscript({
             several-thousand-message walk still measures heavy after that. */}
         <ConversationContent className="mx-auto w-full max-w-3xl">
           {/* The message column's own rhythm: 20px gutters, 48px of air above
-              and below, 48px between rows — the 32px the primitive's gap-8
-              gave plus the 16px each row carried as a `space-y-4` margin.
-              Both now come from this wrapper's gap-12, and its negative margin
-              cancels the primitive's p-4 so the wrapper, not the component,
-              sets the inset. */}
-          <div className="-m-4 flex flex-col gap-12 px-5 py-12">
+              and below, and 10px between rows: the gap `MessageContent` puts
+              between a message and its actions, repeated between the actions
+              and the next message. A row ends in its action row, invisible
+              until the row is hovered or focused, so the air between two
+              messages is that row plus both gaps. The negative margin cancels
+              the primitive's p-4 so the wrapper, not the component, sets the
+              inset. */}
+          <div className="-m-4 flex flex-col gap-2.5 px-5 py-12">
             <ChatTranscriptBody {...props} />
           </div>
         </ConversationContent>

@@ -69,6 +69,7 @@ export function liveRunRecord(
     permissionMode: 'default',
     status: 'running_model',
     error: null,
+    quotaWait: null,
     createdAt: at,
     startedAt: at,
     finishedAt: null,

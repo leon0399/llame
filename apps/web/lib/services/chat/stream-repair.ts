@@ -120,9 +120,8 @@ export function useStreamRepair(options: {
   const episodeRef = useRef<RepairEpisode | null>(null);
 
   // A new turn supersedes the episode: its retry belongs to a Run the client is
-  // no longer streaming, and attaching now would open a second stream on the
-  // Chat while the new send owns the response — writes the SDK drops, plus a
-  // stray `send-failed` while that send is still in flight. The dep list
+  // no longer streaming, and the engine does not attach while the new send
+  // owns the log, so the attempt would be spent for nothing. The dep list
   // compares by value, so this runs only when the streaming Run actually
   // changes, and no equality test on the previous id is reachable.
   useEffect(() => {

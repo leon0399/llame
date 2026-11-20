@@ -22,6 +22,7 @@ import type { Mock } from "vitest";
 
 import type {
   ActiveRunResponse,
+  ChatLatestRunResponse,
   RunResponse,
 } from "@/lib/api/generated/models";
 import { activeRunsQueryKeys } from "@/lib/services/chat/active-runs";
@@ -50,9 +51,31 @@ function runResponseFixture(
     modelId: "system:openai:gpt-5.4-mini",
     permissionMode: "default",
     error: null,
+    quotaWait: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     startedAt: null,
     finishedAt: null,
+    ...overrides,
+  };
+}
+
+function latestRunFixture(
+  id: string,
+  overrides: Partial<ChatLatestRunResponse> = {},
+): ChatLatestRunResponse {
+  return {
+    kind: "turn",
+    id,
+    messageId: null,
+    status: "running_model",
+    followUpAction: null,
+    modelId: "system:openai:gpt-5.4-mini",
+    effort: null,
+    permissionMode: "default",
+    error: null,
+    errorCode: null,
+    errorResetsAt: null,
+    quotaWait: null,
     ...overrides,
   };
 }
@@ -206,6 +229,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
             chatId: "chat-a",
             chatTitle: "Walk-away chat",
             status: "running_model",
+            quotaWait: null,
             createdAt: "2026-07-06T00:00:00.000Z",
           },
         ]),
@@ -248,6 +272,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
             chatId: "chat-awaiting",
             chatTitle: "Background chat",
             status: "awaiting_jobs",
+            quotaWait: null,
             createdAt: "2026-07-06T00:00:00.000Z",
           },
         ]),
@@ -282,6 +307,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
         chatId: "chat-e",
         chatTitle: "Stale snapshot chat",
         status: "running_model",
+        quotaWait: null,
         createdAt: "2026-07-06T00:00:00.000Z",
       },
     ]);
@@ -383,8 +409,8 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
       workspaceRoot: null,
     });
     queryClient.setQueryData(chatQueryKeys.messages("chat-viewed"), {
-      messages: [],
-      compaction: null,
+      pages: [{ messages: [], compaction: null, latestRun: null }],
+      pageParams: [null],
     });
     screen.getByText("track").click();
     await waitFor(() =>
@@ -518,6 +544,139 @@ describe("ActiveRunsProvider — poll-to-completion (useQueries)", () => {
     expect(screen.getByTestId("unread").textContent).toBe("false");
     expect(screen.queryByText(/Reply ready/)).toBeNull();
     expect(screen.queryByText(/Run failed/)).toBeNull();
+  });
+});
+
+describe("ActiveRunsProvider — polled quota wait history", () => {
+  it("does not refetch missing-Run history on unrelated provider renders", async () => {
+    stubActiveRunsNetwork();
+    runHandler = (id) =>
+      Promise.resolve(
+        jsonResponse(runResponseFixture({ id, status: "running_model" })),
+      );
+
+    const { queryClient, rerenderProbe } = renderProbe("chat-fixture");
+    const messagesKey = chatQueryKeys.messages("chat-fixture");
+
+    const history = {
+      pages: [
+        {
+          messages: [],
+          compaction: null,
+          latestRun: latestRunFixture("older-run"),
+        },
+      ],
+      pageParams: [null],
+    };
+
+    queryClient.setQueryData(messagesKey, history);
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "running_model",
+      ),
+    );
+    await waitFor(() =>
+      expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(true),
+    );
+
+    queryClient.setQueryData(messagesKey, history);
+    rerenderProbe("unrelated-chat");
+    await waitFor(() =>
+      expect(screen.getByTestId("processing").textContent).toBe("false"),
+    );
+    expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(false);
+
+    queryClient.setQueryData(
+      activeRunsQueryKeys.run("run-track"),
+      runResponseFixture({ id: "run-track", status: "awaiting_quota" }),
+    );
+    await waitFor(() =>
+      expect(queryClient.getQueryState(messagesKey)?.isInvalidated).toBe(true),
+    );
+  });
+
+  it("propagates polled quota waiting and resumption into the latest history", async () => {
+    stubActiveRunsNetwork();
+    runHandler = (runId) =>
+      Promise.resolve(
+        jsonResponse(
+          runResponseFixture({
+            id: runId,
+            status: "running_model",
+            chatId: "chat-poll-quota",
+          }),
+        ),
+      );
+
+    const { queryClient } = renderProbe("chat-poll-quota");
+    screen.getByText("track").click();
+    await waitFor(() =>
+      expect(screen.getByTestId("run-status").textContent).toBe(
+        "running_model",
+      ),
+    );
+
+    const messagesKey = chatQueryKeys.messages("chat-poll-quota");
+    const targetKey = chatQueryKeys.targetMessages("chat-poll-quota", 17);
+
+    const history = {
+      pages: [
+        {
+          messages: [],
+          compaction: null,
+          latestRun: latestRunFixture("run-track"),
+        },
+      ],
+      pageParams: [null],
+    };
+
+    queryClient.setQueryData(messagesKey, history);
+    queryClient.setQueryData(targetKey, history);
+
+    const latest = () =>
+      queryClient.getQueryData<typeof history>(messagesKey)?.pages[0]
+        ?.latestRun;
+
+    const targeted = () =>
+      queryClient.getQueryData<typeof history>(targetKey)?.pages[0]?.latestRun;
+
+    const quotaWait = {
+      failureClass: "quota_exhausted" as const,
+      resetsAt: "2026-11-20T12:00:00.000Z",
+      wakeAt: "2026-11-20T12:01:00.000Z",
+    };
+
+    queryClient.setQueryData(
+      activeRunsQueryKeys.run("run-track"),
+      runResponseFixture({
+        id: "run-track",
+        status: "awaiting_quota",
+        chatId: "chat-poll-quota",
+        quotaWait,
+      }),
+    );
+    await waitFor(() =>
+      expect(latest()).toMatchObject({
+        status: "awaiting_quota",
+        quotaWait,
+      }),
+    );
+    expect(targeted()).toMatchObject({ status: "awaiting_quota", quotaWait });
+
+    queryClient.setQueryData(
+      activeRunsQueryKeys.run("run-track"),
+      runResponseFixture({
+        id: "run-track",
+        status: "queued",
+        chatId: "chat-poll-quota",
+        quotaWait: null,
+      }),
+    );
+    await waitFor(() =>
+      expect(latest()).toMatchObject({ status: "queued", quotaWait: null }),
+    );
+    expect(targeted()).toMatchObject({ status: "queued", quotaWait: null });
   });
 });
 

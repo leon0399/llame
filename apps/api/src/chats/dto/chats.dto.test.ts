@@ -562,15 +562,42 @@ describe('surfaces without model identity carry no effort', () => {
       chatTitle: 'A chat',
       status: 'queued',
       createdAt: new Date('2026-08-24T00:00:00.000Z'),
+      awaiting: null,
     });
 
     expect(Object.keys(dto).sort()).toEqual([
       'chatId',
       'chatTitle',
       'createdAt',
+      'quotaWait',
       'runId',
       'status',
     ]);
+    expect(dto.quotaWait).toBeNull();
+  });
+
+  it('includes only the public quota wait fields for an awaiting run', () => {
+    const dto = toActiveRunResponse({
+      id: 'run-2',
+      chatId: 'chat-1',
+      chatTitle: 'A chat',
+      status: 'awaiting_quota',
+      createdAt: new Date('2026-08-24T00:00:00.000Z'),
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'quota_exhausted',
+        resetsAt: '2026-11-20T12:00:00.000Z',
+        wakeAt: '2026-11-20T12:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 2,
+      },
+    });
+
+    expect(dto.quotaWait).toEqual({
+      failureClass: 'quota_exhausted',
+      resetsAt: '2026-11-20T12:00:00.000Z',
+      wakeAt: '2026-11-20T12:01:00.000Z',
+    });
   });
 
   it('the public shared-chat message view exposes no usage, and so no effort', () => {

@@ -54,9 +54,9 @@ export function resolveTerminalRun(
 
 /**
  * The run id to register for background tracking while a message streams —
- * the last message's id IS the run id (the run-stream-bridge's start-chunk
- * surrogate) once it's the assistant's turn. Null before the first chunk
- * arrives (the last message is still the user's turn) — nothing to track yet.
+ * the last message's id IS the run id (the stream's `RUN_STARTED` names it)
+ * once it's the assistant's turn. Null before the first event arrives (the
+ * last message is still the user's turn) — nothing to track yet.
  *
  * Deliberately local to this notification-tracking concern rather than shared
  * with any similarly-shaped cancel-path helper elsewhere in the chat UI — same
@@ -93,7 +93,7 @@ export function notificationLabel(
   return "your conversation";
 }
 
-/** The completion report `useChat`'s `onFinish` hands the engine. */
+/** The completion report the chat engine's `onFinish` hands its owner. */
 export type StreamCompletion = {
   isAbort: boolean;
   isDisconnect: boolean;
@@ -107,7 +107,7 @@ export type StreamCompletion = {
 /**
  * The message a Run delivered at the end of the segment this stream carried
  * (run-steering D9), or null when the stream ended some other way. The bridge
- * writes `data-run-delivered` right before `finish`, and the Run keeps
+ * writes the delivery right before `RUN_FINISHED`, and the Run keeps
  * executing: the client adopts history, then attaches for the next segment.
  */
 export function deliveredMessageId(
@@ -125,8 +125,8 @@ export function deliveredMessageId(
 
 /**
  * Whether a finished stream ended while its Run was still executing: the
- * bridge is the only writer, its terminal chunk is the only signal that the Run
- * reached an end, and a failed Run replaces that chunk with an error. A
+ * bridge is the only writer, `RUN_FINISHED` is the only signal that the Run
+ * reached an end, and a failed Run ends with `RUN_ERROR` instead. A
  * transport failure, a proxy or deploy cutting the connection, or a stream that
  * simply stops arriving therefore leaves the Run executing server-side (#50),
  * and the client re-attaches instead of reporting a turn that never completed

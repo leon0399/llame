@@ -9,6 +9,8 @@
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { streamText } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
+import { z } from 'zod';
+import { scriptedToolInput as encodeScriptedToolInput } from '../runs/scripted-model-step';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -88,12 +90,35 @@ export function answerChunks(text: string): Array<LanguageModelV3StreamPart> {
   ];
 }
 
+/** Provider fixtures supply the same presentation envelope real models must. */
+export function scriptedToolInput(toolName: string, input: unknown): string {
+  const parsed = z.record(z.string(), z.unknown()).safeParse(input);
+
+  return parsed.success
+    ? encodeScriptedToolInput(toolName, parsed.data)
+    : JSON.stringify(input);
+}
+
 export function scriptedModel(
   chunks: Array<LanguageModelV3StreamPart>,
 ): MockLanguageModelV3 {
+  const enveloped = chunks.map((chunk) => {
+    if (chunk.type !== 'tool-call') return chunk;
+
+    try {
+      const input: unknown = JSON.parse(chunk.input);
+
+      return { ...chunk, input: scriptedToolInput(chunk.toolName, input) };
+    } catch {
+      return chunk;
+    }
+  });
+
   return new MockLanguageModelV3({
     doStream: () =>
-      Promise.resolve({ stream: simulateReadableStream({ chunks }) }),
+      Promise.resolve({
+        stream: simulateReadableStream({ chunks: enveloped }),
+      }),
   });
 }
 

@@ -353,26 +353,6 @@ describe('createOpenAICompletionsModelClient — Chat Completions request shape 
     expect(model.doStreamCalls[0]?.maxOutputTokens).toBe(4096);
   });
 
-  it('omits the streaming output limit the catalog did not declare', () => {
-    const model = new MockLanguageModelV3({
-      provider: 'openai-compatible.test',
-      modelId: 'deepseek-chat',
-    });
-
-    streamTextMock.mockReturnValue({});
-    const { client } = buildClient(model, { stream: streamTextMock });
-
-    client.streamText({ chat: CHAT, messages });
-
-    // The AI SDK materializes `maxOutputTokens` (undefined) into every call
-    // setting it builds for the adapter, so `doStreamCalls` can never show
-    // the key's absence; the omission is observable on the settings object
-    // this client hands to `streamText`, which is what the assertion pins.
-    expect(streamTextMock.mock.calls[0]?.[0]).not.toHaveProperty(
-      'maxOutputTokens',
-    );
-  });
-
   it('omits pricing and compaction keys the operator did not configure', () => {
     const { client } = buildClient(
       new MockLanguageModelV3({

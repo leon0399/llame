@@ -76,6 +76,9 @@ minimumReleaseAgeExclude:
 # One shared version per dependency used by 2+ workspaces — reference with
 # "catalog:" in package.json. Single edit point, no cross-package drift.
 catalog:
+  # The AG-UI event types and schemas of a Run's stream: apps/api writes the
+  # events and apps/web validates and reads them, so the two move together.
+  "@ag-ui/core": 1.0.4
   "@ai-sdk/mcp": 1.0.71
   "@base-ui/react": ^1.6.0
   "@hookform/resolvers": ^5.1.1

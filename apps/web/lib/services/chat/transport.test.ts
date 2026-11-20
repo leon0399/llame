@@ -8,7 +8,6 @@ import {
   type ChatTransportRequestOptions,
   followUpRunRequest,
   NO_FOLLOW_UP_ACTION_ERROR,
-  prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "./transport";
 
@@ -33,11 +32,6 @@ describe("chat transport urls", () => {
     expect(buildFollowUpRunUrl("chat-1", "message-1")).toMatch(
       /\/api\/v1\/chats\/chat-1\/messages\/message-1\/runs$/,
     );
-  });
-
-  it("points reconnectToStream at the resume endpoint for the chat id (#49)", () => {
-    const request = prepareReconnectToStreamRequest({ id: "chat-42" });
-    expect(request.api).toMatch(/\/api\/v1\/chats\/chat-42\/stream$/);
   });
 });
 

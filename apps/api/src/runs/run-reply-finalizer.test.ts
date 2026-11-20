@@ -8,7 +8,6 @@ import {
 import { type Message, type Run, type RunEvent } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import {
-  attemptWindow,
   failRunTransactionally,
   finalizeRunReply,
   placeStoredContextItems,
@@ -16,6 +15,7 @@ import {
   type AssistantTurnTelemetry,
 } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { attemptWindow } from './wake-projection';
 
 const runId = '11111111-1111-4111-8111-111111111111';
 const chatId = '22222222-2222-4222-8222-222222222222';
@@ -173,6 +173,7 @@ describe('attemptWindow', () => {
       5, 6,
     ]);
     expect(attemptWindow(log, 'unknown')).toEqual([]);
+    expect(attemptWindow(log.slice(4), 'unknown')).toEqual([]);
   });
 });
 
@@ -907,6 +908,444 @@ describe('finalizeRunReply', () => {
         parts: [{ type: 'text', text: 'second segment' }],
       }),
     );
+  });
+  it('keeps the pre-wait quota checkpoint when a wake settler has no collector', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior-attempt',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(1, 'prior-attempt'),
+        event(2, 'model.delta', { text: 'pre-wait checkpoint' }),
+        event(3, 'run.suspended', {
+          kind: 'quota',
+          attemptId: 'prior-attempt',
+          generation: 2,
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-10-12T00:00:00.000Z',
+          wakeAt: '2026-10-12T00:01:00.000Z',
+          resumeAt: 'request',
+          waitCount: 1,
+          parts: [{ type: 'text', text: 'pre-wait checkpoint' }],
+          steps: {},
+        }),
+        event(4, 'run.resumed', {
+          kind: 'quota',
+          attemptId: 'wake-attempt',
+          generation: 2,
+          cause: 'timeout',
+        }),
+        event(5, 'run.started', { attemptId: 'wake-attempt' }),
+        requested(6, 'wake-attempt'),
+        event(7, 'model.delta', { text: 'after wake' }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake-attempt' },
+      status: 'failed',
+      attemptId: 'wake-attempt',
+      models,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          { type: 'text', text: 'pre-wait checkpoint' },
+          { type: 'text', text: 'after wake' },
+        ],
+      }),
+    );
+  });
+
+  it('keeps a re-wait checkpoint when pickup expires before the next attempt starts', async () => {
+    const checkpoint = [
+      { type: 'text', text: 'original reply', step: 0 },
+      {
+        type: 'tool-read',
+        toolCallId: 'completed-read',
+        state: 'output-available',
+        step: 1,
+        input: { path: '/workspace/answer.txt' },
+        output: { status: 'success', value: 'retained tool result' },
+        outcome: 'success',
+        classification: null,
+      },
+      { type: 'text', text: 'first wake reply', step: 2 },
+    ];
+
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'first-wake',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        event(1, 'run.started', { attemptId: 'first-wake' }),
+        requested(2, 'first-wake'),
+        event(3, 'model.delta', { text: 'first wake reply' }),
+        event(4, 'run.suspended', {
+          kind: 'quota',
+          attemptId: 'first-wake',
+          generation: 3,
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-10-12T00:00:00.000Z',
+          wakeAt: '2026-10-12T00:01:00.000Z',
+          resumeAt: 'request',
+          waitCount: 2,
+          parts: checkpoint,
+          steps: {},
+        }),
+        event(5, 'run.resumed', {
+          kind: 'quota',
+          generation: 3,
+          attemptId: 'unclaimed-wake',
+          cause: 'timeout',
+        }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, status: 'expired' },
+      status: 'expired',
+      models,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: checkpoint }),
+    );
+  });
+
+  it.each([false, true])(
+    'keeps the completed final answer once on summary quota cancellation (re-wait: %s)',
+    async (reWait) => {
+      const kept = [
+        contextItem('kept instructions'),
+        {
+          ...toolPart('search-call'),
+          classification: null,
+          input: { q: 'search-call' },
+          outcome: 'success',
+          output: { status: 'success', value: 'ok' },
+          state: 'output-available',
+        },
+        { type: 'text', text: 'The final answer is complete.' },
+      ];
+
+      const running = runningReplyUsage({
+        runId,
+        attemptId: 'answer-attempt',
+        modelId: 'fake-model',
+        effort: undefined,
+        permissionMode: 'default',
+      });
+
+      const { update } = serve({
+        log: [
+          requested(1, 'answer-attempt'),
+          ...toolCall(2, 'search-call'),
+          event(4, 'model.delta', { text: 'The final answer is complete.' }),
+          event(5, 'run.suspended', {
+            kind: 'quota',
+            attemptId: 'answer-attempt',
+            generation: 1,
+            failureClass: 'quota_exhausted',
+            resetsAt: '2026-10-12T00:00:00.000Z',
+            wakeAt: '2026-10-12T00:01:00.000Z',
+            resumeAt: 'finalAnswer',
+            waitCount: 1,
+            parts: kept,
+            steps: {},
+          }),
+          ...(reWait
+            ? [
+                event(6, 'run.resumed', {
+                  kind: 'quota',
+                  attemptId: 'wake-attempt',
+                  generation: 1,
+                  cause: 'timeout',
+                }),
+                event(7, 'run.started', { attemptId: 'wake-attempt' }),
+                event(8, 'run.suspended', {
+                  kind: 'quota',
+                  attemptId: 'wake-attempt',
+                  generation: 2,
+                  failureClass: 'quota_exhausted',
+                  resetsAt: '2026-10-12T01:00:00.000Z',
+                  wakeAt: '2026-10-12T01:01:00.000Z',
+                  resumeAt: 'finalAnswer',
+                  waitCount: 2,
+                  parts: kept,
+                  steps: {},
+                }),
+              ]
+            : []),
+          // RunWaitService wakes a cancelled quota wait with a fresh claim and
+          // no `run.started`, because the cancellation is stamped first, so the
+          // claim never starts an attempt.
+          event(9, 'run.resumed', {
+            kind: 'quota',
+            attemptId: 'cancel-attempt',
+            generation: reWait ? 2 : 1,
+            cause: 'cancelled',
+          }),
+        ],
+        reply: reply({ usage: running, parts: reWait ? [] : kept }),
+      });
+
+      await finalizeRunReply(tx, {
+        run: { ...run, status: 'cancelled', activeAttemptId: null },
+        status: 'cancelled',
+        models,
+      });
+
+      expect(update.mock.lastCall?.[0].parts).toEqual(kept);
+      expect(update.mock.lastCall?.[0].usage).toMatchObject({
+        status: 'aborted',
+        complete: false,
+      });
+    },
+  );
+
+  it.each([
+    {
+      name: 'first wake',
+      attemptId: 'wake',
+      latestAttemptId: 'wake',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: true,
+    },
+    {
+      name: 'claim redelivery',
+      attemptId: 'retry',
+      latestAttemptId: 'retry',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: true,
+    },
+    {
+      name: 'completed claim redelivery',
+      attemptId: 'retry',
+      latestAttemptId: 'retry',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: true,
+      recovered: true,
+    },
+    {
+      name: 'stale writer',
+      attemptId: 'stale',
+      latestAttemptId: 'wake',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: false,
+    },
+    {
+      name: 'foreign reply',
+      attemptId: 'wake',
+      latestAttemptId: 'wake',
+      replyRunId: 'another-run',
+      dispatched: false,
+      allowed: false,
+    },
+    {
+      name: 'dispatched attempt',
+      attemptId: 'wake',
+      latestAttemptId: 'wake',
+      replyRunId: runId,
+      dispatched: true,
+      allowed: false,
+    },
+  ])(
+    'settles a restored live quota reply only for its current checkpoint owner: $name',
+    async (scenario) => {
+      const parts = [
+        { type: 'text', text: 'The saved answer.' },
+        { type: 'data-compaction-failed', data: {} },
+      ];
+
+      const log = [
+        requested(1, 'original'),
+        event(2, 'run.suspended', {
+          kind: 'quota',
+          attemptId: 'original',
+          generation: 1,
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-11-20T00:00:00.000Z',
+          wakeAt: '2026-11-20T00:01:00.000Z',
+          resumeAt: 'boundary',
+          waitCount: 1,
+          parts: parts.slice(0, 1),
+          steps: {},
+        }),
+        event(3, 'run.resumed', {
+          kind: 'quota',
+          attemptId: 'wake',
+          generation: 1,
+          cause: 'timeout',
+        }),
+        event(4, 'run.started', { attemptId: 'wake' }),
+      ];
+
+      if (scenario.latestAttemptId !== 'wake')
+        log.push(
+          event(5, 'run.started', { attemptId: scenario.latestAttemptId }),
+        );
+
+      if (scenario.dispatched) log.push(requested(5, 'wake'));
+
+      const status = 'recovered' in scenario ? 'completed' : 'cancelled';
+
+      if (status === 'completed')
+        log.push(
+          event(6, 'run.quota_recovered', {
+            generation: 1,
+            resumeAt: 'boundary',
+          }),
+        );
+
+      const { update } = serve({
+        log,
+        reply: reply({
+          usage: runningReplyUsage({
+            runId: scenario.replyRunId,
+            attemptId: 'original',
+            modelId: 'fake-model',
+            effort: undefined,
+            permissionMode: 'default',
+          }),
+        }),
+      });
+
+      await finalizeRunReply(tx, {
+        run: { ...run, activeAttemptId: scenario.latestAttemptId },
+        status,
+        attemptId: scenario.attemptId,
+        live: {
+          chatId,
+          inReplyTo: messageId,
+          parts,
+          telemetry: { ...telemetry(scenario.attemptId), interrupted: true },
+        },
+        models,
+      });
+
+      if (!scenario.allowed) {
+        expect(update).not.toHaveBeenCalled();
+
+        return;
+      }
+
+      expect(update.mock.lastCall?.[0].parts).toEqual(parts);
+      expect(update.mock.lastCall?.[0].usage).toMatchObject({
+        runId,
+        attemptId: 'original',
+        status: status === 'completed' ? 'completed' : 'aborted',
+        complete: false,
+        interrupted: true,
+      });
+      expect(update.mock.lastCall?.[0].usage).not.toHaveProperty('latencyMs');
+    },
+  );
+
+  it('projects superseded output and lowers usage completeness', async () => {
+    const item = contextItem('kept context');
+
+    const { update } = serve({
+      log: [
+        requested(1, 'a'),
+        event(2, 'model.delta', { text: 'stale attempt output' }),
+        event(3, 'run.started', null),
+        requested(4, 'b'),
+        event(5, 'model.delta', { text: 'broken current output' }),
+        event(6, 'model.superseded', { fromSequence: 5, step: 0 }),
+        event(7, 'model.delta', { text: 'current replacement' }),
+      ],
+      reply: reply({
+        usage: runningReplyUsage({
+          runId,
+          attemptId: 'b',
+          modelId: 'fake-model',
+          effort: undefined,
+          permissionMode: 'default',
+        }),
+        parts: [item],
+      }),
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'completed',
+      attemptId: 'b',
+      telemetry: {
+        ...telemetry('b'),
+        status: 'completed',
+        complete: true,
+      },
+      models,
+    });
+
+    expect(update.mock.lastCall?.[0]).toMatchObject({
+      parts: [item, { type: 'text', text: 'current replacement' }],
+      usage: {
+        status: 'completed',
+        complete: false,
+        attemptId: 'b',
+      },
+    });
+  });
+  it('keeps live usage incomplete when the current attempt supersedes a send', async () => {
+    const { update } = serve({
+      log: [
+        requested(1, 'b'),
+        event(2, 'model.delta', { text: 'discarded send' }),
+        event(3, 'model.superseded', { fromSequence: 2, step: 0 }),
+        event(4, 'model.retrying', {
+          code: 'stream_broken',
+          retry: 1,
+          delayMs: 0,
+        }),
+        event(5, 'model.delta', { text: 'replacement send' }),
+      ],
+      reply: reply({
+        usage: runningReplyUsage({
+          runId,
+          attemptId: 'b',
+          modelId: 'fake-model',
+          effort: undefined,
+          permissionMode: 'default',
+        }),
+      }),
+    });
+
+    await finalizeRunReply(tx, {
+      run,
+      status: 'completed',
+      attemptId: 'b',
+      live: {
+        chatId,
+        inReplyTo: messageId,
+        parts: [{ type: 'text', text: 'replacement send' }],
+        telemetry: { ...telemetry('b'), status: 'completed', complete: true },
+      },
+      models,
+    });
+
+    expect(update.mock.lastCall?.[0]).toMatchObject({
+      parts: [{ type: 'text', text: 'replacement send' }],
+      usage: { status: 'completed', complete: false, attemptId: 'b' },
+    });
   });
 
   it("settles a call the attempt left open and keeps an earlier attempt's output out", async () => {

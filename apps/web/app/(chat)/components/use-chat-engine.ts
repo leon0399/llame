@@ -1,6 +1,6 @@
 /**
- * The lower-level `useChat` plumbing `useChatConversation` composes: model
- * readiness, the send transport, cache refresh, the `useChat` call itself,
+ * The lower-level chat plumbing `useChatConversation` composes: model
+ * readiness, the send transport, cache refresh, the AG-UI chat engine itself,
  * and its adjacent effects (scroll-to-target, resume/history-adoption,
  * run-presence). Split into its own module once `use-chat-conversation.ts`
  * outgrew the project's 500-line cap.
@@ -8,22 +8,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 
-import { useChat } from "@ai-sdk/react";
-import {
-  DefaultChatTransport,
-  getToolName,
-  isToolUIPart,
-  type UIMessage,
-} from "ai";
+import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
-import { authAwareFetch } from "@/lib/api/fetch";
+import type {
+  ChatRequest,
+  ChatTransport,
+} from "@/lib/services/chat/ag-ui/chat";
+import { useAgUiChat } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
+import { createChatTransport } from "@/lib/services/chat/ag-ui/transport";
 import {
-  buildChatMessagesUrl,
   type ChatTransportRequestOptions,
-  prepareReconnectToStreamRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
@@ -285,12 +282,7 @@ function useChatPermissionModeRestore({
 /** The composer's latest selections, read at request time (never during
  *  render) so an id-stable transport always sends what is selected now. */
 function requestOptions(
-  options: {
-    id: string;
-    messages: Array<Pick<UIMessage, "id" | "parts">>;
-    trigger: "submit-message" | "regenerate-message";
-    body: object | undefined;
-  },
+  options: ChatRequest,
   selections: {
     model: RefObject<string | undefined>;
     effort: RefObject<string | undefined>;
@@ -298,7 +290,7 @@ function requestOptions(
   },
 ): ChatTransportRequestOptions {
   return {
-    chatId: options.id,
+    chatId: options.chatId,
     messages: options.messages,
     trigger: options.trigger,
     followUp: options.body,
@@ -308,15 +300,15 @@ function requestOptions(
   };
 }
 
-/** The `DefaultChatTransport` instance, id-stable per `chatId`. */
+/** The Chat's AG-UI transport, id-stable per `chatId`. */
 export function useChatSendTransport(
   chatId: string,
   selectedModel: string | undefined,
   selectedEffort: string | undefined,
 ) {
   const { getPermissionMode } = useChatContext();
-  // useChat (@ai-sdk/react) creates its Chat once per chatId and NEVER adopts a
-  // new `transport` instance afterwards (it only recreates on an id change).
+  // The engine creates its chat once per chatId and NEVER adopts a new
+  // `transport` instance afterwards (it only recreates on an id change).
   // Closing the transport over `selectedModel` therefore froze it at the
   // first-render value (undefined, before models load), so a model chosen after
   // load never reached the request — the send failed with "no selected model".
@@ -336,25 +328,19 @@ export function useChatSendTransport(
 
   return useMemo(
     () =>
-      new DefaultChatTransport({
-        api: buildChatMessagesUrl(chatId),
-        credentials: "include",
-        fetch: authAwareFetch,
-        prepareSendMessagesRequest: (options) =>
-          prepareSendMessagesRequest(
-            requestOptions(options, {
-              model: selectedModelRef,
-              effort: selectedEffortRef,
-              permissionMode: selectedPermissionModeRef,
-            }),
-          ),
-        prepareReconnectToStreamRequest,
-      }),
+      createChatTransport((request) =>
+        prepareSendMessagesRequest(
+          requestOptions(request, {
+            model: selectedModelRef,
+            effort: selectedEffortRef,
+            permissionMode: selectedPermissionModeRef,
+          }),
+        ),
+      ),
     // The refs are listed for the exhaustive-deps rule's benefit only: a ref
     // object is stable for the component's life, so including them cannot
-    // rebuild the transport. `chatId` remains the sole real trigger — which is
-    // the whole point, since useChat never adopts a new transport instance.
-    [chatId, selectedModelRef, selectedEffortRef, selectedPermissionModeRef],
+    // rebuild the transport.
+    [selectedModelRef, selectedEffortRef, selectedPermissionModeRef],
   );
 }
 
@@ -438,7 +424,7 @@ function isPermissionModeUnavailableError(error: unknown): boolean {
 type UseChatEngineArgs = {
   chatId: string;
   chatMessages: Array<UIMessage>;
-  transport: DefaultChatTransport<UIMessage>;
+  transport: ChatTransport;
   onFinished: () => boolean;
   onTargetSendInterrupted: () => boolean;
   onSendFailed: () => void;
@@ -531,28 +517,22 @@ function handleChatError(
   args.refreshChatData();
 }
 
-/** The `useChat` call itself, wired to the run-tracking and refresh
+/** The AG-UI chat engine itself, wired to the run-tracking and refresh
  *  callbacks it drives. Placement matters: this must stay a hook called
  *  directly from `ChatSessionContent`'s own render (never moved into a
- *  child component), so `useChat`'s per-`chatId` `Chat` instance keeps
- *  living on this component's fiber. */
+ *  child component), so the per-`chatId` chat instance keeps living on this
+ *  component's fiber. */
 export function useChatEngine(args: UseChatEngineArgs) {
   const queryClient = useQueryClient();
   const { setPermissionMode } = useChatContext();
 
-  return useChat({
+  // Resume-on-refresh (#49) is driven by `useChatHistorySync`, which
+  // reconnects only after owner-scoped history has proved the chat exists.
+  return useAgUiChat({
     id: args.chatId,
     messages: args.chatMessages,
     generateId: safeRandomUUID,
     transport: args.transport,
-    // Resume-on-refresh (#49): reconnect only after owner-scoped history has
-    // proved the chat exists. The SDK's own `resume` effect is deliberately
-    // NOT used (see `useChatHistorySync`'s resume effect): it has no cleanup
-    // and no re-entrancy guard, so React Strict Mode's double-invoked mount
-    // effect calls resumeStream() twice on the same Chat instance, racing two
-    // makeRequest() calls on the shared `activeResponse` (#260) and
-    // duplicating the answer (#259).
-    resume: false,
     onFinish: (status) => handleChatFinish(status, args),
     onError: (error) =>
       handleChatError(error, args, queryClient, setPermissionMode),
@@ -582,7 +562,7 @@ function successfulWorkspaceTransitionId(
 }
 
 function useWorkspacePreparationRefresh(
-  status: ReturnType<typeof useChat>["status"],
+  status: ChatStatus,
   refreshChatBinding: () => void,
 ): void {
   const refreshed = useRef(false);
@@ -605,7 +585,7 @@ function useWorkspacePreparationRefresh(
 
 function useWorkspaceTransitionRefresh(
   messages: Array<UIMessage>,
-  status: ReturnType<typeof useChat>["status"],
+  status: ChatStatus,
   refreshChatBinding: () => void,
 ): void {
   const handledIdsRef = useRef<Set<string> | undefined>(undefined);
@@ -632,7 +612,7 @@ function useWorkspaceTransitionRefresh(
 }
 
 type UseChatPresenceEffectsArgs = {
-  status: ReturnType<typeof useChat>["status"];
+  status: ChatStatus;
   messages: Array<UIMessage>;
   chatId: string;
   trackRun: (runId: string, chatId: string, label: string) => void;

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1
  */
 import type { ActiveRunResponseStatus } from "./activeRunResponseStatus";
+import type { QuotaWaitResponse } from "./quotaWaitResponse";
 
 export interface ActiveRunResponse {
   runId: string;
@@ -14,4 +15,6 @@ export interface ActiveRunResponse {
   chatTitle: string | null;
   status: ActiveRunResponseStatus;
   createdAt: string;
+  /** @nullable */
+  quotaWait: QuotaWaitResponse | null;
 }

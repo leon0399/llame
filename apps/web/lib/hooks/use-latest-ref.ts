@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, type RefObject } from "react";
  * A ref that always holds the latest render's value.
  *
  * For reading current state from a callback that was captured ONCE and never
- * re-created — the AI SDK's chat transport is the motivating case: it is built
+ * re-created — the chat transport is the motivating case: it is built
  * per chat id and never adopts a new instance, so a value closed over directly
  * is frozen at first render.
  *

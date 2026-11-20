@@ -21,6 +21,7 @@ import {
 import { toolActivityPart } from './assistant-transcript';
 import {
   eventProviderMetadata,
+  eventPayloadString,
   permissionFromPayload,
   toolResultFromPayload,
 } from './run-event-payload';
@@ -43,6 +44,29 @@ type WakeWindow = {
 };
 
 /**
+ * One attempt's events: from its model.requested until the next run.started.
+ * An attempt that never dispatched has no window.
+ */
+export function attemptWindow(
+  events: ReadonlyArray<RunEvent>,
+  attemptId: string,
+): Array<RunEvent> {
+  const start = events.findIndex(
+    (event) =>
+      event.eventType === 'model.requested' &&
+      eventPayloadString(event.payload, 'attemptId') === attemptId,
+  );
+
+  if (start === -1) return [];
+
+  const end = events.findIndex(
+    (event, index) => index > start && event.eventType === 'run.started',
+  );
+
+  return events.slice(start, end === -1 ? undefined : end);
+}
+
+/**
  * Restore the checkpoint and the one wait result claimed by this attempt.
  * Retries after that first claim deliberately return no prefix: their current
  * attempt is an ordinary model attempt, not another delivery of the wait.
@@ -61,7 +85,12 @@ export function wakeStateFromEvents(
 
   const resumedPayload = segment[resumedIndex]?.payload;
 
-  if (resumedIndex === -1 || !isRecord(resumedPayload)) return undefined;
+  if (
+    resumedIndex === -1 ||
+    !isRecord(resumedPayload) ||
+    (resumedPayload['kind'] !== undefined && resumedPayload['kind'] !== 'jobs')
+  )
+    return undefined;
 
   const generation = resumedPayload['generation'];
 
@@ -139,13 +168,18 @@ function findSuspensionIndex(
   for (let index = resumedIndex - 1; index >= 0; index -= 1) {
     const event = segment[index];
 
+    if (event?.eventType !== 'run.suspended') continue;
+
     if (
-      event?.eventType === 'run.suspended' &&
-      isRecord(event.payload) &&
-      event.payload['generation'] === generation
+      !isRecord(event.payload) ||
+      (event.payload['kind'] !== undefined &&
+        event.payload['kind'] !== 'jobs') ||
+      event.payload['generation'] !== generation
     ) {
-      return index;
+      return -1;
     }
+
+    return index;
   }
 
   return -1;
@@ -306,6 +340,7 @@ function wakeActivityMetadata(
   const permission = permissionFromPayload(requestPayload);
 
   return {
+    intent: eventPayloadString(requestPayload, 'intent'),
     ...(providerMetadata !== undefined && { providerMetadata }),
     ...(permission !== undefined && { permission }),
     ...(classification !== undefined && { classification }),

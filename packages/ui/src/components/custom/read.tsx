@@ -275,7 +275,7 @@ function ReadSource({
   Markdown: ComponentType<{ children?: string }>;
 }) {
   return (
-    <div className="space-y-1 px-4 pt-4 text-sm">
+    <div className="space-y-1 text-sm">
       {output.finalUrl ? (
         <SearchLink
           label={output.finalUrl}
@@ -337,7 +337,7 @@ function ReadBody({
   return (
     <div className="space-y-4">
       <ReadSource output={output} Markdown={Markdown} />
-      <div className="px-4">
+      <div>
         <ReadContent output={output} />
       </div>
       <ToolDetails rows={metadataRows(output)} />
@@ -426,7 +426,7 @@ function ReadImageBody({
   return (
     <div className="space-y-4">
       <ReadSource output={props.output} Markdown={Markdown} />
-      <div className="px-4">
+      <div>
         <ReadImagePreview {...props} />
       </div>
       <ToolDetails rows={imageMetadataRows(props.output)} />
@@ -455,7 +455,7 @@ function ReadPdfBody({
   return (
     <div className="space-y-4">
       <ReadSource output={output} Markdown={Markdown} />
-      <div className="px-4">
+      <div>
         <MediaThumbnail kind="pdf" name={pdfName(output)} href={href} />
       </div>
       <ToolDetails rows={pdfMetadataRows(output)} />

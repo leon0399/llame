@@ -1,4 +1,5 @@
 import { realpath, stat } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -61,7 +62,11 @@ import {
 } from 'ai';
 
 import { and, eq } from 'drizzle-orm';
-import { canonicalJson, compareCodePoints } from '../canonical-json';
+import {
+  canonicalJson,
+  compareCodePoints,
+  hashWithDomain,
+} from '../canonical-json';
 import { errorMessageWithoutParams, loggableError } from '../db/loggable-error';
 import { pgErrorCode } from '../db/pg-error';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
@@ -72,6 +77,8 @@ import {
   type Message,
   type ModelToolDeclaration,
   type Run,
+  type AwaitingQuota,
+  type QuotaResumeAt,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
@@ -87,9 +94,15 @@ import {
   type PromptUserInput,
   type SystemModelCatalogEntry,
 } from '../models/model-catalog';
-import { type ModelClient, type SdkRefusal } from '../models/model-client';
+import {
+  type ModelClient,
+  type ModelRequestRetry,
+  type SdkRefusal,
+} from '../models/model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
-import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
+import type { ProviderFailureSuperseded } from '../models/provider-failure/provider-failure';
+import type { SupersededModelOutput } from './superseded-output';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createJobNoticeContext } from './job-notice-context';
 import {
@@ -97,7 +110,14 @@ import {
   sourceSegmentJobNoticeIds,
 } from './job-notice-recovery';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { readCompactionSet } from '../compaction/boundary-compaction';
+import {
+  CompactionQuotaWait,
+  compactionQuotaWait,
+} from '../compaction/compaction-quota-wait';
+import {
+  readCompactionSet,
+  type CompactionSet,
+} from '../compaction/boundary-compaction';
 import {
   automaticBoundaryThresholdReached,
   compactionAttemptStarted,
@@ -107,7 +127,6 @@ import { type CheckpointMessage } from '../chats/messages-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import {
   CompactionService,
-  toStoredMessages,
   type CompactionCapability,
   type CompactionSummary,
 } from '../compaction/compaction.service';
@@ -119,6 +138,7 @@ import {
   planCompactionCheckpoint,
   requestFitsContextWindow,
   resolveCompactionThreshold,
+  toStoredMessages,
   type CompactionPlan,
 } from '../compaction/compaction';
 import {
@@ -243,6 +263,7 @@ import {
   runTool,
 } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
+import { splitToolIntent, withoutToolIntents } from '../tools/tool-intent';
 import {
   AttemptToolAdditions,
   type AttemptToolBinding,
@@ -324,6 +345,7 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   IN_RUN_CONTEXT_PRODUCER,
   createInRunContextItems,
@@ -364,6 +386,7 @@ import {
   ContextIncompatibleError,
   ModelContextExecutionError,
 } from './model-context-errors';
+import { modelRequestFailure } from './model-request-failure';
 import {
   composeAttemptToolCatalog,
   finalizeEffectiveContext,
@@ -437,9 +460,18 @@ import { retryRunTransaction } from './run-transaction';
 import { RunWaitService } from './run-wait.service';
 import {
   completeWaitInTransaction,
+  clearQuotaAwaitingInTransaction,
   pendingWakeInTransaction,
 } from './run-wait-completion';
-import { wakeStateFromEvents, type WakeState } from './wake-projection';
+import { wakeStateFromEvents } from './wake-projection';
+import {
+  quotaWakeStateFromEvents,
+  quotaCompactionStateFromEvents,
+  quotaRequestFromEvents,
+  quotaResumeAttemptId,
+  type QuotaRequestState,
+} from './quota-wake-projection';
+import { quotaWaitForFailure } from './quota-wait';
 import { WAIT_SUSPENSION, type WaitRequest } from '../tools/wait-suspension';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
@@ -689,6 +721,7 @@ type CompactionCompletionInput = {
   summary: CompactionSummary | undefined;
   abortSignal: AbortSignal;
   focus: string | null;
+  quotaRequest?: QuotaRequestState;
 };
 
 type FinishRunInput = {
@@ -713,6 +746,7 @@ type FinishRunInput = {
   recencyDigestInitialization?: RecencyDigestInitialization;
   skillCatalogFreeze?: SkillCatalogFreeze;
   boundaryCompaction?: NonNullable<DeliveryInput['boundaryCompaction']>;
+  quotaRequest?: QuotaRequestState;
   stepBudgetUsed?: number;
 };
 
@@ -755,6 +789,26 @@ function completesBoundaryCompaction(
   return status === 'completed' && !wakeCompaction;
 }
 
+/**
+ * The identity of a boundary summary's request prefix: the exact system prompt
+ * and tool declarations it would send. A resumed summary compares this against
+ * the fingerprint its suspension stored, because a wake attempt rebuilds both
+ * from current configuration — substituting either would summarize under a
+ * prefix the original answer never rendered.
+ */
+export function compactionSummaryPrefixFingerprint(input: {
+  system: string;
+  toolDeclarations: ReadonlyArray<ModelToolDeclaration>;
+}): string {
+  return hashWithDomain(
+    'llame:compaction:summary-prefix:v1',
+    canonicalJson({
+      system: input.system,
+      toolDeclarations: input.toolDeclarations,
+    }),
+  );
+}
+
 /** The assembled context+tools an execution attempt runs against. */
 type PreparedExecutionContext = {
   system: string;
@@ -784,7 +838,9 @@ export type RunClaimResult =
       attemptId: string;
       messageId: string | null;
       nativeDeliverySequence: number;
-      wakeState?: WakeState;
+      wakeState?: ContinueState;
+      quotaRequest?: QuotaRequestState;
+      quotaWake?: boolean;
     };
 
 type ExecuteRunInput = {
@@ -805,6 +861,51 @@ type ExecuteRunInput = {
     wakeGeneration: number;
   };
 };
+
+type ExecuteAttemptInput = {
+  input: ExecuteRunInput;
+  nativeAbort: AbortController | undefined;
+  effort: string | undefined;
+  permissionMode: PermissionMode;
+  attemptId: string;
+  nativeDeliverySequence: number;
+  firstSegment: boolean;
+  wakeState?: ContinueState;
+  quotaRequest?: QuotaRequestState;
+  quotaWake: boolean;
+  createdMessage: RunUserMessage;
+};
+
+type PreparedAttemptExecution = {
+  startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+  quotaRequest?: QuotaRequestState;
+  stepBudgetOffset: number;
+  wakeStepOffset: number;
+  compactionDisabledAtStart: boolean;
+  continued: ContinueState | undefined;
+  effectivePermissionMode: PermissionMode;
+  wakeCompactionSet: CompactionSet | undefined;
+  wakeCompaction: boolean;
+  workspaceRoot: ReturnType<typeof createWorkspaceRootCell>;
+  workspaceMcpKey: WorkspaceMcpKey | undefined;
+  workspaceMcpListing: WorkspaceMcpListingCell;
+  skillSelection: ReadonlySet<string>;
+  media: RunMediaResolver;
+  prepared: PreparedExecutionContext;
+  attemptContext: PreparedAttemptContext;
+  compactionStartedThisAttempt: boolean;
+  compactionThreshold: number;
+  turnInstructions: TurnInstructions;
+  turnGit: TurnGit;
+};
+
+type AttemptPreparationOutcome =
+  | { kind: 'ready'; execution: PreparedAttemptExecution }
+  | { kind: 'delivered'; attempt: AttemptRun };
+
+type QuotaResumeAttemptResult =
+  | { kind: 'delivered'; attempt: AttemptRun }
+  | { kind: 'continue'; compactionFailure?: 'automatic' | 'manual' };
 
 type ModelStreamResult = ReturnType<ModelClient['streamText']>;
 
@@ -978,6 +1079,7 @@ type ToolRequestedEventPayload = {
   toolCallId: string;
   toolName: string;
   input: unknown;
+  intent?: string;
   /**
    * The AI SDK step that requested this call. A Continue Run groups the kept
    * parts by it, so two sequential steps with no text between them stay two
@@ -1427,6 +1529,10 @@ export class RunExecutionService {
           );
         }
 
+        if (status === 'completed') {
+          await this.appendQuotaRecovered(tx, input.runId, input.quotaRequest);
+        }
+
         const finish = await this.finishRunInTransaction(tx, {
           runId: input.runId,
           userId: input.userId,
@@ -1560,6 +1666,70 @@ export class RunExecutionService {
     });
   }
 
+  async recordModelRetry(
+    input: { runId: string; chatId: string; userId: string; attemptId: string },
+    retry: ModelRequestRetry,
+  ): Promise<void> {
+    await retryRunTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        if (
+          !(await new RunRowFenceRepository(tx).lockForDelivery(
+            input.runId,
+            input.userId,
+            input.attemptId,
+          ))
+        )
+          throw new RunNotRunnableError(input.runId);
+
+        if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
+          throw new RunNotRunnableError(input.runId);
+
+        await new RunEventsRepository(tx).append(
+          input.runId,
+          'model.retrying',
+          retry,
+        );
+      }),
+    );
+  }
+
+  private async readQuotaClaim(
+    runs: RunsRepository,
+    events: RunEventsRepository,
+    input: RunClaimInput,
+  ) {
+    const queued = await runs.findById(input.runId, input.userId);
+
+    const quotaEvents = queued?.wakeGeneration
+      ? await events.listByRunId(input.runId, input.userId, {
+          eventTypes: [
+            'run.suspended',
+            'run.resumed',
+            'run.started',
+            'run.delivered',
+            'run.quota_recovered',
+          ],
+        })
+      : [];
+
+    const quotaRequest = quotaRequestFromEvents(quotaEvents);
+
+    const quotaCompactionState = quotaCompactionStateFromEvents(
+      quotaEvents,
+      quotaRequest,
+    );
+
+    const quotaAttemptId =
+      queued?.awaiting?.kind === 'quota'
+        ? quotaResumeAttemptId(quotaEvents, queued.wakeGeneration)
+        : undefined;
+
+    if (queued?.awaiting?.kind === 'quota' && quotaAttemptId === undefined)
+      throw new Error('The quota wake has no waking attempt identity.');
+
+    return { quotaEvents, quotaRequest, quotaAttemptId, quotaCompactionState };
+  }
+
   async claimRun(input: RunClaimInput): Promise<RunClaimResult> {
     return retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
@@ -1596,11 +1766,17 @@ export class RunExecutionService {
           return { settledReply: undefined };
         }
 
-        const started = input.expectedQueueIdentity
-          ? await runs.markStarted(input.runId, input.userId, {
-              expectedQueueIdentity: input.expectedQueueIdentity,
-            })
-          : await runs.markStarted(input.runId, input.userId);
+        const {
+          quotaEvents,
+          quotaRequest,
+          quotaAttemptId,
+          quotaCompactionState,
+        } = await this.readQuotaClaim(runs, events, input);
+
+        const started = await runs.markStarted(input.runId, input.userId, {
+          expectedQueueIdentity: input.expectedQueueIdentity,
+          attemptId: quotaAttemptId,
+        });
 
         if (!started) {
           const current = await runs.findById(input.runId, input.userId);
@@ -1655,29 +1831,40 @@ export class RunExecutionService {
           attemptId: started.activeAttemptId,
         });
 
-        let wakeState: WakeState | undefined;
+        let wakeState: ContinueState | undefined = quotaCompactionState;
 
         if (wakeCause !== undefined && started.awaiting !== null) {
-          await completeWaitInTransaction(
-            tx,
-            started,
-            started.awaiting,
-            wakeCause,
-          );
-          wakeState = wakeStateFromEvents(
-            await events.listByRunId(input.runId, input.userId, {
-              eventTypes: [
-                'run.suspended',
-                'run.resumed',
-                'run.started',
-                'run.delivered',
-                'tool.requested',
-                'tool.started',
-                'tool.completed',
-              ],
-            }),
-            started.activeAttemptId!,
-          );
+          if (started.awaiting.kind === 'quota') {
+            await clearQuotaAwaitingInTransaction(tx, started, wakeCause);
+            wakeState =
+              quotaWakeStateFromEvents(
+                [...quotaEvents, startedEvent],
+                started.activeAttemptId!,
+              ) ?? quotaCompactionState;
+          } else {
+            if (wakeCause === 'cancelled')
+              throw new Error('A jobs wake cannot carry quota cancellation.');
+            await completeWaitInTransaction(
+              tx,
+              started,
+              started.awaiting,
+              wakeCause,
+            );
+            wakeState = wakeStateFromEvents(
+              await events.listByRunId(input.runId, input.userId, {
+                eventTypes: [
+                  'run.suspended',
+                  'run.resumed',
+                  'run.started',
+                  'run.delivered',
+                  'tool.requested',
+                  'tool.started',
+                  'tool.completed',
+                ],
+              }),
+              started.activeAttemptId!,
+            );
+          }
 
           if (wakeState === undefined) {
             throw new Error('The resumed Run has no complete wait checkpoint.');
@@ -1693,6 +1880,8 @@ export class RunExecutionService {
           messageId: started.messageId,
           nativeDeliverySequence: startedEvent.sequence,
           wakeState,
+          quotaRequest,
+          quotaWake: started.awaiting?.kind === 'quota',
         };
       }),
     );
@@ -1766,6 +1955,8 @@ export class RunExecutionService {
       nativeDeliverySequence: claim.nativeDeliverySequence,
       firstSegment,
       wakeState: claim.wakeState,
+      quotaRequest: claim.quotaRequest,
+      quotaWake: claim.quotaWake === true,
       createdMessage: input.userMessage,
     });
 
@@ -1777,6 +1968,97 @@ export class RunExecutionService {
       throw new Error('The worker has no durable wait service.');
 
     return this.runWait;
+  }
+
+  async suspendCompactionForQuota(input: {
+    run: Pick<ExecuteRunInput, 'runId' | 'chatId' | 'userId'>;
+    attemptId: string;
+    error: ProviderFailure | CompactionQuotaWait;
+    request: QuotaRequestState | undefined;
+    resumeAt: QuotaResumeAt;
+    parts: Array<MessagePart>;
+    assistantTurn?: AssistantTurnWrite;
+    stoppedCalls?: ReadonlyArray<StoppedCall>;
+    stepBudgetUsed?: number;
+    boundaryMode?: 'automatic' | 'owner';
+    compactionSet?: CompactionSet;
+    summaryAttemptId?: string;
+    summaryPrefixFingerprint?: string;
+    baselines?: FirstEpochBaselines;
+  }): Promise<boolean> {
+    const quotaWait = compactionQuotaWait(input.error, {
+      maxSeconds: this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+      request: input.request,
+    });
+
+    if (quotaWait === undefined) return false;
+
+    const result = await this.waitService().suspendForQuota({
+      runId: input.run.runId,
+      chatId: input.run.chatId,
+      userId: input.run.userId,
+      attemptId: input.attemptId,
+      awaiting: { ...quotaWait.awaiting, resumeAt: input.resumeAt },
+      parts: input.parts,
+      steps: {},
+      ...(input.stoppedCalls !== undefined && {
+        stoppedCalls: input.stoppedCalls,
+      }),
+      ...(input.stepBudgetUsed !== undefined && {
+        stepBudgetUsed: input.stepBudgetUsed,
+      }),
+      ...(input.boundaryMode !== undefined && {
+        boundaryMode: input.boundaryMode,
+      }),
+      ...(input.compactionSet !== undefined && {
+        compactionSet: input.compactionSet,
+      }),
+      ...(input.summaryAttemptId !== undefined && {
+        summaryAttemptId: input.summaryAttemptId,
+      }),
+      ...(input.summaryPrefixFingerprint !== undefined && {
+        summaryPrefixFingerprint: input.summaryPrefixFingerprint,
+      }),
+      ...(input.baselines !== undefined && { baselines: input.baselines }),
+    });
+
+    if (result.kind === 'ready') {
+      const current = await this.tenantDb.runAs(input.run.userId, (tx) =>
+        new RunsRepository(tx).findById(input.run.runId, input.run.userId),
+      );
+
+      if (
+        current?.activeAttemptId === input.attemptId &&
+        current.cancelRequestedAt !== null
+      ) {
+        await this.settleTerminalRun({
+          runId: input.run.runId,
+          userId: input.run.userId,
+          attemptId: input.attemptId,
+          status: 'cancelled',
+          runPayload: { status: 'cancelled', message: 'Run was cancelled.' },
+          error: { message: 'Run was cancelled.' },
+          ...(input.assistantTurn !== undefined && {
+            assistantTurn: input.assistantTurn,
+            telemetry: input.assistantTurn.telemetry,
+          }),
+        });
+      }
+    }
+
+    return true;
+  }
+  private async appendQuotaRecovered(
+    tx: Db,
+    runId: string,
+    request: QuotaRequestState | undefined,
+  ): Promise<void> {
+    if (request === undefined) return;
+
+    await new RunEventsRepository(tx).append(runId, 'run.quota_recovered', {
+      generation: request.generation,
+      resumeAt: request.resumeAt,
+    });
   }
 
   /**
@@ -1895,22 +2177,66 @@ export class RunExecutionService {
     });
   }
 
-  private async executeAttempt(attempt: {
-    input: ExecuteRunInput;
-    nativeAbort: AbortController | undefined;
+  private async dispatchOrSettleAttempt(input: {
+    run: ExecuteRunInput;
+    attemptId: string;
+    context: PreparedAttemptContext;
+    modelId: string;
     effort: string | undefined;
     permissionMode: PermissionMode;
-    attemptId: string;
-    nativeDeliverySequence: number;
-    /** False for a segment that a delivery started. */
-    firstSegment: boolean;
-    wakeState?: WakeState;
-    /** The message `run.created` names: the job's, whatever segment runs. */
-    createdMessage: RunUserMessage;
-  }): Promise<AttemptRun> {
+    wakeState: ContinueState | undefined;
+    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+  }): Promise<AttemptRun | undefined> {
+    try {
+      await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.run.userId, (tx) =>
+          this.dispatchAttempt(tx, {
+            run: input.run,
+            attemptId: input.attemptId,
+            context: input.context,
+            modelId: input.modelId,
+            effort: input.effort,
+            permissionMode: input.permissionMode,
+            wakeState: input.wakeState,
+          }),
+        ),
+      );
+
+      return undefined;
+    } catch (error) {
+      if (error instanceof CancellationRecordedError) {
+        const message = this.abortedRunMessage('cancelled', undefined);
+        await this.settleTerminalRun({
+          userId: input.run.userId,
+          runId: input.run.runId,
+          status: 'cancelled',
+          attemptId: input.attemptId,
+          runPayload: { status: 'cancelled', message },
+          error: { message },
+        });
+        throw new RunNotRunnableError(input.run.runId);
+      }
+
+      if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
+
+      const settlement = await this.settleTerminalRun({
+        userId: input.run.userId,
+        runId: input.run.runId,
+        status: 'completed',
+        attemptId: input.attemptId,
+      });
+
+      if (settlement.outcome === 'delivered')
+        return input.startDelivered(settlement.delivery);
+      throw new RunNotRunnableError(input.run.runId);
+    }
+  }
+
+  private async prepareAttemptContextForExecution(
+    attempt: ExecuteAttemptInput,
+  ): Promise<AttemptPreparationOutcome> {
     const {
       input,
-      nativeAbort,
       effort,
       permissionMode,
       attemptId,
@@ -1920,22 +2246,26 @@ export class RunExecutionService {
     } = attempt;
 
     const { client } = input;
+    let quotaRequest = attempt.quotaRequest;
 
-    const attemptEvents = await this.tenantDb.runAs(input.userId, (tx) =>
+    const events = await this.tenantDb.runAs(input.userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
         eventTypes: ['run.delivered', 'run.compaction_disabled'],
       }),
     );
 
-    const deliveryEvents = attemptEvents;
+    const stepBudgetOffset = readCompactionStepBudget(events);
 
-    const stepBudgetOffset = readCompactionStepBudget(deliveryEvents);
+    const wakeStepOffset =
+      attempt.quotaRequest?.stepBudgetUsed === undefined
+        ? continueStepOffset(attempt.wakeState)
+        : Math.max(0, attempt.quotaRequest.stepBudgetUsed - stepBudgetOffset);
 
-    const compactionDisabledAtStart = attemptEvents.some(
+    const compactionDisabledAtStart = events.some(
       (event) => event.eventType === 'run.compaction_disabled',
     );
 
-    const lastDelivery = deliveryEvents.at(-1);
+    const lastDelivery = events.at(-1);
 
     const startsAfterCompaction =
       lastDelivery !== undefined &&
@@ -1943,11 +2273,6 @@ export class RunExecutionService {
       (lastDelivery.payload['cause'] === 'compaction' ||
         lastDelivery.payload['checkpointId'] !== undefined);
 
-    // A Continue Run starts from the kept parts its admission recorded, in the
-    // same transaction as its own row (turn-actions D5). Every later read of
-    // this attempt — the request, the collector, the in-Run region — reads
-    // that one state, so no path can disagree about where the turn resumes.
-    // Only the first segment resumes them.
     const continued =
       attempt.wakeState ??
       (firstSegment ? await this.loadContinueState(input) : undefined);
@@ -1957,8 +2282,6 @@ export class RunExecutionService {
 
     await this.settleIfAborted(input, attemptId);
 
-    // The segment of a delivered message: a new attempt of this Run, in this
-    // worker, with no new claim.
     const startDelivered = (delivery: DeliveredBoundary): Promise<AttemptRun> =>
       this.executeAttempt({
         ...attempt,
@@ -1970,31 +2293,30 @@ export class RunExecutionService {
         attemptId: delivery.attemptId,
         firstSegment: false,
         wakeState: undefined,
+        quotaRequest: undefined,
+        quotaWake: false,
         createdMessage,
       });
 
-    let wakeCompactionSet:
-      | Awaited<ReturnType<typeof readCompactionSet>>
-      | undefined;
+    let wakeCompactionSet: CompactionSet | undefined;
 
     const wakeAttempt = await this.prepareWakeAttempt({
       run: input,
       attemptId,
       wakeState: attempt.wakeState,
+      quotaRequest: attempt.quotaRequest,
       startDelivered,
       onCompactionSet: (set) => {
         wakeCompactionSet = set;
       },
     });
 
-    const wakeCompaction = wakeAttempt === 'compact';
     const deliveredWakeAttempt = this.deliveredWakeAttempt(wakeAttempt);
 
-    if (deliveredWakeAttempt !== undefined) return deliveredWakeAttempt;
+    if (deliveredWakeAttempt !== undefined)
+      return { kind: 'delivered', attempt: deliveredWakeAttempt };
+    const wakeCompaction = wakeAttempt === 'compact';
 
-    // Workspace validation is the first accepted-turn preparation step. Load
-    // the owner-scoped Chat row once here and derive the binding from it; pass
-    // that same row into prompt preparation instead of issuing another read.
     const workspaceChat = await this.tenantDb.runAs(input.userId, (tx) =>
       new ChatsRepository(tx).findById(input.chatId, input.userId),
     );
@@ -2009,8 +2331,6 @@ export class RunExecutionService {
 
     const workspaceRoot = createWorkspaceRootCell(workspacePreparation.root);
 
-    // The attempt's one git read starts here and runs beside the MCP start, the
-    // skill resolution, and the prompt imports; preparation awaits it last.
     const gitObservation = this.startGitObservation(
       input,
       nativeDeliverySequence,
@@ -2019,13 +2339,8 @@ export class RunExecutionService {
       effectivePermissionMode,
     );
 
-    // The attempt's one Workspace MCP listing, filled at attempt start or at
-    // the entry that sets a binding, so a same-root re-entry reads no
-    // configuration again (read-only-permission-mode D6).
     const workspaceMcpListing: WorkspaceMcpListingCell = {};
     const boundWorkspaceMcpKey = this.workspaceMcpKey(workspacePreparation);
-    // A `read-only` attempt starts, holds, and composes no Workspace MCP
-    // client: no key reaches the catalog, the resolver, or the attempt hold.
     await this.restoreArtifactFiles(input, workspaceChat);
 
     const workspaceMcpKey = await this.startWorkspaceMcp(
@@ -2037,11 +2352,6 @@ export class RunExecutionService {
 
     const attemptDynamicResolver = this.attemptDynamicResolver(workspaceMcpKey);
 
-    // Explicit `$skill` activation runs BEFORE context assembly, because the
-    // instructions it loads are part of the request the model receives on its
-    // first step — not a tool result it reacts to afterwards. It persists its
-    // items onto the triggering user message, so the assembly below reads them
-    // back through the ordinary path and recovery replays the stored text.
     const skillSelection = await this.activateMentionedSkills(
       input,
       nativeDeliverySequence,
@@ -2050,15 +2360,7 @@ export class RunExecutionService {
       continued !== undefined,
     );
 
-    // The attempt's view of its owner's media: prompt imports, admission,
-    // compaction, and the step composer all read descriptors and bytes through
-    // it, each read in its own short owner-scoped transaction, and it holds the
-    // attempt's memory of unstored images, empty for every attempt
-    // (vision-media D6, R1.4).
     const media = createRunMediaResolver(this.tenantDb, input.userId);
-    // Prompt imports run right after explicit activation, on the same binding
-    // re-check: a detaching attempt imports nothing, and their item persists on
-    // the user message before context assembly like the activation items.
     await this.resolvePromptImports({
       input,
       attemptId,
@@ -2070,18 +2372,9 @@ export class RunExecutionService {
       retainedMedia: media.retainedMedia,
       followUp: continued !== undefined,
     });
-    // Prompt/catalog resolution, the single pre-step compaction trigger, and the
-    // request this Run actually sends (design D4/D5): both prompt surfaces come
-    // from the current owner state, admitted catalog, and boot-loaded
-    // templates, and the receipt binds last, after any checkpoint published.
-    let prepared: PreparedExecutionContext;
-    let attemptContext: PreparedAttemptContext;
-    let preStepCompactionStarted = false;
-    let turnInstructions: TurnInstructions;
-    let turnGit: TurnGit;
 
-    try {
-      const firstStep = await this.prepareAttemptForFirstStep({
+    const { firstStep, quotaRequest: preparedQuotaRequest } =
+      await this.prepareQuotaFirstStep({
         run: input,
         attemptId,
         workspacePreparation,
@@ -2094,50 +2387,94 @@ export class RunExecutionService {
         media,
         continued,
         gitObservation,
-        firstSegment: startsAutomaticCompaction(firstSegment, wakeCompaction),
+        firstSegment,
         wakeCompaction,
+        quotaRequest,
+        stepBudgetUsed: stepBudgetOffset + wakeStepOffset,
       });
 
-      prepared = firstStep.request;
-      attemptContext = firstStep.context;
-      preStepCompactionStarted = firstStep.preStepCompactionStarted;
-      turnInstructions = firstStep.turnInstructions;
-      turnGit = firstStep.turnGit;
-    } catch (error) {
-      await this.settleIfAborted(input, attemptId);
-
-      if (error instanceof ModelContextExecutionError) {
-        const message = error.message;
-        // Fenced by the claim: the failure that ends preparation may BE the
-        // reclaim (`persistAttemptPromptReceipt` refuses a stale attempt), and
-        // an unfenced write here would let that stale attempt mark a run
-        // another attempt is actively executing as failed.
-        await this.finishRunWithoutCollector({
-          userId: input.userId,
-          runId: input.runId,
-          status: 'failed',
-          attemptId,
-          runPayload: { status: 'failed', message, code: error.code },
-          error: { message, code: error.code },
-        });
-      }
-
-      throw error;
-    }
+    quotaRequest = preparedQuotaRequest;
 
     const compactionStartedThisAttempt =
-      preStepCompactionStarted ||
+      firstStep.preStepCompactionStarted ||
       compactionAttemptStarted({
         wakeCompaction,
         startsAfterCompaction,
         isWakeAttempt: attempt.wakeState !== undefined,
       });
 
-    const compactionThreshold = resolveCompactionThreshold({
-      explicitThresholdTokens: client.compactionThresholdTokens,
-      contextWindowTokens: client.contextWindowTokens,
-    });
+    return {
+      kind: 'ready',
+      execution: {
+        startDelivered,
+        quotaRequest,
+        stepBudgetOffset,
+        wakeStepOffset,
+        compactionDisabledAtStart,
+        continued,
+        effectivePermissionMode,
+        wakeCompactionSet,
+        wakeCompaction,
+        workspaceRoot,
+        workspaceMcpKey,
+        workspaceMcpListing,
+        skillSelection,
+        media,
+        prepared: firstStep.request,
+        attemptContext: firstStep.context,
+        compactionStartedThisAttempt,
+        compactionThreshold: resolveCompactionThreshold({
+          explicitThresholdTokens: client.compactionThresholdTokens,
+          contextWindowTokens: client.contextWindowTokens,
+        }),
+        turnInstructions: firstStep.turnInstructions,
+        turnGit: firstStep.turnGit,
+      },
+    };
+  }
 
+  private async executeAttempt(
+    attempt: ExecuteAttemptInput,
+  ): Promise<AttemptRun> {
+    const outcome = await this.prepareAttemptContextForExecution(attempt);
+
+    if (outcome.kind === 'delivered') return outcome.attempt;
+
+    const {
+      startDelivered,
+      quotaRequest: preparedQuotaRequest,
+      stepBudgetOffset,
+      wakeStepOffset,
+      compactionDisabledAtStart,
+      continued,
+      effectivePermissionMode,
+      wakeCompactionSet,
+      wakeCompaction,
+      workspaceRoot,
+      workspaceMcpKey,
+      workspaceMcpListing,
+      skillSelection,
+      media,
+      prepared,
+      attemptContext,
+      compactionStartedThisAttempt,
+      compactionThreshold,
+      turnInstructions,
+      turnGit,
+    } = outcome.execution;
+
+    let quotaRequest = preparedQuotaRequest;
+
+    const {
+      input,
+      nativeAbort,
+      effort,
+      attemptId,
+      nativeDeliverySequence,
+      createdMessage,
+    } = attempt;
+
+    const { client } = input;
     const { system, messages, untitled, tools: executableTools } = prepared;
 
     const boundExecutables = new Map<string, AttemptToolBinding>(
@@ -2155,6 +2492,7 @@ export class RunExecutionService {
 
     const streamStartedAt = Date.now();
     const requestUsageReceipts: Array<LanguageModelUsage> = [];
+    let discardedSend = false;
     // Stream performance for the turn (#155): the first streamed output delta's
     // offset, how many arrived, and the generation time the throughput divides
     // by. The first two are stamped from the SAME baseline `streamStartedAt`
@@ -2180,8 +2518,8 @@ export class RunExecutionService {
       finishReason: TurnTelemetry['finishReason'],
       status: TurnTelemetry['status'],
       stepCount?: number,
-    ): AssistantTurnTelemetry => ({
-      ...aggregateTurnTelemetry({
+    ): AssistantTurnTelemetry => {
+      const telemetry = aggregateTurnTelemetry({
         receipts: requestUsageReceipts,
         finishReason,
         status,
@@ -2195,18 +2533,28 @@ export class RunExecutionService {
         price: client.pricing,
         billing: client.billing,
         stepCount,
-      }),
-      runId: input.runId,
-      attemptId,
-    });
+      });
 
-    const assistantPartCollector = createAssistantPartCollector();
+      if (discardedSend) {
+        telemetry.complete = false;
+        delete telemetry.tokensPerSecond;
+      }
+
+      return { ...telemetry, runId: input.runId, attemptId };
+    };
+
+    let assistantPartCollector = createAssistantPartCollector();
 
     // The kept parts are the transcript's prefix, so every terminal writer of
     // this attempt persists them once, ahead of its own parts (D5). The kept
     // boundary ends on a settled tool part or an in-Run item, which is why no
     // live delta can merge into a kept part.
     if (continued !== undefined) assistantPartCollector.seed(continued.parts);
+
+    // The step numbers this Run's own parts use. A Continue Run's parts
+    // continue after the steps it kept (design D5), so the kept steps and the
+    // new ones stay separate in the reply it stores.
+    const stepOffset = continueStepOffset(continued);
 
     const wakeBoundary = await this.deliverWakeCompaction({
       run: input,
@@ -2219,8 +2567,13 @@ export class RunExecutionService {
       compactionSet: wakeCompactionSet,
       keptPartCount: continued?.parts.length ?? 0,
       wakeCompaction,
-      stepBudgetUsed: stepBudgetOffset + continueStepOffset(continued),
+      stepBudgetUsed: stepBudgetOffset + wakeStepOffset,
+      quotaRequest,
+      quotaParts: () => assistantPartCollector.parts(),
     });
+
+    if (wakeCompaction && quotaRequest?.resumeAt === 'preDispatch')
+      quotaRequest = undefined;
 
     if (wakeCompaction) {
       const resumedWake = await this.finishWakeCompactionBoundary({
@@ -2234,15 +2587,71 @@ export class RunExecutionService {
       if (resumedWake !== undefined) return resumedWake;
     }
 
+    this.applyCompactionFailure({
+      failure:
+        wakeBoundary?.kind === 'nothing-pending' &&
+        wakeBoundary.compactionFailed
+          ? 'manual'
+          : undefined,
+      assistantPartCollector,
+      disableAutomaticCompaction: () => disableAutomaticCompaction(),
+    });
+
+    // A boundary or final-answer quota wake finishes the summary the
+    // suspension interrupted BEFORE the target request is dispatched. When
+    // that boundary delivers or stops, this Run never sent the request, so the
+    // accepted-turn items, told state and `model.requested` must not be
+    // committed for it; a summary that resolves without a delivery then
+    // dispatches the request it actually sends. The summary itself runs under
+    // the existing active-attempt fence inside `prepareBoundaryCompaction`.
+    let quotaResumeFailure: 'automatic' | 'manual' | undefined;
+
     if (
-      wakeBoundary?.kind === 'nothing-pending' &&
-      wakeBoundary.compactionFailed
+      quotaRequest?.resumeAt === 'boundary' ||
+      quotaRequest?.resumeAt === 'finalAnswer'
     ) {
-      assistantPartCollector.compactionNote({
-        type: 'data-compaction-failed',
-        data: {},
+      const closingStatus =
+        quotaRequest.stoppedCalls === undefined ? 'completed' : 'aborted';
+
+      const resumed = await this.resumeQuotaAttempt({
+        run: input,
+        attemptId,
+        context: attemptContext,
+        prepared,
+        effort,
+        media,
+        workspaceRoot,
+        replyParts: [],
+        keptPartCount: continued?.parts.length ?? 0,
+        stepBudgetUsed: stepBudgetOffset + wakeStepOffset,
+        quotaRequest,
+        resumeAt: quotaRequest.resumeAt,
+        quotaParts: () => assistantPartCollector.parts(),
+        telemetry: buildAssistantTelemetry(null, closingStatus),
+        createdMessage,
+        quotaAssistantTurn: () => ({
+          chatId: input.chatId,
+          inReplyTo: input.userMessage.id,
+          parts: assistantPartCollector.parts(),
+          telemetry: buildAssistantTelemetry(null, closingStatus),
+        }),
+        ...(quotaRequest.stoppedCalls !== undefined && {
+          quotaStoppedCalls: quotaRequest.stoppedCalls,
+        }),
+        userId: input.userId,
+        runId: input.runId,
+        startDelivered,
       });
+
+      if (resumed.kind === 'delivered') return resumed.attempt;
+
+      // Applied once the disabled state it may change exists, ahead of the
+      // target call this summary failure did not prevent.
+      quotaResumeFailure = resumed.compactionFailure;
+
+      quotaRequest = undefined;
     }
+
     // One fenced transaction stores the accepted-turn items this request
     // carries, with the told and baseline state they account for, creates or
     // resets the reply as `running`, and records `model.requested` immediately
@@ -2250,55 +2659,18 @@ export class RunExecutionService {
     // trigger's history row with the same items placed by the same placement,
     // so it equals the parts the trigger stores.
 
-    try {
-      await retryRunTransaction(() =>
-        this.tenantDb.runAs(input.userId, (tx) =>
-          this.dispatchAttempt(tx, {
-            run: input,
-            attemptId,
-            context: attemptContext,
-            modelId: client.model,
-            effort,
-            permissionMode: effectivePermissionMode,
-            wakeState: attempt.wakeState,
-          }),
-        ),
-      );
-    } catch (error) {
-      if (error instanceof CancellationRecordedError) {
-        // A cancellation recorded before the first request of this segment:
-        // the delivered message gets no reply.
-        const message = this.abortedRunMessage('cancelled', undefined);
-        await this.settleTerminalRun({
-          userId: input.userId,
-          runId: input.runId,
-          status: 'cancelled',
-          attemptId,
-          runPayload: { status: 'cancelled', message },
-          error: { message },
-        });
-        throw new RunNotRunnableError(input.runId);
-      }
+    const dispatched = await this.dispatchOrSettleAttempt({
+      run: input,
+      attemptId,
+      context: attemptContext,
+      modelId: client.model,
+      effort,
+      permissionMode: effectivePermissionMode,
+      wakeState: attempt.wakeState,
+      startDelivered,
+    });
 
-      if (!(error instanceof ReplyAlreadyCompletedError)) throw error;
-
-      // A salvaged answer completed the reply while the Run stayed live: this
-      // attempt settles the Run completed (the finalizer leaves that reply
-      // untouched) instead of dispatching a second answer. A pending item
-      // keeps the Run live instead (run-steering D5).
-      const settlement = await this.settleTerminalRun({
-        userId: input.userId,
-        runId: input.runId,
-        status: 'completed',
-        attemptId,
-      });
-
-      if (settlement.outcome === 'delivered') {
-        return startDelivered(settlement.delivery);
-      }
-
-      throw new RunNotRunnableError(input.runId);
-    }
+    if (dispatched !== undefined) return dispatched;
 
     // Stream-ordered event chain (#48/#49, tool-loop): EVERY event whose
     // position matters for replay — model.delta, reasoning.delta, AND
@@ -2311,11 +2683,6 @@ export class RunExecutionService {
     // turn persists the partial text instead of a blank reply (honest and
     // consistent: a failed run whose turn shows what the user actually saw).
     let streamedText = '';
-    // The step numbers this Run's own parts use. A Continue Run's parts
-    // continue after the steps it kept (design D5), so the kept steps and the
-    // new ones stay separate in the reply it stores.
-    const stepOffset = continueStepOffset(continued);
-    const wakeStepOffset = attempt.wakeState === undefined ? 0 : stepOffset;
     // The retained base64 this reply's message already holds: the kept parts
     // of a Continue Run, which the settled reads below add to. A read past the
     // rest of the bound keeps no bytes and records that instead (D5).
@@ -2373,6 +2740,81 @@ export class RunExecutionService {
       });
     };
 
+    const persistFencedModelEvent = (
+      eventType: 'model.retrying' | 'model.superseded' | 'run.quota_recovered',
+      payload:
+        | ModelRequestRetry
+        | SupersededModelOutput
+        | Pick<QuotaRequestState, 'generation' | 'resumeAt'>,
+    ): void => {
+      enqueueEvent(eventType, payload, async (tx) => {
+        if (progressWriteFailed)
+          throw new Error('A preceding model progress write failed.');
+
+        if (
+          !(await new RunRowFenceRepository(tx).lockForDelivery(
+            input.runId,
+            input.userId,
+            attemptId,
+          ))
+        )
+          throw new RunNotRunnableError(input.runId);
+
+        if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
+          throw new RunNotRunnableError(input.runId);
+
+        return payload;
+      });
+    };
+
+    const recordQuotaRecovery = async (
+      status: TerminalRunStatus,
+    ): Promise<void> => {
+      if (
+        status !== 'completed' ||
+        input.abortSignal?.aborted ||
+        quotaRequest === undefined
+      )
+        return;
+      const { generation, resumeAt } = quotaRequest;
+      quotaRequest = undefined;
+      persistFencedModelEvent('run.quota_recovered', { generation, resumeAt });
+      await deltaWrites;
+
+      if (progressWriteFailed)
+        throw new Error('The quota recovery could not be recorded.');
+    };
+
+    const persistStepStartSequence = async (): Promise<number> => {
+      await (deltaWrites = deltaWrites.then(async () => {
+        try {
+          stepStartSequence = await retryRunTransaction(() =>
+            this.tenantDb.runAs(
+              input.userId,
+              async (tx) =>
+                (await new RunEventsRepository(tx).latestSequence(
+                  input.runId,
+                  input.userId,
+                )) + 1,
+            ),
+          );
+        } catch (error) {
+          progressWriteFailed = true;
+          this.logger.error(
+            `Failed to record the model request boundary for run ${input.runId}`,
+            loggableError(error),
+          );
+        }
+      }));
+
+      if (progressWriteFailed)
+        throw new Error('Failed to record the model request boundary.');
+
+      return stepStartSequence;
+    };
+
+    let automaticCompactionDisabled = compactionDisabledAtStart;
+
     const markCompactionDisabled = (): boolean => {
       if (automaticCompactionDisabled) return false;
 
@@ -2390,6 +2832,15 @@ export class RunExecutionService {
         enqueueEvent('run.compaction_disabled', {});
       }
     };
+
+    // The boundary summary a quota wake resumed failed without stopping the
+    // Run: the target call below still runs, under the failure class the
+    // original request carried.
+    this.applyCompactionFailure({
+      failure: quotaResumeFailure,
+      assistantPartCollector,
+      disableAutomaticCompaction,
+    });
 
     // Each buffered `model.delta` event carries the adapter part id of the
     // text it holds, so the durable reconstructor rebuilds the same part
@@ -2586,6 +3037,7 @@ export class RunExecutionService {
       {
         toolName: string;
         toolInput: unknown;
+        intent?: string;
         /** The step of the reply that requested the call (design D5). */
         step: number;
         /**
@@ -2640,11 +3092,17 @@ export class RunExecutionService {
       {
         origin,
         sdkRefusal,
-      }: { origin?: ToolActivityOrigin; sdkRefusal?: SdkRefusal } = {},
+        intent,
+      }: {
+        origin?: ToolActivityOrigin;
+        sdkRefusal?: SdkRefusal;
+        intent?: string;
+      } = {},
     ) => {
       openToolCalls.set(toolCallId, {
         toolName,
         toolInput,
+        ...(intent !== undefined && { intent }),
         step: stepOffset + currentStepNumber,
         ...(origin !== undefined && { origin }),
         ...(sdkRefusal !== undefined && { sdkRefusal }),
@@ -2669,6 +3127,9 @@ export class RunExecutionService {
         toolCallId,
         toolName,
         input: toolInput,
+        ...(openToolCalls.get(toolCallId)?.intent !== undefined && {
+          intent: openToolCalls.get(toolCallId)?.intent,
+        }),
         // The step the call was requested in, stamped by `onStepStart` in the
         // SDK's own numbering (it restarts at 0 in every request). A call
         // outside any step (the step cap's forced answer) keeps the last one.
@@ -2729,8 +3190,7 @@ export class RunExecutionService {
       settledToolCallIds.add(toolCallId);
       stepToolsCompleted += 1;
       const open = openToolCalls.get(toolCallId);
-      const permission = open?.permission;
-      const derivedDecisions = open?.derivedDecisions;
+      const { permission, derivedDecisions, intent } = open ?? {};
       // Stored once, on the call (design A7): the request event already
       // carries it, and every settlement path copies it from here.
       const providerMetadata = pendingToolMetadata.get(toolCallId);
@@ -2775,7 +3235,7 @@ export class RunExecutionService {
 
       if (permission !== undefined) payload.permission = permission;
 
-      if (derivedDecisions !== undefined && derivedDecisions.length > 0) {
+      if (derivedDecisions?.length) {
         payload.derivedDecisions = derivedDecisions;
       }
 
@@ -2866,6 +3326,7 @@ export class RunExecutionService {
           toolCallId,
           toolName,
           input: toolInput,
+          intent,
           result,
           step: open?.step ?? stepOffset + currentStepNumber,
           sdkRefusal: open?.sdkRefusal,
@@ -2911,6 +3372,7 @@ export class RunExecutionService {
           toolCallId: request.toolCallId,
           toolName: 'wait',
           input: open?.toolInput ?? request.toolInput,
+          intent: open?.intent,
           result,
           step: open?.step ?? stepOffset + currentStepNumber,
           providerMetadata,
@@ -3375,10 +3837,16 @@ export class RunExecutionService {
     const executeDeclaredTool = (
       declaration: ModelToolDeclaration,
       // eslint-disable-next-line anti-slop/no-unknown-parameters -- both SDK execution and the observed-call path have passed the declaration schema.
-      args: unknown,
+      submitted: unknown,
       toolCallId: string,
     ): Promise<ToolResult> => {
-      reserveToolRequest(toolCallId, declaration.id, args);
+      const { input: args, intent } = splitToolIntent(
+        declaration.id,
+        submitted,
+      );
+
+      reserveToolRequest(toolCallId, declaration.id, args, { intent });
+
       const completion = Promise.withResolvers<void>();
       const open = openToolCalls.get(toolCallId);
 
@@ -3577,10 +4045,23 @@ export class RunExecutionService {
     // and one more whenever a step end found nothing left to deliver), so the
     // abort listener and the workspace hold belong to the call.
     let endWorkspaceAttempt = noop;
-    let stopCause: 'cancel' | 'delivery' | 'suspend' | 'compact' | undefined;
+
+    let stopCause:
+      | 'cancel'
+      | 'delivery'
+      | 'suspend'
+      | 'compact'
+      | 'superseded'
+      | 'quota'
+      | undefined;
+
     let automaticCompactionAtBoundary = false;
-    let automaticCompactionDisabled = compactionDisabledAtStart;
     let boundaryCallMessages: typeof messages = messages;
+    let stepStartSequence = 1;
+    let stepModelOutputStart = 0;
+    let stepStreamedText = '';
+    let stepFirstOutputDeltaMs: number | undefined;
+    let stepOutputDeltaCount = 0;
     let stepResultStart = 0;
     let stepToolsCompleted = 0;
     let progressCheckMedia: MediaSizing | undefined;
@@ -3624,6 +4105,7 @@ export class RunExecutionService {
     // suspension belongs to this attempt even if a waker already queued or
     // claimed the Run again.
     const stopWhenExtra = async (): Promise<boolean> => {
+      await recordQuotaRecovery('completed');
       stopCause = await retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, async (tx) => {
           await new ChatJobsRepository(tx).settleOnDeadWorkers(
@@ -3692,6 +4174,8 @@ export class RunExecutionService {
     const callStream = async (
       callMessages: typeof messages,
       stepBase: number,
+      requestRetriesUsed = 0,
+      skipInitialContextPreparation = false,
     ): Promise<AttemptRun> => {
       let nextCall = noNextCall;
       const partsBefore = assistantPartCollector.parts().length;
@@ -3759,7 +4243,7 @@ export class RunExecutionService {
           baselines?: FirstEpochBaselines;
           finalAnswer?: true;
         },
-      ): Promise<BoundaryDelivery['kind']> => {
+      ): Promise<BoundaryDelivery['kind'] | 'quota'> => {
         const { telemetry } = modelCompleted;
 
         const boundaryCompaction =
@@ -3767,7 +4251,19 @@ export class RunExecutionService {
           stopCause === 'compact' ||
           automaticCompactionAtBoundary ||
           extra.stoppedCalls !== undefined
-            ? await this.prepareBoundaryCompaction({
+            ? await this.prepareQuotaBoundary({
+                resumeAt: 'boundary',
+                quotaParts: () => assistantPartCollector.parts(),
+                quotaAssistantTurn: () => ({
+                  chatId: input.chatId,
+                  inReplyTo: input.userMessage.id,
+                  parts: assistantPartCollector.parts(),
+                  telemetry,
+                }),
+                ...(extra.stoppedCalls !== undefined && {
+                  quotaStoppedCalls: extra.stoppedCalls,
+                }),
+                quotaRequest,
                 run: input,
                 attemptId,
                 context: attemptContext,
@@ -3795,6 +4291,12 @@ export class RunExecutionService {
                 ...extra,
               })
             : undefined;
+
+        if (boundaryCompaction === 'quota') {
+          stopCause = 'quota';
+
+          return 'quota';
+        }
 
         if (input.abortSignal?.aborted) return 'cancelled';
 
@@ -3827,17 +4329,17 @@ export class RunExecutionService {
           markCompactionDisabled();
         }
 
-        if (
-          boundary.kind === 'nothing-pending' &&
-          boundary.compactionFailed === true &&
-          stopCause !== 'compact' &&
-          !automaticCompactionAtBoundary
-        ) {
-          assistantPartCollector.compactionNote({
-            type: 'data-compaction-failed',
-            data: {},
-          });
-        }
+        this.applyCompactionFailure({
+          failure:
+            boundary.kind === 'nothing-pending' &&
+            boundary.compactionFailed === true &&
+            stopCause !== 'compact' &&
+            !automaticCompactionAtBoundary
+              ? 'manual'
+              : undefined,
+          assistantPartCollector,
+          disableAutomaticCompaction,
+        });
 
         automaticCompactionAtBoundary = false;
 
@@ -3869,7 +4371,7 @@ export class RunExecutionService {
           {},
         );
 
-        if (boundary === 'delivered') return true;
+        if (boundary === 'delivered' || boundary === 'quota') return true;
 
         if (boundary === 'cancelled') return false;
 
@@ -3975,12 +4477,247 @@ export class RunExecutionService {
         }
       };
 
+      const settlePendingAbort = async (
+        cancelRequested: boolean,
+      ): Promise<boolean> => {
+        if (!cancelRequested && stoppedByInterrupt()) {
+          await settleOnInterrupt();
+
+          if (!input.abortSignal?.aborted) {
+            await deliverInterrupt();
+
+            return true;
+          }
+        }
+
+        if (parentAbortSettlement) {
+          await parentAbortSettlement;
+
+          return true;
+        }
+
+        return false;
+      };
+
+      const settleAbortedSend = async (
+        cancelRequested: boolean,
+      ): Promise<void> => {
+        if (await settlePendingAbort(cancelRequested)) return;
+
+        if (cancelRequested || input.abortSignal?.aborted) {
+          const status = classifyAbortedRun(input.abortSignal);
+
+          const message = this.abortedRunMessage(status, input.abortSignal);
+
+          const telemetry = buildAssistantTelemetry(null, 'aborted');
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            status,
+            attemptId,
+            telemetry,
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: assistantPartCollector.parts(),
+              telemetry,
+            },
+            runPayload: { status, message },
+            error: { message },
+          });
+        }
+      };
+
+      const recoverSupersededSend = async (
+        failure: ProviderFailure,
+        superseded: ProviderFailureSuperseded,
+      ): Promise<void> => {
+        try {
+          stopCause = 'superseded';
+          persistReasoning(reasoningDeltas.flush());
+          persistDelta(deltas.flush());
+          await deltaWrites;
+
+          if (progressWriteFailed) {
+            await this.settleProgressWriteFailure({
+              userId: input.userId,
+              runId: input.runId,
+              attemptId,
+              telemetry: buildAssistantTelemetry(null, 'error'),
+            });
+
+            return;
+          }
+
+          discardedSend = true;
+
+          const retainedParts = assistantPartCollector
+            .parts()
+            .slice(0, stepModelOutputStart);
+
+          assistantPartCollector = createAssistantPartCollector();
+          assistantPartCollector.seed(retainedParts);
+          streamedText = stepStreamedText;
+          firstOutputDeltaMs = stepFirstOutputDeltaMs;
+          outputDeltaCount = stepOutputDeltaCount;
+          reasoningPartId = undefined;
+          textPartId = undefined;
+          inRunItems = createInRunContextItems();
+
+          persistFencedModelEvent('model.superseded', {
+            fromSequence: stepStartSequence,
+            step: currentStepNumber,
+          });
+          persistFencedModelEvent('model.retrying', {
+            code: failure.code,
+            retry: superseded.retry,
+            delayMs: superseded.delayMs,
+          });
+          await deltaWrites;
+
+          if (progressWriteFailed) {
+            await this.settleProgressWriteFailure({
+              userId: input.userId,
+              runId: input.runId,
+              attemptId,
+              telemetry: buildAssistantTelemetry(null, 'error'),
+            });
+
+            return;
+          }
+
+          await delay(superseded.delayMs, undefined, {
+            signal: callSignal,
+          }).catch(noop);
+
+          const current = await this.tenantDb.runAs(input.userId, (tx) =>
+            new RunRowFenceRepository(tx).lockForDelivery(
+              input.runId,
+              input.userId,
+              attemptId,
+            ),
+          );
+
+          if (current === undefined) return;
+
+          const cancelRequested = current.cancelRequestedAt !== null;
+
+          if (callSignal?.aborted || cancelRequested) {
+            await settleAbortedSend(cancelRequested);
+
+            return;
+          }
+
+          nextCall = async () => {
+            const produced = projectStoredReplyParts(
+              assistantPartCollector.parts().slice(partsBefore),
+              {
+                privateParts: true,
+                mediaKey: (index) => continuedMediaKey(partsBefore + index),
+              },
+            );
+
+            mergeRetainedMedia(media.retainedMedia, produced.retainedMedia);
+
+            return callStream(
+              [...callMessages, ...produced.messages],
+              currentStepNumber,
+              superseded.retry,
+              true,
+            );
+          };
+
+          return;
+        } finally {
+          endWorkspaceAttempt();
+          removeParentAbortListener();
+          closeSegment();
+        }
+      };
+
+      const suspendQuotaSend = async (
+        awaiting: AwaitingQuota,
+      ): Promise<void> => {
+        stopCause = 'quota';
+        persistReasoning(reasoningDeltas.flush());
+        persistDelta(deltas.flush());
+        await deltaWrites;
+
+        if (progressWriteFailed) {
+          await this.settleProgressWriteFailure({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
+          });
+
+          return;
+        }
+
+        const parts = assistantPartCollector.parts();
+        const retainedParts = parts.slice(0, stepModelOutputStart);
+
+        if (parts.length > retainedParts.length) {
+          discardedSend = true;
+          persistFencedModelEvent('model.superseded', {
+            fromSequence: stepStartSequence,
+            step: currentStepNumber,
+          });
+          await deltaWrites;
+
+          if (progressWriteFailed)
+            throw new Error('The quota supersession could not be recorded.');
+        }
+
+        assistantPartCollector = createAssistantPartCollector();
+        assistantPartCollector.seed(retainedParts);
+        streamedText = stepStreamedText;
+        firstOutputDeltaMs = stepFirstOutputDeltaMs;
+        outputDeltaCount = stepOutputDeltaCount;
+
+        const suspended = await this.waitService().suspendForQuota({
+          runId: input.runId,
+          chatId: input.chatId,
+          userId: input.userId,
+          attemptId,
+          awaiting,
+          parts: retainedParts,
+          steps: {},
+          // The steps this Run completed before the failed send. The step that
+          // failed never counted against the cap, and a Continue Run's kept
+          // steps are only display numbering.
+          stepBudgetUsed:
+            stepBudgetOffset +
+            wakeStepOffset +
+            stepBase +
+            Math.max(stepsStarted - 1, 0),
+        });
+
+        if (suspended.kind === 'ready') {
+          const telemetry = buildAssistantTelemetry(null, 'aborted');
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            status: 'cancelled',
+            telemetry,
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: retainedParts,
+              telemetry,
+            },
+            runPayload: { status: 'cancelled' },
+          });
+        }
+      };
+
       stopCause = undefined;
 
       try {
         // A steer that was admitted before this call began has no segment to
         // signal, so the call reads the pending item itself (level trigger).
-        if (this.segmentAborts !== undefined) {
+        if (this.segmentAborts !== undefined && quotaRequest === undefined) {
           const pending = await this.tenantDb.runAs(input.userId, (tx) =>
             new ChatDeliveriesRepository(tx).hasPendingSteering(
               input.chatId,
@@ -3991,7 +4728,32 @@ export class RunExecutionService {
           if (pending) callControl.yield.abort();
         }
 
+        if (!hasTools) {
+          persistReasoning(reasoningDeltas.flush());
+          persistDelta(deltas.flush());
+          currentStepNumber = stepBase;
+          stepStartSequence = await persistStepStartSequence();
+          stepResultStart = partsBefore;
+          stepModelOutputStart = partsBefore;
+          stepStreamedText = streamedText;
+          stepFirstOutputDeltaMs = firstOutputDeltaMs;
+          stepOutputDeltaCount = outputDeltaCount;
+        }
+
         const result = client.streamText({
+          onRetry: async (retry) => {
+            persistReasoning(reasoningDeltas.flush());
+            discardedSend = true;
+            persistDelta(deltas.flush());
+            persistFencedModelEvent('model.retrying', retry);
+            await deltaWrites;
+
+            if (progressWriteFailed) {
+              throw new Error(
+                'Failed to persist the model retry before its delay.',
+              );
+            }
+          },
           onRequestUsage: (usage, requestGenerationMs) => {
             const firstReceipt = requestUsageReceipts.length === 0;
             requestUsageReceipts.push(usage);
@@ -4016,6 +4778,7 @@ export class RunExecutionService {
           },
           system,
           messages: callMessages,
+          requestRetriesUsed,
           chat: { id: input.chatId, lane: 'main' },
           abortSignal: callSignal,
           media,
@@ -4041,19 +4804,29 @@ export class RunExecutionService {
                   ),
             stopWhenExtra,
             onStepStart: async ({ messages, stepNumber }) => {
-              // Each buffered event carries the step its characters arrived in,
-              // so drain what the previous step still held BEFORE the number
-              // moves: text after a step's calls stays in that step (design D5).
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
+              stepStartSequence = await persistStepStartSequence();
               stepResultStart = assistantPartCollector.parts().length;
+              stepStreamedText = streamedText;
+              stepFirstOutputDeltaMs = firstOutputDeltaMs;
+              stepOutputDeltaCount = outputDeltaCount;
               stepToolsCompleted = 0;
               waitCallIdInStep = undefined;
               deferredWaitStep = false;
               stepsStarted += 1;
               workspaceRoot.beginStep();
               inRunItems.beginStep(messages);
+
+              if (skipInitialContextPreparation && stepNumber === 0) {
+                skipInitialContextPreparation = false;
+                boundaryCallMessages = messages;
+                stepModelOutputStart = assistantPartCollector.parts().length;
+
+                return messages;
+              }
+
               const staged: Array<AuthoredContextItemPart> = [];
               await inRunProducer?.prepareStep({
                 messages,
@@ -4063,9 +4836,6 @@ export class RunExecutionService {
                 },
               });
 
-              // An item joins the attempt only once it is committed onto the
-              // running reply, before the request that first carries it (design
-              // D3); a step that fails first never sent it.
               if (staged.length > 0) {
                 await this.storeInRunSnapshot(input, attemptId, [
                   ...assistantPartCollector.parts(),
@@ -4078,10 +4848,14 @@ export class RunExecutionService {
                 assistantPartCollector.contextItem(part);
               }
 
-              // Recomputed from the step's own messages on every step, so a
-              // retained override is replaced rather than accumulated (D1).
+              // This boundary includes context committed for the step above,
+              // but no provider output from its request.
+              stepModelOutputStart = assistantPartCollector.parts().length;
+
               const preparedMessages = inRunItems.applyToStep(messages);
-              boundaryCallMessages = preparedMessages ?? messages;
+              boundaryCallMessages = withoutToolIntents(
+                preparedMessages ?? messages,
+              );
 
               if (
                 compactionStartedThisAttempt &&
@@ -4094,7 +4868,9 @@ export class RunExecutionService {
                 );
               }
 
-              return preparedMessages;
+              return boundaryCallMessages === messages
+                ? preparedMessages
+                : boundaryCallMessages;
             },
             // Fires once, the moment the model client disables tools for
             // the next step because maxStepsPerRun tool-requesting steps
@@ -4103,6 +4879,7 @@ export class RunExecutionService {
             // actually completes (a run that errors mid-loop after
             // capping does not claim to have "completed with the cap").
             onCapReached: () => {
+              if (cappedAt !== null) return;
               cappedAt = maxStepsPerRun;
               enqueueEvent('run.step_cap_reached', {
                 stepsUsed: maxStepsPerRun,
@@ -4124,6 +4901,11 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
 
+              const { input: args, intent } = splitToolIntent(
+                toolName,
+                callInput,
+              );
+
               const result =
                 reason === 'not_available'
                   ? refusalResult(toolName)
@@ -4133,11 +4915,15 @@ export class RunExecutionService {
               // is distinguished downstream by requested+completed with no
               // started in between). No permission decision: an unavailable or
               // invalid call is not a permission rejection.
-              reserveToolRequest(toolCallId, toolName, callInput, {
-                sdkRefusal,
+              reserveToolRequest(toolCallId, toolName, args, {
+                sdkRefusal: {
+                  ...sdkRefusal,
+                  input: splitToolIntent(toolName, sdkRefusal.input).input,
+                },
+                intent,
               });
-              emitToolRequested(toolCallId, toolName, callInput, undefined);
-              recordToolCompleted(toolCallId, toolName, callInput, result);
+              emitToolRequested(toolCallId, toolName, args, undefined);
+              recordToolCompleted(toolCallId, toolName, args, result);
             },
           }),
           // The call's opaque metadata, held before the call can execute or be
@@ -4305,24 +5091,36 @@ export class RunExecutionService {
             persistReasoning(reasoningDeltas.push(text, Date.now()));
           },
           onError: async ({ error }) => {
-            endWorkspaceAttempt();
-            removeParentAbortListener();
-            closeSegment();
+            const restarting =
+              error instanceof ProviderFailure &&
+              error.superseded !== undefined &&
+              !callSignal?.aborted &&
+              !input.abortSignal?.aborted;
 
-            // An owner interrupt stopped the call: settle its open calls by
-            // fate and deliver the pending items, instead of ending the Run.
-            if (stoppedByInterrupt()) {
-              await settleOnInterrupt();
+            if (!restarting) {
+              endWorkspaceAttempt();
+              removeParentAbortListener();
+              closeSegment();
+            }
 
-              if (!input.abortSignal?.aborted) {
-                await deliverInterrupt();
+            if (await settlePendingAbort(false)) return;
+
+            if (error instanceof ProviderFailure && !callSignal?.aborted) {
+              const awaiting = quotaWaitForFailure(
+                error,
+                this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+                quotaRequest,
+              );
+
+              if (awaiting !== undefined) {
+                await suspendQuotaSend(awaiting);
 
                 return;
               }
             }
 
-            if (parentAbortSettlement) {
-              await parentAbortSettlement;
+            if (restarting) {
+              await recoverSupersededSend(error, error.superseded);
 
               return;
             }
@@ -4377,8 +5175,7 @@ export class RunExecutionService {
             // ends the run terminally `failed` under its own error code so the
             // cause survives on the run and its event (the same treatment
             // `outcome_unknown` gets), and the job succeeds without a retry.
-            const idleCode =
-              error instanceof ModelStreamIdleError ? error.code : undefined;
+            const failure = modelRequestFailure(error);
 
             const message =
               status === 'expired'
@@ -4418,11 +5215,21 @@ export class RunExecutionService {
               runPayload: {
                 status,
                 message,
-                ...(idleCode !== undefined && { code: idleCode }),
+                ...(status === 'failed' && {
+                  code: failure.code,
+                  ...(failure.resetsAt !== undefined && {
+                    resetsAt: failure.resetsAt,
+                  }),
+                }),
               },
               error: {
                 message,
-                ...(idleCode !== undefined && { code: idleCode }),
+                ...(status === 'failed' && {
+                  code: failure.code,
+                  ...(failure.resetsAt !== undefined && {
+                    resetsAt: failure.resetsAt,
+                  }),
+                }),
               },
               assistantTurn: turn,
             });
@@ -4444,6 +5251,8 @@ export class RunExecutionService {
             endWorkspaceAttempt();
             removeParentAbortListener();
             closeSegment();
+
+            if (stopCause === 'superseded' || stopCause === 'quota') return;
 
             if (failed?.status === 'rejected') throw failed.reason;
 
@@ -4488,10 +5297,9 @@ export class RunExecutionService {
             await Promise.all(lateMcpWrites);
 
             if (
-              stopCause !== 'suspend' &&
-              (await this.tenantDb.runAs(input.userId, (tx) =>
+              await this.tenantDb.runAs(input.userId, (tx) =>
                 suspendedByThisAttempt(tx),
-              ))
+              )
             ) {
               stopCause = 'suspend';
             }
@@ -4518,6 +5326,8 @@ export class RunExecutionService {
             }
 
             if (deferredWaitStep && status === 'completed') {
+              await recordQuotaRecovery(status);
+
               const suspension = await suspendPendingWait(
                 buildAssistantTelemetry(
                   finishReason,
@@ -4562,41 +5372,54 @@ export class RunExecutionService {
             const settleRun = async (
               requestedStatus: TerminalRunStatus,
             ): Promise<void> => {
-              let settling = input.abortSignal?.aborted
+              await recordQuotaRecovery(requestedStatus);
+
+              const initialStatus = input.abortSignal?.aborted
                 ? classifyAbortedRun(input.abortSignal)
                 : requestedStatus;
 
-              let boundaryCompaction:
-                | DeliveryInput['boundaryCompaction']
-                | undefined;
+              const terminalBoundary = await this.prepareTerminalQuotaBoundary({
+                status: initialStatus,
+                wakeCompaction,
+                quotaParts: () => assistantPartCollector.parts(),
+                quotaAssistantTurn: () => ({
+                  chatId: input.chatId,
+                  inReplyTo: input.userMessage.id,
+                  parts: assistantPartCollector.parts(),
+                  telemetry: buildAssistantTelemetry(
+                    finishReason,
+                    'aborted',
+                    segmentSteps,
+                  ),
+                }),
+                quotaRequest,
+                run: input,
+                attemptId,
+                context: attemptContext,
+                prepared,
+                effort,
+                media,
+                workspaceRoot,
+                replyParts: assistantPartCollector
+                  .parts()
+                  .slice(continued?.parts.length ?? 0),
+                keptPartCount: continued?.parts.length ?? 0,
+                stepBudgetUsed: boundaryStepBudgetUsed({
+                  stepBudgetOffset,
+                  stepBase,
+                  stepsStarted,
+                  wakeStepOffset,
+                }),
+              });
 
-              if (completesBoundaryCompaction(settling, wakeCompaction)) {
-                boundaryCompaction = await this.prepareBoundaryCompaction({
-                  run: input,
-                  attemptId,
-                  context: attemptContext,
-                  prepared,
-                  effort,
-                  media,
-                  workspaceRoot,
-                  replyParts: assistantPartCollector
-                    .parts()
-                    .slice(continued?.parts.length ?? 0),
-                  keptPartCount: continued?.parts.length ?? 0,
-                  stepBudgetUsed: boundaryStepBudgetUsed({
-                    stepBudgetOffset,
-                    stepBase,
-                    stepsStarted,
-                    wakeStepOffset,
-                  }),
-                  finalAnswer: true,
-                });
+              if (terminalBoundary === 'quota') {
+                stopCause = 'quota';
 
-                if (input.abortSignal?.aborted) {
-                  settling = classifyAbortedRun(input.abortSignal);
-                  boundaryCompaction = undefined;
-                }
+                return;
               }
+
+              const settling = terminalBoundary.status;
+              const boundaryCompaction = terminalBoundary.boundaryCompaction;
 
               const assistantTelemetry = buildAssistantTelemetry(
                 finishReason,
@@ -4773,7 +5596,18 @@ export class RunExecutionService {
         // 'running_model' until the deadman sweep expires it — fail it now.
         await this.settleIfAborted(input, attemptId);
 
+        if (progressWriteFailed) {
+          await this.settleProgressWriteFailure({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
+          });
+          throw error;
+        }
+
         const message = errorMessageWithoutParams(error);
+        const failure = modelRequestFailure(error);
         // This attempt holds the claim; a reclaim during the synchronous throw
         // must reject this write rather than let the superseded attempt publish.
         await this.finishRunWithoutCollector({
@@ -4781,14 +5615,27 @@ export class RunExecutionService {
           runId: input.runId,
           status: 'failed',
           attemptId,
-          runPayload: { status: 'failed', message },
-          error: { message },
+          runPayload: {
+            status: 'failed',
+            message,
+            code: failure.code,
+            ...(failure.resetsAt !== undefined && {
+              resetsAt: failure.resetsAt,
+            }),
+          },
+          error: {
+            message,
+            code: failure.code,
+            ...(failure.resetsAt !== undefined && {
+              resetsAt: failure.resetsAt,
+            }),
+          },
         });
         throw error;
       }
     };
 
-    return callStream(messages, 0);
+    return callStream(messages, 0, 0, attempt.quotaWake);
   }
 
   /**
@@ -6478,6 +7325,15 @@ export class RunExecutionService {
           boundaryCompaction: input.boundaryCompaction,
         });
 
+        if (
+          finalDelivery.kind !== 'cancelled' &&
+          finalDelivery.kind !== 'fenced' &&
+          (input.boundaryCompaction?.summary == null ||
+            finalDelivery.kind === 'nothing-pending')
+        ) {
+          await this.appendQuotaRecovered(tx, input.runId, input.quotaRequest);
+        }
+
         if (finalDelivery.kind === 'delivered') {
           return {
             outcome: 'delivered',
@@ -6543,7 +7399,13 @@ export class RunExecutionService {
     const events = new RunEventsRepository(tx);
 
     if (input.modelCompleted) {
-      await events.append(input.runId, 'model.completed', input.modelCompleted);
+      await events.append(
+        input.runId,
+        'model.completed',
+        assistantMessage === undefined
+          ? input.modelCompleted
+          : { ...input.modelCompleted, telemetry: assistantMessage.usage },
+      );
     }
 
     // The baselines only the winning turn establishes live in the system
@@ -7206,9 +8068,10 @@ export class RunExecutionService {
     replyParts: ReadonlyArray<MessagePart>;
     keptPartCount: number;
     stepBudgetUsed: number;
-    compactionSet?: Awaited<ReturnType<typeof readCompactionSet>>;
+    compactionSet: CompactionSet;
     automatic?: true;
     finalAnswer?: true;
+    quotaRequest?: QuotaRequestState;
   }): Promise<DeliveryInput['boundaryCompaction']> {
     const activeRun = await this.tenantDb.runAs(input.run.userId, (tx) =>
       new RunsRepository(tx).findById(input.run.runId, input.run.userId),
@@ -7216,13 +8079,7 @@ export class RunExecutionService {
 
     if (activeRun?.activeAttemptId !== input.attemptId) return undefined;
 
-    const compactionSet =
-      input.compactionSet ??
-      (await readCompactionSet({
-        tenantDb: this.tenantDb,
-        chatId: input.run.chatId,
-        userId: input.run.userId,
-      }));
+    const compactionSet = input.compactionSet;
 
     if (compactionSet.ids.length === 0 && input.automatic !== true) {
       return undefined;
@@ -7244,7 +8101,50 @@ export class RunExecutionService {
 
     let summary: CompactionSummary | null = null;
 
-    if (boundaryPlan !== null) {
+    // A resumed boundary summary continues the prefix its suspended attempt
+    // actually rendered: the immutable receipt that attempt stored for its own
+    // system prompt. The wake rebuilds declarations from current
+    // configuration, so the receipt is usable only when its system plus those
+    // declarations are exactly the prefix the suspension fingerprinted;
+    // otherwise the optional compaction failure path runs and no checkpoint is
+    // published. A new target request after the boundary still uses this
+    // attempt's own prepared context.
+    let summarySystem = input.prepared.system;
+    let summaryPrefixMatches = true;
+
+    if (
+      boundaryPlan !== null &&
+      (input.quotaRequest?.resumeAt === 'boundary' ||
+        input.quotaRequest?.resumeAt === 'finalAnswer')
+    ) {
+      const sourceAttemptId = input.quotaRequest.summaryAttemptId;
+
+      const sourceReceipt =
+        sourceAttemptId === undefined
+          ? undefined
+          : await this.tenantDb.runAs(input.run.userId, (tx) =>
+              new SystemPromptReceiptsRepository(tx).findByAttempt(
+                input.run.runId,
+                sourceAttemptId,
+                input.run.userId,
+              ),
+            );
+
+      if (
+        sourceReceipt !== undefined &&
+        input.quotaRequest.summaryPrefixFingerprint ===
+          compactionSummaryPrefixFingerprint({
+            system: sourceReceipt.systemPrompt,
+            toolDeclarations: input.prepared.toolDeclarations,
+          })
+      ) {
+        summarySystem = sourceReceipt.systemPrompt;
+      } else {
+        summaryPrefixMatches = false;
+      }
+    }
+
+    if (boundaryPlan !== null && summaryPrefixMatches) {
       try {
         summary = await this.compaction.computeBoundarySummary({
           chatId: input.run.chatId,
@@ -7252,15 +8152,30 @@ export class RunExecutionService {
           plan: boundaryPlan,
           closedReply: [...input.prepared.messages, ...projected.messages],
           client: input.run.client,
-          system: input.prepared.system,
+          system: summarySystem,
           toolDeclarations: input.prepared.toolDeclarations,
           focus: compactionSet.focus,
           ...(input.effort !== undefined && { effort: input.effort }),
           reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
           abortSignal: input.run.abortSignal,
+          onRetry: (retry) =>
+            this.recordModelRetry(
+              { ...input.run, attemptId: input.attemptId },
+              retry,
+            ),
           media: input.media,
+          quotaWait: {
+            maxSeconds: this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+            request: input.quotaRequest,
+          },
         });
-      } catch {
+      } catch (error) {
+        const quotaWait = compactionQuotaWait(error, {
+          maxSeconds: this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+          request: input.quotaRequest,
+        });
+
+        if (quotaWait !== undefined) throw quotaWait;
         summary = null;
       }
     }
@@ -7292,9 +8207,294 @@ export class RunExecutionService {
           model: input.context.model,
           workspaceRoot: input.workspaceRoot.current(),
           digestCandidate,
+          quotaRequest: input.quotaRequest,
         });
       },
     };
+  }
+
+  private async prepareQuotaBoundary(
+    input: Omit<
+      Parameters<RunExecutionService['prepareBoundaryCompaction']>[0],
+      'compactionSet'
+    > & {
+      compactionSet?: CompactionSet;
+      resumeAt: AwaitingQuota['resumeAt'];
+      quotaParts: () => Array<MessagePart>;
+      quotaAssistantTurn?: () => AssistantTurnWrite;
+      quotaStoppedCalls?: ReadonlyArray<StoppedCall>;
+      /**
+       * The first-epoch baselines this attempt's target request rendered. A
+       * final-answer wait carries them to the terminal write the wake performs.
+       */
+      baselines?: FirstEpochBaselines;
+    },
+  ): Promise<DeliveryInput['boundaryCompaction'] | 'quota'> {
+    const compactionSet =
+      input.compactionSet ??
+      (await readCompactionSet({
+        tenantDb: this.tenantDb,
+        chatId: input.run.chatId,
+        userId: input.run.userId,
+      }));
+
+    try {
+      return await this.prepareBoundaryCompaction({ ...input, compactionSet });
+    } catch (error) {
+      if (input.run.abortSignal?.aborted) throw error;
+
+      const quotaWait = compactionQuotaWait(error, {
+        maxSeconds: this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+        request: input.quotaRequest,
+      });
+
+      if (quotaWait === undefined) throw error;
+
+      await this.suspendCompactionForQuota({
+        run: input.run,
+        attemptId: input.attemptId,
+        error: quotaWait,
+        request: input.quotaRequest,
+        resumeAt: input.resumeAt,
+        parts: input.quotaParts(),
+        stepBudgetUsed: input.stepBudgetUsed,
+        ...(input.resumeAt === 'boundary' && {
+          boundaryMode: input.automatic === true ? 'automatic' : 'owner',
+        }),
+        ...((input.resumeAt === 'boundary' ||
+          input.resumeAt === 'finalAnswer') && {
+          compactionSet,
+          // The attempt that first suspended this summary owns the prefix the
+          // resume must reuse; a re-wait carries that identity, never its own.
+          summaryAttemptId:
+            input.quotaRequest?.summaryAttemptId ?? input.attemptId,
+          summaryPrefixFingerprint:
+            input.quotaRequest?.summaryPrefixFingerprint ??
+            compactionSummaryPrefixFingerprint(input.prepared),
+          baselines:
+            input.quotaRequest?.resumeAt === input.resumeAt
+              ? input.quotaRequest.baselines
+              : (input.baselines ?? {
+                  recencyDigestInitialization:
+                    input.context.recencyDigestInitialization,
+                  skillCatalogFreeze: input.context.skillCatalogFreeze,
+                }),
+        }),
+        ...(input.quotaAssistantTurn !== undefined && {
+          assistantTurn: input.quotaAssistantTurn(),
+        }),
+        ...(input.quotaStoppedCalls !== undefined && {
+          stoppedCalls: input.quotaStoppedCalls,
+        }),
+      });
+
+      return 'quota';
+    }
+  }
+
+  private async prepareTerminalQuotaBoundary(
+    input: Omit<
+      Parameters<RunExecutionService['prepareQuotaBoundary']>[0],
+      'resumeAt' | 'finalAnswer'
+    > & {
+      status: TerminalRunStatus;
+      wakeCompaction: boolean;
+    },
+  ): Promise<
+    | {
+        status: TerminalRunStatus;
+        boundaryCompaction?: DeliveryInput['boundaryCompaction'];
+      }
+    | 'quota'
+  > {
+    if (!completesBoundaryCompaction(input.status, input.wakeCompaction))
+      return { status: input.status };
+
+    const boundaryCompaction = await this.prepareQuotaBoundary({
+      ...input,
+      resumeAt: 'finalAnswer',
+      finalAnswer: true,
+    });
+
+    if (boundaryCompaction === 'quota') return 'quota';
+
+    if (input.run.abortSignal?.aborted)
+      return { status: classifyAbortedRun(input.run.abortSignal) };
+
+    return { status: input.status, boundaryCompaction };
+  }
+
+  private async deliverQuotaBoundary(
+    input: DeliveryInput & { quotaRequest?: QuotaRequestState },
+  ): Promise<BoundaryDelivery> {
+    const { quotaRequest, ...delivery } = input;
+
+    return retryRunTransaction(() =>
+      this.tenantDb.runAs(input.run.userId, async (tx) => {
+        const boundary = await deliverPendingSteering(tx, delivery);
+
+        if (
+          boundary.kind !== 'cancelled' &&
+          boundary.kind !== 'fenced' &&
+          (delivery.boundaryCompaction?.summary == null ||
+            boundary.kind === 'nothing-pending')
+        ) {
+          await this.appendQuotaRecovered(tx, input.run.runId, quotaRequest);
+        }
+
+        return boundary;
+      }),
+    );
+  }
+
+  private async resumeQuotaBoundary(
+    input: Parameters<RunExecutionService['prepareQuotaBoundary']>[0] & {
+      telemetry: AssistantTurnTelemetry;
+      createdMessage: RunUserMessage;
+    },
+  ): Promise<
+    | BoundaryDelivery
+    | (Extract<BoundaryDelivery, { kind: 'nothing-pending' }> & {
+        automaticCompactionFailed: true;
+      })
+    | 'stopped'
+  > {
+    const pending = await readCompactionSet({
+      tenantDb: this.tenantDb,
+      chatId: input.run.chatId,
+      userId: input.run.userId,
+    });
+
+    const saved = input.quotaRequest?.compactionSet;
+
+    const compactionSet =
+      saved === undefined
+        ? pending
+        : {
+            ids: saved.ids.filter((id) => pending.ids.includes(id)),
+            focus: saved.focus,
+          };
+
+    const finalAnswer = input.resumeAt === 'finalAnswer';
+
+    // A queued or withdrawn /compact during the wait must not flip the mode
+    // the suspended summary was requested in: its failure class belongs to the
+    // original request. Only a checkpoint that recorded no mode falls back to
+    // the legacy derivation from the set's current contents.
+    const automaticMode = finalAnswer
+      ? undefined
+      : input.quotaRequest?.boundaryMode === undefined
+        ? compactionSet.ids.length === 0
+        : input.quotaRequest.boundaryMode === 'automatic';
+
+    const parts = input.quotaParts();
+
+    const kept = projectStoredReplyParts(parts, {
+      privateParts: true,
+      mediaKey: continuedMediaKey,
+    });
+    // This summary wake has not dispatched the items it just staged.
+
+    const boundaryCompaction = await this.prepareQuotaBoundary({
+      ...input,
+      compactionSet,
+      prepared: {
+        ...input.prepared,
+        messages: [
+          ...requestMessages({ ...input.context, stagedParts: [] }, []),
+          ...kept.messages,
+        ],
+      },
+      ...(finalAnswer
+        ? { finalAnswer: true as const }
+        : automaticMode === true
+          ? { automatic: true as const }
+          : {}),
+      ...(input.quotaRequest?.baselines !== undefined && {
+        baselines: input.quotaRequest.baselines,
+      }),
+    });
+
+    if (boundaryCompaction === 'quota') return 'stopped';
+
+    if (finalAnswer)
+      return this.finishQuotaFinalAnswer(input, boundaryCompaction, parts);
+
+    const boundary = await this.deliverQuotaBoundary({
+      run: { runId: input.run.runId, userId: input.run.userId },
+      attemptId: input.attemptId,
+      live: {
+        chatId: input.run.chatId,
+        inReplyTo: input.run.userMessage.id,
+        parts,
+        telemetry: input.telemetry,
+      },
+      modelCompleted: { finishReason: null, telemetry: input.telemetry },
+      models: this.instanceConfig.config.models,
+      deadWorkerAfterSeconds: workerDeadAfterSeconds(
+        this.instanceConfig.config,
+      ),
+      boundaryCompaction,
+      baselines: input.quotaRequest?.baselines,
+      quotaRequest: input.quotaRequest,
+      ...(input.quotaRequest?.stoppedCalls !== undefined && {
+        stoppedCalls: input.quotaRequest.stoppedCalls,
+      }),
+    });
+
+    return boundary.kind === 'nothing-pending' &&
+      boundary.compactionFailed === true &&
+      boundaryCompaction?.automatic === true
+      ? { ...boundary, automaticCompactionFailed: true }
+      : boundary;
+  }
+
+  private async finishQuotaFinalAnswer(
+    input: Parameters<RunExecutionService['resumeQuotaBoundary']>[0],
+    boundaryCompaction: DeliveryInput['boundaryCompaction'],
+    parts: Array<MessagePart>,
+  ): Promise<BoundaryDelivery | 'stopped'> {
+    // The terminal write freezes the baselines the answering target rendered.
+    const { recencyDigestInitialization, skillCatalogFreeze } =
+      input.quotaRequest?.baselines ?? {};
+
+    const finish = await this.finishRun({
+      userId: input.run.userId,
+      runId: input.run.runId,
+      attemptId: input.attemptId,
+      status: 'completed',
+      boundaryCompaction,
+      quotaRequest: input.quotaRequest,
+      stepBudgetUsed: input.stepBudgetUsed,
+      modelCompleted: { finishReason: null, telemetry: input.telemetry },
+      assistantTurn: {
+        chatId: input.run.chatId,
+        inReplyTo: input.run.userMessage.id,
+        parts,
+        telemetry: input.telemetry,
+      },
+      ...(recencyDigestInitialization !== undefined && {
+        recencyDigestInitialization,
+      }),
+      ...(skillCatalogFreeze !== undefined && { skillCatalogFreeze }),
+    });
+
+    if (finish.outcome === 'delivered') return finish.delivery;
+
+    if (!hasNoCommittedAssistantTurn(finish)) {
+      await this.afterAssistantTurn(finish.assistantMessage, input.run.userId);
+      await this.postCompletedRunWork({
+        chatId: input.run.chatId,
+        userId: input.run.userId,
+        untitled: input.prepared.untitled,
+        userMessage: input.createdMessage,
+      });
+    }
+
+    if (finish.outcome === 'errored')
+      throw new Error('Failed to finish resumed quota reply.');
+
+    return 'stopped';
   }
 
   private async finishWakeCompactionBoundary(input: {
@@ -7329,6 +8529,55 @@ export class RunExecutionService {
 
     return undefined;
   }
+  private applyCompactionFailure(input: {
+    failure: 'automatic' | 'manual' | undefined;
+    assistantPartCollector: ReturnType<typeof createAssistantPartCollector>;
+    disableAutomaticCompaction: () => void;
+  }): void {
+    if (input.failure === 'automatic') {
+      input.disableAutomaticCompaction();
+    } else if (input.failure === 'manual') {
+      input.assistantPartCollector.compactionNote({
+        type: 'data-compaction-failed',
+        data: {},
+      });
+    }
+  }
+
+  private async resumeQuotaAttempt(
+    input: Parameters<RunExecutionService['resumeQuotaBoundary']>[0] & {
+      userId: string;
+      runId: string;
+      startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+    },
+  ): Promise<QuotaResumeAttemptResult> {
+    const resumed = await this.resumeQuotaBoundary(input);
+
+    if (resumed === 'stopped') throw new RunNotRunnableError(input.runId);
+
+    const delivered = await this.finishWakeCompactionBoundary({
+      boundary: resumed,
+      userId: input.userId,
+      runId: input.runId,
+      attemptId: input.attemptId,
+      startDelivered: input.startDelivered,
+    });
+
+    if (delivered !== undefined)
+      return { kind: 'delivered', attempt: delivered };
+
+    if (resumed.kind !== 'nothing-pending')
+      throw new RunNotRunnableError(input.runId);
+
+    const compactionFailure = resumed.compactionFailed
+      ? 'automaticCompactionFailed' in resumed &&
+        resumed.automaticCompactionFailed
+        ? 'automatic'
+        : 'manual'
+      : undefined;
+
+    return { kind: 'continue', compactionFailure };
+  }
 
   private deliveredWakeAttempt(
     wakeAttempt: AttemptRun | 'compact' | undefined,
@@ -7342,13 +8591,19 @@ export class RunExecutionService {
   private async prepareWakeAttempt(input: {
     run: ExecuteRunInput;
     attemptId: string;
-    wakeState: WakeState | undefined;
+    wakeState: ContinueState | undefined;
+    quotaRequest?: QuotaRequestState;
     startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
     onCompactionSet: (
       set: Awaited<ReturnType<typeof readCompactionSet>>,
     ) => void;
   }): Promise<AttemptRun | 'compact' | undefined> {
-    if (input.wakeState === undefined) return undefined;
+    if (
+      input.wakeState === undefined ||
+      (input.quotaRequest !== undefined &&
+        input.quotaRequest.resumeAt !== 'preDispatch')
+    )
+      return undefined;
 
     const compactionSet = await readCompactionSet({
       tenantDb: this.tenantDb,
@@ -7357,6 +8612,14 @@ export class RunExecutionService {
     });
 
     input.onCompactionSet(compactionSet);
+
+    if (input.quotaRequest?.resumeAt === 'preDispatch') {
+      const segment = await this.tenantDb.runAs(input.run.userId, (tx) =>
+        currentSegmentState(tx, input.run.runId, input.run.userId),
+      );
+
+      if (!segment.dispatched) return undefined;
+    }
 
     if (compactionSet.ids.length > 0) return 'compact';
 
@@ -7394,27 +8657,29 @@ export class RunExecutionService {
     keptPartCount: number;
     wakeCompaction: boolean;
     stepBudgetUsed: number;
+    quotaRequest?: QuotaRequestState;
+    quotaParts: () => Array<MessagePart>;
   }): Promise<BoundaryDelivery | undefined> {
     if (!input.wakeCompaction) return undefined;
 
     const compactionSet = input.compactionSet;
 
     if (compactionSet === undefined || compactionSet.ids.length === 0) {
-      return retryRunTransaction(() =>
-        this.tenantDb.runAs(input.run.userId, (tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: input.run.runId, userId: input.run.userId },
-            attemptId: input.attemptId,
-            models: this.instanceConfig.config.models,
-            deadWorkerAfterSeconds: workerDeadAfterSeconds(
-              this.instanceConfig.config,
-            ),
-          }),
+      return this.deliverQuotaBoundary({
+        run: { runId: input.run.runId, userId: input.run.userId },
+        attemptId: input.attemptId,
+        models: this.instanceConfig.config.models,
+        deadWorkerAfterSeconds: workerDeadAfterSeconds(
+          this.instanceConfig.config,
         ),
-      );
+        quotaRequest: input.quotaRequest,
+      });
     }
 
-    const boundaryCompaction = await this.prepareBoundaryCompaction({
+    const boundaryCompaction = await this.prepareQuotaBoundary({
+      resumeAt: 'preDispatch',
+      quotaParts: input.quotaParts,
+      quotaRequest: input.quotaRequest,
       run: input.run,
       attemptId: input.attemptId,
       context: input.context,
@@ -7428,19 +8693,85 @@ export class RunExecutionService {
       compactionSet,
     });
 
-    return retryRunTransaction(() =>
-      this.tenantDb.runAs(input.run.userId, (tx) =>
-        deliverPendingSteering(tx, {
-          run: { runId: input.run.runId, userId: input.run.userId },
-          attemptId: input.attemptId,
-          models: this.instanceConfig.config.models,
-          deadWorkerAfterSeconds: workerDeadAfterSeconds(
-            this.instanceConfig.config,
-          ),
-          boundaryCompaction,
-        }),
+    if (boundaryCompaction === 'quota')
+      throw new RunNotRunnableError(input.run.runId);
+
+    return this.deliverQuotaBoundary({
+      run: { runId: input.run.runId, userId: input.run.userId },
+      attemptId: input.attemptId,
+      models: this.instanceConfig.config.models,
+      deadWorkerAfterSeconds: workerDeadAfterSeconds(
+        this.instanceConfig.config,
       ),
-    );
+      boundaryCompaction,
+      quotaRequest: input.quotaRequest,
+    });
+  }
+
+  private async prepareQuotaFirstStep(
+    input: Omit<
+      Parameters<RunExecutionService['prepareAttemptForFirstStep']>[0],
+      'firstSegment'
+    > & {
+      firstSegment: boolean;
+      quotaRequest?: QuotaRequestState;
+      stepBudgetUsed: number;
+    },
+  ): Promise<{
+    firstStep: PreparedFirstStep;
+    quotaRequest?: QuotaRequestState;
+  }> {
+    let quotaRequest = input.quotaRequest;
+
+    try {
+      const firstStep = await this.prepareAttemptForFirstStep({
+        ...input,
+        firstSegment:
+          startsAutomaticCompaction(input.firstSegment, input.wakeCompaction) &&
+          (quotaRequest === undefined ||
+            quotaRequest.resumeAt === 'preDispatch'),
+        quotaRequest: input.wakeCompaction ? undefined : quotaRequest,
+      });
+
+      if (!input.wakeCompaction && quotaRequest?.resumeAt === 'preDispatch')
+        quotaRequest = undefined;
+
+      return { firstStep, quotaRequest };
+    } catch (error) {
+      await this.settleIfAborted(input.run, input.attemptId);
+
+      const quotaWait = compactionQuotaWait(error, {
+        maxSeconds: this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+        request: quotaRequest,
+      });
+
+      if (quotaWait !== undefined) {
+        await this.suspendCompactionForQuota({
+          run: input.run,
+          attemptId: input.attemptId,
+          error: quotaWait,
+          request: quotaRequest,
+          resumeAt: 'preDispatch',
+          parts: input.continued?.parts.slice() ?? [],
+          stepBudgetUsed: input.stepBudgetUsed,
+        });
+        throw new RunNotRunnableError(input.run.runId);
+      }
+
+      if (error instanceof ModelContextExecutionError) {
+        const message = error.message;
+        await this.finishRunWithoutCollector({
+          userId: input.run.userId,
+          runId: input.run.runId,
+          status: 'failed',
+          attemptId: input.attemptId,
+          runPayload: { status: 'failed', message, code: error.code },
+          error: { message, code: error.code },
+        });
+      }
+
+      throw error;
+    }
   }
 
   /** Re-bake after publication so the receipt binds the request actually sent. */
@@ -7464,6 +8795,7 @@ export class RunExecutionService {
     firstSegment: boolean;
     /** A requested wake compaction gets to attempt before window admission. */
     wakeCompaction: boolean;
+    quotaRequest?: QuotaRequestState;
   }): Promise<PreparedFirstStep> {
     // One projection for the whole attempt: both passes and the compaction
     // trigger measure and send the same kept messages. The kept parts are the
@@ -7561,6 +8893,20 @@ export class RunExecutionService {
                     this.instanceConfig.config.runs.maxOutputTokens,
                   abortSignal: input.run.abortSignal,
                   media: input.media,
+                  onRetry: (retry) =>
+                    this.recordModelRetry(
+                      { ...input.run, attemptId: input.attemptId },
+                      retry,
+                    ),
+                  // The window variant may summarize through the source Run's
+                  // model instead; only this exact entry carries the current
+                  // Run's quota policy.
+                  quotaWait: {
+                    maxSeconds:
+                      this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+                    request: input.quotaRequest,
+                    modelId: input.run.client.model,
+                  },
                 }
               : {
                   variant: 'threshold',
@@ -7577,7 +8923,17 @@ export class RunExecutionService {
                   reservedOutputTokens:
                     this.instanceConfig.config.runs.maxOutputTokens,
                   abortSignal: input.run.abortSignal,
+                  onRetry: (retry) =>
+                    this.recordModelRetry(
+                      { ...input.run, attemptId: input.attemptId },
+                      retry,
+                    ),
                   media: input.media,
+                  quotaWait: {
+                    maxSeconds:
+                      this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+                    request: input.quotaRequest,
+                  },
                 },
           );
 
@@ -7591,6 +8947,7 @@ export class RunExecutionService {
         summary,
         model: estimatePass.model,
         workspaceRoot: input.workspacePreparation.root,
+        quotaRequest: input.quotaRequest,
       });
 
       // Re-read rather than reuse the Workspace-prepared row: the publication
@@ -7637,17 +8994,26 @@ export class RunExecutionService {
         kept.messages,
       );
     } else {
-      await this.tenantDb.runAs(input.run.userId, (tx) =>
-        this.persistAttemptPromptReceipt(
+      await this.tenantDb.runAs(input.run.userId, async (tx) => {
+        await this.persistAttemptPromptReceipt(
           tx,
           input.run,
           input.attemptId,
           context.effectiveContext,
-        ),
-      );
+        );
+
+        if (input.quotaRequest?.resumeAt === 'preDispatch') {
+          await this.appendQuotaRecovered(
+            tx,
+            input.run.runId,
+            input.quotaRequest,
+          );
+        }
+      });
     }
 
     if (
+      input.quotaRequest?.resumeAt !== 'finalAnswer' &&
       !requestFitsContextWindow({
         system: request.system,
         messages: request.messages,
@@ -7713,6 +9079,7 @@ export class RunExecutionService {
     summary: CompactionSummary;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
+    quotaRequest?: QuotaRequestState;
   }): Promise<void> {
     const { candidate: digestCandidate } = await this.resolveCompactionDigest({
       userId: input.run.userId,
@@ -7734,6 +9101,7 @@ export class RunExecutionService {
       model: SystemModelCatalogEntry;
       workspaceRoot: string | undefined;
       digestCandidate: RecencyDigestResolution | null;
+      quotaRequest?: QuotaRequestState;
     },
   ): Promise<string> {
     // Keep the write fence first: delivery takes the Run lock before the Chat
@@ -7750,6 +9118,8 @@ export class RunExecutionService {
         `Run ${input.run.runId} was reclaimed before checkpoint publication.`,
       );
     }
+
+    await this.appendQuotaRecovered(tx, input.run.runId, input.quotaRequest);
 
     const messagesRepo = new MessagesRepository(tx);
     const chatsRepo = new ChatsRepository(tx);
@@ -8652,7 +10022,7 @@ export class RunExecutionService {
       modelId: string;
       effort: string | undefined;
       permissionMode: PermissionMode;
-      wakeState: WakeState | undefined;
+      wakeState: ContinueState | undefined;
     },
   ): Promise<void> {
     const { run, context } = input;

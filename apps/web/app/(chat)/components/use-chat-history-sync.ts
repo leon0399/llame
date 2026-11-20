@@ -7,8 +7,9 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import type { useChat } from "@ai-sdk/react";
-import type { UIMessage } from "ai";
+import type { ChatStatus, UIMessage } from "ai";
+
+import type { AgUiChatState } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
 
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import {
@@ -24,12 +25,12 @@ import { streamingRunId } from "@/lib/services/chat/run-notifications";
 
 type UseChatHistorySyncArgs = {
   resume: boolean;
-  resumeStream: ReturnType<typeof useChat>["resumeStream"];
+  resumeStream: AgUiChatState["resumeStream"];
   refreshChatMessages: () => void;
   chatMessages: Array<UIMessage>;
   messages: Array<UIMessage>;
-  status: ReturnType<typeof useChat>["status"];
-  setMessages: ReturnType<typeof useChat>["setMessages"];
+  status: ChatStatus;
+  setMessages: AgUiChatState["setMessages"];
   /** The Chat's newest Run, which tells an in-place reply replacement (a
    *  follow-up) from a plain append. */
   latestRun: ChatLatestRunResponse | null;
@@ -49,32 +50,27 @@ type UseChatHistorySyncArgs = {
 export function useChatHistorySync(args: UseChatHistorySyncArgs) {
   const { resume, resumeStream, refreshChatMessages, messages, status } = args;
   // One attach per mount for the `resume` probe; the repair below claims the
-  // same slot so the two cannot race two reconnects on the same Chat instance
-  // (#259/#260 — see the note at the useChat call in `useChatEngine`).
+  // same slot so the two cannot start two reconnects on the same chat
+  // (#259/#260).
   const attachedRef = useRef(false);
 
   // Always re-read history once the probe settles, INCLUDING when it answers
-  // 204. Verified in the pinned SDK (ai 6.0.217): `reconnectToStream` returns
-  // null on 204 and `makeRequest` then returns before the block that fires
-  // onFinish — so that path emits no callback at all, and with a 60s
+  // 204. `AgUiChat.resumeStream` reports no finish for a Chat with no
+  // executing Run — so that path emits no callback at all, and with a 60s
   // staleTime nothing else would refetch. That is precisely the case where
   // the run went terminal between this page's history read and the probe,
   // i.e. where the answer is durable and the log is the only stale thing
   // (#261). Cheap and idempotent otherwise: the adoption below is a no-op
   // when the refetch brings nothing new.
-  // Promise.resolve: `resumeStream()` is a promise in the SDK, but wrapping
-  // keeps this from depending on that — a stubbed/void-returning
-  // implementation must not throw here.
+  // Promise.resolve: a stubbed/void-returning `resumeStream` must not throw
+  // here.
   const attach = useCallback(() => {
     void Promise.resolve(resumeStream()).finally(refreshChatMessages);
   }, [resumeStream, refreshChatMessages]);
 
-  // Driven here instead of via useChat's `resume` prop: the SDK's own effect
-  // has no cleanup or re-entrancy guard, so Strict Mode's double-invoked
-  // mount effect resumes the same Chat instance twice and the two concurrent
-  // requests race on shared state (#259/#260 — see the note at the useChat
-  // call in `useChatEngine`). Each route identity has one owner and one Chat
-  // instance.
+  // One attach per mount: Strict Mode invokes this mount effect twice, and
+  // two reconnects on one chat would race on its log (#259/#260). Each route
+  // identity has one owner and one chat instance.
   useEffect(() => {
     if (!resume || attachedRef.current) return;
     attachedRef.current = true;
@@ -123,7 +119,7 @@ function useHandoffAttach({
 }
 
 /**
- * Adopt that refetched history — the client half of #261. useChat freezes
+ * Adopt that refetched history — the client half of #261. The engine freezes
  * `messages` at creation (see PersistedChatSession) and never re-adopts a
  * later fetch, and the post-finish `router.replace` does NOT remount this
  * component (key={chatId} is unchanged), so a healed history otherwise never

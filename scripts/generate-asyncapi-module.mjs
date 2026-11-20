@@ -17,9 +17,9 @@
  *
  * Every referenced schema becomes its own named zod schema, emitted before
  * its first use; `oneOf` with a `discriminator` becomes a discriminated union.
- * Schema constructs the generator cannot translate faithfully (`allOf`,
- * `anyOf`, `not`, an undiscriminated `oneOf`, unknown keywords) fail
- * generation instead of degrading to `z.any()`.
+ * Nullable single-reference `allOf` wrappers from Swagger preserve the referenced
+ * validator. Other intersections, `anyOf`, `not`, an undiscriminated `oneOf`,
+ * and unknown keywords fail generation instead of degrading to `z.any()`.
  */
 
 import { execFileSync } from "node:child_process";
@@ -45,6 +45,7 @@ const SUPPORTED_SCHEMA_KEYWORDS = new Set([
   "additionalProperties",
   "items",
   "oneOf",
+  "allOf",
   "discriminator",
   "$ref",
 ]);
@@ -149,6 +150,24 @@ class SchemaEmitter {
 
   override(node, file) {
     assertSupported(node);
+    if (node.allOf !== undefined) {
+      const reference = node.allOf?.[0];
+      if (
+        !Array.isArray(node.allOf) ||
+        node.allOf.length !== 1 ||
+        !reference ||
+        Object.keys(reference).length !== 1 ||
+        typeof reference.$ref !== "string" ||
+        (node.type !== undefined && node.type !== "object") ||
+        Object.keys(node).some(
+          (key) => !["allOf", "type", "nullable", "description"].includes(key),
+        )
+      ) {
+        throw new Error("allOf only supports a single reference wrapper");
+      }
+      const schema = this.emit(parseRef(reference.$ref, file));
+      return node.nullable === true ? `${schema}.nullable()` : schema;
+    }
     if (node.$ref) return this.emit(parseRef(node.$ref, file));
     if (!node.oneOf) return undefined;
     const property = node.discriminator?.propertyName;

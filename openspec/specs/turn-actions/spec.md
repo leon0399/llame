@@ -13,13 +13,13 @@ A follow-up Run is a Run that an owner starts on a user message that already has
 MUST start it through `POST /api/v1/chats/:chatId/messages/:userMessageId/runs`. The message MUST
 be the user message with the highest `seq` of the Chat's user messages. The newest Run of the Chat
 MUST be a turn Run of that message. A checkpoint MUST NOT absorb that message. The Chat MUST NOT be
-archived. The answer MUST be the same UI message stream that a chat send returns.
+archived. The answer MUST be the same AG-UI 1.0 event stream that a chat send returns.
 
 #### Scenario: A follow-up request on the latest turn starts a Run
 
 - **WHEN** the owner sends a valid follow-up request for the latest user message of a Chat with no live Run
 - **THEN** the API creates a new Run for that message
-- **AND** the first frame of the stream is a `start` frame whose `messageId` is the id of the new Run
+- **AND** the first event of the stream is `RUN_STARTED` whose `runId` is the new Run id and whose `threadId` is the Chat id
 
 #### Scenario: A follow-up request on an older turn is refused
 

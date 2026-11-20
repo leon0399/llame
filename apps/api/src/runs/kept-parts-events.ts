@@ -37,7 +37,12 @@ function toolEvents(part: UnknownRecord): Array<RunEventLike> {
 
   const requested: RunEventLike = {
     eventType: 'tool.requested',
-    payload: { toolCallId, toolName, input: part['input'] },
+    payload: {
+      toolCallId,
+      toolName,
+      input: part['input'],
+      ...(isString(part['intent']) && { intent: part['intent'] }),
+    },
   };
 
   // The completion carries the result shape the live event carried, so the

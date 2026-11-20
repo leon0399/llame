@@ -228,11 +228,11 @@ d('an accepted Run no worker consumes', () => {
 
     expect(stream.status).toBe(200);
     const first = await stream.nextFrame('the first frame');
-    expect(first.type).toBe('start');
+    expect(first.type).toBe('RUN_STARTED');
 
     const runs = await runsOf(chatId);
     expect(runs).toHaveLength(1);
-    expect(first.messageId).toBe(runs[0].id);
+    expect(first.runId).toBe(runs[0].id);
     expect(runs[0].status).toBe('queued');
     // The frame arrived on the strength of acceptance alone: the event log
     // holds only the Run's creation and no model request was ever made.
@@ -244,7 +244,7 @@ d('an accepted Run no worker consumes', () => {
     const chatId = crypto.randomUUID();
     const stream = await acceptTurn(chatId, 'Stop me before a worker claims');
     const first = await stream.nextFrame('the start frame');
-    const runId = z.string().parse(first.messageId);
+    const runId = z.string().parse(first.runId);
 
     const cancelled = await request(http)
       .patch(`/api/v1/runs/${runId}`)
@@ -288,7 +288,7 @@ d('an accepted Run no worker consumes', () => {
 
       // The stream the client still holds ends on the terminal event.
       const last = await stream.nextFrame('the finish frame');
-      expect(last.type).toBe('finish');
+      expect(last.type).toBe('RUN_FINISHED');
     } finally {
       await worker.close();
     }
@@ -323,7 +323,7 @@ d('an accepted Run no worker consumes', () => {
     const chatId = crypto.randomUUID();
     const accepted = await acceptTurn(chatId, 'Only my owner may stop this');
     const first = await accepted.nextFrame('the start frame');
-    const runId = z.string().parse(first.messageId);
+    const runId = z.string().parse(first.runId);
 
     const resumed = await request(http)
       .get(`/api/v1/chats/${chatId}/stream`)

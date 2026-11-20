@@ -748,6 +748,10 @@
           "$ref": "#/$defs/numberOrToken",
           "description": "Optional per-model output-token limit, forwarded as the `maxOutputTokens` setting of every request this entry serves. Absent: the adapter's own default applies. What the adapter puts on the wire is the adapter's (each documents any transformation it applies). Internal execution config — not returned by `GET /api/v1/models`."
         },
+        "firstTokenTimeoutSeconds": {
+          "$ref": "#/$defs/numberOrToken",
+          "description": "Optional per-model first-content timeout in seconds before recovery. Absent: the recovery middleware uses 300 seconds. Internal execution config — not returned by `GET /api/v1/models`."
+        },
         "systemPromptFile": {
           "type": "string",
           "description": "Optional literal host path to this model's complete replacement system prompt. Relative paths resolve from the active configuration file's directory; absolute paths remain absolute. This field does not support {env:...} or {path:...} secret interpolation. Prompt files are Handlebars templates. Renderable paths are exactly {{model.id}} and {{model.name}}; a leading backslash emits a literal expression. Conditionals ({{#if}} / {{#unless}}), comments, and whitespace control are supported. Rendering is single-pass and never re-evaluates its own output. Any other path, a helper, a partial, or unescaped {{{...}}} output fails startup naming the construct; a path with no value renders empty rather than failing. Missing, unreadable, non-file, empty, or invalid prompt content fails startup without falling back to the project default. Prompt contents are owner-visible; the host path is never returned by the public model catalog."
@@ -1024,6 +1028,10 @@
         "heartbeatSeconds": {
           "$ref": "#/$defs/heartbeatSecondsOrToken",
           "description": "The job-queue's native worker-liveness window, in seconds: while a run's job is in flight the worker auto-signals liveness at half this interval, and the queue's monitor fails+retries the job if the signal lapses this long — worker-death detection, not an application heartbeat. Falls back to RUN_HEARTBEAT_SECONDS, then 15."
+        },
+        "quotaWaitMaxSeconds": {
+          "$ref": "#/$defs/positiveSafeIntegerOrToken",
+          "description": "Maximum time in seconds that a Run may wait for a provider quota reset. Defaults to 691200 (8 days); must be a positive integer."
         },
         "timeoutSeconds": {
           "$ref": "#/$defs/nullableNumberOrToken",

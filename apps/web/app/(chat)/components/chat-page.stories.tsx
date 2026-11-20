@@ -1,3 +1,4 @@
+import { EventType } from "@ag-ui/core";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 import { ReasoningContent } from "@workspace/ui/components/ai-elements/reasoning-content";
@@ -21,7 +22,10 @@ import {
   waitFor,
   within,
 } from "storybook/test";
-import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
+import {
+  AgUiRunEvents,
+  agUiStreamResponse,
+} from "@/lib/test-support/ag-ui-stream";
 
 import { ChatProvider } from "@/contexts/chat-context";
 import { createAuthenticatedBrowserFetch } from "@/lib/api/fetch";
@@ -674,6 +678,71 @@ export const SendsImageOnlyMessage: Story = {
   },
 };
 
+/** An HTTP refusal restores both parts of the draft for an owner's retry. */
+export const RefusedSendRestoresTextAndImage: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  parameters: contrastKnownIssue232,
+  beforeEach: () => {
+    useModelsQuery.mockReturnValue({
+      data: { defaultModelId: VISION.id, models: [VISION] },
+      isError: false,
+      isPending: false,
+      isSuccess: true,
+    });
+    uploadAttachment.mockImplementation((file: File) =>
+      Promise.resolve(
+        uploaded("0192f4a8-7c1e-7d3a-9b2f-3c4d5e6f7a01", file.name),
+      ),
+    );
+    routeAlso({
+      [SEND_ROUTE]: () =>
+        Promise.resolve(jsonResponse({ message: "Send was refused" }, 422)),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+    const files = new DataTransfer();
+
+    const png = Uint8Array.from(
+      atob(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+      ),
+      (character) => character.charCodeAt(0),
+    );
+
+    files.items.add(new File([png], "draft.png", { type: "image/png" }));
+    await userEvent.click(input);
+    await userEvent.type(input, "Inspect this draft");
+    await userEvent.paste(files);
+    const form = input.closest("form");
+
+    if (form === null) throw new Error("expected the composer form");
+    const list = await within(form).findByRole("list", { name: "Attachments" });
+    await waitFor(() =>
+      expect(within(list).queryAllByRole("status")).toEqual([]),
+    );
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(input).toHaveValue("Inspect this draft"));
+
+    const restoredImage = within(
+      await within(form).findByRole("list", { name: "Attachments" }),
+    ).getByRole("img", { name: "draft.png" });
+
+    await expect(restoredImage).toBeVisible();
+    await waitFor(() =>
+      expect(restoredImage).toHaveProperty("naturalWidth", 1),
+    );
+    await expect(
+      canvas.getByRole("button", { name: "Send message" }),
+    ).toBeEnabled();
+    await expect(
+      within(canvas.getByRole("log")).queryByText("Inspect this draft"),
+    ).not.toBeInTheDocument();
+  },
+};
+
 /** Serves a two-model catalog whose default is GPT-5.4 mini. */
 function serveTwoModelCatalog(gpt54: AvailableModel = GPT_5_4) {
   useModelsQuery.mockReturnValue({
@@ -1251,29 +1320,24 @@ async function sendFollowUp(canvasElement: HTMLElement) {
   await userEvent.click(send);
 }
 
-/** A reply streamed the way the api streams it, encoded by the SDK's own
- *  UI-message stream; the stream ends once `ended` settles. */
+/** A reply streamed the way the api streams it, as AG-UI events; the stream
+ *  ends once `ended` settles. */
 function streamedReply(
   ended: Promise<void> = Promise.resolve(),
   messageId = "reply-1",
 ) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({
-          type: "text-delta",
-          id: "text-1",
-          delta: "streamed reply",
-        });
-        await ended;
-        writer.write({ type: "text-end", id: "text-1" });
-        // The api's terminal chunk carries the run's completion marker; the
-        // client reads it to tell a finished turn from a cut stream (#1284).
-        writer.write({ type: "finish", finishReason: "stop" });
-      },
-    }),
+  const run = new AgUiRunEvents(messageId);
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      run.textStart(),
+      run.textDelta("streamed reply"),
+    ]);
+    await ended;
+    // The api's terminal event is the run's completion marker; the client
+    // reads it to tell a finished turn from a cut stream (#1284).
+    writer.write([run.textEnd(), run.finished()]);
   });
 }
 
@@ -1513,15 +1577,15 @@ export const TargetSendFinishOpensLatest: Story = {
     await transcriptShows(canvasElement, "latest durable answer");
     await expect(canvas.queryByText("older target context")).toBeNull();
     await expect(pageUrl()).toBe(`/chat/${CHAT_ID}`);
-    // The finish re-reads the target window; the newest page then opens: read,
-    // probed for a run to resume (204: none), and re-read.
+    // The finish re-reads the target window; the newest page then opens:
+    // probed for a run to resume (204: none), read, and re-read.
     await waitFor(() =>
       expect(sentRoutes()).toEqual([
         HISTORY_ROUTE,
         SEND_ROUTE,
         HISTORY_ROUTE,
-        HISTORY_ROUTE,
         RESUME_ROUTE,
+        HISTORY_ROUTE,
         HISTORY_ROUTE,
       ]),
     );
@@ -1623,7 +1687,7 @@ const AFTER_INTERRUPTION = replies(
 
 /** After an interrupted target send, the page opens the newest page on the
  *  hashless sent-draft route and probes for the run to resume. Each of the
- *  SDK's `reports` of the failure first re-reads the target window. */
+ *  engine's `reports` of the failure first re-reads the target window. */
 async function recoveredFromInterruption(
   canvasElement: HTMLElement,
   reports: number,
@@ -1639,8 +1703,8 @@ async function recoveredFromInterruption(
       HISTORY_ROUTE,
       SEND_ROUTE,
       ...rereads,
-      HISTORY_ROUTE,
       RESUME_ROUTE,
+      HISTORY_ROUTE,
       HISTORY_ROUTE,
     ]),
   );
@@ -1681,7 +1745,7 @@ export const TargetSendErrorRecovers: Story = {
   play: async ({ canvasElement }) => {
     await openedTarget(canvasElement);
     await sendFollowUp(canvasElement);
-    // The SDK reports the failure twice: as an error, then an errored finish.
+    // The engine reports the failure twice: as an error, then an errored finish.
     await recoveredFromInterruption(canvasElement, 2);
   },
 };
@@ -1736,7 +1800,7 @@ export const TargetSendStopRecovers: Story = {
       within(canvasElement).getByRole("button", { name: "Stop generation" }),
     );
 
-    // A stop is no error: the SDK reports only the aborted finish.
+    // A stop is no error: the engine reports only the aborted finish.
     await recoveredFromInterruption(canvasElement, 1);
   },
 };
@@ -2413,31 +2477,20 @@ export const WorkspaceRefreshesEachRun: Story = {
  *  successful result once `entered` settles, then a line of text; the reply
  *  never finishes. */
 function workspaceEntryReply(root: string, entered: Promise<void>) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId: "reply-1" });
-        writer.write({
-          type: "tool-input-available",
-          toolCallId: "enter-1",
-          toolName: "enter_workspace",
-          input: { path: root },
-        });
-        await entered;
-        writer.write({
-          type: "tool-output-available",
-          toolCallId: "enter-1",
-          output: { status: "success", root },
-        });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({
-          type: "text-delta",
-          id: "text-1",
-          delta: "Workspace is ready.",
-        });
-        await new Promise<void>(() => {});
-      },
-    }),
+  const run = new AgUiRunEvents("reply-1");
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      ...run.toolCall("enter-1", "enter_workspace", { path: root }),
+    ]);
+    await entered;
+    writer.write([
+      run.toolResult("enter-1", { status: "success", root }),
+      run.textStart(),
+      run.textDelta("Workspace is ready."),
+    ]);
+    await new Promise<void>(() => {});
   });
 }
 
@@ -2528,6 +2581,8 @@ export const PastWorkspaceEntryKeepsCard: Story = {
 
 const TURN_RUN_ID = "11111111-1111-4111-8111-111111111111";
 const NEXT_TURN_RUN_ID = "22222222-2222-4222-8222-222222222222";
+const QUOTA_STORY_NOW = Date.parse("2026-11-19T09:00:00.000Z");
+const FAILED_QUOTA_RESET_AT = QUOTA_STORY_NOW + 20 * 86_400_000;
 
 const COMPACTION_RUN_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -2556,6 +2611,9 @@ function latestTurnRun(
     effort: null,
     permissionMode: "default",
     error: null,
+    errorCode: null,
+    errorResetsAt: null,
+    quotaWait: null,
     ...overrides,
   };
 }
@@ -2713,21 +2771,57 @@ export const FailedTurnWithEmptyReply: Story = {
 /** The resumed stream of a queued follow-up Run: it starts under the Run's own
  *  id, streams one token, and never finishes, so the reply stays live. */
 function resumedFollowUpStream(messageId = NEXT_TURN_RUN_ID) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({
-          type: "text-delta",
-          id: "text-1",
-          delta: "resumed stream",
-        });
-        await new Promise<void>(() => {});
-      },
-    }),
+  const run = new AgUiRunEvents(messageId);
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      run.textStart(),
+      run.textDelta("resumed stream"),
+    ]);
+    await new Promise<void>(() => {});
   });
 }
+
+export const NewSendHidesPreviousQuotaFailure: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: latestTurnRun({
+      error: "The previous request exhausted its quota.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [SEND_ROUTE]: () => Promise.resolve(resumedFollowUpStream()),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    expect(
+      canvas.getByText("The previous request exhausted its quota."),
+    ).toBeVisible();
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "Try a new request.");
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+    await userEvent.click(send);
+    await waitFor(() =>
+      expect(canvas.getByText("resumed stream")).toBeVisible(),
+    );
+    expect(
+      canvas.queryByText("The previous request exhausted its quota."),
+    ).toBeNull();
+    expect(canvas.queryByText(/Resets at/)).toBeNull();
+  },
+};
 
 /**
  * A reload while a follow-up Run of the latest turn is still queued shows one
@@ -3010,28 +3104,24 @@ function segmentStream(
   text: string,
   delivered?: { messageId: string; before?: () => Promise<void> | void },
 ) {
-  return createUIMessageStreamResponse({
-    stream: createUIMessageStream({
-      execute: async ({ writer }) => {
-        writer.write({ type: "start", messageId: LIVE_RUN_ID });
-        writer.write({ type: "text-start", id: "text-1" });
-        writer.write({ type: "text-delta", id: "text-1", delta: text });
-        writer.write({ type: "text-end", id: "text-1" });
+  const run = new AgUiRunEvents(LIVE_RUN_ID);
 
-        if (delivered === undefined) {
-          await new Promise<void>(() => {});
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      run.textStart(),
+      run.textDelta(text),
+      run.textEnd(),
+    ]);
 
-          return;
-        }
+    if (delivered === undefined) {
+      await new Promise<void>(() => {});
 
-        await delivered.before?.();
-        writer.write({
-          type: "data-run-delivered",
-          data: { messageId: delivered.messageId },
-        });
-        writer.write({ type: "finish", finishReason: "stop" });
-      },
-    }),
+      return;
+    }
+
+    await delivered.before?.();
+    writer.write([run.delivered(delivered.messageId), run.finished()]);
   });
 }
 
@@ -4357,5 +4447,290 @@ export const LiveUpdateBeforeHistoryStillAttaches: Story = {
       releaseFirstDelivery();
       releaseDeliveredHistory();
     }
+  },
+};
+
+let releaseBrokenSend = () => {};
+let finishRecoveredSend = () => {};
+
+function supersededReply(retry: Promise<void>, finished: Promise<void>) {
+  const run = new AgUiRunEvents(LIVE_RUN_ID);
+  const earlierMessageId = `${LIVE_RUN_ID}:earlier`;
+  const discardedReasoningId = `${LIVE_RUN_ID}:reasoning`;
+  const discardedTextId = `${LIVE_RUN_ID}:discarded`;
+  const recoveredMessageId = `${LIVE_RUN_ID}:recovered`;
+
+  return agUiStreamResponse(async (writer) => {
+    writer.write([
+      run.started(),
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: earlierMessageId,
+        role: "assistant",
+      },
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: earlierMessageId,
+        delta: "Completed earlier step.",
+      },
+      { type: EventType.TEXT_MESSAGE_END, messageId: earlierMessageId },
+      { type: EventType.REASONING_START, messageId: discardedReasoningId },
+      {
+        type: EventType.REASONING_MESSAGE_START,
+        messageId: discardedReasoningId,
+        role: "reasoning",
+      },
+      {
+        type: EventType.REASONING_MESSAGE_CONTENT,
+        messageId: discardedReasoningId,
+        delta: "Discarded unfinished reasoning",
+      },
+      {
+        type: EventType.REASONING_MESSAGE_END,
+        messageId: discardedReasoningId,
+      },
+      { type: EventType.REASONING_END, messageId: discardedReasoningId },
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: discardedTextId,
+        role: "assistant",
+      },
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: discardedTextId,
+        delta: "Discarded partial answer",
+      },
+    ]);
+    await retry;
+    writer.write([
+      { type: EventType.TEXT_MESSAGE_END, messageId: discardedTextId },
+      {
+        type: EventType.CUSTOM,
+        name: "llame.model-superseded",
+        value: { messageIds: [discardedReasoningId, discardedTextId] },
+      },
+      {
+        type: EventType.CUSTOM,
+        name: "llame.model-retrying",
+        value: { code: "stream_broken", retry: 1, delayMs: 0 },
+      },
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: recoveredMessageId,
+        role: "assistant",
+      },
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        messageId: recoveredMessageId,
+        delta: "Recovered complete answer.",
+      },
+    ]);
+    await finished;
+    writer.write([
+      { type: EventType.TEXT_MESSAGE_END, messageId: recoveredMessageId },
+      run.finished(),
+    ]);
+  });
+}
+
+/**
+ * Exercise supersession during streaming without reloading the Chat.
+ * @summary Removes discarded output from a live reply.
+ */
+export const SupersededSendLeavesLiveReply: Story = {
+  tags: ["ai-generated"],
+  parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
+  beforeEach: () => {
+    setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
+
+    const retry = new Promise<void>((resolve) => {
+      releaseBrokenSend = resolve;
+    });
+
+    const finished = new Promise<void>((resolve) => {
+      finishRecoveredSend = resolve;
+    });
+
+    routeAlso({
+      [RESUME_ROUTE]: () => Promise.resolve(supersededReply(retry, finished)),
+    });
+
+    return () => {
+      releaseBrokenSend();
+      finishRecoveredSend();
+    };
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    await transcriptShows(canvasElement, "Discarded partial answer");
+    releaseBrokenSend();
+    await transcriptShows(canvasElement, "Recovered complete answer.");
+    const transcript = within(within(canvasElement).getByRole("log"));
+    await expect(transcript.getByText("Completed earlier step.")).toBeVisible();
+    await expect(transcript.queryByText("Discarded partial answer")).toBeNull();
+    await expect(
+      transcript.queryByText("Discarded unfinished reasoning"),
+    ).toBeNull();
+  },
+};
+
+/**
+ * Exercise reconstruction after reloading a Chat with a superseded send.
+ * @summary Keeps discarded output absent from replay.
+ */
+export const SupersededSendStaysAbsentOnReplay: Story = {
+  tags: ["ai-generated"],
+  parameters: { latestRun: liveRun() } satisfies ChatPageParameters,
+  beforeEach: () => {
+    setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
+
+    const finished = new Promise<void>((resolve) => {
+      finishRecoveredSend = resolve;
+    });
+
+    routeAlso({
+      [RESUME_ROUTE]: () =>
+        Promise.resolve(supersededReply(Promise.resolve(), finished)),
+    });
+
+    return () => finishRecoveredSend();
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    await transcriptShows(canvasElement, "Recovered complete answer.");
+    const transcript = within(within(canvasElement).getByRole("log"));
+    await expect(transcript.getByText("Completed earlier step.")).toBeVisible();
+    await expect(transcript.queryByText("Discarded partial answer")).toBeNull();
+    await expect(
+      transcript.queryByText("Discarded unfinished reasoning"),
+    ).toBeNull();
+  },
+};
+
+export const QuotaWaitStopPreservesPendingSteer: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: {
+      ...liveRun(),
+      status: "awaiting_quota",
+      quotaWait: {
+        failureClass: "quota_exhausted",
+        resetsAt: new Date(QUOTA_STORY_NOW + 183_600_000).toISOString(),
+        wakeAt: new Date(QUOTA_STORY_NOW + 183_675_000).toISOString(),
+      },
+    },
+    pending: [
+      pendingItem("quota-steer", "steer", "check the restored provider"),
+    ],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
+    cancelRun.mockResolvedValue(undefined);
+    const original = Date.now;
+    Date.now = () => QUOTA_STORY_NOW;
+
+    return () => {
+      Date.now = original;
+    };
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    const pending = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.type(composer(canvasElement), "draft for later");
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Stop waiting for quota reset" }),
+    );
+    await expect(cancelRun).toHaveBeenCalledWith(LIVE_RUN_ID);
+    await expect(
+      within(pending).getByText("check the restored provider"),
+    ).toBeVisible();
+    await expect(composer(canvasElement)).toHaveValue("draft for later");
+    await expect(chatRoutes()).not.toContain(
+      `PATCH ${DELIVERY_ROUTE("quota-steer")}`,
+    );
+  },
+};
+
+export const FailedTurnWithQuotaReset: Story = {
+  parameters: {
+    history: [TURN_USER_ROW],
+    latestRun: latestTurnRun({
+      error: "The provider quota is exhausted.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(
+      canvas.getByText("The provider quota is exhausted."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText(new Date(FAILED_QUOTA_RESET_AT).toLocaleString()),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Regenerate" }),
+    ).toBeVisible();
+  },
+};
+
+export const FailedCompactionWithQuotaReset: Story = {
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: compactionRun({
+      status: "failed",
+      error: "The summary provider quota is exhausted.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(canvas.getByText("Compaction failed")).toBeVisible();
+    await expect(
+      canvas.getByText("The summary provider quota is exhausted."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText(new Date(FAILED_QUOTA_RESET_AT).toLocaleString()),
+    ).toBeVisible();
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
+  },
+};
+
+export const FailedPartialReplyWithQuotaReset: Story = {
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: latestTurnRun({
+      error: "The provider quota is exhausted.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(
+      canvas.getByText("The provider quota is exhausted."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText(new Date(FAILED_QUOTA_RESET_AT).toLocaleString()),
+    ).toBeVisible();
   },
 };

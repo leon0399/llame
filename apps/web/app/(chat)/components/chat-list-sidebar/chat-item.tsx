@@ -245,13 +245,14 @@ function ChatItemDialogs({
 function useChatActivity(chat: ChatResponse) {
   const runs = useOptionalActiveRuns();
   const live = runs?.activeChatIds.has(chat.id) ?? false;
-  const awaitingJobs = runs?.runStatusByChatId.get(chat.id) === "awaiting_jobs";
-  const processing = live && !awaitingJobs;
+  const status = runs?.runStatusByChatId.get(chat.id);
+  const waiting = status === "awaiting_jobs" || status === "awaiting_quota";
+  const processing = live && !waiting;
 
   return {
     activityStatus: resolveChatActivityStatus({
       processing,
-      background: awaitingJobs || (!live && (chat.runningJobs ?? 0) > 0),
+      background: waiting || (!live && (chat.runningJobs ?? 0) > 0),
       outcome: runs?.unseenRunOutcomes.get(chat.id),
     }),
     runPhase: processing ? runs?.runPhaseByChatId.get(chat.id) : undefined,

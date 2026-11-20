@@ -503,24 +503,28 @@ describe('wait tool lifecycle through real Run streams', () => {
       answer('resumed after open wait'),
     ]);
 
-    await awaiting(seeded.runId);
+    const suspended = await awaiting(seeded.runId);
+
+    if (suspended.awaiting?.kind !== 'jobs')
+      throw new Error('Expected a durable job wait.');
+
+    // Parallel owner-scoped lookups can finish in either order.
+    const openCallId = suspended.awaiting.toolCallId;
+    const callIds = ['open-wait', 'duplicate-wait'];
+
+    expect(callIds).toContain(openCallId);
+    const rejectedCallId = callIds.find((id) => id !== openCallId);
     const events = await fx.events(seeded.runId);
-    expect(
-      events.some(
-        (event) =>
-          event.eventType === 'tool.completed' &&
-          eventPayloadString(event.payload, 'toolCallId') ===
-            'duplicate-wait' &&
-          eventPayloadString(event.payload, 'status') === 'error',
-      ),
-    ).toBe(true);
-    expect(
-      events.some(
-        (event) =>
-          event.eventType === 'tool.completed' &&
-          eventPayloadString(event.payload, 'toolCallId') === 'open-wait',
-      ),
-    ).toBe(false);
+
+    const completed = events.filter(
+      (event) => event.eventType === 'tool.completed',
+    );
+
+    expect(completed).toHaveLength(1);
+    expect(completed[0]?.payload).toMatchObject({
+      toolCallId: rejectedCallId,
+      status: 'error',
+    });
     expect(started.prompts()).toHaveLength(1);
 
     answerAfterWake(seeded, 'resumed after open wait');
@@ -530,7 +534,7 @@ describe('wait tool lifecycle through real Run streams', () => {
       (await fx.events(seeded.runId)).filter(
         (event) =>
           event.eventType === 'tool.completed' &&
-          eventPayloadString(event.payload, 'toolCallId') === 'open-wait',
+          eventPayloadString(event.payload, 'toolCallId') === openCallId,
       ),
     ).toHaveLength(1);
   });

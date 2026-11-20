@@ -242,11 +242,11 @@ and block the repository's required-check ruleset.
   `login-form`, `register-form`, `model-switch-boundary`, `settings-page`,
   `project-page`, `sidebar-row-title`, `chat-load-older`, `app-sidebar`,
   `shared-chat-page`, `project-list-sidebar`, `personalization-section`,
-  `chat-list`), which completes the `chat-page.*` suites. `chat-page.target`
-  keeps only its rejected-send case in jsdom, since the real `useChat` never
-  rejects a send, and `chat-page.attachments` holds only the composer's
-  rejected-send image cases for the same reason, while `sidebar-row-title`
-  keeps its no-`ResizeObserver` case there, since Chromium always has one.
+  `chat-list`), which completes the `chat-page.*` suites. Send failures must
+  exercise the real chat transport against failed HTTP responses, including
+  composer image restoration and target restoration; do not mock the chat
+  engine. `sidebar-row-title` keeps its no-`ResizeObserver` case in jsdom,
+  since Chromium always has one.
   `model-switch-boundary` renders a `packages/ui` component, so its story stays
   beside it there. The remaining candidates need a story written first.
 - Remove dead in-file DB guards when touching those suites.

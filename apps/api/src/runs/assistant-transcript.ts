@@ -1,3 +1,4 @@
+import { supersededWindows, type SupersededWindow } from './superseded-output';
 /**
  * Assistant transcript building (#48/#49/#50, design D5/D6) — turns the live
  * stream of model/tool events into the exact `MessagePart[]` llame persists
@@ -67,6 +68,8 @@ export type ToolActivityPart = {
   toolCallId: string;
   state: 'output-available' | 'output-error';
   input: unknown;
+  /** Model-authored presentation only; absent from executor input and permissions. */
+  intent?: string;
   output?: unknown;
   errorText?: string;
   /** Provider-portable structured outcome: success or the ToolResult error type. */
@@ -450,6 +453,7 @@ export type ToolActivityPartInput = {
   readonly toolCallId: string;
   readonly toolName: string;
   readonly input: unknown;
+  readonly intent?: string;
   readonly result: ToolResult;
   /** The model step that produced this call (design D5). */
   readonly step?: number;
@@ -490,6 +494,8 @@ export function toolActivityPart(
   call: ToolActivityPartInput,
 ): ToolActivityPart {
   const part = toolPartBody(call);
+
+  if (call.intent !== undefined) part.intent = call.intent;
 
   if (call.step !== undefined) part.step = call.step;
 
@@ -578,6 +584,7 @@ function toolPartBody(call: ToolActivityPartInput): ToolActivityPart {
 type OpenToolCall = {
   readonly toolName: string;
   readonly toolInput: unknown;
+  readonly intent?: string;
   /** The model step the `tool.requested` event recorded (design D5). */
   readonly step?: number;
   readonly permission?: PermissionDecision;
@@ -595,6 +602,8 @@ class DurableAssistantReconstructor {
   readonly openToolCalls = new Map<string, OpenToolCall>();
   private readonly seenToolCallIds = new Set<string>();
   private readonly completedToolCallIds = new Set<string>();
+  private readonly superseded: Array<SupersededWindow>;
+  private supersededIndex = 0;
   /**
    * The event log records the SDK's own step number, which restarts at 0 in
    * every request, while the stored parts of a Continue Run continue after the
@@ -615,8 +624,9 @@ class DurableAssistantReconstructor {
     ToolClassification
   >();
 
-  constructor(stepOffset: number) {
+  constructor(stepOffset: number, events: ReadonlyArray<RunEvent>) {
     this.stepOffset = stepOffset;
+    this.superseded = supersededWindows(events);
   }
 
   /**
@@ -635,6 +645,23 @@ class DurableAssistantReconstructor {
 
   apply(events: Array<RunEvent>): void {
     for (const event of events) {
+      while (
+        this.supersededIndex < this.superseded.length &&
+        this.superseded[this.supersededIndex].to <= event.sequence
+      ) {
+        this.supersededIndex += 1;
+      }
+
+      const window = this.superseded[this.supersededIndex];
+
+      if (
+        (event.eventType === 'model.delta' ||
+          event.eventType === 'reasoning.delta') &&
+        window !== undefined &&
+        event.sequence >= window.from
+      )
+        continue;
+
       this.applyEvent(event);
     }
   }
@@ -731,6 +758,7 @@ class DurableAssistantReconstructor {
     this.openToolCalls.set(toolCallId, {
       toolName,
       toolInput,
+      intent: eventPayloadString(event.payload, 'intent'),
       step: this.stepFrom(event.payload),
       permission,
       providerMetadata: eventProviderMetadata(event.payload),
@@ -796,6 +824,7 @@ class DurableAssistantReconstructor {
         toolCallId,
         toolName: request.toolName,
         input: request.toolInput,
+        intent: request.intent,
         result,
         step: request.step,
         sdkRefusal: sdkRefusalFromPayload(event.payload),
@@ -825,7 +854,7 @@ export function reconstructDurableAssistant(
   events: Array<RunEvent>,
   stepOffset = 0,
 ) {
-  const reconstructor = new DurableAssistantReconstructor(stepOffset);
+  const reconstructor = new DurableAssistantReconstructor(stepOffset, events);
   reconstructor.apply(events);
 
   return {

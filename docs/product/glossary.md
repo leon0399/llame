@@ -110,8 +110,12 @@ _Avoid_: job, request, task
 
 **Run status**:
 Where a Run is in its life: active (`queued`, `running_model`), waiting
-(`awaiting_jobs`), or terminal (`completed`, `failed`, `cancelled`, `expired`).
+(`awaiting_jobs`, `awaiting_quota`), or terminal (`completed`, `failed`, `cancelled`, `expired`).
 A terminal status never changes.
+
+**Quota wait**:
+A Run's durable pause until an authoritative model usage-limit reset, during
+which no worker executes it and its Chat remains in single-flight.
 
 **Single-flight**:
 The rule that a Chat has at most one Run that is not terminal.
@@ -572,6 +576,16 @@ name.
 The protocol a model entry is called through, such as Responses, Chat
 Completions, or Anthropic Messages.
 _Avoid_: API, transport
+
+**Failure class**:
+The provider-neutral code of a failed model request, retained on a failed Run.
+It distinguishes usage limits, billing, temporary failures, and rejected requests.
+
+**Request retry**:
+A repeated send of a model request after a retryable failure, within the same
+Run attempt. A send is one provider call of that request. A request retry does
+not replay a completed tool call.
+_Avoid_: retry (when the model request is meant)
 
 **Effort**:
 The reasoning level a Run asks a model for, chosen from the levels that model

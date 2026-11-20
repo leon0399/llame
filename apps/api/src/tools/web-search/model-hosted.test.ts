@@ -1,8 +1,10 @@
-import { APICallError } from '@ai-sdk/provider';
+import type * as TimerPromises from 'node:timers/promises';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import { RetryError } from 'ai';
 import { isString } from '@workspace/runtime-safety';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { ProviderFailure } from '../../models/provider-failure/provider-failure';
+import { asDouble } from '../../testing/support';
 
 import {
   type WebSearchConfig,
@@ -38,6 +40,11 @@ import {
   HOSTED_SEARCH_INSTRUCTIONS,
   createModelHostedEngine,
 } from './model-hosted';
+
+vi.mock('node:timers/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof TimerPromises>()),
+  setTimeout: () => Promise.resolve(),
+}));
 
 type HostedConfig = Extract<
   WebSearchEngineConfig,
@@ -88,16 +95,6 @@ const failing =
   (error: Error): HostedStreamScript =>
   () =>
     Promise.reject(error);
-
-const apiError = (statusCode: number): APICallError =>
-  new APICallError({
-    message: 'upstream refused secret-token',
-    url: 'https://api.example.test/v1/responses',
-    requestBodyValues: { key: 'secret-token' },
-    statusCode,
-    responseBody: 'echoed secret-token',
-    isRetryable: false,
-  });
 
 function hostedEngine(wire: Wire, script: HostedStreamScript) {
   const inputs: Array<ModelStreamInput> = [];
@@ -450,65 +447,104 @@ describe('citations', () => {
 
 describe('provider failures', () => {
   it.each([
-    [401, 'auth'],
-    [403, 'auth'],
-    [429, 'rate_limited'],
-    [404, 'upstream_error'],
-    [500, 'upstream_error'],
+    ['quota_exhausted', 'rate_limited'],
+    ['rate_limited', 'rate_limited'],
+    ['billing', 'auth'],
+    ['auth', 'auth'],
+    ['unknown', 'upstream_error'],
   ] as const)(
-    'classifies provider status %i as %s',
-    async (status, failureClass) => {
-      const { engine } = hostedEngine(
-        'openai-responses',
-        failing(apiError(status)),
+    'maps typed provider class %s to %s',
+    async (code, failureClass) => {
+      const providerFailure = new ProviderFailure('secret provider details', {
+        code,
+      });
+
+      const { engine } = hostedEngine('openai-responses', () =>
+        Promise.resolve(
+          answerStream(
+            'A partial answer',
+            [cited('https://example.test/a')],
+            providerFailure,
+          ),
+        ),
       );
 
       await expect(engine(request())).rejects.toMatchObject({
         name: 'EngineFailure',
         failureClass,
+        message:
+          failureClass === 'auth'
+            ? 'The web search engine rejected authentication.'
+            : failureClass === 'rate_limited'
+              ? 'The web search engine rate limited the request.'
+              : 'The web search engine failed upstream.',
       });
     },
   );
 
-  it('reads the status through the SDK retry wrapper', async () => {
-    const retried = new RetryError({
-      message: 'Failed after 3 attempts',
-      reason: 'maxRetriesExceeded',
-      errors: [apiError(500), apiError(429)],
+  it('preserves a typed rejection from text when onError is absent', async () => {
+    const failure = new ProviderFailure('secret provider details', {
+      code: 'quota_exhausted',
     });
 
-    const { engine } = hostedEngine('openai-responses', failing(retried));
-
-    await expect(engine(request())).rejects.toMatchObject({
-      failureClass: 'rate_limited',
-    });
-  });
-
-  it.each([
-    ['a failure with no status', new Error('connection reset')],
-    [
-      'a retry wrapper around one',
-      new RetryError({
-        message: 'Failed after 3 attempts',
-        reason: 'maxRetriesExceeded',
-        errors: [new Error('connection reset')],
+    const createClient = vi.fn<(modelId: string) => ModelClient>(() =>
+      asDouble<ModelClient>({
+        model: 'hosted-test-model',
+        provider: 'hosted-test',
+        contextWindowTokens: 100_000,
+        streamText: () => ({
+          text: Promise.reject(failure),
+          sources: Promise.resolve([]),
+        }),
       }),
-    ],
-  ])('classifies %s as an upstream error', async (_name, error) => {
-    const { engine } = hostedEngine('anthropic-messages', failing(error));
+    );
 
-    await expect(engine(request())).rejects.toMatchObject({
-      failureClass: 'upstream_error',
-    });
+    const engine = createModelHostedEngine(hostedConfig('openai-responses'));
+
+    await expect(
+      engine(request({ modelClients: { createClient } })),
+    ).rejects.toMatchObject({ failureClass: 'rate_limited' });
   });
 
-  it('rejects an answer cut off by a failure after the stream started', async () => {
+  it('preserves a typed synchronous streamText throw without onError', async () => {
+    const failure = new ProviderFailure('secret provider details', {
+      code: 'billing',
+    });
+
+    const createClient = vi.fn<(modelId: string) => ModelClient>(() => ({
+      model: 'hosted-test-model',
+      provider: 'hosted-test',
+      contextWindowTokens: 100_000,
+      streamText: () => {
+        throw failure;
+      },
+    }));
+
+    const engine = createModelHostedEngine(hostedConfig('openai-responses'));
+
+    await expect(
+      engine(request({ modelClients: { createClient } })),
+    ).rejects.toMatchObject({ failureClass: 'auth' });
+  });
+
+  it.each([['a failure with no status', new Error('connection reset')]])(
+    'classifies %s as an upstream error',
+    async (_name, error) => {
+      const { engine } = hostedEngine('anthropic-messages', failing(error));
+
+      await expect(engine(request())).rejects.toMatchObject({
+        failureClass: 'upstream_error',
+      });
+    },
+  );
+
+  it('rejects an answer cut off by a typed failure after the stream started', async () => {
     const { engine } = hostedEngine('openai-responses', () =>
       Promise.resolve(
         answerStream(
           'A partial answer',
           [cited('https://example.test/a')],
-          apiError(429),
+          new ProviderFailure('private', { code: 'rate_limited' }),
         ),
       ),
     );
@@ -523,7 +559,12 @@ describe('provider failures', () => {
       .spyOn(console, 'error')
       .mockImplementation(() => {});
 
-    const { engine } = hostedEngine('openai-responses', failing(apiError(401)));
+    const { engine } = hostedEngine(
+      'openai-responses',
+      failing(
+        new ProviderFailure('secret-token and response body', { code: 'auth' }),
+      ),
+    );
 
     const failure = await engine(request()).catch((error: unknown) => error);
 
@@ -599,7 +640,6 @@ describe('provider failures through the real clients', () => {
 
       expect(failure).toMatchObject({ failureClass });
       expect(JSON.stringify(failure)).not.toContain(secret);
-      expect(harness.requests).toHaveLength(1);
     },
   );
 

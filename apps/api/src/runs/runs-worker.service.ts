@@ -44,9 +44,10 @@ import {
   type RunJob,
 } from './run-queues';
 import { RunsRepository, RunEventsRepository } from './runs-repository';
-import { isTerminalRunStatus } from './run-status';
+import { isTerminalRunStatus, isWaitingRunStatus } from './run-status';
 import { RunWaitService } from './run-wait.service';
 import { retryRunTransaction } from './run-transaction';
+import { quotaWaitElapsedMs } from './quota-budget';
 import {
   CanonicalSearchCoverageService,
   type CanonicalSearchCoverageGate,
@@ -223,7 +224,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
           return { skip: true as const, settleCancellation: false as const };
         }
 
-        if (run.status === 'awaiting_jobs') {
+        if (isWaitingRunStatus(run.status)) {
           const wake = job.wake;
 
           if (!wake)
@@ -261,10 +262,23 @@ export class RunsWorkerService implements OnApplicationBootstrap {
                 'run.started',
               );
 
+        const budgetEvents =
+          budgetSeconds === null || !started || run.wakeGeneration === 0
+            ? []
+            : await new RunEventsRepository(tx).listByRunId(
+                job.runId,
+                job.userId,
+                {
+                  eventTypes: ['run.suspended', 'run.resumed'],
+                },
+              );
+
         const budgetDeadlineMs =
           budgetSeconds === null || !started
             ? null
-            : started.createdAt.getTime() + budgetSeconds * 1000;
+            : started.createdAt.getTime() +
+              budgetSeconds * 1000 +
+              quotaWaitElapsedMs(budgetEvents);
 
         if (budgetDeadlineMs !== null && budgetDeadlineMs <= Date.now()) {
           return {
@@ -506,7 +520,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
       persisted &&
       jobStillCurrent &&
       !isTerminalRunStatus(persisted.status) &&
-      persisted.status !== 'awaiting_jobs'
+      !isWaitingRunStatus(persisted.status)
     ) {
       throw new Error(
         `Run ${job.runId} stream drained without a durable terminal or suspension state.`,

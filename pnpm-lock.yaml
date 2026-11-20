@@ -164,6 +164,9 @@ settings:
 
 catalogs:
   default:
+    '@ag-ui/core':
+      specifier: 1.0.4
+      version: 1.0.4
     '@ai-sdk/mcp':
       specifier: 1.0.71
       version: 1.0.71
@@ -385,7 +388,7 @@ importers:
         version: 1.82.0(oxlint-tsgolint@7.0.2001)
       shadcn:
         specifier: 'catalog:'
-        version: 4.22.0(supports-color@8.1.1)
+        version: 4.22.0(@cfworker/json-schema@4.1.6)(supports-color@8.1.1)
       ts-complex:
         specifier: 1.0.0
         version: 1.0.0
@@ -407,6 +410,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@ag-ui/core':
+        specifier: 'catalog:'
+        version: 1.0.4(zod@4.6.6)
       '@ai-sdk/anthropic':
         specifier: 3.0.118
         version: 3.0.118(zod@4.6.6)
@@ -656,7 +662,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
-        version: 1.32.0(supports-color@8.1.1)(zod@4.6.6)
+        version: 1.32.0(@cfworker/json-schema@4.1.6)(supports-color@8.1.1)(zod@4.6.6)
       '@sentry/node':
         specifier: ~11.7.0
         version: 11.7.0(@babel/core@7.29.7(supports-color@8.1.1))(rollup@4.62.2)(webpack@5.106.2(@swc/core@1.13.2(@swc/helpers@0.5.23))(esbuild@0.25.12)(lightningcss@1.32.0)(postcss@8.5.26)(uglify-js@3.19.3))
@@ -827,9 +833,9 @@ importers:
 
   apps/web:
     dependencies:
-      '@ai-sdk/react':
-        specifier: 3.0.259
-        version: 3.0.259(react@19.2.7)(zod@4.6.6)
+      '@ag-ui/core':
+        specifier: 'catalog:'
+        version: 1.0.4(zod@4.6.6)
       '@hookform/resolvers':
         specifier: 'catalog:'
         version: 5.1.1(react-hook-form@7.59.0(react@19.2.7))
@@ -851,6 +857,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      eventsource-parser:
+        specifier: 3.1.0
+        version: 3.1.0
       framer-motion:
         specifier: ^12.23.6
         version: 12.23.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -1083,7 +1092,7 @@ importers:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
-        version: 1.32.0(supports-color@8.1.1)(zod@4.6.6)
+        version: 1.32.0(@cfworker/json-schema@4.1.6)(supports-color@8.1.1)(zod@4.6.6)
       '@workspace/config-interpolation':
         specifier: workspace:*
         version: link:../config-interpolation
@@ -1230,9 +1239,6 @@ importers:
       '@hookform/resolvers':
         specifier: 'catalog:'
         version: 5.1.1(react-hook-form@7.59.0(react@19.2.7))
-      '@radix-ui/react-use-controllable-state':
-        specifier: 'catalog:'
-        version: 1.2.3(@types/react@19.0.10)(react@19.2.7)
       '@streamdown/code':
         specifier: 1.1.1
         version: 1.1.1(react@19.2.7)
@@ -1298,7 +1304,7 @@ importers:
         version: 4.0.1(supports-color@8.1.1)
       shadcn:
         specifier: 'catalog:'
-        version: 4.22.0(supports-color@8.1.1)
+        version: 4.22.0(@cfworker/json-schema@4.1.6)(supports-color@8.1.1)
       shiki:
         specifier: 'catalog:'
         version: 3.23.0
@@ -1381,6 +1387,14 @@ packages:
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
 
+  '@ag-ui/core@1.0.4':
+    resolution: {integrity: sha512-Z/G3UXYRyZ/1LcOtCCf6RJiFPTjRqaNublW/kQ7wsfiP4Qw5oIVmvO6NkUQYoqCoMXuXggyD3MMH2Td5OVKECQ==}
+    peerDependencies:
+      zod: ^3.25.18 || ^4.0.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
+
   '@ai-sdk/anthropic@3.0.118':
     resolution: {integrity: sha512-5j8Cc9owORxhhZxFtpznXPTdLxeWm6bPCVbndM0e+NdvGVxe9GDgNqQq1V0KqOV54hZ6hyQVEXHkgTRPyXzcQg==}
     engines: {node: '>=18'}
@@ -1436,12 +1450,6 @@ packages:
   '@ai-sdk/provider@3.0.16':
     resolution: {integrity: sha512-9Av6kg0t/IN/dcYAAmEJ4B9OPhcEJqwSR+GfHEA8olRkindXpUHadc3p3cyvgFUQFTVm1G5thtsmgZ9yVb2w3A==}
     engines: {node: '>=18'}
-
-  '@ai-sdk/react@3.0.259':
-    resolution: {integrity: sha512-1QwJaCfDQ3OOe1z5kEblydqpnsIimbxRCjeIy7FluvPkSMlt6x8qLmP07NYWiCV6Q2hck45ixESZs0Xn/i9NDg==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      react: ^18 || ~19.0.1 || ~19.1.2 || ^19.2.1
 
   '@alloc/quick-lru@5.2.0':
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
@@ -1724,6 +1732,9 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@cfworker/json-schema@4.1.6':
+    resolution: {integrity: sha512-YzVGTHXf4bzlyAL5KAvHYCdNbbt6zM5cYkAgxqxQPDQM6aZ4ShIIN5yJ+6q7YeonnevxT8k/LmD2tJi/jOiKkg==}
 
   '@chevrotain/types@11.1.2':
     resolution: {integrity: sha512-U+HFai5+zmJCkK86QsaJtoITlboZHBqrVketcO2ROv865xfCMSFpELQoz1GkX5GzME8pTa+3kbKrZHQtI0gdbw==}
@@ -10337,11 +10348,6 @@ packages:
   swagger-ui-dist@5.32.8:
     resolution: {integrity: sha512-dgMdWXIgnI4zX4OPhKEdWnlDODbgm8W3AX0Ivn/BBqcUh6xZsBxhZMnvk6DJyRz1BTrj8dPxtarmEGgkz30oyA==}
 
-  swr@2.3.4:
-    resolution: {integrity: sha512-bYd2lrhc+VarcpkgWclcUi92wYCpOgMws9Sd1hG1ntAu0NEy+14CbotuFjshBU2kt9rYj9TSmDcybpxpeTU1fg==}
-    peerDependencies:
-      react: ^16.11.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
   symbol-observable@4.0.0:
     resolution: {integrity: sha512-b19dMThMV4HVFynSAM1++gBHAbk2Tc/osgLIBZMKsyqh34jb2e8Os7T6ZW/Bt3pJFdBTd2JwAnAAEQV7rSNvcQ==}
     engines: {node: '>=0.10'}
@@ -10442,10 +10448,6 @@ packages:
   thread-stream@4.2.0:
     resolution: {integrity: sha512-e2zZ96wSChazBsbENf/Pcm/4swHt2cEKQ92rhUjkL9GCKiTDJIaTBenjE/m9DXi0QBmTMDkFDdOomUy20A1tDQ==}
     engines: {node: '>=20'}
-
-  throttleit@2.1.0:
-    resolution: {integrity: sha512-nt6AMGKW1p/70DF/hGBdJB57B8Tspmbp5gfJ8ilhLnt7kkr2ye7hzD6NVG8GGErk2HWF34igrL2CXmNIkzKqKw==}
-    engines: {node: '>=18'}
 
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
@@ -11231,6 +11233,10 @@ snapshots:
 
   '@adobe/css-tools@4.5.0': {}
 
+  '@ag-ui/core@1.0.4(zod@4.6.6)':
+    optionalDependencies:
+      zod: 4.6.6
+
   '@ai-sdk/anthropic@3.0.118(zod@4.6.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.16
@@ -11292,16 +11298,6 @@ snapshots:
   '@ai-sdk/provider@3.0.16':
     dependencies:
       json-schema: 0.4.0
-
-  '@ai-sdk/react@3.0.259(react@19.2.7)(zod@4.6.6)':
-    dependencies:
-      '@ai-sdk/provider-utils': 4.0.46(zod@4.6.6)
-      ai: 6.0.256(zod@4.6.6)
-      react: 19.2.7
-      swr: 2.3.4(react@19.2.7)
-      throttleit: 2.1.0
-    transitivePeerDependencies:
-      - zod
 
   '@alloc/quick-lru@5.2.0': {}
 
@@ -11696,6 +11692,9 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+
+  '@cfworker/json-schema@4.1.6':
+    optional: true
 
   '@chevrotain/types@11.1.2': {}
 
@@ -12644,7 +12643,7 @@ snapshots:
 
   '@mixmark-io/domino@2.2.0': {}
 
-  '@modelcontextprotocol/sdk@1.32.0(supports-color@8.1.1)(zod@4.6.6)':
+  '@modelcontextprotocol/sdk@1.32.0(@cfworker/json-schema@4.1.6)(supports-color@8.1.1)(zod@4.6.6)':
     dependencies:
       '@hono/node-server': 2.1.5(hono@4.13.13)
       ajv: 8.20.0
@@ -12663,6 +12662,8 @@ snapshots:
       raw-body: 3.0.2
       zod: 4.6.6
       zod-to-json-schema: 3.25.2(zod@4.6.6)
+    optionalDependencies:
+      '@cfworker/json-schema': 4.1.6
     transitivePeerDependencies:
       - supports-color
 
@@ -20240,14 +20241,14 @@ snapshots:
 
   setprototypeof@1.2.0: {}
 
-  shadcn@4.22.0(supports-color@8.1.1):
+  shadcn@4.22.0(@cfworker/json-schema@4.1.6)(supports-color@8.1.1):
     dependencies:
       '@babel/core': 7.29.7(supports-color@8.1.1)
       '@babel/parser': 7.29.7
       '@babel/plugin-transform-typescript': 7.29.7(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)
       '@babel/preset-typescript': 7.29.7(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1)
       '@dotenvx/dotenvx': 1.75.1
-      '@modelcontextprotocol/sdk': 1.32.0(supports-color@8.1.1)(zod@4.6.6)
+      '@modelcontextprotocol/sdk': 1.32.0(@cfworker/json-schema@4.1.6)(supports-color@8.1.1)(zod@4.6.6)
       '@shadcn/registry': 0.2.0(supports-color@8.1.1)
       '@types/validate-npm-package-name': 4.0.2
       browserslist: 4.29.3
@@ -20686,12 +20687,6 @@ snapshots:
     dependencies:
       '@scarf/scarf': 1.4.0
 
-  swr@2.3.4(react@19.2.7):
-    dependencies:
-      dequal: 2.0.3
-      react: 19.2.7
-      use-sync-external-store: 1.6.0(react@19.2.7)
-
   symbol-observable@4.0.0: {}
 
   symbol-tree@3.2.4: {}
@@ -20817,8 +20812,6 @@ snapshots:
   thread-stream@4.2.0:
     dependencies:
       real-require: 1.0.0
-
-  throttleit@2.1.0: {}
 
   through@2.3.8: {}
 

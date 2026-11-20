@@ -148,7 +148,7 @@ function SearchMetadata({
   notes: ReadonlyArray<string> | undefined;
 }) {
   return (
-    <div className="border-border border-t px-4 py-3 text-muted-foreground text-xs">
+    <div className="border-border border-t pt-3 text-muted-foreground text-xs">
       <p>
         <span className="font-medium">Engine:</span> {engine}
       </p>
@@ -239,7 +239,7 @@ function AttachedAnswers({
 }) {
   return answers.map((entry, index) => (
     <section
-      className="space-y-2 border-border border-t px-4 pt-4"
+      className="space-y-2 border-border border-t pt-3"
       key={`${entry.engine}-${index}`}
     >
       <p className="text-muted-foreground text-xs">
@@ -250,7 +250,7 @@ function AttachedAnswers({
       </div>
       <CitationList
         citations={entry.citations}
-        className="px-4"
+        className="pl-5"
         Markdown={Markdown}
       />
     </section>
@@ -269,16 +269,14 @@ function ResultsBody({
   return (
     <div className="space-y-4">
       {record ? (
-        <div className="px-4 pt-4">
+        <div>
           <ToolRankBadge record={record} />
         </div>
       ) : null}
       {output.results.length === 0 ? (
-        <p className="px-4 pt-4 text-muted-foreground text-sm">
-          No results found.
-        </p>
+        <p className="text-muted-foreground text-sm">No results found.</p>
       ) : (
-        <ol className="list-decimal space-y-4 px-8 pt-4">
+        <ol className="list-decimal space-y-4 pl-5">
           {output.results.map((result, index) => (
             <ResultItem
               key={`${result.url}-${index}`}
@@ -306,12 +304,12 @@ function AnswerBody({
 }) {
   return (
     <div className="space-y-4">
-      <div className="px-4 pt-4">
+      <div>
         <Markdown>{output.answer}</Markdown>
       </div>
       <CitationList
         citations={output.citations}
-        className="px-8"
+        className="pl-5"
         Markdown={Markdown}
       />
       <SearchMetadata engine={output.engine} notes={output.notes} />

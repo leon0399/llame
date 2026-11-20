@@ -224,8 +224,15 @@ const meta = {
   beforeEach: () => {
     useActiveRuns.mockReturnValue({
       ...emptyActiveRuns(),
-      activeChatIds: new Set(["chat-processing", "chat-awaiting"]),
-      runStatusByChatId: new Map([["chat-awaiting", "awaiting_jobs" as const]]),
+      activeChatIds: new Set([
+        "chat-processing",
+        "chat-awaiting",
+        "chat-quota",
+      ]),
+      runStatusByChatId: new Map([
+        ["chat-awaiting", "awaiting_jobs" as const],
+        ["chat-quota", "awaiting_quota" as const],
+      ]),
       unseenRunOutcomes: new Map([
         ["chat-unread", "completed"],
         ["chat-failed", "failed"],
@@ -338,6 +345,16 @@ export const Processing: Story = {
  */
 export const AwaitingJobs: Story = {
   args: { chat: { ...baseChat, id: "chat-awaiting" } },
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByLabelText("Background work")).toBeInTheDocument();
+    await expect(canvas.queryByLabelText("Generating response")).toBeNull();
+  },
+};
+
+export const AwaitingQuota: Story = {
+  args: { chat: { ...baseChat, id: "chat-quota" } },
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

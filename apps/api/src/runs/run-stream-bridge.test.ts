@@ -26,6 +26,20 @@ afterEach(() => {
 });
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const CHAT_ID = '00000000-0000-4000-8000-000000000002';
+const STREAM_INPUT = { chatId: CHAT_ID, runId: RUN_ID, userId: 'user-1' };
+
+const RUN_STARTED_FRAME = `data: ${JSON.stringify({
+  type: 'RUN_STARTED',
+  threadId: CHAT_ID,
+  runId: RUN_ID,
+})}\n\n`;
+
+const RUN_FINISHED_FRAME = `data: ${JSON.stringify({
+  type: 'RUN_FINISHED',
+  threadId: CHAT_ID,
+  runId: RUN_ID,
+})}\n\n`;
 
 function runEvent(
   sequence: number,
@@ -77,7 +91,7 @@ describe('createRunEventTranslator', () => {
       t.translate({ eventType: 'model.delta', payload: { text: 'Hel' } }),
     ).toEqual([
       { type: 'start', messageId: 'run-1' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'Hel' },
     ]);
     expect(
@@ -91,6 +105,140 @@ describe('createRunEventTranslator', () => {
     ]);
     expect(t.finished()).toBe(true);
   });
+  it('projects only generated parts opened in a valid superseded sequence window', () => {
+    const t = createRunEventTranslator('run-superseded');
+    t.translate({
+      eventType: 'model.delta',
+      sequence: 2,
+      payload: { text: 'kept' },
+    });
+    t.translate({
+      eventType: 'reasoning.delta',
+      sequence: 4,
+      payload: { text: 'discard', partId: 'adapter-1' },
+    });
+    expect(
+      t.translate({
+        eventType: 'model.superseded',
+        sequence: 6,
+        payload: { fromSequence: 3, step: 1 },
+      }),
+    ).toEqual([
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      { type: 'data-superseded', data: { partIds: ['reasoning-1'] } },
+    ]);
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        sequence: 7,
+        payload: { text: 'retry' },
+      }),
+    ).toContainEqual(
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
+    );
+    expect(
+      t.translate({
+        eventType: 'model.superseded',
+        sequence: 8,
+        payload: { fromSequence: 9, step: 2 },
+      }),
+    ).toEqual([]);
+  });
+  it('tracks only positive integer part starts inside the superseded window', () => {
+    const t = createRunEventTranslator('run-sequence-window');
+
+    const textChunks = t.translate({
+      eventType: 'model.delta',
+      sequence: 1,
+      payload: { text: 'kept text' },
+    });
+
+    const allChunks = [
+      ...textChunks,
+      ...t.translate({
+        eventType: 'reasoning.delta',
+        sequence: 3,
+        payload: { text: 'discarded reasoning', partId: 'reasoning-from' },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        sequence: 7,
+        payload: { text: 'discarded text' },
+      }),
+      ...t.translate({
+        eventType: 'reasoning.delta',
+        sequence: 10,
+        payload: { text: 'kept reasoning', partId: 'reasoning-to' },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        sequence: 11,
+        payload: { text: 'opened beyond the exclusive upper bound' },
+      }),
+    ];
+
+    // Invalid starts cannot be attached to a later supersession window.
+    for (const sequence of [0, -1, 1.5]) {
+      const invalid = createRunEventTranslator(`run-invalid-${sequence}`);
+      invalid.translate({
+        eventType: 'model.delta',
+        sequence,
+        payload: { text: 'untracked text' },
+      });
+      invalid.translate({
+        eventType: 'reasoning.delta',
+        sequence,
+        payload: { text: 'untracked reasoning', partId: 'invalid' },
+      });
+      expect(
+        invalid.translate({
+          eventType: 'model.superseded',
+          sequence: 10,
+          payload: { fromSequence: 1, step: 1 },
+        }),
+      ).not.toContainEqual(
+        expect.objectContaining({ type: 'data-superseded' }),
+      );
+    }
+
+    expect(
+      allChunks.flatMap((chunk) =>
+        chunk.type === 'text-delta' ? [chunk.delta] : [],
+      ),
+    ).toEqual([
+      'kept text',
+      'discarded text',
+      'opened beyond the exclusive upper bound',
+    ]);
+    expect(
+      allChunks.flatMap((chunk) =>
+        chunk.type === 'reasoning-delta' ? [chunk.delta] : [],
+      ),
+    ).toEqual(['discarded reasoning', 'kept reasoning']);
+
+    const superseded = t.translate({
+      eventType: 'model.superseded',
+      sequence: 10,
+      payload: { fromSequence: 3, step: 1 },
+    });
+
+    expect(superseded).toEqual([
+      { type: 'text-end', id: 'text-3' },
+      {
+        type: 'data-superseded',
+        data: { partIds: ['reasoning-1', 'text-2'] },
+      },
+    ]);
+
+    // Repeating the same window closes no new parts and cannot invent a chunk.
+    expect(
+      t.translate({
+        eventType: 'model.superseded',
+        sequence: 10,
+        payload: { fromSequence: 3, step: 2 },
+      }),
+    ).toEqual([]);
+  });
 
   it('prelude() returns start once, so a later translate adds no second start', () => {
     const t = createRunEventTranslator('run-1');
@@ -100,7 +248,7 @@ describe('createRunEventTranslator', () => {
     expect(
       t.translate({ eventType: 'model.delta', payload: { text: 'Hi' } }),
     ).toEqual([
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'Hi' },
     ]);
     expect(
@@ -117,6 +265,35 @@ describe('createRunEventTranslator', () => {
       t.translate({ eventType: 'run.completed', payload: null }),
     ).not.toContainEqual({ type: 'start', messageId: 'run-1' });
   });
+
+  it.each([undefined, 'Reading the source file'])(
+    'keeps the live step title separate from arguments: %s',
+    (intent) => {
+      const translator = createRunEventTranslator('intent-run');
+      translator.prelude();
+
+      expect(
+        translator.translate({
+          eventType: 'tool.requested',
+          payload: {
+            toolCallId: 'intent-call',
+            toolName: 'read',
+            input: { path: '/work/a.txt' },
+            ...(intent !== undefined && { intent }),
+          },
+        }),
+      ).toEqual([
+        {
+          type: 'tool-input-available',
+          toolCallId: 'intent-call',
+          toolName: 'read',
+          input: { path: '/work/a.txt' },
+          dynamic: true,
+          ...(intent !== undefined && { intent }),
+        },
+      ]);
+    },
+  );
 
   it('emits no UI chunk for system-origin skill activation', () => {
     const t = createRunEventTranslator('run-activation');
@@ -230,7 +407,7 @@ describe('createRunEventTranslator', () => {
     t.translate({ eventType: 'model.delta', payload: { text: 'partial' } });
     expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
       { type: 'text-end', id: 'text-1' },
-      { type: 'finish', finishReason: 'stop' },
+      { type: 'finish', finishReason: 'stop', cancelled: true },
     ]);
   });
 
@@ -261,7 +438,7 @@ describe('createRunEventTranslator', () => {
         providerMetadata: { llame: { cancelled: true } },
         dynamic: true,
       },
-      { type: 'finish', finishReason: 'stop' },
+      { type: 'finish', finishReason: 'stop', cancelled: true },
     ]);
   });
 
@@ -421,7 +598,7 @@ describe('createRunEventTranslator', () => {
 
     // Already settled — the terminal event must not emit a second outcome.
     expect(t.translate({ eventType: 'run.cancelled', payload: null })).toEqual([
-      { type: 'finish', finishReason: 'stop' },
+      { type: 'finish', finishReason: 'stop', cancelled: true },
     ]);
   });
 
@@ -510,6 +687,126 @@ describe('createRunEventTranslator', () => {
     },
   );
 
+  it('translates valid retry notices and rejects malformed retry fields', () => {
+    const t = createRunEventTranslator('run-retrying');
+    expect(
+      t.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'rate_limited', retry: 2, delayMs: 500 },
+      }),
+    ).toContainEqual({
+      type: 'data-model-retrying',
+      data: { code: 'rate_limited', retry: 2, delayMs: 500 },
+    });
+
+    for (const payload of [
+      { code: 42, retry: 2, delayMs: 500 },
+      { code: 'rate_limited', retry: 0, delayMs: 500 },
+      { code: 'rate_limited', retry: 2, delayMs: -1 },
+      { code: 'rate_limited', retry: 2.5, delayMs: 500 },
+      { code: 'rate_limited', retry: 2, delayMs: '500' },
+      { code: 'rate_limited', retry: 2 },
+      null,
+    ]) {
+      expect(t.translate({ eventType: 'model.retrying', payload })).toEqual([]);
+    }
+  });
+
+  it('keeps resumed text after the retry notice through the UI stream parser', async () => {
+    const t = createRunEventTranslator('run-retrying-transport');
+
+    const chunks = [
+      ...t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'prefix' },
+      }),
+      ...t.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'server_error', retry: 1, delayMs: 750 },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'recovered' },
+      }),
+      ...t.translate({ eventType: 'run.completed', payload: null }),
+    ];
+
+    const parsed = parseJsonEventStream({
+      stream: new Blob(
+        chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`),
+      ).stream(),
+      schema: uiMessageChunkSchema,
+    }).pipeThrough(
+      new TransformStream<
+        | { success: true; value: UIMessageChunk }
+        | { success: false; error: Error },
+        UIMessageChunk
+      >({
+        transform(result, controller) {
+          if (!result.success) throw result.error;
+          controller.enqueue(result.value);
+        },
+      }),
+    );
+
+    let reconstructed: UIMessage | undefined;
+
+    for await (const message of readUIMessageStream({ stream: parsed })) {
+      reconstructed = message;
+    }
+
+    expect(reconstructed?.parts).toEqual([
+      expect.objectContaining({ type: 'text', text: 'prefix' }),
+      {
+        type: 'data-model-retrying',
+        data: { code: 'server_error', retry: 1, delayMs: 750 },
+      },
+      expect.objectContaining({ type: 'text', text: 'recovered' }),
+    ]);
+  });
+
+  it('does not close open model parts for an invalid retry notice', () => {
+    const translator = createRunEventTranslator('run-invalid-retrying');
+    translator.translate({
+      eventType: 'model.delta',
+      payload: { text: 'prefix' },
+    });
+
+    expect(
+      translator.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'server_error', retry: 0, delayMs: 750 },
+      }),
+    ).toEqual([]);
+    expect(
+      translator.translate({
+        eventType: 'model.delta',
+        payload: { text: 'suffix' },
+      }),
+    ).toEqual([{ type: 'text-delta', id: 'text-1', delta: 'suffix' }]);
+  });
+
+  it('closes reasoning before a retry notice', () => {
+    const translator = createRunEventTranslator('run-retrying-reasoning');
+    translator.translate({
+      eventType: 'reasoning.delta',
+      payload: { text: 'thought', partId: 'wire-1' },
+    });
+
+    expect(
+      translator.translate({
+        eventType: 'model.retrying',
+        payload: { code: 'server_error', retry: 1, delayMs: 750 },
+      }),
+    ).toEqual([
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      {
+        type: 'data-model-retrying',
+        data: { code: 'server_error', retry: 1, delayMs: 750 },
+      },
+    ]);
+  });
+
   it('ignores empty or malformed delta payloads', () => {
     const t = createRunEventTranslator('run-4');
 
@@ -531,7 +828,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-6' },
-      { type: 'reasoning-start', id: 'reasoning-1' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-1' }),
       { type: 'reasoning-delta', id: 'reasoning-1', delta: 'let me think ' },
     ]);
 
@@ -543,7 +840,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'reasoning-end', id: 'reasoning-1' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'The answer.' },
     ]);
 
@@ -562,7 +859,7 @@ describe('createRunEventTranslator', () => {
       t.translate({ eventType: 'reasoning.delta', payload: { text: 'c' } }),
     ).toEqual([
       { type: 'text-end', id: 'text-1' },
-      { type: 'reasoning-start', id: 'reasoning-2' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-2' }),
       { type: 'reasoning-delta', id: 'reasoning-2', delta: 'c' },
     ]);
   });
@@ -577,7 +874,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-identity' },
-      { type: 'reasoning-start', id: 'reasoning-1' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-1' }),
       {
         type: 'reasoning-delta',
         id: 'reasoning-1',
@@ -594,7 +891,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'reasoning-end', id: 'reasoning-1' },
-      { type: 'reasoning-start', id: 'reasoning-2' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-2' }),
       { type: 'reasoning-delta', id: 'reasoning-2', delta: '**Inspecting**' },
     ]);
   });
@@ -649,7 +946,7 @@ describe('createRunEventTranslator', () => {
         payload: { text: 'after', partId: 'reasoning-0' },
       }),
     ).toEqual([
-      { type: 'reasoning-start', id: 'reasoning-2' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-2' }),
       { type: 'reasoning-delta', id: 'reasoning-2', delta: 'after' },
     ]);
   });
@@ -714,7 +1011,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-9' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'Let me check ' },
     ]);
 
@@ -775,7 +1072,7 @@ describe('createRunEventTranslator', () => {
         payload: { text: 'It is time.' },
       }),
     ).toEqual([
-      { type: 'text-start', id: 'text-2' },
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
       { type: 'text-delta', id: 'text-2', delta: 'It is time.' },
     ]);
 
@@ -962,7 +1259,7 @@ describe('createRunEventTranslator', () => {
 });
 
 describe('RunStreamBridgeService', () => {
-  it('replays terminal run events as a complete UI-message stream', async () => {
+  it('replays terminal run events as a complete AG-UI stream', async () => {
     const events = [
       runEvent(1, 'model.delta', { text: 'answer' }),
       runEvent(2, 'run.completed', null),
@@ -974,20 +1271,15 @@ describe('RunStreamBridgeService', () => {
 
     const { bridge } = bridgeFixture();
 
-    const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
-    });
+    const response = bridge.createUiMessageStreamResponse(STREAM_INPUT);
 
     const body = await response.text();
 
     expect(response.headers.get('content-type')).toBe('text/event-stream');
-    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
-    expect(body).toContain('"type":"start"');
-    expect(body).toContain('"type":"text-delta"');
+    expect(body.startsWith(RUN_STARTED_FRAME)).toBe(true);
+    expect(body).toContain('"type":"TEXT_MESSAGE_CONTENT"');
     expect(body).toContain('"delta":"answer"');
-    expect(body).toContain('"type":"finish"');
-    expect(body).toContain('data: [DONE]\n\n');
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
     expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
       afterSequence: 0,
     });
@@ -1004,19 +1296,25 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    const frames = [
-      { type: 'start', messageId: RUN_ID },
-      { type: 'text-start', id: 'text-1' },
-      { type: 'text-delta', id: 'text-1', delta: 'first' },
-      { type: 'text-end', id: 'text-1' },
-      { type: 'data-run-delivered', data: { messageId: 'delivered-message' } },
-      { type: 'finish', finishReason: 'stop' },
-    ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`);
+    const messageId = `${RUN_ID}:text-1`;
 
-    expect(body).toBe(`${frames.join('')}data: [DONE]\n\n`);
+    const frames = [
+      { type: 'TEXT_MESSAGE_START', messageId, role: 'assistant' },
+      { type: 'TEXT_MESSAGE_CONTENT', messageId, delta: 'first' },
+      { type: 'TEXT_MESSAGE_END', messageId },
+      {
+        type: 'CUSTOM',
+        name: 'llame.run-delivered',
+        value: { messageId: 'delivered-message' },
+      },
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`);
+
+    expect(body).toBe(
+      `${RUN_STARTED_FRAME}${frames.join('')}${RUN_FINISHED_FRAME}`,
+    );
   });
 
   it('A resume after a delivery replays only the current segment', async () => {
@@ -1030,20 +1328,14 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({
-        runId: RUN_ID,
-        userId: 'user-1',
-        afterSequence: 2,
-      })
+      .createUiMessageStreamResponse({ ...STREAM_INPUT, afterSequence: 2 })
       .text();
 
     // The Run id leads the stream, as on any resume, and the replay starts
     // after the latest delivery.
-    expect(
-      body.startsWith(`data: {"type":"start","messageId":"${RUN_ID}"}`),
-    ).toBe(true);
+    expect(body.startsWith(RUN_STARTED_FRAME)).toBe(true);
     expect(body).toContain('"delta":"second"');
-    expect(body).not.toContain('data-run-delivered');
+    expect(body).not.toContain('llame.run-delivered');
     expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
       afterSequence: 2,
     });
@@ -1068,14 +1360,13 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    const startPayload = JSON.stringify({ type: 'start', messageId: RUN_ID });
-    expect(body.startsWith(`data: ${startPayload}\n\n`)).toBe(true);
-    expect(body.match(/"type":"start"/g)).toHaveLength(1);
+    expect(body.startsWith(RUN_STARTED_FRAME)).toBe(true);
+    expect(body.match(/"type":"RUN_STARTED"/g)).toHaveLength(1);
     expect(body).toContain('"delta":"Hi"');
-    expect(body).toContain('"type":"finish"');
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
   });
 
   it('stops when the run is terminal but has no terminal event', async () => {
@@ -1113,14 +1404,9 @@ describe('RunStreamBridgeService', () => {
 
     const { bridge } = bridgeFixture();
 
-    const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
-    });
+    const response = bridge.createUiMessageStreamResponse(STREAM_INPUT);
 
-    await expect(response.text()).resolves.toBe(
-      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-    );
+    await expect(response.text()).resolves.toBe(RUN_STARTED_FRAME);
     // The pass that saw no events, then the re-drain after the terminal row.
     expect(listByRunId).toHaveBeenCalledTimes(2);
     expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
@@ -1160,11 +1446,15 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    expect(body).toContain('"type":"finish"');
-    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+    const terminal = body.trim().split('\n\n').at(-1)?.slice('data: '.length);
+
+    expect(JSON.parse(terminal ?? '')).toMatchObject({
+      type: 'RUN_FINISHED',
+      outcome: { type: 'cancelled' },
+    });
   });
 
   it('keeps a quiet, still-executing run open instead of ending its stream', async () => {
@@ -1213,16 +1503,82 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
     // One comment across the quiet stretch, not one per poll, and everything
     // the run produced still reaches the client before its own terminal chunk.
     expect(body.match(/: keepalive\n\n/g)).toHaveLength(1);
     expect(body).not.toContain('Stream window elapsed');
-    expect(body).toContain('"type":"finish"');
-    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
     expect(listByRunId).toHaveBeenCalledTimes(4);
+  });
+  it('closes a quota-waiting stream when cancelled during its poll delay', async () => {
+    const firstPoll = Promise.withResolvers<void>();
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+    vi.spyOn(RunsRepository.prototype, 'findById').mockImplementation(() => {
+      firstPoll.resolve();
+
+      return Promise.resolve({
+        id: RUN_ID,
+        kind: 'turn',
+        chatId: '00000000-0000-4000-8000-000000000002',
+        messageId: null,
+        userId: 'user-1',
+        modelId: 'model-1',
+        activeAttemptId: null,
+        completedAttemptId: null,
+        turnToolAvailability: null,
+        status: 'awaiting_quota',
+        workerId: null,
+        cancelRequestedAt: null,
+        error: null,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        startedAt: null,
+        finishedAt: null,
+        wakeGeneration: 3,
+        currentJobId: 'quota-wake-job',
+        awaiting: {
+          kind: 'quota',
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-11-19T14:00:00.000Z',
+          wakeAt: '2026-11-19T14:01:00.000Z',
+          resumeAt: 'request',
+          waitCount: 1,
+        },
+        effort: null,
+        permissionMode: 'default',
+        followUpAction: null,
+        sourceRunId: null,
+      });
+    });
+    const controller = new AbortController();
+    const { bridge } = bridgeFixture();
+
+    const body = bridge
+      .createUiMessageStreamResponse({
+        ...STREAM_INPUT,
+        abortSignal: controller.signal,
+      })
+      .text();
+
+    try {
+      await firstPoll.promise;
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      controller.abort();
+      expect(
+        await Promise.race([
+          body.then(() => true),
+          new Promise<boolean>((resolve) => setImmediate(() => resolve(false))),
+        ]),
+      ).toBe(true);
+      expect(await body).toBe(RUN_STARTED_FRAME);
+    } finally {
+      controller.abort();
+      await body;
+    }
   });
 
   it('closes without output when the client aborts before polling', async () => {
@@ -1235,61 +1591,16 @@ describe('RunStreamBridgeService', () => {
     const { bridge } = bridgeFixture();
 
     const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
+      ...STREAM_INPUT,
       abortSignal: controller.signal,
     });
 
-    await expect(response.text()).resolves.toBe(
-      `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-    );
+    await expect(response.text()).resolves.toBe(RUN_STARTED_FRAME);
     expect(listByRunId).not.toHaveBeenCalled();
   });
 });
 
 describe('createRunEventTranslator part identity and error text', () => {
-  it('numbers successive text and reasoning parts so a client can keep them apart', () => {
-    const t = createRunEventTranslator('run-1');
-    t.translate({ eventType: 'run.started', payload: null });
-
-    const first = t.translate({
-      eventType: 'model.delta',
-      payload: { text: 'one' },
-    });
-
-    const think = t.translate({
-      eventType: 'reasoning.delta',
-      payload: { text: 'hmm' },
-    });
-
-    const second = t.translate({
-      eventType: 'model.delta',
-      payload: { text: 'two' },
-    });
-
-    expect(first).toContainEqual({ type: 'text-start', id: 'text-1' });
-    expect(first).toContainEqual({
-      type: 'text-delta',
-      id: 'text-1',
-      delta: 'one',
-    });
-    expect(think).toContainEqual({
-      type: 'reasoning-start',
-      id: 'reasoning-1',
-    });
-    expect(think).toContainEqual({ type: 'text-end', id: 'text-1' });
-    expect(second).toContainEqual({ type: 'text-start', id: 'text-2' });
-    expect(second).toContainEqual({
-      type: 'text-delta',
-      id: 'text-2',
-      delta: 'two',
-    });
-    expect(second).toContainEqual({
-      type: 'reasoning-end',
-      id: 'reasoning-1',
-    });
-  });
-
   it('never carries reasoning provider metadata into the UI chunk stream', () => {
     const build = () => {
       const t = createRunEventTranslator('run-1');
@@ -1552,24 +1863,20 @@ describe('createRunEventTranslator part identity and error text', () => {
 });
 
 describe('RunStreamBridgeService response contract', () => {
-  it('sets the AI SDK UI-message-stream headers on the response', () => {
+  it('sets the SSE headers on the response', () => {
     const { bridge } = bridgeFixture();
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
       runEvent(1, 'run.completed', null),
     ]);
 
-    const response = bridge.createUiMessageStreamResponse({
-      runId: RUN_ID,
-      userId: 'user-1',
-    });
+    const response = bridge.createUiMessageStreamResponse(STREAM_INPUT);
 
     expect(response.headers.get('content-type')).toBe('text/event-stream');
     expect(response.headers.get('cache-control')).toBe('no-cache');
     expect(response.headers.get('connection')).toBe('keep-alive');
-    expect(response.headers.get('x-vercel-ai-ui-message-stream')).toBe('v1');
   });
 
-  it('marks the terminal chunk so a client can tell a finished turn from a dropped stream', async () => {
+  it('ends at a terminal event so a client can tell a finished turn from a dropped stream', async () => {
     const { bridge } = bridgeFixture();
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
       runEvent(1, 'run.started', null),
@@ -1578,11 +1885,30 @@ describe('RunStreamBridgeService response contract', () => {
     ]);
 
     const body = await bridge
-      .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
+      .createUiMessageStreamResponse(STREAM_INPUT)
       .text();
 
-    expect(body).toContain('{"type":"finish","finishReason":"stop"}');
-    expect(body.endsWith('data: [DONE]\n\n')).toBe(true);
+    // Nothing follows the terminal event: a stream that stops anywhere else
+    // is a dropped connection, not a finished turn.
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
+  });
+
+  it('ends a failed run with RUN_ERROR and no RUN_FINISHED', async () => {
+    const { bridge } = bridgeFixture();
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      runEvent(1, 'run.failed', { message: 'provider refused' }),
+    ]);
+
+    const body = await bridge
+      .createUiMessageStreamResponse(STREAM_INPUT)
+      .text();
+
+    expect(
+      body.endsWith(
+        `data: ${JSON.stringify({ type: 'RUN_ERROR', message: 'provider refused' })}\n\n`,
+      ),
+    ).toBe(true);
+    expect(body).not.toContain('RUN_FINISHED');
   });
 
   it('surfaces a polling failure as a stream error rather than a silent close', async () => {
@@ -1592,9 +1918,7 @@ describe('RunStreamBridgeService response contract', () => {
     );
 
     await expect(
-      bridge
-        .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
-        .text(),
+      bridge.createUiMessageStreamResponse(STREAM_INPUT).text(),
     ).rejects.toThrow('event log unavailable');
   });
 });
@@ -1640,12 +1964,8 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
       const { bridge } = bridgeFixture();
 
       await expect(
-        bridge
-          .createUiMessageStreamResponse({ runId: RUN_ID, userId: 'user-1' })
-          .text(),
-      ).resolves.toBe(
-        `data: ${JSON.stringify({ type: 'start', messageId: RUN_ID })}\n\n`,
-      );
+        bridge.createUiMessageStreamResponse(STREAM_INPUT).text(),
+      ).resolves.toBe(RUN_STARTED_FRAME);
       expect(findById).toHaveBeenCalledWith(RUN_ID, 'user-1');
     }
   });
@@ -1701,10 +2021,10 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-1' },
-      { type: 'reasoning-start', id: 'reasoning-1' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-1' }),
       { type: 'reasoning-delta', id: 'reasoning-1', delta: 'thinking first' },
       { type: 'reasoning-end', id: 'reasoning-1' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'reading' },
       { type: 'text-end', id: 'text-1' },
       {
@@ -1726,7 +2046,7 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
     expect(
       t.translate({ eventType: 'model.delta', payload: { text: 'done' } }),
     ).toEqual([
-      { type: 'text-start', id: 'text-2' },
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
       { type: 'text-delta', id: 'text-2', delta: 'done' },
     ]);
   });

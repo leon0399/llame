@@ -157,11 +157,10 @@ export type PromptSkillsInput = {
 };
 
 /**
- * The internal execution-side entry: adds the server-only provider reference,
- * the optional per-model compaction and output-token overrides, and the
- * operator's provider-options object, none of which is display metadata or
- * exposed via `GET /api/v1/models` (same non-exposure rule as
- * `providerModelId`).
+ * The internal execution-side entry adds server-only provider references,
+ * per-model compaction, output-token, and first-token timeout settings, plus
+ * the operator's provider-options object. None is display metadata or exposed
+ * via `GET /api/v1/models` (same non-exposure rule as `providerModelId`).
  */
 export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
   /** References a `providers[].id` in the resolved instance config. */
@@ -180,6 +179,11 @@ export interface SystemModelCatalogEntry extends PublicModelCatalogEntry {
    * config, not display metadata.
    */
   maxOutputTokens?: number;
+  /**
+   * Optional server-only timeout for the first model content, in seconds.
+   * Absent lets request recovery use its 300-second default.
+   */
+  firstTokenTimeoutSeconds?: number;
   /**
    * The operator's provider-native request options for the adapter this entry's
    * provider `type` selects, proved to be a JSON record at boot — its type,
@@ -239,10 +243,10 @@ export type TokenPrice = {
 
 /**
  * Strip internal fields (`provider`, `providerModelId`, `billing`,
- * `compactionThresholdTokens`, `maxOutputTokens`, `providerOptions`,
- * `systemPromptTemplate`, `systemPromptSource`, `referencesSkills`,
- * `toolPromptFiles`) from a catalog entry. The rest is the public shape, so
- * this projection stays correct as `PublicModelCatalogEntry` grows.
+ * `compactionThresholdTokens`, `maxOutputTokens`, `firstTokenTimeoutSeconds`,
+ * `providerOptions`, `systemPromptTemplate`, `systemPromptSource`,
+ * `referencesSkills`, `toolPromptFiles`) from a catalog entry. The rest is the
+ * public shape, so this projection stays correct as `PublicModelCatalogEntry` grows.
  * The loader excludes host-path fields before building this entry; its
  * regression test pins that boundary.
  */
@@ -255,6 +259,7 @@ export function toPublicModel(
     wire: _wire,
     compactionThresholdTokens: _compactionThresholdTokens,
     maxOutputTokens: _maxOutputTokens,
+    firstTokenTimeoutSeconds: _firstTokenTimeoutSeconds,
     providerOptions: _providerOptions,
     systemPromptTemplate: _systemPromptTemplate,
     systemPromptSource: _systemPromptSource,

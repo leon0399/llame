@@ -1,7 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsIn } from 'class-validator';
 
-import { runStatus, type RunStatus } from '../../db/schema';
+import { runStatus, type RunAwaiting, type RunStatus } from '../../db/schema';
+import {
+  toQuotaWaitResponse,
+  QuotaWaitResponse,
+} from '../../runs/dto/quota-wait.dto';
 
 /**
  * Only `active` (non-terminal) runs are listed. Required — a missing/other value
@@ -32,6 +36,9 @@ export class ActiveRunResponse {
 
   @ApiProperty({ format: 'date-time' })
   createdAt!: Date;
+
+  @ApiProperty({ type: () => QuotaWaitResponse, nullable: true })
+  quotaWait!: QuotaWaitResponse | null;
 }
 
 export function toActiveRunResponse(row: {
@@ -40,6 +47,7 @@ export function toActiveRunResponse(row: {
   chatTitle: string | null;
   status: RunStatus;
   createdAt: Date;
+  awaiting: RunAwaiting | null;
 }): ActiveRunResponse {
   return {
     runId: row.id,
@@ -47,5 +55,6 @@ export function toActiveRunResponse(row: {
     chatTitle: row.chatTitle,
     status: row.status,
     createdAt: row.createdAt,
+    quotaWait: toQuotaWaitResponse(row.status, row.awaiting),
   };
 }

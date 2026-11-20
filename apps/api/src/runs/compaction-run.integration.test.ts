@@ -1,13 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { CompactionService } from '../compaction/compaction.service';
 import { ModelsService } from '../models/models.service';
+import type { ModelClient } from '../models/model-client';
 import { MessagesRepository } from '../chats/messages-repository';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { settleBashJob } from '../jobs/bash-job-store';
-import { workerInstances, type ChatJob } from '../db/schema';
+import { workerInstances, runs, type ChatJob } from '../db/schema';
+import { RunWaitService } from './run-wait.service';
 import { JobNoticeRunService } from './job-notice-run.service';
 import { TenantDbService } from '../db/tenant-db.service';
 import { asDouble, waitFor } from '../testing/support';
@@ -43,7 +47,7 @@ async function waitForRun(
   harness: WorkerHarness,
   userId: string,
   runId: string,
-  status: 'completed' | 'cancelled',
+  status: 'completed' | 'cancelled' | 'failed',
 ): Promise<void> {
   await waitFor(
     async () => {
@@ -528,6 +532,210 @@ describe('Compaction Run execution', () => {
     expect(
       messages.filter((message) => message.role === 'checkpoint'),
     ).toHaveLength(0);
+  });
+
+  it('waits and resumes the same manual compaction Run after a quota wake', async () => {
+    const sourceModel = `compact-quota-source-${randomUUID()}`;
+    const compactModel = `compact-quota-run-${randomUUID()}`;
+    harness.models.register(sourceModel, { kind: 'complete', text: 'reply' });
+    harness.models.register(compactModel, {
+      kind: 'complete',
+      text: 'resumed summary',
+    });
+
+    const source = await completeSourceTurn(
+      harness,
+      userId,
+      sourceModel,
+      'history requiring compaction',
+    );
+
+    const compact = await createCompactionRun(
+      harness.tenantDb,
+      source.chatId,
+      userId,
+      compactModel,
+    );
+
+    const failure = new ProviderFailure('weekly quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: Date.now() + 120_000,
+    });
+
+    const client = harness.models.createClient(compactModel);
+    let failFirstSummary = true;
+
+    const clientSpy = vi
+      .spyOn(harness.models, 'createClient')
+      .mockImplementation((): ModelClient => ({
+        ...client,
+        streamText: (input) => {
+          if (failFirstSummary) {
+            failFirstSummary = false;
+            void input.onError?.({ error: failure });
+          }
+
+          return client.streamText(input);
+        },
+      }));
+
+    try {
+      await harness.dispatch.dispatch({
+        runId: compact.id,
+        chatId: source.chatId,
+        userId,
+        modelId: compactModel,
+      });
+
+      const waiting = await waitFor(
+        () =>
+          harness.tenantDb
+            .runAs(userId, (tx) =>
+              new RunsRepository(tx).findById(compact.id, userId),
+            )
+            .then((run) =>
+              run?.status === 'awaiting_quota' &&
+              run.awaiting?.kind === 'quota' &&
+              run.awaiting.resumeAt === 'compactionRun'
+                ? run
+                : undefined,
+            ),
+        30_000,
+        'manual compaction to await quota',
+      );
+
+      expect(waiting).toMatchObject({
+        id: compact.id,
+        kind: 'compaction',
+        chatId: source.chatId,
+        userId,
+        modelId: compactModel,
+        messageId: null,
+        awaiting: { kind: 'quota', resumeAt: 'compactionRun', waitCount: 1 },
+      });
+
+      if (waiting.awaiting?.kind !== 'quota')
+        throw new Error(
+          'Expected a quota wait before waking the compaction Run',
+        );
+
+      const awaiting = waiting.awaiting;
+
+      await harness.tenantDb.runAs(userId, (tx) =>
+        tx
+          .update(runs)
+          .set({
+            awaiting: { ...awaiting, wakeAt: new Date(0).toISOString() },
+          })
+          .where(eq(runs.id, compact.id)),
+      );
+      await harness.tenantDb.runAs(userId, (tx) =>
+        harness.moduleRef.get(RunWaitService).wakeInTransaction(tx, {
+          runId: compact.id,
+          userId,
+          generation: waiting.wakeGeneration,
+          cause: 'timeout',
+        }),
+      );
+      await waitForRun(harness, userId, compact.id, 'completed');
+    } finally {
+      clientSpy.mockRestore();
+    }
+
+    const persisted = await harness.tenantDb.runAs(userId, async (tx) => ({
+      run: await new RunsRepository(tx).findById(compact.id, userId),
+      events: await new RunEventsRepository(tx).listByRunId(compact.id, userId),
+    }));
+
+    expect(persisted.run).toMatchObject({
+      id: compact.id,
+      kind: 'compaction',
+      chatId: source.chatId,
+      userId,
+      modelId: compactModel,
+      status: 'completed',
+    });
+    expect(
+      persisted.events.find(
+        (event) => event.eventType === 'run.quota_recovered',
+      )?.payload,
+    ).toMatchObject({
+      generation: persisted.run?.wakeGeneration,
+      resumeAt: 'compactionRun',
+    });
+  });
+
+  it('persists a typed provider failure on a failed compaction Run', async () => {
+    const sourceModel = `compact-auth-source-${randomUUID()}`;
+    const compactModel = `compact-auth-run-${randomUUID()}`;
+    harness.models.register(sourceModel, { kind: 'complete', text: 'reply' });
+    harness.models.register(compactModel, {
+      kind: 'complete',
+      text: 'summary',
+    });
+
+    const source = await completeSourceTurn(
+      harness,
+      userId,
+      sourceModel,
+      'history requiring compaction',
+    );
+
+    const compact = await createCompactionRun(
+      harness.tenantDb,
+      source.chatId,
+      userId,
+      compactModel,
+    );
+
+    const failure = new ProviderFailure('authentication failed', {
+      code: 'auth',
+    });
+
+    const client = harness.models.createClient(compactModel);
+
+    const clientSpy = vi
+      .spyOn(harness.models, 'createClient')
+      .mockImplementation((): ModelClient => {
+        return {
+          ...client,
+          streamText: (input) => {
+            void input.onError?.({ error: failure });
+
+            return client.streamText(input);
+          },
+        };
+      });
+
+    try {
+      await harness.dispatch.dispatch({
+        runId: compact.id,
+        chatId: source.chatId,
+        userId,
+        modelId: compactModel,
+      });
+      await waitForRun(harness, userId, compact.id, 'failed');
+    } finally {
+      clientSpy.mockRestore();
+    }
+
+    const persisted = await harness.tenantDb.runAs(userId, async (tx) => ({
+      run: await new RunsRepository(tx).findById(compact.id, userId),
+      events: await new RunEventsRepository(tx).listByRunId(compact.id, userId),
+    }));
+
+    expect(persisted.run?.error).toMatchObject({
+      message: failure.message,
+      code: 'auth',
+    });
+    expect(
+      persisted.events.find((event) => event.eventType === 'run.failed')
+        ?.payload,
+    ).toMatchObject({
+      status: 'failed',
+      message: failure.message,
+      code: 'auth',
+    });
   });
 
   it('A compaction Run survives a worker restart', async () => {

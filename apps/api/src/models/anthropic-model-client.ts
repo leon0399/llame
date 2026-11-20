@@ -1,3 +1,4 @@
+import type { ModelFailure } from './model-client';
 import { createAnthropic, type AnthropicProvider } from '@ai-sdk/anthropic';
 import {
   APICallError,
@@ -34,10 +35,10 @@ import {
 } from './openai-model-client';
 import { createToolCallGate } from './tool-call-gate';
 import { applyRequestUsageCallback } from './request-usage';
-import {
-  applyStreamIdleWatchdog,
-  ModelStreamIdleError,
-} from './stream-idle-watchdog';
+import { applyRequestRecovery, withRequestRecovery } from './request-recovery';
+import { ProviderFailure } from './provider-failure/provider-failure';
+import { classifyAnthropic } from './provider-failure/classify-anthropic';
+import { classifiedFailure } from './provider-failure-middleware';
 
 /**
  * The default Messages endpoint, the `baseURL` the adapter falls back to when
@@ -131,6 +132,8 @@ export type AnthropicModelClientConfig = {
   baseUrl: string;
   providerModelId: string;
   modelId: string;
+  /** Original configured provider type used for failure classification. */
+  providerType?: string;
   contextWindowTokens: number;
   /**
    * llame's product token and version (`llame/<version>`), read once at boot
@@ -167,6 +170,7 @@ export type AnthropicModelClientConfig = {
   reasoningDeclared: boolean;
   /** Optional catalog output limit, forwarded as the request's `maxOutputTokens` setting. */
   maxOutputTokens?: number;
+  firstTokenTimeoutSeconds?: number;
 };
 
 /**
@@ -296,8 +300,6 @@ const ABORT_ERROR_NAMES: ReadonlyArray<string> = [
  *   surfaces. The SDK builds its fixed text ("No output generated…") itself,
  *   never from response bytes, and it is the marker every wire's client
  *   surfaces on the result's `text` channel.
- * - `ModelStreamIdleError`: llame's own stream-idle watchdog (design D4) —
- *   llame's own text, and the code the run records depends on it.
  * - an abort-shaped rejection: see {@link ABORT_ERROR_NAMES}.
  *
  * Everything else status-less — a transport failure, a malformed (or
@@ -307,11 +309,10 @@ const ABORT_ERROR_NAMES: ReadonlyArray<string> = [
  * event data out in `.text` as well as its message), and is bounded by the
  * caller.
  */
-function isLocalFailure(error: unknown): error is Error {
+function isLocalFailure(error: ModelFailure): error is Error {
   return (
     InvalidArgumentError.isInstance(error) ||
     NoOutputGeneratedError.isInstance(error) ||
-    error instanceof ModelStreamIdleError ||
     (error instanceof Error && ABORT_ERROR_NAMES.includes(error.name))
   );
 }
@@ -331,6 +332,8 @@ function isLocalFailure(error: unknown): error is Error {
  * SDK authored their text.
  */
 function sanitizeAnthropicError(error: unknown): Error {
+  if (error instanceof ProviderFailure) return error;
+
   const statusCode = directHttpStatus(error);
 
   if (statusCode === undefined) {
@@ -366,6 +369,28 @@ function anthropicStatusMessage(statusCode: number): string {
     default:
       return 'Anthropic request failed.';
   }
+}
+
+function anthropicFailureOptions(
+  config: AnthropicModelClientConfig,
+  abortSignal: AbortSignal | undefined,
+) {
+  return {
+    provider: config.providerType ?? 'anthropic',
+    classify: classifyAnthropic,
+    sanitize: sanitizeAnthropicError,
+    abortSignal,
+  };
+}
+
+function classifiedAnthropicFailure(
+  error: ModelFailure,
+  config: AnthropicModelClientConfig,
+  abortSignal: AbortSignal | undefined,
+): ModelFailure {
+  if (isLocalFailure(error)) return error;
+
+  return classifiedFailure(error, anthropicFailureOptions(config, abortSignal));
 }
 
 /**
@@ -411,8 +436,11 @@ function buildStreamOptions(
 
   applyToolCallingOptions(streamOptions, input, gate);
   installStepPreparation(streamOptions, input, config);
+  applyRequestRecovery(streamOptions, input, {
+    ...anthropicFailureOptions(config, input.abortSignal),
+    firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
+  });
   applyRequestUsageCallback(streamOptions, input);
-  applyStreamIdleWatchdog(streamOptions, input);
 
   return { streamOptions, gate };
 }
@@ -432,7 +460,9 @@ function runAnthropicStream(
     onError === undefined
       ? undefined
       : ({ error }: { error: unknown }) =>
-          onError({ error: sanitizeAnthropicError(error) }),
+          onError({
+            error: classifiedAnthropicFailure(error, config, input.abortSignal),
+          }),
   );
 
   streamOptions.onFinish = createModelStreamFinishCallback(input.onFinish);
@@ -442,7 +472,8 @@ function runAnthropicStream(
     input,
     gate,
     runStreamText: dependencies.streamText,
-    sanitizeError: sanitizeAnthropicError,
+    sanitizeError: (error) =>
+      classifiedAnthropicFailure(error, config, input.abortSignal),
   });
 }
 
@@ -464,7 +495,11 @@ async function runAnthropicObject<OBJECT>(
 ): Promise<OBJECT> {
   const result = await dependencies
     .generateObject({
-      model: provider(config.providerModelId),
+      model: withRequestRecovery(provider(config.providerModelId), {
+        ...anthropicFailureOptions(config, input.abortSignal),
+        firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
+        bufferWholeSend: true,
+      }),
       output: 'object',
       schema: input.schema,
       messages: input.messages,
@@ -489,7 +524,7 @@ async function runAnthropicObject<OBJECT>(
       }),
     })
     .catch((error: unknown) => {
-      throw sanitizeAnthropicError(error);
+      throw classifiedAnthropicFailure(error, config, input.abortSignal);
     });
 
   return result.object;

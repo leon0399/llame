@@ -343,6 +343,13 @@ describe('ChatCommandsService', () => {
       status: 'awaiting_jobs',
       kind: 'turn',
       currentJobId: 'wake-job',
+      awaiting: {
+        kind: 'jobs',
+        toolCallId: 'tool-call-id',
+        toolInput: { jobs: ['job-id'] },
+        jobIds: ['job-id'],
+        deadline: '2026-10-27T01:00:00.000Z',
+      },
     });
 
     findActive.mockResolvedValue(waitingRun);

@@ -1189,5 +1189,55 @@ describeIfDb(
         },
       );
     });
+    it('persists a 404 model_not_found classification on the run and run.failed event', async () => {
+      const fetchStub = vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 'model_not_found',
+                message: 'Unknown model',
+              },
+            }),
+            {
+              status: 404,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
+        ),
+      );
+
+      vi.stubGlobal('fetch', fetchStub);
+
+      try {
+        const client = wireClients.createClient(WIRE_MODEL_ID.responses);
+        const chatId = await createChat();
+        const failing = await seedTurn(chatId, WIRE_MODEL_ID.responses);
+        const result = await execute(failing, client);
+        await Promise.resolve(result.consumeStream?.()).catch(() => undefined);
+        await waitForEvent(failing.runId, 'run.failed');
+
+        const failedRun = await tenantDb.runAs(userId, (tx) =>
+          new RunsRepository(tx).findById(failing.runId, userId),
+        );
+
+        const terminal = (await runEvents(failing.runId)).find(
+          (event) => event.eventType === 'run.failed',
+        );
+
+        expect(fetchStub).toHaveBeenCalled();
+        expect(failedRun?.error).toMatchObject({
+          message: 'Unknown model',
+          code: 'model_not_found',
+        });
+        expect(terminal?.payload).toMatchObject({
+          status: 'failed',
+          message: 'Unknown model',
+          code: 'model_not_found',
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
   },
 );

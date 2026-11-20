@@ -122,21 +122,21 @@ function createWireClient(
   switch (wire) {
     case 'openai-responses':
       return createResponsesClient(
-        { ...provider, type: wire, baseUrl },
+        { ...provider, type: wire, baseUrl, providerType: provider.type },
         model,
         userAgent,
         dependencies,
       );
     case 'openai-completions':
       return createCompletionsClient(
-        { ...provider, type: wire, baseUrl },
+        { ...provider, type: wire, baseUrl, providerType: provider.type },
         model,
         userAgent,
         dependencies,
       );
     case 'anthropic-messages':
       return createMessagesClient(
-        { ...provider, type: wire, baseUrl },
+        { ...provider, type: wire, baseUrl, providerType: provider.type },
         model,
         userAgent,
         dependencies,
@@ -147,13 +147,14 @@ function createWireClient(
 }
 
 function createResponsesClient(
-  provider: OpenAIResponsesProviderConfig,
+  provider: OpenAIResponsesProviderConfig & { providerType: string },
   model: SystemModelCatalogEntry,
   userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
   const config: Parameters<typeof createOpenAIModelClient>[0] = {
     credential: provider.key ?? undefined,
+    providerType: provider.providerType,
     baseUrl: provider.baseUrl ?? undefined,
     providerModelId: model.providerModelId,
     modelId: model.id,
@@ -169,13 +170,14 @@ function createResponsesClient(
 }
 
 function createCompletionsClient(
-  provider: OpenAICompletionsProviderConfig,
+  provider: OpenAICompletionsProviderConfig & { providerType: string },
   model: SystemModelCatalogEntry,
   userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
   const config: Parameters<typeof createOpenAICompletionsModelClient>[0] = {
     credential: provider.key ?? undefined,
+    providerType: provider.providerType,
     baseUrl: provider.baseUrl,
     providerModelId: model.providerModelId,
     modelId: model.id,
@@ -193,13 +195,14 @@ function createCompletionsClient(
 }
 
 function createMessagesClient(
-  provider: AnthropicMessagesProviderConfig,
+  provider: AnthropicMessagesProviderConfig & { providerType: string },
   model: SystemModelCatalogEntry,
   userAgent: string,
   dependencies: ModelClientDependencies,
 ): ModelClient {
   const config: Parameters<typeof createAnthropicModelClient>[0] = {
     credential: provider.key ?? undefined,
+    providerType: provider.providerType,
     // Always explicit (anthropic-provider D3): the configured endpoint, or
     // the Anthropic API when the entry configures none — never omitted, so
     // the adapter's `ANTHROPIC_BASE_URL` environment fallback never applies.
@@ -291,16 +294,18 @@ function assignModelMetadata(
   // Every client's step composer decides image parts from this (vision-media D6).
   config.input = model.input;
 
-  // The operator's provider-options object and the catalog output limit ride
-  // the model entry, not the provider entry (provider-api-selection): every
-  // client unwraps them from its own config at request time. Copied by
-  // reference like the resolved entry the loader already retains — overloads
-  // stay absent here, so a client without the option simply never sends it.
+  // The operator's provider options and per-model request limits/timeouts
+  // ride the model entry, not the provider entry. Each client consumes its
+  // own options; absent values stay absent.
   if (model.providerOptions !== undefined) {
     config.providerOptions = model.providerOptions;
   }
 
   if (model.maxOutputTokens !== undefined) {
     config.maxOutputTokens = model.maxOutputTokens;
+  }
+
+  if (model.firstTokenTimeoutSeconds !== undefined) {
+    config.firstTokenTimeoutSeconds = model.firstTokenTimeoutSeconds;
   }
 }

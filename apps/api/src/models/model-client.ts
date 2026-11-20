@@ -14,6 +14,19 @@ import type {
 
 import type { RunMediaResolver } from '../media/media-descriptors';
 import type { ModelInput, TokenPrice } from './model-catalog';
+import type { FailureClass } from './provider-failure/provider-failure';
+
+export type ModelRequestRetry = {
+  code: FailureClass;
+  retry: number;
+  delayMs: number;
+};
+
+/** Failure value delivered by the AI SDK's stream error callback. */
+export type ModelFailure = Parameters<StreamTextOnErrorCallback>[0]['error'];
+
+/** Sanitizes an SDK failure without narrowing its event-owned representation. */
+export type ModelFailureSanitizer = (failure: ModelFailure) => ModelFailure;
 
 /** Whether reported model usage is metered or covered by a subscription. */
 export type BillingMode = 'usage' | 'subscription';
@@ -80,6 +93,8 @@ export interface ModelStepStart {
 }
 
 export interface ModelStreamInput {
+  /** Prior provider sends for this logical request, carried across a live restart. */
+  requestRetriesUsed?: number;
   messages: Array<ModelMessage>;
   /**
    * The Chat this request belongs to (required: every call site supplies it,
@@ -267,6 +282,8 @@ export interface ModelStreamInput {
    * A request that never finished reports no usage and therefore no window.
    */
   onRequestUsage?: (usage: LanguageModelUsage, generationMs: number) => void;
+  /** Persisted before a same-model retry delay; omitted for side calls. */
+  onRetry?: (retry: ModelRequestRetry) => void | Promise<void>;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: ModelStreamFinishEvent) => void | Promise<void>;
   /**
