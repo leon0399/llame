@@ -17,6 +17,10 @@ import {
 import { JOB_SCHEME } from '../../jobs/job-locator';
 import { MACHINE_SCHEME } from '../../machines/machine-locator';
 import {
+  parseProjectLocator,
+  PROJECT_SCHEME,
+} from '../../projects/project-locator';
+import {
   canonicalMachineLocator,
   isWorkspaceRelative,
   mapToWorkspaceHost,
@@ -34,7 +38,13 @@ const WEB_LOCATOR_SCHEMES = { http: true, https: true } as const;
 /** Native tools whose `path` is a logical resource locator for policy. */
 const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);
 
-/** Removes only a valid read selector from a submitted locator. */
+/**
+ * Project a submitted locator to the identity its read is admitted under: a
+ * valid read selector is removed. A valid Project resource projects to its
+ * canonical resource even when the trailing suffix is not a native selector —
+ * the suffix is never part of the resource identity, and the reader refuses it
+ * after admission.
+ */
 export function withoutReadSelector(value: string): string {
   if (isFileAlias(value)) return withoutFileAliasSelector(value);
   const scheme = parsePathScheme(value);
@@ -56,6 +66,14 @@ export function withoutReadSelector(value: string): string {
       0,
       value.length - scheme.rest.length + scheme.rest.indexOf(':'),
     );
+  }
+
+  if (scheme?.scheme === PROJECT_SCHEME) {
+    // The resource matches as canonical whatever trails it; the reader
+    // refuses a non-native suffix after admission.
+    const parsed = parseProjectLocator(value);
+
+    return parsed === undefined ? value : parsed.canonical;
   }
 
   if (scheme?.scheme !== undefined && scheme.scheme in WEB_LOCATOR_SCHEMES) {
@@ -97,22 +115,22 @@ function withoutFileAliasSelector(value: string): string {
  * Canonicalize a submitted native `path` value for permission matching only.
  * A `file:` alias is decoded to its absolute host path before any other
  * classification, so a valid alias is matched as its host path and an invalid
- * alias is returned unchanged. Knowledge and skill locators are re-encoded to
- * their canonical logical identity, retaining a valid selector for mutations;
- * read projections remove it afterward. A web locator is re-encoded through
- * the read tool's own parser, so the text a clause matches is the URL that
- * will be requested plus the selector exactly as it trails it — a fragment
- * the request drops cannot smuggle clause-matching text past an allow, a
- * locator with no path is matched with the slash its request carries, and
- * `:5-9:raw` is never reordered to `:raw:5-9`, which the model and a server
- * never wrote. Relative direct host paths are projected lexically from the
- * Workspace root when one is supplied; absolute host locators and invalid
- * locators are otherwise returned unchanged. Nothing touches the filesystem,
- * and the resolved host path is never substituted for Knowledge, skill, or
- * direct host locators. A Machine locator is re-encoded to its canonical text
- * with the path decoded once; while a Machine Workspace is entered, a bare
- * absolute path is mapped to that Machine's locator first, so a rule written
- * against the local filesystem cannot admit a remote address.
+ * alias is returned unchanged. Knowledge, skill, and Project locators are
+ * re-encoded to their canonical logical identity, retaining a valid selector
+ * for mutations; read projections remove it afterward. A web locator is
+ * re-encoded through the read tool's own parser, so the text a clause matches
+ * is the URL that will be requested plus the selector exactly as it trails
+ * it — a fragment the request drops cannot smuggle clause-matching text past
+ * an allow, a locator with no path is matched with the slash its request
+ * carries, and `:5-9:raw` is never reordered to `:raw:5-9`, which the model
+ * and a server never wrote. Relative direct host paths are projected lexically
+ * from the Workspace root when one is supplied; absolute host locators and
+ * invalid locators are otherwise returned unchanged. Nothing touches the
+ * filesystem, and the resolved host path is never substituted for Knowledge,
+ * skill, or direct host locators. A Machine locator is re-encoded to its
+ * canonical text with the path decoded once; while a Machine Workspace is
+ * entered, a bare absolute path is mapped to that Machine's locator first, so
+ * a rule written against the local filesystem cannot admit a remote address.
  */
 export function projectNativeFilePath(
   value: string,
@@ -162,6 +180,18 @@ export function projectNativeFilePath(
     if ('type' in parsed) return projected;
 
     return withSelector(formatSkillLocator(parsed), parsed.selector);
+  }
+
+  if (scheme.scheme === PROJECT_SCHEME) {
+    // The Project parser owns the resource grammar, so an invalid spelling is
+    // matched as written and a valid one is matched by its selector-free
+    // canonical identity. The split selector is reattached for a mutation; a
+    // read projection drops it, because no suffix is part of the resource.
+    const parsed = parseProjectLocator(projected);
+
+    if (parsed === undefined) return projected;
+
+    return withSelector(parsed.canonical, parsed.selector);
   }
 
   if (scheme.scheme in WEB_LOCATOR_SCHEMES) return projectWebLocator(projected);

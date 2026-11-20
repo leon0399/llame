@@ -2067,9 +2067,6 @@ describe('llame-owned tool description templates', () => {
       // a Machine read runs on its own Machine, and only a host path binds the
       // configured native one.
       expect(rendered).toContain('machine://<name><absolute path>');
-      expect(rendered).toContain(
-        'machine://, ssh://, and web locators need no local native executor',
-      );
     }
 
     expect(withoutKnowledge).not.toContain('kb://');

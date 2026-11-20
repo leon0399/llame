@@ -56,6 +56,8 @@ import { readArtifact } from './artifacts/artifact-reader';
 import { ARTIFACT_SCHEME } from './artifacts/locator';
 import { JOB_SCHEME } from '../jobs/job-locator';
 import { readJob } from '../jobs/job-reader';
+import { PROJECT_SCHEME } from '../projects/project-locator';
+import { readProjectResource } from '../projects/project-reader';
 import { placeListingSelector } from './listing-window';
 
 type NativeCall =
@@ -86,8 +88,9 @@ let nativeMutations: Promise<void> = Promise.resolve();
  * binds the Run to an executor. `http://` and `https://` are fetched by the
  * API process's own outbound HTTP and bind no executor either, and `media://`
  * reads the Run owner's stored media. `machine://` runs on an operator-
- * configured Machine and never binds the local executor. An unimplemented
- * scheme fails closed.
+ * configured Machine and never binds the local executor. `projects://` reads
+ * the Run owner's Project rows and binds neither an executor nor a Workspace.
+ * An unimplemented scheme fails closed.
  */
 function executeNative(
   context: ToolContext,
@@ -166,6 +169,10 @@ const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
       readArtifact(context, call.operation, call.input.path),
     [JOB_SCHEME]: (context, call) =>
       readJob(context, call.operation, call.input.path),
+    // The reader re-parses the submitted locator, which policy admitted in its
+    // canonical form; it needs the whole text, selector included.
+    [PROJECT_SCHEME]: (context, call) =>
+      readProjectResource(context, call.operation, call.input.path),
   } satisfies Record<string, LocatorReader>),
 );
 

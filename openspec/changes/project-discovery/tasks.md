@@ -20,6 +20,8 @@ Every layer can merge after its parent passes its gates. No two implementation l
 
 Use `$gh-stack` for branch, publication, and merge operations. After published proposal approval, create only the next layer and run `$openspec-apply-change` for its assigned tasks. Re-estimate authored churn against each immediate parent. Report generated SQL snapshots, OpenAPI, and web client output separately. Do not defer shipping documentation to finalize.
 
+For this delivery, Leo authorizes the next layer after focused local proof and multi-agent self-review while CI, mutation checks, and GitHub review continue concurrently. This replaces the before-next-layer review ordering below. Mark ready only after normal CI passes. Complete every CI, mutation, reviewer, unresolved-comment, and required-action gate before final handoff and archive readiness.
+
 - [x] 1.1 Write and commit the proposal, design, all delta specs, and the applicable ADRs. Prove strict validation and canonical scenario preservation.
 - [x] 1.2 Run independent iterative review round one with at least two reviewers. Verify findings and commit the author's accepted revisions separately.
 - [x] 1.3 Run independent iterative review round two with at least two reviewers. Verify findings and commit the author's accepted revisions separately.
@@ -35,18 +37,18 @@ Branch `project-discovery/instructions-api` has parent `project-discovery/propos
 - [x] 2.2 Extend PATCH and explicit Project responses with save, replace, omission, clear, length-before-whitespace normalization, and archive semantics from `projects`. Prove focused API integration cases, including missing identity, non-BMP bounds, and both whitespace boundary scenarios.
 - [x] 2.3 Regenerate OpenAPI and the web client through the existing commands. Prove OpenAPI lint and a clean second generation of owned outputs.
 - [x] 2.4 Update API/operator documentation and the dated changelog for the shipped contract. Remove only completed roadmap entries. Run affected API lint, typecheck, focused tests, build, Markdown lint, formatting, and diff checks.
-- [ ] 2.5 Publish draft and complete layer SR before ready. Complete GR, current-head CI, and delivery Project updates before the next layer.
+- [x] 2.5 Publish draft and complete layer SR before ready. Complete GR, current-head CI, and delivery Project updates before the next layer.
 
 ## 3. Project locator layer
 
 Branch `project-discovery/locator` has parent `project-discovery/instructions-api`. It owns owner-scoped Project discovery and registered location disclosure. Estimated authored churn is 1300 to 1900 lines. It references #333 and #1489 without closing either. It ships before the context producer advertises Project locators.
 
-- [ ] 3.1 Add one pure Project resource parser shared by native dispatch and permission projection. Prove UUID identity, root alias, case normalization, invalid forms, selector-free rejects, and read-only mutation refusal.
-- [ ] 3.2 Render active and archived metadata listings and current Project details through tenant-scoped repositories. Include only linked owner repositories and owner checkouts. Prove foreign/missing equivalence and an absent identity's failure.
-- [ ] 3.3 Render registered local paths and Machine locators with kind, parent, and executor identity. Label them unverified. Prove no filesystem, git, or Machine contact, no implicit entry, and no effect on later admission.
-- [ ] 3.4 Reuse native Markdown text selection, raw/outline representations, line counts, output bounds, and progressing continuation notices. Contain every authored or registered field without forged headings or entries. Prove all entries and maximum-length escaped values remain reachable.
-- [ ] 3.5 Expose native scheme acceptance to generic prompt imports and tool descriptions. Prove one admitted import, data-only framing, no imported instruction activation, and no filesystem trigger from printed checkout locations.
-- [ ] 3.6 Update locator and read reference pages, their indexes, permission examples, privacy documentation, and the dated changelog. Remove only completed roadmap work. Record the narrow registered-location disclosure exception without exposing private configuration.
+- [x] 3.1 Add one pure Project resource parser shared by native dispatch and permission projection. Prove UUID identity, root alias, case normalization, invalid forms, selector-free rejects, and read-only mutation refusal.
+- [x] 3.2 Render active and archived metadata listings and current Project details through tenant-scoped repositories. Include only linked owner repositories and owner checkouts. Prove foreign/missing equivalence and an absent identity's failure.
+- [x] 3.3 Render registered local paths and Machine locators with kind, parent, and executor identity. Label them unverified. Prove no filesystem, git, or Machine contact, no implicit entry, and no effect on later admission.
+- [x] 3.4 Reuse native Markdown text selection, raw/outline representations, line counts, output bounds, and progressing continuation notices. Contain every authored or registered field without forged headings or entries. Prove all entries and maximum-length escaped values remain reachable.
+- [x] 3.5 Expose native scheme acceptance to generic prompt imports and tool descriptions. Prove one admitted import, data-only framing, no imported instruction activation, and no filesystem trigger from printed checkout locations.
+- [x] 3.6 Update locator and read reference pages, their indexes, permission examples, privacy documentation, and the dated changelog. Remove only completed roadmap work. Record the narrow registered-location disclosure exception without exposing private configuration.
 - [ ] 3.7 Run focused tool, projection, prompt-import, and integration checks plus affected API lint, typecheck, build, Markdown lint, formatting, and diff checks. Publish draft and complete SR before ready, then GR, current-head CI, and delivery Project updates.
 
 ## 4. Project context layer

@@ -54,6 +54,7 @@
     // Packaged prompt templates shipped with the app, not documentation, and
     // not replaceable by any operator: the same rule applies.
     "apps/api/src/chats/prompts/",
+    "apps/api/src/projects/prompts/",
     "apps/api/src/compaction/prompts/",
     "apps/api/src/titles/prompts/",
     "apps/api/src/knowledge/prompts/",

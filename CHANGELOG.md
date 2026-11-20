@@ -23,13 +23,23 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-20
 
+- Add read-only `projects://` discovery to `read`. `projects://` lists the
+  owner's active Projects, `projects://archived` lists archived Projects, and
+  `projects://<uuid>` returns one Project with its literal instructions, linked
+  repositories, and owner-registered checkout locators. A Project read needs no
+  native executor, uses the ordinary `read` permission group on the canonical
+  Project locator, and grants no access to a returned location. `edit` and
+  `write` refuse the scheme with `unsupported_operation`. A detail returns only
+  stored checkout locators, never SSH, daemon, Knowledge, or prompt
+  configuration. Automatic Project context and automatic repository inventories
+  are not part of this release.
 - Persist owner-authored Project instructions as one nullable Project field.
   `PATCH /api/v1/projects/:id` accepts literal `instructions` up to 16000
   Unicode code points counted before whitespace normalization. An omitted field
   leaves the text unchanged, `null` or in-bound whitespace clears it, and
   nonblank text is stored as entered. Archived Projects answer `409`, another
-  owner answers `404`, and validation errors carry no submitted text. No Run
-  reads the instructions.
+  owner answers `404`, and validation errors carry no submitted text. Runs do
+  not apply the instructions automatically.
 - Add prose rules for pages under `docs/` and vendor an adapted `unslop` skill
   for generated-prose patterns. `pnpm lint:markdown` now fails an ADR that
   uses semicolons, dashes as punctuation, curly quotes, flagged vocabulary, or

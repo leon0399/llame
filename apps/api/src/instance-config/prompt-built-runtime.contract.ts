@@ -102,6 +102,9 @@ import '../ranking/rubrics';
 // snapshot template at import.
 import '../git-state/git-state-render';
 
+// Importing the discovery renderer proves its packaged document is copied.
+import '../projects/project-document';
+
 // Verify the built runtime reads llame's version from the manifest beside
 // dist/ (design D6 of openspec/changes/opencode-go-provider). The call makes
 // `product-identity` resolve `apps/api/package.json` from its own compiled

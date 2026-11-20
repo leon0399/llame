@@ -1009,3 +1009,176 @@ describe('media locator permission projection', () => {
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
 });
+
+describe('Project locator permission projection', () => {
+  const PROJECT_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const CANONICAL = `projects://${PROJECT_ID}`;
+
+  it('canonicalizes the scheme, root alias, and UUID', () => {
+    expect(projectNativeFilePath('PROJECTS://')).toBe('projects://');
+    expect(projectNativeFilePath('Projects:///')).toBe('projects://');
+    expect(
+      projectNativeFilePath(`PROJECTS://${PROJECT_ID.toUpperCase()}`),
+    ).toBe(CANONICAL);
+    expect(projectNativeFilePath('PROJECTS://archived')).toBe(
+      'projects://archived',
+    );
+  });
+
+  it('keeps a native selector for a mutation and removes it from a read', () => {
+    const submitted = `PROJECTS://${PROJECT_ID.toUpperCase()}:raw:1-5`;
+
+    expect(projectNativeFilePath(submitted)).toBe(`${CANONICAL}:raw:1-5`);
+    expect(nativeFileProjection('read')('path', submitted)).toBe(CANONICAL);
+    expect(nativeFileProjection('write')('path', submitted)).toBe(
+      `${CANONICAL}:raw:1-5`,
+    );
+    expect(nativeFileProjection('edit')('path', submitted)).toBe(
+      `${CANONICAL}:raw:1-5`,
+    );
+  });
+
+  it('strips every native read selector from a Project resource', () => {
+    const selectors = [
+      { submitted: 'raw', canonical: 'raw' },
+      { submitted: '1-5', canonical: '1-5' },
+      { submitted: 'outline', canonical: 'outline' },
+      { submitted: 'outline:2-4', canonical: 'outline:2-4' },
+      { submitted: '10-20,30-40', canonical: '10-20,30-40' },
+      // The native splitter canonicalizes the trailing-raw spelling.
+      { submitted: '1-5:raw', canonical: 'raw:1-5' },
+    ];
+
+    for (const { submitted, canonical } of selectors) {
+      expect(
+        nativeFileProjection('read')('path', `${CANONICAL}:${submitted}`),
+      ).toBe(CANONICAL);
+      expect(projectNativeFilePath(`${CANONICAL}:${submitted}`)).toBe(
+        `${CANONICAL}:${canonical}`,
+      );
+    }
+
+    expect(nativeFileProjection('read')('path', 'PROJECTS:///:raw')).toBe(
+      'projects://',
+    );
+  });
+
+  it('leaves an invalid Project locator as written', () => {
+    for (const value of [
+      'projects://name',
+      `projects://${PROJECT_ID}/other`,
+      `projects://${PROJECT_ID}?archived`,
+      `projects://${PROJECT_ID}#top`,
+      `projects://${PROJECT_ID}%2F`,
+      `projects://${PROJECT_ID}:raw?x`,
+      'projects://archived/',
+      'projects://%61rchived',
+    ]) {
+      expect(projectNativeFilePath(value)).toBe(value);
+      expect(nativeFileProjection('read')('path', value)).toBe(value);
+    }
+  });
+
+  it('canonicalizes a valid resource and drops its refused suffix', () => {
+    // The suffix is not a native selector, so it never becomes part of the
+    // resource identity: a read matches the canonical resource and the reader
+    // refuses the suffix as invalid_selector after admission. A mutation keeps
+    // the suffix it submitted.
+    for (const suffix of ['nonsense', '', 'outline:1,3']) {
+      const submitted = `PROJECTS://${PROJECT_ID.toUpperCase()}:${suffix}`;
+
+      expect(projectNativeFilePath(submitted)).toBe(`${CANONICAL}:${suffix}`);
+      expect(nativeFileProjection('read')('path', submitted)).toBe(CANONICAL);
+      expect(nativeFileProjection('write')('path', submitted)).toBe(
+        `${CANONICAL}:${suffix}`,
+      );
+    }
+  });
+
+  it('keeps the Project locator independent of the Workspace root', () => {
+    for (const root of ['/work/project', 'machine://devl/home/me/shop']) {
+      expect(projectNativeFilePath(`PROJECTS://${PROJECT_ID}`, root)).toBe(
+        CANONICAL,
+      );
+      expect(projectNativeFilePath('projects://', root)).toBe('projects://');
+      expect(projectNativeFilePath('projects://archived', root)).toBe(
+        'projects://archived',
+      );
+    }
+  });
+
+  it('rejects an upper-case spelling through the canonical resource', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: `^projects://${PROJECT_ID}$` }],
+      },
+    };
+
+    expect(
+      decideNative(map, 'read', {
+        path: `PROJECTS://${PROJECT_ID.toUpperCase()}:raw:1-10`,
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
+  it('rejects an anchored canonical clause despite a refused suffix', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: `^projects://${PROJECT_ID}$` }],
+      },
+    };
+
+    for (const suffix of ['nonsense', '', 'outline:1,3']) {
+      expect(
+        decideNative(map, 'read', {
+          path: `PROJECTS://${PROJECT_ID.toUpperCase()}:${suffix}`,
+        }),
+      ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+    }
+  });
+
+  it('gives the root and its alias one decision', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^projects://$' }],
+      },
+    };
+
+    for (const path of [
+      'projects://',
+      'PROJECTS://',
+      'PROJECTS:///',
+      'PROJECTS://:nonsense',
+    ]) {
+      expect(decideNative(map, 'read', { path })).toMatchObject({
+        decision: 'reject',
+        reason: 'explicit_reject',
+      });
+    }
+  });
+
+  it('admits the canonical resource through an exact allow', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', literal: CANONICAL }] },
+    };
+
+    expect(
+      decideNative(map, 'read', {
+        path: `PROJECTS://${PROJECT_ID.toUpperCase()}:1-5`,
+      }),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('does not admit a Project locator through a local path allow', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^/work/project/' }] },
+    };
+
+    expect(
+      decideNative(map, 'read', { path: CANONICAL }, '/work/project'),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+});

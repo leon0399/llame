@@ -4,6 +4,7 @@ import { derivePromptImportTriggers } from './prompt-import-triggers';
 
 const SPACE_ID = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
 const MACHINE = 'machine://dev/notes/a.md';
+const PROJECT = 'projects://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
 const BOTH = { host: true, knowledge: true, machine: true };
 
 describe('derivePromptImportTriggers', () => {
@@ -182,6 +183,27 @@ describe('derivePromptImportTriggers', () => {
           { locator: 'list', resolved: 'machine://', outcome: 'imported' },
           { locator: 'roots', resolved: 'machine://dev', outcome: 'imported' },
           { locator: 'bad', resolved: 'machine://Dev!/x', outcome: 'imported' },
+        ],
+        BOTH,
+      ),
+    ).toEqual([]);
+  });
+
+  it('names no trigger for an imported Project document', () => {
+    // A Project detail prints owner-registered checkout locations such as
+    // `/work/api` and `machine://nas/srv/api` inside its body. A direct import
+    // has no `resolved` host path, and a canonical Project locator names no
+    // host, Knowledge, or Machine file, so the document stays data and loads
+    // no instruction file.
+    expect(
+      derivePromptImportTriggers(
+        [
+          { locator: PROJECT, outcome: 'imported' },
+          {
+            locator: `${PROJECT}:raw:1-10`,
+            resolved: PROJECT,
+            outcome: 'imported',
+          },
         ],
         BOTH,
       ),
