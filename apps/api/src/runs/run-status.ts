@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, notInArray } from 'drizzle-orm';
+import { and, eq, isNull, notInArray } from 'drizzle-orm';
 import { runs, type RunStatus } from '../db/schema/chats';
 
 /**
@@ -15,6 +15,23 @@ export const TERMINAL_RUN_STATUSES = [
 ] as const satisfies ReadonlyArray<RunStatus>;
 
 export type TerminalRunStatus = (typeof TERMINAL_RUN_STATUSES)[number];
+
+export const WAITING_RUN_STATUSES = [
+  'awaiting_jobs',
+  'awaiting_quota',
+] as const satisfies ReadonlyArray<RunStatus>;
+
+export type WaitingRunStatus = (typeof WAITING_RUN_STATUSES)[number];
+
+const waitingRunStatuses: ReadonlySet<RunStatus> = new Set(
+  WAITING_RUN_STATUSES,
+);
+
+export function isWaitingRunStatus(
+  status: RunStatus,
+): status is WaitingRunStatus {
+  return waitingRunStatuses.has(status);
+}
 
 const terminalRunStatuses: ReadonlySet<RunStatus> = new Set(
   TERMINAL_RUN_STATUSES,
@@ -42,6 +59,7 @@ export type MarkFinishedOptions = {
 
 export type MarkStartedOptions = {
   workerId?: string;
+  attemptId?: string;
   expectedQueueIdentity?: MarkFinishedOptions['expectedQueueIdentity'];
 };
 
@@ -85,7 +103,7 @@ export function claimableRunPredicate(
   identity?: NonNullable<MarkFinishedOptions['expectedQueueIdentity']>,
 ) {
   return and(
-    ne(runs.status, 'awaiting_jobs'),
+    notInArray(runs.status, [...WAITING_RUN_STATUSES]),
     nonTerminalRun(),
     ...(identity ? [queueIdentityPredicate(identity)] : []),
   );

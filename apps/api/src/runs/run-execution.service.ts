@@ -73,6 +73,7 @@ import {
   type Message,
   type ModelToolDeclaration,
   type Run,
+  type AwaitingQuota,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
 } from '../db/schema';
@@ -447,9 +448,17 @@ import { retryRunTransaction } from './run-transaction';
 import { RunWaitService } from './run-wait.service';
 import {
   completeWaitInTransaction,
+  clearQuotaAwaitingInTransaction,
   pendingWakeInTransaction,
 } from './run-wait-completion';
-import { wakeStateFromEvents, type WakeState } from './wake-projection';
+import { wakeStateFromEvents } from './wake-projection';
+import {
+  quotaWakeStateFromEvents,
+  quotaRequestFromEvents,
+  quotaResumeAttemptId,
+  type QuotaRequestState,
+} from './quota-wake-projection';
+import { quotaWaitForFailure } from './quota-wait';
 import { WAIT_SUSPENSION, type WaitRequest } from '../tools/wait-suspension';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
@@ -794,7 +803,9 @@ export type RunClaimResult =
       attemptId: string;
       messageId: string | null;
       nativeDeliverySequence: number;
-      wakeState?: WakeState;
+      wakeState?: ContinueState;
+      quotaRequest?: QuotaRequestState;
+      quotaWake?: boolean;
     };
 
 type ExecuteRunInput = {
@@ -1598,6 +1609,38 @@ export class RunExecutionService {
     );
   }
 
+  private async readQuotaClaim(
+    runs: RunsRepository,
+    events: RunEventsRepository,
+    input: RunClaimInput,
+  ) {
+    const queued = await runs.findById(input.runId, input.userId);
+
+    const quotaEvents = queued?.wakeGeneration
+      ? await events.listByRunId(input.runId, input.userId, {
+          eventTypes: [
+            'run.suspended',
+            'run.resumed',
+            'run.started',
+            'run.delivered',
+            'run.quota_recovered',
+          ],
+        })
+      : [];
+
+    const quotaRequest = quotaRequestFromEvents(quotaEvents);
+
+    const quotaAttemptId =
+      queued?.awaiting?.kind === 'quota'
+        ? quotaResumeAttemptId(quotaEvents, queued.wakeGeneration)
+        : undefined;
+
+    if (queued?.awaiting?.kind === 'quota' && quotaAttemptId === undefined)
+      throw new Error('The quota wake has no waking attempt identity.');
+
+    return { quotaEvents, quotaRequest, quotaAttemptId };
+  }
+
   async claimRun(input: RunClaimInput): Promise<RunClaimResult> {
     return retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
@@ -1634,11 +1677,13 @@ export class RunExecutionService {
           return { settledReply: undefined };
         }
 
-        const started = input.expectedQueueIdentity
-          ? await runs.markStarted(input.runId, input.userId, {
-              expectedQueueIdentity: input.expectedQueueIdentity,
-            })
-          : await runs.markStarted(input.runId, input.userId);
+        const { quotaEvents, quotaRequest, quotaAttemptId } =
+          await this.readQuotaClaim(runs, events, input);
+
+        const started = await runs.markStarted(input.runId, input.userId, {
+          expectedQueueIdentity: input.expectedQueueIdentity,
+          attemptId: quotaAttemptId,
+        });
 
         if (!started) {
           const current = await runs.findById(input.runId, input.userId);
@@ -1693,29 +1738,39 @@ export class RunExecutionService {
           attemptId: started.activeAttemptId,
         });
 
-        let wakeState: WakeState | undefined;
+        let wakeState: ContinueState | undefined;
 
         if (wakeCause !== undefined && started.awaiting !== null) {
-          await completeWaitInTransaction(
-            tx,
-            started,
-            started.awaiting,
-            wakeCause,
-          );
-          wakeState = wakeStateFromEvents(
-            await events.listByRunId(input.runId, input.userId, {
-              eventTypes: [
-                'run.suspended',
-                'run.resumed',
-                'run.started',
-                'run.delivered',
-                'tool.requested',
-                'tool.started',
-                'tool.completed',
-              ],
-            }),
-            started.activeAttemptId!,
-          );
+          if (started.awaiting.kind === 'quota') {
+            await clearQuotaAwaitingInTransaction(tx, started, wakeCause);
+            wakeState = quotaWakeStateFromEvents(
+              [...quotaEvents, startedEvent],
+              started.activeAttemptId!,
+            );
+          } else {
+            if (wakeCause === 'cancelled')
+              throw new Error('A jobs wake cannot carry quota cancellation.');
+            await completeWaitInTransaction(
+              tx,
+              started,
+              started.awaiting,
+              wakeCause,
+            );
+            wakeState = wakeStateFromEvents(
+              await events.listByRunId(input.runId, input.userId, {
+                eventTypes: [
+                  'run.suspended',
+                  'run.resumed',
+                  'run.started',
+                  'run.delivered',
+                  'tool.requested',
+                  'tool.started',
+                  'tool.completed',
+                ],
+              }),
+              started.activeAttemptId!,
+            );
+          }
 
           if (wakeState === undefined) {
             throw new Error('The resumed Run has no complete wait checkpoint.');
@@ -1731,6 +1786,8 @@ export class RunExecutionService {
           messageId: started.messageId,
           nativeDeliverySequence: startedEvent.sequence,
           wakeState,
+          quotaRequest,
+          quotaWake: started.awaiting?.kind === 'quota',
         };
       }),
     );
@@ -1804,6 +1861,8 @@ export class RunExecutionService {
       nativeDeliverySequence: claim.nativeDeliverySequence,
       firstSegment,
       wakeState: claim.wakeState,
+      quotaRequest: claim.quotaRequest,
+      quotaWake: claim.quotaWake === true,
       createdMessage: input.userMessage,
     });
 
@@ -1942,7 +2001,9 @@ export class RunExecutionService {
     nativeDeliverySequence: number;
     /** False for a segment that a delivery started. */
     firstSegment: boolean;
-    wakeState?: WakeState;
+    wakeState?: ContinueState;
+    quotaRequest?: QuotaRequestState;
+    quotaWake: boolean;
     /** The message `run.created` names: the job's, whatever segment runs. */
     createdMessage: RunUserMessage;
   }): Promise<AttemptRun> {
@@ -2008,6 +2069,8 @@ export class RunExecutionService {
         attemptId: delivery.attemptId,
         firstSegment: false,
         wakeState: undefined,
+        quotaRequest: undefined,
+        quotaWake: false,
         createdMessage,
       });
 
@@ -2019,6 +2082,7 @@ export class RunExecutionService {
       run: input,
       attemptId,
       wakeState: attempt.wakeState,
+      quotaRequest: attempt.quotaRequest,
       startDelivered,
       onCompactionSet: (set) => {
         wakeCompactionSet = set;
@@ -2418,8 +2482,11 @@ export class RunExecutionService {
     };
 
     const persistFencedModelEvent = (
-      eventType: 'model.retrying' | 'model.superseded',
-      payload: ModelRequestRetry | SupersededModelOutput,
+      eventType: 'model.retrying' | 'model.superseded' | 'run.quota_recovered',
+      payload:
+        | ModelRequestRetry
+        | SupersededModelOutput
+        | Pick<QuotaRequestState, 'generation' | 'resumeAt'>,
     ): void => {
       enqueueEvent(eventType, payload, async (tx) => {
         if (progressWriteFailed)
@@ -2439,6 +2506,26 @@ export class RunExecutionService {
 
         return payload;
       });
+    };
+
+    let quotaRequest = attempt.quotaRequest;
+
+    const recordQuotaRecovery = async (
+      status: TerminalRunStatus,
+    ): Promise<void> => {
+      if (
+        status !== 'completed' ||
+        input.abortSignal?.aborted ||
+        quotaRequest === undefined
+      )
+        return;
+      const { generation, resumeAt } = quotaRequest;
+      quotaRequest = undefined;
+      persistFencedModelEvent('run.quota_recovered', { generation, resumeAt });
+      await deltaWrites;
+
+      if (progressWriteFailed)
+        throw new Error('The quota recovery could not be recorded.');
     };
 
     const persistStepStartSequence = async (): Promise<number> => {
@@ -3697,6 +3784,7 @@ export class RunExecutionService {
       | 'suspend'
       | 'compact'
       | 'superseded'
+      | 'quota'
       | undefined;
 
     let automaticCompactionAtBoundary = false;
@@ -3750,6 +3838,7 @@ export class RunExecutionService {
     // suspension belongs to this attempt even if a waker already queued or
     // claimed the Run again.
     const stopWhenExtra = async (): Promise<boolean> => {
+      await recordQuotaRecovery('completed');
       stopCause = await retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, async (tx) => {
           await new ChatJobsRepository(tx).settleOnDeadWorkers(
@@ -4103,24 +4192,32 @@ export class RunExecutionService {
         }
       };
 
-      const settleSupersededAbort = async (
+      const settlePendingAbort = async (
         cancelRequested: boolean,
-      ): Promise<void> => {
+      ): Promise<boolean> => {
         if (!cancelRequested && stoppedByInterrupt()) {
           await settleOnInterrupt();
 
           if (!input.abortSignal?.aborted) {
             await deliverInterrupt();
 
-            return;
+            return true;
           }
         }
 
         if (parentAbortSettlement) {
           await parentAbortSettlement;
 
-          return;
+          return true;
         }
+
+        return false;
+      };
+
+      const settleAbortedSend = async (
+        cancelRequested: boolean,
+      ): Promise<void> => {
+        if (await settlePendingAbort(cancelRequested)) return;
 
         if (cancelRequested || input.abortSignal?.aborted) {
           const status = classifyAbortedRun(input.abortSignal);
@@ -4221,7 +4318,7 @@ export class RunExecutionService {
           const cancelRequested = current.cancelRequestedAt !== null;
 
           if (callSignal?.aborted || cancelRequested) {
-            await settleSupersededAbort(cancelRequested);
+            await settleAbortedSend(cancelRequested);
 
             return;
           }
@@ -4253,12 +4350,81 @@ export class RunExecutionService {
         }
       };
 
+      const suspendQuotaSend = async (
+        awaiting: AwaitingQuota,
+      ): Promise<void> => {
+        stopCause = 'quota';
+        persistReasoning(reasoningDeltas.flush());
+        persistDelta(deltas.flush());
+        await deltaWrites;
+
+        if (progressWriteFailed) {
+          await this.settleProgressWriteFailure({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
+          });
+
+          return;
+        }
+
+        const parts = assistantPartCollector.parts();
+        const retainedParts = parts.slice(0, stepModelOutputStart);
+
+        if (parts.length > retainedParts.length) {
+          discardedSend = true;
+          persistFencedModelEvent('model.superseded', {
+            fromSequence: stepStartSequence,
+            step: currentStepNumber,
+          });
+          await deltaWrites;
+
+          if (progressWriteFailed)
+            throw new Error('The quota supersession could not be recorded.');
+        }
+
+        assistantPartCollector = createAssistantPartCollector();
+        assistantPartCollector.seed(retainedParts);
+        streamedText = stepStreamedText;
+        firstOutputDeltaMs = stepFirstOutputDeltaMs;
+        outputDeltaCount = stepOutputDeltaCount;
+
+        const suspended = await this.waitService().suspendForQuota({
+          runId: input.runId,
+          chatId: input.chatId,
+          userId: input.userId,
+          attemptId,
+          awaiting,
+          parts: retainedParts,
+          steps: {},
+        });
+
+        if (suspended.kind === 'ready') {
+          const telemetry = buildAssistantTelemetry(null, 'aborted');
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            status: 'cancelled',
+            telemetry,
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: retainedParts,
+              telemetry,
+            },
+            runPayload: { status: 'cancelled' },
+          });
+        }
+      };
+
       stopCause = undefined;
 
       try {
         // A steer that was admitted before this call began has no segment to
         // signal, so the call reads the pending item itself (level trigger).
-        if (this.segmentAborts !== undefined) {
+        if (this.segmentAborts !== undefined && quotaRequest === undefined) {
           const pending = await this.tenantDb.runAs(input.userId, (tx) =>
             new ChatDeliveriesRepository(tx).hasPendingSteering(
               input.chatId,
@@ -4644,22 +4810,20 @@ export class RunExecutionService {
               closeSegment();
             }
 
-            // An owner interrupt stopped the call: settle its open calls by
-            // fate and deliver the pending items, instead of ending the Run.
-            if (stoppedByInterrupt()) {
-              await settleOnInterrupt();
+            if (await settlePendingAbort(false)) return;
 
-              if (!input.abortSignal?.aborted) {
-                await deliverInterrupt();
+            if (error instanceof ProviderFailure && !callSignal?.aborted) {
+              const awaiting = quotaWaitForFailure(
+                error,
+                this.instanceConfig.config.runs.quotaWaitMaxSeconds,
+                quotaRequest,
+              );
+
+              if (awaiting !== undefined) {
+                await suspendQuotaSend(awaiting);
 
                 return;
               }
-            }
-
-            if (parentAbortSettlement) {
-              await parentAbortSettlement;
-
-              return;
             }
 
             if (restarting) {
@@ -4795,7 +4959,7 @@ export class RunExecutionService {
             removeParentAbortListener();
             closeSegment();
 
-            if (stopCause === 'superseded') return;
+            if (stopCause === 'superseded' || stopCause === 'quota') return;
 
             if (failed?.status === 'rejected') throw failed.reason;
 
@@ -4840,10 +5004,9 @@ export class RunExecutionService {
             await Promise.all(lateMcpWrites);
 
             if (
-              stopCause !== 'suspend' &&
-              (await this.tenantDb.runAs(input.userId, (tx) =>
+              await this.tenantDb.runAs(input.userId, (tx) =>
                 suspendedByThisAttempt(tx),
-              ))
+              )
             ) {
               stopCause = 'suspend';
             }
@@ -4870,6 +5033,8 @@ export class RunExecutionService {
             }
 
             if (deferredWaitStep && status === 'completed') {
+              await recordQuotaRecovery(status);
+
               const suspension = await suspendPendingWait(
                 buildAssistantTelemetry(
                   finishReason,
@@ -4914,6 +5079,8 @@ export class RunExecutionService {
             const settleRun = async (
               requestedStatus: TerminalRunStatus,
             ): Promise<void> => {
+              await recordQuotaRecovery(requestedStatus);
+
               let settling = input.abortSignal?.aborted
                 ? classifyAbortedRun(input.abortSignal)
                 : requestedStatus;
@@ -5164,7 +5331,7 @@ export class RunExecutionService {
       }
     };
 
-    return callStream(messages, 0);
+    return callStream(messages, 0, 0, attempt.quotaWake);
   }
 
   /**
@@ -7723,13 +7890,15 @@ export class RunExecutionService {
   private async prepareWakeAttempt(input: {
     run: ExecuteRunInput;
     attemptId: string;
-    wakeState: WakeState | undefined;
+    wakeState: ContinueState | undefined;
+    quotaRequest?: QuotaRequestState;
     startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
     onCompactionSet: (
       set: Awaited<ReturnType<typeof readCompactionSet>>,
     ) => void;
   }): Promise<AttemptRun | 'compact' | undefined> {
-    if (input.wakeState === undefined) return undefined;
+    if (input.wakeState === undefined || input.quotaRequest !== undefined)
+      return undefined;
 
     const compactionSet = await readCompactionSet({
       tenantDb: this.tenantDb,
@@ -9038,7 +9207,7 @@ export class RunExecutionService {
       modelId: string;
       effort: string | undefined;
       permissionMode: PermissionMode;
-      wakeState: WakeState | undefined;
+      wakeState: ContinueState | undefined;
     },
   ): Promise<void> {
     const { run, context } = input;

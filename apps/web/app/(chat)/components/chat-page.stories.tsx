@@ -4561,3 +4561,34 @@ export const SupersededSendStaysAbsentOnReplay: Story = {
     ).toBeNull();
   },
 };
+
+export const QuotaWaitStopPreservesPendingSteer: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: { ...liveRun(), status: "awaiting_quota" },
+    pending: [
+      pendingItem("quota-steer", "steer", "check the restored provider"),
+    ],
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
+    cancelRun.mockResolvedValue(undefined);
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    const pending = await canvas.findByRole("region", PENDING_REGION);
+    await userEvent.type(composer(canvasElement), "draft for later");
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Stop generation" }),
+    );
+    await expect(cancelRun).toHaveBeenCalledWith(LIVE_RUN_ID);
+    await expect(
+      within(pending).getByText("check the restored provider"),
+    ).toBeVisible();
+    await expect(composer(canvasElement)).toHaveValue("draft for later");
+    await expect(chatRoutes()).not.toContain(
+      `PATCH ${DELIVERY_ROUTE("quota-steer")}`,
+    );
+  },
+};

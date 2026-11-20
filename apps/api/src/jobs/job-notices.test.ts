@@ -2,7 +2,7 @@ import { isSQLWrapper, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { PgDialect } from 'drizzle-orm/pg-core';
 
-import { type ChatJob, type Run } from '../db/schema';
+import { type AwaitingJobs, type ChatJob, type Run } from '../db/schema';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { RunsRepository } from '../runs/runs-repository';
@@ -69,6 +69,29 @@ describe('recordJobSettlementNotice', () => {
     const awaitingRun = asDouble<Run>({
       id: '55555555-5555-4555-8555-555555555555',
       status: 'awaiting_jobs',
+      awaiting: asDouble<AwaitingJobs>({ kind: 'jobs' }),
+    });
+
+    const { tx, execute, insertNotice } = setup(awaitingRun);
+
+    await recordJobSettlementNotice(tx, job());
+
+    expect(insertNotice).toHaveBeenCalledWith(job());
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('records the notice but does not steer a Run suspended for quota', async () => {
+    const awaitingRun = asDouble<Run>({
+      id: '77777777-7777-4777-8777-777777777777',
+      status: 'awaiting_quota',
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        resetsAt: '2026-11-12T13:00:00.000Z',
+        wakeAt: '2026-11-12T13:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 1,
+      },
     });
 
     const { tx, execute, insertNotice } = setup(awaitingRun);
@@ -115,6 +138,43 @@ describe('recordJobSettlementNotice', () => {
           kind: 'steer',
         }),
       ],
+    ]);
+  });
+
+  it('notifies a queued Run that still carries awaiting jobs data', async () => {
+    const queuedRun = asDouble<Run>({
+      id: '88888888-8888-4888-8888-888888888888',
+      status: 'queued',
+      currentJobId: '99999999-9999-4999-8999-999999999999',
+      awaiting: {
+        kind: 'jobs',
+        toolCallId: 'call-4',
+        toolInput: { jobs: ['job-id'] },
+        jobIds: ['job-id'],
+        deadline: '2026-11-12T13:00:00.000Z',
+      },
+    });
+
+    const { tx, execute, insertNotice } = setup(queuedRun);
+
+    await recordJobSettlementNotice(tx, job());
+
+    expect(insertNotice).toHaveBeenCalledWith(job());
+    const notification = execute.mock.calls[0]?.[0];
+    expect(notification).toBeDefined();
+
+    if (!notification || !isSQLWrapper(notification)) {
+      throw new Error('Expected a SQL notification');
+    }
+
+    const { sql, params } = new PgDialect().sqlToQuery(notification.getSQL());
+    expect(sql).toBe('select pg_notify($1, $2)');
+    expect(params).toEqual([
+      'llame_run_control',
+      JSON.stringify({
+        runId: '88888888-8888-4888-8888-888888888888',
+        kind: 'steer',
+      }),
     ]);
   });
 

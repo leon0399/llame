@@ -2,6 +2,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-19
 
+- Preserve completed tool results when a repeated quota wake expires before
+  claim. Terminal recovery replays only after the saved checkpoint and does
+  not authorize execution without a matching start. Strengthen quota recovery
+  and execution-budget regressions, including append-only log fixture aging.
+
 - Recheck active Run ownership and durable cancellation after a broken-send
   retry delay before dispatching its replacement. An owner interrupt during
   that delay closes the reply as aborted and delivers the pending message
@@ -20,6 +25,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   allowance as streaming sends. Retry events take the active Run's row lock
   before the Chat lock, so a terminal commit cannot be followed by a retry
   notice. Resumed text starts after the retry marker and clears its label.
+- Persist eligible step requests as `awaiting_quota` until an authoritative model
+  usage-limit reset, without occupying a worker or spending the Run budget.
+  `runs.quotaWaitMaxSeconds` defaults to eight days; each request gets its first
+  wait and at most three re-waits, retained through worker redelivery. Deadline
+  wakes use reset plus grace and jitter, completed tools are never replayed, and
+  pending deliveries stay held until the recovered request's next boundary.
+  Stop cancels a quota wait even with a pending steer. Waiting Chats show
+  background activity in the sidebar.
 
 # 2026-11-18
 

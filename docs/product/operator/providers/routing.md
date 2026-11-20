@@ -185,8 +185,12 @@ Eligible model requests retry within the same Run attempt: after the initial
 send, llame makes up to 10 retries with full jitter (500 ms exponential base,
 capped at 8 s). Short provider delay hints and authoritative reset instants up
 to 60 s are honored. Long rate-limit hints fail the request, long delay hints
-for other failures are ignored, and long authoritative resets fail this layer.
-There is no quota parking in this behavior.
+for other failures are ignored. A step request with a classified quota or rate
+limit and an authoritative reset more than 60 s away can wait durably within
+`runs.quotaWaitMaxSeconds` (eight days by default), without occupying a worker.
+The deadline sends again after reset plus 60 s and up to 18 s of jitter. Stop
+cancels the wait; other deliveries remain pending. A missing or over-cap reset
+fails the request. Side calls do not park a Run.
 
 Completed tool calls are never replayed. Buffered title and summary requests
 discard failed output before retrying. A durable `model.retrying` event records

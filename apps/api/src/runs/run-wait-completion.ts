@@ -8,8 +8,10 @@ import {
   type AwaitingJobs,
   type ChatJob,
   type Run,
+  type RunEvent,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { type RunWaitCause } from './run-wait.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { isTerminalRunStatus } from './run-status';
 import { buildWaitResult } from '../tools/wait';
@@ -49,7 +51,7 @@ export async function completeWaitInTransaction(
     chatId: run.chatId,
     ownerUserId: run.userId,
     runId: run.id,
-    jobIds: rows.filter((job) => job.state !== 'running').map((job) => job.id),
+    jobIds: rows.flatMap((job) => (job.state === 'running' ? [] : [job.id])),
   });
 
   await new RunEventsRepository(tx).append(run.id, 'tool.completed', {
@@ -61,6 +63,38 @@ export async function completeWaitInTransaction(
   });
 
   return output;
+}
+
+export async function clearQuotaAwaitingInTransaction(
+  tx: Db,
+  run: Run,
+  cause: RunWaitCause,
+): Promise<void> {
+  if (cause !== 'timeout' && cause !== 'cancelled')
+    throw new Error('A quota wait cannot resume for this cause.');
+  const attemptId = run.activeAttemptId;
+
+  if (
+    attemptId === null ||
+    isTerminalRunStatus(run.status) ||
+    run.finishedAt !== null
+  )
+    throw new Error('A wait result requires its active Run attempt.');
+
+  const fenced = await new RunsRepository(tx).updateForAttempt(
+    run.id,
+    run.userId,
+    attemptId,
+    { awaiting: null },
+  );
+
+  if (
+    !fenced ||
+    (cause === 'cancelled'
+      ? fenced.cancelRequestedAt === null
+      : fenced.cancelRequestedAt !== null)
+  )
+    throw new Error('The resumed quota wait lost its active attempt.');
 }
 
 async function readWaitJobs(
@@ -94,9 +128,18 @@ async function readWaitJobs(
 export async function pendingWakeInTransaction(
   tx: Db,
   run: Run,
-): Promise<'settled' | 'interrupted' | 'timeout' | undefined> {
+): Promise<'settled' | 'interrupted' | 'timeout' | 'cancelled' | undefined> {
   if (run.awaiting === null) return undefined;
 
+  const receipt = await latestWakeReceipt(tx, run);
+
+  return wakeCauseFromReceipt(run, receipt);
+}
+
+async function latestWakeReceipt(
+  tx: Db,
+  run: Run,
+): Promise<Pick<RunEvent, 'eventType' | 'payload'> | undefined> {
   const [latest] = await tx
     .select({
       eventType: runEvents.eventType,
@@ -118,6 +161,13 @@ export async function pendingWakeInTransaction(
     .orderBy(desc(runEvents.sequence))
     .limit(1);
 
+  return latest;
+}
+
+function wakeCauseFromReceipt(
+  run: Run,
+  latest: Pick<RunEvent, 'eventType' | 'payload'> | undefined,
+): 'settled' | 'interrupted' | 'timeout' | 'cancelled' | undefined {
   if (latest?.eventType !== 'run.resumed') return undefined;
 
   const payload = latest.payload;
@@ -125,9 +175,22 @@ export async function pendingWakeInTransaction(
   if (!isRecord(payload) || payload['generation'] !== run.wakeGeneration)
     throw new Error('The current Run wake receipt is invalid.');
 
+  const kind = payload['kind'];
+
+  if (
+    (run.awaiting?.kind === 'quota' && kind !== 'quota') ||
+    (run.awaiting?.kind === 'jobs' && kind !== undefined && kind !== 'jobs')
+  )
+    throw new Error('The current Run wake kind is invalid.');
+
   const cause = payload['cause'];
 
-  if (cause === 'settled' || cause === 'interrupted' || cause === 'timeout')
+  if (
+    cause === 'settled' ||
+    cause === 'interrupted' ||
+    cause === 'timeout' ||
+    (run.awaiting?.kind === 'quota' && cause === 'cancelled')
+  )
     return cause;
 
   throw new Error('The current Run wake cause is invalid.');

@@ -132,6 +132,57 @@ function text(parts: Array<LanguageModelV3StreamPart>) {
 
 afterEach(() => vi.useRealTimers());
 
+it.each([
+  { failureClass: 'quota_exhausted', tool: false },
+  { failureClass: 'quota_exhausted', tool: true },
+  { failureClass: 'rate_limited', tool: false },
+  { failureClass: 'rate_limited', tool: true },
+] as const)(
+  'retains the complete-tool $failureClass cutoff at the stream boundary (tool=$tool)',
+  async ({ failureClass, tool }) => {
+    const resetsAt = Date.now() + 3_600_000;
+
+    const prefix: Array<LanguageModelV3StreamPart> = tool
+      ? [
+          {
+            type: 'tool-call',
+            toolCallId: 'quota-call',
+            toolName: 'search',
+            input: '{}',
+          },
+        ]
+      : [
+          { type: 'text-start', id: 'quota-draft' },
+          { type: 'text-delta', id: 'quota-draft', delta: 'partial answer' },
+        ];
+
+    const fixture = scriptedModel([
+      [
+        ...prefix,
+        {
+          type: 'error',
+          error: new ProviderFailure('Usage limit', {
+            code: failureClass,
+            resetsAt,
+          }),
+        },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    const failure = providerFailureFrom(parts);
+    expect(failure).toMatchObject({
+      code: failureClass,
+      resetsAt,
+    });
+    expect(failure.toolCallStarted).toBe(tool ? true : undefined);
+    expect(fixture.sends()).toBe(1);
+  },
+);
+
 describe('withRequestRecovery', () => {
   it('drops metadata from repeated failed sends and forwards one successful usage receipt', async () => {
     const failed: Array<LanguageModelV3StreamPart> = [

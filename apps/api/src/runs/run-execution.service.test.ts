@@ -2895,6 +2895,456 @@ describe('RunExecutionService executeRun', () => {
       ).toBe('complete answer');
     });
 
+    it.each([false, true])(
+      'parks an actual quota-failed send without terminal settlement (content=%s)',
+      async (content) => {
+        const spies = mockNormalExecutionRepositories();
+        spies.findById.mockResolvedValue({
+          ...run,
+          activeAttemptId: testAttemptId,
+        });
+        const appended = recordAppendedEvents();
+        const resetsAt = Date.now() + 7_200_000;
+
+        const failure = new ProviderFailure('Usage limit', {
+          code: 'quota_exhausted',
+          resetsAt,
+        });
+
+        const parts: Array<LanguageModelV3StreamPart> = content
+          ? [
+              { type: 'reasoning-start', id: 'unsigned' },
+              {
+                type: 'reasoning-delta',
+                id: 'unsigned',
+                delta: 'incomplete reasoning',
+              },
+              { type: 'text-start', id: 'partial' },
+              {
+                type: 'text-delta',
+                id: 'partial',
+                delta: 'discarded quota draft',
+              },
+            ]
+          : [];
+
+        const { client, requests } = createToolLoopClient([
+          providerResponse(
+            [...parts, { type: 'error', error: failure }],
+            'stop',
+          ),
+        ]);
+
+        const suspendForQuota = vi
+          .fn<RunWaitService['suspendForQuota']>()
+          .mockResolvedValue({ kind: 'suspended' });
+
+        const execution = makeExecutionService(client, undefined, undefined, {
+          runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        });
+
+        vi.spyOn(
+          RunRowFenceRepository.prototype,
+          'lockForDelivery',
+        ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+
+        const result = await execution.service.executeRun(
+          executionInput(client),
+        );
+
+        await Promise.allSettled([result.text, result.consumeStream()]);
+
+        expect(requests).toHaveLength(1);
+        expect(suspendForQuota.mock.lastCall?.[0]).toMatchObject({
+          runId,
+          chatId,
+          userId,
+          attemptId: testAttemptId,
+          awaiting: {
+            kind: 'quota',
+            failureClass: 'quota_exhausted',
+            resetsAt: new Date(resetsAt).toISOString(),
+            resumeAt: 'request',
+            waitCount: 1,
+          },
+          parts: [],
+          steps: {},
+        });
+
+        const superseded = appended.filter(
+          ({ type }) => type === 'model.superseded',
+        );
+
+        expect(superseded).toHaveLength(content ? 1 : 0);
+        expect(spies.markFinished).not.toHaveBeenCalled();
+        expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+      },
+    );
+    it('cancels a quota-wait entry when suspension finds an already-cancelled run', async () => {
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const failure = new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 7_200_000,
+      });
+
+      const { client, requests } = createToolLoopClient([
+        providerResponse([{ type: 'error', error: failure }], 'stop'),
+      ]);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'ready', cause: 'cancelled' });
+
+      const execution = makeExecutionService(client, undefined, undefined, {
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await Promise.allSettled([result.text, result.consumeStream()]);
+
+      expect(requests).toHaveLength(1);
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'cancelled',
+        expect.any(Object),
+      );
+      expect(appended.map(({ type }) => type)).toContain('run.cancelled');
+      expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    });
+
+    it('does not repeat a tool call when the following request hits quota', async () => {
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const failure = new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 7_200_000,
+      });
+
+      const execute = vi.fn(() => ({ status: 'success' as const }));
+
+      const tool: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      };
+
+      const { client, requests } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: 'quota-cutoff-call',
+              toolName: toolDeclaration.id,
+              input: '{"q":"once"}',
+            },
+          ],
+          'tool-calls',
+        ),
+        providerResponse([{ type: 'error', error: failure }], 'stop'),
+      ]);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver(tool),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+          runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        },
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await Promise.allSettled([result.text, result.consumeStream()]);
+
+      expect(requests).toHaveLength(2);
+      expect(execute).toHaveBeenCalledOnce();
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(spies.markFinished).not.toHaveBeenCalled();
+      expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    });
+
+    it('completes a quota wake through the fenced claim with its restored reply prefix', async () => {
+      const spies = mockNormalExecutionRepositories();
+      const generation = 3;
+      const attemptId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+      const resetsAt = new Date(Date.now() - 120_000).toISOString();
+      const wakeAt = new Date(Date.now() - 60_000).toISOString();
+
+      const awaiting = {
+        kind: 'quota' as const,
+        failureClass: 'quota_exhausted' as const,
+        resetsAt,
+        wakeAt,
+        resumeAt: 'request' as const,
+        waitCount: 1,
+      };
+
+      const queued = {
+        ...run,
+        status: 'queued' as const,
+        activeAttemptId: null,
+        awaiting,
+        wakeGeneration: generation,
+        currentJobId: 'quota-wake-job',
+      };
+
+      const started = {
+        ...queued,
+        status: 'running_model' as const,
+        activeAttemptId: attemptId,
+      };
+
+      spies.findById.mockResolvedValueOnce(queued).mockResolvedValue(started);
+      const appended = recordAppendedEvents();
+
+      const checkpoint = [
+        { type: 'text', text: 'before the quota wait', step: 2 },
+      ];
+
+      const quotaEvents: Array<RunEvent> = [
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: testAttemptId,
+            generation,
+            ...awaiting,
+            parts: checkpoint,
+            steps: {},
+          },
+        },
+        {
+          ...event,
+          sequence: 3,
+          eventType: 'run.resumed',
+          payload: {
+            generation,
+            kind: 'quota',
+            attemptId,
+            cause: 'timeout',
+          },
+        },
+      ];
+
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+        (_runId, _userId, options) =>
+          Promise.resolve(
+            filterDurableEvents(
+              [...quotaEvents, ...durableEventsFrom(appended)],
+              options,
+            ),
+          ),
+      );
+      vi.spyOn(
+        ChatsRepository.prototype,
+        'setSkillCatalogBaseline',
+      ).mockResolvedValue(undefined);
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({ ...started, awaiting: null });
+
+      const { client, requests } = createToolLoopClient([
+        providerText('after the wait'),
+      ]);
+
+      const execution = makeExecutionService(client);
+      spies.markStarted.mockResolvedValue(started);
+      spies.updateForAttempt.mockResolvedValue({ ...started, awaiting: null });
+      Object.defineProperty(execution.db, 'select', {
+        configurable: true,
+        value: () => ({
+          from: () => ({
+            innerJoin: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  limit: () => Promise.resolve([quotaEvents[2]]),
+                }),
+              }),
+            }),
+            where: () => Promise.resolve([]),
+          }),
+        }),
+      });
+
+      const result = await execution.service.executeRun({
+        ...executionInput(client),
+        expectedQueueIdentity: {
+          currentJobId: 'quota-wake-job',
+          wakeGeneration: generation,
+        },
+      });
+
+      await expect(result.text).resolves.toBe('after the wait');
+
+      expect(spies.markStarted).toHaveBeenCalledWith(runId, userId, {
+        expectedQueueIdentity: {
+          currentJobId: 'quota-wake-job',
+          wakeGeneration: generation,
+        },
+        attemptId,
+      });
+      expect(spies.updateForAttempt).toHaveBeenCalledWith(
+        runId,
+        userId,
+        attemptId,
+        { awaiting: null },
+      );
+      expect(requests).toHaveLength(1);
+      expect(appended).toContainEqual({
+        type: 'run.started',
+        payload: { attemptId },
+      });
+      expect(appended).toContainEqual({
+        type: 'run.quota_recovered',
+        payload: { generation, resumeAt: 'request' },
+      });
+      expect(JSON.stringify(requests[0])).toContain('before the quota wait');
+      expect(
+        spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
+      ).toContainEqual({
+        type: 'text',
+        text: 'before the quota wait',
+        step: 2,
+      });
+    });
+    it('fails closed when a quota wake has no resumed attempt identity', async () => {
+      const spies = mockNormalExecutionRepositories();
+
+      const queued = {
+        ...run,
+        status: 'queued' as const,
+        activeAttemptId: null,
+        awaiting: {
+          kind: 'quota' as const,
+          failureClass: 'quota_exhausted' as const,
+          resetsAt: new Date(Date.now() - 120_000).toISOString(),
+          wakeAt: new Date(Date.now() - 60_000).toISOString(),
+          resumeAt: 'request' as const,
+          waitCount: 1,
+        },
+        wakeGeneration: 3,
+        currentJobId: 'quota-wake-job',
+      };
+
+      spies.findById.mockResolvedValueOnce(queued);
+
+      const resumedWithoutIdentity = {
+        ...event,
+        sequence: 3,
+        eventType: 'run.resumed' as const,
+        payload: {
+          generation: 3,
+          kind: 'quota',
+          cause: 'timeout',
+        },
+      };
+
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: testAttemptId,
+            generation: 3,
+            ...queued.awaiting,
+            parts: [{ type: 'text', text: 'checkpoint' }],
+            steps: {},
+          },
+        },
+        resumedWithoutIdentity,
+      ]);
+
+      const { client, requests } = createToolLoopClient([
+        providerText('must not dispatch'),
+      ]);
+
+      const execution = makeExecutionService(client);
+
+      await expect(
+        execution.service.executeRun({
+          ...executionInput(client),
+          expectedQueueIdentity: {
+            currentJobId: 'quota-wake-job',
+            wakeGeneration: 3,
+          },
+        }),
+      ).rejects.toThrow('The quota wake has no waking attempt identity.');
+
+      expect(spies.markStarted).not.toHaveBeenCalled();
+      expect(requests).toHaveLength(0);
+    });
+    it('increments the persisted wait count after a quota wake is claimed', async () => {
+      mockNormalExecutionRepositories();
+
+      const failure = new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 7_200_000,
+      });
+
+      const { client } = createToolLoopClient([
+        providerResponse([{ type: 'error', error: failure }], 'stop'),
+      ]);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const execution = makeExecutionService(client, undefined, undefined, {
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+      });
+
+      vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        effort: undefined,
+        permissionMode: 'default',
+        attemptId: testAttemptId,
+        messageId,
+        nativeDeliverySequence: 1,
+        wakeState: { parts: [] },
+        quotaRequest: {
+          generation: 13,
+          resumeAt: 'request',
+          waitCount: 3,
+        },
+        quotaWake: true,
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await Promise.allSettled([result.text, result.consumeStream()]);
+
+      expect(suspendForQuota.mock.lastCall?.[0].awaiting).toMatchObject({
+        kind: 'quota',
+        resumeAt: 'request',
+        waitCount: 4,
+      });
+    });
+
     it('publishes a staged in-Run item after the step tool part on completion', async () => {
       const notice = workspaceNotice(runId);
 
@@ -3549,7 +3999,6 @@ describe('RunExecutionService executeRun', () => {
     });
 
     await expect(result.text).resolves.toBe('answer');
-    expect(repositorySpies.markStarted).toHaveBeenCalledWith(runId, userId);
     expect(repositorySpies.updateForAttempt).toHaveBeenCalledWith(
       runId,
       userId,
@@ -4423,9 +4872,9 @@ describe('RunExecutionService executeRun', () => {
       cancelRequestedAt: now,
     };
 
-    const markStarted = vi
-      .spyOn(RunsRepository.prototype, 'markStarted')
-      .mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'markStarted').mockResolvedValue(
+      undefined,
+    );
 
     const findById = vi
       .spyOn(RunsRepository.prototype, 'findById')
@@ -4466,7 +4915,6 @@ describe('RunExecutionService executeRun', () => {
         client: execution.client,
       }),
     ).rejects.toBeInstanceOf(RunNotRunnableError);
-    expect(markStarted).toHaveBeenCalledWith(runId, userId);
     expect(findById).toHaveBeenCalledWith(runId, userId);
     expect(markFinished).toHaveBeenCalledWith(runId, userId, 'cancelled');
     expect(append).toHaveBeenCalledWith(runId, 'run.cancelled', {
@@ -11224,9 +11672,9 @@ describe('RunExecutionService executeRun — context preparation', () => {
   });
 
   it('leaves an already-terminal run alone when the claim loses without a cancel request', async () => {
-    const markStarted = vi
-      .spyOn(RunsRepository.prototype, 'markStarted')
-      .mockResolvedValue(undefined);
+    vi.spyOn(RunsRepository.prototype, 'markStarted').mockResolvedValue(
+      undefined,
+    );
 
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
       ...run,
@@ -11245,7 +11693,6 @@ describe('RunExecutionService executeRun — context preparation', () => {
     await expect(
       execution.service.executeRun(executionInput(capturing.client)),
     ).rejects.toBeInstanceOf(RunNotRunnableError);
-    expect(markStarted).toHaveBeenCalledWith(runId, userId);
     expect(markFinished).not.toHaveBeenCalled();
     expect(appended).toEqual([]);
   });
@@ -21857,6 +22304,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     readonly boundaryDelivered?: boolean;
     readonly completeWaitLockMissing?: boolean;
     readonly boundaryItems?: Array<ChatDelivery>;
+    readonly quotaReplay?: boolean;
   };
 
   const resumesAfterSuspend = (scenario: WaitOutcomeCase): boolean =>
@@ -22175,6 +22623,18 @@ describe('RunExecutionService executeRun — run segments', () => {
       outcome: { kind: 'suspended' as const },
       terminalStatus: undefined,
       expectedContinuation: false,
+      quotaReplay: true,
+    },
+    {
+      outcome: { kind: 'ready' as const, cause: 'settled' as const },
+      terminalStatus: 'completed' as const,
+      expectedContinuation: true,
+      quotaReplay: true,
+    },
+    {
+      outcome: { kind: 'suspended' as const },
+      terminalStatus: undefined,
+      expectedContinuation: false,
     },
     {
       outcome: { kind: 'ready' as const, cause: 'cancelled' as const },
@@ -22212,7 +22672,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     },
   ] satisfies ReadonlyArray<WaitOutcomeCase>)(
     'records wait suspension outcome $outcome.kind',
-    async (scenario) => {
+    async (scenario: WaitOutcomeCase) => {
       registerTestOnlyTool(waitTool);
 
       const spies = mockNormalExecutionRepositories();
@@ -22232,7 +22692,17 @@ describe('RunExecutionService executeRun — run segments', () => {
 
       const suspend = vi
         .fn<RunWaitService['suspend']>()
-        .mockResolvedValue(scenario.outcome);
+        .mockImplementation(() => {
+          if (scenario.quotaReplay) {
+            expect(
+              appended.find(({ type }) => type === 'run.quota_recovered'),
+            ).toMatchObject({
+              payload: { generation: 7, resumeAt: 'request' },
+            });
+          }
+
+          return Promise.resolve(scenario.outcome);
+        });
 
       const segment = makeSegmentClient();
 
@@ -22247,6 +22717,23 @@ describe('RunExecutionService executeRun — run segments', () => {
         },
       );
 
+      if (scenario.quotaReplay) {
+        spies.findById.mockResolvedValue({
+          ...run,
+          activeAttemptId: testAttemptId,
+        });
+        vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+          effort: undefined,
+          permissionMode: 'default',
+          attemptId: testAttemptId,
+          messageId,
+          nativeDeliverySequence: 1,
+          wakeState: { parts: [] },
+          quotaRequest: { generation: 7, resumeAt: 'request', waitCount: 4 },
+          quotaWake: true,
+        });
+      }
+
       const prepareBoundary = vi.spyOn(
         Object.getPrototypeOf(execution.service),
         'prepareBoundaryCompaction',
@@ -22260,6 +22747,12 @@ describe('RunExecutionService executeRun — run segments', () => {
           result: { exitCode: 0 },
         });
       }
+
+      if (scenario.quotaReplay)
+        vi.spyOn(
+          RunRowFenceRepository.prototype,
+          'lockForDelivery',
+        ).mockResolvedValueOnce({ ...run, activeAttemptId: testAttemptId });
 
       const result = await execution.service.executeRun(
         executionInput(segment.client),
@@ -22283,6 +22776,11 @@ describe('RunExecutionService executeRun — run segments', () => {
       const types = appended.map(({ type }) => type);
       expect(types).toContain('tool.requested');
       expectWaitOutcome(scenario, spies, types, appended);
+
+      if (scenario.quotaReplay)
+        expect(
+          types.filter((type) => type === 'run.quota_recovered'),
+        ).toHaveLength(1);
 
       if (scenario.expectedContinuation) {
         const closedParts =
@@ -22562,6 +23060,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       const appended = recordAppendedEvents();
 
       const awaiting = {
+        kind: 'jobs' as const,
         toolCallId: 'wake-wait',
         toolInput: { jobs: ['job://bash-45'], timeout: 30 },
         jobIds: ['job-45'],
@@ -22803,7 +23302,6 @@ describe('RunExecutionService executeRun — run segments', () => {
           stepNumber: 0,
         },
       });
-      expect(spies.markStarted).toHaveBeenCalledWith(runId, userId);
     },
   );
   it('does not defer an ordinary declared tool call as a wait', async () => {
@@ -26970,7 +27468,7 @@ describe('RunExecutionService wake boundary preparation', () => {
     const wakeAttempt = await execution.service['prepareWakeAttempt']({
       run: currentRun,
       attemptId: testAttemptId,
-      wakeState: { toolCallId: 'wait-call', parts: [] },
+      wakeState: { parts: [] },
       startDelivered,
       onCompactionSet,
     });
@@ -26997,7 +27495,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       execution.service['prepareWakeAttempt']({
         run: executionInput(createFakeModelClient(['answer'])),
         attemptId: testAttemptId,
-        wakeState: { toolCallId: 'wait-call', parts: [] },
+        wakeState: { parts: [] },
         startDelivered,
         onCompactionSet,
       }),
@@ -27064,7 +27562,6 @@ describe('RunExecutionService wake-compaction fallback context fit', () => {
       nativeDeliverySequence: 1,
       permissionMode: 'default',
       wakeState: {
-        toolCallId: 'wait-call',
         parts: [{ type: 'text', text: 'kept context', step: 2 }],
       },
     });
@@ -27499,7 +27996,6 @@ describe('RunExecutionService disabled automatic compaction state', () => {
       nativeDeliverySequence: 1,
       permissionMode: 'default',
       wakeState: {
-        toolCallId: 'wait-call',
         parts: [{ type: 'text', text: 'kept context', step: 2 }],
       },
     });

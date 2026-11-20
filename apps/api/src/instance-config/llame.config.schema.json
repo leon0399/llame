@@ -1029,6 +1029,10 @@
           "$ref": "#/$defs/heartbeatSecondsOrToken",
           "description": "The job-queue's native worker-liveness window, in seconds: while a run's job is in flight the worker auto-signals liveness at half this interval, and the queue's monitor fails+retries the job if the signal lapses this long — worker-death detection, not an application heartbeat. Falls back to RUN_HEARTBEAT_SECONDS, then 15."
         },
+        "quotaWaitMaxSeconds": {
+          "$ref": "#/$defs/positiveSafeIntegerOrToken",
+          "description": "Maximum time in seconds that a Run may wait for a provider quota reset. Defaults to 691200 (8 days); must be a positive integer."
+        },
         "timeoutSeconds": {
           "$ref": "#/$defs/nullableNumberOrToken",
           "description": "Optional in-process wall-clock budget, in seconds: while its worker is alive, a run exceeding this is aborted in-process and recorded as a terminal run.expired (distinct from a user run.cancelled). Omitted or null = NO budget: a progressing run runs until the model answers or the owner cancels it. Must be a positive integer below the 23 h 55 m execution ceiling."

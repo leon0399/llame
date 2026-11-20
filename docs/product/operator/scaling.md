@@ -165,9 +165,9 @@ first queue job uses the Run id; later wake jobs use the Run's recorded
 `current_job_id` and generation. The `runs` queue declares a job duration of
 86,399 s, so pg-boss never expires a live Run at its 900 s default. Without an
 operator budget, the worker ends an executing attempt after 23 h 55 m. With
-`runs.timeoutSeconds`, the budget starts at the first claim and includes time
-spent waiting. Model requests have separate stream windows: the first-token
-timeout is 300 s by default and covers response headers and metadata until
+`runs.timeoutSeconds`, the budget starts at the first claim and includes jobs
+waits but excludes quota waits. Model requests have separate stream windows:
+the first-token timeout is 300 s by default and covers response headers and metadata until
 content starts; after content starts, 300 s without a stream part fails the
 request. These are model-request timeouts, not a Run-wide execution ceiling.
 Set `models[].firstTokenTimeoutSeconds` to a positive integer to override the
@@ -178,8 +178,8 @@ Eligible model requests can be retried up to 10 times after the initial send,
 using full jitter from 500 ms with exponential backoff capped at 8 s. Short
 provider delay hints and authoritative reset times up to 60 s are honored.
 Long rate-limit hints fail the request; long non-rate-limit delay hints are
-ignored; long authoritative resets fail rather than parking the Run. A retry
-does not replay a completed tool call. Buffered title and summary requests
+ignored. An eligible step request with a long authoritative reset enters the
+quota wait described below. A retry does not replay a completed tool call. Buffered title and summary requests
 discard failed output before retrying. `model.retrying` events record the
 failure class, retry number, and delay, and the owner sees a retry line.
 Failed first-token windows use `first_token_timeout`; broken streams use
@@ -206,6 +206,27 @@ deadline job together, then releases the Run worker slot. Suspension keeps the
 Chat's single-flight slot. Settlement, steering, cancellation, or the deadline
 can queue one generation-fenced wake; a replacement worker reads its state
 from Postgres. This layer prepares that lifecycle but exposes no `wait` tool.
+
+A step request that fails with `quota_exhausted` or `rate_limited` and an
+authoritative reset more than 60 seconds away enters `awaiting_quota`, provided
+the reset is no more than `runs.quotaWaitMaxSeconds` away (default 691,200,
+eight days), no tool call has started, and this logical request has waited
+fewer than four times. The setting must be a positive integer. A missing
+reset, one beyond the cap, a started tool call, or an exhausted wait allowance
+ends the request with its failure class. Completed tool calls are never
+replayed. The checkpoint omits failed-send output, retains completed
+steps and context, and releases the worker while keeping the Chat in
+single-flight. The deadline job sends again after reset plus 60 seconds and
+0-18 seconds of jitter. Each logical request can wait once and re-wait three
+times; recovery and redelivery retain that count until the request succeeds.
+
+Quota wait time does not count toward `runs.timeoutSeconds`; each claim keeps
+its own execution ceiling. Only the deadline or Stop wakes a quota wait.
+Steers, interrupts, queued deliveries, and job notices remain pending; a plain
+send still gets 409. After the wake, the failed request is sent before pending
+items reach its next step boundary. Stop cancels rather than promoting a
+pending steer. The API stream stays open, polling every two seconds while the
+Run waits and sending a keepalive comment after 15 quiet seconds.
 
 Per-Chat ordering is exclusivity, not queueing: one nonterminal Run per Chat;
 concurrent new messages get 409 and same-message retry supersedes.

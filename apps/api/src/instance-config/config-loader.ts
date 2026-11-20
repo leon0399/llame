@@ -192,6 +192,16 @@ function resolveRunsConfig(
       nullable: true,
       env,
     }),
+    quotaWaitMaxSeconds: requireResolvedNumber(
+      resolveNumeric({
+        configPath: 'runs.quotaWaitMaxSeconds',
+        ...readLeaf(raw, 'runs', 'quotaWaitMaxSeconds'),
+        builtInDefault: BUILT_IN_DEFAULTS.runs.quotaWaitMaxSeconds,
+        nullable: false,
+        env,
+      }),
+      'runs.quotaWaitMaxSeconds',
+    ),
     // nullable:false guarantees a number, never null — see resolveNumeric.
     heartbeatSeconds: requireResolvedNumber(
       resolveNumeric({
@@ -209,15 +219,7 @@ function resolveRunsConfig(
     ),
     // Opt-in: null (absent, explicit null, or an empty-resolving token) is
     // "no wall-clock budget".
-    timeoutSeconds: requireBudgetUnderExecutionCeiling(
-      resolveNumeric({
-        configPath: 'runs.timeoutSeconds',
-        ...readLeaf(raw, 'runs', 'timeoutSeconds'),
-        builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
-        nullable: true,
-        env,
-      }),
-    ),
+    timeoutSeconds: resolveRunBudget(raw, env),
   };
 }
 
@@ -2188,9 +2190,18 @@ function requireResolvedNumber(
  * ceiling would silently truncate, so it fails startup naming the path rather
  * than pretending to apply. A `null` budget is never checked.
  */
-function requireBudgetUnderExecutionCeiling(
-  value: number | null,
+function resolveRunBudget(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
 ): number | null {
+  const value = resolveNumeric({
+    configPath: 'runs.timeoutSeconds',
+    ...readLeaf(raw, 'runs', 'timeoutSeconds'),
+    builtInDefault: BUILT_IN_DEFAULTS.runs.timeoutSeconds,
+    nullable: true,
+    env,
+  });
+
   if (value !== null && value >= RUN_EXECUTION_CEILING_SECONDS) {
     throw new InstanceConfigError(
       `runs.timeoutSeconds: must be below ${RUN_EXECUTION_CEILING_SECONDS} (the Run execution ceiling)`,

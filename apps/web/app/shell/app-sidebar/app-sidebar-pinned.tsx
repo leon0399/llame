@@ -227,16 +227,16 @@ function usePinnedChatActivityState(pin: PinnedChat, runningJobs: number) {
   const activeRuns = useOptionalActiveRuns();
   const live = activeRuns?.activeChatIds.has(pin.itemId) ?? false;
 
-  const awaitingJobs =
-    activeRuns?.runStatusByChatId.get(pin.itemId) === "awaiting_jobs";
+  const status = activeRuns?.runStatusByChatId.get(pin.itemId);
+  const waiting = status === "awaiting_jobs" || status === "awaiting_quota";
 
-  const processing = live && !awaitingJobs;
+  const processing = live && !waiting;
 
   return {
     processing,
     status: resolveChatActivityStatus({
       processing,
-      background: awaitingJobs || (!live && runningJobs > 0),
+      background: waiting || (!live && runningJobs > 0),
       outcome: activeRuns?.unseenRunOutcomes.get(pin.itemId),
     }),
     phase: processing

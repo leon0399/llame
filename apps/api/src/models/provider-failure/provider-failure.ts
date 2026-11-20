@@ -35,6 +35,7 @@ export type ProviderFailureDetails = {
   hintMs?: number;
   statusCode?: number;
   superseded?: ProviderFailureSuperseded;
+  toolCallStarted?: true;
 };
 
 /** A provider failure with a closed classification and safe timing metadata. */
@@ -44,11 +45,14 @@ export class ProviderFailure extends Error {
   readonly hintMs?: number;
   readonly statusCode?: number;
   readonly superseded?: ProviderFailureSuperseded;
+  readonly toolCallStarted?: true;
 
   constructor(message: string, details: ProviderFailureDetails) {
     super(message);
     this.name = 'ProviderFailure';
     this.code = details.code;
+
+    if (details.toolCallStarted) this.toolCallStarted = true;
 
     if (
       details.resetsAt !== undefined &&

@@ -908,6 +908,122 @@ describe('finalizeRunReply', () => {
       }),
     );
   });
+  it('keeps the pre-wait quota checkpoint when a wake settler has no collector', async () => {
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'prior-attempt',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        requested(1, 'prior-attempt'),
+        event(2, 'model.delta', { text: 'pre-wait checkpoint' }),
+        event(3, 'run.suspended', {
+          kind: 'quota',
+          attemptId: 'prior-attempt',
+          generation: 2,
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-10-12T00:00:00.000Z',
+          wakeAt: '2026-10-12T00:01:00.000Z',
+          resumeAt: 'request',
+          waitCount: 1,
+          parts: [{ type: 'text', text: 'pre-wait checkpoint' }],
+          steps: {},
+        }),
+        event(4, 'run.resumed', {
+          kind: 'quota',
+          attemptId: 'wake-attempt',
+          generation: 2,
+          cause: 'timeout',
+        }),
+        event(5, 'run.started', { attemptId: 'wake-attempt' }),
+        requested(6, 'wake-attempt'),
+        event(7, 'model.delta', { text: 'after wake' }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, activeAttemptId: 'wake-attempt' },
+      status: 'failed',
+      attemptId: 'wake-attempt',
+      models,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parts: [
+          { type: 'text', text: 'pre-wait checkpoint' },
+          { type: 'text', text: 'after wake' },
+        ],
+      }),
+    );
+  });
+
+  it('keeps a re-wait checkpoint when pickup expires before the next attempt starts', async () => {
+    const checkpoint = [
+      { type: 'text', text: 'original reply', step: 0 },
+      {
+        type: 'tool-read',
+        toolCallId: 'completed-read',
+        state: 'output-available',
+        step: 1,
+        input: { path: '/workspace/answer.txt' },
+        output: { status: 'success', value: 'retained tool result' },
+        outcome: 'success',
+        classification: null,
+      },
+      { type: 'text', text: 'first wake reply', step: 2 },
+    ];
+
+    const running = runningReplyUsage({
+      runId,
+      attemptId: 'first-wake',
+      modelId: 'fake-model',
+      effort: undefined,
+      permissionMode: 'default',
+    });
+
+    const { update } = serve({
+      log: [
+        event(1, 'run.started', { attemptId: 'first-wake' }),
+        requested(2, 'first-wake'),
+        event(3, 'model.delta', { text: 'first wake reply' }),
+        event(4, 'run.suspended', {
+          kind: 'quota',
+          attemptId: 'first-wake',
+          generation: 3,
+          failureClass: 'quota_exhausted',
+          resetsAt: '2026-10-12T00:00:00.000Z',
+          wakeAt: '2026-10-12T00:01:00.000Z',
+          resumeAt: 'request',
+          waitCount: 2,
+          parts: checkpoint,
+          steps: {},
+        }),
+        event(5, 'run.resumed', {
+          kind: 'quota',
+          generation: 3,
+          attemptId: 'unclaimed-wake',
+          cause: 'timeout',
+        }),
+      ],
+      reply: reply({ usage: running }),
+    });
+
+    await finalizeRunReply(tx, {
+      run: { ...run, status: 'expired' },
+      status: 'expired',
+      models,
+    });
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ parts: checkpoint }),
+    );
+  });
 
   it('projects superseded output and lowers usage completeness', async () => {
     const item = contextItem('kept context');

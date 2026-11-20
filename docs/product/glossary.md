@@ -111,8 +111,12 @@ _Avoid_: job, request, task
 
 **Run status**:
 Where a Run is in its life: active (`queued`, `running_model`), waiting
-(`awaiting_jobs`), or terminal (`completed`, `failed`, `cancelled`, `expired`).
+(`awaiting_jobs`, `awaiting_quota`), or terminal (`completed`, `failed`, `cancelled`, `expired`).
 A terminal status never changes.
+
+**Quota wait**:
+A Run's durable pause until an authoritative model usage-limit reset, during
+which no worker executes it and its Chat remains in single-flight.
 
 **Single-flight**:
 The rule that a Chat has at most one Run that is not terminal.

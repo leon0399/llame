@@ -35,7 +35,7 @@ import { RunWaitService } from './run-wait.service';
 import { retryRunTransaction } from './run-transaction';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
-import { isTerminalRunStatus } from './run-status';
+import { isTerminalRunStatus, isWaitingRunStatus } from './run-status';
 import {
   ContextReceiptResponse,
   ListRunEventsQuery,
@@ -154,7 +154,8 @@ export class RunsController {
         let current = responseRun ?? (await runs.findById(id, userId));
 
         if (
-          current?.status === 'awaiting_jobs' &&
+          current !== undefined &&
+          isWaitingRunStatus(current.status) &&
           current.cancelRequestedAt !== null
         ) {
           const woke = await this.runWait.wakeInTransaction(tx, {

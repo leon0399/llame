@@ -1,7 +1,13 @@
 import { ChatsRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { MessagesRepository } from '../chats/messages-repository';
-import { type Chat, type Message, type Run, type RunEvent } from '../db/schema';
+import {
+  type AwaitingQuota,
+  type Chat,
+  type Message,
+  type Run,
+  type RunEvent,
+} from '../db/schema';
 import { type Db, type TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -9,7 +15,11 @@ import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { asDouble } from '../testing/support';
 import { type RunDispatchService } from './run-dispatch.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { RunWaitService, type SuspendRunWaitInput } from './run-wait.service';
+import {
+  RunWaitService,
+  type SuspendRunQuotaInput,
+  type SuspendRunWaitInput,
+} from './run-wait.service';
 
 const now = new Date('2026-11-14T00:00:00.000Z');
 
@@ -40,6 +50,25 @@ const input: SuspendRunWaitInput = {
   deadline: '2026-11-14T01:00:00.000Z',
   parts: [{ type: 'tool-call', id: 'call-1' }],
   steps: { 'call-1': 0 },
+};
+
+const quotaAwaiting: AwaitingQuota = {
+  kind: 'quota',
+  failureClass: 'rate_limited',
+  resetsAt: '2026-11-14T02:00:00.000Z',
+  wakeAt: '2026-11-14T02:01:00.000Z',
+  resumeAt: 'request',
+  waitCount: 1,
+};
+
+const quotaInput: SuspendRunQuotaInput = {
+  runId: 'run-1',
+  chatId: 'chat-1',
+  userId: 'user-1',
+  attemptId: 'attempt-1',
+  awaiting: quotaAwaiting,
+  parts: [{ type: 'text', text: 'kept checkpoint' }],
+  steps: { request: 2 },
 };
 
 function makeFixture(
@@ -126,13 +155,15 @@ function makeFixture(
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue(asDouble<RunEvent>({}));
 
-  vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
-    asDouble<Message>({
-      id: 'message-1',
-      seq: 1,
-      parts: [{ type: 'text', text: 'wait for job-1' }],
-    }),
-  );
+  const findMessage = vi
+    .spyOn(MessagesRepository.prototype, 'findById')
+    .mockResolvedValue(
+      asDouble<Message>({
+        id: 'message-1',
+        seq: 1,
+        parts: [{ type: 'text', text: 'wait for job-1' }],
+      }),
+    );
 
   return {
     service,
@@ -143,11 +174,84 @@ function makeFixture(
     hasPendingSteering,
     updateForAttempt,
     append,
+    findMessage,
     enqueueInTransaction,
   };
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('RunWaitService.suspendForQuota', () => {
+  it('fences and queues a quota checkpoint for its persisted wake time', async () => {
+    const fixture = makeFixture();
+
+    await expect(fixture.service.suspendForQuota(quotaInput)).resolves.toEqual({
+      kind: 'suspended',
+    });
+
+    expect(fixture.updateForAttempt.mock.lastCall).toMatchObject([
+      quotaInput.runId,
+      quotaInput.userId,
+      quotaInput.attemptId,
+      {
+        status: 'awaiting_quota',
+        awaiting: quotaAwaiting,
+        wakeGeneration: 5,
+        currentJobId: fixture.enqueueInTransaction.mock.lastCall?.[2]?.id,
+        activeAttemptId: null,
+      },
+    ]);
+    expect(fixture.append).toHaveBeenCalledWith(
+      quotaInput.runId,
+      'run.suspended',
+      {
+        kind: 'quota',
+        attemptId: quotaInput.attemptId,
+        generation: 5,
+        failureClass: quotaAwaiting.failureClass,
+        resetsAt: quotaAwaiting.resetsAt,
+        wakeAt: quotaAwaiting.wakeAt,
+        resumeAt: quotaAwaiting.resumeAt,
+        waitCount: quotaAwaiting.waitCount,
+        parts: quotaInput.parts,
+        steps: quotaInput.steps,
+      },
+    );
+
+    const [, dispatchInput, options] =
+      fixture.enqueueInTransaction.mock.calls[0] ?? [];
+
+    expect(dispatchInput?.wake?.generation).toBe(5);
+    expect(options?.startAfter).toEqual(new Date(quotaAwaiting.wakeAt));
+    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
+    expect(fixture.hasPendingSteering).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ordinary wake without a triggering message', async () => {
+    const fixture = makeFixture();
+    fixture.findMessage.mockResolvedValue(undefined);
+
+    await expect(fixture.service.suspendForQuota(quotaInput)).rejects.toThrow(
+      Error,
+    );
+
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('does not suspend when cancellation was already requested', async () => {
+    const fixture = makeFixture({
+      run: makeRun({ cancelRequestedAt: now }),
+    });
+
+    await expect(fixture.service.suspendForQuota(quotaInput)).resolves.toEqual({
+      kind: 'ready',
+      cause: 'cancelled',
+    });
+    expect(fixture.updateForAttempt).not.toHaveBeenCalled();
+    expect(fixture.append).not.toHaveBeenCalled();
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+});
 
 describe('RunWaitService.suspend', () => {
   it('suspends a running job and persists its checkpoint and queue handoff', async () => {
@@ -168,7 +272,10 @@ describe('RunWaitService.suspend', () => {
     expect(update?.wakeGeneration).toBe(5);
     expect(update?.activeAttemptId).toBeNull();
     expect(update?.currentJobId).toBeTruthy();
-    expect(update?.awaiting?.jobIds).toEqual(input.jobIds);
+    expect(update?.awaiting).toMatchObject({
+      kind: 'jobs',
+      jobIds: input.jobIds,
+    });
 
     expect(fixture.append).toHaveBeenCalledTimes(1);
     expect(fixture.append.mock.calls[0]?.[1]).toBe('run.suspended');

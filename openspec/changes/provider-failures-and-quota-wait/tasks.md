@@ -190,10 +190,10 @@ does not update the SDK's separate active response. GR remains non-gating for th
 
 ## 5. quota-wait
 
-- [ ] 5.1 Add the two migrations and the `awaiting` union (design D5). Verify with `pnpm --filter
+- [x] 5.1 Add the two migrations and the `awaiting` union (design D5). Verify with `pnpm --filter
   api db:check`, and with an integration test that an `awaiting_jobs` Run stored before the backfill
       carries `kind: 'jobs'` and still wakes.
-- [ ] 5.2 Enter, wake, and re-wait for step requests (design D5, D6), with `runs.quotaWaitMaxSeconds`.
+- [x] 5.2 Enter, wake, and re-wait for step requests (design D5, D6), with `runs.quotaWaitMaxSeconds`.
       Verify "A weekly limit frees the worker", "A short reset does not park the Run", "A worker crash
       after the entry", "A wake after a restart", "A monthly budget beyond the default cap", "A steer
       after the reset", "A reset that does not clear", "Two limits in one long Run", "The default cap",
@@ -201,32 +201,44 @@ does not update the SDK's separate active response. GR remains non-gating for th
       in API integration tests. Check that the quota `run.suspended` carries `attemptId` and
       `generation`, and that `onFinish` writes nothing after the entry. Verify "A quota wake claim
       dies before its request succeeds" and generation-matched `run.quota_recovered` count closure.
-- [ ] 5.3 Keep deliveries and notices pending (design D6). Verify "A steer during a quota wait", "A
+- [x] 5.3 Keep deliveries and notices pending (design D6). Verify "A steer during a quota wait", "A
       job settles during a quota wait", and that a plain send gets 409.
-- [ ] 5.4 Wake on cancellation with one fenced winner. Verify "The owner stops a quota wait", "A
+- [x] 5.4 Wake on cancellation with one fenced winner. Verify "The owner stops a quota wait", "A
       cancellation and the deadline job arrive together", and the `run-steering` scenario "Stop during a
       quota wait with a pending steer" in API integration tests.
-- [ ] 5.5 Exclude quota waits from the budget (design D7). Verify "A long wait under a budget", the
+- [x] 5.5 Exclude quota waits from the budget (design D7). Verify "A long wait under a budget", the
       `durable-runs` scenarios "A quota wait does not use the budget" and "A Run passes its budget while
       it waits", and the `run-steering` scenario "A long steered Run reaches its budget".
-- [ ] 5.6 Continue from the stored steps after a quota wake, and use the quota projection in
+- [x] 5.6 Continue from the stored steps after a quota wake, and use the quota projection in
       `wakeReplyRecovery`. Verify the `tool-calling` scenario "A quota wake does not restart the
       segment", and that a dead-letter settler after a quota wake keeps the pre-wait parts.
-- [ ] 5.7 Verify the `opencode-go-provider` scenarios "A quota rejection is reported without
+- [x] 5.7 Verify the `opencode-go-provider` scenarios "A quota rejection is reported without
       inventing state", "A usage limit without Retry-After fails", and "The runbook names the accepted
       upstream shapes", and the `subscription-access-openai-codex` scenarios "Subscription limit" and "A
       plan without the model", with stubbed upstreams. Add a pg-boss test that an 8-day delayed job
       keeps `keep_until` after its `start_after`.
-- [ ] 5.8 Add `awaiting_quota` to the DTO enums and regenerate OpenAPI, the orval models, and both
+- [x] 5.8 Add `awaiting_quota` to the DTO enums and regenerate OpenAPI, the orval models, and both
       live-protocol files, with a clean second generation. Add it to the status reducer and both sidebar
       checks, and make `stopOrInterrupt` cancel a quota wait before its steer branch. Verify the
       `background-jobs` scenario "A Run that waits for a quota reset", and a Stop click with a pending
       steer, in story tests.
-- [ ] 5.9 Add "Quota wait" and `awaiting_quota` to the glossary, update `SPEC.md` §9.3, the Codex
+- [x] 5.9 Add "Quota wait" and `awaiting_quota` to the glossary, update `SPEC.md` §9.3, the Codex
       and OpenCode Go runbooks, and `docs/product/operator/scaling.md`, and add a dated `CHANGELOG.md`
       entry.
-- [ ] 5.10 Focused checks as in 3.9, the OpenAPI lint, and the changed integration test files.
+- [x] 5.10 Focused checks as in 3.9, the OpenAPI lint, and the changed integration test files.
 - [ ] 5.11 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+
+Local evidence: 650 execution and stream-bridge cases passed, including real SDK quota failures
+before and after released content, deferred-wait recovery ordering, and cancellation during a
+retry. The deferred-wait regression failed when its recovery write was removed and passed after
+restoration. Focused configuration, projection, budget, suspension, and wake cases also passed.
+Both quota sidebar and Stop-with-pending-steer stories passed Storybook MCP tests and browser
+inspection. OpenAPI lint and Drizzle checks passed; a second generation preserved all 236 generated
+outputs byte for byte. Five independent reviewers covered reuse, quality, efficiency, ponytail,
+and security; accepted findings were verified and fixed. CI run 44438054101 at `8b9006ad` passed
+all ordinary test shards, including real queue, worker, backfill, counter, and isolation acceptance.
+The media Schemathesis fuzzing-3 check is the documented master-red exception. Mutation testing
+and GitHub review remain non-gating for development of the next layer under Leo's override.
 
 ## 6. quota-wait-compaction
 
