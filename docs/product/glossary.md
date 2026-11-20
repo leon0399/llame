@@ -240,9 +240,10 @@ The recorded result of one tool call, as the model receives it in history.
 _Avoid_: tool output
 
 **Locator**:
-The URI-like name a tool's path argument accepts: a host path, or a scheme
-such as `machine://`, `ssh://`, `kb://`, `skill://`, `media://`, `job://`,
-`artifact://`, or an `http(s)://` URL.
+The URI-like name a tool's path argument accepts: a path on the current
+Machine, a `machine://` locator naming one Machine, or a scheme such as
+`ssh://`, `kb://`, `skill://`, `media://`, `job://`, `artifact://`, or an
+`http(s)://` URL.
 _Avoid_: address
 
 **Selector**:
@@ -342,13 +343,17 @@ Distinct from authorization, which a permission group decides per call.
 ## Location
 
 **Host**:
-The llame installation's own machine and filesystem, where native tools run
-as the worker's user.
+The computer a llame process runs on. Its Machine is the host Machine.
 _Avoid_: local, server
 
 **Executor**:
 The Machine on which a file or shell tool runs.
 _Avoid_: runner, node
+
+**Current Machine**:
+The Machine that a bare or relative path and a `file:` locator refer to: the
+Machine of the Chat's Workspace, or the installation's default Machine when no
+Workspace is bound.
 
 **Machine**:
 A computer or execution environment running the Machine daemon and reached by
