@@ -94,7 +94,7 @@ The producer MUST compare its selected rendering with its own latest item in rec
 
 ### Requirement: Project snapshots explicitly supersede old guidance
 
-A changed snapshot MUST replace the authority of earlier Project guidance, not rewrite stored history. A move MUST retire the previous Project's guidance. An instruction clear MUST retire the previous instructions. An unfiled Chat with previously told Project context MUST receive an explicit absence snapshot. A never-filed Chat with no such item MUST receive no absence reminder.
+A changed snapshot MUST retire earlier Project guidance without a history rewrite. Cleared instructions MUST lose their authority. A null Run selection with durable Project history MUST receive an absence snapshot under the epoch comparison rule. A null selection without Project history MUST receive no absence reminder.
 
 #### Scenario: A Chat moves between Projects
 
@@ -119,7 +119,7 @@ A changed snapshot MUST replace the authority of earlier Project guidance, not r
 
 ### Requirement: Compaction re-establishes the applicable Project context
 
-The compaction instruction MUST exclude Project snapshots from its summary. After a checkpoint, the producer MUST re-establish applicable context for the first subsequent model request. During a dispatched Run, it MUST use that Run's selection, not live Project edits. A later Run MUST use its new selection and explicitly retire any old guidance that can remain in history.
+The compaction instruction MUST exclude Project snapshots from its summary. After a checkpoint, the producer MUST re-establish applicable context for the first subsequent model request. A dispatched Run MUST retain its selection despite live edits, moves, unfiling, or deletion. A later Run MUST use its new selection and explicitly retire old guidance that can remain in history.
 
 #### Scenario: Mid-Run compaction preserves the selected instructions
 
@@ -186,7 +186,7 @@ First dispatch MUST atomically record the complete Project selection, even when 
 
 ### Requirement: Absence after compaction retires earlier Project guidance
 
-An unfiled Chat with Project context in durable history MUST receive an explicit absence snapshot after compaction. This MUST retire earlier Project guidance even when the active epoch contains no Project item. A Chat with no Project history MUST receive no absence reminder solely because it has a checkpoint.
+After compaction, a Run with a null selection and durable Project history MUST receive an absence snapshot. It MUST retire earlier guidance even when the active epoch has no Project item. A null selection with no Project history MUST receive no absence reminder solely because a checkpoint exists.
 
 #### Scenario: A summary can retain former instructions
 
@@ -197,3 +197,9 @@ An unfiled Chat with Project context in durable history MUST receive an explicit
 
 - **WHEN** a never-filed Chat publishes a checkpoint
 - **THEN** the next Run emits no Project absence reminder
+
+#### Scenario: Mid-Run unfiling does not clear the selection
+
+- **WHEN** a Run selects A and dispatches before the owner unfiles its Chat or deletes A
+- **AND** that same Run then compacts
+- **THEN** the next request re-establishes A's selected context without an absence snapshot

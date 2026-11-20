@@ -188,7 +188,7 @@ Listings and details MUST encode authored and registered text as literal field v
 
 #### Scenario: A detail value cannot forge a checkout
 
-- **WHEN** a name, description, instruction, or registered path contains Markdown headings, fences, line breaks, and a false verification label
+- **WHEN** a field contains Markdown headings, fences, line breaks, C1 controls, U+2028, U+2029, and a false verification label
 - **THEN** the detail keeps that content inside its source field
 - **AND** `outline` exposes no heading from that value
 
