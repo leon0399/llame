@@ -188,11 +188,21 @@ machine-readable ways:
   `stage` matches the label. `by` is `person` or `agent`, and an agent adds its
   `harness` and `session`. `change` names the OpenSpec change when there is one.
 
-Finishing or stopping removes the `working:*` label and posts a release marker:
-`<!-- llame:release {"stage":"implement","outcome":"published|stopped|done"} -->`.
-A `working:*` label whose session is gone, or with no marker or PR activity for
-24 hours, is stale. A reconciler, or a person, removes it and posts a release
-marker with outcome `stale`.
+A stage ends when the item waits only on a person. Then the worker removes the
+`working:*` label and posts a release marker:
+`<!-- llame:release {"stage":"implement","outcome":"handed-back"} -->`.
+
+| Stage     | Release when                                                                                  | Outcome       |
+| --------- | --------------------------------------------------------------------------------------------- | ------------- |
+| spec      | the proposal PR is ready and its [Ready-PR monitoring](#ready-pr-monitoring) loop exits clean | `handed-back` |
+| implement | every PR of the cutover is ready and its monitoring loop exits clean                          | `handed-back` |
+| triage    | the finding is posted on the issue                                                            | `done`        |
+| any       | the worker stops with `needs:human`                                                           | `stopped`     |
+
+Work that resumes after a release, such as fixing review feedback, posts a new
+pickup marker. A `working:*` label whose session is gone, or with no marker or
+PR activity for 24 hours, is stale. A reconciler, or a person, removes it and
+posts a release marker with outcome `stale`.
 
 The marker shows who holds the work, which a shared GitHub identity cannot. The
 claim is the branches of the work where they exist: a cutover resolves to its

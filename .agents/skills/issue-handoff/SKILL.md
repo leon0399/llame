@@ -37,9 +37,9 @@ Done when the issue has an assignee or a trigger, and its readiness check passed
 6. **Mark the pickup**: add the `working:*` label for your stage, assign the issue, and post the `llame:pickup` marker comment that CONTRIBUTING.md shows.
 7. For `agent:spec`, post open questions as one grilling round on the issue, wait for a person's reply, then follow CONTRIBUTING.md "Proposal layer".
 8. For `agent:implement`, follow CONTRIBUTING.md "Implementation layers".
-9. **Release**: remove the `working:*` label and post the `llame:release` marker with outcome `published` or `done`.
+9. **Release** when the item waits only on a person (the release table in CONTRIBUTING.md): remove the `working:*` label and post the `llame:release` marker with outcome `handed-back` or `done`. Resuming later, for example on review feedback, starts again at step 6.
 
-Done when the PRs are published or the work is complete, the Project item matches, and the release marker is posted.
+Done when the release marker is posted and the Project item matches the PRs.
 
 ## Stop
 
