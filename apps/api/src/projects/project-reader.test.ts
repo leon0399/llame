@@ -11,6 +11,7 @@
  * renderer's contract rather than a copied format.
  */
 
+import { splitSourceLines } from '@workspace/native-file-tools';
 import { isString } from '@workspace/runtime-safety';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -18,7 +19,10 @@ import { type Project } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { readAcceptsScheme, readLocatorSchemes } from '../tools/native-files';
 import { type ToolContext, type ToolResult } from '../tools/types';
-import { type ProjectRepositoryView } from './project-document';
+import {
+  renderProjectListing,
+  type ProjectRepositoryView,
+} from './project-document';
 import { ProjectDiscoveryRepository } from './project-discovery.repository';
 import { readProjectResource } from './project-reader';
 import { ProjectsRepository } from './projects-repository';
@@ -408,6 +412,32 @@ describe('readProjectResource native selection', () => {
     const result = await readProjectResource(context, 'read', 'projects://:1-');
 
     expect(result.status).toBe('success');
+  });
+
+  it('selects the rendered last lines for a tail member', async () => {
+    const projects = [projectRow()];
+    vi.spyOn(
+      ProjectDiscoveryRepository.prototype,
+      'listProjects',
+    ).mockResolvedValue(projects);
+    const { context } = fakeContext();
+
+    const result = await readProjectResource(
+      context,
+      'read',
+      'projects://:raw:-2',
+    );
+
+    // The real renderer owns the source, so the expected tail is the rendered
+    // document's own last two lines rather than a copied format.
+    const lines = splitSourceLines(renderProjectListing(projects, false));
+
+    expect(lines.length).toBeGreaterThan(2);
+    expect(contentOf(result)).toBe(lines.slice(-2).join(''));
+    expect(successOf(result)['shownRange']).toEqual({
+      startLine: lines.length - 1,
+      endLine: lines.length,
+    });
   });
 
   it('reports a native selector refusal as invalid_selector', async () => {

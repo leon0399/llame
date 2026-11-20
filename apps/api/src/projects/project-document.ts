@@ -8,16 +8,15 @@
  * never normalize a stored value.
  *
  * All model-facing framing lives in `prompts/project-document.md`. This module
- * supplies only view values: closed-kind booleans, ordinals, and each encoded
- * field body as a ready fenced block. Every authored or registered scalar is
- * contained as a JSON literal inside a fenced field body: JSON string encoding
- * first, then `\u` escapes for the Unicode `Cc` code points and U+2028/U+2029
- * that JSON leaves literal. A value longer than `MAX_FIELD_CHUNK_CODE_POINTS`
- * becomes a JSON array of chunks, one chunk per source line, so the widest
- * encoded line stays far below the 16000 code-unit native source-line ceiling
- * even for all-control and non-BMP text. Field text can therefore never forge a
- * heading, an entry, a label, or a cap notice; the Markdown outline exposes
- * generated headings only.
+ * supplies only view values: ordinals and each encoded field body as a ready
+ * fenced block. Every authored or registered scalar is contained as a JSON
+ * literal inside a fenced field body: JSON string encoding first, then `\u`
+ * escapes for the Unicode `Cc` code points and U+2028/U+2029 that JSON leaves
+ * literal. A value longer than `MAX_FIELD_CHUNK_CODE_POINTS` becomes a JSON
+ * array of code-point chunks, one encoded chunk per rendered source line.
+ * The widest encoded line stays below the 16000 code-unit native source-line
+ * ceiling even for all-control and non-BMP text. Field text cannot forge a
+ * heading, entry, label, or cap notice; outlines expose generated headings only.
  */
 
 import { compareCodePoints } from '../canonical-json';
@@ -80,10 +79,8 @@ type ProjectView = {
   readonly id: string;
   readonly name: FencedScalar;
   readonly description: FencedScalar;
-  readonly descriptionAbsent: boolean;
   readonly archiveState: string;
   readonly instructions: FencedScalar;
-  readonly instructionsAbsent: boolean;
 };
 
 type CheckoutEntryView = {
@@ -101,21 +98,25 @@ type RepositoryEntryView = {
   readonly alias: FencedScalar;
   readonly displayName: FencedScalar;
   readonly canonicalRemote: FencedScalar;
-  readonly canonicalRemoteAbsent: boolean;
   readonly primary: string;
-  readonly hasCheckouts: boolean;
   readonly checkouts: ReadonlyArray<CheckoutEntryView>;
 };
 
-type ProjectDocumentView = {
-  readonly isDetail: boolean;
+type ListingProjectDocumentView = {
+  readonly isDetail: false;
   readonly archived: boolean;
-  readonly hasProjects: boolean;
   readonly projects: ReadonlyArray<ListingEntryView>;
-  readonly project: ProjectView | undefined;
-  readonly hasRepositories: boolean;
+};
+
+type DetailProjectDocumentView = {
+  readonly isDetail: true;
+  readonly project: ProjectView;
   readonly repositories: ReadonlyArray<RepositoryEntryView>;
 };
+
+type ProjectDocumentView =
+  | ListingProjectDocumentView
+  | DetailProjectDocumentView;
 
 const renderProjectDocument = loadPackagedTemplate<ProjectDocumentView>(
   __dirname,
@@ -255,12 +256,10 @@ function projectView(project: ProjectDetailRecord): ProjectView {
     id: fencedScalar(project.id).fenced,
     name: fencedScalar(project.name),
     description: fencedScalar(project.description),
-    descriptionAbsent: project.description === null,
     archiveState: fencedScalar(
       project.archivedAt === null ? 'active' : 'archived',
     ).fenced,
     instructions: fencedScalar(project.instructions),
-    instructionsAbsent: project.instructions === null,
   };
 }
 
@@ -290,11 +289,9 @@ function repositoryEntryView(
     alias: fencedScalar(repository.alias),
     displayName: fencedScalar(repository.displayName),
     canonicalRemote: fencedScalar(repository.canonicalRemote),
-    canonicalRemoteAbsent: repository.canonicalRemote === null,
     primary: fencedJsonLines([repository.isPrimary ? 'true' : 'false']).join(
       '\n',
     ),
-    hasCheckouts: checkouts.length > 0,
     checkouts: checkouts.map(checkoutEntryView),
   };
 }
@@ -312,11 +309,7 @@ export function renderProjectListing(
   return renderProjectDocument({
     isDetail: false,
     archived,
-    hasProjects: ordered.length > 0,
     projects: ordered.map(listingEntryView),
-    project: undefined,
-    hasRepositories: false,
-    repositories: [],
   });
 }
 
@@ -333,11 +326,7 @@ export function renderProjectDetail(
 
   return renderProjectDocument({
     isDetail: true,
-    archived: project.archivedAt !== null,
-    hasProjects: false,
-    projects: [],
     project: projectView(project),
-    hasRepositories: ordered.length > 0,
     repositories: ordered.map(repositoryEntryView),
   });
 }

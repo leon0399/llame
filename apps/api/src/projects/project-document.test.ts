@@ -134,6 +134,26 @@ function fieldValues(text: string, label: string): Array<EncodedFieldValue> {
   );
 }
 
+/** Whether the template put a decoding note between a label and its fence. */
+function fieldHasNote(text: string, label: string): boolean {
+  const lines = sourceLines(text);
+
+  const block = fencedBlocks(text).find(
+    (candidate) => candidate.label === label,
+  );
+
+  if (block === undefined) throw new Error(`missing ${label} field`);
+
+  let labelIndex = block.startLine - 2;
+
+  while (labelIndex >= 0 && !/^[a-z][a-z ]*:$/u.test(lines[labelIndex]))
+    labelIndex -= 1;
+
+  return lines
+    .slice(labelIndex + 1, block.startLine - 1)
+    .some((line) => line !== '');
+}
+
 /** The exact string a field carried, after chunks are concatenated. */
 function decodedScalar(value: EncodedFieldValue): string | null {
   if (value === null) return null;
@@ -462,18 +482,20 @@ describe('renderProjectDetail', () => {
 
     expect(fieldValues(empty, 'description:')).toEqual([null]);
     expect(fieldValues(empty, 'instructions:')).toEqual([null]);
+    expect(fieldValues(empty, 'archive state:')).toEqual(['active']);
     expect(empty).not.toContain('### Repository ');
     expect(empty).not.toContain('#### Checkout ');
 
     const unreachable = renderProjectDetail(detailProject(), [
-      repository({ canonicalRemote: null }),
+      repository({ canonicalRemote: null, isPrimary: false }),
     ]);
 
     expect(fieldValues(unreachable, 'canonical remote:')).toEqual([null]);
+    expect(fieldValues(unreachable, 'primary:')).toEqual([false]);
     expect(unreachable).not.toContain('#### Checkout ');
   });
 
-  it('orders repositories and checkouts by code point and keeps inputs', () => {
+  it('orders repositories by alias then id and checkouts by identity', () => {
     const astral = 'a\u{1F600}';
     const bmpHigh = 'a\uFFFF';
 
@@ -481,6 +503,7 @@ describe('renderProjectDetail', () => {
       repository({
         id: '00000000-0000-4000-8000-000000000002',
         alias: astral,
+        displayName: 'Astral Two',
         checkouts: [
           checkout({
             id: '00000000-0000-4000-8000-000000000011',
@@ -496,11 +519,13 @@ describe('renderProjectDetail', () => {
       }),
       repository({
         id: '00000000-0000-4000-8000-000000000001',
-        alias: bmpHigh,
+        alias: astral,
+        displayName: 'Astral One',
       }),
       repository({
         id: '00000000-0000-4000-8000-000000000003',
-        alias: astral,
+        alias: bmpHigh,
+        displayName: 'Bmp High',
       }),
     ];
 
@@ -508,12 +533,20 @@ describe('renderProjectDetail', () => {
 
     const text = renderProjectDetail(detailProject(), repositories);
 
+    // The bmpHigh alias sorts first even though its id is greatest, and equal
+    // aliases fall back to ascending id.
     expect(
       fieldValues(text, 'alias:').map((value) => decodedScalar(value)),
     ).toEqual([bmpHigh, astral, astral]);
+    expect(
+      fieldValues(text, 'display name:').map((value) => decodedScalar(value)),
+    ).toEqual(['Bmp High', 'Astral One', 'Astral Two']);
     expect(fieldValues(text, 'executor identity:')).toEqual([bmpHigh, astral]);
-    expect(repositories[0]?.alias).toBe(astral);
-    expect(repositories[1]?.alias).toBe(bmpHigh);
+    expect(repositories.map((value) => value.id)).toEqual([
+      '00000000-0000-4000-8000-000000000002',
+      '00000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000003',
+    ]);
   });
 
   it('contains crafted values and exposes generated headings only', async () => {
@@ -611,6 +644,7 @@ describe('renderProjectDetail', () => {
     if (atLimitBlock === undefined) throw new Error('missing instructions');
 
     expect(atLimitBlock.body.length).toBe(1);
+    expect(fieldHasNote(atLimit, 'instructions:')).toBe(false);
     expect(decodeField(atLimitBlock)).toBe(exactly);
 
     const beyond = `${exactly}b`;
@@ -627,10 +661,24 @@ describe('renderProjectDetail', () => {
     if (chunkedBlock === undefined) throw new Error('missing instructions');
 
     expect(chunkedBlock.body.length).toBe(4);
+    expect(fieldHasNote(chunked, 'instructions:')).toBe(true);
     expect(decodedScalar(decodeField(chunkedBlock))).toBe(beyond);
-    expect(chunked).toContain(
-      'concatenate its decoded elements in order without separators',
+  });
+
+  it('keeps 1000 non-BMP code points as one scalar despite 2000 units', () => {
+    const instructions = '\u{1F600}'.repeat(1000);
+
+    const text = renderProjectDetail(detailProject({ instructions }), []);
+
+    const block = fencedBlocks(text).find(
+      (candidate) => candidate.label === 'instructions:',
     );
+
+    if (block === undefined) throw new Error('missing instructions field');
+
+    expect(block.body.length).toBe(1);
+    expect(fieldHasNote(text, 'instructions:')).toBe(false);
+    expect(decodeField(block)).toBe(instructions);
   });
 
   it('uses a fence longer than every backtick run in its body', () => {
