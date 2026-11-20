@@ -24,7 +24,7 @@ Use `$gh-stack` for branch, publication, and merge operations. After published p
 - [x] 1.2 Run independent iterative review round one with at least two reviewers. Verify findings and commit the author's accepted revisions separately.
 - [x] 1.3 Run independent iterative review round two with at least two reviewers. Verify findings and commit the author's accepted revisions separately.
 - [x] 1.4 Complete proposal SR against the actual parent-relative diff and `REVIEW_GUIDE.md`. Prove Markdown lint, formatting, strict OpenSpec validation, and `git diff --check`.
-- [ ] 1.5 Publish this layer as a draft through `$gh-stack`. Verify its immediate base, draft state, issue references, and delivery Project fields.
+- [x] 1.5 Publish this layer as a draft through `$gh-stack`. Verify its immediate base, draft state, issue references, and delivery Project fields.
 - [ ] 1.6 Before implementation, complete the ready proposal's GR and current-head CI gates and obtain approval of its published revision. Keep draft publication distinct from scope approval.
 
 ## 2. Instructions API layer
