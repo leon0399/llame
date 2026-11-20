@@ -1135,6 +1135,15 @@ describe('finalizeRunReply', () => {
       allowed: true,
     },
     {
+      name: 'completed claim redelivery',
+      attemptId: 'retry',
+      latestAttemptId: 'retry',
+      replyRunId: runId,
+      dispatched: false,
+      allowed: true,
+      recovered: true,
+    },
+    {
       name: 'stale writer',
       attemptId: 'stale',
       latestAttemptId: 'wake',
@@ -1196,6 +1205,16 @@ describe('finalizeRunReply', () => {
 
       if (scenario.dispatched) log.push(requested(5, 'wake'));
 
+      const status = 'recovered' in scenario ? 'completed' : 'cancelled';
+
+      if (status === 'completed')
+        log.push(
+          event(6, 'run.quota_recovered', {
+            generation: 1,
+            resumeAt: 'boundary',
+          }),
+        );
+
       const { update } = serve({
         log,
         reply: reply({
@@ -1211,7 +1230,7 @@ describe('finalizeRunReply', () => {
 
       await finalizeRunReply(tx, {
         run: { ...run, activeAttemptId: scenario.latestAttemptId },
-        status: 'cancelled',
+        status,
         attemptId: scenario.attemptId,
         live: {
           chatId,
@@ -1232,7 +1251,7 @@ describe('finalizeRunReply', () => {
       expect(update.mock.lastCall?.[0].usage).toMatchObject({
         runId,
         attemptId: 'original',
-        status: 'aborted',
+        status: status === 'completed' ? 'completed' : 'aborted',
         complete: false,
         interrupted: true,
       });

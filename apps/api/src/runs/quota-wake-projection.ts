@@ -117,11 +117,13 @@ export function quotaSummaryWakeFromEvents(
   )
     return true;
 
-  const request = quotaRequestFromEvents(events);
-
-  const latestStart = events.findLast(
+  const latestStartIndex = events.findLastIndex(
     (event) => event.eventType === 'run.started',
   );
+
+  const latestStart = events[latestStartIndex];
+  // Terminal settlement closes recovery before writing the saved reply.
+  const request = quotaRequestFromEvents(events.slice(0, latestStartIndex + 1));
 
   return (
     (request?.resumeAt === 'boundary' || request?.resumeAt === 'finalAnswer') &&

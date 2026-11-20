@@ -4,6 +4,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Strengthen summary quota-wake regressions for durable checkpoint recovery,
   claim ownership, original execution context, and completed reply retention.
+- Retain a redelivered summary wake's saved answer when terminal settlement
+  closes quota recovery before persisting the reply.
 
 # 2026-11-19
 
