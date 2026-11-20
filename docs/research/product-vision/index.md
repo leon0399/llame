@@ -14,5 +14,6 @@ Noncanonical product-direction research. [VISION.md](../../../VISION.md) and
   prior art and the llame baseline for model roles, a cost tree and background
   jobs, the foundations of subagents (#1612).
 - [Software factory as code](./2026-11-18-software-factory-as-code.md) — Compares openfabriq, Warp Factories, GitHub Agentic Workflows and the Archon Dark Factory as software factories defined in version-controlled files, maps their applied rules, typed proposals, harness-run checks and origin-derived trust onto llame, and lists the prerequisites and counterarguments before llame could run one.
+- [Agentic SDLC automation](./2026-11-20-agentic-sdlc-automation.md) - Reads vendor issue-to-PR agents, spec-driven frameworks, factory engines and GitHub platform mechanics for units of work, triggers, claims, stacks and human handoff, and states seven findings for llame.
 - [Dev containers for coding agents](./2026-11-18-devcontainers-for-coding-agents.md) - Compares recipe realization, host privilege surfaces, agent/daemon injection, Nix environment patterns, and egress controls for coding-agent containers.
 - [Repository transfer to provisioned Machines](./2026-11-18-repository-transfer-to-machines.md) - Compares forwarded Git credentials and llame-served repository transfer, including scope, compromise exposure, LFS, submodules and staged publish-back.

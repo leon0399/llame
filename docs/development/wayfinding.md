@@ -27,3 +27,20 @@ Implementation issues a map or ticket informs are linked with GitHub's native
 "relates to" relationship (the `addRelatesTo` GraphQL mutation; `gh` has no
 flag for it), never as sub-issues: the map's children are its decisions only.
 A body mention does not create the link.
+
+## Maps and delivery issues
+
+A map and a [tracker](../../CONTRIBUTING.md#hierarchy) are separate issues. The
+map decides; the tracker, its features, and their cutovers deliver. A map may
+span several trackers. The map's Destination names the feature issues it feeds,
+and relates-to links connect the map to them and to their trackers.
+
+| Step                           | How it is expressed here                                                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A ticket feeds a feature       | Its resolution names the feature. Link the ticket and the feature with relates-to.                                                                                                                     |
+| The last feeding ticket closes | The same session writes or updates the feature's Spec brief, sets its Project Next action to "brief complete", and stops. Handoff stays an explicit action ([handoff](../../CONTRIBUTING.md#handoff)). |
+| A decision fixes a cutover     | The brief may create the cutover sub-issue now. The spec writer confirms, renames, or merges cutovers in the proposal.                                                                                 |
+| A ticket spins off other work  | Create a feature issue in Backlog, under a tracker if one fits, linked to the ticket with relates-to. The map body does not list it.                                                                   |
+| The map closes                 | Every Destination feature has an approved proposal, a complete brief for work with no spec, or a recorded scope decision that removed it. Close any remaining ticket as out of scope first.            |
+
+`$issue-handoff` holds the procedure for writing a brief and handing it off.
