@@ -1,4 +1,5 @@
 import { realpath, stat } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
 import { isRecord, isString } from '@workspace/runtime-safety';
@@ -93,6 +94,9 @@ import {
   type SdkRefusal,
 } from '../models/model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
+import type { ProviderFailureSuperseded } from '../models/provider-failure/provider-failure';
+import type { SupersededModelOutput } from './superseded-output';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createJobNoticeContext } from './job-notice-context';
 import {
@@ -2240,7 +2244,7 @@ export class RunExecutionService {
       return { ...telemetry, runId: input.runId, attemptId };
     };
 
-    const assistantPartCollector = createAssistantPartCollector();
+    let assistantPartCollector = createAssistantPartCollector();
 
     // The kept parts are the transcript's prefix, so every terminal writer of
     // this attempt persists them once, ahead of its own parts (D5). The kept
@@ -2411,6 +2415,58 @@ export class RunExecutionService {
 
         if (!recorded) progressWriteFailed = true;
       });
+    };
+
+    const persistFencedModelEvent = (
+      eventType: 'model.retrying' | 'model.superseded',
+      payload: ModelRequestRetry | SupersededModelOutput,
+    ): void => {
+      enqueueEvent(eventType, payload, async (tx) => {
+        if (progressWriteFailed)
+          throw new Error('A preceding model progress write failed.');
+
+        if (
+          !(await new RunRowFenceRepository(tx).lockForDelivery(
+            input.runId,
+            input.userId,
+            attemptId,
+          ))
+        )
+          throw new RunNotRunnableError(input.runId);
+
+        if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
+          throw new RunNotRunnableError(input.runId);
+
+        return payload;
+      });
+    };
+
+    const persistStepStartSequence = async (): Promise<number> => {
+      await (deltaWrites = deltaWrites.then(async () => {
+        try {
+          stepStartSequence = await retryRunTransaction(() =>
+            this.tenantDb.runAs(
+              input.userId,
+              async (tx) =>
+                (await new RunEventsRepository(tx).latestSequence(
+                  input.runId,
+                  input.userId,
+                )) + 1,
+            ),
+          );
+        } catch (error) {
+          progressWriteFailed = true;
+          this.logger.error(
+            `Failed to record the model request boundary for run ${input.runId}`,
+            loggableError(error),
+          );
+        }
+      }));
+
+      if (progressWriteFailed)
+        throw new Error('Failed to record the model request boundary.');
+
+      return stepStartSequence;
     };
 
     const markCompactionDisabled = (): boolean => {
@@ -3634,10 +3690,23 @@ export class RunExecutionService {
     // and one more whenever a step end found nothing left to deliver), so the
     // abort listener and the workspace hold belong to the call.
     let endWorkspaceAttempt = noop;
-    let stopCause: 'cancel' | 'delivery' | 'suspend' | 'compact' | undefined;
+
+    let stopCause:
+      | 'cancel'
+      | 'delivery'
+      | 'suspend'
+      | 'compact'
+      | 'superseded'
+      | undefined;
+
     let automaticCompactionAtBoundary = false;
     let automaticCompactionDisabled = compactionDisabledAtStart;
     let boundaryCallMessages: typeof messages = messages;
+    let stepStartSequence = 1;
+    let stepModelOutputStart = 0;
+    let stepStreamedText = '';
+    let stepFirstOutputDeltaMs: number | undefined;
+    let stepOutputDeltaCount = 0;
     let stepResultStart = 0;
     let stepToolsCompleted = 0;
     let progressCheckMedia: MediaSizing | undefined;
@@ -3749,6 +3818,8 @@ export class RunExecutionService {
     const callStream = async (
       callMessages: typeof messages,
       stepBase: number,
+      requestRetriesUsed = 0,
+      skipInitialContextPreparation = false,
     ): Promise<AttemptRun> => {
       let nextCall = noNextCall;
       const partsBefore = assistantPartCollector.parts().length;
@@ -4032,6 +4103,156 @@ export class RunExecutionService {
         }
       };
 
+      const settleSupersededAbort = async (
+        cancelRequested: boolean,
+      ): Promise<void> => {
+        if (!cancelRequested && stoppedByInterrupt()) {
+          await settleOnInterrupt();
+
+          if (!input.abortSignal?.aborted) {
+            await deliverInterrupt();
+
+            return;
+          }
+        }
+
+        if (parentAbortSettlement) {
+          await parentAbortSettlement;
+
+          return;
+        }
+
+        if (cancelRequested || input.abortSignal?.aborted) {
+          const status = classifyAbortedRun(input.abortSignal);
+
+          const message = this.abortedRunMessage(status, input.abortSignal);
+
+          const telemetry = buildAssistantTelemetry(null, 'aborted');
+          await this.settleTerminalRun({
+            userId: input.userId,
+            runId: input.runId,
+            status,
+            attemptId,
+            telemetry,
+            assistantTurn: {
+              chatId: input.chatId,
+              inReplyTo: input.userMessage.id,
+              parts: assistantPartCollector.parts(),
+              telemetry,
+            },
+            runPayload: { status, message },
+            error: { message },
+          });
+        }
+      };
+
+      const recoverSupersededSend = async (
+        failure: ProviderFailure,
+        superseded: ProviderFailureSuperseded,
+      ): Promise<void> => {
+        try {
+          stopCause = 'superseded';
+          persistReasoning(reasoningDeltas.flush());
+          persistDelta(deltas.flush());
+          await deltaWrites;
+
+          if (progressWriteFailed) {
+            await this.settleProgressWriteFailure({
+              userId: input.userId,
+              runId: input.runId,
+              attemptId,
+              telemetry: buildAssistantTelemetry(null, 'error'),
+            });
+
+            return;
+          }
+
+          discardedSend = true;
+
+          const retainedParts = assistantPartCollector
+            .parts()
+            .slice(0, stepModelOutputStart);
+
+          assistantPartCollector = createAssistantPartCollector();
+          assistantPartCollector.seed(retainedParts);
+          streamedText = stepStreamedText;
+          firstOutputDeltaMs = stepFirstOutputDeltaMs;
+          outputDeltaCount = stepOutputDeltaCount;
+          reasoningPartId = undefined;
+          textPartId = undefined;
+          inRunItems = createInRunContextItems();
+
+          persistFencedModelEvent('model.superseded', {
+            fromSequence: stepStartSequence,
+            step: currentStepNumber,
+          });
+          persistFencedModelEvent('model.retrying', {
+            code: failure.code,
+            retry: superseded.retry,
+            delayMs: superseded.delayMs,
+          });
+          await deltaWrites;
+
+          if (progressWriteFailed) {
+            await this.settleProgressWriteFailure({
+              userId: input.userId,
+              runId: input.runId,
+              attemptId,
+              telemetry: buildAssistantTelemetry(null, 'error'),
+            });
+
+            return;
+          }
+
+          await delay(superseded.delayMs, undefined, {
+            signal: callSignal,
+          }).catch(noop);
+
+          const current = await this.tenantDb.runAs(input.userId, (tx) =>
+            new RunRowFenceRepository(tx).lockForDelivery(
+              input.runId,
+              input.userId,
+              attemptId,
+            ),
+          );
+
+          if (current === undefined) return;
+
+          const cancelRequested = current.cancelRequestedAt !== null;
+
+          if (callSignal?.aborted || cancelRequested) {
+            await settleSupersededAbort(cancelRequested);
+
+            return;
+          }
+
+          nextCall = async () => {
+            const produced = projectStoredReplyParts(
+              assistantPartCollector.parts().slice(partsBefore),
+              {
+                privateParts: true,
+                mediaKey: (index) => continuedMediaKey(partsBefore + index),
+              },
+            );
+
+            mergeRetainedMedia(media.retainedMedia, produced.retainedMedia);
+
+            return callStream(
+              [...callMessages, ...produced.messages],
+              currentStepNumber,
+              superseded.retry,
+              true,
+            );
+          };
+
+          return;
+        } finally {
+          endWorkspaceAttempt();
+          removeParentAbortListener();
+          closeSegment();
+        }
+      };
+
       stopCause = undefined;
 
       try {
@@ -4048,31 +4269,24 @@ export class RunExecutionService {
           if (pending) callControl.yield.abort();
         }
 
+        if (!hasTools) {
+          persistReasoning(reasoningDeltas.flush());
+          persistDelta(deltas.flush());
+          currentStepNumber = stepBase;
+          stepStartSequence = await persistStepStartSequence();
+          stepResultStart = partsBefore;
+          stepModelOutputStart = partsBefore;
+          stepStreamedText = streamedText;
+          stepFirstOutputDeltaMs = firstOutputDeltaMs;
+          stepOutputDeltaCount = outputDeltaCount;
+        }
+
         const result = client.streamText({
           onRetry: async (retry) => {
             persistReasoning(reasoningDeltas.flush());
             discardedSend = true;
             persistDelta(deltas.flush());
-            enqueueEvent('model.retrying', retry, async (tx) => {
-              if (
-                !(await new RunRowFenceRepository(tx).lockForDelivery(
-                  input.runId,
-                  input.userId,
-                  attemptId,
-                ))
-              )
-                throw new RunNotRunnableError(input.runId);
-
-              if (
-                !(await new ChatsRepository(tx).lock(
-                  input.chatId,
-                  input.userId,
-                ))
-              )
-                throw new RunNotRunnableError(input.runId);
-
-              return retry;
-            });
+            persistFencedModelEvent('model.retrying', retry);
             await deltaWrites;
 
             if (progressWriteFailed) {
@@ -4105,6 +4319,7 @@ export class RunExecutionService {
           },
           system,
           messages: callMessages,
+          requestRetriesUsed,
           chat: { id: input.chatId, lane: 'main' },
           abortSignal: callSignal,
           media,
@@ -4130,19 +4345,29 @@ export class RunExecutionService {
                   ),
             stopWhenExtra,
             onStepStart: async ({ messages, stepNumber }) => {
-              // Each buffered event carries the step its characters arrived in,
-              // so drain what the previous step still held BEFORE the number
-              // moves: text after a step's calls stays in that step (design D5).
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
+              stepStartSequence = await persistStepStartSequence();
               stepResultStart = assistantPartCollector.parts().length;
+              stepStreamedText = streamedText;
+              stepFirstOutputDeltaMs = firstOutputDeltaMs;
+              stepOutputDeltaCount = outputDeltaCount;
               stepToolsCompleted = 0;
               waitCallIdInStep = undefined;
               deferredWaitStep = false;
               stepsStarted += 1;
               workspaceRoot.beginStep();
               inRunItems.beginStep(messages);
+
+              if (skipInitialContextPreparation && stepNumber === 0) {
+                skipInitialContextPreparation = false;
+                boundaryCallMessages = messages;
+                stepModelOutputStart = assistantPartCollector.parts().length;
+
+                return messages;
+              }
+
               const staged: Array<AuthoredContextItemPart> = [];
               await inRunProducer?.prepareStep({
                 messages,
@@ -4152,9 +4377,6 @@ export class RunExecutionService {
                 },
               });
 
-              // An item joins the attempt only once it is committed onto the
-              // running reply, before the request that first carries it (design
-              // D3); a step that fails first never sent it.
               if (staged.length > 0) {
                 await this.storeInRunSnapshot(input, attemptId, [
                   ...assistantPartCollector.parts(),
@@ -4167,8 +4389,10 @@ export class RunExecutionService {
                 assistantPartCollector.contextItem(part);
               }
 
-              // Recomputed from the step's own messages on every step, so a
-              // retained override is replaced rather than accumulated (D1).
+              // This boundary includes context committed for the step above,
+              // but no provider output from its request.
+              stepModelOutputStart = assistantPartCollector.parts().length;
+
               const preparedMessages = inRunItems.applyToStep(messages);
               boundaryCallMessages = withoutToolIntents(
                 preparedMessages ?? messages,
@@ -4196,6 +4420,7 @@ export class RunExecutionService {
             // actually completes (a run that errors mid-loop after
             // capping does not claim to have "completed with the cap").
             onCapReached: () => {
+              if (cappedAt !== null) return;
               cappedAt = maxStepsPerRun;
               enqueueEvent('run.step_cap_reached', {
                 stepsUsed: maxStepsPerRun,
@@ -4407,9 +4632,17 @@ export class RunExecutionService {
             persistReasoning(reasoningDeltas.push(text, Date.now()));
           },
           onError: async ({ error }) => {
-            endWorkspaceAttempt();
-            removeParentAbortListener();
-            closeSegment();
+            const restarting =
+              error instanceof ProviderFailure &&
+              error.superseded !== undefined &&
+              !callSignal?.aborted &&
+              !input.abortSignal?.aborted;
+
+            if (!restarting) {
+              endWorkspaceAttempt();
+              removeParentAbortListener();
+              closeSegment();
+            }
 
             // An owner interrupt stopped the call: settle its open calls by
             // fate and deliver the pending items, instead of ending the Run.
@@ -4425,6 +4658,12 @@ export class RunExecutionService {
 
             if (parentAbortSettlement) {
               await parentAbortSettlement;
+
+              return;
+            }
+
+            if (restarting) {
+              await recoverSupersededSend(error, error.superseded);
 
               return;
             }
@@ -4555,6 +4794,8 @@ export class RunExecutionService {
             endWorkspaceAttempt();
             removeParentAbortListener();
             closeSegment();
+
+            if (stopCause === 'superseded') return;
 
             if (failed?.status === 'rejected') throw failed.reason;
 
@@ -4883,6 +5124,16 @@ export class RunExecutionService {
         // any callback can fire) would otherwise strand the claimed run at
         // 'running_model' until the deadman sweep expires it — fail it now.
         await this.settleIfAborted(input, attemptId);
+
+        if (progressWriteFailed) {
+          await this.settleProgressWriteFailure({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
+          });
+          throw error;
+        }
 
         const message = errorMessageWithoutParams(error);
         const failure = modelRequestFailure(error);

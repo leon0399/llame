@@ -42,6 +42,7 @@ const storedIntentSchema = z.object({ intent: z.string().optional() });
 const replyMetadataSchema = z.looseObject({});
 
 const jsonSchema = z.json();
+const supersededSchema = z.object({ messageIds: z.array(z.string()) });
 
 type ReplyMetadata = z.infer<typeof replyMetadataSchema>;
 
@@ -121,8 +122,8 @@ export class ReplyReducer {
     errorText: null,
   };
 
-  // Where each open text or reasoning message sits, by its AG-UI message id.
-  private readonly openIndex = new Map<string, number>();
+  // Retain closed message identities until a supersession can remove them.
+  private readonly messageIndex = new Map<string, number>();
   private readonly toolIndex = new Map<string, number>();
   private readonly toolArguments = new Map<string, string>();
 
@@ -184,7 +185,7 @@ export class ReplyReducer {
   }
 
   private open(messageId: string, type: "text" | "reasoning"): true {
-    this.openIndex.set(
+    this.messageIndex.set(
       messageId,
       this.push({ type, text: "", state: "streaming" }),
     );
@@ -194,11 +195,12 @@ export class ReplyReducer {
 
   /** The open text or reasoning part of a message, with where it sits. */
   private openPart(messageId: string) {
-    const index = this.openIndex.get(messageId);
+    const index = this.messageIndex.get(messageId);
     const part = index === undefined ? undefined : this.state.parts[index];
 
     return index !== undefined &&
-      (part?.type === "text" || part?.type === "reasoning")
+      (part?.type === "text" || part?.type === "reasoning") &&
+      part.state === "streaming"
       ? { index, part }
       : null;
   }
@@ -216,7 +218,6 @@ export class ReplyReducer {
     const held = this.openPart(messageId);
 
     if (held === null) return false;
-    this.openIndex.delete(messageId);
 
     return this.replace(held.index, { ...held.part, state: "done" });
   }
@@ -312,6 +313,37 @@ export class ReplyReducer {
     });
   }
 
+  private supersede(messageIds: Array<string>): boolean {
+    const removed = new Set<number>();
+
+    for (const id of messageIds) {
+      const index = this.messageIndex.get(id);
+
+      if (index !== undefined) removed.add(index);
+    }
+
+    if (removed.size === 0) return false;
+    const positions = new Map<number, number>();
+
+    const parts = this.state.parts.filter((_part, index) => {
+      if (removed.has(index)) return false;
+      positions.set(index, positions.size);
+
+      return true;
+    });
+
+    for (const indices of [this.messageIndex, this.toolIndex]) {
+      for (const [id, index] of indices) {
+        const position = positions.get(index);
+
+        if (position === undefined) indices.delete(id);
+        else indices.set(id, position);
+      }
+    }
+
+    return this.set({ parts });
+  }
+
   private applyCustom(
     event: Extract<AGUIEvent, { type: EventType.CUSTOM }>,
   ): boolean {
@@ -322,6 +354,12 @@ export class ReplyReducer {
         metadata.success &&
         this.set({ metadata: { ...this.state.metadata, ...metadata.data } })
       );
+    }
+
+    if (event.name === "llame.model-superseded") {
+      const parsed = supersededSchema.safeParse(event.value);
+
+      return parsed.success && this.supersede(parsed.data.messageIds);
     }
 
     const type = NOTICE_PART_TYPE.get(event.name);

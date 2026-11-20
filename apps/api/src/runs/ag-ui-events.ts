@@ -27,6 +27,7 @@ export const LLAME_CUSTOM_EVENT = {
   compactionFailed: 'llame.compaction-failed',
   compactionDisabled: 'llame.compaction-disabled',
   modelRetrying: 'llame.model-retrying',
+  modelSuperseded: 'llame.model-superseded',
   /** The segment ended at a delivered message; the Run goes on. */
   runDelivered: 'llame.run-delivered',
 } as const;
@@ -59,6 +60,7 @@ const NOTICE_EVENT_NAME = {
 /** What AG-UI has no event for: a `CUSTOM` event under the `llame.` prefix. */
 function encodeCustom(
   chunk: Extract<UiChunk, { type: 'message-metadata' | `data-${string}` }>,
+  runId: string,
 ): Array<AGUIEvent> {
   return [
     chunk.type === 'message-metadata'
@@ -67,11 +69,21 @@ function encodeCustom(
           name: LLAME_CUSTOM_EVENT.messageMetadata,
           value: chunk.messageMetadata,
         }
-      : {
-          type: EventType.CUSTOM,
-          name: NOTICE_EVENT_NAME[chunk.type],
-          value: chunk.data,
-        },
+      : chunk.type === 'data-superseded'
+        ? {
+            type: EventType.CUSTOM,
+            name: LLAME_CUSTOM_EVENT.modelSuperseded,
+            value: {
+              messageIds: chunk.data.partIds.map((partId) =>
+                partMessageId(runId, partId),
+              ),
+            },
+          }
+        : {
+            type: EventType.CUSTOM,
+            name: NOTICE_EVENT_NAME[chunk.type],
+            value: chunk.data,
+          },
   ];
 }
 
@@ -241,8 +253,9 @@ export function createAgUiEncoder(identity: RunIdentity): AgUiEncoder {
         case 'data-compaction-failed':
         case 'data-compaction-disabled':
         case 'data-model-retrying':
+        case 'data-superseded':
         case 'data-run-delivered':
-          return encodeCustom(chunk);
+          return encodeCustom(chunk, runId);
       }
     },
   };

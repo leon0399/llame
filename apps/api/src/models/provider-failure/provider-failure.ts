@@ -24,11 +24,17 @@ export type FailureInput = {
   now?: number;
 };
 
+export type ProviderFailureSuperseded = {
+  retry: number;
+  delayMs: number;
+};
+
 export type ProviderFailureDetails = {
   code: FailureClass;
   resetsAt?: number;
   hintMs?: number;
   statusCode?: number;
+  superseded?: ProviderFailureSuperseded;
 };
 
 /** A provider failure with a closed classification and safe timing metadata. */
@@ -37,6 +43,7 @@ export class ProviderFailure extends Error {
   readonly resetsAt?: number;
   readonly hintMs?: number;
   readonly statusCode?: number;
+  readonly superseded?: ProviderFailureSuperseded;
 
   constructor(message: string, details: ProviderFailureDetails) {
     super(message);
@@ -65,6 +72,19 @@ export class ProviderFailure extends Error {
       Number.isFinite(details.statusCode)
     ) {
       this.statusCode = details.statusCode;
+    }
+
+    if (
+      details.superseded !== undefined &&
+      Number.isSafeInteger(details.superseded.retry) &&
+      details.superseded.retry > 0 &&
+      Number.isFinite(details.superseded.delayMs) &&
+      details.superseded.delayMs >= 0
+    ) {
+      this.superseded = {
+        retry: details.superseded.retry,
+        delayMs: details.superseded.delayMs,
+      };
     }
   }
 }

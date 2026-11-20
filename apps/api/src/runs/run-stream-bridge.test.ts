@@ -91,7 +91,7 @@ describe('createRunEventTranslator', () => {
       t.translate({ eventType: 'model.delta', payload: { text: 'Hel' } }),
     ).toEqual([
       { type: 'start', messageId: 'run-1' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'Hel' },
     ]);
     expect(
@@ -105,6 +105,140 @@ describe('createRunEventTranslator', () => {
     ]);
     expect(t.finished()).toBe(true);
   });
+  it('projects only generated parts opened in a valid superseded sequence window', () => {
+    const t = createRunEventTranslator('run-superseded');
+    t.translate({
+      eventType: 'model.delta',
+      sequence: 2,
+      payload: { text: 'kept' },
+    });
+    t.translate({
+      eventType: 'reasoning.delta',
+      sequence: 4,
+      payload: { text: 'discard', partId: 'adapter-1' },
+    });
+    expect(
+      t.translate({
+        eventType: 'model.superseded',
+        sequence: 6,
+        payload: { fromSequence: 3, step: 1 },
+      }),
+    ).toEqual([
+      { type: 'reasoning-end', id: 'reasoning-1' },
+      { type: 'data-superseded', data: { partIds: ['reasoning-1'] } },
+    ]);
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        sequence: 7,
+        payload: { text: 'retry' },
+      }),
+    ).toContainEqual(
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
+    );
+    expect(
+      t.translate({
+        eventType: 'model.superseded',
+        sequence: 8,
+        payload: { fromSequence: 9, step: 2 },
+      }),
+    ).toEqual([]);
+  });
+  it('tracks only positive integer part starts inside the superseded window', () => {
+    const t = createRunEventTranslator('run-sequence-window');
+
+    const textChunks = t.translate({
+      eventType: 'model.delta',
+      sequence: 1,
+      payload: { text: 'kept text' },
+    });
+
+    const allChunks = [
+      ...textChunks,
+      ...t.translate({
+        eventType: 'reasoning.delta',
+        sequence: 3,
+        payload: { text: 'discarded reasoning', partId: 'reasoning-from' },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        sequence: 7,
+        payload: { text: 'discarded text' },
+      }),
+      ...t.translate({
+        eventType: 'reasoning.delta',
+        sequence: 10,
+        payload: { text: 'kept reasoning', partId: 'reasoning-to' },
+      }),
+      ...t.translate({
+        eventType: 'model.delta',
+        sequence: 11,
+        payload: { text: 'opened beyond the exclusive upper bound' },
+      }),
+    ];
+
+    // Invalid starts cannot be attached to a later supersession window.
+    for (const sequence of [0, -1, 1.5]) {
+      const invalid = createRunEventTranslator(`run-invalid-${sequence}`);
+      invalid.translate({
+        eventType: 'model.delta',
+        sequence,
+        payload: { text: 'untracked text' },
+      });
+      invalid.translate({
+        eventType: 'reasoning.delta',
+        sequence,
+        payload: { text: 'untracked reasoning', partId: 'invalid' },
+      });
+      expect(
+        invalid.translate({
+          eventType: 'model.superseded',
+          sequence: 10,
+          payload: { fromSequence: 1, step: 1 },
+        }),
+      ).not.toContainEqual(
+        expect.objectContaining({ type: 'data-superseded' }),
+      );
+    }
+
+    expect(
+      allChunks.flatMap((chunk) =>
+        chunk.type === 'text-delta' ? [chunk.delta] : [],
+      ),
+    ).toEqual([
+      'kept text',
+      'discarded text',
+      'opened beyond the exclusive upper bound',
+    ]);
+    expect(
+      allChunks.flatMap((chunk) =>
+        chunk.type === 'reasoning-delta' ? [chunk.delta] : [],
+      ),
+    ).toEqual(['discarded reasoning', 'kept reasoning']);
+
+    const superseded = t.translate({
+      eventType: 'model.superseded',
+      sequence: 10,
+      payload: { fromSequence: 3, step: 1 },
+    });
+
+    expect(superseded).toEqual([
+      { type: 'text-end', id: 'text-3' },
+      {
+        type: 'data-superseded',
+        data: { partIds: ['reasoning-1', 'text-2'] },
+      },
+    ]);
+
+    // Repeating the same window closes no new parts and cannot invent a chunk.
+    expect(
+      t.translate({
+        eventType: 'model.superseded',
+        sequence: 10,
+        payload: { fromSequence: 3, step: 2 },
+      }),
+    ).toEqual([]);
+  });
 
   it('prelude() returns start once, so a later translate adds no second start', () => {
     const t = createRunEventTranslator('run-1');
@@ -114,7 +248,7 @@ describe('createRunEventTranslator', () => {
     expect(
       t.translate({ eventType: 'model.delta', payload: { text: 'Hi' } }),
     ).toEqual([
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'Hi' },
     ]);
     expect(
@@ -694,7 +828,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-6' },
-      { type: 'reasoning-start', id: 'reasoning-1' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-1' }),
       { type: 'reasoning-delta', id: 'reasoning-1', delta: 'let me think ' },
     ]);
 
@@ -706,7 +840,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'reasoning-end', id: 'reasoning-1' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'The answer.' },
     ]);
 
@@ -725,7 +859,7 @@ describe('createRunEventTranslator', () => {
       t.translate({ eventType: 'reasoning.delta', payload: { text: 'c' } }),
     ).toEqual([
       { type: 'text-end', id: 'text-1' },
-      { type: 'reasoning-start', id: 'reasoning-2' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-2' }),
       { type: 'reasoning-delta', id: 'reasoning-2', delta: 'c' },
     ]);
   });
@@ -740,7 +874,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-identity' },
-      { type: 'reasoning-start', id: 'reasoning-1' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-1' }),
       {
         type: 'reasoning-delta',
         id: 'reasoning-1',
@@ -757,7 +891,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'reasoning-end', id: 'reasoning-1' },
-      { type: 'reasoning-start', id: 'reasoning-2' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-2' }),
       { type: 'reasoning-delta', id: 'reasoning-2', delta: '**Inspecting**' },
     ]);
   });
@@ -812,7 +946,7 @@ describe('createRunEventTranslator', () => {
         payload: { text: 'after', partId: 'reasoning-0' },
       }),
     ).toEqual([
-      { type: 'reasoning-start', id: 'reasoning-2' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-2' }),
       { type: 'reasoning-delta', id: 'reasoning-2', delta: 'after' },
     ]);
   });
@@ -877,7 +1011,7 @@ describe('createRunEventTranslator', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-9' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'Let me check ' },
     ]);
 
@@ -938,7 +1072,7 @@ describe('createRunEventTranslator', () => {
         payload: { text: 'It is time.' },
       }),
     ).toEqual([
-      { type: 'text-start', id: 'text-2' },
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
       { type: 'text-delta', id: 'text-2', delta: 'It is time.' },
     ]);
 
@@ -1400,48 +1534,6 @@ describe('RunStreamBridgeService', () => {
 });
 
 describe('createRunEventTranslator part identity and error text', () => {
-  it('numbers successive text and reasoning parts so a client can keep them apart', () => {
-    const t = createRunEventTranslator('run-1');
-    t.translate({ eventType: 'run.started', payload: null });
-
-    const first = t.translate({
-      eventType: 'model.delta',
-      payload: { text: 'one' },
-    });
-
-    const think = t.translate({
-      eventType: 'reasoning.delta',
-      payload: { text: 'hmm' },
-    });
-
-    const second = t.translate({
-      eventType: 'model.delta',
-      payload: { text: 'two' },
-    });
-
-    expect(first).toContainEqual({ type: 'text-start', id: 'text-1' });
-    expect(first).toContainEqual({
-      type: 'text-delta',
-      id: 'text-1',
-      delta: 'one',
-    });
-    expect(think).toContainEqual({
-      type: 'reasoning-start',
-      id: 'reasoning-1',
-    });
-    expect(think).toContainEqual({ type: 'text-end', id: 'text-1' });
-    expect(second).toContainEqual({ type: 'text-start', id: 'text-2' });
-    expect(second).toContainEqual({
-      type: 'text-delta',
-      id: 'text-2',
-      delta: 'two',
-    });
-    expect(second).toContainEqual({
-      type: 'reasoning-end',
-      id: 'reasoning-1',
-    });
-  });
-
   it('never carries reasoning provider metadata into the UI chunk stream', () => {
     const build = () => {
       const t = createRunEventTranslator('run-1');
@@ -1862,10 +1954,10 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
       }),
     ).toEqual([
       { type: 'start', messageId: 'run-1' },
-      { type: 'reasoning-start', id: 'reasoning-1' },
+      expect.objectContaining({ type: 'reasoning-start', id: 'reasoning-1' }),
       { type: 'reasoning-delta', id: 'reasoning-1', delta: 'thinking first' },
       { type: 'reasoning-end', id: 'reasoning-1' },
-      { type: 'text-start', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
       { type: 'text-delta', id: 'text-1', delta: 'reading' },
       { type: 'text-end', id: 'text-1' },
       {
@@ -1887,7 +1979,7 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
     expect(
       t.translate({ eventType: 'model.delta', payload: { text: 'done' } }),
     ).toEqual([
-      { type: 'text-start', id: 'text-2' },
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
       { type: 'text-delta', id: 'text-2', delta: 'done' },
     ]);
   });

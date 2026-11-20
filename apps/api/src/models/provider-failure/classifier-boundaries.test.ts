@@ -611,6 +611,27 @@ describe('provider classifier input boundaries', () => {
     },
   );
 
+  it('requires a positive superseded retry while accepting zero delay', () => {
+    const noRetry = new ProviderFailure('Provider request failed', {
+      code: 'overloaded',
+      superseded: { retry: 0, delayMs: 0 },
+    });
+
+    const immediateRetry = new ProviderFailure('Provider request failed', {
+      code: 'overloaded',
+      superseded: { retry: 1, delayMs: 0 },
+    });
+
+    const negativeDelay = new ProviderFailure('Provider request failed', {
+      code: 'overloaded',
+      superseded: { retry: 1, delayMs: -1 },
+    });
+
+    expect(noRetry.superseded).toBeUndefined();
+    expect(immediateRetry.superseded).toEqual({ retry: 1, delayMs: 0 });
+    expect(negativeDelay.superseded).toBeUndefined();
+  });
+
   it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     'omits a non-finite HTTP status %s from a safe failure',
     (statusCode) => {

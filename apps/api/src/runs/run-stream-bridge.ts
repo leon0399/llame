@@ -1,3 +1,4 @@
+import { supersededWindow } from './superseded-output';
 import { keptPartEvents } from './kept-parts-events';
 import { toolTerminationMessage } from './tool-settlement';
 /**
@@ -84,6 +85,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   // these: `tool-input-available` renders as "running", so finishing without
   // closing them leaves the UI spinning on a call that will never complete.
   private readonly openToolCallIds = new Set<string>();
+  private readonly unsettledPartSequences = new Map<string, number>();
 
   constructor(private readonly messageId: string) {}
 
@@ -124,6 +126,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return [chunk];
   }
 
+  private closeModelParts(): Array<UiChunk> {
+    return this.openTextId === null ? this.closeReasoning() : this.closeText();
+  }
+
   private settleOpenTools(reason: string): Array<UiChunk> {
     const chunks: Array<UiChunk> = [];
 
@@ -144,6 +150,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
   translate(event: RunEventLike): Array<UiChunk> {
     switch (event.eventType) {
+      case 'model.superseded':
+        return this.onModelSuperseded(event);
       case 'model.delta':
         return this.onModelDelta(event);
       case 'reasoning.delta':
@@ -204,8 +212,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       { type: 'data-model-retrying', data: { code, retry, delayMs } },
     ];
   }
@@ -242,6 +249,11 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     if (this.openTextId === null) {
       this.textPartCount += 1;
       this.openTextId = `text-${this.textPartCount}`;
+
+      if (Number.isInteger(event.sequence) && event.sequence! > 0) {
+        this.unsettledPartSequences.set(this.openTextId, event.sequence!);
+      }
+
       chunks.push({ type: 'text-start', id: this.openTextId });
     }
 
@@ -281,6 +293,11 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       openReasoningId = `reasoning-${this.reasoningPartCount}`;
       this.openReasoningId = openReasoningId;
       this.openReasoningPartId = partId;
+
+      if (Number.isInteger(event.sequence) && event.sequence! > 0) {
+        this.unsettledPartSequences.set(openReasoningId, event.sequence!);
+      }
+
       chunks.push({ type: 'reasoning-start', id: openReasoningId });
     } else if (partId !== undefined) {
       // A defined id becomes the open part's id; an absent one adds nothing.
@@ -296,11 +313,30 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return chunks;
   }
 
+  private onModelSuperseded(event: RunEventLike): Array<UiChunk> {
+    const window = supersededWindow(event);
+
+    if (window === undefined) return [];
+    const partIds: Array<string> = [];
+
+    for (const [partId, openedAt] of this.unsettledPartSequences) {
+      if (openedAt >= window.from && openedAt < window.to) {
+        partIds.push(partId);
+        this.unsettledPartSequences.delete(partId);
+      }
+    }
+
+    const chunks = [...this.prelude(), ...this.closeModelParts()];
+
+    if (partIds.length)
+      chunks.push({ type: 'data-superseded', data: { partIds } });
+
+    return chunks;
+  }
+
   private onModelCompleted(event: RunEventLike): Array<UiChunk> {
-    // Surface the per-turn telemetry (tokens + cost + latency + model) as
-    // message metadata so the UI can show it live and on resume — useChat
-    // lands `messageMetadata` on `message.metadata`. Not terminal — the
-    // stream still finishes on the following run.completed/cancelled.
+    this.unsettledPartSequences.clear();
+    // Surface per-turn usage as message metadata after closing the open part.
     const telemetry = payloadField(event.payload, 'telemetry');
 
     if (telemetry === undefined) {
@@ -310,11 +346,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     // Close whichever part (text or reasoning) is open first so metadata
     // lands after the answer; run.completed's own close becomes a no-op.
-    const chunks = [
-      ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
-    ];
+    const chunks = [...this.prelude(), ...this.closeModelParts()];
 
     chunks.push({
       type: 'message-metadata',
@@ -344,8 +376,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     // distinct part, so neither should stay open across it.
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       {
         type: 'tool-input-available',
         toolCallId,
@@ -380,6 +411,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       isRecord(event.payload) && event.payload['interrupted'] === true;
 
     if (status !== 'error') {
+      this.unsettledPartSequences.clear();
+
       return [
         ...this.prelude(),
         { type: 'tool-output-available', toolCallId, output, dynamic: true },
@@ -415,12 +448,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   private onCompactionNote(
     type: 'data-compaction-failed' | 'data-compaction-disabled',
   ): Array<UiChunk> {
-    return [
-      ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
-      { type, data: {} },
-    ];
+    return [...this.prelude(), ...this.closeModelParts(), { type, data: {} }];
   }
 
   private onStepCapReached(event: RunEventLike): Array<UiChunk> {
@@ -435,8 +463,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     // notice is a structurally distinct part.
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       {
         type: 'data-cap-notice',
         data: { stepsUsed, maxSteps },
@@ -449,8 +476,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       ...this.settleOpenTools(
         toolTerminationMessage(
           event.eventType === 'run.cancelled' ? 'cancelled' : 'failed',
@@ -479,8 +505,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     return [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       { type: 'data-run-delivered', data: { messageId } },
       { type: 'finish', finishReason: 'stop' },
     ];
@@ -492,8 +517,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
 
     const chunks = [
       ...this.prelude(),
-      ...this.closeReasoning(),
-      ...this.closeText(),
+      ...this.closeModelParts(),
       ...this.settleOpenTools(
         toolTerminationMessage(
           event.eventType === 'run.expired' ? 'expired' : 'failed',

@@ -18,6 +18,7 @@ export type UiChunk =
   | { type: 'reasoning-start'; id: string }
   | { type: 'reasoning-delta'; id: string; delta: string }
   | { type: 'reasoning-end'; id: string }
+  | { type: 'data-superseded'; data: { partIds: Array<string> } }
   | { type: 'message-metadata'; messageMetadata: unknown }
   | {
       type: 'tool-input-available';
@@ -57,6 +58,7 @@ export type UiChunk =
 export interface RunEventLike {
   eventType: string;
   payload: unknown;
+  sequence?: number;
 }
 
 /** Raw field off an unknown object payload — the one null-guard every reader shares. */

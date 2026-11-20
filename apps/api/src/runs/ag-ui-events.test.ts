@@ -64,6 +64,61 @@ describe('createAgUiEncoder', () => {
     ]);
   });
 
+  it('supersedes the actual AG-UI message ids after closing a broken send', () => {
+    const translator = createRunEventTranslator(RUN_ID);
+
+    const events = encodeAll([
+      ...translator.translate({
+        eventType: 'model.delta',
+        sequence: 1,
+        payload: { text: 'kept' },
+      }),
+      ...translator.translate({
+        eventType: 'reasoning.delta',
+        sequence: 2,
+        payload: { text: 'discarded thought' },
+      }),
+      ...translator.translate({
+        eventType: 'model.delta',
+        sequence: 3,
+        payload: { text: 'partial answer' },
+      }),
+      ...translator.translate({
+        eventType: 'model.superseded',
+        sequence: 4,
+        payload: { fromSequence: 2, step: 0 },
+      }),
+      ...translator.translate({
+        eventType: 'model.delta',
+        sequence: 5,
+        payload: { text: 'replacement' },
+      }),
+    ]);
+
+    for (const event of events)
+      expect(EventSchemas.safeParse(event).success).toBe(true);
+
+    const superseded = events.findIndex(
+      (event) =>
+        event.type === EventType.CUSTOM &&
+        event.name === 'llame.model-superseded',
+    );
+
+    expect(events.slice(superseded - 1, superseded + 2)).toEqual([
+      { type: EventType.TEXT_MESSAGE_END, messageId: 'run-1:text-2' },
+      {
+        type: EventType.CUSTOM,
+        name: 'llame.model-superseded',
+        value: { messageIds: ['run-1:reasoning-1', 'run-1:text-2'] },
+      },
+      {
+        type: EventType.TEXT_MESSAGE_START,
+        messageId: 'run-1:text-3',
+        role: 'assistant',
+      },
+    ]);
+  });
+
   it('names the Chat as the thread and the Run as the run on both lifecycle events', () => {
     expect(
       encodeAll([

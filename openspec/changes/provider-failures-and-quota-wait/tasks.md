@@ -161,24 +161,32 @@ pass. GR remains non-gating for the next layer.
 
 ## 4. broken-streams
 
-- [ ] 4.1 Spike: prove the step restart of design D4 against the scripted model client. Compare the
+- [x] 4.1 Spike: prove the step restart of design D4 against the scripted model client. Compare the
       step counters, the stored snapshot, and the in-Run item positions after a restart with a run that
       never broke, for a break at step 0 and at a step k of 1 or more. Check that the reply after a
       first-step mid-text break holds no broken text. Stop and revise the design if they differ.
-- [ ] 4.2 Add the `fromSequence` anchor, the `onFinish` settlement gate, and the restart. Verify "A
+- [x] 4.2 Add the `fromSequence` anchor, the `onFinish` settlement gate, and the restart. Verify "A
       stream breaks inside a thinking block", "A stream breaks mid-text", "Restarts share one retry
       budget", and the `durable-runs` scenario "A stall after content is retried".
-- [ ] 4.3 Skip superseded parts in the finalizer and the rebuild. Verify the `durable-runs`
+- [x] 4.3 Skip superseded parts in the finalizer and the rebuild. Verify the `durable-runs`
       scenarios "A superseded send leaves the reply" and "A superseded send keeps its reasoning in the
       log only", and the projection scenarios.
-- [ ] 4.4 Mark usage incomplete after a superseded send. Verify the `run-usage-accounting` scenario
+- [x] 4.4 Mark usage incomplete after a superseded send. Verify the `run-usage-accounting` scenario
       "A superseded send makes usage incomplete".
-- [ ] 4.5 Emit `data-superseded` from `run-stream-bridge.ts` and drop those parts in the web
+- [x] 4.5 Emit `data-superseded` from `run-stream-bridge.ts` and drop those parts in the web
       `onData` handler (design D4). Verify "The live view drops a superseded send" on the live path and
       on reload replay.
-- [ ] 4.6 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.
-- [ ] 4.7 Focused checks as in 3.9.
+- [x] 4.6 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.
+- [x] 4.7 Focused checks as in 3.9.
 - [ ] 4.8 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+
+Local evidence: 228 recovery, reconstruction, finalization, and stream-bridge cases passed.
+Six focused execution cases exercise real scripted clients, clean-versus-restarted step state,
+answer-only sends, failed event anchors, and cancellation or interruption during retry delay.
+Both live and replay supersession stories passed Storybook MCP tests. API and web lint and
+typechecks passed. Reuse, quality, efficiency, ponytail, and security reviewers informed SR.
+The web derives the filtered view on every SDK message update: changing `onData` state alone
+does not update the SDK's separate active response. GR remains non-gating for the next layer.
 
 ## 5. quota-wait
 

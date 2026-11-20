@@ -67,6 +67,18 @@ async function collect(model: LanguageModelV3, signal?: AbortSignal) {
   }
 }
 
+function providerFailureFrom(
+  parts: Array<LanguageModelV3StreamPart>,
+): ProviderFailure {
+  const last = parts.at(-1);
+  const error: unknown = last?.type === 'error' ? last.error : undefined;
+
+  if (!(error instanceof ProviderFailure))
+    throw new Error('Expected a typed provider failure.');
+
+  return error;
+}
+
 function controlledModel() {
   const controllers: Array<
     ReadableStreamDefaultController<LanguageModelV3StreamPart>
@@ -608,11 +620,141 @@ describe('withRequestRecovery', () => {
     expect(text(liveParts)).toBe('Partial answer.');
     expect(liveParts.at(-1)).toMatchObject({
       type: 'error',
-      error: { code: 'stream_broken' },
+      error: {
+        code: 'stream_broken',
+        superseded: { retry: 1, delayMs: 0 },
+      },
     });
     expect(live.sends()).toBe(1);
     expect(text(summaryParts)).toBe('Recovered answer.');
     expect(summary.sends()).toBe(2);
+  });
+  it('retains safe failure metadata on a live break without retaining its raw cause', async () => {
+    const rawCause = new Error('private provider response body');
+    const resetsAt = Date.now();
+
+    const original = new ProviderFailure('Provider rate limit', {
+      code: 'rate_limited',
+      resetsAt,
+      hintMs: 30_000,
+      statusCode: 429,
+    });
+
+    Object.defineProperty(original, 'cause', { value: rawCause });
+
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'partial' },
+        { type: 'text-delta', id: 'partial', delta: 'Partial answer.' },
+        { type: 'error', error: original },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    const failure = providerFailureFrom(parts);
+
+    expect(text(parts)).toBe('Partial answer.');
+    expect(failure).not.toBe(original);
+    expect(failure).toMatchObject({
+      code: 'rate_limited',
+      resetsAt,
+      hintMs: 30_000,
+      statusCode: 429,
+      superseded: { retry: 1, delayMs: 30_000 },
+    });
+    expect(failure.cause).toBeUndefined();
+    expect(JSON.stringify(failure)).not.toContain(
+      'private provider response body',
+    );
+    expect(fixture.sends()).toBe(1);
+  });
+  it('preserves zero-valued safe metadata on a superseded live failure', async () => {
+    const original = new ProviderFailure('Provider limit', {
+      code: 'rate_limited',
+      resetsAt: 0,
+      hintMs: 0,
+      statusCode: 429,
+    });
+
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'partial' },
+        { type: 'text-delta', id: 'partial', delta: 'Visible prefix.' },
+        { type: 'error', error: original },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    const failure = providerFailureFrom(parts);
+
+    expect(text(parts)).toBe('Visible prefix.');
+    expect(parts.at(-1)).toMatchObject({ type: 'error', error: failure });
+    expect(failure).toMatchObject({
+      code: 'rate_limited',
+      resetsAt: 0,
+      hintMs: 0,
+      statusCode: 429,
+      superseded: { retry: 1, delayMs: 0 },
+    });
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('discards buffered content when a whole send fails after producing it', async () => {
+    const failure = new ProviderFailure('Quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: 1_900_000_000_000,
+      hintMs: 60_000,
+      statusCode: 429,
+    });
+
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'summary' },
+        { type: 'text-delta', id: 'summary', delta: 'Must not escape.' },
+        { type: 'error', error: failure },
+      ],
+      complete,
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, bufferWholeSend: true },
+        immediate,
+      ),
+    );
+
+    expect(parts).toEqual([{ type: 'error', error: failure }]);
+    expect(text(parts)).toBe('');
+    expect(providerFailureFrom(parts)).toMatchObject({
+      code: 'quota_exhausted',
+      resetsAt: 1_900_000_000_000,
+      hintMs: 60_000,
+      statusCode: 429,
+    });
+    expect(providerFailureFrom(parts).superseded).toBeUndefined();
+    expect(fixture.sends()).toBe(1);
+  });
+  it('does not label an empty exhausted send as superseding visible content', async () => {
+    const fixture = scriptedModel(
+      Array.from({ length: 11 }, () => [
+        { type: 'error', error: overloaded() },
+      ]),
+    );
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    expect(parts).toHaveLength(1);
+    expect(providerFailureFrom(parts).superseded).toBeUndefined();
+    expect(fixture.sends()).toBe(11);
   });
 
   it('retries a buffered whole-send provider error without exposing its prefix', async () => {
@@ -669,6 +811,160 @@ describe('withRequestRecovery', () => {
       { type: 'error', error: { code: 'overloaded' } },
     ]);
     expect(fixture.sends()).toBe(1);
+  });
+
+  it('supersedes partial reasoning without invoking the retry owner', async () => {
+    const fixture = scriptedModel([
+      [
+        { type: 'reasoning-start', id: 'thought' },
+        { type: 'reasoning-delta', id: 'thought', delta: 'partial thought' },
+        {
+          type: 'error',
+          error: new ProviderFailure('Provider overload', {
+            code: 'overloaded',
+            statusCode: 503,
+            hintMs: 0,
+          }),
+        },
+      ],
+      complete,
+    ]);
+
+    const retries: Array<number> = [];
+    const delays: Array<number> = [];
+
+    const parts = await collect(
+      withRequestRecovery(
+        fixture.model,
+        {
+          ...options,
+          onRetry: ({ retry }) => {
+            retries.push(retry);
+          },
+        },
+        {
+          ...immediate,
+          delay: (milliseconds) => {
+            delays.push(milliseconds);
+
+            return Promise.resolve();
+          },
+        },
+      ),
+    );
+
+    expect(parts).toContainEqual(
+      expect.objectContaining({
+        type: 'reasoning-delta',
+        delta: 'partial thought',
+      }),
+    );
+    expect(parts.at(-1)).toMatchObject({
+      type: 'error',
+      error: {
+        code: 'overloaded',
+        statusCode: 503,
+        hintMs: 0,
+        superseded: { retry: 1, delayMs: 0 },
+      },
+    });
+    expect(retries).toEqual([]);
+    expect(delays).toEqual([]);
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('does not supersede a live stream after a complete tool call', async () => {
+    const fixture = scriptedModel([
+      [
+        {
+          type: 'tool-call',
+          toolCallId: 'call-1',
+          toolName: 'search',
+          input: '{}',
+        },
+        { type: 'error', error: overloaded() },
+      ],
+      complete,
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    expect(parts).toMatchObject([
+      { type: 'tool-call', toolCallId: 'call-1' },
+      { type: 'error', error: { code: 'overloaded' } },
+    ]);
+    expect(providerFailureFrom(parts).superseded).toBeUndefined();
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('carries the send budget across hidden failures and a live restart', async () => {
+    const liveFailure: Array<LanguageModelV3StreamPart> = [
+      { type: 'text-start', id: 'partial' },
+      { type: 'text-delta', id: 'partial', delta: 'partial' },
+      { type: 'error', error: overloaded() },
+    ];
+
+    const fixture = scriptedModel([overloaded(), liveFailure, liveFailure]);
+
+    const initial = await collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, requestRetriesUsed: 8 },
+        immediate,
+      ),
+    );
+
+    expect(initial.at(-1)).toMatchObject({
+      type: 'error',
+      error: { superseded: { retry: 10, delayMs: 0 } },
+    });
+
+    const restarted = await collect(
+      withRequestRecovery(
+        fixture.model,
+        { ...options, requestRetriesUsed: 10 },
+        immediate,
+      ),
+    );
+
+    expect(restarted.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'overloaded' },
+    });
+    expect(providerFailureFrom(restarted).superseded).toBeUndefined();
+    expect(fixture.sends()).toBe(3);
+  });
+
+  it('resets the carried budget after the first wrapped SDK step', async () => {
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'first' },
+        { type: 'text-delta', id: 'first', delta: 'first' },
+        { type: 'error', error: overloaded() },
+      ],
+      [
+        { type: 'text-start', id: 'second' },
+        { type: 'text-delta', id: 'second', delta: 'second' },
+        { type: 'error', error: overloaded() },
+      ],
+    ]);
+
+    const model = withRequestRecovery(
+      fixture.model,
+      { ...options, requestRetriesUsed: 10 },
+      immediate,
+    );
+
+    const firstStep = await collect(model);
+    const secondStep = await collect(model);
+
+    expect(providerFailureFrom(firstStep).superseded).toBeUndefined();
+    expect(secondStep.at(-1)).toMatchObject({
+      error: { superseded: { retry: 1, delayMs: 0 } },
+    });
+    expect(fixture.sends()).toBe(2);
   });
 
   it('preserves caller cancellation during an uncooperative header wait', async () => {

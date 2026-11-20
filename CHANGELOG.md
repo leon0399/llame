@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-19
 
+- Recheck active Run ownership and durable cancellation after a broken-send
+  retry delay before dispatching its replacement. An owner interrupt during
+  that delay closes the reply as aborted and delivers the pending message
+  without cancelling the Run.
+
+- Strengthen broken-stream recovery regressions for lost text, supersession,
+  and retry-event writes. Each case now reaches its intended durable fence
+  and verifies failure without another provider send or a published reply.
+
+- Carry model retry and broken-send supersession notices through AG-UI.
+  Supersession addresses the stream's text and reasoning message ids, so
+  live and reconnected replies remove discarded output while preserving
+  earlier content, tool results, and usage metadata.
+
 - Bound structured model sends with the same first-token deadline and retry
   allowance as streaming sends. Retry events take the active Run's row lock
   before the Chat lock, so a terminal commit cannot be followed by a retry
@@ -45,6 +59,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   shares. SDK refusal diagnostics retain their original text and can quote the
   original model arguments. Reasoning rows use a complete standalone bold heading
   outside code fences when present and retain accessible lifecycle state.
+- Restart a step after a transient provider stream failure before a complete
+  tool call, sharing the same bounded retry allowance as failures before content.
+  Superseded text and unsigned reasoning leave the live view, Reply, and model
+  input while remaining in the event log. Earlier completed steps and committed
+  context stay in order; usage remains an incomplete lower bound.
+  A forced-answer restart keeps one step-cap notice and never repeats the completed tool.
+
 - Retry eligible model requests with bounded same-model sends instead of the
   SDK's hidden retries. The initial send can be followed by up to 10 retries
   with full jitter and provider delay/reset hints up to 60 seconds. Completed

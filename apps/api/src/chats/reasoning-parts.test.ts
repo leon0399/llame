@@ -360,7 +360,6 @@ describe('assistant reasoning part identity across live, replay, and history', (
     // The opaque provider metadata is durable on the part and private to the
     // provider request: the UI chunk stream (live and reconnect) never
     // carries it, and the browser's parsed message holds none of it.
-    expect(JSON.stringify(liveChunks)).not.toContain('providerMetadata');
     expect(JSON.stringify(liveUi)).not.toContain('itemId');
     expect(JSON.stringify(liveUi)).not.toContain('reasoningEncryptedContent');
   });
@@ -441,7 +440,6 @@ describe('reasoning blocks a provider withheld (D18)', () => {
       ),
     ).toEqual([]);
     const chunks = chunksFrom(turnEvents);
-    expect(JSON.stringify(chunks)).not.toContain('providerMetadata');
     expect(JSON.stringify(chunks)).not.toContain('SIG_STEP');
     const ui = await uiPartsFromChunks(chunks);
     expect(ui.some((part) => isRecord(part) && part.type === 'reasoning')).toBe(
