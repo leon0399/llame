@@ -303,7 +303,8 @@ message, as a segment of any Run does.
 ### Requirement: A delivery does not restart the time limits of the Run
 
 The wall-clock budget `runs.timeoutSeconds` and the execution ceiling MUST count from the claim of
-the Run by its worker. A delivery MUST NOT restart either of them.
+the Run by its worker. The budget MUST exclude the time in `awaiting_quota`, as `quota-wait`
+defines. A delivery MUST NOT restart either of them.
 
 #### Scenario: A long steered Run reaches its budget
 
@@ -723,9 +724,10 @@ MUST withdraw the item and put its text and attachments into the composer.
 
 ### Requirement: Stop interrupts when steers are pending
 
-The Stop control and the Esc key MUST interrupt the Run when one or more `steer` message items are
-pending. A pending command item MUST NOT make them interrupt.
-Otherwise they MUST request cancellation of the Run. A draft in the composer MUST NOT change.
+For a Run that is not in `awaiting_quota`, the Stop control and the Esc key MUST interrupt it when
+`steer` message items are pending. A pending command item MUST NOT make them interrupt. In every
+other case, they MUST request cancellation of the Run. A draft in the composer MUST NOT
+change.
 
 #### Scenario: Esc twice stops everything
 
@@ -737,6 +739,11 @@ Otherwise they MUST request cancellation of the Run. A draft in the composer MUS
 
 - **WHEN** only a `/compact` steer item is pending, and the owner presses Stop
 - **THEN** the Run is cancelled, and the `/compact` item stays pending and paused
+
+#### Scenario: Stop during a quota wait with a pending steer
+
+- **WHEN** a steer is pending, the Run is in `awaiting_quota`, and the owner presses Stop
+- **THEN** the Run is cancelled, and the steer stays pending and paused
 
 ### Requirement: The transcript shows delivered messages and interrupts
 

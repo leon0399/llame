@@ -1291,7 +1291,7 @@ or `workerId` precondition. Before terminal settlement, the host MUST settle eac
 has a durable `native.result` from that result, whatever the tool source. Recovery MUST first
 arbitrate with any pending host promotion under their shared durable fence. It uses a committed
 promotion's result, or records `outcome_unknown` if recovery wins before promotion. An open
-`bash`, native mutation, or MCP call with a recorded `native.attempt` and no competing promotion
+`bash`, native mutation, or MCP call with a recorded `native.attempt` and no other promotion
 or result MUST settle as `outcome_unknown`. Every other open call settles as the termination
 settlement rules require.
 
@@ -1300,8 +1300,9 @@ state of a terminal Run into a new Run. That Continue Run MUST replay the settle
 MUST NOT execute a settled call again. A future durable effect-dedupe capability can replace
 this terminal behavior, and this capability does not define it.
 
-A wake of a Run from `awaiting_jobs` is not a retry. The first attempt after a wake MUST
-continue from the stored steps of the current reply, as the requirement for a woken Run defines.
+A wake of a Run from `awaiting_jobs` or `awaiting_quota` is not a retry. The first attempt after a
+wake MUST continue from the stored steps of the current reply. The requirement for a woken Run, or
+`quota-wait`, defines this.
 A redelivered queue job of a woken Run is a retry, and it MUST follow the rules of this
 requirement.
 
@@ -1367,6 +1368,12 @@ requirement.
 
 - **WHEN** the queue retries the job of a woken Run whose current segment has no `native.attempt`
 - **THEN** the tool loop executes again from the first step of that segment
+
+#### Scenario: A quota wake does not restart the segment
+
+- **WHEN** a segment records a `bash` attempt, a later step request enters `awaiting_quota`, and the deadline job wakes the Run
+- **THEN** the woken attempt continues from the stored steps, and the `bash` command does not execute again
+- **AND** the Run does not fail as `outcome_unknown`
 
 ### Requirement: A tool can yield to a steer
 

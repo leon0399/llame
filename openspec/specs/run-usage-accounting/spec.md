@@ -140,6 +140,8 @@ Every finalizer of the reply MUST replace the `running` usage with a terminal st
 or more of these conditions are true, and `true` otherwise:
 
 - a model request of the attempt completed without an input or an output token count;
+- a `model.superseded` event of `provider-failures` names a send of the attempt;
+- a send of the attempt failed and its usage is unknown, also before its first content part;
 - the attempt ended failed, cancelled, or expired, with or without a model request in flight;
 - the recorded terminal status of the Run is not `completed` when the usage is written, and no
   steer delivery of `run-steering` closed the reply;
@@ -173,7 +175,7 @@ mark usage incomplete.
 
 - **WHEN** a later assistant turn replaces an earlier, non-completed reply to the same user message
 - **AND** that reply had recorded usage
-- **THEN** the replacing usage records `complete: false`
+- **THEN** the new usage records `complete: false`
 
 #### Scenario: A request omitted its counts
 
@@ -223,6 +225,18 @@ mark usage incomplete.
 - **WHEN** every request of the first segment reported counts, and a steer delivery closes its reply while the Run is not terminal
 - **THEN** the usage of that reply records `complete: true`
 - **AND** the attempt of the second segment does not mark it incomplete
+
+#### Scenario: A superseded send makes usage incomplete
+
+- **WHEN** a send streams text and breaks, and its request retry and every other request of the attempt report counts
+- **THEN** the persisted usage sums the reported counts
+- **AND** records `complete: false`
+
+#### Scenario: A hidden failed send makes usage incomplete
+
+- **WHEN** a send fails before content, and its request retry and all other requests report counts
+- **THEN** the persisted usage sums the reported counts
+- **AND** records `complete: false`
 
 ### Requirement: Reasoning tokens are known only when every request reported them
 

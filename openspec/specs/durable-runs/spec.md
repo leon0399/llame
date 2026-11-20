@@ -184,16 +184,20 @@ the mechanisms below. These mechanisms cover the failure modes:
   the execution ceiling, not a configured budget. The ceiling MUST come before the declared job
   duration of the `runs` queue (per `job-queue`). Thus the queue never fails a live Run because of
   its age, and never executes it again from its start. A delivery of `run-steering` starts a new
-  attempt but does not restart the budget or the ceiling. A Run that leaves `awaiting_jobs` is
-  claimed again, and the ceiling counts from that claim. The budget counts from the first claim
-  of the Run, so the time in `awaiting_jobs` counts for it. A Run that passed its budget while
-  it waited MUST expire when it wakes.
-- **Model stream idle watchdog**: the worker reads the streamed response of a model. A request can
-  give no streamed part for 300 seconds after it is sent, or for 300 seconds after its previous
-  part. The worker MUST then abort it and record the Run as terminally failed. The error code
-  `model_stream_idle` MUST be on the error of the Run and in its `run.failed` event. The watchdog
-  MUST measure only the time that the worker waits on the response of the model. The time of tool
-  execution MUST never count. The watchdog MUST NOT send the request again.
+  attempt but does not restart the budget or the ceiling. A Run that leaves `awaiting_jobs` or
+  `awaiting_quota` is claimed again, and the ceiling counts from that claim. The budget counts
+  from the first claim of the Run, and the time in `awaiting_jobs` counts for it. The time in
+  `awaiting_quota` MUST NOT count for it, as `quota-wait` defines. A Run that passed its budget
+  while it waited MUST expire when it wakes.
+- **Model stream watchdog**: the worker reads the streamed response of a model. The first window
+  of a request ends at its first content part, as `provider-failures` defines. When that window
+  expires, the worker MUST abort the request as `first_token_timeout`. After the first content
+  part, a request can give no streamed part for 300 seconds. The worker MUST then abort it as
+  `stream_broken`. The watchdog MUST measure only the time that the worker waits on the response
+  of the model. The time of tool execution MUST never count. The request retries of
+  `provider-failures` then apply. When they end without success, the failure rule of the caller applies. A failed step request
+  MUST make the worker record the Run as terminally failed. The failure class MUST then be the
+  error code of the Run and of its `run.failed` event.
 - **Worker-death recovery**: the worker of the Run can die or hang and stop its liveness signal.
   The `job-queue` substrate MUST then detect the job of the Run as stalled (see its native
   worker-liveness requirement) and retry it. Thus a healthy worker executes the Run again, and the
@@ -205,13 +209,14 @@ the mechanisms below. These mechanisms cover the failure modes:
 
 An expiry MUST first arbitrate any unresolved host bash promotion under the durable result fence
 of `bash-execution`. The Run cannot become terminal until that outcome is recorded. A database
-outage can delay terminal settlement beyond the budget or execution ceiling; a queue redelivery
+outage can delay terminal settlement beyond the budget or execution ceiling. A queue redelivery
 MUST use the same fence and MUST NOT execute the command again.
 
 There MUST be no application-level liveness poll and no "deadman" job per Run. The native queue
 heartbeat drives the detection of a dead worker. The deadline job of an open `wait` is one
 delayed job for each `wait`, and it is not a deadman job for the Run. It ends that `wait` at its
-timeout.
+timeout. The deadline job of a quota wait is one delayed job for each quota wait, and it
+is not a deadman job either.
 
 #### Scenario: A progressing run has no default time limit
 
@@ -234,14 +239,20 @@ timeout.
 
 #### Scenario: A stalled model stream fails the run
 
-- **WHEN** a model request gives no streamed part for 300 seconds, before its first part or between two parts
-- **THEN** the worker aborts the request and records the Run as terminally failed with error code `model_stream_idle`
-- **AND** the parts observed before the stall stay in the record of the Run, and the request is not sent again
+- **WHEN** a model request gives no content part in its first window, and each of its 10 request retries does the same
+- **THEN** the worker records the Run as terminally failed with error code `first_token_timeout`
+- **AND** the request is not sent a twelfth time
+
+#### Scenario: A stall after content is retried
+
+- **WHEN** a model request streams text and then gives no part for 300 seconds, before any tool call
+- **THEN** the worker aborts the request as `stream_broken` and sends the same request again
+- **AND** the Reply does not keep the text of the stalled request
 
 #### Scenario: A long tool call does not trip the stream watchdog
 
 - **WHEN** a tool call executes for longer than 300 seconds between two model requests
-- **THEN** the stream watchdog does not fire, and the next model request starts with a new 300-second window
+- **THEN** the stream watchdog does not fire, and the next model request starts with a new first window
 
 #### Scenario: A dead worker's run is recovered, not orphaned
 
@@ -268,8 +279,13 @@ timeout.
 
 #### Scenario: A Run passes its budget while it waits
 
-- **WHEN** `runs.timeoutSeconds` is 1,800, and a Run wakes 2,400 seconds after it started
+- **WHEN** `runs.timeoutSeconds` is 1,800, and a Run wakes from `awaiting_jobs` 2,400 seconds after it started
 - **THEN** the claim records a terminal `run.expired`, and no model request is sent
+
+#### Scenario: A quota wait does not use the budget
+
+- **WHEN** `runs.timeoutSeconds` is 1,800, and a Run wakes from `awaiting_quota` 2 days after it started, after 600 seconds of execution
+- **THEN** the claim does not expire the Run, and the Run sends its request again
 
 ### Requirement: Enqueue is fail-fast and self-healing
 
@@ -353,7 +369,8 @@ On shutdown, a worker SHALL stop claiming new jobs and finish (drain) in-flight 
 
 The final assistant message of a Run MUST be an ordered projection of the reasoning, text, and tool
 activity that the durable run-event log holds. It MUST NOT put all reasoning before the tools or
-all text after the tools. A partial message persisted after a model error MUST keep the same order
+all text after the tools. It MUST NOT hold a part of a send that a `model.superseded`
+event of `provider-failures` names. A partial message persisted after a model error MUST keep the same order
 for each part observed before the failure.
 
 The assistant message of a Run MUST exist from the first model request of the Run. The dispatch
@@ -380,7 +397,8 @@ native-recovery settlement, and the claim-time terminal transitions. Cancellatio
 pickup failure, and expiry by a new message are also such settlers. A later attempt that fails, is cancelled, or expires before
 its own dispatch is also such a settler. Such a settler MUST rebuild the reasoning, text, and tool
 parts only from the events of the attempt that the usage of the message names. That window starts
-at the `model.requested` of that attempt and ends at the `run.started` of the next attempt. Thus a
+at the `model.requested` of that attempt and ends at the `run.started` of the next attempt. The rebuild MUST skip the
+parts of each send that a `model.superseded` event names. Thus a
 settler that never dispatched finalizes the message of the attempt that did. For a Continue Run
 from `turn-actions`, the rebuild MUST start with the kept parts of its `run.continued` event, then
 add the parts of the window. Such a rebuild MUST place each stored in-Run item of the Run itself
@@ -428,13 +446,16 @@ The prospective cutover boundary in `context-injection` MUST govern these public
 system MUST NOT filter or rebuild the current conversation state retrospectively.
 
 Operational and UI replay MUST keep the observed part order of a failed attempt, and that persisted
-record MUST become model history. A failed, cancelled, expired, or superseded attempt keeps the
+record MUST become model history. A failed, cancelled, expired, or replaced attempt keeps the
 partial assistant turn that the user saw. It also keeps the rail context items that its dispatched
 requests carried. These enter later model context, model-facing recall, and compaction like any
-other committed turn. Their reasoning parts and provider metadata follow the model rule of `reasoning-output`. A later attempt of the same Run MUST instead reset that assistant message to
-`running` for itself, in the transaction that dispatches its first request. That reset removes the
-output and the in-Run items of the earlier attempt together. Its preparation MUST read history only
-through the triggering user message, so its own assistant message never enters its request. A
+other committed turn. Their reasoning parts and provider metadata follow the model rule of `reasoning-output`.
+A later attempt of the same Run MUST instead reset that assistant message to `running` for itself
+when it dispatches its first request. This rule excludes the first attempt after a wake from
+`awaiting_jobs` or `awaiting_quota`. That attempt MUST keep the stored parts and in-Run items.
+For other attempts, the reset removes the output and in-Run items of the earlier attempt together.
+Their preparation MUST read history only through the triggering user message.
+Thus their own assistant message never enters their request. A
 later attempt can fail, be cancelled, or settle before its own dispatch. It MUST then leave the
 message, output, and items of the earlier attempt unchanged. The finalizer then uses the attempt
 that the usage names. A follow-up Run from `turn-actions` replaces the record in the same way: its
@@ -552,24 +573,40 @@ same Run MUST use the published checkpoint again and MUST NOT pay for a second s
 - **WHEN** the worker dies in the second segment after one tool step, and a settler without the collector finalizes the Run
 - **THEN** the reply of the second segment holds only the parts of the events after the latest `run.delivered`
 
+#### Scenario: A superseded send leaves the reply
+
+- **WHEN** a request streams text, breaks, and its request retry streams a full reply
+- **THEN** the final assistant message holds only the parts of the request retry
+- **AND** a rebuild from the event log of that attempt gives the same parts
+
 ### Requirement: Received reasoning is durable before browser delivery
 
-Each normalized reasoning delta received by llame SHALL be durably recorded before it is forwarded to a browser stream. The run transcript SHALL retain deltas received before either a worker failure or an upstream provider failure, and SHALL project them on both successful and failed terminal runs.
+Each normalized reasoning delta that llame receives for live delivery MUST be durably recorded
+before llame forwards it to a browser stream. The event log of the Run MUST keep those deltas before a worker
+failure or an upstream provider failure. The transcript MUST project them on successful and failed
+terminal Runs. It MUST NOT project the deltas of a send that a `model.superseded` event of
+`provider-failures` names.
 
 #### Scenario: Successful run retains streamed reasoning
 
-- **WHEN** llame receives reasoning deltas and the run subsequently succeeds
+- **WHEN** llame receives reasoning deltas for live delivery and the run subsequently succeeds
 - **THEN** the final assistant message contains the received reasoning in durable event order
 
 #### Scenario: Provider failure retains received reasoning
 
-- **WHEN** llame receives reasoning deltas and the upstream provider subsequently fails
+- **WHEN** llame receives reasoning deltas for live delivery and the upstream provider subsequently fails
 - **THEN** the terminal failed run retains every reasoning delta durably recorded before that failure
 
 #### Scenario: Worker failure never contradicts prior browser output
 
 - **WHEN** llame has forwarded a reasoning delta to the browser and the worker subsequently fails
 - **THEN** reconnect replay includes that delta
+
+#### Scenario: A superseded send keeps its reasoning in the log only
+
+- **WHEN** a send streams reasoning deltas for live delivery, breaks, and its request retry completes the Run
+- **THEN** the event log holds the reasoning deltas of the broken send
+- **AND** the final assistant message holds only the reasoning of the request retry
 
 ### Requirement: A Run that waits holds no worker
 
